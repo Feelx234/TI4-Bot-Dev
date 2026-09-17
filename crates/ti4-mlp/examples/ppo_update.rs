@@ -163,6 +163,7 @@ const VALUE_FLAGS: &[&str] = &[
 /// Every flag that stands alone.
 const BOOLEAN_FLAGS: &[&str] = &[
     "--no-checkpoint",
+    "--check-likelihood",
     "--diag-sync",
     "--hash-games",
     "--diplomacy",
@@ -427,12 +428,12 @@ fn reference_drift(
 ///
 /// Records what a seat did, and never changes it.
 ///
-/// Exists so a wasted activation can be charged to the decision that made it. The engine's event
-/// log carries names without an owner and cannot say whose activation it was; the seat's own
-/// decision stream can.
+/// With `--hash-games`, hashes every choice. The notes a wasted activation is charged against come
+/// from the bot itself (`MlpBot::ppo_notes`), one per recorded step, because a fleet decision has
+/// no engine prompt and a planned movement step has no record: notes rebuilt from the engine's
+/// prompts would no longer line up with the steps.
 struct Watching {
     inner: Box<dyn Decider>,
-    log: std::rc::Rc<std::cell::RefCell<Vec<ti4_mlp::positive_corpus::Note>>>,
     /// With `--hash-games`, a running hash of every choice this seat made.
     all: Option<Rc<RefCell<sha2::Sha256>>>,
 }
@@ -452,18 +453,6 @@ impl Watching {
             hasher.update(chosen.id.as_bytes());
             hasher.update([0x1e]);
         }
-        // Forced decisions are absent from `MlpBot::record` too, so the indices of this log and the
-        // recorded PPO steps line up. Counting them here and not there would shift every charge
-        // after the first forced decision onto the wrong decision.
-        if choice.options.len() < 2 {
-            return;
-        }
-        let head = ti4_mlp::capture_head(ti4_policy::learned::decision_head(choice));
-        self.log.borrow_mut().push(ti4_mlp::positive_corpus::Note {
-            head: head.to_owned(),
-            chosen: chosen.id.clone(),
-            declined: chosen.is_decline(),
-        });
     }
 }
 
@@ -616,9 +605,9 @@ fn play_one(
                     if learns && handles.insert(player.clone(), bot.ppo_records()).is_some() {
                         return Err(format!("{player} was seated twice"));
                     }
+                    let log = bot.ppo_notes();
                     let (decider, status) = bot.seat();
                     statuses.push(status);
-                    let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
                     let all = hash.then(|| {
                         let hasher = Rc::new(RefCell::new(<sha2::Sha256 as sha2::Digest>::new()));
                         choice_hashers.insert(player.clone(), Rc::clone(&hasher));
@@ -629,7 +618,6 @@ fn play_one(
                         player.clone(),
                         Box::new(Watching {
                             inner: decider,
-                            log,
                             all,
                         }),
                     );
@@ -1085,6 +1073,9 @@ fn main() {
     let diag_path = argument("--diag");
     let capture_path = argument("--capture-batch");
     let no_checkpoint = std::env::args().any(|a| a == "--no-checkpoint");
+    // Before any optimizer step, rescore every recorded step with the weights that played it: the
+    // recorded behaviour probability must come back, for fleet decisions as for engine prompts.
+    let check_likelihood = std::env::args().any(|a| a == "--check-likelihood");
     let hash_games = std::env::args().any(|a| a == "--hash-games");
     let diag_sync = std::env::args().any(|a| a == "--diag-sync");
     let diplomacy = std::env::args().any(|a| a == "--diplomacy");
@@ -1867,6 +1858,36 @@ fn main() {
             }
             if demonstrations.is_empty() {
                 refuse("the requested clean demonstration slice replayed empty");
+            }
+        }
+        if check_likelihood && update == 0 {
+            // Rollouts score on a CPU inference copy; rescore on the same kind of copy, so the check
+            // compares the recorded numbers with the same arithmetic rather than with the device's.
+            let scorer = actor.inference_copy().to_device(ti4_tensor::Device::Cpu);
+            let mut worst = 0.0f64;
+            let mut by_head: BTreeMap<&str, (usize, f64)> = BTreeMap::new();
+            for step in &steps {
+                let name = ti4_mlp::all_heads()
+                    .iter()
+                    .copied()
+                    .find(|name| actor.layout_head_index(name).ok() == Some(step.head))
+                    .unwrap_or_else(|| refuse(&format!("no head at index {}", step.head)));
+                let p = scorer
+                    .probabilities(&step.options, name, step.row, step.temperature)
+                    .unwrap_or_else(|error| refuse(&format!("rescoring: {error}")));
+                let gap = (p[step.chosen].ln() - step.behaviour_log_prob).abs();
+                worst = worst.max(gap);
+                let entry = by_head.entry(name).or_default();
+                entry.0 += 1;
+                entry.1 = entry.1.max(gap);
+            }
+            println!(
+                "  likelihood check: {} steps, max |log p - recorded| {worst:.3e}",
+                steps.len()
+            );
+            println!("  steps by head (count, max gap): {by_head:?}");
+            if worst > 1e-6 {
+                refuse("recorded behaviour probabilities do not reproduce");
             }
         }
         let freeze_started = Instant::now();

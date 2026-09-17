@@ -529,6 +529,9 @@ impl Decider for TraceBot {
 
 struct MlpTraceBot {
     inner: Box<dyn Decider>,
+    /// The bot's fleet decisions and planned answers (fact version 7), and how many were shown.
+    plans: Rc<RefCell<Vec<ti4_mlp::bot::PlanTrace>>>,
+    plans_shown: usize,
     actor: Rc<Actor>,
     vocabulary: Vocabulary,
     row: FactionRow,
@@ -643,7 +646,71 @@ impl Decider for MlpTraceBot {
             }
         }
         let picked = self.inner.choose_seeing(choice, seen);
-        self.push(choice, "seeing-mlp", head, &picked, options);
+        // What the plan did during this call: a prompt it answered is marked, and a fleet decision
+        // taken right after an activation is shown as its own entry.
+        let fresh: Vec<ti4_mlp::bot::PlanTrace> = self.plans.borrow()[self.plans_shown..].to_vec();
+        self.plans_shown += fresh.len();
+        let planned = fresh
+            .iter()
+            .any(|entry| matches!(entry, ti4_mlp::bot::PlanTrace::Planned { .. }));
+        let path = if planned {
+            "planned (fleet plan answered; scores shown are the model's)"
+        } else {
+            "seeing-mlp"
+        };
+        self.push(choice, path, head, &picked, options);
+        for entry in fresh {
+            match entry {
+                ti4_mlp::bot::PlanTrace::Package {
+                    system,
+                    options,
+                    chosen,
+                    ..
+                } => {
+                    let rows = options
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, (label, probability, facts))| OptionDetail {
+                            id: format!("package|{index}"),
+                            kind: ti4_mlp::bot::PACKAGE_KIND.to_owned(),
+                            label,
+                            score: None,
+                            probability: Some(probability),
+                            features: facts
+                                .into_iter()
+                                .map(|(name, value)| FeatureContribution {
+                                    name,
+                                    value,
+                                    weight: None,
+                                    contribution: None,
+                                })
+                                .collect(),
+                            payload: BTreeMap::new(),
+                            preview: None,
+                        })
+                        .collect();
+                    let synthetic = Choice::new(
+                        choice.player.clone(),
+                        format!("choose the fleet for {system}"),
+                        Vec::new(),
+                    );
+                    let pick = Ok(ChoiceOption::new(
+                        format!("package|{chosen}"),
+                        ti4_mlp::bot::PACKAGE_KIND,
+                    ));
+                    self.push(&synthetic, "fleet decision", "movement", &pick, rows);
+                }
+                ti4_mlp::bot::PlanTrace::Stopped { reason, .. } => {
+                    let synthetic = Choice::new(
+                        choice.player.clone(),
+                        format!("fleet plan stopped: {reason}"),
+                        Vec::new(),
+                    );
+                    self.push(&synthetic, "plan stopped", "movement", &picked, Vec::new());
+                }
+                ti4_mlp::bot::PlanTrace::Planned { .. } => {}
+            }
+        }
         picked
     }
 }
@@ -791,10 +858,13 @@ impl LiveReview {
                             let bot = MlpBot::sharing(actor, vocabulary.clone(), row, stream)
                                 .at_temperature(temperature)
                                 .from_setup(baseline);
+                            let plans = bot.plan_trace();
                             let (inner, status) = bot.seat();
                             status_sink.borrow_mut().push(status);
                             Box::new(MlpTraceBot {
                                 inner,
+                                plans,
+                                plans_shown: 0,
                                 actor: Rc::clone(actor),
                                 vocabulary: vocabulary.clone(),
                                 row,
