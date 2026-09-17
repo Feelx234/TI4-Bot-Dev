@@ -1954,6 +1954,18 @@ impl ReviewApp {
                                 "Decision {} · {} · {}",
                                 decision.sequence, decision.player, decision.faction
                             ));
+                            // Who actually chose: the model, or a fleet plan carrying out an
+                            // earlier decision. Without this a planned move reads as a decision
+                            // the model made.
+                            match decision.path.as_str() {
+                                "seeing-mlp" | "seeing" | "blind" => {}
+                                "fleet decision" => {
+                                    ui.colored_label(Color32::LIGHT_GREEN, "fleet decision");
+                                }
+                                other => {
+                                    ui.colored_label(Color32::LIGHT_YELLOW, other);
+                                }
+                            }
                             ui.label(&decision.prompt);
                             if let Some(context) = &decision.context {
                                 ui.collapsing("Typed decision context", |ui| {
