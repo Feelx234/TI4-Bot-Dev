@@ -101,3 +101,28 @@ near-greedy game: 56 fleet decisions, 218 planned prompts.
 **Starting behaviour.** The new rows are zero, so a freshly migrated arm B picks uniformly among
 the candidates (and almost never "step by step"). Arm B therefore starts from a real change in
 play, unlike arms 0 and A, whose migrations are identical to the source.
+
+## Phase 5 — the three pilots (50 updates each)
+
+Same seeds, pool, frozen opponents (plain 212544), VP-only reward, 4 rounds, 96 games per update.
+Evaluated against the champion (`checkpoint-19280-diplomacy-v11`), 20 seed blocks, 4 rounds, on one
+evaluator build.
+
+| arm | learner | VP | margin | lead | cleared | final checkpoint |
+|---|---|---:|---:|---:|---:|---|
+| start | checkpoint-212544 | 3.12 | −1.52 | 12.2% | 94.0% | — |
+| 0 (corrected facts) | arena-v5 | 3.15 | −1.66 | 11.7% | 86.9% | checkpoint-1812 |
+| **A (information)** | arena-v6 | **3.43** | **−1.28** | **16.4%** | 88.6% | checkpoint-1804 |
+| B (packages) | arena-v7 | 2.74 | −1.98 | 9.3% | 91.7% | checkpoint-1768 |
+
+95% seed-block intervals on the margin: arm 0 −1.85 to −1.48, arm A −1.45 to −1.12, arm B −2.08 to
+−1.88. Arm A's interval clears arm 0's and the start's; arm B's is below both.
+
+**Cost.** Wall time per update: arm 0 25.4s, arm A 25.5s, arm B 25.8s — within 2%, so the
+generator disappears into the rollout even though a near-greedy check measured x1.12.
+
+**Reading.** Telling the model what could be sent, while it still moves ship by ship, is what pays
+at this budget. Choosing the whole fleet does not, and the pilot cannot separate the action space
+from its start: arm B's fleet rows begin at zero, so it opens by picking uniformly among a
+destination's candidates, while arms 0 and A open exactly as 212544 played. Screening only, one
+seed base, 50 updates.

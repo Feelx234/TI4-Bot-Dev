@@ -8890,3 +8890,16 @@ evaluation before promotion.
 - Review only: no engine/code fixes, replay, calibration rerun, training or commits.
   Does not qualify the proposed implementation or independently reproduce reported
   figures. Accepted lean-simulator user override and four-round objective preserved.
+
+## 2026-09-17 — activation rework, phases 0–5
+
+- Restore point `restore/pre-activation-rework-2026-09-17` (e392835).
+- Engine: carried mechs no longer sustain space hits; start-of-combat-round cards are for the two
+  combatants; Ceasefire denies movement for the whole activation (this was the repeated reviewer
+  frames). ti4-sim re-baselined to v42.
+- `ti4-policy::fleet_strength` and `ti4-policy::tactical_plan`: candidate fleets per destination,
+  jointly feasible, priced by the arena predictor; `package_legality` gate passes with 0 failures.
+- Fact versions 5 (ground forces vs structures), 6 (candidate summaries on activations) and 7 (the
+  bot samples the fleet and a plan carries it out). Bundles: checkpoint-212544-arena-v5/-v6/-v7.
+- Pilots at 50 updates each: arm A (information) wins on VP 3.43 / margin −1.28; arm 0 3.15 /
+  −1.66; arm B (packages) 2.74 / −1.98. Evidence in plans/evidence/ACTIVATION_REWORK_2026-09-17.md.
