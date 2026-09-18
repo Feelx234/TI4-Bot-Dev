@@ -4056,6 +4056,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-replayer"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+ "ti4-engine",
+ "ti4-model",
+]
+
+[[package]]
 name = "ti4-review"
 version = "0.1.0"
 dependencies = [

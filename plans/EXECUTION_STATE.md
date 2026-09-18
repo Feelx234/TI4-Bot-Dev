@@ -8903,3 +8903,50 @@ evaluation before promotion.
   bot samples the fleet and a plan carries it out). Bundles: checkpoint-212544-arena-v5/-v6/-v7.
 - Pilots at 50 updates each: arm A (information) wins on VP 3.43 / margin −1.28; arm 0 3.15 /
   −1.66; arm B (packages) 2.74 / −1.98. Evidence in plans/evidence/ACTIVATION_REWORK_2026-09-17.md.
+
+## 2026-09-18 — R02 replayer starts: two decisions, R02-001 committed awaiting review
+
+- Reviewed `plans/R02_REPLAYER.md` against the code before implementing. Two operator decisions now
+  bind every R02 package, and they are **not** written into that plan file, whose text still
+  contradicts them in four places (listed in `plans/evidence/R02-001.md`):
+  1. **`crates/ti4-engine` is frozen.** No engine edits for any R02 package, including the
+     "one narrow engine invariant test" R02-004 had allowed itself, and no
+     `Game::legal_options()` change.
+  2. **Nested choices may be presented inside one engine-step window**, so pausing must work at
+     every decision rather than only at step boundaries.
+- Consequence: **one simulation thread owns `LiveReview`/`Game`**, and the R02 decider parks on a
+  rendezvous with the UI. `Game` never crosses the thread. Abort-and-retry is impossible: `Game` is
+  not `Clone` and its open windows, `prepared_turn_seq`, `event_sequence` and `galaxy` live on
+  `Game`, not in `GameState`, so a step cannot be undone and a saved frame cannot be resumed.
+  `Game::legal_options()` is a hint only — it never sees the open transaction window.
+- Measured from `out/reviews/pruned-diplomacy-seed11-t05.ti4review.json` (read-only): **670 settled
+  decisions across 602 engine steps; 37 steps (6.1%) settled more than one, maximum 8.** The plan's
+  "one engine step consumes at most one generated choice" invariant is false as written. Frame cost
+  is 115–183 KB of plain JSON, against a 1 GiB plain-session bound, so 128 branch-frames per project
+  cannot all carry state snapshots — open question for R02-005.
+- **R02-001 implemented, verified and committed** on `wp/r02-001-control-primitives` (subject
+  "R02-001 replayer choice identity and control primitives"): new lib-only crate
+  `crates/ti4-replayer` (`control.rs`: seat modes keyed by physical `PlayerId`,
+  `PendingManualChoice` with `frame` + `ask`, versioned length-prefixed `ChoiceFingerprint`, typed
+  submission outcomes where every refusal preserves the pending choice, `ReplayRecord`,
+  `Provenance`, 128-branch and 1024-option bounds) plus the workspace member entry and its 12-line
+  `Cargo.lock` entry (no new external crate).
+  Gate: `cargo fmt -p ti4-replayer -- --check` clean; `cargo test -p ti4-replayer` **13 passed,
+  0 failed**; `cargo clippy -p ti4-replayer --all-targets --no-deps -- -D warnings` exit 0. `--no-deps` is
+  needed because a trailing `-D warnings` also denies the 14 **pre-existing** warnings in
+  `ti4-model`/`ti4-engine`; with dependencies included none of them are in `crates/ti4-replayer`.
+  R01 measured unchanged: `cargo check -p ti4-review --lib` clean, `cargo test -p ti4-review`
+  **33 passed, 0 failed**.
+- **R02-001's independent review has not happened.** No second agent was reachable
+  (`list_peers` → none), so the review tier required by the R02 plan is open. Do not start R02-002
+  (which edits R01 and depends on these primitives) until that review lands or the operator waives it.
+- Working tree: branched from `codex/fix-six-faction-leaders` at `0586b92`. The operator's unrelated
+  uncommitted edits (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+  `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+  `scripts/publish_and_train_stopped_corpus.ps1`) were deliberately left unstaged and untouched, and
+  so were `plans/R02_REPLAYER.md` (the operator's own plan document, still untracked) and
+  `target-cuda-repack/`.
+- Next ready package: **R02-002** (additive controlled-decider injection into R01), blocked on
+  R02-001 review and on the four open decisions listed in `plans/evidence/R02-001.md`. Exact verify
+  command for this package if it ever needs re-running:
+  `cargo fmt -p ti4-replayer -- --check && cargo test -p ti4-replayer && cargo clippy -p ti4-replayer --all-targets --no-deps -- -D warnings`.
