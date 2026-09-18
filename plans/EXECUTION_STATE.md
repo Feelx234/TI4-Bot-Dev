@@ -8937,16 +8937,82 @@ evaluation before promotion.
   `ti4-model`/`ti4-engine`; with dependencies included none of them are in `crates/ti4-replayer`.
   R01 measured unchanged: `cargo check -p ti4-review --lib` clean, `cargo test -p ti4-review`
   **33 passed, 0 failed**.
-- **R02-001's independent review has not happened.** No second agent was reachable
-  (`list_peers` → none), so the review tier required by the R02 plan is open. Do not start R02-002
-  (which edits R01 and depends on these primitives) until that review lands or the operator waives it.
+- **Review requirements are waived for R02.** Operator, 2026-09-18: "keep advancing the plan, I am
+  explicitly waiving the review requirements. compact now and after each work package. keep going
+  until you are done or really need help/input". This supersedes, for R02 only, both the independent
+  local-model review tier and R02-004's Tier-C/frontier review, and the "one package then stop for
+  review" cadence: work continues package to package, with `plans/EXECUTION_STATE.md` and the package
+  evidence written and a `/compact` requested at every package boundary. No review has been performed
+  on R02-001 and none is claimed; the compensating control is test evidence per package.
 - Working tree: branched from `codex/fix-six-faction-leaders` at `0586b92`. The operator's unrelated
   uncommitted edits (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
   `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
   `scripts/publish_and_train_stopped_corpus.ps1`) were deliberately left unstaged and untouched, and
   so were `plans/R02_REPLAYER.md` (the operator's own plan document, still untracked) and
   `target-cuda-repack/`.
-- Next ready package: **R02-002** (additive controlled-decider injection into R01), blocked on
-  R02-001 review and on the four open decisions listed in `plans/evidence/R02-001.md`. Exact verify
-  command for this package if it ever needs re-running:
+- Verify command for R02-001 if it ever needs re-running:
   `cargo fmt -p ti4-replayer -- --check && cargo test -p ti4-replayer && cargo clippy -p ti4-replayer --all-targets --no-deps -- -D warnings`.
+
+## Next package to execute: R02-002 — additive controlled-decider injection
+
+```text
+ID and title        R02-002 — additive controlled-decider injection (plans/R02_REPLAYER.md)
+Milestone/deps      R02 program; R02-001 done (branch wp/r02-001-control-primitives @ 31445af)
+Objective           Let R02 wrap each seat's real policy in a ControlledDecider *under* the trace
+                    wrapper, while LiveReview::start keeps producing byte-identical behaviour.
+Normative sources   plans/R02_REPLAYER.md "Component contracts" (ControlledDecider paragraph) and
+                    "R02-002"; plans/R01_REVIEW_VIEWER.md for what must not change; engine is frozen.
+Acceptance tests    default vs identity-hook: identical manifest, frames, events, decisions, scores
+                    and outcome; one override traces normally; other seats unchanged.
+Allowed Rust edits  crates/ti4-review/src/lib.rs; crates/ti4-replayer/src/{lib.rs,control.rs,
+                    decider.rs}; tests in both crates. NO edits to crates/ti4-engine/**.
+Permission          P1. No network, no processes, no artifacts, no external state.
+Inputs              a schema-6 bundle + a map pool, both already on disk (see R01 settings paths).
+Outputs             R01 seam `LiveReview::start_with_control(config, hook)`; `ControlledDecider` in
+                    ti4-replayer; R01 semantic golden fixture(s) frozen BEFORE the seam.
+Invariants          trace wrapper stays outermost, so a human choice still carries the policy's own
+                    scores/probabilities; linear (LearnedBot/TraceBot) and MLP (MlpBot/MlpTraceBot)
+                    paths both wrap; no session-schema change; R01 CLI/HTML/GUI untouched.
+Non-goals           no stepping, no pausing, no persistence, no GUI, no branch tree, no R02-006 view
+                    extraction. Do not touch gui.rs in this package.
+Tests to add        R01: golden-comparison test (default path vs identity hook) over a fixed
+                    seed/rotation/bundle/pool at a bounded step count; hook called once per seat in
+                    setup order. R02: ControlledDecider answers from inner when Auto; answers a queued
+                    Manual id through the engine's own Table validation; one-shot delegation records
+                    DelegatedToPolicy; inner is invoked exactly once per ask in every mode; the
+                    wrapped decider's consider()/profile() passthrough returns what the inner bot
+                    returns so scores are unchanged.
+Commands            cargo fmt -p ti4-review -p ti4-replayer && cargo test -p ti4-review -p
+                    ti4-replayer && cargo clippy -p ti4-review -p ti4-replayer --all-targets
+                    --no-deps -- -D warnings && cargo test -p ti4-training
+Evidence            plans/evidence/R02-002.md with the golden's command, seed, bundle and hashes.
+Known traps         (1) crates/ti4-review/src/lib.rs:761 is `LiveReview::start`, not `new`; the
+                    factory closure builds a BTreeMap<PlayerId, Box<dyn Decider>> from
+                    setup_game_with_capabilities_and_decider_factory. (2) `TraceBot.inner` is a
+                    concrete `LearnedBot` whose choose_seeing calls inner.consider()/profile()/
+                    score_vector() directly — generalising it needs a small pass-through trait, and
+                    that is the one risky edit in the package. (3) `MlpBot::seat()` already returns a
+                    Box<dyn Decider> inner, so the MLP side is easier. (4) R01's decision trace mixes
+                    synthetic rows (`fleet decision`, `plan stopped`, ids `package|N`): never treat
+                    those as engine answers. (5) `-D warnings` propagates into path dependencies: 14
+                    warnings are pre-existing in ti4-model/ti4-engine, hence --no-deps.
+Definition of done  golden frozen and passing before/after the seam; both crates' suites green;
+                    strict clippy clean on both; evidence written; one focused commit; handover
+                    updated; /compact requested.
+```
+
+Defaults taken for the four questions the operator left open (proceed-without-input instruction;
+reverse any of these if they later disagree):
+
+1. **R02-005 frame/bounds:** branch frames are compact (engine step, ask/answer, provenance,
+   fingerprint) and full state snapshots are kept only for the live branch plus a bounded viewed
+   window; the 1,000,001-frame and 1 GiB bounds are enforced **per project across all branches**,
+   reported as exhaustion rather than silently trimmed.
+2. **Authoritative replay source:** the R02 project persists its own slices of `Game::table.log`
+   (`ReplayRecord`), and R01-import branching is best-effort from filtered `DecisionDetail` rows with
+   the limitation stated in the file format and in evidence.
+3. **R01 import:** the operator re-picks checkpoint and map pool in R02 and the manifest hashes are
+   verified; an `engine_commit` or `content_sha256` mismatch **refuses Play up front** with a typed
+   diagnostic instead of surfacing as mid-rebuild divergence.
+4. **Pre-R02 R01 semantic golden:** created and frozen by R02-002 as its first commit (R02-008
+   assumes it exists).
