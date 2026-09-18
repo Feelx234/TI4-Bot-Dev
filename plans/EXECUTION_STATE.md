@@ -9105,6 +9105,36 @@ Evidence: `plans/evidence/R02-003.md`. Branch `wp/r02-003-manual-live-controller
   delegate_seat_once` added for the early-click delegation; `ManualInbox` kept for R02-004's replay
   prefix and the detached-gate tests.
 
+### Handover checkpoint after R02-003 (for the next session)
+
+```text
+Objective:          R02 interactive branching replayer, plans/R02_REPLAYER.md, package by package.
+Normative sources:  plans/R02_REPLAYER.md (untracked, operator-supplied) + accepted Rust specs.
+                    Historical Python reference NOT used.
+Active milestone:   R02. Done: R02-001, R02-002, R02-003 (each committed, each with evidence).
+Branch / HEAD:      wp/r02-003-manual-live-controller @ 5d29ffe
+                    (chain: 31445af -> 185034b -> 314adcf -> 5d29ffe)
+Working tree:       clean apart from the operator's own files, which must stay unstaged:
+                    crates/ti4-mlp/examples/{capture_offline_pilot,offline_bc}.rs (also NOT fmt
+                    clean: use per-package `cargo fmt -p`, never --all), plans/INDEX.md,
+                    scripts/publish_and_train_stopped_corpus.ps1, untracked plans/R02_REPLAYER.md
+                    and target-cuda-repack/.
+Tests last run:     cargo test -p ti4-replayer -> 19 unit + 8 live passed; -p ti4-review -> 33 unit
+                    + 3 semantic golden passed; fmt clean; clippy -p ti4-replayer --all-targets
+                    --no-deps -D warnings exit 0; cargo check --workspace --all-targets exit 0.
+Compatibility:      Python parity not an acceptance criterion. R01's own semantic golden still
+                    passes, which is the reviewer-side regression backstop.
+Review:             WAIVED by the operator for all of R02 (2026-09-18). None performed, none claimed.
+Decisions open:     none blocking. Four defaults taken earlier are listed above (frames/bounds,
+                    authoritative ReplayRecord, R01 import re-verifies hashes, golden first).
+Blockers:           none.
+Next exact action:  branch wp/r02-004-deterministic-rebuild from 5d29ffe, then read
+                    plans/R02_REPLAYER.md R02-004 + this file's R02-003 section, and start with
+                    src/fingerprint.rs (the versioned frame SHA-256 the plan specifies).
+Read first:         plans/EXECUTION_STATE.md (this section), plans/evidence/R02-003.md,
+                    crates/ti4-replayer/src/live.rs, crates/ti4-replayer/src/decider.rs.
+```
+
 Next ready package: **R02-004 deterministic reconstruction** (`src/rebuild.rs`, `src/fingerprint.rs`:
 replay the exact engine-step + decision prefix from immutable inputs, invoke the bot once per prefix
 choice and discard its answer, validate actor/prompt/ordered ids/typed context/every frame
