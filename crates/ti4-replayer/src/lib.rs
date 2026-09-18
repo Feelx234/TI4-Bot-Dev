@@ -25,6 +25,7 @@
 //! human chose, and record who answered.
 
 pub mod control;
+pub mod decider;
 
 pub use control::BranchId;
 pub use control::BranchIds;
@@ -43,3 +44,9 @@ pub use control::ReplayRecord;
 pub use control::SeatControl;
 pub use control::SeatMode;
 pub use control::SubmitOutcome;
+pub use decider::AnswerLog;
+pub use decider::AnsweredDecision;
+pub use decider::ControlledDecider;
+pub use decider::ManualFallbacks;
+pub use decider::ManualInbox;
+pub use decider::QueuedAnswer;

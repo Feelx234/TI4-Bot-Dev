@@ -283,6 +283,21 @@ impl ChoiceFingerprint {
         Self(hex_sha256(preimage.as_bytes()))
     }
 
+    /// Fingerprint exactly what the engine offered, as a caller that will not rescore it sees it.
+    ///
+    /// The manual panel and the decider that accepts the answer must key it identically, so both
+    /// derive it here: same option order, same context projection, one recipe. A test asserts the
+    /// two paths agree.
+    #[must_use]
+    pub fn from_choice(choice: &Choice) -> Self {
+        let options: Vec<OfferedOption> = choice.options.iter().map(OfferedOption::from).collect();
+        let context = choice
+            .context
+            .as_ref()
+            .and_then(|context| serde_json::to_value(context).ok());
+        Self::compute(&choice.player, &choice.prompt, &options, context.as_ref())
+    }
+
     #[must_use]
     pub fn as_hex(&self) -> &str {
         &self.0
@@ -409,8 +424,7 @@ impl PendingManualChoice {
             .context
             .as_ref()
             .and_then(|context| serde_json::to_value(context).ok());
-        let fingerprint =
-            ChoiceFingerprint::compute(&choice.player, &choice.prompt, &options, context.as_ref());
+        let fingerprint = ChoiceFingerprint::from_choice(choice);
         Ok(Self {
             branch,
             frame,

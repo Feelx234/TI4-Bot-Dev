@@ -9016,3 +9016,55 @@ reverse any of these if they later disagree):
    diagnostic instead of surfacing as mid-rebuild divergence.
 4. **Pre-R02 R01 semantic golden:** created and frozen by R02-002 as its first commit (R02-008
    assumes it exists).
+
+## 2026-09-18 R02-002 additive controlled-decider injection: implemented, all gates green
+
+Evidence: `plans/evidence/R02-002.md`. Branch `wp/r02-002-controlled-decider`.
+
+- `LiveReview::start_with_control(config, hook)` applies
+  `PolicyHook = &dyn Fn(&PlayerId, Box<dyn Decider>) -> Box<dyn Decider>` once per seat on the
+  simulation thread where deciders are constructed; `start(config)` is that call with the identity
+  hook. The hook's output is wrapped by `TraceBot`/`MlpTraceBot`, so a human answer keeps the
+  policy's scores, probabilities and feature projections. No session-schema change; CLI/HTML/GUI
+  untouched.
+- `TraceBot` now holds `Box<dyn Decider>` + `Arc<Profile>` and scores through the new free
+  `ti4_policy::consider(profile, seen, choice, held)`, with `LearnedBot::consider` left as a delegate.
+  This was forced, not stylistic: `consider` returned `TrueSkillSignal`, whose fields are private and
+  which has no public constructor, so a caller outside `ti4-policy` cannot name the old return type.
+  `MlpTraceBot` already held `Box<dyn Decider>`; only hook application changed there.
+- `crates/ti4-replayer/src/decider.rs`: `ControlledDecider` plus `ManualInbox`, `AnswerLog` /
+  `AnsweredDecision`, `ManualFallbacks`. Auto delegates; a queued answer matching the offer's
+  `ChoiceFingerprint` is returned without consulting the policy; one-shot delegation records
+  `DelegatedToPolicy`; a stale answer is dropped and counted; a manual ask with nothing queued falls
+  back to the policy **counted** and `debug_assert`ed, because `IllegalChoice` is frozen and inventing
+  a refusal would poison the step.
+- Golden `crates/ti4-review/tests/semantic_golden.rs` + fixture
+  `crates/ti4-review/tests/golden/pre-r02-mlp-seed7777-rotation2.json` (1,033,808 bytes, sha256
+  `f727372e3ea8c426fe42fefad03a33ae54c0f13849217ebc580a13de27ae313b`): committed
+  `examples/reviewer/checkpoint-473312/slots.json` + `full_np8_12_holdout.json`, seed 7777, rotation
+  2, temperature 0.5, `ProfileTable::Learner`, 240 steps, **no skip path**. Projection = manifest
+  (digests, seed/tile seed, rotation, profile table, temperature, diplomacy, factions, initial
+  speaker, map arrangement, full policy identity) + every frame (index/engine step/turn/round/phase,
+  active players, viewpoint, plan status, event digests, and its decisions with prompt, ordered
+  offered options, chosen id, path, scores, probabilities) + outcome. Three tests: default path vs
+  golden; identity hook equals the default path and reports the first differing frame; an override
+  below the trace answers every real seat0 decision while every offered option keeps the policy's
+  score and probability, inner consulted zero times, no engine error.
+- Independent second proof: pre-seam vs post-seam `ti4-cli simulate` sessions are **byte-identical**
+  after removing the path/commit fields, on BOTH the committed example bundle and the real
+  `checkpoint-212544-arena-v7` (241 frames; 295 and 313 real decisions; 0 differing frames).
+- Gates: per-package fmt clean; `ti4-replayer` 19 passed; `ti4-review` 33 unit + 3 golden; `ti4-policy`
+  266; clippy on both crates `--no-deps -D warnings` exit 0; `cargo check --workspace --all-targets`
+  exit 0. `cargo fmt --all --check` reports pre-existing diffs in the operator's uncommitted
+  `crates/ti4-mlp/examples/*` - never reformat those; `ti4-policy` clippy's only warnings are
+  pre-existing ones in `battle.rs`/`projection.rs`.
+- Deviations recorded in evidence: counted fallback instead of an impossible engine error; hook keys
+  on `PlayerId` because `ReviewSeat` does not exist in R01; the subtractive alternative (caller-built
+  tracing) was rejected because the live trace wrapper produces frames during play;
+  `ControlledDecider::choose_seeing` cannot be unit-constructed (`SeatObservation::bind` is
+  `pub(crate)`), so both `Decider` methods share one private `decide()` and the bound path gets its
+  engine-driven test in R02-003.
+
+Next ready package: **R02-003** (live branch controller: pause at every decision on the
+`ControlledDecider` from R02-002, worker thread + bounded channels, abort-and-retry, `BranchHandle`
+/ `LiveEvent` / `BranchCommand`). It also owes the engine-driven `choose_seeing` integration test.

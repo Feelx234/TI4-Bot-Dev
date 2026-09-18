@@ -29,7 +29,7 @@ use ti4_model::content_types::FULL;
 use ti4_model::id::{FactionId, PlayerId, SystemId};
 use ti4_model::state::{GameState, Phase};
 use ti4_policy::features::names_of;
-use ti4_policy::inference::LearnedBot;
+use ti4_policy::inference::{LearnedBot, consider};
 use ti4_policy::learned::{Profile, decision_head};
 use ti4_policy::progress::Baseline;
 use ti4_policy::vocabulary::Vocabulary;
@@ -400,7 +400,11 @@ pub struct AdvanceReport {
 }
 
 struct TraceBot {
-    inner: LearnedBot,
+    /// The seat's real policy, possibly wrapped by the caller's [`PolicyHook`] first.
+    inner: Box<dyn Decider>,
+    /// The same profile the policy below the hook was built from, so the panel's scores are the
+    /// policy's own numbers even when something else answered for it.
+    profile: Arc<Profile>,
     faction: String,
     log: Rc<RefCell<Vec<DecisionDetail>>>,
 }
@@ -469,25 +473,24 @@ impl Decider for TraceBot {
         choice: &Choice,
         seen: &SeatObservation<'_>,
     ) -> std::result::Result<ChoiceOption, IllegalChoice> {
-        let (features, probabilities) =
-            self.inner
-                .consider(seen.observed(), choice, &seen.held_secret_progress());
+        let (features, probabilities) = consider(
+            &self.profile,
+            seen.observed(),
+            choice,
+            &seen.held_secret_progress(),
+        );
         let requested = decision_head(choice);
-        let resolved = self.inner.profile().resolved_head(requested).to_owned();
-        let temperature = self
-            .inner
-            .profile()
-            .head(&resolved)
-            .map(|head| head.temperature);
+        let resolved = self.profile.resolved_head(requested).to_owned();
+        let temperature = self.profile.head(&resolved).map(|head| head.temperature);
         let mut options = Self::option_rows(choice);
         for row in &mut options {
             let Some(vector) = features.get(&row.id) else {
                 continue;
             };
-            row.score = Some(self.inner.profile().score_vector(&resolved, vector));
+            row.score = Some(self.profile.score_vector(&resolved, vector));
             row.probability = probabilities.get(&row.id).copied();
             let names = names_of(vector);
-            let head = self.inner.profile().head(&resolved);
+            let head = self.profile.head(&resolved);
             row.features = names
                 .into_iter()
                 .zip(vector.values().copied())
@@ -755,10 +758,31 @@ struct StateTransition {
     events: Vec<String>,
 }
 
+/// A caller's wrapper around one seat's real policy, applied *before* the reviewer's trace wrapper.
+///
+/// `start` passes an identity hook and is unchanged by this. R02 uses it to place a manual-seat
+/// decorator underneath the trace rather than above it: the trace still scores every option and
+/// records the decision, so a human choice shows the same scores, probabilities and feature
+/// projections the learned policy would have had, and the only thing the decorator changes is who
+/// answers. A hook is given the physical seat, which is the only thing control may be keyed by.
+pub type PolicyHook<'a> = &'a dyn Fn(&PlayerId, Box<dyn Decider>) -> Box<dyn Decider>;
+
 impl LiveReview {
     /// # Panics
     /// Panics only if the fixed six-seat setup fails to provide a configured faction.
     pub fn start(config: &SimulationConfig) -> Result<Self> {
+        Self::start_with_control(config, &|_player, policy| policy)
+    }
+
+    /// [`Self::start`], with each seat's policy passed through `hook` before it is traced.
+    ///
+    /// The hook runs once per seat, in the same order and with the same inputs the unwrapped path
+    /// uses, and its result is what the engine seats. Returning the policy it was given reproduces
+    /// `start` exactly, which is what the reviewer's semantic golden asserts.
+    ///
+    /// # Panics
+    /// Panics only if the fixed six-seat setup fails to provide a configured faction.
+    pub fn start_with_control(config: &SimulationConfig, hook: PolicyHook<'_>) -> Result<Self> {
         if config.rotation >= FACTIONS.len() {
             return Err(ReviewError::Invalid(
                 "rotation must be 0 through 5".to_owned(),
@@ -844,10 +868,12 @@ impl LiveReview {
                             for head in profile.learned.heads.values_mut() {
                                 head.temperature = temperature;
                             }
-                            let bot = LearnedBot::from_shared(Arc::new(profile), stream)
+                            let profile = Arc::new(profile);
+                            let bot = LearnedBot::from_shared(Arc::clone(&profile), stream)
                                 .from_setup(baseline);
                             Box::new(TraceBot {
-                                inner: bot,
+                                inner: hook(player, Box::new(bot)),
+                                profile,
                                 faction,
                                 log: Rc::clone(&decision_sink),
                             })
@@ -859,8 +885,9 @@ impl LiveReview {
                                 .at_temperature(temperature)
                                 .from_setup(baseline);
                             let plans = bot.plan_trace();
-                            let (inner, status) = bot.seat();
+                            let (bot_inner, status) = bot.seat();
                             status_sink.borrow_mut().push(status);
+                            let inner = hook(player, bot_inner);
                             Box::new(MlpTraceBot {
                                 inner,
                                 plans,

@@ -262,51 +262,61 @@ impl LearnedBot {
         choice: &Choice,
         held_secrets: &[ti4_engine::objectives::CardProgress],
     ) -> (BTreeMap<String, FeatureVector>, BTreeMap<String, f64>) {
-        // The head decides which weights read the features, so the same fact means different
-        // things to different decisions. One shared vector would have every head's update land on
-        // every other head's weights.
-        let requested_head = decision_head(choice);
-        let head = self.profile.resolved_head(requested_head);
-        // The explicit path builds the whole choice at once so the prompt is tokenised once
-        // rather than once per option (see `explicit_choice_features`).
-        let legal: BTreeMap<String, FeatureVector> = if self.profile.is_explicit() {
-            choice
-                .options
-                .iter()
-                .map(|option| option.id.clone())
-                .zip(explicit_choice_features(
-                    seen,
-                    choice,
-                    &choice.player,
-                    held_secrets,
-                ))
-                .collect()
-        } else {
-            choice
-                .options
-                .iter()
-                .map(|option| {
-                    (
-                        option.id.clone(),
-                        option_features(
-                            seen,
-                            choice,
-                            option,
-                            &choice.player,
-                            self.profile.dimensions(),
-                        ),
-                    )
-                })
-                .collect()
-        };
-        let scores: BTreeMap<String, f64> = legal
-            .iter()
-            .map(|(id, vector)| (id.clone(), self.profile.score_vector(head, vector)))
-            .collect();
-        let temperature = self.profile.head(head).map_or(1.0, |head| head.temperature);
-        let chances = probabilities(&scores, temperature);
-        (legal, chances)
+        consider(&self.profile, seen, choice, held_secrets)
     }
+}
+
+/// Score every legal option of `choice` against `profile`, with no bot involved.
+///
+/// [`LearnedBot::consider`] is exactly this function, kept as a method for callers holding a bot.
+/// It is public because the review panel has to show the scores the policy actually sampled from:
+/// a second implementation there would drift silently, and a decorator that answers in the policy's
+/// place (R02's manual-seat wrapper) still wants those numbers on screen while a person chooses.
+#[must_use]
+pub fn consider(
+    profile: &Profile,
+    seen: &Observed<'_>,
+    choice: &Choice,
+    held_secrets: &[ti4_engine::objectives::CardProgress],
+) -> (BTreeMap<String, FeatureVector>, BTreeMap<String, f64>) {
+    // The head decides which weights read the features, so the same fact means different
+    // things to different decisions. One shared vector would have every head's update land on
+    // every other head's weights.
+    let requested_head = decision_head(choice);
+    let head = profile.resolved_head(requested_head);
+    // The explicit path builds the whole choice at once so the prompt is tokenised once
+    // rather than once per option (see `explicit_choice_features`).
+    let legal: BTreeMap<String, FeatureVector> = if profile.is_explicit() {
+        choice
+            .options
+            .iter()
+            .map(|option| option.id.clone())
+            .zip(explicit_choice_features(
+                seen,
+                choice,
+                &choice.player,
+                held_secrets,
+            ))
+            .collect()
+    } else {
+        choice
+            .options
+            .iter()
+            .map(|option| {
+                (
+                    option.id.clone(),
+                    option_features(seen, choice, option, &choice.player, profile.dimensions()),
+                )
+            })
+            .collect()
+    };
+    let scores: BTreeMap<String, f64> = legal
+        .iter()
+        .map(|(id, vector)| (id.clone(), profile.score_vector(head, vector)))
+        .collect();
+    let temperature = profile.head(head).map_or(1.0, |head| head.temperature);
+    let chances = probabilities(&scores, temperature);
+    (legal, chances)
 }
 
 impl Decider for LearnedBot {

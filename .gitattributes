@@ -24,3 +24,9 @@ fixtures/legacy_entropy/**/*.json -text
 # End-of-line conversion would change every one of those digests on a Windows checkout, which is
 # the same failure the content corpus and the legacy trace corpus above already hit.
 examples/reviewer/** -text
+
+# The reviewer's semantic golden is compared as parsed JSON against a freshly computed
+# projection, and end-of-line translation would silently add a byte per line on a non-Windows
+# checkout. Parsing both sides already survives that, but the fixture should stay what the
+# test wrote.
+crates/ti4-review/tests/golden/*.json -text
