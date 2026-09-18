@@ -9065,6 +9065,50 @@ Evidence: `plans/evidence/R02-002.md`. Branch `wp/r02-002-controlled-decider`.
   `pub(crate)`), so both `Decider` methods share one private `decide()` and the bound path gets its
   engine-driven test in R02-003.
 
-Next ready package: **R02-003** (live branch controller: pause at every decision on the
-`ControlledDecider` from R02-002, worker thread + bounded channels, abort-and-retry, `BranchHandle`
-/ `LiveEvent` / `BranchCommand`). It also owes the engine-driven `choose_seeing` integration test.
+## 2026-09-18 R02-003 manual live controller: implemented, all gates green
+
+Evidence: `plans/evidence/R02-003.md`. Branch `wp/r02-003-manual-live-controller`.
+
+- `crates/ti4-replayer/src/live.rs`: `LiveBranch` (one thread owning `LiveReview`; `start`,
+  `with_gate`, `try_event`, `event`, `drain_events`, `wait_until_parked`, `wait_until_idle`,
+  `into_session`; `Drop` asks the thread to unwind and never joins) and `Gate` (one mutex + two
+  condvars holding `ManualControl`, the answer for the pending offer, the goal, the pause flag, the
+  lifecycle state and the defensive counters).
+- **The plan's mechanism was rejected on measurement, and the measurement is in the evidence.** With
+  every seat Manual on the committed bundle: 120 engine steps -> 158 asks (17 steps raised >=2, worst
+  frame 7 asks); 400 steps -> 506 asks (52 steps raised >=2, worst frame 10). `legal_options()`
+  cannot see any of those (it never inspects `Game::trade`; 116 ask sites in 22 modules), so the
+  pause is taken inside `Table::ask` and answered from the UI thread. Exactly one thread ever touches
+  `Game`; abort-and-retry remains rejected (`Game` is not `Clone`).
+- `ti4-review` was NOT modified in this package; only the R02-002 seam is used. No engine file
+  changed.
+- Deadlock-freedom: the only sim->UI channel is `sync_channel(MAX_QUEUED_EVENTS = 4096)` written with
+  `try_send`; a full queue counts `Gate::dropped_events` (measured 0) instead of blocking. Commands
+  are direct gate calls returning synchronously, so nothing the UI waits on is behind that channel.
+- `LiveReview` is not `Send` (`Rc<RefCell<Vec<DecisionDetail>>>`, `Box<dyn Decider>`), so no `unsafe`
+  hand-off: the thread sends the finished `ReviewSession` on a one-item terminal channel and
+  `into_session()` joins for it.
+- R02-002's open gap is CLOSED: `Gate::delivery()` counts the two `Decider` entry points and measured
+  **all 158 / all 506 asks arrived via `choose_seeing`, none viewless**; a live test asserts
+  `bound > 0` after real play.
+- Gates: per-package fmt clean; `ti4-replayer` 19 unit + 8 engine-driven live (live suite green on 5
+  repeat runs, ~3.9 s at `--test-threads=3`); `ti4-review` 33 + 3 golden unchanged; clippy
+  `--no-deps -D warnings` exit 0; `cargo check --workspace --all-targets` exit 0.
+- Bugs this suite caught and fixed: a `Ready` flicker between back-to-back goals (`Gate::goal_queued`
+  now keeps the branch `Running`); `wait_until_parked` treating the answered-but-not-yet-resumed
+  instant as terminal; a `drive` helper that dropped the last frame of a goal (test-side).
+- Deviations recorded in evidence: thread + gate instead of the pre-step probe; `AdvanceGoal` maps
+  `Steps`/`NextRound`/`EndOfGame` to per-step driving and leaves `Decisions`/`Actions` to R01's own
+  counter (batch event instead of per-frame events); shutdown-while-parked answers from the policy and
+  counts `shutdown_fallbacks`, while `stop` deliberately does not interrupt a park; `faction: None` on
+  pending offers (presentation-only; the GUI fills it from the manifest); `ManualControl::
+  delegate_seat_once` added for the early-click delegation; `ManualInbox` kept for R02-004's replay
+  prefix and the detached-gate tests.
+
+Next ready package: **R02-004 deterministic reconstruction** (`src/rebuild.rs`, `src/fingerprint.rs`:
+replay the exact engine-step + decision prefix from immutable inputs, invoke the bot once per prefix
+choice and discard its answer, validate actor/prompt/ordered ids/typed context/every frame
+fingerprint, refuse at the first mismatch with a typed diagnostic; `ReplayPrefix` provenance; the
+frame SHA-256 binding the plan specifies; bounds from R01 plus 128 branches). R02-004's Tier-C/frontier
+review is waived for this run; the R02-002 semantic golden is the regression backstop for the reviewer
+side.

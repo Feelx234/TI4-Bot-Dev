@@ -602,6 +602,16 @@ impl ManualControl {
     pub fn take_delegation(&mut self, seat: &PlayerId) -> bool {
         self.seats.take_delegation(seat)
     }
+
+    /// Queue a one-shot delegation for a seat *without* closing a panel.
+    ///
+    /// [`Self::delegate_pending_once`] is the normal "let the bot have this one" click, made while a
+    /// panel is open. This is the same decision made a moment early — the human pressed the button
+    /// before the engine reached the ask — and it must not be lost, nor may it survive the decision
+    /// it was made for.
+    pub fn delegate_seat_once(&mut self, seat: &PlayerId) {
+        self.seats.delegate_once(seat);
+    }
 }
 
 /// What a seat-mode change did to a waiting choice.

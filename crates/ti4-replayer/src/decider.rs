@@ -14,21 +14,25 @@
 //! Above the trace, an overridden decision would be recorded with nothing in it.
 //!
 //! It is a [`Decider`], so the engine validates its answer through the same `Table::ask`/`settle`
-//! path as any policy answer: nothing here can apply a move the engine did not offer.
+//! path as any policy answer: nothing here can apply a move the engine did not offer. All the state
+//! it consults lives in the branch's [`Gate`], because a pause taken inside `ask` has to be answered
+//! from another thread — see [`crate::live`] for why that is the only way to pause at every
+//! decision.
 
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
 use ti4_model::id::PlayerId;
 
-use crate::control::{ChoiceFingerprint, Provenance, SeatControl};
+use crate::control::{ChoiceFingerprint, Provenance};
+use crate::live::{Gate, GateDecision};
 
 /// A human's answer, waiting for the exact choice it was made against.
 ///
 /// The fingerprint is checked before the answer is used, so an answer made for one offer can never be
-/// spent on a different one.
+/// spent on a different one. This is how R02-004's replay prefix and the unit tests answer a choice
+/// without a person being asked; a live branch answers through the gate instead.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueuedAnswer {
     pub fingerprint: ChoiceFingerprint,
@@ -40,7 +44,7 @@ pub struct QueuedAnswer {
 /// One slot rather than a queue: the engine asks one question at a time, so a second answer stored
 /// here is either a race or a bug, and neither should be silently spent later.
 #[derive(Clone, Debug, Default)]
-pub struct ManualInbox(Rc<RefCell<Option<QueuedAnswer>>>);
+pub struct ManualInbox(Arc<std::sync::Mutex<Option<QueuedAnswer>>>);
 
 impl ManualInbox {
     #[must_use]
@@ -48,10 +52,16 @@ impl ManualInbox {
         Self::default()
     }
 
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<QueuedAnswer>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// Offer an answer, returning whatever was displaced so the controller can say so rather than
     /// losing it quietly.
     pub fn put(&self, answer: QueuedAnswer) -> Option<QueuedAnswer> {
-        self.0.borrow_mut().replace(answer)
+        self.lock().replace(answer)
     }
 
     /// Take the waiting answer if it was made against this exact offer.
@@ -61,7 +71,7 @@ impl ManualInbox {
     /// rather than left to linger, and the caller counts it: a mismatch is a controller bug, and
     /// silently spending it later would turn a visible bug into an invisible one.
     pub fn take_matching(&self, fingerprint: &ChoiceFingerprint) -> Result<Option<String>, String> {
-        let mut waiting = self.0.borrow_mut();
+        let mut waiting = self.lock();
         let Some(current) = waiting.as_mut() else {
             return Ok(None);
         };
@@ -75,11 +85,11 @@ impl ManualInbox {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.0.borrow().is_none()
+        self.lock().is_none()
     }
 
     pub fn clear(&self) {
-        *self.0.borrow_mut() = None;
+        *self.lock() = None;
     }
 }
 
@@ -98,7 +108,7 @@ pub struct AnsweredDecision {
 
 /// Shared answer log for one live branch, appended to in ask order.
 #[derive(Clone, Debug, Default)]
-pub struct AnswerLog(Rc<RefCell<Vec<AnsweredDecision>>>);
+pub struct AnswerLog(Arc<std::sync::Mutex<Vec<AnsweredDecision>>>);
 
 impl AnswerLog {
     #[must_use]
@@ -106,82 +116,61 @@ impl AnswerLog {
         Self::default()
     }
 
-    fn push(&self, entry: AnsweredDecision) {
-        self.0.borrow_mut().push(entry);
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<AnsweredDecision>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub(crate) fn push(&self, entry: AnsweredDecision) {
+        self.lock().push(entry);
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.borrow().len()
+        self.lock().len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.0.borrow().is_empty()
+        self.lock().is_empty()
     }
 
     #[must_use]
     pub fn entries(&self) -> Vec<AnsweredDecision> {
-        self.0.borrow().clone()
+        self.lock().clone()
+    }
+
+    /// Provenance in answer order, for the tests that care about who answered what.
+    #[must_use]
+    pub fn provenance(&self) -> Vec<Provenance> {
+        self.lock().iter().map(|entry| entry.provenance).collect()
     }
 }
 
-/// Counts of the defensive fallbacks below.
+/// Counts of the defensive fallbacks.
 ///
-/// A non-zero `unanswered` while a person is driving is a controller bug: the live controller must
-/// never advance a manual seat that is still waiting for an answer. The counts exist so "the game
-/// carried on" cannot be mistaken for "the manual path worked".
+/// A non-zero `unanswered` while a person is driving is a controller bug: the controller must never
+/// advance a manual seat that is still waiting for an answer. The counts exist so "the game carried
+/// on" cannot be mistaken for "the manual path worked".
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ManualFallbacks {
-    /// Manual asks that arrived with no answer waiting.
+    /// Manual asks that arrived with no answer waiting and nothing able to wait.
     pub unanswered: usize,
     /// Waiting answers rejected because they belonged to a different offer.
     pub stale: usize,
 }
 
-/// What the control state said about one ask, before anything was answered.
-enum Decision {
-    /// A person answered this exact offer.
-    Human {
-        answer: ChoiceOption,
-        fingerprint: ChoiceFingerprint,
-    },
-    /// The policy answers, and `delegated` distinguishes "let the bot have this one" from a seat
-    /// that is simply on Auto.
-    Policy {
-        fingerprint: ChoiceFingerprint,
-        delegated: bool,
-    },
-}
-
-/// Answers for one physical seat: the policy underneath, and who is allowed to answer right now.
+/// Answers for one physical seat: the policy underneath, and the branch gate that says who answers.
 pub struct ControlledDecider {
     inner: Box<dyn Decider>,
     seat: PlayerId,
-    modes: Rc<RefCell<SeatControl>>,
-    inbox: ManualInbox,
-    log: AnswerLog,
-    unanswered: Rc<Cell<usize>>,
-    stale: Rc<Cell<usize>>,
+    gate: Arc<Gate>,
 }
 
 impl ControlledDecider {
-    pub fn new(
-        inner: Box<dyn Decider>,
-        seat: PlayerId,
-        modes: Rc<RefCell<SeatControl>>,
-        inbox: ManualInbox,
-        log: AnswerLog,
-    ) -> Self {
-        Self {
-            inner,
-            seat,
-            modes,
-            inbox,
-            log,
-            unanswered: Rc::new(Cell::new(0)),
-            stale: Rc::new(Cell::new(0)),
-        }
+    pub fn new(inner: Box<dyn Decider>, seat: PlayerId, gate: Arc<Gate>) -> Self {
+        Self { inner, seat, gate }
     }
 
     #[must_use]
@@ -189,75 +178,58 @@ impl ControlledDecider {
         &self.seat
     }
 
+    /// The branch's control gate, for a wrapper that wants to read or extend it.
+    #[must_use]
+    pub fn gate(&self) -> &Arc<Gate> {
+        &self.gate
+    }
+
+    /// Counts of the defensive fallbacks; see [`ManualFallbacks`].
     #[must_use]
     pub fn fallbacks(&self) -> ManualFallbacks {
-        ManualFallbacks {
-            unanswered: self.unanswered.get(),
-            stale: self.stale.get(),
-        }
+        self.gate.fallbacks()
     }
 
-    /// Read the control state for one ask. Never touches the policy underneath.
-    fn decide(&mut self, choice: &Choice) -> Decision {
+    /// Ask the gate, then record whoever it said answered.
+    fn answer_via_gate(
+        &mut self,
+        choice: &Choice,
+        policy: impl FnOnce(&mut Box<dyn Decider>) -> Result<ChoiceOption, IllegalChoice>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
         let fingerprint = ChoiceFingerprint::from_choice(choice);
-        let (delegated, manual) = {
-            let mut modes = self.modes.borrow_mut();
-            let delegated = modes.take_delegation(&self.seat);
-            (delegated, modes.is_manual(&self.seat))
-        };
-        if delegated || !manual {
-            return Decision::Policy {
-                fingerprint,
-                delegated,
-            };
-        }
-        match self.inbox.take_matching(&fingerprint) {
-            Ok(Some(option_id)) => {
-                if let Some(answer) = choice.option(&option_id).cloned() {
-                    return Decision::Human {
-                        answer,
-                        fingerprint,
-                    };
-                }
-                // A queued id that is not on offer cannot happen while the fingerprint binds the
-                // ordered ids; if it ever does, the engine's own validation is the place that says
-                // so, so the answer is passed down as a policy answer and refused there.
-                self.stale.set(self.stale.get() + 1);
-                return Decision::Policy {
-                    fingerprint,
-                    delegated: false,
+        match self.gate.decision_for(&self.seat, choice) {
+            GateDecision::Human { option_id } => {
+                let answer = choice.option(&option_id).cloned().ok_or_else(|| {
+                    IllegalChoice::NotOffered {
+                        player: self.seat.clone(),
+                        chosen: option_id.clone(),
+                        offered: choice.ids().into_iter().map(str::to_owned).collect(),
+                    }
+                })?;
+                self.log(choice, &answer, &fingerprint, Provenance::Human);
+                Ok(answer)
+            }
+            GateDecision::Policy { delegated } => {
+                let answer = policy(&mut self.inner)?;
+                let provenance = if delegated {
+                    Provenance::DelegatedToPolicy
+                } else {
+                    Provenance::Policy
                 };
+                self.log(choice, &answer, &fingerprint, provenance);
+                Ok(answer)
             }
-            Ok(None) => {
-                // The controller is meant to pause before this is reachable. Replying from the
-                // policy keeps the game alive and *counted*: the frozen engine has no error variant
-                // for "the controller forgot", and returning NotOffered would poison the step,
-                // which is a worse failure than a visible counter.
-                self.unanswered.set(self.unanswered.get() + 1);
-                debug_assert!(
-                    false,
-                    "manual seat {} was asked with no answer queued",
-                    self.seat
-                );
-            }
-            Err(_stale) => {
-                self.stale.set(self.stale.get() + 1);
-            }
-        }
-        Decision::Policy {
-            fingerprint,
-            delegated: false,
         }
     }
 
-    fn record(
+    fn log(
         &self,
         choice: &Choice,
         answer: &ChoiceOption,
         fingerprint: &ChoiceFingerprint,
         provenance: Provenance,
     ) {
-        self.log.push(AnsweredDecision {
+        self.gate.log().push(AnsweredDecision {
             actor: self.seat.clone(),
             prompt: choice.prompt.clone(),
             chosen: answer.id.clone(),
@@ -269,28 +241,8 @@ impl ControlledDecider {
 
 impl Decider for ControlledDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
-        match self.decide(choice) {
-            Decision::Human {
-                answer,
-                fingerprint,
-            } => {
-                self.record(choice, &answer, &fingerprint, Provenance::Human);
-                Ok(answer)
-            }
-            Decision::Policy {
-                fingerprint,
-                delegated,
-            } => {
-                let answer = self.inner.choose(choice)?;
-                let provenance = if delegated {
-                    Provenance::DelegatedToPolicy
-                } else {
-                    Provenance::Policy
-                };
-                self.record(choice, &answer, &fingerprint, provenance);
-                Ok(answer)
-            }
-        }
+        self.gate.record_delivery(false);
+        self.answer_via_gate(choice, |inner| inner.choose(choice))
     }
 
     fn choose_seeing(
@@ -298,36 +250,17 @@ impl Decider for ControlledDecider {
         choice: &Choice,
         seen: &SeatObservation<'_>,
     ) -> Result<ChoiceOption, IllegalChoice> {
-        match self.decide(choice) {
-            Decision::Human {
-                answer,
-                fingerprint,
-            } => {
-                self.record(choice, &answer, &fingerprint, Provenance::Human);
-                Ok(answer)
-            }
-            Decision::Policy {
-                fingerprint,
-                delegated,
-            } => {
-                let answer = self.inner.choose_seeing(choice, seen)?;
-                let provenance = if delegated {
-                    Provenance::DelegatedToPolicy
-                } else {
-                    Provenance::Policy
-                };
-                self.record(choice, &answer, &fingerprint, provenance);
-                Ok(answer)
-            }
-        }
+        self.gate.record_delivery(true);
+        self.answer_via_gate(choice, |inner| inner.choose_seeing(choice, seen))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::control::{SeatControl, SeatMode};
-    use ti4_engine::choice::ChoiceOption;
+    use crate::control::{BranchId, PendingManualChoice, SeatControl, SeatMode};
+    use std::cell::Cell;
+    use std::rc::Rc;
 
     /// A policy underneath the decorator: always takes the first option, and counts being asked.
     struct FirstAlways {
@@ -364,31 +297,24 @@ mod tests {
 
     struct Harness {
         decider: ControlledDecider,
-        modes: Rc<RefCell<SeatControl>>,
-        inbox: ManualInbox,
-        log: AnswerLog,
+        gate: Arc<Gate>,
         inner_calls: Rc<Cell<usize>>,
     }
 
+    /// A detached gate: nothing can park, so the fallback paths are observable instead of fatal.
     fn harness() -> Harness {
         let inner_calls = Rc::new(Cell::new(0));
-        let modes = Rc::new(RefCell::new(SeatControl::all_auto()));
-        let inbox = ManualInbox::new();
-        let log = AnswerLog::new();
+        let gate = Arc::new(Gate::detached(SeatControl::all_auto()));
         let decider = ControlledDecider::new(
             Box::new(FirstAlways {
                 calls: Rc::clone(&inner_calls),
             }),
             seat("seat2"),
-            Rc::clone(&modes),
-            inbox.clone(),
-            log.clone(),
+            Arc::clone(&gate),
         );
         Harness {
             decider,
-            modes,
-            inbox,
-            log,
+            gate,
             inner_calls,
         }
     }
@@ -401,11 +327,16 @@ mod tests {
         assert_eq!(answer.id, "tactical");
         assert_eq!(harness.inner_calls.get(), 1);
         assert_eq!(harness.decider.fallbacks(), ManualFallbacks::default());
-        let logged = harness.log.entries();
+        let logged = harness.gate.log().entries();
         assert_eq!(logged.len(), 1);
         assert_eq!(logged[0].provenance, Provenance::Policy);
         assert_eq!(logged[0].actor, seat("seat2"));
         assert_eq!(logged[0].chosen, "tactical");
+        assert_eq!(
+            harness.gate.delivery(),
+            (1, 0),
+            "the viewless entry point is recorded as such"
+        );
     }
 
     #[test]
@@ -413,11 +344,8 @@ mod tests {
         let mut harness = harness();
         let offer = choice("seat2", &["tactical", "pass"]);
         let fingerprint = ChoiceFingerprint::from_choice(&offer);
-        harness
-            .modes
-            .borrow_mut()
-            .set_mode(&seat("seat2"), SeatMode::Manual);
-        harness.inbox.put(QueuedAnswer {
+        harness.gate.set_mode(&seat("seat2"), SeatMode::Manual);
+        harness.gate.inbox().put(QueuedAnswer {
             fingerprint: fingerprint.clone(),
             option_id: "pass".to_owned(),
         });
@@ -432,8 +360,8 @@ mod tests {
             0,
             "a human answer must not consult the policy"
         );
-        assert!(harness.inbox.is_empty(), "the answer is consumed once");
-        let logged = harness.log.entries();
+        assert!(harness.gate.inbox().is_empty(), "the answer is used once");
+        let logged = harness.gate.log().entries();
         assert_eq!(logged.len(), 1);
         assert_eq!(logged[0].provenance, Provenance::Human);
         assert_eq!(logged[0].fingerprint, fingerprint);
@@ -442,12 +370,9 @@ mod tests {
     #[test]
     fn an_answer_for_a_different_offer_is_dropped_and_counted() {
         let mut harness = harness();
-        harness
-            .modes
-            .borrow_mut()
-            .set_mode(&seat("seat2"), SeatMode::Manual);
+        harness.gate.set_mode(&seat("seat2"), SeatMode::Manual);
         let other = choice("seat2", &["something", "else"]);
-        harness.inbox.put(QueuedAnswer {
+        harness.gate.inbox().put(QueuedAnswer {
             fingerprint: ChoiceFingerprint::from_choice(&other),
             option_id: "something".to_owned(),
         });
@@ -466,7 +391,7 @@ mod tests {
             }
         );
         assert!(
-            harness.inbox.is_empty(),
+            harness.gate.inbox().is_empty(),
             "a rejected answer does not linger for a later choice"
         );
     }
@@ -474,13 +399,10 @@ mod tests {
     #[test]
     fn a_manual_ask_with_no_answer_falls_back_counted_not_hidden() {
         let mut harness = harness();
-        harness
-            .modes
-            .borrow_mut()
-            .set_mode(&seat("seat2"), SeatMode::Manual);
+        harness.gate.set_mode(&seat("seat2"), SeatMode::Manual);
         let offer = choice("seat2", &["tactical", "pass"]);
-        // `debug_assert!` fires on this path, so only the release-profile behaviour is exercised
-        // here; R02-003's controller is what makes the path unreachable in a debug run.
+        // The detached gate's `debug_assert!` marks this as the controller bug it is, so only the
+        // release profile walks it. R02-003's live gate parks instead of falling back.
         if cfg!(debug_assertions) {
             return;
         }
@@ -493,61 +415,53 @@ mod tests {
                 stale: 0
             }
         );
-        assert_eq!(harness.log.entries()[0].provenance, Provenance::Policy);
+        assert_eq!(harness.gate.log().provenance(), vec![Provenance::Policy]);
     }
 
     #[test]
     fn delegation_lets_the_policy_answer_once_and_keeps_the_seat_manual() {
         let mut harness = harness();
-        let modes = Rc::clone(&harness.modes);
-        modes
-            .borrow_mut()
-            .set_mode(&seat("seat2"), SeatMode::Manual);
-        modes.borrow_mut().delegate_once(&seat("seat2"));
+        harness.gate.set_mode(&seat("seat2"), SeatMode::Manual);
+        harness.gate.delegate_seat_once(&seat("seat2"));
 
         let offer = choice("seat2", &["tactical", "pass"]);
+        let answer = harness.decider.choose(&offer).expect("delegated");
+        assert_eq!(answer.id, "tactical", "the policy answered this one");
         assert_eq!(
-            harness.decider.choose(&offer).expect("delegated").id,
-            "tactical"
-        );
-        assert_eq!(
-            harness.log.entries()[0].provenance,
-            Provenance::DelegatedToPolicy
+            harness.gate.log().provenance(),
+            vec![Provenance::DelegatedToPolicy]
         );
         assert!(
-            modes.borrow().is_manual(&seat("seat2")),
+            harness.gate.snapshot().seats.is_manual(&seat("seat2")),
             "one-shot delegation does not change the seat's mode"
         );
+        assert!(
+            !harness.gate.snapshot().seats.has_delegation(&seat("seat2")),
+            "the delegation is consumed by the decision it was made for"
+        );
 
-        // A second ask is manual again with nothing queued, which is the path the live controller
-        // must never reach; its `debug_assert!` fires in a debug run, so only the release profile
-        // walks it here.
+        // The next ask is manual again with nothing queued, which a live gate would park on; the
+        // detached gate's `debug_assert!` fires in a debug run, so only release walks it.
         if !cfg!(debug_assertions) {
             let _ = harness.decider.choose(&offer);
-            let logged = harness.log.entries();
-            assert_eq!(logged.len(), 2);
-            assert_eq!(logged[1].provenance, Provenance::Policy);
+            let logged = harness.gate.log().provenance();
+            assert_eq!(
+                logged,
+                vec![Provenance::DelegatedToPolicy, Provenance::Policy]
+            );
             assert_eq!(harness.decider.fallbacks().unanswered, 1);
         }
     }
 
     #[test]
     fn the_deciders_fingerprint_is_the_ones_the_panel_would_show() {
-        let harness = harness();
         let offer = choice("seat2", &["tactical", "pass"]);
-        let panel = crate::control::PendingManualChoice::new(
-            crate::control::BranchId::SOURCE,
-            3,
-            1,
-            None,
-            &offer,
-        )
-        .expect("well formed");
+        let panel =
+            PendingManualChoice::new(BranchId::SOURCE, 3, 1, None, &offer).expect("well formed");
         assert_eq!(
             panel.fingerprint,
             ChoiceFingerprint::from_choice(&offer),
-            "the answer the human clicks and the answer the decider accepts must be keyed identically"
+            "the answer a person clicks and the answer the decider accepts must be keyed identically"
         );
-        let _ = harness;
     }
 }

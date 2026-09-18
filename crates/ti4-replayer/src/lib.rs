@@ -6,10 +6,16 @@
 //! human can take over any physical seat, and any historical frame can be replayed forward as a
 //! new child branch while the original future stays intact.
 //!
-//! This package is the vocabulary only — seat modes, the pending manual choice and its
-//! fingerprint, the replay record, provenance, and the project bounds those types must respect.
-//! Stepping, reconstruction, persistence and the native app arrive in later packages, so nothing
-//! here opens a window, runs a game, or edits `ti4-engine` or `ti4-review`.
+//! Layers, bottom up:
+//!
+//! - [`control`] — the vocabulary: seat modes, the pending manual choice and its fingerprint, the
+//!   replay record, provenance, and the project bounds those types must respect.
+//! - [`decider`] — the decorator that answers for one seat, sitting under the reviewer's trace.
+//! - [`live`] — one running branch: a thread that owns the game, and the gate every command passes
+//!   through, so a manual seat can park inside the engine's own `ask` without mutating anything.
+//!
+//! Reconstruction, persistence and the native app arrive in later packages, so nothing here opens a
+//! window or edits `ti4-engine`; `ti4-review` is used as a library through the seam R02-002 added.
 //!
 //! # Rules these types enforce
 //!
@@ -26,6 +32,7 @@
 
 pub mod control;
 pub mod decider;
+pub mod live;
 
 pub use control::BranchId;
 pub use control::BranchIds;
@@ -50,3 +57,12 @@ pub use decider::ControlledDecider;
 pub use decider::ManualFallbacks;
 pub use decider::ManualInbox;
 pub use decider::QueuedAnswer;
+pub use live::AdvanceGoal;
+pub use live::FrameTick;
+pub use live::Gate;
+pub use live::LiveBranch;
+pub use live::LiveError;
+pub use live::LiveEvent;
+pub use live::LiveState;
+pub use live::MAX_QUEUED_EVENTS;
+pub use live::Snapshot;
