@@ -9135,10 +9135,46 @@ Read first:         plans/EXECUTION_STATE.md (this section), plans/evidence/R02-
                     crates/ti4-replayer/src/live.rs, crates/ti4-replayer/src/decider.rs.
 ```
 
-Next ready package: **R02-004 deterministic reconstruction** (`src/rebuild.rs`, `src/fingerprint.rs`:
-replay the exact engine-step + decision prefix from immutable inputs, invoke the bot once per prefix
-choice and discard its answer, validate actor/prompt/ordered ids/typed context/every frame
-fingerprint, refuse at the first mismatch with a typed diagnostic; `ReplayPrefix` provenance; the
-frame SHA-256 binding the plan specifies; bounds from R01 plus 128 branches). R02-004's Tier-C/frontier
-review is waived for this run; the R02-002 semantic golden is the regression backstop for the reviewer
-side.
+## 2026-09-18 R02-004 deterministic reconstruction: implemented, all gates green
+
+Evidence: `plans/evidence/R02-004.md`. Branch `wp/r02-004-deterministic-rebuild`.
+
+- `src/fingerprint.rs`: `FrameFingerprint` = versioned SHA-256 over engine step, decision/action
+  counts, round, phase, active, resolved_choice, action_completed, finished, error, new events,
+  structured events and the **whole `GameState`** (paths/branch/UI/timestamps/manifest/frame index
+  excluded; version string inside the digest). `first_difference` names the field that diverged.
+- `src/rebuild.rs`: `ReplayScript` (validates actor -> prompt -> ordered ids -> typed context ->
+  chosen-on-offer -> `ChoiceFingerprint`), `RebuildTarget::{Frame,End}`, `RebuildBounds` inherited
+  from R01 (`MAX_COMMAND_STEPS` 2,000,000 / `MAX_FRAMES` 1,000,001), typed `RebuildError`
+  (`Diverged`/`FrameMismatch`/`PolicyFailed`/`EngineFailed`/`TargetUnavailable`/`BoundsExceeded`/
+  `Cancelled`/`Setup`) and `rebuild()` driving `AdvanceUnit::Step` one step at a time, digesting every
+  frame, polling the cancel flag per step, and returning **no branch** on any failure.
+- `Gate` gained: the replay slot (plan priority order: replay prefix, one-shot delegation, Auto policy,
+  then queued manual answer), `divergence()`, `policy_failure()`, `replayed()`/`policy_calls()`
+  counters, `begin_frame`/`current_ordinal`, and `enable_recording()` which writes a `ReplayRecord`
+  built from the **engine's own `Choice`** through `ReplayRecord::record` (never from R01's trace,
+  which mixes synthetic `fleet decision`/`plan stopped` rows and projects the context).
+- Headline result: a forced 4-choice prefix followed by Auto play reproduced a 40-step run **frame
+  for frame** (whole-state digests), proving the invoke-once-and-discard RNG rule is load-bearing.
+  `a_terminal_target_rebuilds_exactly` replays a whole game to its terminal frame and matches; that
+  one test costs 193 s, which is why the rebuild suite is ~200 s.
+- Refusal is belt-and-braces: a prefix mismatch records the typed divergence **and** the decorator
+  returns `IllegalChoice::NotOffered{chosen:"r02-rebuild-refused"}` so the step poisons; a branch that
+  cannot account for a decision can never look playable.
+- Gates: per-package fmt clean; `ti4-replayer` 23 unit + 8 live + 12 rebuild = 43 passed; `ti4-review`
+  33 unit + 3 golden unchanged; clippy `--no-deps -D warnings` exit 0; `cargo check --workspace
+  --all-targets` exit 0. No engine or `ti4-review` file touched.
+- Deviations recorded in evidence: the plan's "one narrow engine invariant test" is **dropped** under
+  the operator's engine freeze (the multi-ask invariant is instead measured and asserted from outside
+  via `a_prefix_with_several_asks_in_one_frame_rebuilds_exactly` + R02-003's ask counts);
+  `Rebuilt` returns the non-`Send` `LiveReview` on the calling thread, so R02-007 must call
+  `rebuild()` inside the branch thread (or use `Gate::replaying` with `LiveBranch`); cancellation is
+  polled per step (the deterministic pre-set flag is what is tested); recording is opt-in.
+
+Next ready package: **R02-005 branch tree and persistence** (`src/project.rs`, `src/persistence.rs`:
+`ReplayerProjectV1` in a separate atomic bounded file (suggested `.ti4replay.json.zst`), monotonic
+project-local branch ids (`branch-0`...) with immutable parents, 128-branch bound, R01's 1,000,001
+frame / 1 GiB bounds enforced per project across all branches (default taken 2026-09-18), mode
+changes, provenance, optional UI selection, R01 import that re-picks inputs and verifies manifest
+hashes (mismatch refuses Play up front), schema/version/checksum validation before any mutation, and
+no change to R01's JSON format).

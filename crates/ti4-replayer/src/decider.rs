@@ -197,38 +197,79 @@ impl ControlledDecider {
         policy: impl FnOnce(&mut Box<dyn Decider>) -> Result<ChoiceOption, IllegalChoice>,
     ) -> Result<ChoiceOption, IllegalChoice> {
         let fingerprint = ChoiceFingerprint::from_choice(choice);
-        match self.gate.decision_for(&self.seat, choice) {
+        let decision = self.gate.decision_for(&self.seat, choice);
+        let (frame, ask) = self.gate.current_ordinal();
+        match decision {
             GateDecision::Human { option_id } => {
-                let answer = choice.option(&option_id).cloned().ok_or_else(|| {
-                    IllegalChoice::NotOffered {
-                        player: self.seat.clone(),
-                        chosen: option_id.clone(),
-                        offered: choice.ids().into_iter().map(str::to_owned).collect(),
-                    }
-                })?;
-                self.log(choice, &answer, &fingerprint, Provenance::Human);
+                let answer = self.offered(choice, &option_id)?;
+                self.finish(choice, &answer, &fingerprint, Provenance::Human, frame, ask);
                 Ok(answer)
             }
             GateDecision::Policy { delegated } => {
+                self.gate.record_policy_call();
                 let answer = policy(&mut self.inner)?;
                 let provenance = if delegated {
                     Provenance::DelegatedToPolicy
                 } else {
                     Provenance::Policy
                 };
-                self.log(choice, &answer, &fingerprint, provenance);
+                self.finish(choice, &answer, &fingerprint, provenance, frame, ask);
                 Ok(answer)
             }
+            GateDecision::Replay { option_id } => {
+                // Invoke the policy once and throw its answer away. Sampling advances the policy's RNG,
+                // so a replay that skipped the call would leave later Auto play drawing from a
+                // different stream than the game being branched. The engine only sees the recorded
+                // answer.
+                self.gate.record_policy_call();
+                if let Err(error) = policy(&mut self.inner) {
+                    // The realignment itself failed, so nothing further from this branch can be
+                    // trusted; the rebuild reports it and refuses the branch.
+                    self.gate
+                        .record_policy_failure(self.seat.clone(), error.to_string());
+                }
+                let answer = self.offered(choice, &option_id)?;
+                self.finish(
+                    choice,
+                    &answer,
+                    &fingerprint,
+                    Provenance::ReplayPrefix,
+                    frame,
+                    ask,
+                );
+                Ok(answer)
+            }
+            GateDecision::Refused => Err(IllegalChoice::NotOffered {
+                player: self.seat.clone(),
+                chosen: "r02-rebuild-refused".to_owned(),
+                offered: choice.ids().into_iter().map(str::to_owned).collect(),
+            }),
         }
     }
 
-    fn log(
+    fn offered(&self, choice: &Choice, option_id: &str) -> Result<ChoiceOption, IllegalChoice> {
+        choice
+            .option(option_id)
+            .cloned()
+            .ok_or_else(|| IllegalChoice::NotOffered {
+                player: self.seat.clone(),
+                chosen: option_id.to_owned(),
+                offered: choice.ids().into_iter().map(str::to_owned).collect(),
+            })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish(
         &self,
         choice: &Choice,
         answer: &ChoiceOption,
         fingerprint: &ChoiceFingerprint,
         provenance: Provenance,
+        frame: u64,
+        ask: u32,
     ) {
+        self.gate
+            .record_answer(choice, &answer.id, provenance, frame, ask);
         self.gate.log().push(AnsweredDecision {
             actor: self.seat.clone(),
             prompt: choice.prompt.clone(),

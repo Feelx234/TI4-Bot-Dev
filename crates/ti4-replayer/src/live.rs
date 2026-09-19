@@ -33,7 +33,7 @@
 //! simulation blocked on a UI that is waiting for the simulation is the one way this design could
 //! hang. Nothing the UI waits on is behind that channel: a pending offer is read from the gate.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender, SyncSender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -48,10 +48,11 @@ use ti4_review::{
 };
 
 use crate::control::{
-    ManualControl, ManualSubmission, ModeEffect, PendingManualChoice, Provenance, SeatControl,
-    SeatMode, SubmitOutcome,
+    ManualControl, ManualSubmission, ModeEffect, PendingManualChoice, Provenance, ReplayRecord,
+    SeatControl, SeatMode, SubmitOutcome,
 };
 use crate::decider::{AnswerLog, ManualFallbacks, ManualInbox};
+use crate::rebuild::{Mismatch, PrefixAnswer, RebuildError, ReplayScript};
 
 /// Events the simulation may queue for the UI before it starts dropping them.
 ///
@@ -235,6 +236,12 @@ pub(crate) enum GateDecision {
     Human { option_id: String },
     /// Ask the policy underneath. `delegated` distinguishes a one-shot delegation.
     Policy { delegated: bool },
+    /// Use this recorded option, but invoke the policy once underneath and discard its answer, so the
+    /// sampling stream stays where the game being branched left it.
+    Replay { option_id: String },
+    /// The recorded prefix does not match this ask. Refuse it: a rebuild that cannot account for a
+    /// decision must not hand back a playable branch.
+    Refused,
 }
 
 /// Ask identity within the live branch, written only by the simulation thread.
@@ -277,8 +284,20 @@ pub struct Gate {
     /// The branch's event queue, attached once by [`LiveBranch::start`]. `None` for a detached gate,
     /// where there is nobody to tell.
     events: Mutex<Option<SyncSender<LiveEvent>>>,
-    /// Whether an unanswered manual ask may park. `false` for a detached gate (unit tests, and the
-    /// replay prefix in R02-004), where answers must already be queued.
+    /// A recorded prefix to replay, if this gate is rebuilding rather than playing.
+    replay: Mutex<Option<ReplayScript>>,
+    /// The first prefix mismatch, if a replay refused.
+    divergence: Mutex<Option<Mismatch>>,
+    /// A policy failure underneath a replayed choice, which means the RNG could not be realigned.
+    policy_failure: Mutex<Option<RebuildError>>,
+    /// Prefix choices replayed, and times the policy underneath was invoked.
+    replayed: AtomicUsize,
+    policy_calls: AtomicUsize,
+    /// Recorded settled decisions, when recording is on. This is what R02-005 persists.
+    recording: AtomicBool,
+    records: Mutex<Vec<ReplayRecord>>,
+    /// Whether an unanswered manual ask may park. `false` for a detached gate (unit tests and a
+    /// rebuild), where answers must already be queued or replayed.
     blocking: bool,
     unanswered: AtomicUsize,
     stale: AtomicUsize,
@@ -307,6 +326,124 @@ impl Gate {
         Self::build(seats, false)
     }
 
+    /// A gate that replays a recorded prefix: while the script lasts every ask is answered from it,
+    /// with the policy invoked once underneath and discarded, and each answer validated. Nothing
+    /// parks, because a rebuild has no human in front of it.
+    #[must_use]
+    pub fn replaying(seats: SeatControl, script: ReplayScript) -> Self {
+        let gate = Self::build(seats, false);
+        *gate
+            .replay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(script);
+        gate
+    }
+
+    /// Mark the step boundary the engine is stopped on, restarting the per-frame ask counter. Whoever
+    /// is driving the engine calls this before every step.
+    pub fn begin_frame(&self, frame: u64) {
+        self.clock.begin_frame(frame);
+    }
+
+    /// The frame and ask ordinal of the ask most recently taken, i.e. the one being answered now.
+    #[must_use]
+    pub fn current_ordinal(&self) -> (u64, u32) {
+        (
+            self.clock.frame.load(Ordering::Relaxed),
+            self.clock.ask.load(Ordering::Relaxed).saturating_sub(1),
+        )
+    }
+
+    /// Record every settled decision as a [`ReplayRecord`]. Off by default: the reviewer's own trace
+    /// already exists, and a rebuild should not pay for a second record set it never reads.
+    pub fn enable_recording(&self) {
+        self.recording.store(true, Ordering::Relaxed);
+    }
+
+    /// The settled decisions recorded so far, in ask order.
+    #[must_use]
+    pub fn records(&self) -> Vec<ReplayRecord> {
+        self.records
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Prefix choices replayed.
+    #[must_use]
+    pub fn replayed(&self) -> usize {
+        self.replayed.load(Ordering::Relaxed)
+    }
+
+    /// Times the policy underneath a decorator was invoked. A replay must count exactly one call per
+    /// prefix choice, or the RNG alignment the plan requires has not happened.
+    #[must_use]
+    pub fn policy_calls(&self) -> usize {
+        self.policy_calls.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn record_policy_call(&self) {
+        self.policy_calls.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_policy_failure(&self, actor: PlayerId, detail: String) {
+        let (frame, _ask) = self.current_ordinal();
+        let mut slot = self
+            .policy_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slot.is_none() {
+            *slot = Some(RebuildError::PolicyFailed {
+                frame,
+                actor,
+                detail,
+            });
+        }
+    }
+
+    /// The first prefix mismatch, if the replay refused.
+    #[must_use]
+    pub fn divergence(&self) -> Option<Mismatch> {
+        self.divergence
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// A policy failure underneath a replayed choice, if one happened.
+    #[must_use]
+    pub fn policy_failure(&self) -> Option<RebuildError> {
+        self.policy_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Record one settled decision, if recording is on.
+    pub(crate) fn record_answer(
+        &self,
+        choice: &Choice,
+        chosen: &str,
+        provenance: Provenance,
+        frame: u64,
+        ask: u32,
+    ) {
+        if !self.recording.load(Ordering::Relaxed) {
+            return;
+        }
+        let Ok(pending) =
+            PendingManualChoice::new(crate::control::BranchId::SOURCE, frame, ask, None, choice)
+        else {
+            return;
+        };
+        if let Ok(record) = ReplayRecord::record(&pending, chosen, provenance) {
+            self.records
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(record);
+        }
+    }
+
     fn build(seats: SeatControl, blocking: bool) -> Self {
         Self {
             state: Mutex::new(GateState::new(seats)),
@@ -316,6 +453,13 @@ impl Gate {
             log: AnswerLog::new(),
             clock: AskClock::default(),
             events: Mutex::new(None),
+            replay: Mutex::new(None),
+            divergence: Mutex::new(None),
+            policy_failure: Mutex::new(None),
+            replayed: AtomicUsize::new(0),
+            policy_calls: AtomicUsize::new(0),
+            recording: AtomicBool::new(false),
+            records: Mutex::new(Vec::new()),
             blocking,
             unanswered: AtomicUsize::new(0),
             stale: AtomicUsize::new(0),
@@ -582,10 +726,20 @@ impl Gate {
     /// Answer one ask from the engine. Called from [`crate::decider::ControlledDecider`] only.
     pub(crate) fn decision_for(&self, seat: &PlayerId, choice: &Choice) -> GateDecision {
         let fingerprint = crate::control::ChoiceFingerprint::from_choice(choice);
-        // A queued answer wins: it is either R02-004's replay prefix or a test that knows the
-        // fingerprint in advance, and in both cases nobody is waiting to be asked. A queued answer
-        // for a *different* offer is counted as the controller bug it is and stops there, rather
-        // than also being reported as "nobody answered".
+        let (frame, ask) = self.clock.next_ask();
+        let _ = (frame, ask); // answers are recorded by the decorator, which knows the final option
+        // The plan's priority order: replay prefix first, then one-shot delegation, then the Auto
+        // policy, then a queued manual answer (consulted in the manual branch below).
+        if let Some(answer) = self.replay_answer(seat, choice) {
+            if matches!(answer, GateDecision::Replay { .. }) {
+                self.replayed.fetch_add(1, Ordering::Relaxed);
+            }
+            return answer;
+        }
+        // A queued answer beats the live paths: it is a scripted answer that already knows this
+        // offer's fingerprint, and nobody is waiting to be asked. A queued answer for a *different*
+        // offer is counted as the controller bug it is and stops there, rather than also being
+        // reported as "nobody answered".
         match self.take_queued(&fingerprint) {
             Queued::Matched(option_id) if choice.option(&option_id).is_some() => {
                 return GateDecision::Human { option_id };
@@ -613,7 +767,35 @@ impl Gate {
             );
             return GateDecision::Policy { delegated: false };
         }
-        self.park(seat, choice, &fingerprint)
+        self.park(seat, choice, &fingerprint, frame, ask)
+    }
+
+    /// Answer this ask from the replay prefix, if one is installed and not yet exhausted.
+    ///
+    /// Validation lives in [`crate::rebuild::ReplayScript`]; a mismatch is recorded once and turns
+    /// into [`GateDecision::Refused`], which makes the engine refuse the step. Refusing is the point:
+    /// a rebuild that cannot account for a decision must not produce a playable branch.
+    fn replay_answer(&self, seat: &PlayerId, choice: &Choice) -> Option<GateDecision> {
+        let mut slot = self
+            .replay
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let script = slot.as_mut()?;
+        match script.answer_for(seat, choice) {
+            PrefixAnswer::Done => None,
+            PrefixAnswer::Replay { option_id } => Some(GateDecision::Replay { option_id }),
+            PrefixAnswer::Mismatch(mismatch) => {
+                let mut divergence = self
+                    .divergence
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if divergence.is_none() {
+                    *divergence = Some(mismatch);
+                }
+                drop(divergence);
+                Some(GateDecision::Refused)
+            }
+        }
     }
 
     /// Publish the offer and wait for the user. No mutation has happened and none will until this
@@ -623,8 +805,9 @@ impl Gate {
         seat: &PlayerId,
         choice: &Choice,
         fingerprint: &crate::control::ChoiceFingerprint,
+        frame: u64,
+        ask: u32,
     ) -> GateDecision {
-        let (frame, ask) = self.clock.next_ask();
         let offer = match PendingManualChoice::new(
             crate::control::BranchId::SOURCE,
             frame,

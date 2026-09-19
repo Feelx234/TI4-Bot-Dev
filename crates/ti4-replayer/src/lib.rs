@@ -32,7 +32,9 @@
 
 pub mod control;
 pub mod decider;
+pub mod fingerprint;
 pub mod live;
+pub mod rebuild;
 
 pub use control::BranchId;
 pub use control::BranchIds;
@@ -57,6 +59,10 @@ pub use decider::ControlledDecider;
 pub use decider::ManualFallbacks;
 pub use decider::ManualInbox;
 pub use decider::QueuedAnswer;
+pub use fingerprint::FRAME_FINGERPRINT_VERSION;
+pub use fingerprint::FrameFingerprint;
+pub use fingerprint::first_difference;
+pub use fingerprint::state_fingerprint;
 pub use live::AdvanceGoal;
 pub use live::FrameTick;
 pub use live::Gate;
@@ -66,3 +72,12 @@ pub use live::LiveEvent;
 pub use live::LiveState;
 pub use live::MAX_QUEUED_EVENTS;
 pub use live::Snapshot;
+pub use rebuild::Mismatch;
+pub use rebuild::MismatchKind;
+pub use rebuild::RebuildBounds;
+pub use rebuild::RebuildError;
+pub use rebuild::RebuildTarget;
+pub use rebuild::Rebuilt;
+pub use rebuild::ReplayScript;
+pub use rebuild::describe_frame_difference;
+pub use rebuild::rebuild;
