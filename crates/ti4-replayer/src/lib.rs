@@ -13,9 +13,12 @@
 //! - [`decider`] — the decorator that answers for one seat, sitting under the reviewer's trace.
 //! - [`live`] — one running branch: a thread that owns the game, and the gate every command passes
 //!   through, so a manual seat can park inside the engine's own `ask` without mutating anything.
+//! - [`rebuild`] — replay a prefix and prove the result, frame by frame, or refuse.
+//! - [`project`] — the branch tree and what a branch may be played for.
+//! - [`persistence`] — the atomic bounded project file that holds the tree.
 //!
-//! Reconstruction, persistence and the native app arrive in later packages, so nothing here opens a
-//! window or edits `ti4-engine`; `ti4-review` is used as a library through the seam R02-002 added.
+//! The native app arrives in a later package, so nothing here opens a window or edits `ti4-engine`;
+//! `ti4-review` is used as a library through the seam R02-002 added.
 //!
 //! # Rules these types enforce
 //!
@@ -34,6 +37,8 @@ pub mod control;
 pub mod decider;
 pub mod fingerprint;
 pub mod live;
+pub mod persistence;
+pub mod project;
 pub mod rebuild;
 
 pub use control::BranchId;
@@ -72,6 +77,21 @@ pub use live::LiveEvent;
 pub use live::LiveState;
 pub use live::MAX_QUEUED_EVENTS;
 pub use live::Snapshot;
+pub use persistence::MAX_PROJECT_BYTES;
+pub use persistence::load_project;
+pub use persistence::save_project;
+pub use persistence::sha256_file;
+pub use project::Branch;
+pub use project::MAX_TOTAL_FRAMES;
+pub use project::Origin;
+pub use project::PROJECT_SCHEMA;
+pub use project::PROJECT_VERSION;
+pub use project::ProjectError;
+pub use project::ReplayInputs;
+pub use project::ReplayerProject;
+pub use project::SeatSetting;
+pub use project::SourceTimeline;
+pub use project::Verification;
 pub use rebuild::Mismatch;
 pub use rebuild::MismatchKind;
 pub use rebuild::RebuildBounds;

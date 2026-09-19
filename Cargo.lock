@@ -4063,9 +4063,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.20",
+ "ti4-content",
  "ti4-engine",
  "ti4-model",
  "ti4-review",
+ "zstd 0.13.3",
 ]
 
 [[package]]

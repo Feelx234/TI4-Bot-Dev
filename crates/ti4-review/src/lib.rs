@@ -42,6 +42,11 @@ use ti4_training::rollout::{
 pub mod diplomacy;
 pub mod gui;
 
+/// The `ti4-engine` commit this reviewer build was compiled against. Recorded in every session and
+/// checked by anything that intends to replay one, so a session made by a different engine is
+/// refused before the first step rather than diverging quietly later.
+pub const ENGINE_COMMIT: &str = env!("TI4_REVIEW_ENGINE_COMMIT");
+
 pub const SESSION_SCHEMA: &str = "ti4-review-session";
 pub const SESSION_VERSION: u32 = 3;
 pub const LEGACY_SESSION_VERSION: u32 = 2;
@@ -930,7 +935,7 @@ impl LiveReview {
             initial_speaker: Some(initial_speaker),
             map_arrangement_index: Some(map_arrangement_index),
             map_arrangement_sha256: Some(map_arrangement_sha256),
-            engine_commit: Some(env!("TI4_REVIEW_ENGINE_COMMIT").to_owned()),
+            engine_commit: Some(ENGINE_COMMIT.to_owned()),
             engine_dirty: env!("TI4_REVIEW_ENGINE_DIRTY") == "true",
             content_sha256: Some(content_sha256),
             source_scope: Some("FULL (base + PoK + codices + Thunder's Edge)".to_owned()),

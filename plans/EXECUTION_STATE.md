@@ -9171,10 +9171,48 @@ Evidence: `plans/evidence/R02-004.md`. Branch `wp/r02-004-deterministic-rebuild`
   `rebuild()` inside the branch thread (or use `Gate::replaying` with `LiveBranch`); cancellation is
   polled per step (the deterministic pre-set flag is what is tested); recording is opt-in.
 
-Next ready package: **R02-005 branch tree and persistence** (`src/project.rs`, `src/persistence.rs`:
-`ReplayerProjectV1` in a separate atomic bounded file (suggested `.ti4replay.json.zst`), monotonic
-project-local branch ids (`branch-0`...) with immutable parents, 128-branch bound, R01's 1,000,001
-frame / 1 GiB bounds enforced per project across all branches (default taken 2026-09-18), mode
-changes, provenance, optional UI selection, R01 import that re-picks inputs and verifies manifest
-hashes (mismatch refuses Play up front), schema/version/checksum validation before any mutation, and
-no change to R01's JSON format).
+## 2026-09-18 R02-005 branch tree and persistence: implemented, all gates green
+
+Evidence: `plans/evidence/R02-005.md`. Branch `wp/r02-005-branch-tree-persistence` (from `60a364a`).
+
+- `src/project.rs`: `ReplayerProject` (schema `r02-replayer-project` v1, `deny_unknown_fields`,
+  SHA-256 payload checksum), `ReplayInputs` (R01's seven knobs), `SourceTimeline` (session/checkpoint/
+  pool SHA-256 at import + engine commit + content digest + frames + seating), `Branch` (id, parent,
+  `Origin::Imported|Fork{frame}`, title, seats, **only its own answers**, frames, `verified`,
+  optional UI value), `ProjectError`, `Verification`, `validate()`, `fork()`, `extend()`, `prefix()`,
+  `replay_script()`, `mark_verified()`, `set_ui()`, `total_frames()`, `verify_inputs()`.
+- `src/persistence.rs`: `save_project`/`load_project` (JSON; zstd iff the path ends in `.zst`, exactly
+  as R01 chooses), `MAX_PROJECT_BYTES = ti4_review::MAX_SESSION_BYTES`, R01's temp/backup/rename/restore
+  write, decompressed-stream bound, `sha256_file`.
+- `ti4-review` gained one additive line: `pub const ENGINE_COMMIT` (the recorded commit promoted from
+  an internal `env!`) so anything replaying a session can check it. R01's JSON/HTML/bounds untouched.
+- Prefix rule (makes branching non-destructive without duplication): walk branch-0 -> branch and take
+  each ancestor's answers strictly before the frame where the next branch diverged; sort by
+  `(frame, ask)`. `prefix()` is what `rebuild()` consumes.
+- Verification: `verify_inputs` re-hashes checkpoint/pool and enforces the content digest;
+  `Branch::playable(&Verification)` needs the branch's own `verified` flag AND that check, so a swapped
+  checkpoint takes the whole tree out of play. **Recorded judgement call:** an *engine commit*
+mismatch is reported (`engine_matches`) rather than refused, because R01 stamps the repository commit
+of the build, so enforcing it would reject every session made before the latest commit while proving
+nothing about replay; the commit is surfaced for R02-007's disabled-Play tooltip.
+- Gates: per-package fmt clean; `ti4-replayer` 23 unit + 8 live + 12 rebuild + **20 project** = 63
+  passed; `ti4-review` 33 + 3 unchanged; clippy `--no-deps -D warnings` exit 0 on **both** touched
+  crates; `cargo check --workspace --all-targets` exit 0.
+- End-to-end coverage added: `a_saved_project_rebuilds_what_it_recorded` (play 12 steps -> write the
+  session with R01's writer -> import -> save `.zst` -> load -> rebuild -> compare every frame
+  fingerprint) and `only_a_reproduced_fork_becomes_live` (fork is not playable, rebuild, mark
+  verified, is playable).
+- **Pre-existing workspace failures found and recorded, NOT fixed** (`cargo test --workspace
+  --no-fail-fast`: 38 targets ok, 4 failing): `ti4-bridge` `hexsummary_golden`/`import_golden`/
+  `wire_golden` and `ti4-mlp` `smoke_refusals` need corpora/artifacts that were never committed
+  (`crates/ti4-bridge/tests/golden/*`, `out/vocabulary/current.json`); `os error 3` panics from tests
+  added in `53a4efa`, and `cargo tree -i ti4-review` shows only `ti4-replayer` depends on it. Needs a
+  separate housekeeping package (commit the corpora or gate the tests); flagged for the R02-008
+  handoff. Do not invent fixtures to silence them.
+
+Next ready package: **R02-006 shared immutable reviewer presentation** (`crates/ti4-review/src/
+{gui.rs,view.rs,lib.rs}`): extract board/player/table/objective/action/decision/event/timeline view
+models used by both apps, with immutable frame/session inputs and no `LiveReview` access; identical
+labels, colours, geometry and detail panes (R01 UX must not move); no R02 controls in shared views.
+Tests: pure view-model snapshots, app construction, before/after data and control-availability
+equality. Review waived for this run; R01's 33 unit + 3 semantic golden tests are the backstop.
