@@ -9521,6 +9521,15 @@ frame-by-frame through `FrameFingerprint`), then manual control at action, react
 production-payment and agenda decisions at early/round-end/late points, then budget caps and operator
 documentation. Optional and still not required: **R02-006d** (player panel).
 
+A check against the operator's own 4,481-frame recording found that a recording made by a *different*
+engine build cannot be forked at all: frame 0 does not reproduce (`FrameMismatch { index: 0 }`), after the
+prefix machinery had correctly counted 3,493 decisions to force. Import, answers, hashing and the file
+round trip are all fine; the build that recorded it is not this one, which `inspect` had already said in
+other words. R02-008's first task is therefore a forkability pre-check (rebuild frame 0 before offering
+Play, refuse with a tooltip) plus comparing the checkpoint and map-pool hashes against what the recording
+itself claims rather than only against what this import saw. Details and the exact output are in
+`plans/evidence/R02-007b.md`.
+
 Carry forward: pre-existing unrelated failures (`ti4-bridge` `hexsummary_golden`/`import_golden`/
 `wire_golden` missing committed golden corpora; `ti4-mlp --test smoke_refusals` needing a generated
 vocabulary) - do not invent fixtures. Working tree apart from this package's files holds the operator's
