@@ -33,6 +33,7 @@
 //! `Table::ask`/`settle` validation; these types only describe what was offered and what the
 //! human chose, and record who answered.
 
+pub mod app;
 pub mod control;
 pub mod decider;
 pub mod fingerprint;

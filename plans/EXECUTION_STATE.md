@@ -9360,3 +9360,66 @@ operator's own uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot
 `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
 `scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
 `target-cuda-repack/`); never stage them.
+
+## 2026-09-18 R02-007a replayer app reducer: implemented, all gates green
+
+Evidence: `plans/evidence/R02-007a.md`. Branch `wp/r02-007a-app-reducer` (from `0568c01`, tip of
+`wp/r02-006c-panel-view-models`).
+
+R02-007 was split before implementation into **007a** (the application state and its rules, no egui)
+and **007b** (the eframe shell, both release builds, Windows smoke with screenshots). Reason: the
+plan's own test list is stated as *GUI reducer states*, and every rule in it — disable buttons after
+submit, tooltip every disabled Play state, never overwrite R01 settings, navigation never branches,
+branch retains future, safe close while rebuilding, separate settings — is decidable in plain data.
+The half that needs a desktop is only the painting. The parent acceptance criterion is preserved
+across the children and quoted in the evidence file.
+
+- `crates/ti4-replayer/src/app.rs` (new): `ReplayApp<H>`, `BranchHandle` (+ `impl BranchHandle for
+  Gate` as the single bridge to the engine), `PlayBlock` with a `tooltip()` per refusal, `PlayPlan`,
+  `RebuildOutcome`/`RebuildStatus`, `BranchNode`/`tree()`, `ReplaySettings` + `SETTINGS_PATH =
+  "out/replays/replayer-settings.json"` (atomic write; unreadable or unknown-shaped ⇒ defaults).
+- `crates/ti4-replayer/tests/app.rs` (new): 18 tests over a *gate-shaped* fake branch — it releases a
+  parked choice only when its own seat returns to `Auto`, refuses a fingerprint that is not on screen,
+  and treats `pause()` as a request. No engine run, no window, 0.01 s.
+- Only library change outside the new file: `pub mod app;` in `crates/ti4-replayer/src/lib.rs`.
+  `control`/`decider`/`fingerprint`/`live`/`project`/`persistence`/`rebuild` and both `ti4-review` and
+  `ti4-engine` are untouched.
+
+Three rules the tests corrected in the first draft (recorded so they are not "re-fixed" later):
+
+1. `play_check` must not use `LiveState::accepts_run()` — that includes `Ready`, which would refuse
+   Play for a freshly attached branch, i.e. the headline feature. Only `Running | WaitingForHuman`
+   block.
+2. Only `RebuildStatus::Running` blocks Play. Blocking on `!= Idle` let one refused fork disable the
+   button for the rest of the session.
+3. `at_tip()` requires at least one frame; a branch with zero frames is not "at the live tip".
+
+Design decisions worth carrying into 007b:
+
+- `plan_play` allocates the fork and returns a `PlayPlan` instead of rebuilding, because `rebuild()`
+  returns a non-`Send` `LiveReview` (R02-004) and must run on the thread that will own the branch.
+  The shell runs `ti4_replayer::rebuild()` on a worker and reports with `finish_rebuild` /
+  `fail_rebuild` / `cancel_rebuild`. This is also what makes "safe close while rebuilding" testable.
+- `discard_fork` removes only a child with no children and never rewinds `next_branch`; ids are not
+  reused. That is not the pruning the master plan defers — it removes a branch the app made seconds
+  earlier, because R02-005 forbids an unreproduced branch looking playable.
+- Frames are held per branch in the app (`FrameTick`s actually seen); `ReplayerProject` keeps a frame
+  *count* for the budget. `tree()` takes the max so a branch never looks shorter than it is.
+
+Gates: `cargo test -p ti4-replayer` = 23 lib + **18 app** + 8 live + 20 project + 11 rebuild
+(terminal-target rebuild filtered — green at R02-005, no `rebuild.rs`/`live.rs` line changed);
+`cargo clippy -p ti4-replayer --all-targets --no-deps -- -D warnings` exit 0; `cargo fmt -p
+ti4-replayer --check` exit 0; `cargo check --workspace --all-targets` exit 0 (warnings only in
+`ti4-mlp/examples/opening_plan.rs` and `ti4-training/examples/seat_advantage.rs`, untouched by R02).
+
+Next ready package: **R02-007b replayer shell** — `crates/ti4-replayer/src/main.rs` + `src/gui.rs`
+drawing `ti4_review::view` models (006a/b/c) and calling only the `ReplayApp` methods, plus both
+release builds and an operator-run Windows smoke pass with screenshots for `plans/evidence/R02-007.md`.
+First exact actions: `git checkout -b wp/r02-007b-replayer-shell`; read `plans/R02_REPLAYER.md`
+§R02-007, `plans/evidence/R02-007a.md`, `crates/ti4-replayer/src/app.rs`, and
+`crates/ti4-review/src/gui.rs` (for the run loop and top bar to mirror). Optional and still not
+required: **R02-006d** (player panel). Working tree is clean apart from the operator's own
+uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+`crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+`scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
+`target-cuda-repack/`); never stage them.
