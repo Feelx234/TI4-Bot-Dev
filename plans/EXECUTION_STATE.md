@@ -9423,3 +9423,60 @@ uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
 `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
 `scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
 `target-cuda-repack/`); never stage them.
+
+## 2026-09-18 R02-006e shared board painter: implemented, all gates green
+
+Evidence: `plans/evidence/R02-006e.md`. Branch `wp/r02-006e-board-painter` (from `15b7828`, tip of
+`wp/r02-007a-app-reducer`).
+
+A fifth child was added to R02-006 while starting R02-007b: 006a-c moved the board's *meaning* into
+`view`, but the *strokes* were still private inside `ReviewApp::board` and coupled to
+`self.selected_tile`, so the replayer's only alternative was to copy 234 lines of geometry. That is
+the thing R02-006 exists to prevent, so it is fixed here rather than in the shell.
+
+- `crates/ti4-review/src/view.rs` gains `BoardLayout` (+ `new`), `tile_point`, `fracture_shown` and
+  `draw_board(painter, response, layout, tiles) -> Option<String>`.
+- `ReviewApp::board()` is 28 lines (was 260); `gui.rs` 1,986 -> 1,753 and no longer imports
+  `Align2/FontId/Pos2/Shape/Stroke/Vec2/hex_corners/planet_offset/draw_wormhole/draw_fracture_portal/
+  draw_unit_symbol`.
+- New `crates/ti4-review/tests/board_layout.rs` (6 tests) pins the geometry that used to be four
+  local variables: scale clamps (0.45/1.2), the 72 px Fracture band, 126/108/63 axial spacing
+  including the 0.8 % projection squish, edge anchoring of the two special areas, 37 tiles, and
+  `fracture_shown` == `frame.state.fracture_in_play` over 13 real frames plus a forced positive.
+
+Proof the move did not change R01: two machine comparisons against `HEAD` after renames only —
+`tile_point == moved position formula: True (390 chars)` and `draw_board body == moved painter code:
+True (4,915 chars)`, normalising whitespace and the one trailing comma rustfmt added. Eight
+adaptations are listed in full in the evidence; seven are renames, one returns the clicked system
+instead of writing a field, and one derives the Fracture label from the tiles instead of the frame
+(equivalence tested). Painter operations: 19 before, 19 after.
+
+Three implementer assumptions were falsified by the new tests before shipping: the r-step skew is 63 px
+(not 54), the example map draws 37 tiles (not 52), and diagonal neighbour spacing is 125.032 rather
+than equal to the 126 row spacing, so "six equidistant neighbours" is not a property of this
+projection.
+
+Decision recorded: `decision_panel`, `player_panel`, timeline and top bar are **not** extracted. The
+replayer wants a choice panel, a branch selector and rebuild progress beside its timeline, so
+generalising R01's widgets would reshape them for an app that does not use them that way; R02-007b
+composes its own panels from the `view::` models 006b/c already provide.
+
+Gates: `cargo test -p ti4-review` = 33 + **6 board_layout** + 11 board_view + 10 decision_view + 11
+presentation + 3 golden = **74 passed**; clippy `--all-targets --no-deps -D warnings` exit 0; fmt exit
+0; `cargo test -p ti4-replayer --lib --test app --test live --test project` = 23+18+8+20 passed;
+`cargo check --workspace --all-targets` exit 0.
+
+Next ready package: **R02-007b replayer shell** — `crates/ti4-replayer/src/{main.rs,gui.rs}`: eframe
+window, top bar (open/import a project, run controls), six seat chips, the persistent manual-choice
+panel, the branch selector beside the timeline, Play + rebuild progress/cancel wired to
+`ReplayApp::plan_play` + a worker thread + `finish_rebuild`/`fail_rebuild`/`cancel_rebuild`, the
+live-tip versus viewed-frame marker, `ReplaySettings` persistence, both release builds, and the
+operator-run Windows smoke pass with screenshots into `plans/evidence/R02-007.md`. First exact
+actions: `git checkout -b wp/r02-007b-replayer-shell`; read `plans/R02_REPLAYER.md` §R02-007,
+`plans/evidence/R02-007a.md`, `plans/evidence/R02-006e.md`, `crates/ti4-replayer/src/app.rs`, and
+`crates/ti4-review/src/gui.rs` (for the run loop, top bar and `with_session` pattern). Optional and
+still not required: **R02-006d** (player panel). Working tree is clean apart from the operator's own
+uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+`crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+`scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
+`target-cuda-repack/`); never stage them.

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Sense, Shape, Stroke, Vec2};
+use eframe::egui::{self, Color32, Sense};
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_model::content_types::ContentType;
@@ -18,10 +18,9 @@ use crate::{
 };
 
 use crate::view::{
-    DecisionPath, PANEL_FILL, PANEL_TEXT, action_summary, board_view, content_label, decision_rows,
-    draw_fracture_portal, draw_unit_symbol, draw_wormhole, event_rows, hex_corners, item_section,
-    planet_offset, planets_for_tile, player_color, seat_label, section, section_with_id,
-    selected_system, stat_badge, step_view, unit_base,
+    BoardLayout, DecisionPath, PANEL_FILL, PANEL_TEXT, action_summary, board_view, content_label,
+    decision_rows, draw_board, event_rows, item_section, planets_for_tile, player_color,
+    seat_label, section, section_with_id, selected_system, stat_badge, step_view, unit_base,
 };
 
 const STEPS_PER_UI_FRAME: usize = 128;
@@ -1669,246 +1668,14 @@ impl ReviewApp {
             );
             let available = ui.available_size();
             let (response, painter) = ui.allocate_painter(available, Sense::click());
-            let scale = (available.x / 1150.0)
-                .min(available.y / 900.0)
-                .clamp(0.45, 1.2);
-            let fracture_visible = frame.state.fracture_in_play;
-            let center = response.rect.center()
-                - Vec2::new(0.0, if fracture_visible { 72.0 * scale } else { 0.0 });
-            let radius = 58.0 * scale;
-            if fracture_visible {
-                painter.text(
-                    Pos2::new(response.rect.center().x, response.rect.bottom() - 124.0 * scale),
-                    Align2::CENTER_CENTER,
-                    "THE FRACTURE · SPECIAL AREA",
-                    FontId::proportional(10.0 * scale.max(0.85)),
-                    Color32::from_rgb(205, 151, 239),
-                );
-            }
-            // What each tile means is the shared view's answer, made once for the frame; what is left
-            // here is where to put it and which strokes to make.
+            let layout =
+                BoardLayout::new(response.rect, available, frame.state.fracture_in_play);
+            // What each tile *means* is `board_view`'s answer for the frame; where it goes is
+            // `BoardLayout`; the strokes are `draw_board`. All three are shared, so the replayer
+            // paints this board without restating a single number from it.
             let tiles = board_view(content, session, frame, self.selected_tile.as_deref());
-            for tile in tiles {
-                let point = match tile.special_area.as_deref() {
-                    Some("fracture") => Pos2::new(
-                        response.rect.center().x + (tile.q as f32 - 3.0) * 100.0 * scale,
-                        response.rect.bottom() - 61.0 * scale,
-                    ),
-                    Some("nexus") => Pos2::new(
-                        response.rect.left() + 72.0 * scale,
-                        response.rect.bottom() - 61.0 * scale,
-                    ),
-                    _ => Pos2::new(
-                        center.x + 126.0 * scale * (tile.q as f32 + tile.r as f32 / 2.0),
-                        center.y + 108.0 * scale * tile.r as f32,
-                    ),
-                };
-                let points = hex_corners(point, radius);
-                painter.add(Shape::convex_polygon(
-                    points.clone(),
-                    tile.color,
-                    Stroke::new(1.4, Color32::from_rgb(112, 152, 189)),
-                ));
-                if let Some(label) = tile.anomaly_label {
-                    painter.text(
-                        point + Vec2::new(0.0, -32.0 * scale),
-                        Align2::CENTER_CENTER,
-                        label,
-                        FontId::monospace(6.2 * scale.max(0.9)),
-                        Color32::from_rgb(239, 214, 178),
-                    );
-                }
-                if let Some(owner) = &tile.space_owner {
-                    painter.add(Shape::closed_line(
-                        points.clone(),
-                        Stroke::new(5.0 * scale.max(0.75), player_color(owner)),
-                    ));
-                }
-                let ownership_ring: Vec<Pos2> = points
-                    .iter()
-                    .map(|corner| point + (*corner - point) * 0.92)
-                    .collect();
-                if let [owner] = tile.planet_owners.as_slice() {
-                    painter.add(Shape::closed_line(
-                        ownership_ring.clone(),
-                        Stroke::new(2.2 * scale.max(0.8), player_color(owner)),
-                    ));
-                } else if tile.planet_owners.len() > 1 {
-                    let owners = &tile.planet_owners;
-                    for index in 0..ownership_ring.len() {
-                        painter.line_segment(
-                            [
-                                ownership_ring[index],
-                                ownership_ring[(index + 1) % ownership_ring.len()],
-                            ],
-                            Stroke::new(
-                                2.5 * scale.max(0.8),
-                                player_color(&owners[index % owners.len()]),
-                            ),
-                        );
-                    }
-                }
-                if tile.selected || tile.portal_linked {
-                    let inner: Vec<Pos2> = points
-                        .iter()
-                        .map(|corner| point + (*corner - point) * 0.91)
-                        .collect();
-                    painter.add(Shape::closed_line(inner, Stroke::new(2.5, Color32::WHITE)));
-                }
-                painter.text(
-                    point + Vec2::new(0.0, -45.0 * scale),
-                    Align2::CENTER_CENTER,
-                    tile.label.clone(),
-                    FontId::proportional(9.5 * scale.max(0.85)),
-                    Color32::WHITE,
-                );
-                for (index, wormhole) in tile.wormholes.iter().enumerate() {
-                    draw_wormhole(
-                        &painter,
-                        point + Vec2::new((-42.0 + index as f32 * 18.0) * scale, -18.0 * scale),
-                        &wormhole.kind,
-                        wormhole.token,
-                        wormhole.suppressed,
-                        scale,
-                    );
-                }
-                if tile.ingress {
-                    draw_fracture_portal(
-                        &painter,
-                        point + Vec2::new(43.0 * scale, 31.0 * scale),
-                        true,
-                        scale,
-                    );
-                }
-                if tile.egress {
-                    draw_fracture_portal(
-                        &painter,
-                        point + Vec2::new(43.0 * scale, 31.0 * scale),
-                        false,
-                        scale,
-                    );
-                }
-
-                for (index, stack) in tile.units.iter().enumerate() {
-                    let column = index % 5;
-                    let row = index / 5;
-                    let unit_center = point
-                        + Vec2::new(
-                            (column as f32 - 2.0) * 18.0 * scale,
-                            (-23.0 + row as f32 * 20.0) * scale,
-                        );
-                    draw_unit_symbol(
-                        &painter,
-                        unit_center,
-                        &stack.base,
-                        player_color(&stack.owner),
-                        stack.count,
-                        stack.damaged,
-                        stack.galvanized,
-                        scale,
-                    );
-                }
-                for (index, owner) in tile.command_tokens.iter().enumerate() {
-                    let at = point + Vec2::new((-42.0 + index as f32 * 10.0) * scale, 42.0 * scale);
-                    painter.circle_filled(at, 3.5 * scale, player_color(owner));
-                    painter.circle_stroke(
-                        at,
-                        3.5 * scale,
-                        Stroke::new(1.0, Color32::WHITE),
-                    );
-                }
-
-                if !tile.token_labels.is_empty() {
-                    painter.text(
-                        point + Vec2::new(0.0, 45.0 * scale),
-                        Align2::CENTER_CENTER,
-                        tile.token_labels.join(" · "),
-                        FontId::proportional(6.2 * scale.max(0.85)),
-                        Color32::from_rgb(129, 221, 237),
-                    );
-                }
-
-                for (planet_index, planet) in tile.planets.iter().enumerate() {
-                    let (offset_x, offset_y) = planet_offset(planet_index, tile.planets.len());
-                    let planet_center = point + Vec2::new(offset_x * scale, offset_y * scale);
-                    let planet_radius = 14.5 * scale.max(0.72);
-                    painter.circle_filled(
-                        planet_center,
-                        planet_radius,
-                        planet.color.gamma_multiply(0.72),
-                    );
-                    painter.circle_stroke(
-                        planet_center,
-                        planet_radius,
-                        Stroke::new(2.0 * scale.max(0.8), planet.color),
-                    );
-                    painter.text(
-                        planet_center + Vec2::new(0.0, -5.0 * scale),
-                        Align2::CENTER_CENTER,
-                        format!("{}/{}", planet.meta.resources, planet.meta.influence),
-                        FontId::monospace(7.2 * scale.max(0.85)),
-                        Color32::WHITE,
-                    );
-                    painter.text(
-                        planet_center + Vec2::new(0.0, 5.0 * scale),
-                        Align2::CENTER_CENTER,
-                        planet.trait_label.clone(),
-                        FontId::monospace(6.2 * scale.max(0.9)),
-                        Color32::WHITE,
-                    );
-                    painter.text(
-                        planet_center + Vec2::new(0.0, planet_radius + 1.0),
-                        Align2::CENTER_TOP,
-                        format!("{}{}", planet.badge, planet.meta.label),
-                        FontId::proportional(6.4 * scale.max(0.9)),
-                        Color32::LIGHT_GRAY,
-                    );
-
-                    for (index, coexistor) in planet.coexisting.iter().enumerate() {
-                        let angle = std::f32::consts::TAU * index as f32
-                            / planet.coexisting.len().max(1) as f32;
-                        let marker =
-                            planet_center + Vec2::angled(angle) * (planet_radius + 4.0 * scale);
-                        painter.circle_filled(marker, 2.8 * scale, player_color(coexistor));
-                        painter.circle_stroke(
-                            marker,
-                            2.8 * scale,
-                            Stroke::new(0.8, Color32::WHITE),
-                        );
-                    }
-                    if planet.attachments > 0 {
-                        painter.text(
-                            planet_center + Vec2::new(planet_radius, -planet_radius),
-                            Align2::CENTER_CENTER,
-                            format!("+{}", planet.attachments),
-                            FontId::monospace(6.0 * scale.max(0.9)),
-                            Color32::YELLOW,
-                        );
-                    }
-                    for (unit_index, stack) in planet.ground.iter().enumerate() {
-                        draw_unit_symbol(
-                            &painter,
-                            planet_center
-                                + Vec2::new(
-                                    (-8.0 + unit_index as f32 * 12.0) * scale,
-                                    -planet_radius * 0.85,
-                                ),
-                            &stack.base,
-                            player_color(&stack.owner),
-                            stack.count,
-                            stack.damaged,
-                            stack.galvanized,
-                            scale * 0.72,
-                        );
-                    }
-                }
-                if response.clicked()
-                    && response
-                        .interact_pointer_pos()
-                        .is_some_and(|cursor| cursor.distance(point) <= radius)
-                {
-                    self.selected_tile = Some(tile.system.clone());
-                }
+            if let Some(system) = draw_board(&painter, &response, &layout, &tiles) {
+                self.selected_tile = Some(system);
             }
         });
     }

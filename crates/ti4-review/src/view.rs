@@ -1263,3 +1263,307 @@ pub fn selected_system(
         .map(|state| json_pretty(&serde_json::to_value(state).unwrap_or_default()));
     view
 }
+
+/// Where the board goes in the space it was given.
+///
+/// Meaning is a function of the frame ([`board_view`]); position is a function of the window, and
+/// this is that part. Keeping the two apart is what lets two applications paint the same board into
+/// different rectangles without either restating the other's arithmetic - and it makes the geometry
+/// testable, which a call into a painter never was.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoardLayout {
+    /// The painter's rectangle, whose edges anchor the Fracture row and the Nexus.
+    pub rect: egui::Rect,
+    /// The space the UI asked for before egui trimmed it; the scale used to be computed from this.
+    pub size: Vec2,
+    /// Pixels per design unit, clamped so a maximised window does not dwarf the hexes.
+    pub scale: f32,
+    /// Centre of the hex ring, nudged up when the Fracture needs its own band below.
+    pub center: Pos2,
+    /// One tile's circumradius.
+    pub radius: f32,
+}
+
+impl BoardLayout {
+    /// Lay the board out inside `rect`, given `size` as the space that was asked for.
+    #[must_use]
+    pub fn new(rect: egui::Rect, size: Vec2, fracture_visible: bool) -> Self {
+        let scale = (size.x / 1150.0).min(size.y / 900.0).clamp(0.45, 1.2);
+        let center =
+            rect.center() - Vec2::new(0.0, if fracture_visible { 72.0 * scale } else { 0.0 });
+        Self {
+            rect,
+            size,
+            scale,
+            center,
+            radius: 58.0 * scale,
+        }
+    }
+}
+
+/// The centre of one tile: the Fracture's own band along the bottom, the Nexus in the lower-left
+/// corner, and everything else on the axial hex grid.
+#[must_use]
+pub fn tile_point(layout: &BoardLayout, tile: &TileView) -> Pos2 {
+    match tile.special_area.as_deref() {
+        Some("fracture") => Pos2::new(
+            layout.rect.center().x + (tile.q as f32 - 3.0) * 100.0 * layout.scale,
+            layout.rect.bottom() - 61.0 * layout.scale,
+        ),
+        Some("nexus") => Pos2::new(
+            layout.rect.left() + 72.0 * layout.scale,
+            layout.rect.bottom() - 61.0 * layout.scale,
+        ),
+        _ => Pos2::new(
+            layout.center.x + 126.0 * layout.scale * (tile.q as f32 + tile.r as f32 / 2.0),
+            layout.center.y + 108.0 * layout.scale * tile.r as f32,
+        ),
+    }
+}
+
+/// Whether the Fracture is on the board at all, which is what decides whether its band gets a title.
+///
+/// This is [`ReviewFrame`]'s `fracture_in_play` seen through the tiles: [`board_view`] only puts the
+/// Fracture on the board when it is in play, so asking the tiles keeps the painter from needing the
+/// frame a second time.
+#[must_use]
+pub fn fracture_shown(tiles: &[TileView]) -> bool {
+    tiles
+        .iter()
+        .any(|tile| tile.special_area.as_deref() == Some("fracture"))
+}
+
+/// Paint one frame's board and report the tile the pointer chose, if any.
+///
+/// The reviewer and the replayer call this. It returns the chosen system rather than storing it, so
+/// each application keeps its own selection state while sharing every pixel of the drawing.
+pub fn draw_board(
+    painter: &egui::Painter,
+    response: &egui::Response,
+    layout: &BoardLayout,
+    tiles: &[TileView],
+) -> Option<String> {
+    let mut selected: Option<String> = None;
+    if fracture_shown(tiles) {
+        painter.text(
+            Pos2::new(
+                layout.rect.center().x,
+                layout.rect.bottom() - 124.0 * layout.scale,
+            ),
+            Align2::CENTER_CENTER,
+            "THE FRACTURE · SPECIAL AREA",
+            FontId::proportional(10.0 * layout.scale.max(0.85)),
+            Color32::from_rgb(205, 151, 239),
+        );
+    }
+    for tile in tiles {
+        let point = tile_point(layout, tile);
+        let points = hex_corners(point, layout.radius);
+        painter.add(Shape::convex_polygon(
+            points.clone(),
+            tile.color,
+            Stroke::new(1.4, Color32::from_rgb(112, 152, 189)),
+        ));
+        if let Some(label) = tile.anomaly_label {
+            painter.text(
+                point + Vec2::new(0.0, -32.0 * layout.scale),
+                Align2::CENTER_CENTER,
+                label,
+                FontId::monospace(6.2 * layout.scale.max(0.9)),
+                Color32::from_rgb(239, 214, 178),
+            );
+        }
+        if let Some(owner) = &tile.space_owner {
+            painter.add(Shape::closed_line(
+                points.clone(),
+                Stroke::new(5.0 * layout.scale.max(0.75), player_color(owner)),
+            ));
+        }
+        let ownership_ring: Vec<Pos2> = points
+            .iter()
+            .map(|corner| point + (*corner - point) * 0.92)
+            .collect();
+        if let [owner] = tile.planet_owners.as_slice() {
+            painter.add(Shape::closed_line(
+                ownership_ring.clone(),
+                Stroke::new(2.2 * layout.scale.max(0.8), player_color(owner)),
+            ));
+        } else if tile.planet_owners.len() > 1 {
+            let owners = &tile.planet_owners;
+            for index in 0..ownership_ring.len() {
+                painter.line_segment(
+                    [
+                        ownership_ring[index],
+                        ownership_ring[(index + 1) % ownership_ring.len()],
+                    ],
+                    Stroke::new(
+                        2.5 * layout.scale.max(0.8),
+                        player_color(&owners[index % owners.len()]),
+                    ),
+                );
+            }
+        }
+        if tile.selected || tile.portal_linked {
+            let inner: Vec<Pos2> = points
+                .iter()
+                .map(|corner| point + (*corner - point) * 0.91)
+                .collect();
+            painter.add(Shape::closed_line(inner, Stroke::new(2.5, Color32::WHITE)));
+        }
+        painter.text(
+            point + Vec2::new(0.0, -45.0 * layout.scale),
+            Align2::CENTER_CENTER,
+            tile.label.clone(),
+            FontId::proportional(9.5 * layout.scale.max(0.85)),
+            Color32::WHITE,
+        );
+        for (index, wormhole) in tile.wormholes.iter().enumerate() {
+            draw_wormhole(
+                painter,
+                point
+                    + Vec2::new(
+                        (-42.0 + index as f32 * 18.0) * layout.scale,
+                        -18.0 * layout.scale,
+                    ),
+                &wormhole.kind,
+                wormhole.token,
+                wormhole.suppressed,
+                layout.scale,
+            );
+        }
+        if tile.ingress {
+            draw_fracture_portal(
+                painter,
+                point + Vec2::new(43.0 * layout.scale, 31.0 * layout.scale),
+                true,
+                layout.scale,
+            );
+        }
+        if tile.egress {
+            draw_fracture_portal(
+                painter,
+                point + Vec2::new(43.0 * layout.scale, 31.0 * layout.scale),
+                false,
+                layout.scale,
+            );
+        }
+
+        for (index, stack) in tile.units.iter().enumerate() {
+            let column = index % 5;
+            let row = index / 5;
+            let unit_center = point
+                + Vec2::new(
+                    (column as f32 - 2.0) * 18.0 * layout.scale,
+                    (-23.0 + row as f32 * 20.0) * layout.scale,
+                );
+            draw_unit_symbol(
+                painter,
+                unit_center,
+                &stack.base,
+                player_color(&stack.owner),
+                stack.count,
+                stack.damaged,
+                stack.galvanized,
+                layout.scale,
+            );
+        }
+        for (index, owner) in tile.command_tokens.iter().enumerate() {
+            let at = point
+                + Vec2::new(
+                    (-42.0 + index as f32 * 10.0) * layout.scale,
+                    42.0 * layout.scale,
+                );
+            painter.circle_filled(at, 3.5 * layout.scale, player_color(owner));
+            painter.circle_stroke(at, 3.5 * layout.scale, Stroke::new(1.0, Color32::WHITE));
+        }
+
+        if !tile.token_labels.is_empty() {
+            painter.text(
+                point + Vec2::new(0.0, 45.0 * layout.scale),
+                Align2::CENTER_CENTER,
+                tile.token_labels.join(" · "),
+                FontId::proportional(6.2 * layout.scale.max(0.85)),
+                Color32::from_rgb(129, 221, 237),
+            );
+        }
+
+        for (planet_index, planet) in tile.planets.iter().enumerate() {
+            let (offset_x, offset_y) = planet_offset(planet_index, tile.planets.len());
+            let planet_center = point + Vec2::new(offset_x * layout.scale, offset_y * layout.scale);
+            let planet_radius = 14.5 * layout.scale.max(0.72);
+            painter.circle_filled(
+                planet_center,
+                planet_radius,
+                planet.color.gamma_multiply(0.72),
+            );
+            painter.circle_stroke(
+                planet_center,
+                planet_radius,
+                Stroke::new(2.0 * layout.scale.max(0.8), planet.color),
+            );
+            painter.text(
+                planet_center + Vec2::new(0.0, -5.0 * layout.scale),
+                Align2::CENTER_CENTER,
+                format!("{}/{}", planet.meta.resources, planet.meta.influence),
+                FontId::monospace(7.2 * layout.scale.max(0.85)),
+                Color32::WHITE,
+            );
+            painter.text(
+                planet_center + Vec2::new(0.0, 5.0 * layout.scale),
+                Align2::CENTER_CENTER,
+                planet.trait_label.clone(),
+                FontId::monospace(6.2 * layout.scale.max(0.9)),
+                Color32::WHITE,
+            );
+            painter.text(
+                planet_center + Vec2::new(0.0, planet_radius + 1.0),
+                Align2::CENTER_TOP,
+                format!("{}{}", planet.badge, planet.meta.label),
+                FontId::proportional(6.4 * layout.scale.max(0.9)),
+                Color32::LIGHT_GRAY,
+            );
+
+            for (index, coexistor) in planet.coexisting.iter().enumerate() {
+                let angle =
+                    std::f32::consts::TAU * index as f32 / planet.coexisting.len().max(1) as f32;
+                let marker =
+                    planet_center + Vec2::angled(angle) * (planet_radius + 4.0 * layout.scale);
+                painter.circle_filled(marker, 2.8 * layout.scale, player_color(coexistor));
+                painter.circle_stroke(marker, 2.8 * layout.scale, Stroke::new(0.8, Color32::WHITE));
+            }
+            if planet.attachments > 0 {
+                painter.text(
+                    planet_center + Vec2::new(planet_radius, -planet_radius),
+                    Align2::CENTER_CENTER,
+                    format!("+{}", planet.attachments),
+                    FontId::monospace(6.0 * layout.scale.max(0.9)),
+                    Color32::YELLOW,
+                );
+            }
+            for (unit_index, stack) in planet.ground.iter().enumerate() {
+                draw_unit_symbol(
+                    painter,
+                    planet_center
+                        + Vec2::new(
+                            (-8.0 + unit_index as f32 * 12.0) * layout.scale,
+                            -planet_radius * 0.85,
+                        ),
+                    &stack.base,
+                    player_color(&stack.owner),
+                    stack.count,
+                    stack.damaged,
+                    stack.galvanized,
+                    layout.scale * 0.72,
+                );
+            }
+        }
+        if response.clicked()
+            && response
+                .interact_pointer_pos()
+                .is_some_and(|cursor| cursor.distance(point) <= layout.radius)
+        {
+            selected = Some(tile.system.clone());
+        }
+    }
+    selected
+}
