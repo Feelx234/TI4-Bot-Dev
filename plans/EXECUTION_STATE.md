@@ -9210,9 +9210,44 @@ nothing about replay; the commit is surfaced for R02-007's disabled-Play tooltip
   separate housekeeping package (commit the corpora or gate the tests); flagged for the R02-008
   handoff. Do not invent fixtures to silence them.
 
-Next ready package: **R02-006 shared immutable reviewer presentation** (`crates/ti4-review/src/
-{gui.rs,view.rs,lib.rs}`): extract board/player/table/objective/action/decision/event/timeline view
-models used by both apps, with immutable frame/session inputs and no `LiveReview` access; identical
-labels, colours, geometry and detail panes (R01 UX must not move); no R02 controls in shared views.
-Tests: pure view-model snapshots, app construction, before/after data and control-availability
-equality. Review waived for this run; R01's 33 unit + 3 semantic golden tests are the backstop.
+## 2026-09-18 R02-006 split recorded before implementation (a/b/c)
+
+`plans/PI_WORK_PACKAGE_STANDARD.md` allows a package row that is too large to be split into suffixed
+children, provided the split is recorded before implementation and each child preserves the parent's
+acceptance criterion. `crates/ti4-review/src/gui.rs` is 2,739 lines / 121 KB, and a single `impl
+ReviewApp` block spans lines 630-2670, so R02-006 ("extract the shared presentation for both apps,
+R01 UX unchanged") cannot be one atomic package. Parent criterion, preserved by all three children:
+**both apps render from one presentation layer and R01's on-screen output does not change.**
+
+Extraction map from the measured file (line numbers as of `cda2e6d`):
+
+| Area | Current location | Size |
+| --- | --- | --- |
+| palette + pure helpers (`SEAT_COLORS`, `NEUTRAL_COLOR`, `PANEL_TEXT/FILL`, `seat_index`, `player_color`, `short_trait`, `short_specialty`, `item_section`, `seat_label`, `section`, `section_with_id`, `stat_badge`, `content_label`, `unit_base`, `planets_for_tile`, `polygon`, `anomaly_style`, `wormhole_style`, `draw_wormhole`, `draw_fracture_portal`, `draw_unit_symbol`) | gui.rs 38-538 (free functions) | ~500 lines |
+| diplomacy panel | gui.rs 139-238 | ~100 |
+| top bar / controls (advance, seek, run count) | gui.rs 1037-1249 | ~210 |
+| player panel (players, table, objectives, status) | gui.rs 1249-1855 | ~600 |
+| decision panel | gui.rs 1855-2187 | ~330 |
+| board (hexes, units, anomalies, wormholes) | gui.rs 2187-2671 | ~480 |
+| frame layout / timeline / run loop | gui.rs 630-1037, 2671-2700 | ~440 |
+
+- **R02-006a** — create `crates/ti4-review/src/view.rs` and move the pure palette + helper layer above
+  into it (`pub`, frame/stateless, no `LiveReview`, no app state); gui.rs calls the same functions via
+  `view::`. Tests pin what the layer owes: seat colors, trait/specialty abbreviations, wormhole and
+  anomaly styles, hex `polygon` geometry, `content_label`/`unit_base` strings, and the section/row
+  item ordering. Zero behaviour change; every existing R01 test must stay green.
+- **R02-006b** — immutable view *models* built from `&ReviewSession` + `&ReviewFrame` (board tiles with
+  labels, player rows, objective rows, action summary rows) and the board + player panels rendered
+  from them. Highest UX risk: needs before/after control-availability and data equality, plus
+  view-model snapshots.
+- **R02-006c** — decision, event and timeline views; the shared layer is then what R02-007 draws
+  beside its seat chips, pending-choice panel and branch selector.
+
+Review is waived for this run by the operator, as for every R02 package. `ti4-review`'s 33 unit + 3
+semantic golden tests are the regression backstop for all three children, and each child must keep
+`cargo clippy -p ti4-review --all-targets --no-deps -- -D warnings` at exit 0.
+
+Next ready package: **R02-006a shared presentation layer (palette + pure helpers)**. First exact
+action: `git checkout -b wp/r02-006a-shared-view cda2e6d`, read `crates/ti4-review/src/gui.rs` lines
+1-540 (the layer being moved) and the R02-005 evidence, then create `view.rs` and move the free
+functions with their tests. Working tree is clean apart from the operator's own uncommitted files.
