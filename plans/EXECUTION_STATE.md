@@ -9247,7 +9247,46 @@ Review is waived for this run by the operator, as for every R02 package. `ti4-re
 semantic golden tests are the regression backstop for all three children, and each child must keep
 `cargo clippy -p ti4-review --all-targets --no-deps -- -D warnings` at exit 0.
 
-Next ready package: **R02-006a shared presentation layer (palette + pure helpers)**. First exact
-action: `git checkout -b wp/r02-006a-shared-view cda2e6d`, read `crates/ti4-review/src/gui.rs` lines
-1-540 (the layer being moved) and the R02-005 evidence, then create `view.rs` and move the free
-functions with their tests. Working tree is clean apart from the operator's own uncommitted files.
+## 2026-09-18 R02-006a shared presentation layer: implemented, all gates green
+
+Evidence: `plans/evidence/R02-006a.md`. Branch `wp/r02-006a-shared-view` (from `edef24f`).
+
+- New `crates/ti4-review/src/view.rs` (`pub mod view;` in lib.rs): the seat palette
+  (`SEAT_COLORS`, `NEUTRAL_COLOR`, `PANEL_TEXT`, `PANEL_FILL`), identity (`seat_index`,
+  `player_color`, `short_trait`, `short_specialty`), chrome (`section`, `section_with_id`,
+  `item_section`, `seat_label`, `stat_badge`), naming (`content_label`, `unit_base`,
+  `planets_for_tile`) and geometry/glyphs (`polygon`, `anomaly_style`, `wormhole_style`,
+  `draw_wormhole`, `draw_fracture_portal`, `draw_unit_symbol`). Pure: no app state, no `LiveReview`,
+  no clock, no filesystem. `gui.rs` shrank 370 non-blank lines and gained one `use crate::view::{..}`
+  block, so the 2,371 remaining lines are untouched apart from the import.
+- **Move proved mechanically, not asserted**: (a) the moved text vs `view.rs` body (with `pub ` stripped)
+  is one rustfmt re-wrap hunk of `item_section`'s signature and nothing else; (b) `gui.rs` vs
+  `HEAD` minus the same spans is one line — the `use ti4_model::units::Unit;` that moved with its only
+  user. R01's rendering code is byte-identical, reached through a module path.
+- 11 snapshot tests in `crates/ti4-review/tests/presentation.rs`: exact seat RGBs + distinctness +
+  neutral, seat6 palette wrap, non-seat ids stay neutral, C/H/I + G/Y/B/R/T abbreviations with
+  first-rule-wins, five anomaly colours/labels **and their precedence**, four wormhole glyphs + grey
+  `?`, polygon regularity/stepping/rotation (with `atan2` wrap normalization) and the fighter-up /
+  dreadnought-due-east glyph facts, `unit_base` base-type resolution, `content_label`'s `Name [id]`
+  over 100+ real corpus records, and `planets_for_tile` merge order / no-duplicate / no-cross-system
+  leak / determinism.
+- Gates: `cargo test -p ti4-review` = 33 unit + 11 presentation + 3 semantic golden = 47 passed;
+  clippy `--no-deps -D warnings` exit 0; `ti4-replayer` 23 + 8 + 20 + 11 passed (terminal-target
+  rebuild test skipped here, re-run at the R02-005 gate, no library it uses changed);
+  `cargo check --workspace --all-targets` exit 0.
+- Two facts recorded for later packages: the R02-002 golden
+  (`crates/ti4-review/tests/golden/pre-r02-mlp-seed7777-rotation2.json`) is a semantic **projection**,
+  not a `ReviewSession`, so it cannot be fed to `load_session`; and a real session with a real
+  `GameState` is cheapest obtained from `LiveReview::start` on the committed example inputs at frame
+  zero (~0.4 s), with game state injected by the test — neither type derives `Default`.
+
+Next ready package: **R02-006b view models, board and player panels**. First exact action:
+`git checkout -b wp/r02-006b-view-models`, then read `crates/ti4-review/src/view.rs`, the R02-006a
+evidence, and `crates/ti4-review/src/gui.rs` `player_panel` (lines ~1249-1855 of the pre-split file;
+locate by name) and `board` (~2187-2671 pre-split) before moving them onto immutable view models.
+The before/after equality harness for a rendered panel is an open design question — the honest
+available evidence there is extracted-model snapshots plus control-availability comparison, not pixels.
+Working tree is clean apart from the operator's own uncommitted files (`crates/ti4-mlp/examples/
+capture_offline_pilot.rs`, `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+`scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
+`target-cuda-repack/`); never stage them.

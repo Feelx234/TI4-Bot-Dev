@@ -41,6 +41,7 @@ use ti4_training::rollout::{
 
 pub mod diplomacy;
 pub mod gui;
+pub mod view;
 
 /// The `ti4-engine` commit this reviewer build was compiled against. Recorded in every session and
 /// checked by anything that intends to replay one, so a session made by a different engine is
