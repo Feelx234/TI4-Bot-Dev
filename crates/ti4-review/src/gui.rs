@@ -18,9 +18,10 @@ use crate::{
 };
 
 use crate::view::{
-    PANEL_FILL, PANEL_TEXT, board_view, content_label, draw_fracture_portal, draw_unit_symbol,
-    draw_wormhole, hex_corners, item_section, planet_offset, planets_for_tile, player_color,
-    seat_label, section, section_with_id, stat_badge, unit_base,
+    DecisionPath, PANEL_FILL, PANEL_TEXT, action_summary, board_view, content_label, decision_rows,
+    draw_fracture_portal, draw_unit_symbol, draw_wormhole, event_rows, hex_corners, item_section,
+    planet_offset, planets_for_tile, player_color, seat_label, section, section_with_id,
+    selected_system, stat_badge, step_view, unit_base,
 };
 
 const STEPS_PER_UI_FRAME: usize = 128;
@@ -1477,319 +1478,172 @@ impl ReviewApp {
             .default_size(410.0)
             .show_collapsible(root, &mut self.show_decision, |ui| {
                 ui.heading("Step and policy detail");
+                let step = step_view(frame);
                 ui.label(format!(
                     "Step {} · decision {} · action {}",
-                    frame.engine_step, frame.decision_count, frame.action_count
+                    step.engine_step, step.decision_count, step.action_count
                 ));
                 ui.label(format!(
-                    "Round {} · {:?} · active {}",
-                    frame.round,
-                    frame.phase,
-                    frame.active.as_deref().unwrap_or("—")
+                    "Round {} · {} · active {}",
+                    step.round, step.phase, step.active
                 ));
                 ui.horizontal_wrapped(|ui| {
-                    stat_badge(
-                        ui,
-                        "⬡",
-                        "Active system",
-                        frame
-                            .state
-                            .active_system
-                            .as_ref()
-                            .map_or("—", ti4_model::id::SystemId::as_str),
-                    );
-                    stat_badge(
-                        ui,
-                        "⌛",
-                        "Pending",
-                        frame.state.pending.as_deref().unwrap_or("—"),
-                    );
-                    stat_badge(ui, "⚔", "Combat round", frame.state.combat_round_seq);
+                    stat_badge(ui, "⬡", "Active system", &step.active_system);
+                    stat_badge(ui, "⌛", "Pending", &step.pending);
+                    stat_badge(ui, "⚔", "Combat round", step.combat_round);
                 });
-                if !frame.state.reroll_staging.is_empty()
-                    || !frame.state.agenda_votes.is_empty()
-                    || !frame.state.agenda_predictions.is_empty()
-                {
+                if !step.agenda_lines.is_empty() {
                     ui.collapsing("Current timing / agenda state", |ui| {
-                        if !frame.state.reroll_staging.is_empty() {
-                            ui.label(format!(
-                                "Reroll staging: {} player(s)",
-                                frame.state.reroll_staging.len()
-                            ));
-                        }
-                        for (player, vote) in &frame.state.agenda_votes {
-                            ui.label(format!("Vote: {player} → {vote}"));
-                        }
-                        for (player, prediction) in &frame.state.agenda_predictions {
-                            ui.label(format!("Prediction: {player} → {prediction}"));
+                        for line in &step.agenda_lines {
+                            ui.label(line);
                         }
                     });
                 }
-                if let Some(error) = &frame.error {
+                if let Some(error) = &step.error {
                     ui.colored_label(Color32::LIGHT_RED, error);
                 }
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    // Walks back only as far as the last completed action, which is a handful of
-                    // frames in a running game, so this stays cheap however long the review is.
-                    let action_summary = frame.action_in_progress.as_ref().or_else(|| {
-                        session.frames[..=frame.index]
-                            .iter()
-                            .rev()
-                            .find_map(|candidate| candidate.action_summary.as_ref())
-                    });
-                    let action_title = if frame.action_in_progress.is_some() {
-                        "Action in progress"
-                    } else {
-                        "Latest completed action"
-                    };
-                    section_with_id(ui, action_title, "action-summary", |ui| {
-                    if let Some(summary) = action_summary {
-                        ui.strong(&summary.headline);
-                        ui.small(format!(
-                            "frames {}–{} · active-player period{}",
-                            summary.start_frame,
-                            summary.end_frame,
-                            if summary.in_progress { " · IN PROGRESS" } else { "" }
-                        ));
-                        for detail in &summary.details {
-                            ui.label(format!("• {detail}"));
+                    let action = action_summary(session, frame);
+                    section_with_id(ui, action.title, "action-summary", |ui| {
+                        if let Some(headline) = &action.headline {
+                            ui.strong(headline);
+                            if let Some(span) = &action.span {
+                                ui.small(span);
+                            }
+                            for detail in &action.details {
+                                ui.label(format!("• {detail}"));
+                            }
+                        } else {
+                            ui.label("No action-phase turn has completed yet.");
                         }
-                    } else {
-                        ui.label("No action-phase turn has completed yet.");
-                    }
                     });
                     section(ui, "Decisions", |ui| {
-                    if frame.decisions.is_empty() {
-                        ui.label("This engine step resolved no policy choice.");
-                    } else {
-                        for (decision_index, decision) in frame.decisions.iter().enumerate() {
+                        let rows = decision_rows(frame);
+                        if rows.is_empty() {
+                            ui.label("This engine step resolved no policy choice.");
+                        }
+                        for (decision_index, row) in rows.iter().enumerate() {
                             ui.separator();
                             ui.strong(format!(
                                 "Decision {} · {} · {}",
-                                decision.sequence, decision.player, decision.faction
+                                row.sequence, row.player, row.faction
                             ));
                             // Who actually chose: the model, or a fleet plan carrying out an
                             // earlier decision. Without this a planned move reads as a decision
                             // the model made.
-                            match decision.path.as_str() {
-                                "seeing-mlp" | "seeing" | "blind" => {}
-                                "fleet decision" => {
-                                    ui.colored_label(Color32::LIGHT_GREEN, "fleet decision");
-                                }
-                                other => {
-                                    ui.colored_label(Color32::LIGHT_YELLOW, other);
-                                }
+                            if let Some(note) = row.path.annotation() {
+                                let colour = if row.path == DecisionPath::FleetPlan {
+                                    Color32::LIGHT_GREEN
+                                } else {
+                                    Color32::LIGHT_YELLOW
+                                };
+                                ui.colored_label(colour, note);
                             }
-                            ui.label(&decision.prompt);
-                            if let Some(context) = &decision.context {
+                            ui.label(&row.prompt);
+                            if let Some(context) = &row.context {
                                 ui.collapsing("Typed decision context", |ui| {
-                                    ui.monospace(
-                                        serde_json::to_string_pretty(context)
-                                            .unwrap_or_else(|error| error.to_string()),
-                                    );
+                                    ui.monospace(context);
                                 });
                             } else {
                                 ui.small("Typed decision context unavailable (legacy or viewless choice)");
                             }
-                            ui.label(format!(
-                                "{} → {} · temperature {:?} · chosen {}",
-                                decision.requested_head,
-                                decision.resolved_head,
-                                decision.temperature,
-                                decision.chosen.as_deref().unwrap_or("ERROR")
-                            ));
-                            if let Some(chosen) = decision.chosen.as_deref()
-                                && let Some(selected) = decision
-                                    .options
-                                    .iter()
-                                    .find(|option| option.id == chosen)
-                                && let Some(chosen_probability) = selected.probability
-                            {
-                                let mut ranked: Vec<&crate::OptionDetail> = decision
-                                    .options
-                                    .iter()
-                                    .filter(|option| option.probability.is_some())
-                                    .collect();
-                                ranked.sort_by(|left, right| {
-                                    right
-                                        .probability
-                                        .unwrap_or_default()
-                                        .total_cmp(&left.probability.unwrap_or_default())
-                                });
-                                let rank = ranked
-                                    .iter()
-                                    .position(|option| option.id == chosen)
-                                    .map_or(0, |index| index + 1);
-                                let best = ranked
-                                    .first()
-                                    .and_then(|option| option.probability)
-                                    .unwrap_or(chosen_probability);
+                            ui.label(&row.summary);
+                            if let Some(rank) = &row.rank {
                                 ui.small(format!(
-                                    "Chosen rank {rank}/{} · p {chosen_probability:.5} · best p {best:.5}{}",
-                                    ranked.len(),
-                                    if rank > 1 { " · sampled below the greedy choice" } else { "" }
+                                    "Chosen rank {}/{} · p {} · best p {}{}",
+                                    rank.position,
+                                    rank.ranked,
+                                    rank.probability,
+                                    rank.best,
+                                    if rank.below_greedy {
+                                        " · sampled below the greedy choice"
+                                    } else {
+                                        ""
+                                    }
                                 ));
                             }
-                            for option in &decision.options {
-                                let selected =
-                                    decision.chosen.as_deref() == Some(option.id.as_str());
-                                egui::CollapsingHeader::new(format!(
-                                    "{}{} · score {} · p {}",
-                                    if selected { "✓ " } else { "" },
-                                    option.label,
-                                    option
-                                        .score
-                                        .map_or_else(|| "—".to_owned(), |v| format!("{v:.5}")),
-                                    option
-                                        .probability
-                                        .map_or_else(|| "—".to_owned(), |v| format!("{v:.5}"))
-                                ))
-                                .default_open(selected)
-                                .show(ui, |ui| {
-                                    ui.label(format!("id={} kind={}", option.id, option.kind));
-                                    for line in
-                                        crate::diplomacy::option_lines(&frame.state, option)
-                                    {
-                                        ui.strong(line);
-                                    }
-                                    if !option.payload.is_empty() {
-                                        ui.collapsing("Structured payload", |ui| {
-                                            ui.monospace(
-                                                serde_json::to_string_pretty(&option.payload)
-                                                    .unwrap_or_else(|error| error.to_string()),
-                                            );
-                                        });
-                                    }
-                                    if let Some(preview) = &option.preview {
-                                        ui.collapsing("Consequence preview", |ui| {
-                                            ui.monospace(
-                                                serde_json::to_string_pretty(preview)
-                                                    .unwrap_or_else(|error| error.to_string()),
-                                            );
-                                        });
-                                    } else {
-                                        ui.small("Consequence preview unavailable");
-                                    }
-                                    egui::Grid::new(format!(
-                                        "features-{}-{decision_index}-{}",
-                                        frame.index, option.id
-                                    ))
-                                    .striped(true)
+                            for option in &row.options {
+                                egui::CollapsingHeader::new(&option.title)
+                                    .default_open(option.selected)
                                     .show(ui, |ui| {
-                                        ui.strong("feature");
-                                        ui.strong("value");
-                                        ui.strong("weight");
-                                        ui.strong("contribution");
-                                        ui.end_row();
-                                        for feature in &option.features {
-                                            ui.label(&feature.name);
-                                            ui.label(format!("{:.3}", feature.value));
-                                            ui.label(feature.weight.map_or_else(
-                                                || "nonlinear".to_owned(),
-                                                |value| format!("{value:.5}"),
-                                            ));
-                                            ui.label(feature.contribution.map_or_else(
-                                                || "—".to_owned(),
-                                                |value| format!("{value:.5}"),
-                                            ));
-                                            ui.end_row();
+                                        ui.label(format!("id={} kind={}", option.id, option.kind));
+                                        for line in &option.detail_lines {
+                                            ui.strong(line);
                                         }
+                                        if let Some(payload) = &option.payload {
+                                            ui.collapsing("Structured payload", |ui| {
+                                                ui.monospace(payload);
+                                            });
+                                        }
+                                        if let Some(preview) = &option.preview {
+                                            ui.collapsing("Consequence preview", |ui| {
+                                                ui.monospace(preview);
+                                            });
+                                        } else {
+                                            ui.small("Consequence preview unavailable");
+                                        }
+                                        egui::Grid::new(format!(
+                                            "features-{}-{decision_index}-{}",
+                                            frame.index, option.id
+                                        ))
+                                        .striped(true)
+                                        .show(ui, |ui| {
+                                            ui.strong("feature");
+                                            ui.strong("value");
+                                            ui.strong("weight");
+                                            ui.strong("contribution");
+                                            ui.end_row();
+                                            for feature in &option.features {
+                                                ui.label(&feature.name);
+                                                ui.label(&feature.value);
+                                                ui.label(&feature.weight);
+                                                ui.label(&feature.contribution);
+                                                ui.end_row();
+                                            }
+                                        });
                                     });
+                            }
+                        }
+                    });
+                    section(ui, "New engine events", |ui| {
+                        let events = event_rows(frame);
+                        if events.is_empty() && frame.new_events.is_empty() {
+                            ui.label("—");
+                        } else {
+                            for event in &events {
+                                egui::CollapsingHeader::new(&event.title).show(ui, |ui| {
+                                    ui.monospace(&event.payload);
+                                });
+                            }
+                            if !frame.new_events.is_empty() {
+                                ui.collapsing("Legacy event-name trace", |ui| {
+                                    for event in &frame.new_events {
+                                        ui.monospace(event);
+                                    }
                                 });
                             }
                         }
-                    }
-                    });
-                    section(ui, "New engine events", |ui| {
-                    if frame.new_events.is_empty() && frame.structured_events.is_empty() {
-                        ui.label("—");
-                    } else {
-                        for event in &frame.structured_events {
-                            let status = if event.cancelled { " · CANCELLED" } else { "" };
-                            egui::CollapsingHeader::new(format!(
-                                "#{} {}{}",
-                                event.id, event.event_type, status
-                            ))
-                            .show(ui, |ui| {
-                                ui.monospace(
-                                    serde_json::to_string_pretty(&event.payload)
-                                        .unwrap_or_else(|error| error.to_string()),
-                                );
-                            });
-                        }
-                        if !frame.new_events.is_empty() {
-                            ui.collapsing("Legacy event-name trace", |ui| {
-                                for event in &frame.new_events {
-                                    ui.monospace(event);
-                                }
-                            });
-                        }
-                    }
                     });
                     if let Some(tile) = &self.selected_tile {
                         ui.separator();
-                        if let Some(metadata) = session
-                            .board
-                            .iter()
-                            .find(|candidate| candidate.system == *tile)
-                        {
-                            ui.strong(format!(
-                                "Selected system {} [{}]",
-                                metadata.label, metadata.system
-                            ));
-                            ui.label(format!("Map coordinate: {}, {}", metadata.q, metadata.r));
-                            if let Some(area) = &metadata.special_area {
-                                ui.label(format!("Special area: {area}"));
-                            }
-                            if metadata.hyperlane {
-                                ui.label("Hyperlane system");
-                            }
-                            if !metadata.anomalies.is_empty() {
-                                ui.label(format!("Anomalies: {}", metadata.anomalies.join(", ")));
-                            }
-                            if !metadata.wormholes.is_empty() {
-                                ui.label(format!("Wormholes: {}", metadata.wormholes.join(", ")));
-                            }
-                            if metadata.egress {
-                                ui.label("Fracture egress");
-                            }
-                            let planets = planets_for_tile(session, frame, metadata);
-                            if planets.is_empty() {
+                        let card = selected_system(session, frame, tile);
+                        ui.strong(&card.title);
+                        for line in &card.lines {
+                            ui.label(line);
+                        }
+                        if card.planets.is_empty() {
+                            if card.has_metadata {
                                 ui.label("Planets: none");
-                            } else {
-                                ui.strong("Planets");
-                                for planet in planets {
-                                    let traits = if planet.traits.is_empty() {
-                                        "—".to_owned()
-                                    } else {
-                                        planet.traits.join(", ")
-                                    };
-                                    let specialties = if planet.tech_specialties.is_empty() {
-                                        "—".to_owned()
-                                    } else {
-                                        planet.tech_specialties.join(", ")
-                                    };
-                                    ui.label(format!(
-                                        "• {} [{}] · {}/{} · trait {traits} · specialty {specialties}{}{}",
-                                        planet.label,
-                                        planet.id,
-                                        planet.resources,
-                                        planet.influence,
-                                        if planet.legendary { " · legendary" } else { "" },
-                                        if planet.space_station { " · space station" } else { "" },
-                                    ));
-                                }
                             }
                         } else {
-                            ui.strong(format!("Selected system {tile}"));
-                            ui.label("Map metadata unavailable in this legacy review.");
+                            ui.strong("Planets");
+                            for planet in &card.planets {
+                                ui.label(planet);
+                            }
                         }
-                        if let Some(state) = frame.state.board.get(&SystemId::new(tile)) {
+                        if let Some(dynamic) = &card.dynamic {
                             ui.strong("Dynamic board state");
-                            ui.monospace(
-                                serde_json::to_string_pretty(state)
-                                    .unwrap_or_else(|error| error.to_string()),
-                            );
+                            ui.monospace(dynamic);
                         } else {
                             ui.label("Dynamic board state: empty");
                         }

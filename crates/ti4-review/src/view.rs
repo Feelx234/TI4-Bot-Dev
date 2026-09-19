@@ -808,3 +808,458 @@ pub fn board_view(
     }
     tiles
 }
+
+/// A learned number as the reviewer writes it: five decimals, or an em dash for "not recorded".
+#[must_use]
+pub fn precision(value: Option<f64>) -> String {
+    value.map_or_else(|| "—".to_owned(), |value| format!("{value:.5}"))
+}
+
+/// A feature value as the reviewer writes it: three decimals, or an em dash.
+#[must_use]
+pub fn precision3(value: Option<f64>) -> String {
+    value.map_or_else(|| "—".to_owned(), |value| format!("{value:.3}"))
+}
+
+/// Pretty JSON, or the error that explains why there isn't any. The panel has never swallowed a
+/// serialisation failure, and it still doesn't.
+#[must_use]
+pub fn json_pretty(value: &serde_json::Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|error| error.to_string())
+}
+
+/// The line of numbers a reader looks at before the map: where the engine is, and who it is waiting
+/// on.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StepView {
+    pub engine_step: usize,
+    pub decision_count: usize,
+    pub action_count: usize,
+    pub round: u32,
+    /// The phase as the reviewer spells it, which is the debug spelling of the model's enum.
+    pub phase: String,
+    /// The active seat, or the em dash the panel shows when the engine is between players.
+    pub active: String,
+    pub active_system: String,
+    pub pending: String,
+    pub combat_round: u32,
+    /// Votes, predictions and the reroll count, in the order the panel lists them.
+    pub agenda_lines: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// What frame a reader is looking at, in the words the reviewer uses.
+#[must_use]
+pub fn step_view(frame: &ReviewFrame) -> StepView {
+    let state = &frame.state;
+    let mut agenda_lines = Vec::new();
+    if !state.reroll_staging.is_empty() {
+        agenda_lines.push(format!(
+            "Reroll staging: {} player(s)",
+            state.reroll_staging.len()
+        ));
+    }
+    for (player, vote) in &state.agenda_votes {
+        agenda_lines.push(format!("Vote: {player} → {vote}"));
+    }
+    for (player, prediction) in &state.agenda_predictions {
+        agenda_lines.push(format!("Prediction: {player} → {prediction}"));
+    }
+    StepView {
+        engine_step: frame.engine_step,
+        decision_count: frame.decision_count,
+        action_count: frame.action_count,
+        round: frame.round,
+        phase: format!("{:?}", frame.phase),
+        active: frame.active.clone().unwrap_or_else(|| "—".to_owned()),
+        active_system: state
+            .active_system
+            .as_ref()
+            .map_or_else(|| "—".to_owned(), |system| system.as_str().to_owned()),
+        pending: state.pending.clone().unwrap_or_else(|| "—".to_owned()),
+        combat_round: state.combat_round_seq,
+        agenda_lines,
+        error: frame.error.clone(),
+    }
+}
+
+/// Who actually chose, which is not always the model: a fleet plan carries out a decision made
+/// earlier, and showing it as a policy choice would misrepresent the run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DecisionPath {
+    /// A decision the policy made when asked: `seeing-mlp`, `seeing` or `blind`.
+    Policy,
+    /// A fleet plan executing an earlier decision.
+    FleetPlan,
+    /// Anything else, kept verbatim because an unknown path is information.
+    Other(String),
+}
+
+impl DecisionPath {
+    /// What the panel prints beside the decision, or `None` for an ordinary policy choice.
+    #[must_use]
+    pub fn annotation(&self) -> Option<&str> {
+        match self {
+            Self::Policy => None,
+            Self::FleetPlan => Some("fleet decision"),
+            Self::Other(other) => Some(other.as_str()),
+        }
+    }
+}
+
+/// Classify a decision path. The three policy spellings are exhaustive of what the engine records
+/// today; anything new arrives as [`DecisionPath::Other`] and is shown rather than hidden.
+#[must_use]
+pub fn path_kind(path: &str) -> DecisionPath {
+    match path {
+        "seeing-mlp" | "seeing" | "blind" => DecisionPath::Policy,
+        "fleet decision" => DecisionPath::FleetPlan,
+        other => DecisionPath::Other(other.to_owned()),
+    }
+}
+
+/// One row of the feature/weight/contribution grid.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FeatureRow {
+    pub name: String,
+    pub value: String,
+    pub weight: String,
+    pub contribution: String,
+}
+
+/// One option as the reviewer presents it, chosen options first-class because the header opens on
+/// the choice the policy actually made.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OptionRow {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub score: Option<f64>,
+    pub probability: Option<f64>,
+    /// `✓ ` when the policy chose it.
+    pub selected: bool,
+    /// The header text: label, score and probability in the reviewer's format.
+    pub title: String,
+    /// Diplomacy reading of the option, one strong line each.
+    pub detail_lines: Vec<String>,
+    pub payload: Option<String>,
+    pub preview: Option<String>,
+    pub features: Vec<FeatureRow>,
+}
+
+/// Where the chosen option sat among the ranked ones.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RankInfo {
+    pub position: usize,
+    pub ranked: usize,
+    pub probability: String,
+    pub best: String,
+    /// True when the policy sampled something other than the highest-probability option.
+    pub below_greedy: bool,
+}
+
+/// One policy decision of the engine step, with everything the reviewer shows about it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DecisionRow {
+    pub sequence: usize,
+    pub player: String,
+    pub faction: String,
+    pub path: DecisionPath,
+    pub prompt: String,
+    pub context: Option<String>,
+    /// `head → resolved · temperature T · chosen C`, the reviewer's one-line summary.
+    pub summary: String,
+    pub rank: Option<RankInfo>,
+    pub options: Vec<OptionRow>,
+}
+
+/// The decisions of one engine step, in the order the engine settled them.
+#[must_use]
+pub fn decision_rows(frame: &ReviewFrame) -> Vec<DecisionRow> {
+    frame
+        .decisions
+        .iter()
+        .map(|decision| {
+            let chosen = decision.chosen.as_deref();
+            let selected_probability = chosen.and_then(|chosen| {
+                decision
+                    .options
+                    .iter()
+                    .find(|option| option.id == chosen)
+                    .and_then(|option| option.probability)
+            });
+            let mut ranked: Vec<&crate::OptionDetail> = decision
+                .options
+                .iter()
+                .filter(|option| option.probability.is_some())
+                .collect();
+            ranked.sort_by(|left, right| {
+                right
+                    .probability
+                    .unwrap_or_default()
+                    .total_cmp(&left.probability.unwrap_or_default())
+            });
+            let rank = selected_probability.map(|probability| RankInfo {
+                position: ranked
+                    .iter()
+                    .position(|option| Some(option.id.as_str()) == chosen)
+                    .map_or(0, |index| index + 1),
+                ranked: ranked.len(),
+                probability: format!("{probability:.5}"),
+                best: format!(
+                    "{:.5}",
+                    ranked
+                        .first()
+                        .and_then(|option| option.probability)
+                        .unwrap_or(probability)
+                ),
+                // The reviewer's wording is about rank, not about probability: a tie at the top with
+                // the choice in second place still reads as "below the greedy choice".
+                below_greedy: ranked
+                    .iter()
+                    .position(|option| Some(option.id.as_str()) == chosen)
+                    .is_some_and(|index| index > 0),
+            });
+            let options = decision
+                .options
+                .iter()
+                .map(|option| {
+                    let selected = chosen == Some(option.id.as_str());
+                    OptionRow {
+                        id: option.id.clone(),
+                        kind: option.kind.clone(),
+                        label: option.label.clone(),
+                        score: option.score,
+                        probability: option.probability,
+                        selected,
+                        title: format!(
+                            "{}{} · score {} · p {}",
+                            if selected { "✓ " } else { "" },
+                            option.label,
+                            precision(option.score),
+                            precision(option.probability)
+                        ),
+                        detail_lines: crate::diplomacy::option_lines(&frame.state, option),
+                        payload: (!option.payload.is_empty()).then(|| {
+                            json_pretty(&serde_json::to_value(&option.payload).unwrap_or_default())
+                        }),
+                        preview: option.preview.as_ref().map(json_pretty),
+                        features: option
+                            .features
+                            .iter()
+                            .map(|feature| FeatureRow {
+                                name: feature.name.clone(),
+                                value: precision3(Some(feature.value)),
+                                weight: feature.weight.map_or_else(
+                                    || "nonlinear".to_owned(),
+                                    |value| format!("{value:.5}"),
+                                ),
+                                contribution: precision(feature.contribution),
+                            })
+                            .collect(),
+                    }
+                })
+                .collect();
+            DecisionRow {
+                sequence: decision.sequence,
+                player: decision.player.clone(),
+                faction: decision.faction.clone(),
+                path: path_kind(&decision.path),
+                prompt: decision.prompt.clone(),
+                context: decision.context.as_ref().map(json_pretty),
+                summary: format!(
+                    "{} → {} · temperature {:?} · chosen {}",
+                    decision.requested_head,
+                    decision.resolved_head,
+                    decision.temperature,
+                    decision.chosen.as_deref().unwrap_or("ERROR")
+                ),
+                rank,
+                options,
+            }
+        })
+        .collect()
+}
+
+/// The turn-level summary above the decisions: what the active player did, or is doing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ActionSummaryView {
+    /// `Action in progress` or `Latest completed action`, which is the difference between reading a
+    /// turn as half-played and reading it as history.
+    pub title: &'static str,
+    pub headline: Option<String>,
+    pub span: Option<String>,
+    pub details: Vec<String>,
+}
+
+/// The action summary a frame shows, which is the in-progress one when there is one and otherwise
+/// the most recent completed action, however many frames back that is.
+#[must_use]
+pub fn action_summary(session: &ReviewSession, frame: &ReviewFrame) -> ActionSummaryView {
+    let in_progress = frame.action_in_progress.is_some();
+    let summary = frame.action_in_progress.as_ref().or_else(|| {
+        session.frames[..=frame.index]
+            .iter()
+            .rev()
+            .find_map(|candidate| candidate.action_summary.as_ref())
+    });
+    let Some(summary) = summary else {
+        return ActionSummaryView {
+            title: if in_progress {
+                "Action in progress"
+            } else {
+                "Latest completed action"
+            },
+            headline: None,
+            span: None,
+            details: Vec::new(),
+        };
+    };
+    ActionSummaryView {
+        title: if in_progress {
+            "Action in progress"
+        } else {
+            "Latest completed action"
+        },
+        headline: Some(summary.headline.clone()),
+        span: Some(format!(
+            "frames {}–{} · active-player period{}",
+            summary.start_frame,
+            summary.end_frame,
+            if summary.in_progress {
+                " · IN PROGRESS"
+            } else {
+                ""
+            }
+        )),
+        details: summary.details.clone(),
+    }
+}
+
+/// One structured engine event, ready to fold open.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EventRow {
+    pub id: u64,
+    pub event_type: String,
+    pub cancelled: bool,
+    pub title: String,
+    pub payload: String,
+}
+
+/// The events this step added, in engine order.
+#[must_use]
+pub fn event_rows(frame: &ReviewFrame) -> Vec<EventRow> {
+    frame
+        .structured_events
+        .iter()
+        .map(|event| EventRow {
+            id: event.id,
+            event_type: event.event_type.clone(),
+            cancelled: event.cancelled,
+            title: format!(
+                "#{} {}{}",
+                event.id,
+                event.event_type,
+                if event.cancelled { " · CANCELLED" } else { "" }
+            ),
+            payload: json_pretty(&serde_json::to_value(&event.payload).unwrap_or_default()),
+        })
+        .collect()
+}
+
+/// The tile the reader clicked, in the words the reviewer uses. Emphasis is the caller's choice; the
+/// order and the content are the model's.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct SelectedSystemView {
+    pub title: String,
+    /// False for a session that recorded no map metadata for this system, which the panel says out
+    /// loud instead of showing an empty card.
+    pub has_metadata: bool,
+    pub lines: Vec<String>,
+    pub planets: Vec<String>,
+    /// The dynamic system state as JSON, or `None` when nothing is in the system.
+    pub dynamic: Option<String>,
+}
+
+/// Describe a selected system. A legacy session without map metadata says so rather than showing an
+/// empty card, which is the difference between "nothing here" and "nothing recorded".
+#[must_use]
+pub fn selected_system(
+    session: &ReviewSession,
+    frame: &ReviewFrame,
+    system: &str,
+) -> SelectedSystemView {
+    let mut view = SelectedSystemView {
+        title: format!("Selected system {system}"),
+        ..SelectedSystemView::default()
+    };
+    if let Some(metadata) = session
+        .board
+        .iter()
+        .find(|candidate| candidate.system == system)
+    {
+        view.has_metadata = true;
+        view.title = format!("Selected system {} [{}]", metadata.label, metadata.system);
+        view.lines
+            .push(format!("Map coordinate: {}, {}", metadata.q, metadata.r));
+        if let Some(area) = &metadata.special_area {
+            view.lines.push(format!("Special area: {area}"));
+        }
+        if metadata.hyperlane {
+            view.lines.push("Hyperlane system".to_owned());
+        }
+        if !metadata.anomalies.is_empty() {
+            view.lines
+                .push(format!("Anomalies: {}", metadata.anomalies.join(", ")));
+        }
+        if !metadata.wormholes.is_empty() {
+            view.lines
+                .push(format!("Wormholes: {}", metadata.wormholes.join(", ")));
+        }
+        if metadata.egress {
+            view.lines.push("Fracture egress".to_owned());
+        }
+        let planets = planets_for_tile(session, frame, metadata);
+        view.planets = planets
+            .iter()
+            .map(|planet| {
+                let traits = if planet.traits.is_empty() {
+                    "—".to_owned()
+                } else {
+                    planet.traits.join(", ")
+                };
+                let specialties = if planet.tech_specialties.is_empty() {
+                    "—".to_owned()
+                } else {
+                    planet.tech_specialties.join(", ")
+                };
+                format!(
+                    "• {} [{}] · {}/{} · trait {traits} · specialty {specialties}{}{}",
+                    planet.label,
+                    planet.id,
+                    planet.resources,
+                    planet.influence,
+                    if planet.legendary {
+                        " · legendary"
+                    } else {
+                        ""
+                    },
+                    if planet.space_station {
+                        " · space station"
+                    } else {
+                        ""
+                    },
+                )
+            })
+            .collect();
+    } else {
+        view.lines
+            .push("Map metadata unavailable in this legacy review.".to_owned());
+    }
+    view.dynamic = frame
+        .state
+        .board
+        .get(&ti4_model::id::SystemId::new(system))
+        .map(|state| json_pretty(&serde_json::to_value(state).unwrap_or_default()));
+    view
+}

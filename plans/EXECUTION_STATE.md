@@ -9315,13 +9315,48 @@ Evidence: `plans/evidence/R02-006b.md`. Branch `wp/r02-006b-view-models` (from `
 - Re-split recorded: **R02-006c** now covers `player_panel` (~606 lines), `decision_panel` (~330) and
   the timeline, since the board alone filled a package.
 
-Next ready package: **R02-006c player/decision/timeline view models**. First exact action:
-`git checkout -b wp/r02-006c-panel-view-models`, then read `crates/ti4-review/src/view.rs`
-(`board_view` is the pattern to follow), `plans/evidence/R02-006b.md`, and `gui.rs` `player_panel` and
-`decision_panel` (locate by name). Same evidence discipline as 006b: operation inventory before and
-after, derivations lifted as expressions, decisions tested with injected state, and any behavioural
-difference recorded rather than hidden. Working tree is clean apart from the operator's own
-uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+## 2026-09-18 R02-006c decision/step/system-card view models: implemented, all gates green
+
+Evidence: `plans/evidence/R02-006c.md`. Branch `wp/r02-006c-panel-view-models` (from `60f5bb4`).
+
+- `view.rs` gained `StepView`/`step_view`, `DecisionPath`/`path_kind`, `DecisionRow`/`decision_rows`,
+  `RankInfo`, `OptionRow`, `FeatureRow`, `ActionSummaryView`/`action_summary`, `EventRow`/`event_rows`,
+  `SelectedSystemView`/`selected_system`, and `precision`/`precision3`/`json_pretty`.
+  `gui.rs::decision_panel` went **331 -> 184 lines**; what is left is widgets.
+- Evidence that R01 still says the same things (byte-identity is impossible for a rewrite):
+  (a) **string-literal inventory** - 66 fixed strings in the old panel, 33 remain in the new one, and
+  every one of the 33 that moved is present in `view.rs`; the only four exceptions are format-string
+  spellings with identical output (`Chosen rank {rank}/{}...` -> pre-formatted `{:.5}` values,
+  `Round {} · {:?} · active {}` -> `step.phase` pre-applied, `Selected system {tile}` -> `{system}`,
+  `{:.3}` -> inside `precision3`); (b) **widget inventory** identical except three counts that fall
+  because loops replaced repetitions (`ui.colored_label` 3->2, `ui.strong` 11->10, `ui.label` 26->18);
+  (c) derivations (rank sort, position, best fallback, rank-based `below_greedy`, summary format, tick
+  rule, column formats, span suffix, planet-line format) lifted as expressions; (d) R01's 33 unit +
+  3 semantic golden tests unchanged. No behavioural difference found or accepted.
+- 10 tests in `crates/ti4-review/tests/decision_view.rs` over **real** decisions produced by
+  `LiveReview::advance(Step, 12)` on the committed inputs, each row compared field by field against the
+  recorded `DecisionDetail`, plus bent clones for: no choice, no probabilities, no context, and a
+  choice outside the offered set (not ranked, ticks nothing). Also: em-dash rules, phase spelling,
+  agenda line order/wording, unknown decision paths preserved verbatim, action-in-progress vs latest
+  completed (with the ` · IN PROGRESS` suffix), event titles/cancelled/`{}` payloads, the system card
+  for a real tile vs an unknown system, dynamic-state JSON, and frame purity.
+- **Scope decision recorded:** `player_panel` (~606 lines) is deferred to **R02-006d** rather than
+  squeezed into this package. R02-007 can compose a player sheet from the primitives `view` already
+  exposes (`section`, `item_section`, `player_color`, `content_label`, `stat_badge`), and a rushed
+  600-line extraction would have been the worst kind of "while I was in there".
+- Gates: `cargo test -p ti4-review` = 33 + 11 board_view + **10 decision_view** + 11 presentation +
+  3 golden = **68 passed**; clippy `--no-deps -D warnings` exit 0; replayer 23+8+20+11 passed;
+  `cargo check --workspace --all-targets` exit 0.
+
+Next ready package: **R02-007 native replayer GUI** (`plans/R02_REPLAYER.md`), which now has every
+piece it needs: `view::board_view` (006b), `view::decision_rows`/`step_view`/`event_rows`/
+`selected_system` (006c), palette/chrome/geometry (006a), and `LiveBranch` + `rebuild` + `ReplayerProject`
++ `load_project` (001-005). First exact action when it starts: `git checkout -b wp/r02-007-replayer-gui`,
+read `plans/R02_REPLAYER.md` §R02-007, `plans/evidence/R02-006c.md`, `crates/ti4-replayer/src/lib.rs`,
+and `crates/ti4-review/src/view.rs`; it must verify `engine_commit`/`content_sha256` up front and
+disable "Play from this frame" with a tooltip rather than starting a wrong run. Optional smaller
+package if preferred first: **R02-006d** (player panel). Working tree is clean apart from the
+operator's own uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
 `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
 `scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
 `target-cuda-repack/`); never stage them.
