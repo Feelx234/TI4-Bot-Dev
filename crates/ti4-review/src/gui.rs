@@ -8,8 +8,8 @@ use std::time::SystemTime;
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Sense, Shape, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
-use ti4_model::content_types::{ContentType, FULL};
-use ti4_model::id::{PlayerId, SystemId};
+use ti4_model::content_types::ContentType;
+use ti4_model::id::SystemId;
 
 use crate::{
     AdvanceUnit, LiveReview, MAX_COMMAND_STEPS, ProfileTable, ReviewFrame, ReviewSession,
@@ -18,9 +18,9 @@ use crate::{
 };
 
 use crate::view::{
-    PANEL_FILL, PANEL_TEXT, anomaly_style, content_label, draw_fracture_portal, draw_unit_symbol,
-    draw_wormhole, item_section, planets_for_tile, player_color, seat_label, section,
-    section_with_id, short_specialty, short_trait, stat_badge, unit_base,
+    PANEL_FILL, PANEL_TEXT, board_view, content_label, draw_fracture_portal, draw_unit_symbol,
+    draw_wormhole, hex_corners, item_section, planet_offset, planets_for_tile, player_color,
+    seat_label, section, section_with_id, stat_badge, unit_base,
 };
 
 const STEPS_PER_UI_FRAME: usize = 128;
@@ -1831,25 +1831,10 @@ impl ReviewApp {
                     Color32::from_rgb(205, 151, 239),
                 );
             }
-            let selected_is_ingress = self.selected_tile.as_ref().is_some_and(|selected| {
-                frame.state.ingress_tokens.contains(&SystemId::new(selected))
-            });
-            let selected_is_egress = self.selected_tile.as_ref().is_some_and(|selected| {
-                session
-                    .board
-                    .iter()
-                    .any(|tile| tile.system == *selected && tile.egress)
-            });
-            for tile in &session.board {
-                if tile.special_area.as_deref() == Some("fracture") && !fracture_visible {
-                    continue;
-                }
-                if tile.special_area.as_deref() == Some("nexus")
-                    && !frame.state.board.contains_key(&SystemId::new(&tile.system))
-                {
-                    continue;
-                }
-                let tile_planets = planets_for_tile(session, frame, tile);
+            // What each tile means is the shared view's answer, made once for the frame; what is left
+            // here is where to put it and which strokes to make.
+            let tiles = board_view(content, session, frame, self.selected_tile.as_deref());
+            for tile in tiles {
                 let point = match tile.special_area.as_deref() {
                     Some("fracture") => Pos2::new(
                         response.rect.center().x + (tile.q as f32 - 3.0) * 100.0 * scale,
@@ -1864,37 +1849,13 @@ impl ReviewApp {
                         center.y + 108.0 * scale * tile.r as f32,
                     ),
                 };
-                let points: Vec<Pos2> = (0..6)
-                    .map(|corner| {
-                        let angle = std::f32::consts::FRAC_PI_6
-                            + std::f32::consts::TAU * corner as f32 / 6.0;
-                        point + Vec2::new(radius * angle.cos(), radius * angle.sin())
-                    })
-                    .collect();
-                let selected = self.selected_tile.as_deref() == Some(tile.system.as_str());
-                let system_id = SystemId::new(&tile.system);
-                let system_purged = frame.state.purged_systems.contains(&system_id);
-                let fill = if system_purged {
-                    Color32::from_rgb(24, 24, 28)
-                } else if tile.special_area.as_deref() == Some("fracture") {
-                    Color32::from_rgb(39, 25, 57)
-                } else if tile.special_area.as_deref() == Some("nexus") {
-                    Color32::from_rgb(25, 48, 61)
-                } else if tile.hyperlane {
-                    Color32::from_rgb(55, 39, 91)
-                } else if let Some((color, _)) = anomaly_style(&tile.anomalies) {
-                    color
-                } else if selected {
-                    Color32::from_rgb(48, 91, 116)
-                } else {
-                    Color32::from_rgb(23, 44, 69)
-                };
+                let points = hex_corners(point, radius);
                 painter.add(Shape::convex_polygon(
                     points.clone(),
-                    fill,
+                    tile.color,
                     Stroke::new(1.4, Color32::from_rgb(112, 152, 189)),
                 ));
-                if let Some((_, label)) = anomaly_style(&tile.anomalies) {
+                if let Some(label) = tile.anomaly_label {
                     painter.text(
                         point + Vec2::new(0.0, -32.0 * scale),
                         Align2::CENTER_CENTER,
@@ -1903,47 +1864,23 @@ impl ReviewApp {
                         Color32::from_rgb(239, 214, 178),
                     );
                 }
-                let system_state = frame.state.board.get(&SystemId::new(&tile.system));
-                let mut space_owners: Vec<&PlayerId> = system_state
-                    .into_iter()
-                    .flat_map(|state| state.units.iter())
-                    .filter(|unit| {
-                        ti4_content::units::unit_type(content, unit.type_id.as_str(), FULL)
-                            .is_some_and(|kind| kind.is_ship())
-                    })
-                    .map(|unit| &unit.owner)
-                    .collect();
-                space_owners.sort();
-                space_owners.dedup();
-                if let [owner] = space_owners.as_slice() {
+                if let Some(owner) = &tile.space_owner {
                     painter.add(Shape::closed_line(
                         points.clone(),
                         Stroke::new(5.0 * scale.max(0.75), player_color(owner)),
                     ));
                 }
-                let mut planet_owners: Vec<&PlayerId> = system_state
-                    .into_iter()
-                    .flat_map(|state| {
-                        tile_planets.iter().filter_map(|planet| {
-                            let planet_id = ti4_model::id::PlanetId::new(&planet.id);
-                            (!state.purged_planets.contains(&planet_id))
-                                .then(|| state.planet_control.get(&planet_id))
-                                .flatten()
-                        })
-                    })
-                    .collect();
-                planet_owners.sort();
-                planet_owners.dedup();
                 let ownership_ring: Vec<Pos2> = points
                     .iter()
                     .map(|corner| point + (*corner - point) * 0.92)
                     .collect();
-                if let [owner] = planet_owners.as_slice() {
+                if let [owner] = tile.planet_owners.as_slice() {
                     painter.add(Shape::closed_line(
                         ownership_ring.clone(),
                         Stroke::new(2.2 * scale.max(0.8), player_color(owner)),
                     ));
-                } else if planet_owners.len() > 1 {
+                } else if tile.planet_owners.len() > 1 {
+                    let owners = &tile.planet_owners;
                     for index in 0..ownership_ring.len() {
                         painter.line_segment(
                             [
@@ -1952,14 +1889,12 @@ impl ReviewApp {
                             ],
                             Stroke::new(
                                 2.5 * scale.max(0.8),
-                                player_color(planet_owners[index % planet_owners.len()]),
+                                player_color(&owners[index % owners.len()]),
                             ),
                         );
                     }
                 }
-                let portal_linked = (selected_is_ingress && tile.egress)
-                    || (selected_is_egress && frame.state.ingress_tokens.contains(&system_id));
-                if selected || portal_linked {
+                if tile.selected || tile.portal_linked {
                     let inner: Vec<Pos2> = points
                         .iter()
                         .map(|corner| point + (*corner - point) * 0.91)
@@ -1969,63 +1904,21 @@ impl ReviewApp {
                 painter.text(
                     point + Vec2::new(0.0, -45.0 * scale),
                     Align2::CENTER_CENTER,
-                    if system_purged {
-                        format!("{} · PURGED", tile.label)
-                    } else {
-                        tile.label.clone()
-                    },
+                    tile.label.clone(),
                     FontId::proportional(9.5 * scale.max(0.85)),
                     Color32::WHITE,
                 );
-
-                let alpha_beta_suppressed = ti4_engine::laws::wormholes_suppressed(&frame.state);
-                let nexus_suppressed = tile.special_area.as_deref() == Some("nexus")
-                    && ti4_engine::laws::nexus_wormholes_suppressed(&frame.state);
-                let mut wormhole_index = 0_usize;
-                for kind in &tile.wormholes {
-                    let suppressed = matches!(kind.as_str(), "ALPHA" | "BETA")
-                        && (alpha_beta_suppressed || nexus_suppressed);
+                for (index, wormhole) in tile.wormholes.iter().enumerate() {
                     draw_wormhole(
                         &painter,
-                        point + Vec2::new((-42.0 + wormhole_index as f32 * 18.0) * scale, -18.0 * scale),
-                        kind,
-                        false,
-                        suppressed,
-                        scale,
-                    );
-                    wormhole_index += 1;
-                }
-                for (kind, system) in &frame.state.wormhole_tokens {
-                    if system != &system_id {
-                        continue;
-                    }
-                    let suppressed = matches!(kind.as_str(), "ALPHA" | "BETA")
-                        && alpha_beta_suppressed;
-                    draw_wormhole(
-                        &painter,
-                        point + Vec2::new((-42.0 + wormhole_index as f32 * 18.0) * scale, -18.0 * scale),
-                        kind,
-                        true,
-                        suppressed,
-                        scale,
-                    );
-                    wormhole_index += 1;
-                }
-                if let Some((system, face)) = &frame.state.ion_storm
-                    && system == &system_id
-                {
-                    let suppressed = matches!(face.as_str(), "ALPHA" | "BETA")
-                        && alpha_beta_suppressed;
-                    draw_wormhole(
-                        &painter,
-                        point + Vec2::new((-42.0 + wormhole_index as f32 * 18.0) * scale, -18.0 * scale),
-                        face,
-                        true,
-                        suppressed,
+                        point + Vec2::new((-42.0 + index as f32 * 18.0) * scale, -18.0 * scale),
+                        &wormhole.kind,
+                        wormhole.token,
+                        wormhole.suppressed,
                         scale,
                     );
                 }
-                if frame.state.ingress_tokens.contains(&system_id) {
+                if tile.ingress {
                     draw_fracture_portal(
                         &painter,
                         point + Vec2::new(43.0 * scale, 31.0 * scale),
@@ -2042,231 +1935,117 @@ impl ReviewApp {
                     );
                 }
 
-                if let Some(state) = system_state {
-                    let mut groups: BTreeMap<(PlayerId, String, bool, bool), usize> =
-                        BTreeMap::new();
-                    for unit in &state.units {
-                        *groups
-                            .entry((
-                                unit.owner.clone(),
-                                unit_base(content, unit),
-                                unit.sustained_damage,
-                                unit.galvanized,
-                            ))
-                            .or_default() += 1;
-                    }
-                    for (index, ((owner, base, damaged, galvanized), count)) in
-                        groups.iter().enumerate()
-                    {
-                        let column = index % 5;
-                        let row = index / 5;
-                        let unit_center = point
-                            + Vec2::new(
-                                (column as f32 - 2.0) * 18.0 * scale,
-                                (-23.0 + row as f32 * 20.0) * scale,
-                            );
-                        draw_unit_symbol(
-                            &painter,
-                            unit_center,
-                            base,
-                            player_color(owner),
-                            *count,
-                            *damaged,
-                            *galvanized,
-                            scale,
+                for (index, stack) in tile.units.iter().enumerate() {
+                    let column = index % 5;
+                    let row = index / 5;
+                    let unit_center = point
+                        + Vec2::new(
+                            (column as f32 - 2.0) * 18.0 * scale,
+                            (-23.0 + row as f32 * 20.0) * scale,
                         );
-                    }
-                    for (index, owner) in state.command_tokens.iter().enumerate() {
-                        painter.circle_filled(
-                            point + Vec2::new((-42.0 + index as f32 * 10.0) * scale, 42.0 * scale),
-                            3.5 * scale,
-                            player_color(owner),
-                        );
-                        painter.circle_stroke(
-                            point + Vec2::new((-42.0 + index as f32 * 10.0) * scale, 42.0 * scale),
-                            3.5 * scale,
-                            Stroke::new(1.0, Color32::WHITE),
-                        );
-                    }
+                    draw_unit_symbol(
+                        &painter,
+                        unit_center,
+                        &stack.base,
+                        player_color(&stack.owner),
+                        stack.count,
+                        stack.damaged,
+                        stack.galvanized,
+                        scale,
+                    );
+                }
+                for (index, owner) in tile.command_tokens.iter().enumerate() {
+                    let at = point + Vec2::new((-42.0 + index as f32 * 10.0) * scale, 42.0 * scale);
+                    painter.circle_filled(at, 3.5 * scale, player_color(owner));
+                    painter.circle_stroke(
+                        at,
+                        3.5 * scale,
+                        Stroke::new(1.0, Color32::WHITE),
+                    );
                 }
 
-                let mut token_labels = Vec::new();
-                if frame.state.frontier_tokens.contains(&system_id) {
-                    token_labels.push("Frontier".to_owned());
-                }
-                if frame.state.breach_tokens.contains(&system_id) {
-                    token_labels.push("Breach".to_owned());
-                }
-                if frame.state.thunders_edge_system.as_ref() == Some(&system_id) {
-                    token_labels.push("Thunder's Edge".to_owned());
-                }
-                if !token_labels.is_empty() {
+                if !tile.token_labels.is_empty() {
                     painter.text(
                         point + Vec2::new(0.0, 45.0 * scale),
                         Align2::CENTER_CENTER,
-                        token_labels.join(" · "),
+                        tile.token_labels.join(" · "),
                         FontId::proportional(6.2 * scale.max(0.85)),
                         Color32::from_rgb(129, 221, 237),
                     );
                 }
 
-                let planet_count = tile_planets.len();
-                for (planet_index, planet) in tile_planets.iter().enumerate() {
-                    let offset_x = match planet_count {
-                        1 => 0.0,
-                        2 => (planet_index as f32 * 2.0 - 1.0) * 22.0,
-                        _ => (planet_index as f32 - (planet_count - 1) as f32 / 2.0) * 19.0,
-                    };
-                    let planet_center = point
-                        + Vec2::new(
-                            offset_x * scale,
-                            if planet_count > 2 { 24.0 } else { 27.0 } * scale,
-                        );
-                    let owner = system_state.and_then(|state| {
-                        state
-                            .planet_control
-                            .get(&ti4_model::id::PlanetId::new(&planet.id))
-                    });
-                    let planet_id = ti4_model::id::PlanetId::new(&planet.id);
-                    let purged = system_state
-                        .is_some_and(|state| state.purged_planets.contains(&planet_id));
-                    let planet_color = if purged {
-                        Color32::from_rgb(38, 38, 42)
-                    } else {
-                        owner.map_or(Color32::from_rgb(91, 96, 105), player_color)
-                    };
+                for (planet_index, planet) in tile.planets.iter().enumerate() {
+                    let (offset_x, offset_y) = planet_offset(planet_index, tile.planets.len());
+                    let planet_center = point + Vec2::new(offset_x * scale, offset_y * scale);
                     let planet_radius = 14.5 * scale.max(0.72);
                     painter.circle_filled(
                         planet_center,
                         planet_radius,
-                        planet_color.gamma_multiply(0.72),
+                        planet.color.gamma_multiply(0.72),
                     );
                     painter.circle_stroke(
                         planet_center,
                         planet_radius,
-                        Stroke::new(2.0 * scale.max(0.8), planet_color),
+                        Stroke::new(2.0 * scale.max(0.8), planet.color),
                     );
-                    let trait_label = planet
-                        .traits
-                        .iter()
-                        .map(|value| short_trait(value))
-                        .collect::<Vec<_>>()
-                        .join("");
-                    let tech_label = planet
-                        .tech_specialties
-                        .iter()
-                        .map(|value| short_specialty(value))
-                        .collect::<Vec<_>>()
-                        .join("");
                     painter.text(
                         planet_center + Vec2::new(0.0, -5.0 * scale),
                         Align2::CENTER_CENTER,
-                        format!("{}/{}", planet.resources, planet.influence),
+                        format!("{}/{}", planet.meta.resources, planet.meta.influence),
                         FontId::monospace(7.2 * scale.max(0.85)),
                         Color32::WHITE,
                     );
                     painter.text(
                         planet_center + Vec2::new(0.0, 5.0 * scale),
                         Align2::CENTER_CENTER,
-                        format!(
-                            "{}{}{}",
-                            trait_label,
-                            if trait_label.is_empty() || tech_label.is_empty() {
-                                ""
-                            } else {
-                                "·"
-                            },
-                            tech_label
-                        ),
+                        planet.trait_label.clone(),
                         FontId::monospace(6.2 * scale.max(0.9)),
                         Color32::WHITE,
                     );
                     painter.text(
                         planet_center + Vec2::new(0.0, planet_radius + 1.0),
                         Align2::CENTER_TOP,
-                        format!(
-                            "{}{}",
-                            if purged {
-                                "× "
-                            } else if planet.space_station {
-                                "S "
-                            } else if planet.legendary {
-                                "★"
-                            } else {
-                                ""
-                            },
-                            planet.label
-                        ),
+                        format!("{}{}", planet.badge, planet.meta.label),
                         FontId::proportional(6.4 * scale.max(0.9)),
                         Color32::LIGHT_GRAY,
                     );
 
-                    if let Some(state) = system_state
-                        && let Some(coexisting) = state.coexisting.get(&planet_id)
-                    {
-                        for (index, coexistor) in coexisting.iter().enumerate() {
-                            let angle = std::f32::consts::TAU * index as f32
-                                / coexisting.len().max(1) as f32;
-                            let marker = planet_center
-                                + Vec2::angled(angle) * (planet_radius + 4.0 * scale);
-                            painter.circle_filled(marker, 2.8 * scale, player_color(coexistor));
-                            painter.circle_stroke(
-                                marker,
-                                2.8 * scale,
-                                Stroke::new(0.8, Color32::WHITE),
-                            );
-                        }
+                    for (index, coexistor) in planet.coexisting.iter().enumerate() {
+                        let angle = std::f32::consts::TAU * index as f32
+                            / planet.coexisting.len().max(1) as f32;
+                        let marker =
+                            planet_center + Vec2::angled(angle) * (planet_radius + 4.0 * scale);
+                        painter.circle_filled(marker, 2.8 * scale, player_color(coexistor));
+                        painter.circle_stroke(
+                            marker,
+                            2.8 * scale,
+                            Stroke::new(0.8, Color32::WHITE),
+                        );
                     }
-                    if let Some(attachments) = frame
-                        .state
-                        .planet_attachments
-                        .get(&planet_id)
-                        .filter(|attachments| !attachments.is_empty())
-                    {
+                    if planet.attachments > 0 {
                         painter.text(
                             planet_center + Vec2::new(planet_radius, -planet_radius),
                             Align2::CENTER_CENTER,
-                            format!("+{}", attachments.len()),
+                            format!("+{}", planet.attachments),
                             FontId::monospace(6.0 * scale.max(0.9)),
                             Color32::YELLOW,
                         );
                     }
-
-                    if let Some(state) = system_state
-                        && let Some(units) = state
-                            .planet_units
-                            .get(&planet_id)
-                    {
-                        let mut ground_groups: BTreeMap<(PlayerId, String, bool, bool), usize> =
-                            BTreeMap::new();
-                        for unit in units {
-                            *ground_groups
-                                .entry((
-                                    unit.owner.clone(),
-                                    unit_base(content, unit),
-                                    unit.sustained_damage,
-                                    unit.galvanized,
-                                ))
-                                .or_default() += 1;
-                        }
-                        for (unit_index, ((unit_owner, base, damaged, galvanized), count)) in
-                            ground_groups.iter().enumerate()
-                        {
-                            draw_unit_symbol(
-                                &painter,
-                                planet_center
-                                    + Vec2::new(
-                                        (-8.0 + unit_index as f32 * 12.0) * scale,
-                                        -planet_radius * 0.85,
-                                    ),
-                                base,
-                                player_color(unit_owner),
-                                *count,
-                                *damaged,
-                                *galvanized,
-                                scale * 0.72,
-                            );
-                        }
+                    for (unit_index, stack) in planet.ground.iter().enumerate() {
+                        draw_unit_symbol(
+                            &painter,
+                            planet_center
+                                + Vec2::new(
+                                    (-8.0 + unit_index as f32 * 12.0) * scale,
+                                    -planet_radius * 0.85,
+                                ),
+                            &stack.base,
+                            player_color(&stack.owner),
+                            stack.count,
+                            stack.damaged,
+                            stack.galvanized,
+                            scale * 0.72,
+                        );
                     }
                 }
                 if response.clicked()

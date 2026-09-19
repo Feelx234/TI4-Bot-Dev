@@ -9280,13 +9280,48 @@ Evidence: `plans/evidence/R02-006a.md`. Branch `wp/r02-006a-shared-view` (from `
   `GameState` is cheapest obtained from `LiveReview::start` on the committed example inputs at frame
   zero (~0.4 s), with game state injected by the test — neither type derives `Default`.
 
-Next ready package: **R02-006b view models, board and player panels**. First exact action:
-`git checkout -b wp/r02-006b-view-models`, then read `crates/ti4-review/src/view.rs`, the R02-006a
-evidence, and `crates/ti4-review/src/gui.rs` `player_panel` (lines ~1249-1855 of the pre-split file;
-locate by name) and `board` (~2187-2671 pre-split) before moving them onto immutable view models.
-The before/after equality harness for a rendered panel is an open design question — the honest
-available evidence there is extracted-model snapshots plus control-availability comparison, not pixels.
-Working tree is clean apart from the operator's own uncommitted files (`crates/ti4-mlp/examples/
-capture_offline_pilot.rs`, `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+## 2026-09-18 R02-006b board view model: implemented, all gates green
+
+Evidence: `plans/evidence/R02-006b.md`. Branch `wp/r02-006b-view-models` (from `e6e3c8a`).
+
+- `view::board_view(content, session, frame, selected)` -> one `TileView` per **visible** tile:
+  `fill`/`color` (via `tile_fill`, which also returns *which* rule won), `label` (purged suffix),
+  `anomaly_label`, `space_owner` (None when contested or when only ground troops are present),
+  `planet_owners` (sorted/deduped, purged planets excluded), `selected`, `portal_linked`, `ingress`,
+  `egress`, `wormholes` (printed + tokens + ion storm in draw order, suppression resolved),
+  `units`/`ground` (`unit_stacks` keyed by owner+base+damaged+galvanized), `command_tokens`,
+  `token_labels`, `planets` (`PlanetView`: owner, purged, color, `trait_label`, `badge`, coexisting,
+  attachments). Plus shared geometry `hex_corners` and `planet_offset`. No `Pos2` in the model:
+  meaning is a function of the frame, position is a function of the window.
+- `gui.rs::board()` shrank **481 -> 260 lines** and is now geometry and strokes only.
+- **How R01 output was shown unchanged** (byte-identity is impossible for a rewritten renderer, so the
+  evidence used is stated rather than overclaimed): (a) renderer operation inventory identical -
+  `painter.add` 4=4, `painter.text` 8=8, `circle_filled` 3=3, `circle_stroke` 3=3, `line_segment` 1=1,
+  portals 2=2, unit symbols 2=2; the only change is `draw_wormhole` 3 -> 1 (three sources became one
+  loop over the model's ordered list, with a test that a token cannot displace a printed hole);
+  (b) derivations lifted as expressions rather than paraphrased; (c) the decisions are now tested
+  where they previously had zero tests; (d) R01's 33 unit + 3 semantic golden tests pass unchanged.
+- **Recorded behavioural difference:** the old loop re-read `self.selected_tile` per tile, so during
+  the single frame a click landed, later tiles drew with the previous selection. The model snapshots
+  the selection for the frame. The old behaviour was a loop artifact, not a design.
+- 11 new tests (`crates/ti4-review/tests/board_view.rs`) pin fill precedence with exact colours,
+  hex/ring geometry, planet offsets (including no underflow at count 0), stack grouping and order,
+  Fracture and Nexus visibility, portal linking in both directions, single-vs-contested space control,
+  infantry not controlling space, purged planets, the planet colour rule across **every** planet of a
+  real board, garrison/coexistence/attachments, trait-line shape, suppression semantics, and model
+  determinism. Frames are real setup frames from the committed example inputs; the state that matters
+  (ownership, purged planets, ingress tokens, egress via `session.board`, elected `travel_ban`) is
+  injected so the tests fail if a rule changes.
+- Re-split recorded: **R02-006c** now covers `player_panel` (~606 lines), `decision_panel` (~330) and
+  the timeline, since the board alone filled a package.
+
+Next ready package: **R02-006c player/decision/timeline view models**. First exact action:
+`git checkout -b wp/r02-006c-panel-view-models`, then read `crates/ti4-review/src/view.rs`
+(`board_view` is the pattern to follow), `plans/evidence/R02-006b.md`, and `gui.rs` `player_panel` and
+`decision_panel` (locate by name). Same evidence discipline as 006b: operation inventory before and
+after, derivations lifted as expressions, decisions tested with injected state, and any behavioural
+difference recorded rather than hidden. Working tree is clean apart from the operator's own
+uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+`crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
 `scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
 `target-cuda-repack/`); never stage them.
