@@ -9480,3 +9480,50 @@ uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
 `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
 `scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
 `target-cuda-repack/`); never stage them.
+
+## 2026-09-19 R02-007b replayer shell: implemented, all gates green
+
+Branch `wp/r02-007b-replayer-shell` from `10dd96e`. `crates/ti4-replayer` is now an application:
+`src/gui.rs` (the window), `src/main.rs` (`ti4-replayer <session-or-project>` opens it with a file
+already loaded; `inspect`/`import` at the terminal), `src/store.rs` (what the window can draw per
+branch, plus `ticks`/`own_answers`/`fold_answers`). The shell calls `ReplayApp` methods and decides
+nothing itself; it draws through `view::board_view`/`BoardLayout`/`draw_board`, so its board is R01's
+board stroke for stroke.
+
+Architecture, unchanged in writing and now enforced by the shell: `LiveReview` is not `Send`, so no
+thread but the branch's ever holds the game. Frames cross into the UI through a bounded feed on the
+`Gate` (header once, deduped by index, oldest dropped and counted), so a window that falls behind loses
+pictures and never legality. `LiveBranch::replay` rebuilds a fork's prefix and then stays answerable on
+the same thread.
+
+Five real bugs were found by `tests/shell.rs` before any pixel was trusted, all fixed and all now
+regression-tested: opening a session left the reducer blind (`NoFrame` forever); imported projects
+carried no answers, so Play would have rebuilt a prefix out of nothing and called it a replay; the
+import's first version wrote a project its own loader refused (stale checksum); a fork inherited
+`Gate::replaying`'s non-blocking gate and answered the operator's own seat with the policy (fixed by
+`Gate::replaying_interactive`); and a hand answer was recorded on the engine thread after the panel
+closed, so Save could race it away (fixed by recording inside `Gate::submit`, plus `dropped_records`
+so a lost decision can never be silent). Checkpoints that are MLP bundles are now hashable
+(`sha256_path`), which is what makes the operator's real sessions importable at all.
+
+Gates: `cargo test -p ti4-replayer` = 34 + 18 + 6 + **4 shell** + 8 + 22 + 12 = **102 passed**;
+`cargo test -p ti4-review` = **74 passed**; clippy `--all-targets --no-deps -D warnings` exit 0 on both
+crates; fmt exit 0; `cargo check --workspace --all-targets` exit 0; `cargo build --release -p ti4-review
+-p ti4-replayer` builds both executables. Window smoke from a shell: title `TI4 game replayer`,
+1736x1019, no panic in 30 s, settings written to `out/replays/replayer-settings.json` on close, screen
+capture left at `target/r02-007b-window.png`. The assistant cannot see images, so the operator's eyes
+are still required: **R02-007 acceptance is not closed until the operator has driven the window.**
+
+Next ready package: **R02-008 integration and handoff**. First exact actions: read
+`plans/R02_REPLAYER.md` §R02-008 and `plans/evidence/R02-007b.md`; then the all-Auto equality gate
+between R01 and R02 (same checkpoint/pool/seed/rotation/temperature, R02 with every seat Auto, compared
+frame-by-frame through `FrameFingerprint`), then manual control at action, reaction, combat, transaction,
+production-payment and agenda decisions at early/round-end/late points, then budget caps and operator
+documentation. Optional and still not required: **R02-006d** (player panel).
+
+Carry forward: pre-existing unrelated failures (`ti4-bridge` `hexsummary_golden`/`import_golden`/
+`wire_golden` missing committed golden corpora; `ti4-mlp --test smoke_refusals` needing a generated
+vocabulary) - do not invent fixtures. Working tree apart from this package's files holds the operator's
+own uncommitted work (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+`crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+`scripts/publish_and_train_stopped_corpus.ps1`, `target-cuda-repack/`); never stage them.

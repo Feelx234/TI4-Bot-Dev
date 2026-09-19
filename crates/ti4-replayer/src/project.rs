@@ -32,9 +32,12 @@ use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::control::{BranchId, MAX_BRANCHES_PER_PROJECT, ReplayRecord, SeatMode};
+use crate::control::{
+    BranchId, ChoiceFingerprint, MAX_BRANCHES_PER_PROJECT, OfferedOption, Provenance, ReplayRecord,
+    SeatMode,
+};
 use crate::persistence::hex_digest;
-use crate::persistence::sha256_file;
+use crate::persistence::sha256_path;
 use crate::rebuild::ReplayScript;
 
 /// Schema name stored in every project file.
@@ -162,7 +165,7 @@ pub enum ProjectError {
         found: String,
     },
     /// A file-system failure, kept separate from semantic refusals.
-    #[error("cannot write {} because {}", .path.display(), .source)]
+    #[error("the file system refused {} because {}", .path.display(), .source)]
     Io {
         /// The path involved.
         path: std::path::PathBuf,
@@ -206,6 +209,49 @@ impl ReplayInputs {
             temperature: config.temperature,
             diplomacy: config.diplomacy,
         }
+    }
+
+    /// The inputs an R01 recording was made with, read off its own manifest.
+    ///
+    /// This is the honest source for a replayer that was handed a session file and nothing else: the
+    /// manifest says which checkpoint, pool, seed, rotation, table and temperature produced those
+    /// frames, so the operator never has to remember or retype them - and if any of them is wrong the
+    /// hashes recorded alongside it will say so at import.
+    #[must_use]
+    pub fn from_manifest(manifest: &ti4_review::SessionManifest) -> Self {
+        Self {
+            checkpoint: manifest.checkpoint_path.clone(),
+            map_pool: manifest.map_pool_path.clone(),
+            seed: manifest.seed,
+            rotation: u32::try_from(manifest.rotation).unwrap_or(u32::MAX),
+            profile_table: match manifest.profile_table {
+                ti4_review::ProfileTable::Learner => "learner",
+                ti4_review::ProfileTable::Accepted => "accepted",
+            }
+            .to_owned(),
+            temperature: manifest.temperature,
+            diplomacy: manifest.diplomacy,
+        }
+    }
+
+    /// The simulation configuration these inputs describe, resolved against `base`.
+    ///
+    /// `None` when the profile table is spelled a way this build does not know: guessing a table
+    /// would replay a different policy than the recording, which is the one thing a replayer must
+    /// not do quietly.
+    #[must_use]
+    pub fn simulation_config(&self, base: &Path) -> Option<ti4_review::SimulationConfig> {
+        let (checkpoint, map_pool) = self.paths(base);
+        let table = self.table()?;
+        Some(ti4_review::SimulationConfig {
+            checkpoint,
+            map_pool,
+            seed: self.seed,
+            rotation: usize::try_from(self.rotation).unwrap_or(usize::MAX),
+            table,
+            temperature: self.temperature,
+            diplomacy: self.diplomacy,
+        })
     }
 
     /// The two input files this project depends on, resolved against `base`.
@@ -408,11 +454,37 @@ impl ReplayerProject {
             ti4_review::load_session(session_path).map_err(|error| ProjectError::Malformed {
                 detail: error.to_string(),
             })?;
-        let inputs = ReplayInputs::of(config);
+        Self::import_with(
+            session_path,
+            &session,
+            &ReplayInputs::of(config),
+            base,
+            expected_session_sha256,
+            expected_checkpoint_sha256,
+        )
+    }
+
+    /// Import a session that has already been loaded, from inputs the caller already holds.
+    ///
+    /// A replayer holds the session from the moment it opens one - the frames are what it draws - and
+    /// a session is hundreds of megabytes, so loading it a second time inside [`import`] would double
+    /// the wait and the footprint for nothing. This is the same import with the load hoisted out.
+    ///
+    /// # Errors
+    /// As [`import`](Self::import).
+    pub fn import_with(
+        session_path: &Path,
+        session: &ti4_review::ReviewSession,
+        inputs: &ReplayInputs,
+        base: &Path,
+        expected_session_sha256: Option<&str>,
+        expected_checkpoint_sha256: Option<&str>,
+    ) -> Result<Self, ProjectError> {
+        let inputs = inputs.clone();
         let (checkpoint, map_pool) = inputs.paths(base);
-        let checkpoint_sha256 = sha256_file(&checkpoint)?;
-        let map_pool_sha256 = sha256_file(&map_pool)?;
-        let session_sha256 = sha256_file(session_path)?;
+        let checkpoint_sha256 = sha256_path(&checkpoint)?;
+        let map_pool_sha256 = sha256_path(&map_pool)?;
+        let session_sha256 = sha256_path(session_path)?;
         for (want, got) in [
             (expected_checkpoint_sha256, checkpoint_sha256.as_str()),
             (expected_session_sha256, session_sha256.as_str()),
@@ -439,9 +511,12 @@ impl ReplayerProject {
             factions: session.manifest.factions.clone(),
         };
         let mut project = Self::new(inputs, source);
-        if let Some(first) = project.branches.first_mut() {
-            first.frames = frames;
-        }
+        // Through `extend`, not by writing the fields: that is what re-runs the frame budget and, more
+        // importantly, recomputes the checksum over what the branch now holds. Assigning the answers
+        // directly left the file carrying the checksum of an answer-less branch, so the import could not
+        // be opened by the build that wrote it - which is exactly how this line came to exist.
+        let answers = answers_from_session(session)?;
+        project.extend(BranchId::SOURCE, answers, frames)?;
         Ok(project)
     }
 
@@ -454,7 +529,7 @@ impl ReplayerProject {
     /// [`ProjectError::ProvenanceMismatch`] (a different content corpus).
     pub fn verify_inputs(&self, base: &Path) -> Result<Verification, ProjectError> {
         let (checkpoint, map_pool) = self.inputs.paths(base);
-        let found = sha256_file(&checkpoint)?;
+        let found = sha256_path(&checkpoint)?;
         if found != self.source.checkpoint_sha256 {
             return Err(ProjectError::InputChanged {
                 path: checkpoint,
@@ -462,7 +537,7 @@ impl ReplayerProject {
                 found,
             });
         }
-        let found = sha256_file(&map_pool)?;
+        let found = sha256_path(&map_pool)?;
         if found != self.source.map_pool_sha256 {
             return Err(ProjectError::InputChanged {
                 path: map_pool,
@@ -879,4 +954,80 @@ fn checksum_of(project: &ReplayerProject) -> String {
     blanked.checksum = String::new();
     let payload = serde_json::to_vec(&blanked).unwrap_or_default();
     hex_digest(&payload)
+}
+
+/// Turn an R01 recording's decisions into the answers branch-0 stands on.
+///
+/// A session is drawn from the frames it recorded, but a project is a recipe, and forking at frame N
+/// has to *force* the decisions that produced frames zero through N. Without them a rebuild is a fresh
+/// policy play that happens to look like the game on the screen, which is not the promise R02 makes:
+/// `play_check` would green-light a branch whose frames are nobody's record. R01 stores everything the
+/// record needs - actor, prompt, the offered options in engine order with their kinds, the chosen id,
+/// and the typed context - so these answers come out of the file rather than being invented here.
+///
+/// A decision with no recorded answer is skipped. It was a decision the recorder never saw settled, and
+/// forcing "nothing" onto a seat would be worse than leaving that one ask to the seat's mode.
+///
+/// # Errors
+/// [`ProjectError::Malformed`] when a recording claims a decision was settled on an option it never
+/// offered. That is a corrupt or doctored file, and a prefix built from it would look like a legal game
+/// while replaying one that could not have been played.
+pub fn answers_from_session(
+    session: &ti4_review::ReviewSession,
+) -> Result<Vec<ReplayRecord>, ProjectError> {
+    let mut records = Vec::new();
+    for (frame, state) in session.frames.iter().enumerate() {
+        let frame = u64::try_from(frame).unwrap_or(u64::MAX);
+        for (ask, decision) in state.decisions.iter().enumerate() {
+            let Some(chosen) = decision.chosen.clone() else {
+                continue;
+            };
+            let actor = ti4_model::id::PlayerId::new(&decision.player);
+            let offered: Vec<OfferedOption> = decision
+                .options
+                .iter()
+                .map(|option| OfferedOption {
+                    id: option.id.clone(),
+                    kind: option.kind.clone(),
+                    label: option.label.clone(),
+                    payload: option.payload.clone(),
+                    preview: option.preview.clone(),
+                    score: option.score,
+                    probability: option.probability,
+                })
+                .collect();
+            if !offered.iter().any(|option| option.id == chosen) {
+                return Err(ProjectError::Malformed {
+                    detail: format!(
+                        "frame {frame} records an answer of {chosen} to {:?}, which was not offered",
+                        decision.prompt
+                    ),
+                });
+            }
+            let fingerprint = ChoiceFingerprint::compute(
+                &actor,
+                &decision.prompt,
+                &offered,
+                decision.context.as_ref(),
+            );
+            records.push(ReplayRecord {
+                branch: BranchId::SOURCE,
+                frame,
+                ask: u32::try_from(ask).unwrap_or(u32::MAX),
+                actor,
+                faction: if decision.faction.is_empty() {
+                    None
+                } else {
+                    Some(ti4_model::id::FactionId::new(&decision.faction))
+                },
+                prompt: decision.prompt.clone(),
+                offered: offered.iter().map(|option| option.id.clone()).collect(),
+                chosen,
+                context: decision.context.clone(),
+                fingerprint,
+                provenance: Provenance::Policy,
+            });
+        }
+    }
+    Ok(records)
 }

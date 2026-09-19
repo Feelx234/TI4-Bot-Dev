@@ -4059,6 +4059,8 @@ dependencies = [
 name = "ti4-replayer"
 version = "0.1.0"
 dependencies = [
+ "eframe",
+ "rfd",
  "serde",
  "serde_json",
  "sha2",

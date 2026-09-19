@@ -186,6 +186,97 @@ pub fn sha256_file(path: &Path) -> Result<String, ProjectError> {
     Ok(hex_digest(&bytes))
 }
 
+/// SHA-256 of a path, whether it is a file or a bundle.
+///
+/// The operator's checkpoints are not single files: an MLP inference bundle is a directory holding
+/// `slots.json` beside four `.safetensors` files, and R01 records *the directory* as the checkpoint.
+/// A project is a promise about the inputs its frames came from, so the promise has to be computable
+/// over a bundle too, or opening one of those sessions would refuse at the door.
+///
+/// A directory digests the sorted listing of what it holds - each entry's name and, for a file, its
+/// own digest, walked recursively - under a `dir:` marker at the front of what gets hashed. The marker
+/// is what makes the two kinds incomparable: a file and a directory holding exactly that file can
+/// never agree on a value, and neither can a bundle with an entry added, removed, renamed or edited.
+///
+/// # Errors
+/// [`ProjectError::MissingInput`] when the path does not exist, [`ProjectError::Io`] when it cannot be
+/// read, and [`ProjectError::Malformed`] when a bundle is bigger than [`MAX_BUNDLE_ENTRIES`].
+pub fn sha256_path(path: &Path) -> Result<String, ProjectError> {
+    let metadata = fs::metadata(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            ProjectError::MissingInput {
+                path: path.to_owned(),
+            }
+        } else {
+            ProjectError::Io {
+                path: path.to_owned(),
+                source: error,
+            }
+        }
+    })?;
+    if !metadata.is_dir() {
+        return sha256_file(path);
+    }
+    let mut listing = String::from("dir:");
+    let mut entries = 0_usize;
+    digest_dir(path, Path::new(""), &mut listing, &mut entries)?;
+    Ok(hex_digest(listing.as_bytes()))
+}
+
+/// The most a checkpoint bundle may hold. Generous: a real one is half a dozen files.
+const MAX_BUNDLE_ENTRIES: usize = 4_096;
+
+fn digest_dir(
+    root: &Path,
+    relative: &Path,
+    listing: &mut String,
+    entries: &mut usize,
+) -> Result<(), ProjectError> {
+    let mut names: Vec<_> = fs::read_dir(root.join(relative))
+        .map_err(|source| ProjectError::Io {
+            path: root.join(relative),
+            source,
+        })?
+        .filter_map(|entry| entry.ok().map(|entry| entry.file_name()))
+        .collect();
+    // Filesystem order is not a fact about the bundle. Sorting is what makes the same directory
+    // hash to the same value on the next boot, and on the machine next door.
+    names.sort();
+    for name in names {
+        *entries += 1;
+        if *entries > MAX_BUNDLE_ENTRIES {
+            return Err(ProjectError::Malformed {
+                detail: format!(
+                    "checkpoint bundle {} holds more than {MAX_BUNDLE_ENTRIES} entries",
+                    root.display()
+                ),
+            });
+        }
+        let child = relative.join(&name);
+        let absolute = root.join(&child);
+        let metadata = fs::metadata(&absolute).map_err(|source| ProjectError::Io {
+            path: absolute.clone(),
+            source,
+        })?;
+        if metadata.is_dir() {
+            let _ = std::fmt::write(listing, format_args!("{}/\n", child.to_string_lossy()));
+            digest_dir(root, &child, listing, entries)?;
+        } else {
+            let digest = sha256_file(&absolute)?;
+            let _ = std::fmt::write(
+                listing,
+                format_args!(
+                    "{}:{}
+",
+                    child.to_string_lossy(),
+                    digest
+                ),
+            );
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn hex_digest(bytes: &[u8]) -> String {
     let mut digest = Sha256::new();
     digest.update(bytes);
@@ -197,4 +288,126 @@ pub(crate) fn hex_digest(bytes: &[u8]) -> String {
             let _ = write!(out, "{byte:02x}");
             out
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// A scratch directory, removed when the test ends.
+    struct Scratch {
+        path: PathBuf,
+    }
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "ti4-r02-bundle-{tag}-{}-{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::SeqCst)
+            ));
+            let _ = fs::remove_dir_all(&path);
+            fs::create_dir_all(&path).expect("a scratch directory");
+            Self { path }
+        }
+
+        fn write(&self, name: &str, body: &str) {
+            let target = self.path.join(name);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).expect("a scratch subdirectory");
+            }
+            fs::write(target, body).expect("a scratch file");
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn a_file_hashes_the_same_whichever_way_it_is_asked() {
+        let scratch = Scratch::new("file");
+        scratch.write("slots.json", "{\"seats\":3}");
+        let file = sha256_file(&scratch.path.join("slots.json")).expect("a file hash");
+        let path = sha256_path(&scratch.path.join("slots.json")).expect("a path hash");
+        assert_eq!(file, path, "a plain file is its own path");
+        assert_eq!(file.len(), 64, "a digest, not a summary");
+    }
+
+    #[test]
+    fn a_bundle_digests_its_contents_and_every_way_they_can_change() {
+        let scratch = Scratch::new("bundle");
+        scratch.write("slots.json", "{\"seats\":3}");
+        scratch.write("trunk.safetensors", "weights");
+        let first = sha256_path(&scratch.path).expect("a bundle hash");
+        assert!(
+            sha256_path(&scratch.path).expect("again") == first,
+            "the same bundle must digest the same way twice"
+        );
+
+        // An edit anywhere in the bundle is a different bundle.
+        scratch.write("trunk.safetensors", "weightt");
+        let edited = sha256_path(&scratch.path).expect("after an edit");
+        assert_ne!(edited, first, "an edited file is a different checkpoint");
+
+        // So is an extra file, and so is a rename - which is why the names are in the digest.
+        let scratch = Scratch::new("extra");
+        scratch.write("slots.json", "{\"seats\":3}");
+        let alone = sha256_path(&scratch.path).expect("one file");
+        scratch.write("extra.json", "{}");
+        assert_ne!(
+            sha256_path(&scratch.path).expect("two files"),
+            alone,
+            "a bundle with an extra file is not the bundle that was recorded"
+        );
+        let scratch = Scratch::new("rename");
+        scratch.write("slots.json", "{\"seats\":3}");
+        let named = sha256_path(&scratch.path).expect("named");
+        fs::rename(
+            scratch.path.join("slots.json"),
+            scratch.path.join("slotz.json"),
+        )
+        .expect("a rename");
+        assert_ne!(
+            sha256_path(&scratch.path).expect("renamed"),
+            named,
+            "renaming an entry changes the bundle, and says so"
+        );
+
+        // Nested entries count too, recursively, so a subdirectory cannot hide a change.
+        let scratch = Scratch::new("nested");
+        scratch.write("heads/a.json", "one");
+        let outer = sha256_path(&scratch.path).expect("nested");
+        scratch.write("heads/b.json", "two");
+        assert_ne!(
+            sha256_path(&scratch.path).expect("deeper"),
+            outer,
+            "a change below the top level is still a change"
+        );
+    }
+
+    #[test]
+    fn a_directory_and_a_file_cannot_agree_on_a_digest() {
+        let scratch = Scratch::new("kind");
+        scratch.write("same", "identical bytes");
+        let as_file = sha256_file(&scratch.path.join("same")).expect("file digest");
+        let as_dir = sha256_path(&scratch.path).expect("directory digest");
+        assert_ne!(as_file, as_dir);
+        assert_eq!(as_dir.len(), 64, "a directory digest is still a digest");
+    }
+
+    #[test]
+    fn a_missing_path_is_reported_as_missing() {
+        let error = sha256_path(Path::new("Z:/definitely/not/here/r02"))
+            .expect_err("nothing is there to hash");
+        assert!(
+            matches!(error, ProjectError::MissingInput { .. }),
+            "a moved checkpoint is a missing input, not a corrupt project: {error}"
+        );
+    }
 }

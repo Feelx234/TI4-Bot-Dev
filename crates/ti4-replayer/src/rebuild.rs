@@ -371,13 +371,40 @@ pub fn rebuild(
     cancel: &AtomicBool,
 ) -> Result<Rebuilt, RebuildError> {
     let gate = Arc::new(Gate::replaying(seats, script));
+    rebuild_with_gate(&gate, config, recorded, target, bounds, &|| {
+        cancel.load(Ordering::Relaxed)
+    })
+}
+
+/// Rebuild on a gate the caller already owns.
+///
+/// This is the whole of [`rebuild`] with the gate handed in, and the reason it exists is that a live
+/// branch is one thread that must not stop for a conversation with the window: the branch that
+/// replays a prefix is the branch that then plays on, because the `LiveReview` it produces is not
+/// `Send` and cannot be handed to a second thread. So the replayer builds the gate first, rebuilds
+/// through it here, and keeps driving the same review through the same gate - taking over from frame
+/// N with the seats the operator chose, on the policy stream the prefix left aligned.
+///
+/// The gate must be one built by [`Gate::replaying`] for the script being reproduced. Cancellation is
+/// a predicate rather than a flag so that a branch can cancel on shutdown as well as on request.
+///
+/// # Errors
+/// As [`rebuild`].
+pub fn rebuild_with_gate(
+    gate: &Arc<Gate>,
+    config: &SimulationConfig,
+    recorded: &[FrameFingerprint],
+    target: RebuildTarget,
+    bounds: RebuildBounds,
+    cancel: &(dyn Fn() -> bool + Sync),
+) -> Result<Rebuilt, RebuildError> {
     let hook = |seat: &PlayerId,
                 policy: Box<dyn ti4_engine::choice::Decider>|
      -> Box<dyn ti4_engine::choice::Decider> {
         Box::new(crate::decider::ControlledDecider::new(
             policy,
             seat.clone(),
-            Arc::clone(&gate),
+            Arc::clone(gate),
         ))
     };
     let mut review = LiveReview::start_with_control(config, &hook)
@@ -396,7 +423,7 @@ pub fn rebuild(
     let mut steps = 0_usize;
     let mut validated = 0_usize;
     loop {
-        if cancel.load(Ordering::Relaxed) {
+        if cancel() {
             return Err(RebuildError::Cancelled);
         }
         let frames = review.session.frames.len();

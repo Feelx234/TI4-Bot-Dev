@@ -52,12 +52,23 @@ use crate::control::{
     SeatControl, SeatMode, SubmitOutcome,
 };
 use crate::decider::{AnswerLog, ManualFallbacks, ManualInbox};
-use crate::rebuild::{Mismatch, PrefixAnswer, RebuildError, ReplayScript};
+use crate::fingerprint::FrameFingerprint;
+use crate::rebuild::{
+    Mismatch, PrefixAnswer, RebuildBounds, RebuildError, RebuildTarget, ReplayScript,
+    rebuild_with_gate,
+};
 
 /// Events the simulation may queue for the UI before it starts dropping them.
 ///
 /// Generous (one event per step) and deliberately finite; overflow is counted, never silent.
 pub const MAX_QUEUED_EVENTS: usize = 4_096;
+
+/// Frames the feed may hold before the oldest are dropped.
+///
+/// A frame carries a whole `GameState` - around 200 KB of the example sessions - so this is a cap on
+/// memory, not on patience. It only bites when nobody drains the feed, which means a frozen or hidden
+/// window; a window that repaints takes one or two frames at a time.
+pub const MAX_QUEUED_FRAMES: usize = 512;
 
 /// How long a UI thread will wait for the simulation thread to notice it should stop.
 pub const SHUTDOWN_GRACE: Duration = Duration::from_millis(5_000);
@@ -168,6 +179,13 @@ pub enum LiveEvent {
     },
     /// A whole advance call finished (the batch form of [`Self::Frame`]).
     Batch(AdvanceReport),
+    /// A fork rebuilt its prefix and is now playable: this many recorded decisions were forced
+    /// through the policy stream, in this many engine steps, to reach this many frames.
+    Rebuilt {
+        replayed: usize,
+        steps: usize,
+        frames: usize,
+    },
     /// Lifecycle moved.
     State(LiveState),
     /// Something unrecoverable happened; the state is `Failed`.
@@ -182,6 +200,26 @@ pub enum LiveError {
     /// The simulation thread panicked or was lost.
     ThreadLost,
 }
+
+impl std::fmt::Display for LiveError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotRunnable(state) => {
+                write!(
+                    formatter,
+                    "this branch is {} and cannot run further; fork from a frame to continue",
+                    state.as_str()
+                )
+            }
+            Self::ThreadLost => write!(
+                formatter,
+                "the branch's simulation thread is gone, so nothing is running to command"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LiveError {}
 
 /// The reply the parked simulation gets from the gate.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -296,6 +334,8 @@ pub struct Gate {
     /// Recorded settled decisions, when recording is on. This is what R02-005 persists.
     recording: AtomicBool,
     records: Mutex<Vec<ReplayRecord>>,
+    dropped_records: AtomicUsize,
+    record_failure: Mutex<Option<String>>,
     /// Whether an unanswered manual ask may park. `false` for a detached gate (unit tests and a
     /// rebuild), where answers must already be queued or replayed.
     blocking: bool,
@@ -310,6 +350,13 @@ pub struct Gate {
     /// `pub(crate)`, so no test can construct one by hand.
     asks_viewless: AtomicUsize,
     asks_bound: AtomicUsize,
+    /// Where the window's copy of the frames goes, when there is a window.
+    feed: Mutex<FeedSlot>,
+    /// Whether anybody is collecting the feed. Off by default: cloning a frame per step for a caller
+    /// that will never read it is the kind of cost that only shows up on a long run.
+    feeding: AtomicBool,
+    feed_max: AtomicUsize,
+    dropped_frames: AtomicUsize,
 }
 
 impl Gate {
@@ -331,7 +378,23 @@ impl Gate {
     /// parks, because a rebuild has no human in front of it.
     #[must_use]
     pub fn replaying(seats: SeatControl, script: ReplayScript) -> Self {
-        let gate = Self::build(seats, false);
+        Self::install_script(Self::build(seats, false), script)
+    }
+
+    /// A gate that replays a recorded prefix and then stays answerable: the fork this window plays on.
+    ///
+    /// While the script lasts this is [`replaying`](Self::replaying) exactly - the prefix has priority
+    /// over every other source and each answer is validated against the live offer. The difference is
+    /// what happens when the script runs out: a manual seat parks and waits for the person in front of
+    /// the screen, instead of quietly falling back to the policy. Without that, a seat the operator took
+    /// would be answered by the bot from the fork frame onwards, which is the one thing a replayer must
+    /// never do silently.
+    #[must_use]
+    pub fn replaying_interactive(seats: SeatControl, script: ReplayScript) -> Self {
+        Self::install_script(Self::build(seats, true), script)
+    }
+
+    fn install_script(gate: Self, script: ReplayScript) -> Self {
         *gate
             .replay
             .lock()
@@ -431,17 +494,61 @@ impl Gate {
         if !self.recording.load(Ordering::Relaxed) {
             return;
         }
-        let Ok(pending) =
-            PendingManualChoice::new(crate::control::BranchId::SOURCE, frame, ask, None, choice)
-        else {
-            return;
+        let pending = match PendingManualChoice::new(
+            crate::control::BranchId::SOURCE,
+            frame,
+            ask,
+            None,
+            choice,
+        ) {
+            Ok(pending) => pending,
+            Err(error) => {
+                self.record_failure(choice, chosen, &error.to_string());
+                return;
+            }
         };
-        if let Ok(record) = ReplayRecord::record(&pending, chosen, provenance) {
-            self.records
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(record);
+        match ReplayRecord::record(&pending, chosen, provenance) {
+            Ok(record) => {
+                self.records
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(record);
+            }
+            Err(error) => self.record_failure(choice, chosen, &error.to_string()),
         }
+    }
+
+    /// A decision settled but could not be written down. Counted and remembered, never swallowed: a
+    /// branch whose record is quietly short of a decision would save as something it is not.
+    fn record_failure(&self, choice: &Choice, chosen: &str, why: &str) {
+        let (frame, ask) = self.current_ordinal();
+        self.record_failure_at(frame, ask, chosen, &choice.prompt, why);
+    }
+
+    fn record_failure_at(&self, frame: u64, ask: u32, chosen: &str, prompt: &str, why: &str) {
+        self.dropped_records.fetch_add(1, Ordering::Relaxed);
+        *self
+            .record_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(format!(
+            "frame {frame}, ask {ask}: could not record {chosen} to {prompt:?} ({why})"
+        ));
+    }
+
+    /// Settled decisions this gate could not write into its record. Anything non-zero means the branch
+    /// cannot be saved truthfully; the window says so rather than offering Save.
+    #[must_use]
+    pub fn dropped_records(&self) -> usize {
+        self.dropped_records.load(Ordering::Relaxed)
+    }
+
+    /// The most recent recording failure, if any, phrased for a status line.
+    #[must_use]
+    pub fn last_record_failure(&self) -> Option<String> {
+        self.record_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     fn build(seats: SeatControl, blocking: bool) -> Self {
@@ -460,6 +567,8 @@ impl Gate {
             policy_calls: AtomicUsize::new(0),
             recording: AtomicBool::new(false),
             records: Mutex::new(Vec::new()),
+            dropped_records: AtomicUsize::new(0),
+            record_failure: Mutex::new(None),
             blocking,
             unanswered: AtomicUsize::new(0),
             stale: AtomicUsize::new(0),
@@ -467,6 +576,10 @@ impl Gate {
             shutdown_fallbacks: AtomicUsize::new(0),
             asks_viewless: AtomicUsize::new(0),
             asks_bound: AtomicUsize::new(0),
+            feed: Mutex::new(FeedSlot::default()),
+            feeding: AtomicBool::new(false),
+            feed_max: AtomicUsize::new(MAX_QUEUED_FRAMES),
+            dropped_frames: AtomicUsize::new(0),
         }
     }
 
@@ -480,6 +593,93 @@ impl Gate {
     fn attach_events(&self, sender: SyncSender<LiveEvent>) {
         if let Ok(mut slot) = self.events.lock() {
             *slot = Some(sender);
+        }
+    }
+
+    /// Start collecting frames for a window to draw.
+    ///
+    /// The branch sends a copy of each frame the engine produces, in step order, plus one header (the
+    /// session with its frames emptied: manifest, board, planet catalog, outcome) the first time it is
+    /// asked. A `LiveReview` is not `Send`, so this copying is the price of drawing a running branch;
+    /// at a frame per engine step it is the cheapest thing the app does.
+    pub fn attach_feed(&self) {
+        self.attach_feed_with(MAX_QUEUED_FRAMES);
+    }
+
+    /// Collect frames with a stated capacity, so the overflow policy is testable without playing a
+    /// game long enough to fill the default.
+    pub fn attach_feed_with(&self, max_frames: usize) {
+        self.feed_max.store(max_frames.max(1), Ordering::Relaxed);
+        self.feeding.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether a feed is being collected.
+    #[must_use]
+    pub fn is_feeding(&self) -> bool {
+        self.feeding.load(Ordering::Relaxed)
+    }
+
+    /// Take everything the branch has produced since the last call: the header if it has not been
+    /// taken, and the frames in order.
+    pub fn take_feed(&self) -> Feed {
+        if !self.is_feeding() {
+            return Feed::default();
+        }
+        let missing = self.dropped_frames.swap(0, Ordering::Relaxed);
+        let Ok(mut slot) = self.feed.lock() else {
+            return Feed::default();
+        };
+        Feed {
+            header: slot.header.take(),
+            frames: std::mem::take(&mut slot.frames),
+            missing,
+        }
+    }
+
+    /// Frames dropped because the feed was full. A window shows this rather than silently drawing past
+    /// a hole, because a frame the UI never had is a frame it cannot pretend to have drawn.
+    #[must_use]
+    pub fn dropped_frames(&self) -> usize {
+        self.dropped_frames.load(Ordering::Relaxed)
+    }
+
+    /// Offer the session header, once. Cheap: the frames stay where they are.
+    pub(crate) fn publish_header(&self, session: &ReviewSession) {
+        if !self.is_feeding() {
+            return;
+        }
+        let Ok(mut slot) = self.feed.lock() else {
+            return;
+        };
+        if slot.header.is_some() {
+            return;
+        }
+        slot.header = Some(ReviewSession {
+            schema: session.schema.clone(),
+            version: session.version,
+            manifest: session.manifest.clone(),
+            board: session.board.clone(),
+            planet_catalog: session.planet_catalog.clone(),
+            frames: Vec::new(),
+            outcome: session.outcome.clone(),
+        });
+    }
+
+    /// Copy frames into the feed, oldest first, dropping from the front if the window has stopped
+    /// looking.
+    pub(crate) fn publish_frames(&self, frames: &[ReviewFrame]) {
+        if !self.is_feeding() || frames.is_empty() {
+            return;
+        }
+        let Ok(mut slot) = self.feed.lock() else {
+            return;
+        };
+        slot.frames.extend(frames.iter().cloned());
+        let max = self.feed_max.load(Ordering::Relaxed).max(1);
+        let overflow = slot.frames.len().saturating_sub(max);
+        if overflow > 0 {
+            slot.frames.drain(0..overflow);
+            self.dropped_frames.fetch_add(overflow, Ordering::Relaxed);
         }
     }
 
@@ -551,14 +751,52 @@ impl Gate {
     /// fingerprint, and it is [`ManualControl`]'s state machine doing it, not a second copy.
     pub fn submit(&self, submission: &ManualSubmission) -> SubmitOutcome {
         let mut guard = self.lock();
+        // The offer is about to leave the panel, so this is the last moment it can still be described
+        // from both sides. Taking it here is what makes the answer durable *synchronously*: the thread
+        // that accepted the click writes the record, rather than the engine thread some time later.
+        // Otherwise Save (or the save-on-quit path) can run between "the panel closed" and "the answer
+        // was written down" and save a branch missing the operator's last move. R02-007b's shell test
+        // lost an answer this way before this line existed.
+        let offered = guard.control.pending().cloned();
         let outcome = guard.control.submit(submission);
-        if let SubmitOutcome::Accepted { option_id } = &outcome {
-            guard.answer = Some(Answer::Option {
-                option_id: option_id.clone(),
-            });
+        let accepted = match &outcome {
+            SubmitOutcome::Accepted { option_id } => Some(option_id.clone()),
+            _ => None,
+        };
+        if let (Some(option_id), Some(pending)) = (accepted.as_ref(), offered.as_ref())
+            && pending.fingerprint == submission.fingerprint
+        {
+            drop(guard);
+            self.record_pending(pending, option_id);
+            guard = self.lock();
+        }
+        if let Some(option_id) = accepted {
+            guard.answer = Some(Answer::Option { option_id });
             self.answered.notify_all();
         }
         outcome
+    }
+
+    /// Write down an answer the panel is holding, before the panel lets go of it.
+    fn record_pending(&self, pending: &PendingManualChoice, chosen: &str) {
+        if !self.recording.load(Ordering::Relaxed) {
+            return;
+        }
+        match ReplayRecord::record(pending, chosen, Provenance::Human) {
+            Ok(record) => {
+                self.records
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(record);
+            }
+            Err(error) => self.record_failure_at(
+                pending.frame,
+                pending.ask,
+                chosen,
+                &pending.prompt,
+                &error.to_string(),
+            ),
+        }
     }
 
     /// Let the policy answer *this* decision and keep the seat manual.
@@ -763,7 +1001,8 @@ impl Gate {
             self.unanswered.fetch_add(1, Ordering::Relaxed);
             debug_assert!(
                 false,
-                "manual seat {seat} was asked with a detached gate and no queued answer"
+                "manual seat {seat} was asked on a non-blocking gate with no queued answer: a 
+                 rebuild that cannot park must not be given manual seats"
             );
             return GateDecision::Policy { delegated: false };
         }
@@ -858,6 +1097,8 @@ impl Gate {
             match answer {
                 Answer::Option { option_id } => {
                     if choice.option(&option_id).is_some() {
+                        // Not recorded here: `submit` wrote it when the click was accepted, on the
+                        // thread the operator pressed. The park only decides what the engine sees.
                         self.resume(seat, Provenance::Human);
                         return GateDecision::Human { option_id };
                     }
@@ -906,6 +1147,24 @@ impl Gate {
     }
 }
 
+/// What the branch thread has produced for the window since the window last looked.
+#[derive(Clone, Debug, Default)]
+pub struct Feed {
+    /// The session as the branch sees it, without frames: manifest, board, planet catalog, outcome.
+    /// Sent once, on the first drain after the branch started producing.
+    pub header: Option<ReviewSession>,
+    /// Frames in engine order. A window appends the ones it has not seen, by `index`.
+    pub frames: Vec<ReviewFrame>,
+    /// Frames that were dropped because the window stopped looking.
+    pub missing: usize,
+}
+
+#[derive(Debug, Default)]
+struct FeedSlot {
+    header: Option<ReviewSession>,
+    frames: Vec<ReviewFrame>,
+}
+
 /// What the UI needs to draw one frame of the control surface.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Snapshot {
@@ -950,6 +1209,36 @@ impl LiveBranch {
         let thread = std::thread::Builder::new()
             .name("ti4-live-branch".to_owned())
             .spawn(move || simulate(&config, &thread_gate, &session_sender))
+            .map_err(|_| LiveError::ThreadLost)?;
+        Ok(Self {
+            gate,
+            events: Mutex::new(receiver),
+            sessions: Mutex::new(Some(session_receiver)),
+            thread: Mutex::new(Some(thread)),
+        })
+    }
+
+    /// Start a branch by reproducing a recorded prefix, then play on from it.
+    ///
+    /// The gate must come from [`Gate::replaying_interactive`] (or [`Gate::replaying`] for a headless
+    /// rebuild) with the script that goes with `request`. The
+    /// thread rebuilds before it will look at a single command, so a window may attach and watch
+    /// immediately: a rebuild in progress looks like frames arriving, a rebuild that refused looks
+    /// like a failed branch, and nothing in between accepts a move.
+    ///
+    /// # Errors
+    /// [`LiveError::ThreadLost`] if the simulation thread cannot be spawned.
+    pub fn replay(gate: Arc<Gate>, request: ReplayRequest) -> Result<Self, LiveError> {
+        let (sender, receiver) = mpsc::sync_channel(MAX_QUEUED_EVENTS);
+        let (session_sender, session_receiver) = mpsc::channel();
+        gate.attach_events(sender);
+        if request.record {
+            gate.enable_recording();
+        }
+        let thread_gate = Arc::clone(&gate);
+        let thread = std::thread::Builder::new()
+            .name("ti4-live-branch".to_owned())
+            .spawn(move || replay_and_drive(&request, &thread_gate, &session_sender))
             .map_err(|_| LiveError::ThreadLost)?;
         Ok(Self {
             gate,
@@ -1059,6 +1348,34 @@ impl Drop for LiveBranch {
     }
 }
 
+/// What a branch has to reproduce before anybody may play it.
+///
+/// Every field is a fact the project file already holds, and the whole point of the struct is that it
+/// is `Send`: it crosses into the branch thread, which rebuilds there and never gives the review back.
+#[derive(Clone, Debug)]
+pub struct ReplayRequest {
+    /// The checkpoint, pool, seed, rotation, table, temperature and diplomacy the branch replays.
+    pub config: SimulationConfig,
+    /// The frames to reproduce, in order. The rebuild refuses the first one it cannot match.
+    pub fingerprints: Vec<FrameFingerprint>,
+    /// Where to stop reproducing and start being playable.
+    pub target: RebuildTarget,
+    /// Step and frame ceilings, so a wrong target cannot mean an unbounded run.
+    pub bounds: RebuildBounds,
+    /// Record every settled decision on this branch, so saving the project can reproduce it later.
+    pub record: bool,
+}
+
+/// Hand every frame the review has produced since `watermark` to the window.
+fn publish_new_frames(review: &LiveReview, gate: &Gate, watermark: &mut usize) {
+    let frames = &review.session.frames;
+    if *watermark >= frames.len() {
+        return;
+    }
+    gate.publish_frames(&frames[*watermark..]);
+    *watermark = frames.len();
+}
+
 /// The simulation thread's whole life: build, then run goals until told to stop or shut down.
 fn simulate(config: &SimulationConfig, gate: &Arc<Gate>, sessions: &Sender<ReviewSession>) {
     let hook = |seat: &PlayerId,
@@ -1070,7 +1387,7 @@ fn simulate(config: &SimulationConfig, gate: &Arc<Gate>, sessions: &Sender<Revie
             Arc::clone(gate),
         ))
     };
-    let mut review = match LiveReview::start_with_control(config, &hook) {
+    let review = match LiveReview::start_with_control(config, &hook) {
         Ok(review) => review,
         Err(error) => {
             gate.set_state(LiveState::Failed);
@@ -1082,9 +1399,57 @@ fn simulate(config: &SimulationConfig, gate: &Arc<Gate>, sessions: &Sender<Revie
         seats: seats_of(&review),
         frames: review.session.frames.len(),
     });
+    let mut watermark = 0_usize;
+    gate.publish_header(&review.session);
+    publish_new_frames(&review, gate, &mut watermark);
+    drive(review, gate, sessions, watermark);
+}
 
+/// Replay a recorded prefix, then live on the same review.
+///
+/// One thread owns both halves because the review cannot cross between threads, and that is also what
+/// makes the two halves agree: the prefix is forced through the same decorated policies the branch
+/// plays on, so the policy stream the operator inherits is the one the recorded game left behind.
+fn replay_and_drive(request: &ReplayRequest, gate: &Arc<Gate>, sessions: &Sender<ReviewSession>) {
+    let built = rebuild_with_gate(
+        gate,
+        &request.config,
+        &request.fingerprints,
+        request.target,
+        request.bounds,
+        &|| gate.is_shutdown(),
+    );
+    let built = match built {
+        Ok(built) => built,
+        Err(error) => {
+            // A prefix that will not reproduce is not a branch. The gate carries the reason, the
+            // caller drops the fork, and nothing about the game is playable afterwards.
+            gate.set_state(LiveState::Failed);
+            gate.publish_event(LiveEvent::Failed(error.to_string()));
+            return;
+        }
+    };
+    gate.publish_event(LiveEvent::Rebuilt {
+        replayed: built.replayed,
+        steps: built.steps,
+        frames: built.frames,
+    });
+    let review = built.review;
+    let mut watermark = 0_usize;
+    gate.publish_header(&review.session);
+    publish_new_frames(&review, gate, &mut watermark);
+    drive(review, gate, sessions, watermark);
+}
+
+/// Run goals until the branch is told to stop, then hand the session over once.
+fn drive(
+    mut review: LiveReview,
+    gate: &Arc<Gate>,
+    sessions: &Sender<ReviewSession>,
+    mut watermark: usize,
+) {
     while let Some(goal) = gate.await_goal() {
-        let report = run_goal(&mut review, gate, goal);
+        let report = run_goal(&mut review, gate, goal, &mut watermark);
         gate.publish_event(LiveEvent::Batch(report));
         if gate.is_shutdown() {
             break;
@@ -1117,6 +1482,9 @@ fn simulate(config: &SimulationConfig, gate: &Arc<Gate>, sessions: &Sender<Revie
             break;
         }
     }
+    // Whatever the window was not told about, it can catch up on: a goal that ended between drains
+    // would otherwise leave the drawing short of the game.
+    publish_new_frames(&review, gate, &mut watermark);
 
     // A terminal handoff, at most one item: a UI that never asked for the session simply drops it.
     let _ = sessions.send(review.session);
@@ -1132,7 +1500,12 @@ fn seats_of(review: &LiveReview) -> Vec<PlayerId> {
 }
 /// Drive one advance goal: engine step by engine step where the goal means steps, otherwise handed
 /// to the reviewer's own counter so `Decision` and `Action` mean what they mean in R01.
-fn run_goal(review: &mut LiveReview, gate: &Gate, goal: AdvanceGoal) -> AdvanceReport {
+fn run_goal(
+    review: &mut LiveReview,
+    gate: &Gate,
+    goal: AdvanceGoal,
+    watermark: &mut usize,
+) -> AdvanceReport {
     let start_round = review.session.frames.last().map_or(0, |frame| frame.round);
     let mut report = AdvanceReport {
         steps: 0,
@@ -1141,18 +1514,26 @@ fn run_goal(review: &mut LiveReview, gate: &Gate, goal: AdvanceGoal) -> AdvanceR
         reached_target: false,
     };
     match goal {
-        AdvanceGoal::Decisions(count) => return review.advance(ReviewAdvanceUnit::Decision, count),
-        AdvanceGoal::Actions(count) => return review.advance(ReviewAdvanceUnit::Action, count),
+        AdvanceGoal::Decisions(count) => {
+            let report = review.advance(ReviewAdvanceUnit::Decision, count);
+            publish_new_frames(review, gate, watermark);
+            return report;
+        }
+        AdvanceGoal::Actions(count) => {
+            let report = review.advance(ReviewAdvanceUnit::Action, count);
+            publish_new_frames(review, gate, watermark);
+            return report;
+        }
         AdvanceGoal::Steps(want) => {
             while report.steps < want {
-                if !step_once(review, gate, &mut report) {
+                if !step_once(review, gate, &mut report, watermark) {
                     return report;
                 }
             }
             report.reached_target = true;
         }
         AdvanceGoal::NextRound => loop {
-            if !step_once(review, gate, &mut report) {
+            if !step_once(review, gate, &mut report, watermark) {
                 return report;
             }
             if review
@@ -1166,7 +1547,7 @@ fn run_goal(review: &mut LiveReview, gate: &Gate, goal: AdvanceGoal) -> AdvanceR
             }
         },
         AdvanceGoal::EndOfGame => loop {
-            if !step_once(review, gate, &mut report) {
+            if !step_once(review, gate, &mut report, watermark) {
                 return report;
             }
             if review.is_terminal() {
@@ -1179,7 +1560,12 @@ fn run_goal(review: &mut LiveReview, gate: &Gate, goal: AdvanceGoal) -> AdvanceR
 }
 
 /// One engine step. `false` means the loop must stop: pause, stop, shutdown or terminal.
-fn step_once(review: &mut LiveReview, gate: &Gate, report: &mut AdvanceReport) -> bool {
+fn step_once(
+    review: &mut LiveReview,
+    gate: &Gate,
+    report: &mut AdvanceReport,
+    watermark: &mut usize,
+) -> bool {
     if gate.take_pause() || gate.is_shutdown() || review.is_terminal() {
         return false;
     }
@@ -1191,6 +1577,7 @@ fn step_once(review: &mut LiveReview, gate: &Gate, report: &mut AdvanceReport) -
         report.actions += usize::from(frame.action_completed);
         gate.publish_event(LiveEvent::Frame(FrameTick::of(frame)));
     }
+    publish_new_frames(review, gate, watermark);
     report.steps += review.session.frames.len().saturating_sub(before);
     true
 }

@@ -141,6 +141,40 @@ pub trait BranchHandle {
     fn delegate_pending(&self) -> Result<PlayerId, LiveError>;
 }
 
+/// A handle behind the reference counter a window keeps it in.
+///
+/// The branch thread and the window share one gate, so the window's handle is an `Arc<Gate>`; without
+/// this the app would have to be generic over both spellings to say the same thing.
+impl<H: BranchHandle + ?Sized> BranchHandle for std::sync::Arc<H> {
+    fn snapshot(&self) -> Snapshot {
+        (**self).snapshot()
+    }
+
+    fn set_mode(&self, seat: &PlayerId, mode: SeatMode) -> ModeEffect {
+        (**self).set_mode(seat, mode)
+    }
+
+    fn submit(&self, submission: &ManualSubmission) -> SubmitOutcome {
+        (**self).submit(submission)
+    }
+
+    fn run(&self, goal: AdvanceGoal) -> Result<(), LiveError> {
+        (**self).run(goal)
+    }
+
+    fn pause(&self) {
+        (**self).pause();
+    }
+
+    fn stop(&self) {
+        (**self).stop();
+    }
+
+    fn delegate_pending(&self) -> Result<PlayerId, LiveError> {
+        (**self).delegate_pending()
+    }
+}
+
 impl BranchHandle for Gate {
     fn snapshot(&self) -> Snapshot {
         Gate::snapshot(self)

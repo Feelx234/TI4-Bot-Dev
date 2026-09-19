@@ -1129,3 +1129,121 @@ fn only_a_reproduced_fork_becomes_live() {
             .playable(&verification)
     );
 }
+
+/// A recording's own decisions are the answers branch-0 stands on, and importing them has to leave a
+/// file this build can open.
+///
+/// Before this test, an imported project carried no answers at all: `Play from this frame` would have
+/// rebuilt a prefix out of nothing, which is not a replay of the game on the screen. And the first
+/// version of the import wrote the answers straight into the branch, leaving the checksum of the
+/// answer-less project in the file - so the import could not be reopened at all. Both are checked here.
+#[test]
+fn an_imported_recording_carries_its_own_answers_and_survives_the_round_trip() {
+    let temp = TempDir::new("imported-answers");
+    let (session_path, settled) = record_a_game(&temp, 5);
+    let root = workspace_root();
+    let loaded = ti4_review::load_session(&session_path).expect("reload the recording");
+    let inputs = ReplayInputs::from_manifest(&loaded.manifest);
+    let project = ReplayerProject::import_with(&session_path, &loaded, &inputs, &root, None, None)
+        .expect("import the recording");
+
+    let answers = &project.branch(BranchId::SOURCE).expect("branch-0").answers;
+    assert!(
+        !answers.is_empty(),
+        "the decisions the recording settled become the branch's answers"
+    );
+    for settled in &settled {
+        assert!(
+            answers.iter().any(|record| {
+                record.frame == settled.frame
+                    && record.actor == settled.actor
+                    && record.chosen == settled.chosen
+            }),
+            "the recording's decision at frame {} by {} on {} is in the import",
+            settled.frame,
+            settled.actor,
+            settled.chosen
+        );
+    }
+    assert!(
+        answers.iter().all(|record| record.branch == BranchId::SOURCE),
+        "an imported answer belongs to the recording, not to some branch that has not been made yet"
+    );
+    assert!(
+        !project
+            .replay_script(BranchId::SOURCE)
+            .expect("a script for the recording")
+            .is_empty(),
+        "the import is reproducible: it has a prefix to force"
+    );
+
+    // The checksum regression: this is the file the window would be asked to open next session.
+    let project_path = temp.path.join("imported.r02.json");
+    save_project(&project_path, &project).expect("save the import");
+    let reopened = load_project(&project_path).expect("the import reads back with its own checksum");
+    assert_eq!(
+        reopened.branch(BranchId::SOURCE).expect("branch-0").answers.len(),
+        answers.len(),
+        "every answer survives the file"
+    );
+}
+
+/// A recording that claims a decision was settled on an option it never offered is refused outright.
+#[test]
+fn a_recording_that_settles_on_an_option_it_never_offered_is_not_a_recipe() {
+    let temp = TempDir::new("doctored-answers");
+    let (session_path, _settled) = record_a_game(&temp, 3);
+    let mut loaded = ti4_review::load_session(&session_path).expect("reload the recording");
+    let doctored = loaded
+        .frames
+        .iter_mut()
+        .flat_map(|frame| frame.decisions.iter_mut())
+        .find(|decision| !decision.options.is_empty())
+        .expect("the recording holds a decision with options");
+    doctored.chosen = Some("an-option-nobody-offered".to_owned());
+    let error = ti4_replayer::project::answers_from_session(&loaded)
+        .expect_err("a settled option that was never offered is not an answer");
+    assert!(
+        matches!(error, ProjectError::Malformed { .. }),
+        "a prefix built from this would look legal while replaying an impossible game: {error}"
+    );
+}
+
+/// Play a short real game with a recording gate and write it out as an R01 session file.
+///
+/// Returns the path and the gate's own records, which are the ground truth an honest import must
+/// reproduce.
+fn record_a_game(temp: &TempDir, steps: usize) -> (PathBuf, Vec<ReplayRecord>) {
+    let root = workspace_root();
+    let config = SimulationConfig {
+        checkpoint: root.join(CHECKPOINT),
+        map_pool: root.join(MAP_POOL),
+        seed: 4_242,
+        rotation: 1,
+        table: ti4_review::ProfileTable::Learner,
+        temperature: 0.5,
+        diplomacy: false,
+    };
+    let branch =
+        LiveBranch::start(config.clone(), SeatControl::all_auto()).expect("spawn a branch");
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while branch.gate().state() != LiveState::Ready {
+        assert_ne!(branch.gate().state(), LiveState::Failed, "the branch failed to start");
+        assert!(Instant::now() < deadline, "the branch never became ready");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    branch.gate().enable_recording();
+    branch
+        .gate()
+        .run(AdvanceGoal::Steps(steps))
+        .expect("the advance is accepted");
+    let until = Instant::now() + Duration::from_secs(180);
+    while !branch.wait_until_idle(Duration::from_millis(5)) {
+        assert!(Instant::now() < until, "the branch stalled");
+    }
+    let settled = branch.gate().records();
+    let session = branch.into_session().expect("the session comes back");
+    let path = temp.path.join("reviewed.ti4review.json");
+    ti4_review::save_session(&path, &session).expect("write the session R01 produced");
+    (path, settled)
+}

@@ -202,7 +202,17 @@ impl ControlledDecider {
         match decision {
             GateDecision::Human { option_id } => {
                 let answer = self.offered(choice, &option_id)?;
-                self.finish(choice, &answer, &fingerprint, Provenance::Human, frame, ask);
+                // `log` only: the gate wrote the record when it took the answer out of the park, so the
+                // decision is durable before anything can call the branch stopped. Recording again here
+                // would write the same decision twice.
+                self.gate.log().push(AnsweredDecision {
+                    actor: self.seat.clone(),
+                    prompt: choice.prompt.clone(),
+                    chosen: answer.id.clone(),
+                    fingerprint: fingerprint.clone(),
+                    provenance: Provenance::Human,
+                });
+                let _ = (frame, ask);
                 Ok(answer)
             }
             GateDecision::Policy { delegated } => {
