@@ -1166,7 +1166,9 @@ fn an_imported_recording_carries_its_own_answers_and_survives_the_round_trip() {
         );
     }
     assert!(
-        answers.iter().all(|record| record.branch == BranchId::SOURCE),
+        answers
+            .iter()
+            .all(|record| record.branch == BranchId::SOURCE),
         "an imported answer belongs to the recording, not to some branch that has not been made yet"
     );
     assert!(
@@ -1180,9 +1182,14 @@ fn an_imported_recording_carries_its_own_answers_and_survives_the_round_trip() {
     // The checksum regression: this is the file the window would be asked to open next session.
     let project_path = temp.path.join("imported.r02.json");
     save_project(&project_path, &project).expect("save the import");
-    let reopened = load_project(&project_path).expect("the import reads back with its own checksum");
+    let reopened =
+        load_project(&project_path).expect("the import reads back with its own checksum");
     assert_eq!(
-        reopened.branch(BranchId::SOURCE).expect("branch-0").answers.len(),
+        reopened
+            .branch(BranchId::SOURCE)
+            .expect("branch-0")
+            .answers
+            .len(),
         answers.len(),
         "every answer survives the file"
     );
@@ -1228,7 +1235,11 @@ fn record_a_game(temp: &TempDir, steps: usize) -> (PathBuf, Vec<ReplayRecord>) {
         LiveBranch::start(config.clone(), SeatControl::all_auto()).expect("spawn a branch");
     let deadline = Instant::now() + Duration::from_secs(120);
     while branch.gate().state() != LiveState::Ready {
-        assert_ne!(branch.gate().state(), LiveState::Failed, "the branch failed to start");
+        assert_ne!(
+            branch.gate().state(),
+            LiveState::Failed,
+            "the branch failed to start"
+        );
         assert!(Instant::now() < deadline, "the branch never became ready");
         std::thread::sleep(Duration::from_millis(5));
     }
