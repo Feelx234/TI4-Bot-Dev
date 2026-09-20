@@ -9748,3 +9748,42 @@ order I propose and which of them need a saved game file). Fixed on this branch 
 transaction complaints: `transactions::available_actions` returns nothing while `state.diplomacy.enabled`
 (deliberate, tested at `diplomacy/candidates.rs:1201`/`:1252`) and the substitute contact window is not
 arriving — the first concrete case for DIPLO-001. Nothing here is committed as reviewed.
+
+## 2026-09-21 operator bug batch opens; two engine faults fixed (F-01 Hacan agent, F-02 Maxis)
+
+The operator asked for the `plans/BUG_PLAN_2026-09-20.md` list plus eight informal reports to be
+worked independently, and waived the independent-review requirement for the duration. New branch
+`wp/operator-bugs-2026-09-21`; one focused commit per fix, evidence appended to
+`plans/evidence/OPERATOR_BUGS_2026-09-21.md`. The four paths that were already dirty when the batch
+started (two `ti4-mlp` examples, `plans/INDEX.md`, one script) are not mine and are not staged.
+
+**F-01 — Hacan's agent was never offered, and this is the answer to "check the commit that
+supposedly fixed the leader issues".** `16f389a` (LEADER-FIX-001) added `hacanagent` to
+`action_leader_delivered` and reported 44/44 leader tests green. It is green because its Hacan test
+calls `use_leader` directly. The offer path is `component_actions` → `is_action_window`, which
+compared the corpus window with `eq_ignore_ascii_case("during the action phase")` — and the corpus
+prints `"During the action phase:"`, colon and all, for every Prophecy of Kings agent. The heroes
+work because they print `"ACTION:"`. So "leaders are delivered" and "the Hacan agent is never
+offered" were both true: the commit asserted the half it owned (`can this be resolved`) and nothing
+asserted the half the corpus governs (`may a seat ever be asked`). Fixed by comparing the printed
+window with the trailing colon removed, turning the delivered set into an array, and adding a test
+that every delivered action leader's printed window is in fact an action window — the guard that
+kills the class rather than the instance. Both new tests were run red first (`not on the offer list:
+[]`). Also stops offering the agent when every seat is at its commodity cap, where both of its
+branches would do nothing.
+
+**F-02 — Maxis Central Control (Faunus) offered nearly nothing.** `maxis_candidates` enumerated
+`&state.board`, which is written the first time a unit, a capture or a token touches a system;
+untouched systems simply are not in it, and a card about "a planet that contains no units" is a card
+about the systems nothing has touched. It now enumerates the map (`Galaxy`) unioned with the board —
+the board still contributes for Fracture systems and for map-less unit tests — and the offered list
+for a fresh table goes from the visited handful to every legal planet. Test asserts the ring really
+is out of `state.board` before it asserts anything about it, then takes one of those planets through
+the real ask/settle path. Eighteen sites iterate `&state.board` this way; the other seventeen are
+named in the evidence file and none is called wrong without its rule text.
+
+Checks: engine lib 1347 passed / 0 failed (was 1343 + 4 new); all `ti4-engine` integration targets
+green; clippy emits nothing for `leaders.rs` or `legendary.rs`, pre-existing warnings unchanged in
+count. Next in this batch, in order: the Wormhole Nexus (never placed on a map-pool board at all),
+then the transaction shapes (note for note, other players' notes, action cards for notes), then the
+viewer items (diplomacy terms, planet totals, dice rolls, strategy picks).
