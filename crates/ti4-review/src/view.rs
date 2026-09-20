@@ -115,6 +115,52 @@ pub fn item_section(
     }
 }
 
+/// The attachments on a planet, named rather than counted.
+///
+/// `· 2 attachment(s)` is a number where the reader needed a card name: an attachment is the difference
+/// between a planet that invites an invasion and one that does not. The names are the ceiling of what
+/// this engine can honestly say - its 22 attachment records carry `id`, `name`, `source` and
+/// `techSpeciality`, and no rules text - so the effect of an attachment has to come from the rules, not
+/// from a view layer guessing at it. An id the content does not know is still listed, by id: a thing the
+/// game has attached and the content cannot name is exactly what a reader should see.
+#[must_use]
+pub fn attachment_names(ids: &[String], content: &ContentStore) -> Vec<String> {
+    ids.iter()
+        .map(|id| {
+            content
+                .get(ContentType::Attachments, id)
+                .and_then(|record| record.text("name"))
+                .map_or_else(|| id.clone(), std::borrow::ToOwned::to_owned)
+        })
+        .collect()
+}
+
+/// A seat as the table knows it: `seat2 "Clan of Hacan"`, or the bare id before seating is known.
+///
+/// Six chips that read `seat0` … `seat5` make the reader hold a mapping nobody agreed to remember, and
+/// the frame already carries each seat's faction. R01's existing strings are deliberately untouched -
+/// this is for the surfaces where the reader asked, and a name printed here is a name the content store
+/// printed. A faction this build does not know keeps its raw id in parentheses, because an unfamiliar id
+/// on screen beats a name invented in a view layer.
+#[must_use]
+pub fn seat_name(frame: &ReviewFrame, player: &PlayerId, content: &ContentStore) -> String {
+    let id = player.as_str();
+    let Some(faction) = frame
+        .state
+        .players
+        .iter()
+        .find(|seat| seat.id == *player)
+        .map(|seat| seat.faction.as_str().to_owned())
+        .filter(|faction| !faction.is_empty())
+    else {
+        return id.to_owned();
+    };
+    match ti4_content::factions::get(content, &faction).and_then(|f| f.name()) {
+        Some(name) => format!("{id} \"{name}\""),
+        None => format!("{id} ({faction})"),
+    }
+}
+
 /// A seat name in black, preceded by its colour swatch.
 pub fn seat_label(ui: &mut egui::Ui, player: &PlayerId, text: impl Into<String>) {
     ui.horizontal(|ui| {

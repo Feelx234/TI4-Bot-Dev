@@ -1012,26 +1012,29 @@ impl Replayer {
         let asked = opened.app.pending().map(|pending| pending.actor);
         // A seat that has already passed this round will not be asked again until the next
         // one, which is the honest answer to "I took that seat and nothing happened".
-        let passed = opened
-            .store
-            .frames(opened.app.current())
-            .last()
-            .map(|frame| {
-                frame
-                    .state
-                    .players
-                    .iter()
-                    .filter(|player| player.passed)
-                    .map(|player| player.id.clone())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        // The newest frame answers both questions the chips used to guess at: who has passed, and who
+        // this seat actually is.
+        let newest = opened.store.frames(opened.app.current()).last();
+        let passed = newest.map_or_else(Vec::new, |frame| {
+            frame
+                .state
+                .players
+                .iter()
+                .filter(|player| player.passed)
+                .map(|player| player.id.clone())
+                .collect::<Vec<_>>()
+        });
+        let content = ContentStore::embedded();
         for seat in visible_seats(opened) {
             let mode = opened.app.seats().mode(&seat);
             let waiting = asked.as_ref() == Some(&seat);
             let has_passed = passed.contains(&seat);
+            let named = newest.map_or_else(
+                || seat.as_str().to_owned(),
+                |frame| view::seat_name(frame, &seat, content),
+            );
             let label = format!(
-                "{}{seat} · {}{}",
+                "{}{named} · {}{}",
                 if waiting { "▶ " } else { "" },
                 format!("{mode:?}").to_lowercase(),
                 if has_passed { " · passed" } else { "" }

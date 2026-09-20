@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use eframe::egui::{Color32, Pos2, Vec2};
 use ti4_content::ContentStore;
 use ti4_model::content_types::ContentType;
-use ti4_model::id::{PlanetId, PlayerId, SystemId, UnitTypeId};
+use ti4_model::id::{FactionId, PlanetId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::units::Unit;
 
 use ti4_review::view;
@@ -565,4 +565,73 @@ fn only_numbers_that_name_a_tile_are_rewritten() {
         "numbers that name no tile are numbers"
     );
     assert_eq!(view::annotate_systems(&session, ""), "");
+}
+
+/// A seat reads as the faction it is playing, not as a number the reader has to remember.
+#[test]
+fn a_seat_is_named_by_the_faction_it_is_playing() {
+    let session = started_session();
+    let frame = session
+        .frames
+        .last()
+        .expect("a started table has at least one frame");
+    let content = ContentStore::embedded();
+    assert!(
+        !frame.state.players.is_empty(),
+        "a started table seats somebody"
+    );
+    let named = frame
+        .state
+        .players
+        .iter()
+        .filter(|seat| !seat.faction.as_str().is_empty())
+        .count();
+    assert!(
+        named > 0,
+        "a frame after setup knows who is playing what, or this test is vacuous"
+    );
+    for seat in &frame.state.players {
+        let label = view::seat_name(frame, &seat.id, content);
+        assert!(
+            label.starts_with(seat.id.as_str()),
+            "the seat keeps its id, because it is also a stable address: {label}"
+        );
+        if seat.faction.as_str().is_empty() {
+            assert_eq!(
+                label,
+                seat.id.as_str(),
+                "no faction yet reads as the bare id"
+            );
+            continue;
+        }
+        let name = ti4_content::factions::get(content, seat.faction.as_str())
+            .and_then(|f| f.name())
+            .expect("a started table plays factions this content knows");
+        assert!(label.contains(name), "{label} should name {name}");
+    }
+    // A faction this build does not know keeps its raw id in parentheses. Inventing a friendly name for
+    // an unknown id in a view layer is how a wrong fact gets printed politely.
+    let mut odd = frame.clone();
+    odd.state.players[0].faction = FactionId::new("not_a_faction");
+    let who = odd.state.players[0].id.clone();
+    assert_eq!(
+        view::seat_name(&odd, &who, content),
+        format!("{who} (not_a_faction)")
+    );
+}
+
+/// Attachments are named, and an id the content does not know is shown as that id rather than hidden.
+#[test]
+fn attachments_are_named_not_counted() {
+    let content = ContentStore::embedded();
+    let named = view::attachment_names(
+        &["biotic".to_owned(), "no_such_attachment".to_owned()],
+        content,
+    );
+    assert_eq!(named.len(), 2);
+    assert_eq!(named[0], "Biotic Research Facility");
+    assert_eq!(
+        named[1], "no_such_attachment",
+        "an attachment the content cannot name must still appear, by id"
+    );
 }

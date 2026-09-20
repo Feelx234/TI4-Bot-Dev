@@ -138,3 +138,38 @@ primarily been noted."* Recorded, and it deserves to be said in the open rather 
 Blocked on one thing: **the saved game** the operator was playing. B1–B3 are all "the engine offered or
 refused a specific thing at a specific moment", and the recording carries the moment, the phase, the offer
 list and the refusal. Without it these are hypotheses with good provenance rather than reproductions.
+
+---
+
+# Fixed the same day (items 2 and 3, partly)
+
+Two of the UI items needed no reproduction and no engine change, so they were done rather than filed.
+
+**Seats read `seat2 "The Emirates of Hacan"`.** `view::seat_name(frame, player, content)` resolves the
+seat's faction through the content store and keeps the raw id first, because the id is also a stable
+address. Before seating exists it returns the bare id - a real state, not a failure - and a faction this
+build does not know prints `seat3 (some_faction_id)` rather than a name invented in a view layer. Wired
+into the replayer's seat chips, which was the surface the operator named; **R01's strings are untouched.**
+
+**Attachments are named, not counted.** The row read `· 2 attachment(s)`; it now reads
+`· 2 attachment(s): Biotic Research Facility, …` via `view::attachment_names`, with an unknown id shown as
+that id.
+
+That is as far as item 3 honestly goes today, and the reason is worth recording because it is bigger than
+the row: **the content corpus has no rules text for attachments at all.** All 22 records in
+`crates/ti4-content/content/attachments.json` carry `id`, `name`, `source` and `techSpeciality` — nothing
+else. So "what the attachment provides" cannot be printed from this engine's data; the name is the ceiling
+here, and the effect would have to be added to the corpus from the official rules, or found to be missing
+in the engine as well. That also sharpens the operator's *"maybe attachments are broken"*: there is no
+text in the data to display, and no test in the corpus that an attachment changes a rule outcome. The next
+step for item 3 is a content-schema addition (a `text` field, sourced from the rules) plus one engine test
+that an attached thing does something — not more string formatting.
+
+```text
+cargo test -p ti4-review   -> 85 passed (was 83; + a_seat_is_named_by_the_faction_it_is_playing,
+                                 + attachments_are_named_not_counted)
+cargo test -p ti4-replayer -> 63 across lib/app/shell/table, the fast targets; the 12 rebuild tests
+                               were last green at db7a220 and nothing in this change reaches them
+cargo clippy -p ti4-review -p ti4-replayer --all-targets --no-deps -- -D warnings -> 0
+cargo fmt -p ti4-review -p ti4-replayer --check                                   -> clean
+```

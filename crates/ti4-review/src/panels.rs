@@ -540,21 +540,28 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
                             }
                             let exhausted =
                                 frame.state.exhausted_planets.contains(planet.id.as_str());
-                            let attachments = frame
+                            let attachments: &[String] = frame
                                 .state
                                 .planet_attachments
                                 .get(planet.id.as_str())
-                                .map_or(0, Vec::len);
+                                .map_or(&[][..], Vec::as_slice);
                             controlled_planets.push(format!(
                                 "{} {}/{}{}{}",
                                 planet.label,
                                 planet.resources,
                                 planet.influence,
                                 if exhausted { " · exhausted" } else { "" },
-                                if attachments > 0 {
-                                    format!(" · {attachments} attachment(s)")
-                                } else {
+                                if attachments.is_empty() {
                                     String::new()
+                                } else {
+                                    // Named, not counted - see `view::attachment_names` for why the
+                                    // engine cannot yet say what an attachment does.
+                                    format!(
+                                        " · {} attachment(s): {}",
+                                        attachments.len(),
+                                        crate::view::attachment_names(attachments, content)
+                                            .join(", ")
+                                    )
                                 }
                             ));
                         }
