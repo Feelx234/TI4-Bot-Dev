@@ -9739,3 +9739,12 @@ surfacing, then policy numbers behind an honesty guard (a temperature-shaded sam
 Single blocker for B1-B3: **the saved game**. Each is a specific offer or refusal at a specific moment, and
 the recording carries the moment, phase, offer list and refusal. Until then they are well-sourced
 hypotheses, not reproductions, and I would rather say that than write a test against a guess.
+
+## 2026-09-20 later
+
+A second operator report is in `plans/OPERATOR_FEEDBACK_2026-09-20.md` (7 items, triaged, with the
+order I propose and which of them need a saved game file). Fixed on this branch since:
+`09409d7` Guild Ships legality, `cf14895` technology prerequisite guard. Root cause found for the
+transaction complaints: `transactions::available_actions` returns nothing while `state.diplomacy.enabled`
+(deliberate, tested at `diplomacy/candidates.rs:1201`/`:1252`) and the substitute contact window is not
+arriving — the first concrete case for DIPLO-001. Nothing here is committed as reviewed.
