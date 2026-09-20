@@ -117,6 +117,45 @@ What is left is a decision rather than a patch, and it is the first real argumen
 - **this week's workaround**, which needs nothing from me: leave the diplomacy checkbox off and Hacan
   transacts normally, Guild Ships and all.
 
+### 6b. Why *note for note* specifically cannot happen, down to the line
+
+Worth its own section, because the operator's second report named it exactly — "promissory note for
+promissory note not possible with hacan first round, needs full transaction availability" — and the answer
+is not Guild Ships and not the diplomacy gate. It is the **shape list**.
+
+`transactions::offer_options` (transactions.rs:763) is the single generator of what may be put on the
+table, and the diplomatic contact derives from it — `diplomacy::candidates::trade_bundles` converts
+`offer_options` through `offer_from` into `DealTerm` bundles, "so notes (the Support swap, note sales and
+gifts), commodities, trade goods, Arbiters action cards and Black Market goods trade under exactly the
+legality and pricing the transaction window uses". So one list feeds both windows, which is good
+architecture and makes the gap a single-place gap. That list contains:
+
+- **`"ss"` — exchange Support for the Throne notes**, pushed first, and it requires *both* sides to hold a
+  Support note (`available_support(proposer)` **and** `available_support(partner)`). In round one nobody
+  holds two of them, which is precisely "not possible with Hacan first round".
+- **note sold for trade goods** — one note from one side, trade goods from the other ("Any other note the
+  proposer holds, sold for trade goods").
+- goods/commodity shapes, Arbiters action cards, Black Market extras.
+
+**There is no shape that puts one note against another note.** A "my Mercantism for your Ceasefire" is not
+generated, so it is not offered, under either window, for any faction. The contact adds its own note
+template, `NoteForNonAggression` — your note in return for a promise not to attack — and its note list is
+narrowed twice over: `owner_of(note) == your own faction` (so a note you were *given* cannot be traded on)
+and `.take(3)`.
+
+Under the core rules a transaction may contain trade goods, commodity and promissory notes, and any note
+you hold can be given, so note-for-note legality looks like something the engine ought to allow — but the
+pricing (`note_cost`: three quarters of what a note is worth, and Support giving up a victory point), the
+offer id grammar that `offer_from` parses, and `can_pay`'s note rules all have to agree for a new shape to
+resolve correctly rather than *apparently* correctly. Notes are payments-adjacent, which under
+`AGENTS.md` is a frontier-review category, so this is written down rather than half-implemented at the end
+of a long context.
+
+The fix in one line: add the note-for-note shape to `offer_options`, priced through the existing
+`note_cost`, with the id grammar `offer_from` expects — and because the contact derives from that one
+list, both windows gain it at once. Roughly forty lines plus the truth table of who may hold what; the
+risk is not the code, it is pricing a note deal wrong and having it settle silently.
+
 One more number for the same pile, still needing the rule text rather than code: the per-partner limit is
 enforced here in generation (`state.transacted_with(player)` filtering `partners`), not in `why_illegal`,
 and `transactions::neighbours_who_transacted` (transactions.rs:210) counts only *neighbours* — so a
