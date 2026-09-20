@@ -16,7 +16,7 @@ use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::id::PlayerId;
 use ti4_replayer::app::{
     BranchHandle, PlayBlock, RebuildOutcome, RebuildStatus, ReplayApp, ReplaySettings,
-    SETTINGS_PATH,
+    SETTINGS_PATH, SetupDefaults,
 };
 use ti4_replayer::control::{
     ManualSubmission, ModeEffect, PendingManualChoice, SeatControl, SeatMode, SubmitOutcome,
@@ -712,15 +712,45 @@ fn the_replayer_never_reads_or_writes_the_reviewers_settings() {
         window_width: 1234.0,
         last_project: Some("out/replays/what-if.r02.json".to_owned()),
         last_branch: Some(3),
+        setup: SetupDefaults {
+            checkpoint: "out/checkpoints/run-11/checkpoint-602331/slots.json".to_owned(),
+            map_pool: "out/pools/full_np8_12_holdout.json".to_owned(),
+            seed: "007".to_owned(),
+            rotation: 4,
+            profile_table: "Accepted".to_owned(),
+            temperature: 0.05,
+            diplomacy: true,
+        },
         ..ReplaySettings::default()
     };
     settings.save(&path).expect("settings save");
-    assert_eq!(ReplaySettings::load(&path), settings);
+    let restored = ReplaySettings::load(&path);
+    assert_eq!(restored, settings);
+    // The table you last played at is what the setup form opens with, seed and rotation included - and
+    // a seed typed with a leading zero stays typed that way, because it is text and not a number.
+    assert_eq!(restored.setup.seed, "007");
+    assert_eq!(restored.setup.rotation, 4);
+    assert_eq!(restored.setup.profile_table, "Accepted");
+    assert!(restored.setup.diplomacy);
     assert_eq!(
         fs::read(&reviewer).expect("the reviewer's file is still readable"),
         b"{\"reviewer\":true}",
         "saving replayer settings must not touch the reviewer's"
     );
+
+    // A file written before the setup group existed still loads, and keeps what it does know.
+    fs::write(
+        &path,
+        b"{\"window_width\":1.0,\"last_project\":\"out/replays/a.r02.json\"}",
+    )
+    .expect("write");
+    let older = ReplaySettings::load(&path);
+    assert!((older.window_width - 1.0).abs() < f32::EPSILON);
+    assert_eq!(
+        older.last_project.as_deref(),
+        Some("out/replays/a.r02.json")
+    );
+    assert_eq!(older.setup, SetupDefaults::default());
 
     // A settings file from a future version is ignored rather than trusted.
     fs::write(&path, b"{\"window_width\":1.0,\"hologram\":\"yes\"}").expect("write");

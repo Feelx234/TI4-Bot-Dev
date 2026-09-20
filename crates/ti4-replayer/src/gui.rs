@@ -33,6 +33,7 @@ use ti4_review::{ProfileTable, ReviewFrame, ReviewSession, SimulationConfig, loa
 
 use crate::app::{
     PlayBlock, RebuildOutcome, RebuildStatus, ReplayApp, ReplaySettings, SETTINGS_PATH,
+    SetupDefaults,
 };
 use crate::fingerprint::FrameFingerprint;
 use crate::live::{AdvanceGoal, Gate, LiveBranch, LiveEvent, LiveState, ReplayRequest};
@@ -88,6 +89,26 @@ pub struct Replayer {
     /// require knowing what a session file is first.
     setup: SetupForm,
     setup_open: bool,
+    /// The window's current size, kept so that closing at 2560x1400 opens tomorrow at 2560x1400.
+    window: [f32; 2],
+}
+
+/// The profile table behind a remembered name, or the fallback when the name is not one this build
+/// knows - a settings file from a newer build is a reason to be boring, not to fail.
+fn profile_table_named(name: &str, fallback: ProfileTable) -> ProfileTable {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "learner" => ProfileTable::Learner,
+        "accepted" => ProfileTable::Accepted,
+        _ => fallback,
+    }
+}
+
+/// The name a profile table is stored under in the settings file.
+fn profile_table_text(table: ProfileTable) -> &'static str {
+    match table {
+        ProfileTable::Learner => "Learner",
+        ProfileTable::Accepted => "Accepted",
+    }
 }
 
 /// A table to start: checkpoint, map pool, seed, faction rotation, profile table, temperature,
@@ -126,6 +147,35 @@ impl Default for SetupForm {
 }
 
 impl SetupForm {
+    /// The form as the last table left it, field by field, falling back to the shipped example inputs
+    /// where nothing has been remembered.
+    ///
+    /// A remembered path that no longer exists is still shown: the point of remembering is to save the
+    /// operator from retyping a long checkpoint path, and a moved file is easier to fix when the field
+    /// shows what it used to be. Only a blank memory is skipped, because a blank is not a mistake, it
+    /// is nothing remembered.
+    fn remembered(settings: &ReplaySettings) -> Self {
+        let kept = |remembered: &str, fallback: String| {
+            if remembered.trim().is_empty() {
+                fallback
+            } else {
+                remembered.to_owned()
+            }
+        };
+        let mut form = Self::default();
+        let remembered = &settings.setup;
+        form.checkpoint = kept(&remembered.checkpoint, form.checkpoint);
+        form.map_pool = kept(&remembered.map_pool, form.map_pool);
+        form.seed = kept(&remembered.seed, form.seed);
+        form.rotation = remembered.rotation;
+        form.table = profile_table_named(&remembered.profile_table, form.table);
+        if remembered.temperature.is_finite() && remembered.temperature > 0.0 {
+            form.temperature = remembered.temperature;
+        }
+        form.diplomacy = remembered.diplomacy;
+        form
+    }
+
     /// The reviewer's configuration for this form, or the plain reason it is not a table yet.
     fn simulation(&self) -> Result<SimulationConfig, String> {
         if self.checkpoint.trim().is_empty() || !Path::new(self.checkpoint.trim()).exists() {
@@ -213,7 +263,8 @@ impl Replayer {
             show_players: settings.players_open,
             show_decision: settings.decisions_open,
             show_branches: settings.branches_open,
-            setup: SetupForm::default(),
+            setup: SetupForm::remembered(settings),
+            window: [settings.window_width, settings.window_height],
             // With nothing to look at, say what starting a table means instead of leaving a blank
             // window and a bar of buttons named after file formats.
             setup_open: settings.last_project.is_none(),
@@ -722,6 +773,9 @@ impl Replayer {
             app.project().inputs.diplomacy,
         );
         self.setup_open = false;
+        // Remember what was played with before the first frame has even been drawn, so a window that
+        // dies mid-table still opens tomorrow with the same checkpoint, pool, seed and profiles.
+        self.remember_setup();
         self.opened = Some(Opened {
             app,
             branch: Some(branch),
@@ -815,6 +869,11 @@ impl Replayer {
                 "Low prefers the highest-scored move; high explores. Takes effect when a table starts.",
             );
             ui.checkbox(&mut self.setup.diplomacy, "Structured diplomacy");
+            // Worth saying out loud, because leaving it off is not a quieter game, it is a different
+            // game: no proposals, no deals, no transactions with anybody at the table.
+            if !self.setup.diplomacy {
+                ui.weak("Off: nobody at this table can offer a deal or a transaction.");
+            }
             ui.checkbox(&mut self.setup.take_a_seat, "Take seat 0 now")
                 .on_hover_text(
                     "Seat 0 waits for you at its first decision. Any other seat is taken by toggling \
@@ -1444,6 +1503,10 @@ impl Replayer {
     /// Write the window's own settings. Never R01's file: that one belongs to the reviewer.
     fn persist(&self) {
         let settings = ReplaySettings {
+            // The window the operator left, not the one the source ships. Rebuilding these from
+            // `Default` is how a remembered window size never survived a session.
+            window_width: self.window[0],
+            window_height: self.window[1],
             players_open: self.show_players,
             decisions_open: self.show_decision,
             branches_open: self.show_branches,
@@ -1452,11 +1515,28 @@ impl Replayer {
                 .as_ref()
                 .and_then(|opened| opened.path.as_ref())
                 .map(|path| path.display().to_string()),
-            ..ReplaySettings::default()
+            // Which branch of that project was selected is remembered by the project file itself, so
+            // the window does not keep a second, easily stale copy.
+            last_branch: None,
+            setup: SetupDefaults {
+                checkpoint: self.setup.checkpoint.trim().to_owned(),
+                map_pool: self.setup.map_pool.trim().to_owned(),
+                seed: self.setup.seed.trim().to_owned(),
+                rotation: self.setup.rotation,
+                profile_table: profile_table_text(self.setup.table).to_owned(),
+                temperature: self.setup.temperature,
+                diplomacy: self.setup.diplomacy,
+            },
         };
         if let Err(error) = settings.save(Path::new(SETTINGS_PATH)) {
             eprintln!("replayer settings were not saved: {error}");
         }
+    }
+
+    /// Write down what this table is being played with. Called when a table starts, not only on exit,
+    /// because the point is to survive the crash rather than the clean quit.
+    fn remember_setup(&self) {
+        self.persist();
     }
 }
 
@@ -1466,6 +1546,11 @@ impl eframe::App for Replayer {
     }
 
     fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // The window's size is only knowable while it is being painted, and it is only worth knowing so
+        // that it can be written back out on the way.
+        if let Some(rect) = root.ctx().input(|input| input.raw.screen_rect) {
+            self.window = [rect.width(), rect.height()];
+        }
         // Take the whole opened record out for the duration of the paint. Every panel below then holds
         // `&mut Opened` and `&mut Self` at once, which is what it needs to answer a click and write the
         // status line in the same breath.

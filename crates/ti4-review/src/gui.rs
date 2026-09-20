@@ -49,6 +49,10 @@ struct ReviewerSettings {
     temperature: f64,
     last_review: Option<String>,
     diplomacy: bool,
+    /// The seed and faction rotation last played with, kept as text because that is how they are
+    /// edited and because a seed is a number the operator types, not one they want re-derived.
+    seed: String,
+    rotation: usize,
 }
 
 impl Default for ReviewerSettings {
@@ -60,7 +64,26 @@ impl Default for ReviewerSettings {
             temperature: default_sampling_temperature(),
             last_review: None,
             diplomacy: false,
+            seed: DEFAULT_SEED.to_owned(),
+            rotation: 0,
         }
+    }
+}
+
+/// The seed the reviewer starts with when nothing has been remembered yet.
+const DEFAULT_SEED: &str = "42";
+
+/// A remembered seed, or the default if nothing usable was remembered.
+///
+/// The field is editable text, so "it is empty" is a state the settings file can reach - usually by
+/// the operator clearing it to type something and quitting before starting a run. Falling back here
+/// keeps the next launch showing a seed that will parse.
+fn normalize_seed(seed: &str) -> String {
+    let seed = seed.trim().to_owned();
+    if seed.is_empty() {
+        DEFAULT_SEED.to_owned()
+    } else {
+        seed
     }
 }
 
@@ -144,8 +167,11 @@ impl ReviewApp {
         Self {
             checkpoint: settings.checkpoint,
             map_pool: settings.map_pool,
-            seed: "42".to_owned(),
-            rotation: 0,
+            // What this table last played with, not what the source code ships with. The seed and the
+            // rotation used to be the two fields that forgot: a session opened at 03:00 to finish a
+            // run came back to seed 42 and rotation 0, which is a different game.
+            seed: normalize_seed(&settings.seed),
+            rotation: settings.rotation,
             table: settings.profile_table,
             temperature: settings.temperature,
             diplomacy: settings.diplomacy,
@@ -232,6 +258,8 @@ impl ReviewApp {
                 .as_ref()
                 .map(|path| path.display().to_string()),
             diplomacy: self.diplomacy,
+            seed: self.seed.trim().to_owned(),
+            rotation: self.rotation,
         }
     }
 
@@ -878,6 +906,8 @@ mod tests {
             temperature: 0.25,
             last_review: Some("out/reviews/autosave.ti4review.json".to_owned()),
             diplomacy: true,
+            seed: "90210".to_owned(),
+            rotation: 3,
         };
         let bytes = serde_json::to_vec(&settings).unwrap();
         let restored: ReviewerSettings = serde_json::from_slice(&bytes).unwrap();
@@ -886,6 +916,24 @@ mod tests {
         assert_eq!(restored.profile_table, settings.profile_table);
         assert!((restored.temperature - settings.temperature).abs() <= f64::EPSILON);
         assert_eq!(restored.last_review, settings.last_review);
+        assert_eq!(restored.seed, settings.seed, "the seed came back blank");
+        assert_eq!(
+            restored.rotation, settings.rotation,
+            "the rotation came back"
+        );
+    }
+
+    /// A settings file written before seed and rotation were remembered still has to load, and an
+    /// empty remembered seed must not come back as a field that refuses to parse.
+    #[test]
+    fn old_settings_files_and_blank_seeds_survive() {
+        let legacy: ReviewerSettings =
+            serde_json::from_slice(br#"{"checkpoint":"cp/slots.json","temperature":0.05}"#)
+                .expect("a settings file from before seed and rotation still loads");
+        assert_eq!(legacy.seed, DEFAULT_SEED);
+        assert_eq!(legacy.rotation, 0);
+        assert_eq!(normalize_seed(""), DEFAULT_SEED);
+        assert_eq!(normalize_seed("  7 1 "), "7 1");
     }
 
     #[test]

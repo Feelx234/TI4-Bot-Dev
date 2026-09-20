@@ -9591,3 +9591,36 @@ Next: the operator drives the window (seat chips, Play/fork, objectives and dipl
 system naming). R02-008 keeps the frame-0 forkability pre-check, verifying a recording against the
 checkpoint hash in its own manifest, "finish and record" for a hand-played table, the R01-vs-R02 all-Auto
 equality gate, budget caps and operator documentation.
+
+## 2026-09-19 R02-007e: remember the table; three playing bugs recorded, not guessed at
+
+The operator asked for the reviewer to keep the last game's profile, map and settings as defaults, and
+reported three playing defects (L1Z1X agents, transactions with Hacan, diplomacy generally).
+
+Fixed the settings defect in both windows. R01 restored its checkpoint, pool, profile table, temperature
+and diplomacy from `out/reviews/reviewer-settings.json` and then hard-coded `seed: "42"`, `rotation: 0` -
+which is not cosmetic, because seed and rotation choose who sits where, so re-opening a run described a
+different game. Both fields are now remembered (seed as text; `normalize_seed` covers a blank memory).
+The replayer's setup form remembered nothing and its window settings were rebuilt from `Default` on every
+write; there is now `SetupDefaults` (checkpoint, pool, seed, rotation, profile table, temperature,
+diplomacy), the form opens from it, the window size is written back, and the table is remembered when it
+*starts*, not only on a clean exit. Proved end to end by launching the release binary, closing it with
+`CloseMainWindow()` and reading the `setup` group out of `out/replays/replayer-settings.json`; a killed
+process never reaches `on_exit`, which is how the first two attempts taught me nothing.
+
+The three playing defects are recorded in `plans/evidence/R02-007e.md` as a ledger with what was checked
+and what is unknown, and nothing was changed for them. The first thing to rule out is a table started with
+structured diplomacy off - the replayer's default, my choice, and a table without it cannot transact with
+anybody - so the form now says that out loud under the checkbox and remembers the value. Engine diplomacy
+(`crates/ti4-engine/src/diplomacy/`) is not in R02's editable surface: if these are engine faults they
+need their own item with a failing engine test; if the engine offered something the window did not
+surface, that is R02-008. To reproduce I need the file the table is in, whether the seat was on Manual,
+what was clicked, and what the window said.
+
+Verification: `ti4-review` 83 passed; `ti4-replayer` 100 passed (lib/app/feed/live/project/shell/table, in
+an isolated target dir because the operator's window held `target/debug/ti4-replayer.exe`; the 12 rebuild
+tests were last green at `db7a220` and were not re-run for a settings-only change); clippy and fmt exit 0.
+
+Next: the operator's four facts on the playing defects, then R02-008 (frame-0 forkability pre-check,
+verifying a recording against the checkpoint hash in its own manifest, "finish and record" for a
+hand-played table, R01-vs-R02 all-Auto equality, budget caps, operator documentation).

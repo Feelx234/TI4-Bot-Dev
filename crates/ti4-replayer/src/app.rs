@@ -50,6 +50,45 @@ pub struct ReplaySettings {
     pub last_project: Option<String>,
     /// Selected branch of that project, kept as the project's own id string.
     pub last_branch: Option<u32>,
+    /// The table last played at, so that "start a table" means "the one I keep playing" and not "the
+    /// example in the source tree".
+    pub setup: SetupDefaults,
+}
+
+/// What the setup form starts with.
+///
+/// Kept beside [`ReplaySettings`] rather than flattened into it: four booleans in one struct is how
+/// clippy says a struct is really two, and this group is one decision - what to offer when the window
+/// opens with nothing in it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SetupDefaults {
+    /// Checkpoint path as the operator typed it. Blank means nothing has been remembered.
+    pub checkpoint: String,
+    /// Map pool path as the operator typed it. Blank means nothing has been remembered.
+    pub map_pool: String,
+    /// Seed as text, because it is edited as text and a leading zero is somebody's idea of a seed.
+    pub seed: String,
+    pub rotation: usize,
+    /// `"Learner"` or `"Accepted"`, kept as words so this file does not depend on how an enum happens
+    /// to serialize.
+    pub profile_table: String,
+    pub temperature: f64,
+    pub diplomacy: bool,
+}
+
+impl Default for SetupDefaults {
+    fn default() -> Self {
+        Self {
+            checkpoint: String::new(),
+            map_pool: String::new(),
+            seed: "4242".to_owned(),
+            rotation: 0,
+            profile_table: "Learner".to_owned(),
+            temperature: 0.5,
+            diplomacy: false,
+        }
+    }
 }
 
 impl Default for ReplaySettings {
@@ -64,6 +103,7 @@ impl Default for ReplaySettings {
             branches_open: true,
             last_project: None,
             last_branch: None,
+            setup: SetupDefaults::default(),
         }
     }
 }
