@@ -753,3 +753,58 @@ fn frames_arriving_from_a_live_branch_extend_the_view_without_losing_position() 
     );
     assert!(app.at_tip());
 }
+
+/// The other half of the rule above: a reader who is *watching* follows.
+///
+/// Before this, `at_tip` was asked after the new frames had already been appended, so it answered
+/// "no" every time a frame arrived and the view never moved again. On a table started in the window
+/// that meant the board, the player sheets and the step panel all stayed on frame zero for the whole
+/// game, while the timeline counted up beside them.
+#[test]
+fn a_reader_at_the_tip_is_carried_along_by_the_branch() {
+    let mut app = app_with(10);
+    app.go_to_tip();
+    assert!(app.at_tip());
+    let mut arriving = ticks(14);
+    arriving.drain(..10);
+    app.record_frames(&arriving);
+    assert_eq!(
+        app.viewed(BranchId::SOURCE),
+        Some(13),
+        "watching the tip means watching what the branch does next"
+    );
+    assert!(app.at_tip());
+    // And one more batch, because the bug was in how the question was asked, not in the first answer.
+    let mut again = ticks(16);
+    again.drain(..14);
+    app.record_frames(&again);
+    assert_eq!(app.viewed(BranchId::SOURCE), Some(15));
+}
+
+/// The project counts frames too, and `fork` refuses a frame past the end of the parent - so a
+/// branch whose count is never updated cannot be forked from at all. A table started in the window
+/// begins at zero frames recorded, which is how "Play from this frame" came to answer "branch-0 ends
+/// at frame 0" for every frame of a game in progress.
+#[test]
+fn frames_arriving_grow_the_branch_the_project_knows_about() {
+    let mut app = app_with(0);
+    assert_eq!(
+        app.project()
+            .branch(BranchId::SOURCE)
+            .expect("source")
+            .frames,
+        0
+    );
+    app.record_frames(&ticks(12));
+    assert_eq!(
+        app.project()
+            .branch(BranchId::SOURCE)
+            .expect("source")
+            .frames,
+        12,
+        "the project's count follows the frames the branch has actually produced"
+    );
+    app.select_frame(7);
+    app.plan_play(Vec::new())
+        .expect("a frame the branch has reached can be forked from");
+}

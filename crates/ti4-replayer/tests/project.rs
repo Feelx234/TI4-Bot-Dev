@@ -750,14 +750,22 @@ fn a_prefix_inherits_up_to_the_fork_and_not_beyond() {
         .expect("a grandchild forked inside the child's own answers");
     assert_eq!(
         frames_of(&original.prefix(grand).expect("the grandchild's prefix")),
+        vec![(2, 0), (2, 1), (5, 0), (6, 0)],
+        "each ancestor is cut after the frame the next one forked at, because the answers stamped          with that frame are the ones that produced the position forked from"
+    );
+    let earlier = original
+        .fork(child, 5, None, Vec::new())
+        .expect("a second grandchild, forked a frame earlier");
+    assert_eq!(
+        frames_of(&original.prefix(earlier).expect("its prefix")),
         vec![(2, 0), (2, 1), (5, 0)],
-        "each ancestor is cut where the next one diverged"
+        "and a fork one frame earlier stops one frame earlier"
     );
 
     let script = original
         .replay_script(grand)
         .expect("a script for the grandchild");
-    assert_eq!(script.len(), 3);
+    assert_eq!(script.len(), 4);
     assert_eq!(
         script.records()[0].provenance,
         Provenance::Human,

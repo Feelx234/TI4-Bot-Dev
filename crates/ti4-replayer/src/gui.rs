@@ -25,9 +25,9 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Color32, Sense};
 use ti4_content::ContentStore;
 use ti4_model::id::PlayerId;
+use ti4_review::panels;
 use ti4_review::view::{
-    self, BoardLayout, PANEL_FILL, PANEL_TEXT, board_view, decision_rows, draw_board, event_rows,
-    section, stat_badge, step_view,
+    self, BoardLayout, PANEL_FILL, PANEL_TEXT, board_view, draw_board, section,
 };
 use ti4_review::{ProfileTable, ReviewFrame, ReviewSession, SimulationConfig, load_session};
 
@@ -525,6 +525,17 @@ impl Replayer {
     /// never leaves it. So this allocates the fork through the app, builds the gate the fork will be
     /// driven by, and hands both to [`LiveBranch::replay`].
     fn play(&mut self, opened: &mut Opened) {
+        // Everything the running branch has answered has to be in the project *before* the fork is
+        // planned, because the plan's script is built from the project. Until this line a table
+        // started here carried no answers at all until it was saved, so a fork from it replayed a
+        // prefix of nothing: with the seats on Auto that happened to reproduce, and with a seat on
+        // Manual the rebuild parked and asked the operator to answer the game a second time.
+        if let Err(error) = fold_branch_into_project(opened) {
+            self.status = format!(
+                "This branch's answers could not be recorded, so it cannot be forked: {error}"
+            );
+            return;
+        }
         let plan = match opened.app.plan_play(seat_settings(&opened.app.seats())) {
             Ok(plan) => plan,
             Err(block) => {
@@ -582,6 +593,11 @@ impl Replayer {
                     started: Instant::now(),
                     frames: 0,
                 });
+                // The fork's gate becomes the one the chips talk to straight away, though its frames
+                // are not viewable until the rebuild has proved them. Otherwise a seat taken while
+                // the prefix is replaying is set on the branch that was just left behind, and the
+                // fork silently starts with the modes the button press captured.
+                opened.app.attach_handle(Arc::clone(&gate));
                 opened.branch = Some(branch);
                 self.status = format!(
                     "Forked branch {} from {} at frame {}. Rebuilding and checking the prefix…",
@@ -920,101 +936,168 @@ impl Replayer {
     fn control_bar(&mut self, opened: &mut Opened, root: &mut egui::Ui) {
         egui::Panel::bottom("seats").show(root, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.strong("Seats");
-                for seat in visible_seats(opened) {
-                    let mode = opened.app.seats().mode(&seat);
-                    let label = format!("{seat} · {}", format!("{mode:?}").to_lowercase());
-                    let button = egui::Button::new(egui::RichText::new(&label).strong()).fill(
-                        if mode == SeatMode::Manual {
-                            view::player_color(&seat)
-                        } else {
-                            Color32::from_gray(58)
-                        },
-                    );
-                    let advice = if opened.branch.is_none() {
-                        "A recording has no live branch, so nothing is waiting on this chip yet. Set it                          here and the fork you make inherits it: press Play, the prefix is rebuilt, and                          the seat is yours from the first decision after the frame you forked at."
-                    } else {
-                        "Click to hand this seat to yourself or back to the learned policy. A seat on                          Manual stops the engine mid-step and asks you, so the answer lands exactly                          where the game paused."
-                    };
-                    if ui.add(button).on_hover_text(advice).clicked() {
-                        let mode = opened.app.toggle_seat(&seat);
-                        self.status = format!(
-                            "{seat} is on {mode:?}. {}",
-                            match mode {
-                                SeatMode::Manual => "it will be asked at its next decision, in the middle of the engine's step.",
-                                SeatMode::Auto => "the policy answers it again, from where the game left off.",
-                            }
-                        );
-                    }
-                }
+                self.seat_chips(opened, ui);
                 ui.separator();
-                let attached = opened.branch.is_some();
-                let rebuilding = opened.rebuilding.is_some();
-                let running = matches!(
-                    opened.app.live_state(),
-                    Some(LiveState::Running | LiveState::WaitingForHuman)
-                );
-                for (label, goal) in [
-                    ("Step", AdvanceGoal::Steps(1)),
-                    ("10 steps", AdvanceGoal::Steps(10)),
-                    ("To next round", AdvanceGoal::NextRound),
-                    ("End of game", AdvanceGoal::EndOfGame),
-                ] {
-                    let response = ui.add_enabled(attached && !rebuilding, egui::Button::new(label));
-                    if response.clicked() {
-                        self.advance(opened, goal);
-                    }
-                    let _ = response.on_hover_text(if !attached {
+                self.run_controls(opened, ui);
+                ui.separator();
+                self.play_control(opened, ui);
+            });
+        });
+    }
+
+    /// One chip per seat, each saying whether that seat is the one the engine is holding a question
+    /// open for, and whether it has already passed this round. Both matter: a chip that only shows the
+    /// mode is how "I took that seat and nothing happened" arrives as a bug report.
+    fn seat_chips(&mut self, opened: &mut Opened, ui: &mut egui::Ui) {
+        ui.strong("Seats");
+        let asked = opened.app.pending().map(|pending| pending.actor);
+        // A seat that has already passed this round will not be asked again until the next
+        // one, which is the honest answer to "I took that seat and nothing happened".
+        let passed = opened
+            .store
+            .frames(opened.app.current())
+            .last()
+            .map(|frame| {
+                frame
+                    .state
+                    .players
+                    .iter()
+                    .filter(|player| player.passed)
+                    .map(|player| player.id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for seat in visible_seats(opened) {
+            let mode = opened.app.seats().mode(&seat);
+            let waiting = asked.as_ref() == Some(&seat);
+            let has_passed = passed.contains(&seat);
+            let label = format!(
+                "{}{seat} · {}{}",
+                if waiting { "▶ " } else { "" },
+                format!("{mode:?}").to_lowercase(),
+                if has_passed { " · passed" } else { "" }
+            );
+            let button = egui::Button::new(egui::RichText::new(&label).strong()).fill(
+                if mode == SeatMode::Manual {
+                    view::player_color(&seat)
+                } else {
+                    Color32::from_gray(58)
+                },
+            );
+            let advice = if opened.branch.is_none() {
+                "A recording has no live branch, so nothing is waiting on this chip yet. Set it                          here and the fork you make inherits it: press Play, the prefix is rebuilt, and                          the seat is yours from the first decision after the frame you forked at."
+                            .to_owned()
+            } else if waiting {
+                "This seat is the one the engine is holding a question open for. Answer it in                          the panel on the right, or hand this one decision to the policy."
+                            .to_owned()
+            } else if has_passed {
+                format!(
+                    "Click to hand {seat} to yourself or back to the learned policy. It has                              passed this round, so the next thing it is asked comes in the round after                              this one - not in the next few steps."
+                )
+            } else {
+                "Click to hand this seat to yourself or back to the learned policy. A seat on                          Manual stops the engine mid-step and asks you, so the answer lands exactly                          where the game paused."
+                            .to_owned()
+            };
+            if ui.add(button).on_hover_text(advice).clicked() {
+                let mode = opened.app.toggle_seat(&seat);
+                // The app's own notice, because it is the one that knows whether the branch
+                // can still act on the change; a chip that always claims success is how "the
+                // seat toggle does nothing" reads from the outside.
+                self.status = opened.app.notice().map_or_else(
+                            || format!("{seat} is on {mode:?}."),
+                            |notice| {
+                                format!(
+                                    "{notice}. {}{}",
+                                    match mode {
+                                        SeatMode::Manual =>
+                                            "It is asked at its next decision, in the middle of the engine's step.",
+                                        SeatMode::Auto =>
+                                            "The policy answers it again, from where the game left off.",
+                                    },
+                                    if has_passed && mode == SeatMode::Manual {
+                                        " It has passed this round, so that is the round after this one."
+                                    } else {
+                                        ""
+                                    }
+                                )
+                            },
+                        );
+            }
+        }
+    }
+
+    /// Step the game, run it to a round or to the end, pause it, stop it. Every one of these is a
+    /// request to the branch, never a mutation of the game from this thread.
+    fn run_controls(&mut self, opened: &mut Opened, ui: &mut egui::Ui) {
+        let attached = opened.branch.is_some();
+
+        let rebuilding = opened.rebuilding.is_some();
+        let running = matches!(
+            opened.app.live_state(),
+            Some(LiveState::Running | LiveState::WaitingForHuman)
+        );
+        for (label, goal) in [
+            ("Step", AdvanceGoal::Steps(1)),
+            ("10 steps", AdvanceGoal::Steps(10)),
+            ("To next round", AdvanceGoal::NextRound),
+            ("End of game", AdvanceGoal::EndOfGame),
+        ] {
+            let response = ui.add_enabled(attached && !rebuilding, egui::Button::new(label));
+            if response.clicked() {
+                self.advance(opened, goal);
+            }
+            let _ = response.on_hover_text(if !attached {
                         "Nothing is running. Press Play to fork from the frame you are looking at: the prefix is rebuilt and proved, and then you are at the table."
                     } else if rebuilding {
                         "A rebuild is in flight. It will take this command as soon as it has proved the position."
                     } else {
                         "Ask the branch to advance. A seat on Manual stops it mid-step and asks you."
                     });
-                }
-                let pause = ui.add_enabled(running, egui::Button::new("Pause"));
-                if pause.clicked() {
-                    opened.app.pause();
-                    "Pausing at the next step boundary.".clone_into(&mut self.status);
-                }
-                let _ = pause.on_hover_text(
+        }
+        let pause = ui.add_enabled(running, egui::Button::new("Pause"));
+        if pause.clicked() {
+            opened.app.pause();
+            "Pausing at the next step boundary.".clone_into(&mut self.status);
+        }
+        let _ = pause.on_hover_text(
                     "Stop at the next step boundary. A decision already being asked is answered first - that is what makes a pause safe to press anywhere.",
                 );
-                let stop = ui.add_enabled(attached, egui::Button::new("Stop"));
-                if stop.clicked() {
-                    if let Some(branch) = opened.branch.as_ref() {
-                        branch.gate().stop();
-                    }
-                    "Stopped. Its frames stay; fork from a frame to continue."
-                        .clone_into(&mut self.status);
-                }
-                let _ = stop.on_hover_text(
+        let stop = ui.add_enabled(attached, egui::Button::new("Stop"));
+        if stop.clicked() {
+            if let Some(branch) = opened.branch.as_ref() {
+                branch.gate().stop();
+            }
+            "Stopped. Its frames stay; fork from a frame to continue.".clone_into(&mut self.status);
+        }
+        let _ = stop.on_hover_text(
                     "End this branch. It cannot run again, so continuing means forking from a frame - which is also how you go back.",
                 );
-                ui.separator();
-                let block = opened.app.play_check();
-                let play = ui.add_enabled(
-                    block.is_ok(),
-                    egui::Button::new(egui::RichText::new("▶ Play from this frame").strong()),
-                );
-                let clicked = play.clicked();
-                let _ = play.on_hover_text(block.as_ref().err().map_or_else(
+    }
+
+    /// Fork from the frame on screen, and the progress of a fork that is already replaying its prefix.
+    fn play_control(&mut self, opened: &mut Opened, ui: &mut egui::Ui) {
+        let block = opened.app.play_check();
+        let rebuilding = opened.rebuilding.is_some();
+        let play = ui.add_enabled(
+            block.is_ok(),
+            egui::Button::new(egui::RichText::new("▶ Play from this frame").strong()),
+        );
+        let clicked = play.clicked();
+        let _ = play.on_hover_text(block.as_ref().err().map_or_else(
                     || "Fork at the frame you are looking at, replay everything up to it from the checkpoint, and check every frame against the recording before letting anybody take a seat. The branch you forked keeps every frame it had.".to_owned(),
                     PlayBlock::tooltip,
                 ));
-                if rebuilding {
-                    let cancel = ui.button("Cancel rebuild");
-                    let spinner = ui.spinner();
-                    let _ = spinner.on_hover_text("The prefix is being replayed and checked frame by frame. That is why the position is worth playing from.");
-                    if cancel.clicked() {
-                        self.cancel_rebuild(opened);
-                    }
-                }
-                if clicked {
-                    self.play(opened);
-                }
-            });
-        });
+        if rebuilding {
+            let cancel = ui.button("Cancel rebuild");
+            let spinner = ui.spinner();
+            let _ = spinner.on_hover_text("The prefix is being replayed and checked frame by frame. That is why the position is worth playing from.");
+            if cancel.clicked() {
+                self.cancel_rebuild(opened);
+            }
+        }
+        if clicked {
+            self.play(opened);
+        }
     }
 
     fn branch_panel(&mut self, opened: &mut Opened, root: &mut egui::Ui) {
@@ -1094,18 +1177,26 @@ impl Replayer {
             });
     }
 
-    /// The panel a parked decision puts on screen, with the step detail under it.
+    /// The panel a parked decision puts on screen, with the reviewer's whole step sheet under it.
+    ///
+    /// Two things are on this sheet and they are not the same thing. The top is the question the
+    /// engine is holding open right now, which only this application has; below it is R01's own
+    /// decision panel, drawn from the shared module, which is what "enough to judge a play" means.
+    /// The option list gets a bounded scroll of its own rather than the panel's leftover height,
+    /// because a production or movement choice can offer dozens of options and the ones past the
+    /// bottom edge used to be simply unreachable.
     fn choice_panel(
         &mut self,
         opened: &mut Opened,
         root: &mut egui::Ui,
         session: &ReviewSession,
+        frames: &[ReviewFrame],
         frame: &ReviewFrame,
     ) {
         let pending = opened.app.pending();
         egui::Panel::right("choices")
             .resizable(true)
-            .default_size(420.0)
+            .default_size(470.0)
             .frame(
                 egui::Frame::new()
                     .fill(PANEL_FILL)
@@ -1116,7 +1207,7 @@ impl Replayer {
                 ui.visuals_mut().override_text_color = Some(PANEL_TEXT);
                 if let Some(pending) = pending {
                     ui.heading(format!("{} is asked", pending.actor));
-                    ui.strong(&pending.prompt);
+                    ui.strong(view::annotate_systems(session, &pending.prompt));
                     ui.small(format!(
                         "frame {} · ask {} · {} option(s), in the order the engine offered them",
                         pending.frame,
@@ -1125,8 +1216,13 @@ impl Replayer {
                     ));
                     let fingerprint = pending.fingerprint.clone();
                     let mut chosen: Option<String> = None;
+                    // Half the panel at most, and never less than a few rows: the options are the
+                    // thing being clicked, and the step sheet below them is the thing being read.
+                    let room = (ui.available_height() * 0.5).clamp(120.0, 520.0);
                     egui::ScrollArea::vertical()
                         .id_salt("manual-options")
+                        .max_height(room)
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             for option in &pending.options {
                                 // The policy's own numbers, when the recording has them. A manual seat
@@ -1138,10 +1234,31 @@ impl Replayer {
                                 let odds = option.probability.map_or(String::new(), |probability| {
                                     format!(" · {:.1}%", probability * 100.0)
                                 });
-                                let text = format!("{}{policy}{odds}", option.label);
-                                if ui.button(egui::RichText::new(text)).clicked() {
+                                let text = format!(
+                                    "{}{policy}{odds}",
+                                    view::annotate_systems(session, &option.label)
+                                );
+                                let button = ui.add(
+                                    egui::Button::new(egui::RichText::new(text)).wrap_mode(
+                                        egui::TextWrapMode::Wrap,
+                                    ),
+                                );
+                                if button.clicked() {
                                     chosen = Some(option.id.clone());
                                 }
+                                let _ = button.on_hover_text(format!(
+                                    "id {}\nkind {}\n{}",
+                                    option.id,
+                                    option.kind,
+                                    if option.payload.is_empty() {
+                                        "no structured payload".to_owned()
+                                    } else {
+                                        view::json_pretty(
+                                            &serde_json::to_value(&option.payload)
+                                                .unwrap_or_default(),
+                                        )
+                                    }
+                                ));
                                 ui.small(format!("{} · {}", option.id, option.kind));
                             }
                         });
@@ -1165,80 +1282,36 @@ impl Replayer {
                     );
                     ui.separator();
                 }
-                Self::step_detail(ui, session, frame);
+                // R01's right-hand sheet, unabridged: the action in progress, every decision this
+                // step settled with its options, features, payloads and consequence previews, the
+                // new engine events, and the selected system.
+                panels::decision_sheet(
+                    ui,
+                    // The branch's own frames, never `session.frames`: the store keeps the header with
+                    // its frames emptied, so a branch tree does not duplicate a whole recording, and a
+                    // sheet that reached for the latter crashed the window on its first live table.
+                    &panels::Sheets {
+                        header: session,
+                        frames,
+                    },
+                    frame,
+                    self.selected_tile.as_deref(),
+                    panels::SystemNaming::TileAndPlanets,
+                );
             });
     }
 
-    fn step_detail(ui: &mut egui::Ui, session: &ReviewSession, frame: &ReviewFrame) {
-        let step = step_view(frame);
-        ui.heading("This frame");
-        ui.label(format!(
-            "Step {} · round {} · {} · active {}",
-            step.engine_step, step.round, step.phase, step.active
-        ));
-        ui.horizontal_wrapped(|ui| {
-            stat_badge(ui, "⚑", "Decisions", step.decision_count);
-            stat_badge(ui, "➔", "Actions", step.action_count);
-            stat_badge(ui, "⬡", "System", &step.active_system);
-        });
-        if let Some(error) = &step.error {
-            ui.colored_label(Color32::from_rgb(200, 80, 70), format!("Engine: {error}"));
-        }
-        for row in decision_rows(frame) {
-            section(ui, &format!("{}. {}", row.sequence, row.prompt), |ui| {
-                ui.label(format!(
-                    "{} · {}{}",
-                    row.player,
-                    row.path.annotation().unwrap_or("policy"),
-                    if row.faction.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" · {}", row.faction)
-                    }
-                ));
-                ui.small(&row.summary);
-                if let Some(rank) = &row.rank {
-                    ui.small(format!(
-                        "rank {}/{} · chosen {} · best {}",
-                        rank.position, rank.ranked, rank.probability, rank.best
-                    ));
-                    if rank.below_greedy {
-                        ui.colored_label(
-                            Color32::from_rgb(180, 110, 40),
-                            "the policy sampled below its own top choice",
-                        );
-                    }
-                }
-            });
-        }
-        let events = event_rows(frame);
-        if !events.is_empty() {
-            section(ui, &format!("{} events", events.len()), |ui| {
-                for row in events.iter().take(60) {
-                    ui.small(format!(
-                        "{}{} · {}",
-                        row.title,
-                        if row.cancelled { " (cancelled)" } else { "" },
-                        row.event_type
-                    ));
-                }
-            });
-        }
-        ui.small(format!(
-            "board {} tiles · content {}",
-            session.board.len(),
-            if session.manifest.content_sha256.is_some() {
-                "hashed"
-            } else {
-                "unrecorded"
-            }
-        ));
-    }
-
-    fn players_panel(&mut self, root: &mut egui::Ui, frame: &ReviewFrame) {
+    /// R01's left sheet, whole: the policy behind the table, the table, and every player's holdings.
+    fn players_panel(
+        &mut self,
+        root: &mut egui::Ui,
+        session: &ReviewSession,
+        frames: &[ReviewFrame],
+        frame: &ReviewFrame,
+    ) {
         egui::Panel::left("players")
             .resizable(true)
-            .default_size(300.0)
+            .default_size(340.0)
             .frame(
                 egui::Frame::new()
                     .fill(PANEL_FILL)
@@ -1247,36 +1320,35 @@ impl Replayer {
             .show_collapsible(root, &mut self.show_players, |ui| {
                 *ui.visuals_mut() = egui::Visuals::light();
                 ui.visuals_mut().override_text_color = Some(PANEL_TEXT);
-                ui.heading("Seats");
-                egui::ScrollArea::vertical()
-                    .id_salt("seat-sheets")
-                    .show(ui, |ui| {
-                        for player in &frame.state.players {
-                            section(ui, &format!("{} · {}", player.id, player.faction), |ui| {
-                                ui.horizontal_wrapped(|ui| {
-                                    stat_badge(ui, "★", "Score", player.victory_points);
-                                    stat_badge(ui, "◆", "TG", player.trade_goods);
-                                    stat_badge(ui, "⚏", "Com", player.commodities);
-                                });
-                                ui.small(format!(
-                                    "tech {} · tactics {} · strategy {} · action {} · relics {}{}",
-                                    player.technologies.len(),
-                                    player.tactic_tokens,
-                                    player.strategy_cards.len(),
-                                    player.action_cards.len(),
-                                    player.relics.len(),
-                                    if player.passed { " · passed" } else { "" }
-                                ));
-                            });
-                        }
-                    });
+                panels::players_sheet(
+                    ui,
+                    &panels::Sheets {
+                        header: session,
+                        frames,
+                    },
+                    frame,
+                );
             });
     }
 
-    /// The map.
+    /// The map, with the reviewer's own seat row and legend over it.
     fn centre(&mut self, root: &mut egui::Ui, session: &ReviewSession, frame: &ReviewFrame) {
         egui::CentralPanel::default().show(root, |ui| {
             let content = ContentStore::embedded();
+            // R01's board header, word for word. Which colour is whose, and what every stroke on the
+            // hexes means: without it the map is a picture rather than a position.
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Players:");
+                for player in &frame.state.players {
+                    ui.colored_label(
+                        view::player_color(&player.id),
+                        format!("● {} {}", player.id, player.faction),
+                    );
+                }
+            });
+            ui.small(
+                "Thick outer edge = space control; thin inner edge = planet control (split when mixed). Wormholes: lettered rings; white outer rim = placed token; red slash = suppressed. IN/OUT portals connect the galaxy to the Fracture. Planet: resources/influence · C/H/I trait · B/G/R/Y specialty · ★ legendary · S station · × destroyed. Gray units are neutral; red slash = damaged; yellow ring = galvanized.",
+            );
             let available = ui.available_size();
             let (response, painter) = ui.allocate_painter(available, Sense::click());
             let layout = BoardLayout::new(response.rect, available, frame.state.fracture_in_play);
@@ -1354,7 +1426,13 @@ impl Replayer {
                 }
                 if let Some(selected) = &self.selected_tile {
                     ui.separator();
-                    ui.label(format!("selected {selected}"));
+                    ui.label(format!(
+                        "selected {}",
+                        opened.store.session(branch).map_or_else(
+                            || selected.clone(),
+                            |session| view::system_label(session, selected)
+                        )
+                    ));
                     if ui.button("clear").clicked() {
                         self.selected_tile = None;
                     }
@@ -1435,10 +1513,10 @@ impl eframe::App for Replayer {
                         self.branch_panel(opened, root);
                     }
                     if self.show_players {
-                        self.players_panel(root, frame);
+                        self.players_panel(root, session, store.frames(branch), frame);
                     }
                     if self.show_decision {
-                        self.choice_panel(opened, root, session, frame);
+                        self.choice_panel(opened, root, session, store.frames(branch), frame);
                     }
                     self.centre(root, session, frame);
                 }

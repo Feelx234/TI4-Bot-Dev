@@ -242,10 +242,11 @@ pub fn fold_answers(
 
 /// The answers that belong to a branch itself, stamped with that branch's id.
 ///
-/// A branch stores what it answered from its fork frame onwards; everything before that belongs to its
-/// parent and is inherited by [`prefix`](crate::ReplayerProject::prefix). Storing the parent's
-/// answers again would double them in the prefix, which is the one way a saved project could replay a
-/// game that never happened.
+/// A branch stores what it answered *past* its fork frame; everything up to and including that frame
+/// belongs to its parent and is inherited by [`prefix`](crate::ReplayerProject::prefix) — the fork
+/// frame itself is the position the child starts from, so the answers that produced it are the
+/// parent's. Storing the parent's answers again would double them in the prefix, which is the one way
+/// a saved project could replay a game that never happened.
 #[must_use]
 pub fn own_answers(
     records: &[ReplayRecord],
@@ -254,7 +255,7 @@ pub fn own_answers(
 ) -> Vec<ReplayRecord> {
     records
         .iter()
-        .filter(|record| fork_frame.is_none_or(|frame| record.frame >= frame))
+        .filter(|record| fork_frame.is_none_or(|frame| record.frame > frame))
         .map(|record| {
             let mut owned = record.clone();
             owned.branch = branch;
@@ -455,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn own_answers_keeps_the_fork_onwards_and_stamps_the_branch() {
+    fn own_answers_keeps_what_follows_the_fork_and_stamps_the_branch() {
         let record = ReplayRecord {
             branch: BranchId::SOURCE,
             frame: 4,
@@ -476,8 +477,15 @@ mod tests {
         let child = BranchId::new(3);
         let before = own_answers(std::slice::from_ref(&record), Some(5), child);
         assert!(before.is_empty(), "frame 4 belongs to the parent");
-        let after = own_answers(std::slice::from_ref(&record), Some(4), child);
-        assert_eq!(after.len(), 1, "frame 4 is where this branch starts");
+        // The fork frame itself is the position the child inherits, and the answers stamped with it
+        // are the ones that produced that position - so they are the parent's, not the child's.
+        let at = own_answers(std::slice::from_ref(&record), Some(4), child);
+        assert!(
+            at.is_empty(),
+            "the fork frame's own answers produced the position forked from"
+        );
+        let after = own_answers(std::slice::from_ref(&record), Some(3), child);
+        assert_eq!(after.len(), 1, "frame 4 is past a fork at frame 3");
         assert_eq!(after[0].branch, child, "and it is this branch's answer");
         let all = own_answers(std::slice::from_ref(&record), None, child);
         assert_eq!(all.len(), 1, "branch-0 keeps everything it settled");

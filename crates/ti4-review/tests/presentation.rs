@@ -483,3 +483,86 @@ fn a_tile_shows_its_own_system_and_always_the_same_answer() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Naming a system
+// ---------------------------------------------------------------------------
+
+/// The engine names a system by the number printed on its tile: `activate 43`. Exact, and unreadable
+/// unless you already know the map. These two functions are what the replayer spells instead.
+#[test]
+fn a_system_is_named_by_its_tile_and_what_is_inside_it() {
+    let session = started_session();
+    let populated = session
+        .board
+        .iter()
+        .find(|tile| tile.planets.len() > 1)
+        .expect("some tile prints more than one planet");
+    let label = view::system_label(&session, &populated.system);
+    assert!(
+        label.starts_with(&format!("{} · ", populated.system)),
+        "the tile number stays first, because that is what the engine says: {label}"
+    );
+    for planet in &populated.planets {
+        assert!(
+            label.contains(planet.label.as_str()),
+            "every planet in the system is named: {label}"
+        );
+    }
+
+    let empty = session
+        .board
+        .iter()
+        .find(|tile| tile.planets.is_empty())
+        .expect("some tile prints no planet at all");
+    assert_eq!(
+        view::system_label(&session, &empty.system),
+        format!("{} · {}", empty.system, empty.label),
+        "an empty system still has a printed name worth reading"
+    );
+
+    assert_eq!(
+        view::system_label(&session, "not-a-tile"),
+        "not-a-tile",
+        "a system this board does not have is returned untouched"
+    );
+}
+
+/// The rewrite only touches numbers that name a tile of *this* board, and only where a number stands
+/// on its own - otherwise `produce 2x fighter for 1` would grow a planet list.
+#[test]
+fn only_numbers_that_name_a_tile_are_rewritten() {
+    let session = started_session();
+    let tile = session
+        .board
+        .iter()
+        .find(|tile| !tile.planets.is_empty())
+        .expect("some tile prints a planet");
+    let system = tile.system.clone();
+    let named = view::system_label(&session, &system);
+
+    assert_eq!(
+        view::annotate_systems(&session, &format!("activate {system}")),
+        format!("activate {named}")
+    );
+    assert_eq!(
+        view::annotate_systems(&session, &format!("commit ground forces in {system}")),
+        format!("commit ground forces in {named}")
+    );
+    // Attached on either side is not a tile reference.
+    assert_eq!(
+        view::annotate_systems(&session, &format!("sol_{system}")),
+        format!("sol_{system}")
+    );
+    assert_eq!(
+        view::annotate_systems(&session, &format!("{system}x")),
+        format!("{system}x")
+    );
+    let untouched = "produce 2x fighter for 1 · give 0 for 1";
+    assert_eq!(
+        view::annotate_systems(&session, untouched),
+        untouched,
+        "numbers that name no tile are numbers"
+    );
+    assert_eq!(view::annotate_systems(&session, ""), "");
+}

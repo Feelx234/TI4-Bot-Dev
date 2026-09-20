@@ -413,6 +413,21 @@ impl<H: BranchHandle> ReplayApp<H> {
         self.answered = None;
     }
 
+    /// Point the app at a different branch's gate without touching the frames it holds.
+    ///
+    /// A fork's gate exists from the moment `Play` is pressed, but its frames do not exist until the
+    /// rebuild has proved them. [`attach`](Self::attach) does both at once, which is right when a
+    /// branch is ready and wrong while one is being rebuilt: until this existed, a seat flipped
+    /// during a rebuild was sent to the gate of the branch that had just been left behind, and the
+    /// fork started with the modes captured when the button was pressed. The old gate is stopped,
+    /// because the window plays one history at a time.
+    pub fn attach_handle(&mut self, handle: H) {
+        if let Some(previous) = self.handle.replace(handle) {
+            previous.stop();
+        }
+        self.answered = None;
+    }
+
     /// Detach the running branch, keeping whatever frames were seen.
     pub fn detach(&mut self) {
         if let Some(handle) = self.handle.take() {
@@ -505,13 +520,22 @@ impl<H: BranchHandle> ReplayApp<H> {
         let previous = self.seats().mode(seat);
         if let Some(handle) = &self.handle {
             let effect = handle.set_mode(seat, mode);
+            let state = handle.snapshot().state;
             if matches!(effect, ModeEffect::ReleasedBot { .. }) {
                 self.answered = None;
                 self.notice = Some(format!(
                     "{seat} is on {mode:?}: the choice it was waiting on goes to the policy"
                 ));
-            } else {
+            } else if state.accepts_run() {
                 self.notice = Some(format!("{seat} is on {mode:?}"));
+            } else {
+                // The chip changed and the branch cannot act on it, which is not the same thing as
+                // the chip not working. Saying so is the difference between "this button is broken"
+                // and "fork from a frame and the seat is yours".
+                self.notice = Some(format!(
+                    "{seat} is on {mode:?}, but this branch is {} and will not ask anything else.                      Fork from a frame to play it on.",
+                    state.as_str()
+                ));
             }
         } else {
             self.notice = Some(format!("{seat} is on {mode:?} (saved for the next run)"));
@@ -874,6 +898,14 @@ impl<H: BranchHandle> ReplayApp<H> {
         if frames.is_empty() {
             return;
         }
+        // Whether the reader was watching the newest frame has to be answered *before* the new ones
+        // land, or the answer is always "no": `at_tip` compares the viewed index against the last
+        // index, and appending moves the last index every time. That is what made the board stop
+        // following a running game - the view stayed on whatever frame the reader was on when the
+        // first batch arrived, which for a table started here is frame zero.
+        let was_at_tip = self.frames(self.current).is_empty()
+            || self.at_tip()
+            || self.viewed_current().is_none();
         let known = self.frames(self.current).to_vec();
         let mut merged = known;
         for frame in frames {
@@ -884,8 +916,21 @@ impl<H: BranchHandle> ReplayApp<H> {
         }
         let len = merged.len();
         self.frames.insert(self.current, merged);
-        if self.at_tip() || self.viewed_current().is_none() {
+        if was_at_tip {
             self.viewed.insert(self.current, len - 1);
+        }
+        // The project counts frames too, and `fork` refuses a frame past the end of the parent. A
+        // live table starts at zero frames recorded, so without this every Play from it is refused
+        // with "branch-0 ends at frame 0".
+        self.note_frames(len);
+    }
+
+    /// Tell the project how long the current branch is now, and say so if it refuses.
+    fn note_frames(&mut self, len: usize) {
+        let frames = u64::try_from(len).unwrap_or(u64::MAX);
+        let current = self.current;
+        if let Err(error) = self.project.note_frames(current, frames) {
+            self.notice = Some(format!("Branch {current} could not grow: {error}"));
         }
     }
 }

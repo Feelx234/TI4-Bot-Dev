@@ -9566,3 +9566,28 @@ the documented default path (start a table in the window, take a seat, answer, s
 forkability pre-check, the recording's-own-claims check against `SessionManifest::checkpoint_sha256` and
 `map_pool_sha256`, "finish and record" for hand-played tables, the R01-vs-R02 all-Auto equality gate,
 manual control across decision kinds, budget caps and operator documentation.
+
+## 2026-09-19 R02-007d: the replayer's sheets, and the crash that pass shipped
+
+A pass on the operator's six-item list moved R01's player and decision sheets into
+`ti4-review/src/panels.rs` so both windows render the same code, fixed the frozen board
+(`at_tip()` asked after appending), made the fork prefix cut inclusive, folded live answers
+before planning, swapped the gate at fork start, and named systems by tile and planets.
+
+It also shipped a crash. The shared sheets read their history from `session.frames`; the replayer's
+store hands out a session shell with `frames` emptied on purpose, so opening anything painted a range
+out of an empty slice: `range end index 0 out of range for slice of length 0`. Fixed with
+`panels::Sheets { header, frames }` - R01 passes `Sheets::whole(session)`, the replayer passes the
+branch's list - plus a total `view::action_summary_in` and `Sheets::previous` by index. Four new tests
+paint the shell shape (two in `panel_paint.rs`, one in `table.rs` through the real store, one asserting
+R01's answers are unchanged). `ti4-review` 82 and `ti4-replayer` 112 pass; clippy and fmt exit 0; the
+release binary holds a 4,481-frame recording open with an empty stderr.
+
+The pattern to remember, twice now in two packages: the fixtures had R01's shape while the code ran with
+the replayer's. A logic suite, or even a paint suite, does not notice. Before any further panel work,
+paint through the store the way the window does.
+
+Next: the operator drives the window (seat chips, Play/fork, objectives and diplomacy in the left sheet,
+system naming). R02-008 keeps the frame-0 forkability pre-check, verifying a recording against the
+checkpoint hash in its own manifest, "finish and record" for a hand-played table, the R01-vs-R02 all-Auto
+equality gate, budget caps and operator documentation.

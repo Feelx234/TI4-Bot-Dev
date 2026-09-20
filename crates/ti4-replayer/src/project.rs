@@ -733,6 +733,14 @@ impl ReplayerProject {
                 .ok_or(ProjectError::UnknownBranch { branch: *branch_id })?;
             // The last entry is the branch itself: keep all of its answers. Ancestors are cut where
             // the next branch on the chain diverged from them.
+            //
+            // The cut is inclusive, and that is the whole of the arithmetic here. A decision is
+            // stamped with the number of frames that existed when the engine asked it, so the
+            // answers stamped `F` are the ones the step that *produces* frame `F` consumes. A fork
+            // at frame `F` is played from the position frame `F` shows, so reaching that position
+            // means replaying everything up to and including `F`; cutting at `< F` left the last
+            // step of the prefix unanswered, and a manual seat then sat parked in the middle of a
+            // rebuild waiting to be asked the question it had already answered once.
             let cut = chain
                 .get(position + 1)
                 .and_then(|child| self.branch(*child))
@@ -741,7 +749,7 @@ impl ReplayerProject {
                 branch
                     .answers
                     .iter()
-                    .filter(|record| cut.is_none_or(|frame| record.frame < frame))
+                    .filter(|record| cut.is_none_or(|frame| record.frame <= frame))
                     .cloned(),
             );
         }
@@ -814,6 +822,39 @@ impl ReplayerProject {
             .answers
             .sort_by_key(|record| (record.frame, record.ask));
         branch.frames = frames;
+        self.restyle();
+        Ok(())
+    }
+
+    /// Record how many frames a branch now covers, without touching its answers.
+    ///
+    /// A live table grows a frame at a time, and [`fork`](Self::fork) refuses a frame past the end of
+    /// the parent - so a branch whose count is never updated can never be forked from. The window
+    /// therefore reports the count as frames arrive; the answers are folded in separately, because
+    /// they are only known once the gate has settled them.
+    ///
+    /// # Errors
+    /// [`ProjectError::UnknownBranch`] or [`ProjectError::FramesExceeded`].
+    pub fn note_frames(&mut self, id: BranchId, frames: u64) -> Result<(), ProjectError> {
+        let index = self
+            .branches
+            .iter()
+            .position(|branch| branch.id == id)
+            .ok_or(ProjectError::UnknownBranch { branch: id })?;
+        if self.branches[index].frames == frames {
+            return Ok(());
+        }
+        let total = self
+            .total_frames()
+            .saturating_sub(self.branches[index].frames)
+            .saturating_add(frames);
+        if total > MAX_TOTAL_FRAMES {
+            return Err(ProjectError::FramesExceeded {
+                total,
+                max: MAX_TOTAL_FRAMES,
+            });
+        }
+        self.branches[index].frames = frames;
         self.restyle();
         Ok(())
     }

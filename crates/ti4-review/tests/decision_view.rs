@@ -12,9 +12,10 @@
 use std::path::PathBuf;
 
 use ti4_model::id::SystemId;
+use ti4_review::panels;
 use ti4_review::view::{
-    DecisionPath, DecisionRow, action_summary, decision_rows, event_rows, json_pretty, path_kind,
-    precision, precision3, selected_system, step_view,
+    DecisionPath, DecisionRow, action_summary, action_summary_in, decision_rows, event_rows,
+    json_pretty, path_kind, precision, precision3, selected_system, step_view,
 };
 use ti4_review::{
     AdvanceUnit, LiveReview, ProfileTable, ReviewFrame, ReviewSession, SimulationConfig,
@@ -338,6 +339,34 @@ fn a_row_survives_the_pieces_a_frame_might_not_have() {
             "a choice outside the offered set ticked something"
         );
     }
+}
+
+/// The sheets can be handed their history as a separate frame list, because the replayer's store keeps
+/// a frame-stripped session shell per branch. Moving where the frames come from is allowed; changing
+/// what R01 reads out of them is not.
+#[test]
+fn scanning_a_supplied_history_answers_exactly_as_scanning_the_session() {
+    let session = played_session(12);
+    for frame in &session.frames {
+        assert_eq!(
+            action_summary_in(&session.frames, frame),
+            action_summary(&session, frame),
+            "frame {} reads a different action history out of its own list",
+            frame.index
+        );
+    }
+    // And the previous frame found by index is the previous frame found by position, which is what lets
+    // the players sheet drop `session.frames[frame.index - 1]` without changing its speaker row.
+    let sheets = panels::Sheets::whole(&session);
+    for frame in session.frames.iter().skip(1) {
+        assert_eq!(
+            sheets.previous(frame).map(|previous| previous.index),
+            Some(frame.index - 1),
+            "frame {} found a different neighbour",
+            frame.index
+        );
+    }
+    assert_eq!(sheets.previous(&session.frames[0]), None);
 }
 
 #[test]

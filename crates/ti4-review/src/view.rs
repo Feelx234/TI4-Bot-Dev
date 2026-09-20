@@ -181,6 +181,81 @@ pub fn planets_for_tile(
     planets
 }
 
+/// A system named the way a person at the table finds it: the number printed on the tile, and the
+/// planets inside it.
+///
+/// The engine's own name for a system is the tile number — `43`, `102` — which is exact and tells a
+/// reader nothing. `43 · Supernova` and `14 · Archon Ren/Archon Tau` are the same identity with the
+/// contents attached. A system this session's board does not contain is returned unchanged, because
+/// inventing a name for it would be worse than printing the number.
+#[must_use]
+pub fn system_label(session: &ReviewSession, system: &str) -> String {
+    let Some(tile) = session
+        .board
+        .iter()
+        .find(|candidate| candidate.system == system)
+    else {
+        return system.to_owned();
+    };
+    if tile.planets.is_empty() {
+        // An empty system still has a printed name worth reading: Supernova, Alpha Wormhole.
+        return format!("{system} · {}", tile.label);
+    }
+    let planets = tile
+        .planets
+        .iter()
+        .map(|planet| planet.label.as_str())
+        .collect::<Vec<_>>()
+        .join("/");
+    format!("{system} · {planets}")
+}
+
+/// Rewrite every bare tile number in `text` as [`system_label`] spells it.
+///
+/// The engine writes prompts and option labels with the tile number alone — `activate 43`, `commit
+/// ground forces in 75` — and those are the sentences a reader has to judge a play from. Only tokens
+/// that are exactly a system id *of this game's board* are rewritten, so a `1` meaning one trade good
+/// is left alone: board ids are zero-padded (`01`), and a number that names no tile names nothing.
+#[must_use]
+pub fn annotate_systems(session: &ReviewSession, text: &str) -> String {
+    if session.board.is_empty() || text.is_empty() {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while !rest.is_empty() {
+        let boundary = rest
+            .find(|character: char| character.is_ascii_digit())
+            .unwrap_or(rest.len());
+        out.push_str(&rest[..boundary]);
+        rest = &rest[boundary..];
+        if rest.is_empty() {
+            break;
+        }
+        let end = rest
+            .find(|character: char| !character.is_ascii_digit())
+            .unwrap_or(rest.len());
+        let (token, tail) = rest.split_at(end);
+        // A digit run only names a system when nothing alphanumeric touches it on the left: `75` in
+        // "in 75" is a tile, the `75` inside "sol_75x" is not.
+        let attached = out
+            .chars()
+            .next_back()
+            .is_some_and(|previous| previous.is_alphanumeric() || previous == '_');
+        let detached = tail
+            .chars()
+            .next()
+            .is_none_or(|next| !next.is_alphanumeric() && next != '_');
+        if attached || !detached {
+            out.push_str(token);
+        } else {
+            out.push_str(&system_label(session, token));
+        }
+        rest = tail;
+    }
+    out
+}
+
 pub fn polygon(center: Pos2, radius: f32, sides: usize, offset: f32) -> Vec<Pos2> {
     (0..sides)
         .map(|index| {
@@ -1096,11 +1171,26 @@ pub struct ActionSummaryView {
 /// the most recent completed action, however many frames back that is.
 #[must_use]
 pub fn action_summary(session: &ReviewSession, frame: &ReviewFrame) -> ActionSummaryView {
+    action_summary_in(&session.frames, frame)
+}
+
+/// `action_summary`, reading its history out of a frame list the caller supplies.
+///
+/// The replayer's store keeps one session *shell* per branch with `frames` emptied and the frames in a
+/// list beside it - a recording is hundreds of megabytes and a branch tree must not multiply that - so
+/// nothing a replayer sheet reads can come from `session.frames`. Reaching for it there is how opening
+/// a table ended the window: `session.frames[..=frame.index]` on an empty shell panics with
+/// "range end index 0 out of range for slice of length 0", and again with "index out of bounds: the len
+/// is 0 but the index is 39" at the previous-frame row. A sheet may lose a history row when the history
+/// it was handed does not contain the frame; it may not take the game with it.
+#[must_use]
+pub fn action_summary_in(frames: &[ReviewFrame], frame: &ReviewFrame) -> ActionSummaryView {
     let in_progress = frame.action_in_progress.is_some();
     let summary = frame.action_in_progress.as_ref().or_else(|| {
-        session.frames[..=frame.index]
+        frames
             .iter()
             .rev()
+            .filter(|candidate| candidate.index <= frame.index)
             .find_map(|candidate| candidate.action_summary.as_ref())
     });
     let Some(summary) = summary else {
