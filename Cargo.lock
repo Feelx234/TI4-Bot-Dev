@@ -4080,10 +4080,12 @@ dependencies = [
 name = "ti4-server"
 version = "0.1.0"
 dependencies = [
+ "rand 0.9.5",
  "rstest",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "ti4-content",
  "ti4-engine",
  "ti4-model",
  "tracing",

@@ -9,9 +9,11 @@ workspace = true
 
 [dependencies]
 ti4-model = { workspace = true }
+ti4-content = { workspace = true }
 ti4-engine = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+rand = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
