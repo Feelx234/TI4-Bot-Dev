@@ -237,3 +237,39 @@ A discipline note while it is fresh: `guild_ships_makes_the_whole_table_a_partne
 `let Some(hacan) = faction_with("guild_ships") else { return; }`. If that fixture lookup ever fails the
 test **passes silently**. It was not the cause here — `partners` was right all along — but a test that can
 opt out of being a test is how a bug like this stays alive next to a green tick.
+
+---
+
+# B2/B3: the clean case is correct in the engine, so their tables hold the answer
+
+A property test now sits in `technology.rs`: **a seat with no technologies, no specialties and no laws is
+offered only the prerequisite-free part of the corpus** — `researchable` filtering through `can_research`,
+asserting that every offered alias has an empty `prerequisites` map. It **passes**, and it also asserts the
+offer list is not empty, so it cannot pass by offering nothing.
+
+```text
+cargo test -p ti4-engine --lib -> 1343 passed, 0 failed
+cargo clippy -p ti4-engine --all-targets -D warnings -> 16 findings, the unchanged baseline; this
+                                                        package adds none
+```
+
+So the engine does not hand a blank seat a technology it cannot legally research. What *can* legitimately
+open a hole — and what the operator's two reports most likely ran into — is one of these, each of which the
+engine implements on purpose:
+
+- **Planetary tech specialties** (90.8): a specialty stands in for one prerequisite of that colour, and
+  Letnev's home worlds and several blue-specialty planets supply exactly one blue.
+- **Research Team laws**, **Prophet's Tears**, and **Jol-Nar's Brilliant/Analytical** waivers — all spend a
+  budget of "ignore 1 prerequisite", counted in `can_research` rather than per colour. For B3 the whole
+  question is arithmetic: Space Dock II against one yellow plus one waiver is legal, against zero yellow it
+  is not.
+- A **granted** technology (`technology::grant`) never checks prerequisites, by design (90.5), and effects
+  that offer "a technology of that colour" (Specialist Compounds) offer from the same `researchable` list.
+
+What would settle it in one read is the recording: seat, round, the technologies it held at the moment, its
+planet specialties, and the laws in play. Without it, B2 and B3 are unconfirmed — and now guarded against
+regression in the case that *is* decidable.
+
+This is also the strongest argument in this file for item 4: if the offer row said *why* a technology is
+available — "prerequisites met by your specialty on Almaar", "one prerequisite ignored by Analytical" — the
+operator would not have needed to file a bug to find out whether the engine was wrong.

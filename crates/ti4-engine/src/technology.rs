@@ -1087,6 +1087,34 @@ pub fn research(
 #[cfg(test)]
 mod tests {
 
+    /// A seat that has researched nothing is offered only what needs nothing.
+    ///
+    /// Written after the operator reported non-Euclidean shielding offered to a Letnev seat - a faction
+    /// with no prerequisite waiver of any kind - and Space Dock II offered to Jol-Nar without two yellow.
+    /// Their table might have had planetary specialties, Research Team laws or a legitimate waiver in it;
+    /// this pins the clean case, where there is one right answer: with no technologies, no specialties
+    /// and no laws, a prerequisite is a wall and nothing gets offered through it.
+    #[test]
+    fn a_seat_with_nothing_researched_is_offered_only_prerequisite_free_technologies() {
+        let content = ContentStore::embedded();
+        let state = crate::fixtures::game(&["a"]);
+        let player = ti4_model::id::PlayerId::new("a");
+        let offered = researchable(&state, content, ti4_model::content_types::FULL, &player);
+        assert!(
+            !offered.is_empty(),
+            "a fresh seat can still research something, or the fixture is not comparable to a game"
+        );
+        let offenders: Vec<String> = offered
+            .iter()
+            .filter(|alias| !prerequisites(content, alias).is_empty())
+            .map(ToString::to_string)
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "offered to a seat with nothing, though they need prerequisites: {offenders:?}"
+        );
+    }
+
     /// 90.7/90.8: a unit upgrade replaces the unit, on the board and in what you build.
     ///
     /// This was researched and never applied. `UNLOCKED_BY` gated the war sun and nothing mapped
