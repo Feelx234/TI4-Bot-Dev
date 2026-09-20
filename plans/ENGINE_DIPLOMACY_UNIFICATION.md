@@ -104,6 +104,14 @@ DIPLO-002 runs against the operator's saved game (`crates/ti4-engine/src/transac
 `available_actions` is where a Hacan seat's transaction action is produced today; if the operator's seat
 was asked nothing there, the failing condition is now in one place to find).
 
-Unchanged and independent: the L1Z1X agent defect (evidence R02-007e — an agent whose printed window is
-"After a player activates a system:" is never offered, because leaders are filtered on
-`is_action_window`). It is not part of this decision and should not wait for it.
+Unchanged and independent: the L1Z1X agent defect — and it is **not new**, which belongs in the trail.
+`plans/BUG_2026-09-04_LEADER_USE_UNREACHABLE.md` recorded that no leader could be used from the driven loop
+at all, and `plans/LEADER-FIX-2026-09-13.md` split the correction into three packages. LEADER-FIX-001
+(deployment, unlock, component actions) is done — it is precisely the `is_action_window` filter that makes
+today's symptom "action-phase leaders work, the rest silently do not" — while **LEADER-FIX-002, reactive
+combat, activation and production windows for L1Z1X, Letnev, Sol and Hacan, is not recorded as done**.
+
+That sets the order: LEADER-FIX-002 first, under its own scope, permissions and definition of done. It is
+delivery, this decision is shape, and the second line of LEADER-FIX-002 is *"Hacan trade-good spending"*
+— the same subject. Merging the two negotiation machines underneath half-delivered delivery would be
+building a new abstraction on a broken floor.

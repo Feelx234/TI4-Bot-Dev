@@ -9678,3 +9678,20 @@ Next ready work, in the order I intend it unless told otherwise: (1) the L1Z1X a
 which is independent of this decision and starts with a failing engine test; (2) DIPLO-001. Still wanted
 for the Hacan case: the saved game file, which says in one read whether a Hacan manual seat was offered
 `transactions::available_actions` (transactions.rs:646) at all.
+
+### Correction to the entry above, found while cross-checking, and it changes the order
+
+The L1Z1X activation-window defect is not new and was not mine to re-name. `plans/BUG_2026-09-04_LEADER_USE_UNREACHABLE.md`
+recorded that no leader could be used from the driven loop at all; `plans/LEADER-FIX-2026-09-13.md` split
+the correction into three packages. LEADER-FIX-001 (deployment, unlock, component actions) is done - it is
+exactly the `is_action_window` filter that produces today's symptom of "action-phase leaders work, the rest
+silently do not" - and **LEADER-FIX-002, reactive combat, activation and production windows (L1Z1X, Letnev,
+Sol, Hacan), is not recorded as done.**
+
+Order, then: (1) **LEADER-FIX-002** under its own existing scope, P1 permissions and definition of done,
+opening with a failing engine test that a readied I48S is offered after a system activation and settles the
+infantry-for-mech swap through the normal ask/settle path; (2) DIPLO-001 onward, informed by it, since
+LEADER-FIX-002's second line is Hacan trade-good spending and merging two negotiation machines underneath
+half-delivered delivery is building on a broken floor.
+
+`plans/ENGINE_DIPLOMACY_UNIFICATION.md` now says the same, with the cross-references.
