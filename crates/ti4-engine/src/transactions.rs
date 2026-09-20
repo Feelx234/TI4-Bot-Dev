@@ -261,6 +261,26 @@ pub fn partners(
     neighbours(state, galaxy, player)
 }
 
+/// Whether these two seats may transact with each other: neighbours, or either side able to reach
+/// past adjacency - Guild Ships for Hacan, the Trade Convoys note for whoever holds it.
+///
+/// Both directions count. The ability belongs to whoever holds it, and a negotiation has two parties,
+/// so a far Hacan being dealt with is that Hacan negotiating too. Generation uses `partners` of the
+/// proposer, so this is never looser than what gets offered to a seat - it only stops legality from
+/// refusing a reach the offer already made.
+#[must_use]
+fn may_transact(
+    state: &GameState,
+    content: &ContentStore,
+    galaxy: &Galaxy,
+    proposer: &PlayerId,
+    partner: &PlayerId,
+) -> bool {
+    are_neighbours(state, galaxy, proposer, partner)
+        || partners(state, content, galaxy, proposer).contains(partner)
+        || partners(state, content, galaxy, partner).contains(proposer)
+}
+
 /// Whether a player holds what they offered.
 #[must_use]
 pub fn can_pay(
@@ -329,8 +349,14 @@ pub fn why_illegal(
     }
     // Neighbours bound transactions during a turn; during the agenda phase any two players may
     // transact (94), which is when votes are bought.
+    //
+    // The reach test is `may_transact`, not bare `are_neighbours`, and that difference is Hacan's Guild
+    // Ships ("You can negotiate transactions with players who are not your neighbor") and the Trade
+    // Convoys note. Checking adjacency here while the offer list asked `partners` meant a Hacan seat was
+    // offered a partner across the board and refused the moment it accepted - a legal action rejected
+    // late, which from a seat is indistinguishable from a broken button.
     if state.phase != ti4_model::state::Phase::Agenda
-        && !are_neighbours(state, galaxy, &offer.proposer, &offer.partner)
+        && !may_transact(state, content, galaxy, &offer.proposer, &offer.partner)
     {
         return Some(OfferError::NotNeighbours(
             offer.proposer.clone(),
@@ -1459,6 +1485,47 @@ mod tests {
             Err(OfferError::NotNeighbours(a(), b()))
         );
         assert!(state.identical(&before), "nothing changed hands");
+    }
+
+    /// Guild Ships: "You can negotiate transactions with players who are not your neighbor."
+    ///
+    /// The offer path honoured this (`partners`) and the legality check did not (`are_neighbours`), so a
+    /// Hacan seat was offered a partner across the board and refused the instant it accepted - reported
+    /// by the operator as "straight up guild ships not working", and reproducible in fifteen lines. When
+    /// generation and legality disagree, what the reader experiences is a dead button.
+    #[test]
+    fn guild_ships_let_a_hacan_seat_deal_with_a_stranger() {
+        let hub = plain_hub();
+        let mut state = game(&["a", "b"]);
+        let far = hub.across(&hub.outer[0]);
+        put(
+            &mut state,
+            &SystemId::new(hub.outer[0].clone()),
+            "cruiser",
+            &a(),
+            1,
+        );
+        put(&mut state, &SystemId::new(far), "cruiser", &b(), 1);
+        state.player_mut(&a()).unwrap().trade_goods = 5;
+        state.player_mut(&a()).unwrap().faction = FactionId::new("hacan");
+        assert!(
+            !are_neighbours(&state, &hub.galaxy, &a(), &b()),
+            "the fixture has to be strangers, or this proves nothing"
+        );
+
+        let offer = Offer {
+            proposer: a(),
+            partner: b(),
+            given: goods(2),
+            received: Terms::default(),
+        };
+        let outcome = resolve(&mut state, ContentStore::embedded(), &hub.galaxy, &offer);
+        assert!(
+            outcome.is_ok(),
+            "Guild Ships reaches across the board; got {outcome:?}"
+        );
+        assert_eq!(state.player(&a()).unwrap().trade_goods, 3);
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 2);
     }
 
     #[test]

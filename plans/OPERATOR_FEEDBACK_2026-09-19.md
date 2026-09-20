@@ -173,3 +173,67 @@ cargo test -p ti4-replayer -> 63 across lib/app/shell/table, the fast targets; t
 cargo clippy -p ti4-review -p ti4-replayer --all-targets --no-deps -- -D warnings -> 0
 cargo fmt -p ti4-review -p ti4-replayer --check                                   -> clean
 ```
+
+---
+
+# B1 fixed: Guild Ships genuinely did not work — the operator was right
+
+> the hacan one is straight up guild ships not working
+
+It was. Two lines disagreed, and the seat experienced the disagreement as a dead button.
+
+- The **offer** path asked `transactions::partners`, which consults `faction_abilities::ignores_neighbours`
+  — Hacan's Guild Ships — and `promissory::reaches_anyone` (Trade Convoys). So a Hacan seat was correctly
+  **offered** a partner on the far side of the board.
+- The **legality** check, `why_illegal`, asked bare `are_neighbours` and returned
+  `OfferError::NotNeighbours`. So the moment the offer was accepted, the engine refused it.
+
+That is the pattern this project's rules call out by name — a legal action rejected late rather than
+generated correctly — and it is invisible to either half read alone, which is how it survived a passing
+`partners` test in `faction_abilities.rs`.
+
+### The test, which failed first
+
+`transactions::tests::guild_ships_let_a_hacan_seat_deal_with_a_stranger` — two fleets placed so they are
+provably not neighbours (the test asserts that, so it cannot pass vacuously), seat `a` given the Hacan
+faction, a two-trade-good offer:
+
+```text
+Guild Ships reaches across the board; got Err(NotNeighbours(PlayerId("a"), PlayerId("b")))
+test result: FAILED. 0 passed; 1 failed
+```
+
+### The fix
+
+`transactions::may_transact(state, content, galaxy, proposer, partner)` — neighbours, **or** either side's
+`partners()` reaching the other — and `why_illegal` asks that instead of `are_neighbours`. Both directions
+count because the ability belongs to whoever holds it and a negotiation has two parties; this cannot make
+legality looser than generation, because generation already offers from `partners`.
+
+### Verification
+
+```text
+cargo test -p ti4-engine --lib                      -> 1342 passed, 0 failed
+cargo test -p ti4-engine                            -> 1352 passed, 0 failed (all targets)
+cargo clippy -p ti4-engine --all-targets -D warnings -> 16 errors, same as the baseline with this
+                                                       change stashed: this fix adds no finding, and the
+                                                       engine is not currently gated clean at that level
+cargo fmt -p ti4-engine --check                      -> clean
+```
+
+### Two things this does *not* settle, so nobody assumes it does
+
+1. **The per-round transaction limit counts neighbours.** `transactions::neighbours_who_transacted`
+   filters `transactions_this_round` through `neighbours()`, and its one consumer is an action card
+   (`action_cards.rs:4508`). Whether a Guild-Ships partner should count toward a limit that is worded
+   about neighbours is a rules question, and this fix deliberately leaves the behaviour alone rather than
+   guess alongside the fix it was asked for.
+2. **`why_illegal` has no "already transacted with this partner" check at all** — no such error variant
+   exists in the engine. That may be exactly right under LRR 60, or it may be a second gap sitting next to
+   the first. Settling it needs the rule text, not more code, and it should be settled before the
+   transactions-under-diplomacy work touches this file.
+
+A discipline note while it is fresh: `guild_ships_makes_the_whole_table_a_partner` begins
+`let Some(hacan) = faction_with("guild_ships") else { return; }`. If that fixture lookup ever fails the
+test **passes silently**. It was not the cause here — `partners` was right all along — but a test that can
+opt out of being a test is how a bug like this stays alive next to a green tick.
