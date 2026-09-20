@@ -9624,3 +9624,29 @@ tests were last green at `db7a220` and were not re-run for a settings-only chang
 Next: the operator's four facts on the playing defects, then R02-008 (frame-0 forkability pre-check,
 verifying a recording against the checkpoint hash in its own manifest, "finish and record" for a
 hand-played table, R01-vs-R02 all-Auto equality, budget caps, operator documentation).
+
+## 2026-09-19 engine authority for the named bugs; defect A located
+
+The operator granted permission to edit whatever is necessary for the concrete bugs they named. Reading
+the content text and the engine located the first one:
+
+**A - `l1z1xagent` (and any agent whose printed window is not the action phase) is unreachable.** Its
+window is "After a player activates a system:"; `leaders::component_actions` (leaders.rs:495) filters on
+`is_action_window` before offering anything, and `perform_leader_action` (game.rs:1326) is the only route
+from a player's choice into `use_leader`. The implementation arm (leaders.rs:1324) is there and plausible,
+but nothing raises its window, and its three `return false` exits carry no reason - which is why the
+symptom is "it doesn't work" rather than an explanation. Fix: raise the activation window after a system
+activates, ask the seat the card names through the normal ask/settle path, and make refusals say why.
+Test first, and the test must fail before the code changes.
+
+**B - Hacan transactions: located, not pinned.** `transactions.rs` exists and looks sane (partners,
+neighbours, `can_pay`, a Guild Ships test that reaches the whole table); the open question is whether a
+manual seat is offered the transaction action at all. That is answerable from the operator's saved game
+file - it carries faction, phase, the component options produced and the refusals - and until it is
+answered, calling anything a fix would be a guess.
+
+Details, quoted rules text and file:line for every claim: `plans/evidence/R02-007e.md`.
+
+Next exact action: fresh context; write a failing engine test for A (L1Z1X seat, readied agent, activate a
+system containing that seat's infantry, expect the ask and then the swap); then implement; then read the
+operator's game file for B.
