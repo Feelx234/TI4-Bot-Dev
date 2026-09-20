@@ -4077,6 +4077,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-server"
+version = "0.1.0"
+dependencies = [
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "ti4-engine",
+ "ti4-model",
+ "tracing",
+]
+
+[[package]]
 name = "ti4-sim"
 version = "0.1.0"
 dependencies = [

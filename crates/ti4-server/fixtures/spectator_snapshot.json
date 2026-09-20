@@ -1,0 +1,131 @@
+{
+  "type": "initial_snapshot",
+  "protocol_version": 1,
+  "game_id": "game_12345",
+  "game_version": 42,
+  "viewer": {
+    "role": "spectator"
+  },
+  "view": {
+    "round": 2,
+    "phase": "action",
+    "speaker": "seat_a",
+    "seating_order": [
+      "seat_a",
+      "seat_b",
+      "seat_c"
+    ],
+    "active_player": "seat_a",
+    "finished": false,
+    "players": [
+      {
+        "id": "seat_a",
+        "faction": "sol",
+        "victory_points": 3,
+        "trade_goods": 4,
+        "commodities": 2,
+        "tactic_tokens": 3,
+        "fleet_tokens": 4,
+        "strategic_tokens": 2,
+        "passed": false,
+        "strategy_cards": [
+          "leadership"
+        ],
+        "exhausted_strategy_cards": [],
+        "technologies": [],
+        "exhausted_technologies": [],
+        "relics": [],
+        "exhausted_relics": [],
+        "action_cards_count": 2,
+        "secret_objectives_count": 1,
+        "leaders": {}
+      },
+      {
+        "id": "seat_b",
+        "faction": "hacan",
+        "victory_points": 2,
+        "trade_goods": 8,
+        "commodities": 6,
+        "tactic_tokens": 2,
+        "fleet_tokens": 3,
+        "strategic_tokens": 3,
+        "passed": false,
+        "strategy_cards": [
+          "trade"
+        ],
+        "exhausted_strategy_cards": [],
+        "technologies": [],
+        "exhausted_technologies": [],
+        "relics": [],
+        "exhausted_relics": [],
+        "action_cards_count": 1,
+        "secret_objectives_count": 1,
+        "leaders": {}
+      },
+      {
+        "id": "seat_c",
+        "faction": "letnev",
+        "victory_points": 1,
+        "trade_goods": 1,
+        "commodities": 0,
+        "tactic_tokens": 3,
+        "fleet_tokens": 3,
+        "strategic_tokens": 2,
+        "passed": false,
+        "strategy_cards": [
+          "warfare"
+        ],
+        "exhausted_strategy_cards": [],
+        "technologies": [],
+        "exhausted_technologies": [],
+        "relics": [],
+        "exhausted_relics": [],
+        "action_cards_count": 1,
+        "secret_objectives_count": 1,
+        "leaders": {}
+      }
+    ],
+    "board": {
+      "systems": {
+        "18": {
+          "system_id": "18",
+          "command_tokens": [
+            "seat_a"
+          ],
+          "planets": {},
+          "units": [
+            {
+              "unit_type": "carrier",
+              "owner": "seat_a",
+              "planet": null,
+              "damaged": false
+            },
+            {
+              "unit_type": "fighter",
+              "owner": "seat_a",
+              "planet": null,
+              "damaged": false
+            }
+          ]
+        }
+      }
+    },
+    "table": {
+      "revealed_objectives": [
+        "corner_the_market",
+        "develop_weaponry"
+      ],
+      "scored_objectives": {},
+      "unclaimed_strategy_cards": [],
+      "strategy_card_goods": {},
+      "laws": {}
+    }
+  },
+  "turn_status": {
+    "kind": "waiting_for_decision",
+    "seat": "seat_a",
+    "phase": "action",
+    "round": 2,
+    "stage": "Action Phase Decision"
+  }
+}
