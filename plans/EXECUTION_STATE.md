@@ -9650,3 +9650,31 @@ Details, quoted rules text and file:line for every claim: `plans/evidence/R02-00
 Next exact action: fresh context; write a failing engine test for A (L1Z1X seat, readied agent, activate a
 system containing that seat's infantry, expect the ask and then the swap); then implement; then read the
 operator's game file for B.
+
+## 2026-09-19 accepted decision: transactions are subsumed under diplomacy
+
+The operator decided that transactions belong under diplomacy rather than beside it. The reason is not
+tidiness: the engine runs **two negotiation machines** - `transactions.rs` with
+`open_transaction`/`offer`/`transaction` kinds and `TradeWindow`, and `diplomacy/window.rs` with
+`diplomacy_offer`/`diplomacy_response`/`diplomacy_counter` and `DiplomacyWindow`. Two machines negotiating
+the same thing is why "transactions with Hacan not possible, generally diplomacy buggy" reads as vague: a
+seat must be asked by the right machine, the viewer renders two vocabularies, the policy is taught two
+shapes, and the diplomacy journal, promises, relations and per-pair initiation budget cannot see
+transactions at all.
+
+Plan: keep `Terms` (goods, commodities, relic fragments, a note, an action card, an unscored secret, with
+`describe()` and the loan asymmetry) as the payload a diplomatic deal carries; make the LRR 60 rules
+(`can_pay`, `why_illegal`, `partners`, the once-per-turn limits) the legality layer of a diplomatic deal;
+record deals in the diplomacy journal; retire `TradeWindow` once its tests pass against the merged path.
+
+`plans/ENGINE_DIPLOMACY_UNIFICATION.md` is the accepted decision, and it is *not implemented*. It names
+what must survive: exact rules legality including 94.3/Arbiters/Black Market and note-as-loan,
+determinism, the replayable answer log (a decision-kind change needs a typed refusal for old logs, never a
+silent reinterpretation), generated-not-rejected legality with reasons attached, and typed views because a
+transaction can name an unscored secret objective. Packages: DIPLO-001 deals carry `Terms`; DIPLO-002 the
+transaction rules move; DIPLO-003 one window and one vocabulary; DIPLO-004 what the operator sees.
+
+Next ready work, in the order I intend it unless told otherwise: (1) the L1Z1X activation-window defect,
+which is independent of this decision and starts with a failing engine test; (2) DIPLO-001. Still wanted
+for the Hacan case: the saved game file, which says in one read whether a Hacan manual seat was offered
+`transactions::available_actions` (transactions.rs:646) at all.
