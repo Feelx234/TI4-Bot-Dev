@@ -931,7 +931,12 @@ impl Replayer {
                             Color32::from_gray(58)
                         },
                     );
-                    if ui.add(button).clicked() {
+                    let advice = if opened.branch.is_none() {
+                        "A recording has no live branch, so nothing is waiting on this chip yet. Set it                          here and the fork you make inherits it: press Play, the prefix is rebuilt, and                          the seat is yours from the first decision after the frame you forked at."
+                    } else {
+                        "Click to hand this seat to yourself or back to the learned policy. A seat on                          Manual stops the engine mid-step and asks you, so the answer lands exactly                          where the game paused."
+                    };
+                    if ui.add(button).on_hover_text(advice).clicked() {
                         let mode = opened.app.toggle_seat(&seat);
                         self.status = format!(
                             "{seat} is on {mode:?}. {}",
@@ -1402,6 +1407,16 @@ impl eframe::App for Replayer {
             // And take the frame store out in turn, so a frame can be borrowed by name while the app
             // beside it is still mutable. A `ReviewFrame` carries a whole `GameState`, so this is the
             // difference between two pointer writes and copying the game per repaint.
+            // The bottom panels come *before* anything that claims the remaining space. In egui a panel
+            // added after the central one gets what is left, and the central panel leaves nothing - so
+            // with the previous order the seat chips, the run buttons, Play and the timeline were all
+            // laid out with zero height. That is what "there are no buttons and nothing to click" looks
+            // like from the outside, and no test caught it because none of them renders a pixel.
+            self.control_bar(opened, root);
+            self.timeline(opened, root);
+            // Then take the frame store out, so a frame can be borrowed by name while the app beside it
+            // is still mutable. A `ReviewFrame` carries a whole `GameState`, so this is the difference
+            // between two pointer writes and copying the game per repaint.
             let store = std::mem::take(&mut opened.store);
             let branch = opened.app.current();
             let viewed = opened.app.viewed(branch);
@@ -1428,8 +1443,6 @@ impl eframe::App for Replayer {
                     self.centre(root, session, frame);
                 }
             }
-            self.timeline(opened, root);
-            self.control_bar(opened, root);
             opened.store = store;
         }
         self.opened = opened;
@@ -1450,13 +1463,18 @@ impl eframe::App for Replayer {
 }
 
 /// The seats to show chips for: the engine's own seating order when a frame has one, and otherwise the
-/// seats somebody has already set a mode for.
 fn visible_seats(opened: &Opened) -> Vec<PlayerId> {
     let branch = opened.app.current();
     seats_from(opened.store.frames(branch), &opened.app.seats())
 }
 
-/// The seats to offer chips for, from the newest frame that knows the seating order.
+/// The seats to offer chips for.
+///
+/// The newest frame that knows the seating order wins, because that is the table as played. Failing
+/// that - a table that has not produced a frame yet, or a branch whose frames were released from the
+/// store - the answer is still every seat the engine plays, not the seats somebody has already touched.
+/// Offering only the touched ones is how "only seat 0 can be taken" happened: before the first frame
+/// arrived there was nothing to ask, so the only chip on the bar was the one the setup form had set.
 #[must_use]
 pub fn seats_from(frames: &[ReviewFrame], seats: &SeatControl) -> Vec<PlayerId> {
     if let Some(frame) = frames.last()
@@ -1464,7 +1482,14 @@ pub fn seats_from(frames: &[ReviewFrame], seats: &SeatControl) -> Vec<PlayerId> 
     {
         return frame.state.seating_order.clone();
     }
-    seats.changes().into_iter().map(|(seat, _)| seat).collect()
+    let mut chips = seats
+        .changes()
+        .into_iter()
+        .map(|(seat, _)| seat)
+        .chain((0..6).map(|seat| PlayerId::new(format!("seat{seat}"))))
+        .collect::<Vec<_>>();
+    chips.dedup();
+    chips
 }
 
 /// The seat settings a fork records with its child.

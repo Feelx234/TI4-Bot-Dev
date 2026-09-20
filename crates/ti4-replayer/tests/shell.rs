@@ -418,9 +418,27 @@ fn the_chips_come_from_the_game_and_the_modes_survive_the_trip() {
     assert_eq!(settings.len(), 1, "only what differs from Auto is stored");
     let rebuilt = seat_control(&SeatControl::from_changes([("p2", SeatMode::Manual)]));
     assert_eq!(rebuilt.mode(&seat), SeatMode::Manual);
+    // With no frame to ask, the chips are still the whole table - not just the seat somebody has
+    // already touched, which is what left the operator with a single chip to click.
+    let chips = seats_from(&[], &control);
     assert_eq!(
-        seats_from(&[], &control),
-        vec![seat],
-        "with no frame to ask, the chips are the seats somebody has touched"
+        chips.first(),
+        Some(&seat),
+        "the seat already taken is the first chip, not buried at the end"
+    );
+    for index in 0..6 {
+        let name = format!("seat{index}");
+        assert!(
+            chips.iter().any(|chip| chip.as_str() == name),
+            "{name} has to be offered before the table has produced a frame, or it cannot be taken"
+        );
+    }
+    let mut sorted = chips.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        chips.len(),
+        "no seat appears twice on the bar"
     );
 }
