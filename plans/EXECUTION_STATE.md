@@ -9536,3 +9536,33 @@ vocabulary) - do not invent fixtures. Working tree apart from this package's fil
 own uncommitted work (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
 `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
 `scripts/publish_and_train_stopped_corpus.ps1`, `target-cuda-repack/`); never stage them.
+
+## 2026-09-19 R02-007c operator feedback: start a table in the window
+
+The operator tried R02-007b and could not use it: no way to set up a game, no way to pick the profiles,
+two buttons named after file formats, and my suggested command failed on a file that only exists if you
+run the previous command first. They were right on all three. R01's window has had "Load starting table"
+with checkpoint / map pool / seed / faction rotation / profile table / temperature / structured diplomacy
+its whole life, so a sibling window without those words is not a replayer, it is a viewer with extra
+steps.
+
+Added: a setup form in the replayer with the reviewer's own labels (shown as the welcome screen when
+nothing is open, as a floating panel otherwise); `ReplayerProject::live_table` plus `Origin::Live`, so a
+table has a project - inputs, input hashes, content, seating, verified, playable, empty prefix - before
+any recording exists; buttons renamed to "Open recorded game…" and "Open replayer file…" with the
+distinction in the tooltips and a paragraph on screen; and a missing path now says what it expected
+instead of reciting a usage line. Taking a seat is one checkbox ("Take seat 0 now") or one chip toggle
+later. Saving a table still writes only the replayer file - recording a hand-played table means joining
+the branch thread, which is its own button and its own words, deferred to R02-008 with the frame-0
+pre-check.
+
+Evidence: `plans/evidence/R02-007c.md`. Note for the next session: while the operator has a replayer
+window open, cargo cannot replace `target/debug/ti4-replayer.exe`, so any `cargo test` that builds the
+package's bin fails with "Access is denied"; use `CARGO_TARGET_DIR=target/verify` rather than killing
+their window.
+
+Next ready package: **R02-008 integration and handoff**, first task now elevated: make "play a game"
+the documented default path (start a table in the window, take a seat, answer, save), then the frame-0
+forkability pre-check, the recording's-own-claims check against `SessionManifest::checkpoint_sha256` and
+`map_pool_sha256`, "finish and record" for hand-played tables, the R01-vs-R02 all-Auto equality gate,
+manual control across decision kinds, budget caps and operator documentation.

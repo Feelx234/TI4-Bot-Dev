@@ -1258,3 +1258,70 @@ fn record_a_game(temp: &TempDir, steps: usize) -> (PathBuf, Vec<ReplayRecord>) {
     ti4_review::save_session(&path, &session).expect("write the session R01 produced");
     (path, settled)
 }
+
+/// A table started in the window has a project before any recording exists.
+///
+/// The button is "Load starting table", the same words the reviewer uses, and what it must not require
+/// is a file: nobody has recorded anything yet, because the operator is at the table. So the project
+/// says what the table *is* - inputs, checkpoint and map-pool hashes, content corpus - and leaves the
+/// session path empty rather than inventing one.
+#[test]
+fn a_live_table_is_a_project_before_it_is_a_recording() {
+    let root = workspace_root();
+    let config = SimulationConfig {
+        checkpoint: root.join(CHECKPOINT),
+        map_pool: root.join(MAP_POOL),
+        seed: 4_242,
+        rotation: 1,
+        table: ti4_review::ProfileTable::Learner,
+        temperature: 0.5,
+        diplomacy: false,
+    };
+    // The reviewer's own opening session supplies the seating and the content digest, which is all of
+    // it the project needs from a game that has not advanced a step.
+    let opening = ti4_review::LiveReview::start(&config)
+        .expect("a starting table")
+        .session;
+    let inputs = ReplayInputs::of(&config);
+    let project = ReplayerProject::live_table(&inputs, &root, &opening).expect("a live table");
+    assert!(
+        project.source.session.is_empty(),
+        "nothing has been recorded, so the source names no file"
+    );
+    assert_eq!(project.source.frames, 0, "the table has not played yet");
+    assert!(
+        project.source.engine_commit.is_some(),
+        "a table played here knows which build is playing it"
+    );
+    let verification = project
+        .verify_inputs(&root)
+        .expect("the checkpoint and pool are where the form said");
+    assert!(verification.matches);
+    assert!(
+        verification.engine_matches,
+        "this build is playing its own table"
+    );
+    let branch = project.branch(BranchId::SOURCE).expect("branch-0");
+    assert!(
+        branch.playable(&verification),
+        "the table is playable from the first frame; nothing needs rebuilding"
+    );
+    assert!(
+        project
+            .replay_script(BranchId::SOURCE)
+            .expect("a script")
+            .is_empty(),
+        "there is no prefix to force on a table that has played nothing"
+    );
+
+    // And it survives the file, because Save is how a table becomes somebody else's fork point.
+    let temp = TempDir::new("live-table");
+    let path = temp.path.join("table.r02.json");
+    save_project(&path, &project).expect("save the table's project");
+    let reopened = load_project(&path).expect("read it back");
+    assert_eq!(
+        reopened.branch(BranchId::SOURCE).expect("branch-0").origin,
+        Origin::Live,
+        "the file still says this branch was played, not imported"
+    );
+}

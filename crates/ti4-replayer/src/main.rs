@@ -23,6 +23,25 @@ fn main() {
     {
         return window(Some(first.to_path_buf()));
     }
+    // A name that is not a subcommand and not a file says which of the two it expected, instead of
+    // reciting a usage line at somebody who typed what they meant and simply has not recorded a game
+    // under that name yet.
+    let named = args.first().map_or("", String::as_str);
+    if !matches!(named, "inspect" | "import") && !named.starts_with('-') {
+        eprintln!(
+            "ti4-replayer: {named} is not there.\n\
+             \n\
+             \x20 With no argument this app starts a table you can play: cargo run -p ti4-replayer\n\
+             \x20 To record one with the reviewer first:\n\
+             \x20   cargo run -p ti4-review -- simulate --checkpoint \
+             examples/reviewer/checkpoint-473312/slots.json \\\n\
+             \x20     --map-pool examples/reviewer/full_np8_12_holdout.json --out \
+             out/reviews/fresh.ti4review.json.zst \\\n\
+             \x20     --seed 4242 --rotation 1\n\
+             \x20 A recorded game is a .ti4review.json file; a replayer file is a .r02.json file."
+        );
+        std::process::exit(2);
+    }
     if let Err(error) = command(&args) {
         eprintln!("ti4-replayer: {error}");
         std::process::exit(2);

@@ -20,7 +20,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, Sense};
 use ti4_content::ContentStore;
@@ -29,7 +29,7 @@ use ti4_review::view::{
     self, BoardLayout, PANEL_FILL, PANEL_TEXT, board_view, decision_rows, draw_board, event_rows,
     section, stat_badge, step_view,
 };
-use ti4_review::{ReviewFrame, ReviewSession, load_session};
+use ti4_review::{ProfileTable, ReviewFrame, ReviewSession, SimulationConfig, load_session};
 
 use crate::app::{
     PlayBlock, RebuildOutcome, RebuildStatus, ReplayApp, ReplaySettings, SETTINGS_PATH,
@@ -73,6 +73,9 @@ struct Rebuilding {
     frames: usize,
 }
 
+/// The window's toggles are four genuinely independent switches - three panels and the setup form -
+/// and each one mirrors a field of the same name in the settings file, so they stay four.
+#[allow(clippy::struct_excessive_bools)]
 pub struct Replayer {
     opened: Option<Opened>,
     status: String,
@@ -80,6 +83,72 @@ pub struct Replayer {
     show_players: bool,
     show_decision: bool,
     show_branches: bool,
+    /// The table the operator can start instead of opening something: the same seven knobs the
+    /// reviewer offers, in the reviewer's own words, because "I want to play a game" should not
+    /// require knowing what a session file is first.
+    setup: SetupForm,
+    setup_open: bool,
+}
+
+/// A table to start: checkpoint, map pool, seed, faction rotation, profile table, temperature,
+/// structured diplomacy - plus whether to take a seat from the first decision or watch the learned
+/// policy until one is wanted.
+struct SetupForm {
+    checkpoint: String,
+    map_pool: String,
+    seed: String,
+    rotation: usize,
+    table: ProfileTable,
+    temperature: f64,
+    diplomacy: bool,
+    take_a_seat: bool,
+}
+
+impl Default for SetupForm {
+    fn default() -> Self {
+        let root = Replayer::base();
+        let existing = |relative: &str| {
+            let path = root.join(relative);
+            path.is_file().then(|| path.display().to_string())
+        };
+        Self {
+            checkpoint: existing("examples/reviewer/checkpoint-473312/slots.json")
+                .unwrap_or_default(),
+            map_pool: existing("examples/reviewer/full_np8_12_holdout.json").unwrap_or_default(),
+            seed: "4242".to_owned(),
+            rotation: 0,
+            table: ProfileTable::Learner,
+            temperature: 0.5,
+            diplomacy: false,
+            take_a_seat: true,
+        }
+    }
+}
+
+impl SetupForm {
+    /// The reviewer's configuration for this form, or the plain reason it is not a table yet.
+    fn simulation(&self) -> Result<SimulationConfig, String> {
+        if self.checkpoint.trim().is_empty() || !Path::new(self.checkpoint.trim()).exists() {
+            return Err("Choose the checkpoint the table should play from.".to_owned());
+        }
+        if self.map_pool.trim().is_empty() || !Path::new(self.map_pool.trim()).exists() {
+            return Err("Choose the map pool the table should draw from.".to_owned());
+        }
+        let seed = self
+            .seed
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| "The seed has to be a whole number.".to_owned())?;
+        Ok(SimulationConfig {
+            checkpoint: PathBuf::from(self.checkpoint.trim()),
+            map_pool: PathBuf::from(self.map_pool.trim()),
+            seed,
+            rotation: self.rotation,
+            table: self.table,
+            temperature: self.temperature,
+            diplomacy: self.diplomacy,
+        })
+    }
 }
 
 /// Run the replayer window.
@@ -125,10 +194,15 @@ impl Replayer {
     pub fn new(context: &eframe::CreationContext<'_>, settings: &ReplaySettings) -> Self {
         context.egui_ctx.set_visuals(egui::Visuals::dark());
         let status = settings.last_project.as_deref().map_or_else(
-            || "Open an R01 review session to begin.".to_owned(),
+            || {
+                "Nothing open. Start a table below and take a seat, or open a game that somebody \
+                 already recorded."
+                    .to_owned()
+            },
             |path| {
                 format!(
-                    "Last project was {path}. Open it, or open an R01 session to start a new one."
+                    "Last time was {path}. Open it from the bar above, start a new table, or open a \
+                     recorded game."
                 )
             },
         );
@@ -139,6 +213,10 @@ impl Replayer {
             show_players: settings.players_open,
             show_decision: settings.decisions_open,
             show_branches: settings.branches_open,
+            setup: SetupForm::default(),
+            // With nothing to look at, say what starting a table means instead of leaving a blank
+            // window and a bar of buttons named after file formats.
+            setup_open: settings.last_project.is_none(),
         }
     }
 
@@ -551,15 +629,245 @@ impl Replayer {
 
     // ------------------------------------------------------------------- panels
 
+    /// Start a table now, with this build, and put the window in front of it.
+    ///
+    /// This is the reviewer's "Load starting table" with one addition: the seats are controllable from
+    /// the first decision, which is the whole reason the replayer exists. Nothing is rebuilt, because
+    /// nothing was recorded before - the table is the first thing, and the frame feed carries it out.
+    fn start_table(&mut self) {
+        if self
+            .opened
+            .as_ref()
+            .is_some_and(|opened| opened.app.handle().is_some())
+        {
+            self.status = String::from(
+                "One table runs in a window at a time. Stop it (bar at the bottom) or save it, then \
+                 start another.",
+            );
+            return;
+        }
+        let config = match self.setup.simulation() {
+            Ok(config) => config,
+            Err(why) => {
+                self.status = why;
+                return;
+            }
+        };
+        let inputs = ReplayInputs::of(&config);
+        let base = Self::base();
+        let mut seats = SeatControl::all_auto();
+        if self.setup.take_a_seat {
+            // The first seat, because it is the one the operator will look for; every other seat stays
+            // with the learned policy until its chip is toggled.
+            seats.set_mode(&PlayerId::new("seat0"), SeatMode::Manual);
+        }
+        let branch = match LiveBranch::start(config, seats) {
+            Ok(branch) => branch,
+            Err(error) => {
+                self.status = format!("That table could not start: {error}");
+                return;
+            }
+        };
+        branch.gate().attach_feed();
+        branch.gate().enable_recording();
+        let Some((mut shell, frames)) = table_header(&branch) else {
+            self.status = format!(
+                "The table would not report its seating ({}). Nothing was started.",
+                branch.gate().state().as_str()
+            );
+            return;
+        };
+        shell.frames = frames;
+        let project = match ReplayerProject::live_table(&inputs, &base, &shell) {
+            Ok(project) => project,
+            Err(error) => {
+                self.status = format!("That table could not be described to a project: {error}");
+                return;
+            }
+        };
+        let verification = match project.verify_inputs(&base) {
+            Ok(verification) => verification,
+            Err(error) => {
+                self.status = format!("The checkpoint or map pool moved: {error}");
+                return;
+            }
+        };
+        let mut store = Store::new(BRANCHES_KEPT);
+        store.import(BranchId::SOURCE, shell);
+        let mut app = ReplayApp::new(project, verification, Path::new("this table"));
+        app.record_frames(&store.ticks(BranchId::SOURCE));
+        let ticks = app.frames(BranchId::SOURCE).to_vec();
+        app.attach(Arc::clone(branch.gate()), ticks);
+        let (seed, rotation, profile, temperature, diplomacy) = (
+            app.project().inputs.seed,
+            app.project().inputs.rotation,
+            app.project().inputs.profile_table.clone(),
+            app.project().inputs.temperature,
+            app.project().inputs.diplomacy,
+        );
+        self.setup_open = false;
+        self.opened = Some(Opened {
+            app,
+            branch: Some(branch),
+            store,
+            path: None,
+            rebuilding: None,
+        });
+        self.status = format!(
+            "Table live: seed {}, rotation {}, {} profiles, temperature {:.2}{}. {}Toggle a seat chip \
+             to take that seat over; Run plays the learned policy for the others. Scrub to any frame \
+             and Play forks from it. Saving writes the replayer file - inputs, branches and every \
+             answer - which is what a fork needs to be reproducible.",
+            seed,
+            rotation,
+            profile,
+            temperature,
+            if diplomacy { ", diplomacy" } else { "" },
+            if self.setup.take_a_seat {
+                "Seat 0 is yours from the first decision. "
+            } else {
+                ""
+            }
+        );
+    }
+
+    /// The seven setup knobs, in the reviewer's words. Returns whether Load was pressed.
+    fn setup_controls(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut start = false;
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Choose checkpoint…").clicked()
+                && let Some(path) = rfd::FileDialog::new()
+                    .add_filter("JSON checkpoint", &["json"])
+                    .pick_file()
+            {
+                self.setup.checkpoint = path.display().to_string();
+            }
+            ui.add(egui::TextEdit::singleline(&mut self.setup.checkpoint).desired_width(280.0));
+            if ui.button("Choose map pool…").clicked()
+                && let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Map pool", &["json", "gz"])
+                    .pick_file()
+            {
+                self.setup.map_pool = path.display().to_string();
+            }
+            ui.add(egui::TextEdit::singleline(&mut self.setup.map_pool).desired_width(280.0));
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Seed");
+            ui.add(egui::TextEdit::singleline(&mut self.setup.seed).desired_width(110.0));
+            ui.label("Faction rotation");
+            egui::ComboBox::from_id_salt("setup-rotation")
+                .selected_text(self.setup.rotation.to_string())
+                .show_ui(ui, |ui| {
+                    for rotation in 0..6 {
+                        ui.selectable_value(
+                            &mut self.setup.rotation,
+                            rotation,
+                            rotation.to_string(),
+                        );
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "The seed permutes faction order; rotation shifts that permutation across the \
+                     physical seats. Same checkpoint, pool, seed and rotation as the reviewer, so a \
+                     table here is a table there.",
+                );
+            egui::ComboBox::from_id_salt("setup-table")
+                .selected_text(match self.setup.table {
+                    ProfileTable::Learner => "Learner",
+                    ProfileTable::Accepted => "Accepted champion",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.setup.table, ProfileTable::Learner, "Learner");
+                    ui.selectable_value(
+                        &mut self.setup.table,
+                        ProfileTable::Accepted,
+                        "Accepted champion",
+                    );
+                })
+                .response
+                .on_hover_text("The learned profiles the seats play with.");
+            ui.label("Temperature");
+            ui.add(
+                egui::DragValue::new(&mut self.setup.temperature)
+                    .range(0.01..=10.0)
+                    .speed(0.05)
+                    .max_decimals(2),
+            )
+            .on_hover_text(
+                "Low prefers the highest-scored move; high explores. Takes effect when a table starts.",
+            );
+            ui.checkbox(&mut self.setup.diplomacy, "Structured diplomacy");
+            ui.checkbox(&mut self.setup.take_a_seat, "Take seat 0 now")
+                .on_hover_text(
+                    "Seat 0 waits for you at its first decision. Any other seat is taken by toggling \
+                     its chip in the bar at the bottom.",
+                );
+            start = ui.button("Load starting table").clicked();
+        });
+        start
+    }
+
+    /// What this window is, said once, in the plain case: nothing open yet. Returns whether Load was
+    /// pressed - the caller starts the table, because the table becomes the record this paint took out
+    /// of `self`.
+    fn welcome(&mut self, root: &mut egui::Ui) -> bool {
+        let mut start = false;
+        egui::CentralPanel::default().show(root, |ui| {
+            ui.heading("Start a table, or open a game that was already played");
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    "Starting a table plays a game here, now, with the reviewer's checkpoint, map pool, \
+                     seed, rotation, profiles and temperature. Take a seat and the engine stops to ask \
+                     you when that seat is asked; leave one to the learned policy and it answers itself.\n\n\
+                     A recorded game (the reviewer's file, .ti4review.json) is one game somebody \
+                     already played, frame by frame. Opening one lets you look through it and fork from \
+                     any frame - the prefix is rebuilt and checked first, which is why a fork takes a \
+                     moment and why a recording from a different engine build cannot be forked.\n\n\
+                     A replayer file (.r02.json) is the other thing: the inputs, the branches and every \
+                     answer given, saved so the same table can be reproduced later. It is a recipe, not \
+                     the recording, and it is what Saving writes here.",
+                );
+            });
+            ui.separator();
+            start = self.setup_controls(ui);
+        });
+        start
+    }
+
+    /// The same knobs, floating over a table that is already open, so starting a second one does not
+    /// need the first to be closed and reopened from the bar.
+    fn setup_window(&mut self, root: &mut egui::Ui) -> bool {
+        let mut open = self.setup_open;
+        let mut start = false;
+        egui::Window::new("Start a table")
+            .open(&mut open)
+            .show(root, |ui| {
+                start = self.setup_controls(ui);
+            });
+        self.setup_open = open;
+        start
+    }
+
     fn top_bar(&mut self, root: &mut egui::Ui, opened: Option<&Opened>) {
         egui::Panel::top("files").show(root, |ui| {
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Open R01 session…").clicked() {
+                if ui.button("Start a table…").clicked() {
+                    self.setup_open = !self.setup_open;
+                }
+                if ui.button("Open recorded game…").clicked() {
                     self.open_session_dialog();
                 }
-                if ui.button("Open project…").clicked() {
+                ui.label("·")
+                    .on_hover_text("A recorded game is one game, frame by frame, as the reviewer wrote it.");
+                if ui.button("Open replayer file…").clicked() {
                     self.open_project_dialog();
                 }
+                ui.label("·").on_hover_text(
+                    "A replayer file holds the inputs, the branches and the answers you gave - the \
+                     recipe a fork needs, not the frames themselves.",
+                );
                 if ui.button("Save project").clicked() {
                     self.save_known();
                 }
@@ -1080,6 +1388,16 @@ impl eframe::App for Replayer {
         // status line in the same breath.
         let mut opened = self.opened.take();
         self.top_bar(root, opened.as_ref());
+        // Nothing open explains itself and offers a table; something open keeps the offer one click
+        // away in a window. Starting is deferred until the record is back in place, because the table
+        // being started *is* the record.
+        let mut start = if opened.is_none() {
+            self.welcome(root)
+        } else if self.setup_open {
+            self.setup_window(root)
+        } else {
+            false
+        };
         if let Some(opened) = opened.as_mut() {
             // And take the frame store out in turn, so a frame can be borrowed by name while the app
             // beside it is still mutable. A `ReviewFrame` carries a whole `GameState`, so this is the
@@ -1115,6 +1433,9 @@ impl eframe::App for Replayer {
             opened.store = store;
         }
         self.opened = opened;
+        if std::mem::take(&mut start) {
+            self.start_table();
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1195,5 +1516,28 @@ fn describe_submission(outcome: &SubmitOutcome) -> String {
         SubmitOutcome::NotOffered { .. } => "That option was not on offer.".to_owned(),
         SubmitOutcome::Duplicate => "That choice is already answered.".to_owned(),
         SubmitOutcome::NoPendingChoice => "Nothing was waiting for a human.".to_owned(),
+    }
+}
+
+/// Wait for a starting table to describe itself, keeping the frames it publishes meanwhile.
+///
+/// The branch thread has to build the table before it can say who is sitting where, and the seating
+/// order is part of what the project records - so the window waits for the header rather than guessing
+/// at six seats. Frames published during the wait are kept rather than dropped: the first of them is
+/// the opening position, and losing it would leave the timeline a frame short of the game and every
+/// later frame's index out by one against the answers recorded for it.
+fn table_header(branch: &LiveBranch) -> Option<(ReviewSession, Vec<ReviewFrame>)> {
+    let mut frames = Vec::new();
+    let until = Instant::now() + Duration::from_secs(120);
+    loop {
+        let feed = branch.gate().take_feed();
+        frames.extend(feed.frames);
+        if let Some(header) = feed.header {
+            return Some((header, frames));
+        }
+        if branch.gate().state() == LiveState::Failed || Instant::now() > until {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(5));
     }
 }

@@ -311,6 +311,9 @@ pub struct SourceTimeline {
 pub enum Origin {
     /// The imported R01 session itself.
     Imported,
+    /// A table this build started and is playing: no recording of it existed when the project was
+    /// made, because the operator was at the table rather than behind it.
+    Live,
     /// Forked from the parent at a frame boundary: everything strictly before `frame` is shared,
     /// and everything from `frame` on is the child's to answer.
     Fork { frame: u64 },
@@ -357,7 +360,7 @@ impl Branch {
     #[must_use]
     pub fn fork_frame(&self) -> Option<u64> {
         match self.origin {
-            Origin::Imported => None,
+            Origin::Imported | Origin::Live => None,
             Origin::Fork { frame } => Some(frame),
         }
     }
@@ -406,6 +409,10 @@ impl ReplayerProject {
     /// A project holding only its source timeline.
     #[must_use]
     pub fn new(inputs: ReplayInputs, source: SourceTimeline) -> Self {
+        Self::with_origin(inputs, source, Origin::Imported)
+    }
+
+    fn with_origin(inputs: ReplayInputs, source: SourceTimeline, origin: Origin) -> Self {
         let mut project = Self {
             schema: PROJECT_SCHEMA.to_owned(),
             version: PROJECT_VERSION,
@@ -418,7 +425,8 @@ impl ReplayerProject {
         project.branches.push(Branch {
             id: BranchId::SOURCE,
             parent: None,
-            origin: Origin::Imported,
+            origin,
+
             title: None,
             seats: Vec::new(),
             answers: Vec::new(),
@@ -428,6 +436,39 @@ impl ReplayerProject {
         });
         project.restyle();
         project
+    }
+
+    /// A project for a table this build is playing right now.
+    ///
+    /// Every other project is a memory: it starts from an R01 recording and inherits its hashes. A
+    /// live table has no recording yet - somebody sat down and started playing - so the source
+    /// timeline states what the table *is* (inputs, checkpoint and map-pool hashes, content corpus,
+    /// seating) and leaves the session file empty because it has not been written. "Save recording"
+    /// in the window supplies it afterwards. Branch-0 is `verified` like any root: the table is not a
+    /// claim about somebody else's game, it is the game, in this process, right now.
+    ///
+    /// # Errors
+    /// [`ProjectError::MissingInput`] or [`ProjectError::Io`] when the checkpoint or map pool cannot
+    /// be read, and [`ProjectError::ProvenanceMismatch`] when the content corpus differs.
+    pub fn live_table(
+        inputs: &ReplayInputs,
+        base: &Path,
+        session: &ti4_review::ReviewSession,
+    ) -> Result<Self, ProjectError> {
+        let inputs = inputs.clone();
+        let (checkpoint, map_pool) = inputs.paths(base);
+        let source = SourceTimeline {
+            session: String::new(),
+            session_sha256: String::new(),
+            checkpoint_sha256: sha256_path(&checkpoint)?,
+            map_pool_sha256: sha256_path(&map_pool)?,
+            engine_commit: Some(ti4_review::ENGINE_COMMIT.to_owned()),
+            content_sha256: session.manifest.content_sha256.clone(),
+            frames: 0,
+            factions: session.manifest.factions.clone(),
+        };
+        require_content(source.content_sha256.as_deref())?;
+        Ok(Self::with_origin(inputs, source, Origin::Live))
     }
 
     /// Import an R01 session as the source timeline of a new project.
