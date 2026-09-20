@@ -9695,3 +9695,47 @@ LEADER-FIX-002's second line is Hacan trade-good spending and merging two negoti
 half-delivered delivery is building on a broken floor.
 
 `plans/ENGINE_DIPLOMACY_UNIFICATION.md` now says the same, with the cross-references.
+
+## 2026-09-19 operator feedback: five UI gaps and four legality bugs, recorded and triaged
+
+The operator drove a hand-played table and reported nine things. All are recorded in
+`plans/OPERATOR_FEEDBACK_2026-09-19.md` with what was verified in code today, what done means, and the
+order I intend to take them. Nothing is fixed.
+
+Verified, so a fresh session does not re-derive it:
+
+- **Neither viewer says anything about exploration** - `grep exploration` across `ti4-review/src/view.rs`,
+  `ti4-review/src/panels.rs` and `ti4-replayer/src/gui.rs` returns nothing, while the engine has
+  `exploration.rs` and content has `explores.json`. An explore is currently invisible, decided or not.
+- **Attachments are shown as a count.** `view.rs:632` `pub attachments: usize`, drawn as `+N` at
+  `view.rs:1624`, from `state.planet_attachments` - so *which* attachment, and what it does, is available
+  and thrown away. Whether the effect applies is untested either way, which is why "maybe attachments are
+  broken" stays open rather than being dismissed.
+- **Seat chips print the raw id.** `view::seat_label` takes pre-made text; the chips use
+  `format!("{seat} · {mode}")`. The faction is in the frame; one helper fixes chips, seat row, actor line
+  and diplomacy rows at once.
+- **B2/B3 are one bug class: research offers generate illegal options.** Letnev has no prerequisite waiver
+  (`munitions`, `armada`), so non-Euclidean without prerequisites is an illegal offer; Jol-Nar waives
+  exactly one, so a two-yellow Space Dock II is legal only if the seat had one - the arithmetic, not the
+  existence of a waiver, is what has to be pinned. Start at `faction_abilities::waived_prerequisites`
+  (faction_abilities.rs:163) and its test at line 1153; the *producer* of the research option list is not
+  named `research_options`/`available_technologies` (both greps come back empty) and locating it is the
+  first task. Related existing records: `plans/BUG-001_ANALYTICAL_RIN_UPGRADE_EXCLUSION.md`.
+- **B1 (Hacan notes in transactions)** lands on top of the two-negotiation-machines problem.
+  `Terms.promissory` exists, `why_illegal` reasons about notes, and
+  `plans/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md` is marked FIXED 2026-08-31 for the
+  gift-priced case - so either that fix misses the operator's case or the case is on the diplomacy path.
+  That is the decision `plans/ENGINE_DIPLOMACY_UNIFICATION.md` makes; the failing test should be written
+  against whichever path the recording shows.
+- **B4, transactions during the action phase, is recorded as a constraint at the operator's request**: not
+  an action, subject to the once-per-turn limits, and honestly implemented it means a negotiation window
+  nested inside an activation - which R02's machinery can nest but the transaction machine does not share.
+  Every nested negotiation must be recorded with its frame stamp or forks will not replay.
+
+Order: (1) B2+B3 as one legality package, failing engine tests first; (2) B1 with the unification shape;
+(3) seat names and attachment detail; (4) deal tooltips generated from the terms, then exploration
+surfacing, then policy numbers behind an honesty guard (a temperature-shaded sample is not a probability).
+
+Single blocker for B1-B3: **the saved game**. Each is a specific offer or refusal at a specific moment, and
+the recording carries the moment, phase, offer list and refusal. Until then they are well-sourced
+hypotheses, not reproductions, and I would rather say that than write a test against a guess.
