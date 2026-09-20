@@ -10,7 +10,8 @@ use crate::protocol::choice::PendingChoiceDto;
 use crate::protocol::server::{InitialSnapshotMsg, StateUpdateMsg};
 use crate::protocol::status::{PublicTurnStatus, ViewerRole};
 use crate::protocol::view::{
-    BoardView, GameView, PlacedUnitView, PlanetView, PlayerView, SystemView, TableView,
+    BoardTileView, BoardView, GameView, PlacedUnitView, PlanetView, PlayerView, SystemView,
+    TableView,
 };
 
 /// Projects one player's state for the given viewer role.
@@ -67,7 +68,7 @@ pub fn project_player_view(
 
 /// Projects the board systems, planets, and units.
 #[must_use]
-pub fn project_board_view(state: &GameState) -> BoardView {
+pub fn project_board_view_with_map(state: &GameState, map_tiles: &[BoardTileView]) -> BoardView {
     let mut systems = BTreeMap::new();
 
     for (sys_id, sys_state) in &state.board {
@@ -128,7 +129,14 @@ pub fn project_board_view(state: &GameState) -> BoardView {
     BoardView {
         systems,
         active_system: state.active_system.clone(),
+        map_tiles: map_tiles.to_vec(),
     }
+}
+
+/// Projects the board systems, planets, and units without map tiles.
+#[must_use]
+pub fn project_board_view(state: &GameState) -> BoardView {
+    project_board_view_with_map(state, &[])
 }
 
 /// Projects table-level public objectives, laws, and strategy cards.
@@ -143,9 +151,13 @@ pub fn project_table_view(state: &GameState) -> TableView {
     }
 }
 
-/// Projects the entire game state for a specific viewer role.
+/// Projects the entire game state for a specific viewer role with static map tiles.
 #[must_use]
-pub fn project_game_view(state: &GameState, viewer: &ViewerRole) -> GameView {
+pub fn project_game_view_with_map(
+    state: &GameState,
+    viewer: &ViewerRole,
+    map_tiles: &[BoardTileView],
+) -> GameView {
     let players = state
         .players
         .iter()
@@ -160,9 +172,15 @@ pub fn project_game_view(state: &GameState, viewer: &ViewerRole) -> GameView {
         active_player: state.active.clone(),
         finished: state.finished,
         players,
-        board: project_board_view(state),
+        board: project_board_view_with_map(state, map_tiles),
         table: project_table_view(state),
     }
+}
+
+/// Projects the entire game state for a specific viewer role.
+#[must_use]
+pub fn project_game_view(state: &GameState, viewer: &ViewerRole) -> GameView {
+    project_game_view_with_map(state, viewer, &[])
 }
 
 /// Projects public turn status without disclosing another player's private reactions or legal choices.
@@ -225,14 +243,15 @@ pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -
     }
 }
 
-/// Projects an initial snapshot for a connecting viewer.
+/// Projects an initial snapshot for a connecting viewer with static map tiles.
 #[must_use]
-pub fn project_initial_snapshot(
+pub fn project_initial_snapshot_with_map(
     game_id: &str,
     game_version: u64,
     state: &GameState,
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
+    map_tiles: &[BoardTileView],
 ) -> InitialSnapshotMsg {
     let pending_choice_dto = pending_choice.and_then(|(choice, nonce)| {
         if viewer.is_actor(&choice.player) {
@@ -251,20 +270,33 @@ pub fn project_initial_snapshot(
         game_id: game_id.to_owned(),
         game_version,
         viewer: viewer.clone(),
-        view: project_game_view(state, viewer),
+        view: project_game_view_with_map(state, viewer, map_tiles),
         pending_choice: pending_choice_dto,
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
     }
 }
 
-/// Projects a versioned state update message.
+/// Projects an initial snapshot for a connecting viewer.
 #[must_use]
-pub fn project_state_update(
+pub fn project_initial_snapshot(
     game_id: &str,
     game_version: u64,
     state: &GameState,
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
+) -> InitialSnapshotMsg {
+    project_initial_snapshot_with_map(game_id, game_version, state, viewer, pending_choice, &[])
+}
+
+/// Projects a versioned state update message with static map tiles.
+#[must_use]
+pub fn project_state_update_with_map(
+    game_id: &str,
+    game_version: u64,
+    state: &GameState,
+    viewer: &ViewerRole,
+    pending_choice: Option<(&Choice, &str)>,
+    map_tiles: &[BoardTileView],
 ) -> StateUpdateMsg {
     let pending_choice_dto = pending_choice.and_then(|(choice, nonce)| {
         if viewer.is_actor(&choice.player) {
@@ -283,8 +315,20 @@ pub fn project_state_update(
         game_id: game_id.to_owned(),
         game_version,
         viewer: viewer.clone(),
-        view: project_game_view(state, viewer),
+        view: project_game_view_with_map(state, viewer, map_tiles),
         pending_choice: pending_choice_dto,
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
     }
+}
+
+/// Projects a versioned state update message.
+#[must_use]
+pub fn project_state_update(
+    game_id: &str,
+    game_version: u64,
+    state: &GameState,
+    viewer: &ViewerRole,
+    pending_choice: Option<(&Choice, &str)>,
+) -> StateUpdateMsg {
+    project_state_update_with_map(game_id, game_version, state, viewer, pending_choice, &[])
 }

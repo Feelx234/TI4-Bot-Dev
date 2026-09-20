@@ -11,7 +11,7 @@ use ti4_engine::game::Game;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-use crate::projection::{project_state_update, project_turn_status};
+use crate::projection::project_turn_status;
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::choice::PendingChoiceDto;
 use crate::protocol::server::{GameOverMsg, PendingChoiceMsg, ServerMessage, TurnStatusMsg};
@@ -47,6 +47,7 @@ pub struct SessionShared {
     pub finished: bool,
     pub stopped: bool,
     pub error: Option<String>,
+    pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
 }
 
 impl SessionShared {
@@ -64,6 +65,7 @@ impl SessionShared {
             finished: false,
             stopped: false,
             error: None,
+            map_tiles: Vec::new(),
         }
     }
 
@@ -107,8 +109,16 @@ impl SessionShared {
         let version = self.game_version;
         let state = &self.latest_state;
 
+        let map_tiles = &self.map_tiles;
         self.subscribers.retain(|sub| {
-            let update = project_state_update(&game_id, version, state, &sub.viewer, pending);
+            let update = crate::projection::project_state_update_with_map(
+                &game_id,
+                version,
+                state,
+                &sub.viewer,
+                pending,
+                map_tiles,
+            );
             sub.tx.send(ServerMessage::StateUpdate(update)).is_ok()
         });
     }
@@ -144,10 +154,9 @@ impl SessionShared {
 /// Spawns the dedicated session worker thread for an active game session.
 #[must_use]
 pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>, JoinHandle<()>) {
-    let shared = Arc::new(Mutex::new(SessionShared::new(
-        config.game_id.clone(),
-        config.state.clone(),
-    )));
+    let mut initial_shared = SessionShared::new(config.game_id.clone(), config.state.clone());
+    initial_shared.map_tiles.clone_from(&config.map_tiles);
+    let shared = Arc::new(Mutex::new(initial_shared));
 
     let worker_shared = shared.clone();
     let handle = thread::spawn(move || {
@@ -183,6 +192,9 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         }
 
         let mut game = Game::with_table(config.state, ContentStore::embedded(), table);
+        if let Some(galaxy) = config.galaxy {
+            game = game.with_galaxy(galaxy);
+        }
 
         loop {
             // Check stop signal

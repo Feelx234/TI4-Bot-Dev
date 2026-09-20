@@ -74,6 +74,46 @@ pub struct SystemView {
     pub units: Vec<PlacedUnitView>,
 }
 
+/// Static metadata of a planet on the board.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanetMetaView {
+    pub id: String,
+    pub label: String,
+    pub resources: i32,
+    pub influence: i32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub traits: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tech_specialties: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legendary: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub space_station: bool,
+}
+
+/// Static geometry and metadata of a star system tile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BoardTileView {
+    pub system_id: String,
+    pub label: String,
+    pub q: i32,
+    pub r: i32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hyperlane: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub special_area: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub anomalies: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wormholes: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub egress: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planets: Vec<PlanetMetaView>,
+}
+
 /// Redacted view of the galaxy board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -81,6 +121,8 @@ pub struct BoardView {
     pub systems: BTreeMap<SystemId, SystemView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_system: Option<SystemId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub map_tiles: Vec<BoardTileView>,
 }
 
 /// Public table state: objectives, laws, strategy card goods.

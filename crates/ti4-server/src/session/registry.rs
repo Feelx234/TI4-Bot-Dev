@@ -7,7 +7,7 @@ use ti4_model::id::PlayerId;
 use crate::session::{GameSession, SessionConfig};
 
 /// Summary of an active or completed game session.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct GameSummary {
     pub game_id: String,
     pub is_finished: bool,

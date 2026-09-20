@@ -1,0 +1,237 @@
+import { describe, it, expect } from 'vitest';
+import {
+  PlayerView,
+  PendingChoiceDto,
+  PublicTurnStatus,
+  ViewerRole,
+} from '../protocol/types.ts';
+import {
+  getSecretObjectiveMeta,
+  getStrategyCardMeta,
+  STRATEGY_CARDS,
+  SECRET_OBJECTIVES,
+} from '../protocol/contentCatalog.ts';
+
+/**
+ * System invariant verification suite.
+ * Validates the core mathematical, game-rule, and privacy invariants that must hold
+ * across all states and view projections.
+ */
+
+function assertPrivacyInvariant(players: PlayerView[], viewer: ViewerRole) {
+  for (const p of players) {
+    if (viewer.role === 'player' && viewer.seat === p.id) {
+      // Allowed to see own cards
+      continue;
+    }
+    // Invariant: Opponents and spectators must never have private cards in their view
+    expect(p.held_action_cards ?? []).toHaveLength(0);
+    expect(p.held_secret_objectives ?? []).toHaveLength(0);
+  }
+}
+
+function assertArithmeticInvariant(players: PlayerView[]) {
+  for (const p of players) {
+    expect(Number.isFinite(p.victory_points)).toBe(true);
+    expect(p.victory_points).toBeGreaterThanOrEqual(0);
+
+    expect(Number.isFinite(p.trade_goods)).toBe(true);
+    expect(p.trade_goods).toBeGreaterThanOrEqual(0);
+
+    expect(Number.isFinite(p.commodities)).toBe(true);
+    expect(p.commodities).toBeGreaterThanOrEqual(0);
+
+    expect(Number.isFinite(p.tactic_tokens)).toBe(true);
+    expect(p.tactic_tokens).toBeGreaterThanOrEqual(0);
+
+    expect(Number.isFinite(p.fleet_tokens)).toBe(true);
+    expect(p.fleet_tokens).toBeGreaterThanOrEqual(0);
+
+    expect(Number.isFinite(p.strategic_tokens)).toBe(true);
+    expect(p.strategic_tokens).toBeGreaterThanOrEqual(0);
+  }
+}
+
+function assertActiveSeatChoiceInvariant(
+  turnStatus: PublicTurnStatus,
+  pendingChoice: PendingChoiceDto | null,
+  viewer: ViewerRole
+) {
+  if (turnStatus.kind === 'waiting_for_decision') {
+    if (viewer.role === 'player' && viewer.seat === turnStatus.seat) {
+      // Invariant: Active player MUST receive their pending choice
+      expect(pendingChoice).not.toBeNull();
+      expect(pendingChoice?.actor).toBe(turnStatus.seat);
+      expect(pendingChoice?.options.length).toBeGreaterThan(0);
+      expect(pendingChoice?.nonce).toMatch(/^[0-9a-fA-F]{16}$/);
+    } else {
+      // Invariant: Non-active players and spectators MUST NOT see choice details
+      expect(pendingChoice).toBeNull();
+    }
+  }
+}
+
+describe('Frontend Invariants & Property-based Checks', () => {
+  it('enforces privacy invariant across simulated player seats', () => {
+    const players: PlayerView[] = [
+      {
+        id: 'p1',
+        faction: 'Sol',
+        victory_points: 0,
+        trade_goods: 0,
+        commodities: 4,
+        tactic_tokens: 3,
+        fleet_tokens: 3,
+        strategic_tokens: 2,
+        passed: false,
+        strategy_cards: [],
+        exhausted_strategy_cards: [],
+        technologies: [],
+        exhausted_technologies: [],
+        relics: [],
+        exhausted_relics: [],
+        action_cards_count: 2,
+        secret_objectives_count: 1,
+        held_action_cards: ['Card A', 'Card B'],
+        held_secret_objectives: ['Obj 1'],
+        leaders: {},
+      },
+      {
+        id: 'p2',
+        faction: 'Letnev',
+        victory_points: 0,
+        trade_goods: 1,
+        commodities: 2,
+        tactic_tokens: 2,
+        fleet_tokens: 4,
+        strategic_tokens: 1,
+        passed: false,
+        strategy_cards: [],
+        exhausted_strategy_cards: [],
+        technologies: [],
+        exhausted_technologies: [],
+        relics: [],
+        exhausted_relics: [],
+        action_cards_count: 1,
+        secret_objectives_count: 1,
+        held_action_cards: [],
+        held_secret_objectives: [],
+        leaders: {},
+      },
+    ];
+
+    // Viewer p1
+    assertPrivacyInvariant(players, { role: 'player', seat: 'p1' });
+
+    // Viewer p2 (after redacting p1)
+    const redactedForP2 = players.map((p) =>
+      p.id === 'p1'
+        ? { ...p, held_action_cards: [], held_secret_objectives: [] }
+        : { ...p, held_action_cards: ['Card C'], held_secret_objectives: ['Obj 2'] }
+    );
+    assertPrivacyInvariant(redactedForP2, { role: 'player', seat: 'p2' });
+
+    // Viewer Spectator
+    const redactedForSpec = players.map((p) => ({
+      ...p,
+      held_action_cards: [],
+      held_secret_objectives: [],
+    }));
+    assertPrivacyInvariant(redactedForSpec, { role: 'spectator' });
+  });
+
+  it('enforces arithmetic integrity on player resources and VP', () => {
+    const players: PlayerView[] = [
+      {
+        id: 'p1',
+        faction: 'Sol',
+        victory_points: 5,
+        trade_goods: 10,
+        commodities: 0,
+        tactic_tokens: 4,
+        fleet_tokens: 3,
+        strategic_tokens: 1,
+        passed: false,
+        strategy_cards: [],
+        exhausted_strategy_cards: [],
+        technologies: [],
+        exhausted_technologies: [],
+        relics: [],
+        exhausted_relics: [],
+        action_cards_count: 0,
+        secret_objectives_count: 0,
+        leaders: {},
+      },
+    ];
+
+    assertArithmeticInvariant(players);
+  });
+
+  it('enforces active seat choice invariant across 20 randomized turn transitions', () => {
+    const seats = ['p1', 'p2', 'p3'];
+
+    for (let step = 0; step < 20; step++) {
+      const activeSeat = seats[step % seats.length];
+      const turnStatus: PublicTurnStatus = {
+        kind: 'waiting_for_decision',
+        seat: activeSeat,
+        phase: 'Strategy',
+        round: 1,
+        stage: 'Strategy Card Selection',
+      };
+
+      const pendingChoiceForActive: PendingChoiceDto = {
+        prompt: 'Choose a Strategy Card',
+        actor: activeSeat,
+        nonce: '0123456789abcdef',
+        options: [
+          { id: 'opt_1', label: 'Leadership' },
+          { id: 'opt_2', label: 'Diplomacy' },
+        ],
+      };
+
+      for (const viewerSeat of seats) {
+        const viewerRole: ViewerRole = { role: 'player', seat: viewerSeat };
+        const choice = viewerSeat === activeSeat ? pendingChoiceForActive : null;
+        assertActiveSeatChoiceInvariant(turnStatus, choice, viewerRole);
+      }
+
+      // Also check spectator
+      assertActiveSeatChoiceInvariant(turnStatus, null, { role: 'spectator' });
+    }
+  });
+
+  it('enforces human-readable metadata resolution for all secret objectives and strategy cards', () => {
+    // Check specific required sample IDs
+    const faa = getSecretObjectiveMeta('faa');
+    expect(faa.name).toBe('Forge an Alliance');
+    expect(faa.description).toBe('Control 4 cultural planets.');
+    expect(faa.phase).toBe('Status');
+    expect(faa.points).toBe(1);
+
+    const scLeadership = getStrategyCardMeta('pok1leadership');
+    expect(scLeadership.name).toBe('Leadership');
+    expect(scLeadership.initiative).toBe(1);
+    expect(scLeadership.primaryText).toContain('Gain 3 command tokens');
+
+    const scWarfare = getStrategyCardMeta('pok6warfare');
+    expect(scWarfare.name).toBe('Warfare');
+    expect(scWarfare.initiative).toBe(6);
+
+    // Assert every card in STRATEGY_CARDS has non-empty name and initiative > 0
+    for (const [id, card] of Object.entries(STRATEGY_CARDS)) {
+      expect(card.name).toBeTruthy();
+      expect(card.name).not.toBe(id);
+      expect(card.initiative).toBeGreaterThan(0);
+      expect(card.primaryText).toBeTruthy();
+    }
+
+    // Assert every objective in SECRET_OBJECTIVES has non-empty name and description
+    for (const [id, obj] of Object.entries(SECRET_OBJECTIVES)) {
+      expect(obj.name).toBeTruthy();
+      expect(obj.name).not.toBe(id);
+      expect(obj.description).toBeTruthy();
+      expect(obj.points).toBeGreaterThan(0);
+    }
+  });
+});

@@ -14,7 +14,6 @@ use ti4_engine::fingerprint::CanonicalHash;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-use crate::projection::project_initial_snapshot;
 use crate::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg, ServerMessage};
 use crate::protocol::status::{RejectionReason, ViewerRole};
 use crate::session::decider::ChoiceSubmission;
@@ -43,6 +42,8 @@ pub struct SessionConfig {
     pub game_id: String,
     pub state: GameState,
     pub seats: BTreeMap<PlayerId, SeatController>,
+    pub galaxy: Option<ti4_content::galaxy::Galaxy>,
+    pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
 }
 
 impl SessionConfig {
@@ -52,12 +53,25 @@ impl SessionConfig {
             game_id: game_id.into(),
             state,
             seats: BTreeMap::new(),
+            galaxy: None,
+            map_tiles: Vec::new(),
         }
     }
 
     #[must_use]
     pub fn with_seat(mut self, seat: PlayerId, controller: SeatController) -> Self {
         self.seats.insert(seat, controller);
+        self
+    }
+
+    #[must_use]
+    pub fn with_galaxy(
+        mut self,
+        galaxy: ti4_content::galaxy::Galaxy,
+        map_tiles: Vec<crate::protocol::view::BoardTileView>,
+    ) -> Self {
+        self.galaxy = Some(galaxy);
+        self.map_tiles = map_tiles;
         self
     }
 }
@@ -163,13 +177,21 @@ impl GameSession {
             .as_ref()
             .map(|p| (&p.choice, p.nonce.as_str()));
 
-        project_initial_snapshot(
+        crate::projection::project_initial_snapshot_with_map(
             &self.game_id,
             lock.game_version,
             &lock.latest_state,
             viewer,
             pending,
+            &lock.map_tiles,
         )
+    }
+
+    /// Returns static board tiles for the game session.
+    #[must_use]
+    pub fn map_tiles(&self) -> Vec<crate::protocol::view::BoardTileView> {
+        let lock = self.shared.lock().expect("shared lock");
+        lock.map_tiles.clone()
     }
 
     /// Returns the currently pending decision details: `(seat, nonce, version)`.
