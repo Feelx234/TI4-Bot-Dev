@@ -35,6 +35,18 @@ describe('PendingChoiceModal Component', () => {
     expect(screen.getByText('Diplomacy (2)')).toBeInTheDocument();
   });
 
+  it('does not infer metadata from an opaque option ID', () => {
+    const choiceWithoutDescription: PendingChoiceDto = {
+      ...mockChoice,
+      options: [{ id: 'pok1leadership', label: 'Take this option' }],
+    };
+
+    render(<PendingChoiceModal choice={choiceWithoutDescription} onSubmit={vi.fn()} />);
+
+    expect(screen.getByText('Take this option')).toBeInTheDocument();
+    expect(screen.queryByText(/Gain 3 command tokens/)).toBeNull();
+  });
+
   it('submits selected option on confirm', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<PendingChoiceModal choice={mockChoice} onSubmit={onSubmit} />);

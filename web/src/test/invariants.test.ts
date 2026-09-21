@@ -8,6 +8,9 @@ import {
 import {
   getSecretObjectiveMeta,
   getStrategyCardMeta,
+  findActionCardMeta,
+  findSecretObjectiveMeta,
+  findStrategyCardMeta,
   humanizeId,
   STRATEGY_CARDS,
   SECRET_OBJECTIVES,
@@ -260,6 +263,15 @@ describe('Frontend Invariants & Property-based Checks', () => {
     expect(malformed.name).toBe('Leadership Bonus');
     expect(malformed.initiative).toBe(0);
     expect(malformed.primaryText).toBe('');
+
+    expect(findStrategyCardMeta('pok1leadership')?.name).toBe('Leadership');
+    expect(findStrategyCardMeta(' POK1LEADERSHIP ')).toBeUndefined();
+    expect(findSecretObjectiveMeta('FAA')).toBeUndefined();
+
+    // Action-card automation IDs are the only declared alternate lookup keys.
+    expect(findActionCardMeta('dh1')?.id).toBe('dh1');
+    expect(findActionCardMeta('direct_hit')?.name).toBe('Direct Hit');
+    expect(findActionCardMeta('Direct Hit')).toBeUndefined();
   });
 
   it('preserves event log identity across reconnect snapshots and live event messages', () => {

@@ -24,12 +24,16 @@ function optionalString(record, field) {
 }
 
 function addEntry(catalog, id, meta, category) {
-  const entry = { ...meta, id };
+  const entry = { id: meta.id ?? id, ...meta };
   const existing = catalog[id];
-  if (existing && JSON.stringify(existing) !== JSON.stringify(entry)) {
+  const existingPresentation = { ...existing };
+  const entryPresentation = { ...entry };
+  delete existingPresentation.id;
+  delete entryPresentation.id;
+  if (existing && JSON.stringify(existingPresentation) !== JSON.stringify(entryPresentation)) {
     throw new Error(`${category} assigns conflicting presentation metadata to ${id}`);
   }
-  catalog[id] = entry;
+  catalog[id] ??= entry;
 }
 
 async function readJson(filename) {
@@ -37,7 +41,9 @@ async function readJson(filename) {
 }
 
 function sortedCatalog(catalog) {
-  return Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)));
+  return Object.fromEntries(
+    Object.entries(catalog).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  );
 }
 
 async function generate() {
@@ -75,6 +81,7 @@ async function generate() {
         catalog,
         id,
         {
+          id,
           name: requiredString(record, 'name', category),
           phase: optionalString(record, 'phase') || 'Status',
           points: record.points ?? 1,
@@ -91,6 +98,7 @@ async function generate() {
     for (const record of records) {
       const id = requiredString(record, 'alias', category);
       const meta = {
+        id,
         name: requiredString(record, 'name', category),
         phase: optionalString(record, 'phase') || undefined,
         description: optionalString(record, 'text'),
@@ -99,7 +107,7 @@ async function generate() {
 
       // The engine may expose an action card by its corpus-declared automation ID.
       if (typeof record.automationID === 'string' && record.automationID.length > 0) {
-        addEntry(catalog, record.automationID, meta, category);
+        addEntry(catalog, record.automationID, { ...meta, id: record.automationID }, category);
       }
     }
     return catalog;

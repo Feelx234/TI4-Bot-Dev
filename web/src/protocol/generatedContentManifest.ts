@@ -4,7 +4,7 @@ export const CONTENT_PRESENTATION_PROVENANCE = {
   "generatorVersion": 1,
   "corpusSchemaVersion": "1.1.0",
   "corpusUpstreamCommit": "8e90459d789fb767b9d5aff3a55bd7dd0b3e781b",
-  "presentationSha256": "75b0121451f7b825d295e2ee6f73b6106b5910dbf776b04c0a9c1f90e491fd98",
+  "presentationSha256": "080fe35f4b65b6de1a0d2949e6e9b1dcec7a6894872b45f07b79a3f2896e22a7",
   "recordCounts": {
     "strategyCards": 12,
     "secretObjectives": 40,
@@ -17,2054 +17,2054 @@ export const CONTENT_PRESENTATION_PROVENANCE = {
 export const GENERATED_CONTENT_CATALOG = {
   "strategyCards": {
     "base2": {
+      "id": "base2",
       "name": "Diplomacy",
       "initiative": 2,
       "primaryText": "Choose 1 system other than the Mecatol Rex system that contains a planet you control; each other player places a command token from their reinforcements in the chosen system.\nThen, ready each exhausted planet you control in that system.",
-      "secondaryText": "Spend 1 token from your strategy pool to ready up to 2 exhausted planets",
-      "id": "base2"
+      "secondaryText": "Spend 1 token from your strategy pool to ready up to 2 exhausted planets"
     },
     "base4": {
+      "id": "base4",
       "name": "Construction",
       "initiative": 4,
       "primaryText": "Place 1 PDS or 1 Space Dock on a planet you control.\nPlace 1 PDS on a planet you control.",
-      "secondaryText": "Place 1 token from your strategy pool in any system; you may place either 1 space dock or 1 PDS on a planet you control in that system.",
-      "id": "base4"
+      "secondaryText": "Place 1 token from your strategy pool in any system; you may place either 1 space dock or 1 PDS on a planet you control in that system."
     },
     "pok1leadership": {
+      "id": "pok1leadership",
       "name": "Leadership",
       "initiative": 1,
       "primaryText": "Gain 3 command tokens\nSpend any amount of influence to gain 1 command token for every 3 influence spent",
-      "secondaryText": "Spend any amount of influence to gain 1 command token for every 3 influence spent",
-      "id": "pok1leadership"
+      "secondaryText": "Spend any amount of influence to gain 1 command token for every 3 influence spent"
     },
     "pok2diplomacy": {
+      "id": "pok2diplomacy",
       "name": "Diplomacy",
       "initiative": 2,
       "primaryText": "Choose 1 system other than the Mecatol Rex system that contains a planet you control; each other player places a command token from their reinforcements in the chosen system. Then, ready up to 2 exhausted planets you control.",
-      "secondaryText": "Spend 1 token from your strategy pool to ready up to 2 exhausted planets you control.",
-      "id": "pok2diplomacy"
+      "secondaryText": "Spend 1 token from your strategy pool to ready up to 2 exhausted planets you control."
     },
     "pok3politics": {
+      "id": "pok3politics",
       "name": "Politics",
       "initiative": 3,
       "primaryText": "Choose a player other than the speaker.  That player gains the speaker token.\nDraw 2 action cards\nLook at the top 2 cards of the agenda deck. Place each card on the top or bottom of the deck in any order.",
-      "secondaryText": "Spend 1 token from your strategy pool to draw 2 action cards.",
-      "id": "pok3politics"
+      "secondaryText": "Spend 1 token from your strategy pool to draw 2 action cards."
     },
     "pok4construction": {
+      "id": "pok4construction",
       "name": "Construction",
       "initiative": 4,
       "primaryText": "Place 1 PDS or 1 Space Dock on a planet you control.\nPlace 1 PDS on a planet you control.",
-      "secondaryText": "Spend 1 token from your strategy pool and place it in any system; you may place either 1 space dock or 1 PDS on a planet you control in that system",
-      "id": "pok4construction"
+      "secondaryText": "Spend 1 token from your strategy pool and place it in any system; you may place either 1 space dock or 1 PDS on a planet you control in that system"
     },
     "pok5trade": {
+      "id": "pok5trade",
       "name": "Trade",
       "initiative": 5,
       "primaryText": "Gain 3 trade goods.\nReplenish commodities.\nChoose any number of other players. Those players use the secondary ability of this strategy card without spending a command token.",
-      "secondaryText": "Spend 1 token from your strategy pool to replenish your commodities.",
-      "id": "pok5trade"
+      "secondaryText": "Spend 1 token from your strategy pool to replenish your commodities."
     },
     "pok6warfare": {
+      "id": "pok6warfare",
       "name": "Warfare",
       "initiative": 6,
       "primaryText": "Remove 1 of your command tokens from the game board; then, gain 1 command token.\nRedistribute any number of the command tokens on your command sheet.",
-      "secondaryText": "Spend 1 token from your strategy pool to use the PRODUCTION ability of 1 of your space docks in your home system (this token is not placed in your home system).",
-      "id": "pok6warfare"
+      "secondaryText": "Spend 1 token from your strategy pool to use the PRODUCTION ability of 1 of your space docks in your home system (this token is not placed in your home system)."
     },
     "pok7technology": {
+      "id": "pok7technology",
       "name": "Technology",
       "initiative": 7,
       "primaryText": "Research 1 technology.\nSpend 6 resources to research 1 technology.",
-      "secondaryText": "Spend 1 token from your strategy pool and 4 resources to research 1 technology.",
-      "id": "pok7technology"
+      "secondaryText": "Spend 1 token from your strategy pool and 4 resources to research 1 technology."
     },
     "pok8imperial": {
+      "id": "pok8imperial",
       "name": "Imperial",
       "initiative": 8,
       "primaryText": "Immediately score 1 public objective if you fulfill its requirements.\nGain 1 victory point if you control Mecatol Rex; otherwise, draw 1 secret objective.",
-      "secondaryText": "Spend 1 token from your strategy pool to draw 1 secret objective.",
-      "id": "pok8imperial"
+      "secondaryText": "Spend 1 token from your strategy pool to draw 1 secret objective."
     },
     "te4construction": {
+      "id": "te4construction",
       "name": "Construction",
       "initiative": 4,
       "primaryText": "Either place 1 structure on a planet you control, or use the PRODUCTION ability of 1 of your space docks.\nPlace 1 structure on a planet you control.",
-      "secondaryText": "Spend 1 token from your strategy pool to place 1 structure on a planet you control.",
-      "id": "te4construction"
+      "secondaryText": "Spend 1 token from your strategy pool to place 1 structure on a planet you control."
     },
     "te6warfare": {
+      "id": "te6warfare",
       "name": "Warfare",
       "initiative": 6,
       "primaryText": "Perform a tactical action in any system without placing a command token, even if the system already has your command token in it: that system still counts as being activated. You may redistribute your command tokens before and after this action.",
-      "secondaryText": "Spend 1 token from your strategy pool to use the Production abilities of the units in your home system. (This token is not placed in your home system)",
-      "id": "te6warfare"
+      "secondaryText": "Spend 1 token from your strategy pool to use the Production abilities of the units in your home system. (This token is not placed in your home system)"
     }
   },
   "secretObjectives": {
     "ans": {
+      "id": "ans",
       "name": "Adapt New Strategies",
       "phase": "Status",
       "points": 1,
-      "description": "Own 2 faction technologies. 'Valefar Assimilator' technologies do not count toward this objective.",
-      "id": "ans"
+      "description": "Own 2 faction technologies. 'Valefar Assimilator' technologies do not count toward this objective."
     },
     "baf": {
+      "id": "baf",
       "name": "Betray a Friend",
       "phase": "Action",
       "points": 1,
-      "description": "Win a combat against a player whose promissory note you had in your play area at the start of your tactical action.",
-      "id": "baf"
+      "description": "Win a combat against a player whose promissory note you had in your play area at the start of your tactical action."
     },
     "bam": {
+      "id": "bam",
       "name": "Become a Martyr",
       "phase": "Action",
       "points": 1,
-      "description": "Lose control of a planet in a home system.",
-      "id": "bam"
+      "description": "Lose control of a planet in a home system."
     },
     "btgk": {
+      "id": "btgk",
       "name": "Become the Gatekeeper",
       "phase": "Status",
       "points": 1,
-      "description": "Have 1 or more ships in a system that contains an alpha wormhole and 1 or more ships in a system that contains a beta wormhole.",
-      "id": "btgk"
+      "description": "Have 1 or more ships in a system that contains an alpha wormhole and 1 or more ships in a system that contains a beta wormhole."
     },
     "btv": {
+      "id": "btv",
       "name": "Brave the Void",
       "phase": "Action",
       "points": 1,
-      "description": "Win a combat in an anomaly.",
-      "id": "btv"
+      "description": "Win a combat in an anomaly."
     },
     "csl": {
+      "id": "csl",
       "name": "Cut Supply Lines",
       "phase": "Status",
       "points": 1,
-      "description": "Have 1 or more ships in the same system as another player's space dock.",
-      "id": "csl"
+      "description": "Have 1 or more ships in the same system as another player's space dock."
     },
     "ctr": {
+      "id": "ctr",
       "name": "Control the Region",
       "phase": "Status",
       "points": 1,
-      "description": "Have 1 or more ships in 6 systems.",
-      "id": "ctr"
+      "description": "Have 1 or more ships in 6 systems."
     },
     "dfat": {
+      "id": "dfat",
       "name": "Defy Space and Time",
       "phase": "Status",
       "points": 1,
-      "description": "Have units in the wormhole nexus.",
-      "id": "dfat"
+      "description": "Have units in the wormhole nexus."
     },
     "dhw": {
+      "id": "dhw",
       "name": "Destroy Heretical Works",
       "phase": "Status",
       "points": 1,
-      "description": "Purge 2 of your relic fragments of any type.",
-      "id": "dhw"
+      "description": "Purge 2 of your relic fragments of any type."
     },
     "dp": {
+      "id": "dp",
       "name": "Dictate Policy",
       "phase": "Agenda",
       "points": 1,
-      "description": "There are 3 or more laws in play.",
-      "id": "dp"
+      "description": "There are 3 or more laws in play."
     },
     "dtd": {
+      "id": "dtd",
       "name": "Drive the Debate",
       "phase": "Agenda",
       "points": 1,
-      "description": "You or a planet you control are elected by an agenda.",
-      "id": "dtd"
+      "description": "You or a planet you control are elected by an agenda."
     },
     "dtgs": {
+      "id": "dtgs",
       "name": "Destroy Their Greatest Ship",
       "phase": "Action",
       "points": 1,
-      "description": "Destroy another player's war sun or flagship.",
-      "id": "dtgs"
+      "description": "Destroy another player's war sun or flagship."
     },
     "dts": {
+      "id": "dts",
       "name": "Darken the Skies",
       "phase": "Action",
       "points": 1,
-      "description": "Win a combat in another player's home system.",
-      "id": "dts"
+      "description": "Win a combat in another player's home system."
     },
     "dyp": {
+      "id": "dyp",
       "name": "Demonstrate Your Power",
       "phase": "Action",
       "points": 1,
-      "description": "Have 3 or more non-fighter ships in the active system at the end of a space combat.",
-      "id": "dyp"
+      "description": "Have 3 or more non-fighter ships in the active system at the end of a space combat."
     },
     "eap": {
+      "id": "eap",
       "name": "Establish a Perimeter",
       "phase": "Status",
       "points": 1,
-      "description": "Have 4 PDS units on the game board.",
-      "id": "eap"
+      "description": "Have 4 PDS units on the game board."
     },
     "eh": {
+      "id": "eh",
       "name": "Establish Hegemony",
       "phase": "Status",
       "points": 1,
-      "description": "Control planets that have a combined influence value of at least 12.",
-      "id": "eh"
+      "description": "Control planets that have a combined influence value of at least 12."
     },
     "faa": {
+      "id": "faa",
       "name": "Forge an Alliance",
       "phase": "Status",
       "points": 1,
-      "description": "Control 4 cultural planets.",
-      "id": "faa"
+      "description": "Control 4 cultural planets."
     },
     "fc": {
+      "id": "fc",
       "name": "Foster Cohesion",
       "phase": "Status",
       "points": 1,
-      "description": "Be neighbors with all other players.",
-      "id": "fc"
+      "description": "Be neighbors with all other players."
     },
     "fsn": {
+      "id": "fsn",
       "name": "Form a Spy Network",
       "phase": "Status",
       "points": 1,
-      "description": "Discard 5 action cards.",
-      "id": "fsn"
+      "description": "Discard 5 action cards."
     },
     "fwm": {
+      "id": "fwm",
       "name": "Fuel the War Machine",
       "phase": "Status",
       "points": 1,
-      "description": "Have 3 space docks on the game board.",
-      "id": "fwm"
+      "description": "Have 3 space docks on the game board."
     },
     "fwp": {
+      "id": "fwp",
       "name": "Fight with Precision",
       "phase": "Action",
       "points": 1,
-      "description": "Destroy the last of a player's fighters in the active system during the anti-fighter barrage step.",
-      "id": "fwp"
+      "description": "Destroy the last of a player's fighters in the active system during the anti-fighter barrage step."
     },
     "gamf": {
+      "id": "gamf",
       "name": "Gather a Mighty Fleet",
       "phase": "Status",
       "points": 1,
-      "description": "Have 5 dreadnoughts on the game board.",
-      "id": "gamf"
+      "description": "Have 5 dreadnoughts on the game board."
     },
     "hrm": {
+      "id": "hrm",
       "name": "Hoard Raw Materials",
       "phase": "Status",
       "points": 1,
-      "description": "Control planets that have a combined resource value of at least 12.",
-      "id": "hrm"
+      "description": "Control planets that have a combined resource value of at least 12."
     },
     "lsc": {
+      "id": "lsc",
       "name": "Learn the Secrets of the Cosmos",
       "phase": "Status",
       "points": 1,
-      "description": "Have 1 or more ships in 3 systems that are each adjacent to an anomaly.",
-      "id": "lsc"
+      "description": "Have 1 or more ships in 3 systems that are each adjacent to an anomaly."
     },
     "mew": {
+      "id": "mew",
       "name": "Make an Example of Their World",
       "phase": "Action",
       "points": 1,
-      "description": "Destroy the last of a player's ground forces on a planet during the bombardment step.",
-      "id": "mew"
+      "description": "Destroy the last of a player's ground forces on a planet during the bombardment step."
     },
     "mlp": {
+      "id": "mlp",
       "name": "Master the Laws of Physics",
       "phase": "Status",
       "points": 1,
-      "description": "Own 4 technologies of the same color.",
-      "id": "mlp"
+      "description": "Own 4 technologies of the same color."
     },
     "mp": {
+      "id": "mp",
       "name": "Monopolize Production",
       "phase": "Status",
       "points": 1,
-      "description": "Control 4 industrial planets.",
-      "id": "mp"
+      "description": "Control 4 industrial planets."
     },
     "mrm": {
+      "id": "mrm",
       "name": "Mine Rare Metals",
       "phase": "Status",
       "points": 1,
-      "description": "Control 4 hazardous planets.",
-      "id": "mrm"
+      "description": "Control 4 hazardous planets."
     },
     "mtm": {
+      "id": "mtm",
       "name": "Mechanize the Military",
       "phase": "Status",
       "points": 1,
-      "description": "Have 1 mech on each of 4 planets.",
-      "id": "mtm"
+      "description": "Have 1 mech on each of 4 planets."
     },
     "ose": {
+      "id": "ose",
       "name": "Occupy the Seat of the Empire",
       "phase": "Status",
       "points": 1,
-      "description": "Control Mecatol Rex and have 3 or more ships in its system.",
-      "id": "ose"
+      "description": "Control Mecatol Rex and have 3 or more ships in its system."
     },
     "otf": {
+      "id": "otf",
       "name": "Occupy the Fringe",
       "phase": "Status",
       "points": 1,
-      "description": "Have 9 or more ground forces on a planet that does not contain 1 of your space docks.",
-      "id": "otf"
+      "description": "Have 9 or more ground forces on a planet that does not contain 1 of your space docks."
     },
     "pe": {
+      "id": "pe",
       "name": "Prove Endurance",
       "phase": "Action",
       "points": 1,
-      "description": "Be the last player to pass during a game round.",
-      "id": "pe"
+      "description": "Be the last player to pass during a game round."
     },
     "pem": {
+      "id": "pem",
       "name": "Produce en Masse",
       "phase": "Status",
       "points": 1,
-      "description": "Have units with a combined PRODUCTION value of at least 8 in a single system.",
-      "id": "pem"
+      "description": "Have units with a combined PRODUCTION value of at least 8 in a single system."
     },
     "sai": {
+      "id": "sai",
       "name": "Seize an Icon",
       "phase": "Status",
       "points": 1,
-      "description": "Control a legendary planet.",
-      "id": "sai"
+      "description": "Control a legendary planet."
     },
     "sar": {
+      "id": "sar",
       "name": "Spark a Rebellion",
       "phase": "Action",
       "points": 1,
-      "description": "Win a combat against a player who has the most victory points.",
-      "id": "sar"
+      "description": "Win a combat against a player who has the most victory points."
     },
     "sb": {
+      "id": "sb",
       "name": "Strengthen Bonds",
       "phase": "Status",
       "points": 1,
-      "description": "Have another player's promissory note in your play area.",
-      "id": "sb"
+      "description": "Have another player's promissory note in your play area."
     },
     "syc": {
+      "id": "syc",
       "name": "Stake Your Claim",
       "phase": "Status",
       "points": 1,
-      "description": "Control a planet in a system that contains a planet controlled by another player.",
-      "id": "syc"
+      "description": "Control a planet in a system that contains a planet controlled by another player."
     },
     "te": {
+      "id": "te",
       "name": "Threaten Enemies",
       "phase": "Status",
       "points": 1,
-      "description": "Have 1 or more ships in a system that is adjacent to another player's home system.",
-      "id": "te"
+      "description": "Have 1 or more ships in a system that is adjacent to another player's home system."
     },
     "ttfd": {
+      "id": "ttfd",
       "name": "Turn Their Fleets to Dust",
       "phase": "Action",
       "points": 1,
-      "description": "Destroy the last of a player's non-fighter ships in the active system during the space cannon offense step.",
-      "id": "ttfd"
+      "description": "Destroy the last of a player's non-fighter ships in the active system during the space cannon offense step."
     },
     "uf": {
+      "id": "uf",
       "name": "Unveil Flagship",
       "phase": "Action",
       "points": 1,
-      "description": "Win a space combat in a system that contains your flagship. You cannot score this objective if your flagship is destroyed in the combat.",
-      "id": "uf"
+      "description": "Win a space combat in a system that contains your flagship. You cannot score this objective if your flagship is destroyed in the combat."
     }
   },
   "publicObjectives": {
     "amass_wealth": {
+      "id": "amass_wealth",
       "name": "Amass Wealth",
       "phase": "Status",
       "points": 1,
-      "description": "Spend 3 influence, 3 resources, and 3 trade goods.",
-      "id": "amass_wealth"
+      "description": "Spend 3 influence, 3 resources, and 3 trade goods."
     },
     "ancient_monuments": {
+      "id": "ancient_monuments",
       "name": "Reclaim Ancient Monuments",
       "phase": "Status",
       "points": 2,
-      "description": "Control 3 planets that have attachments.",
-      "id": "ancient_monuments"
+      "description": "Control 3 planets that have attachments."
     },
     "become_legend": {
+      "id": "become_legend",
       "name": "Become a Legend",
       "phase": "Status",
       "points": 2,
-      "description": "Have units in 4 systems that contain legendary planets, Mecatol Rex, or anomalies.",
-      "id": "become_legend"
+      "description": "Have units in 4 systems that contain legendary planets, Mecatol Rex, or anomalies."
     },
     "brain_trust": {
+      "id": "brain_trust",
       "name": "Form Galactic Brain Trust",
       "phase": "Status",
       "points": 2,
-      "description": "Control 5 planets that have technology specialties.",
-      "id": "brain_trust"
+      "description": "Control 5 planets that have technology specialties."
     },
     "build_defenses": {
+      "id": "build_defenses",
       "name": "Build Defenses",
       "phase": "Status",
       "points": 1,
-      "description": "Have 4 or more structures.",
-      "id": "build_defenses"
+      "description": "Have 4 or more structures."
     },
     "centralize_trade": {
+      "id": "centralize_trade",
       "name": "Centralize Galactic Trade",
       "phase": "Status",
       "points": 2,
-      "description": "Spend 10 trade goods.",
-      "id": "centralize_trade"
+      "description": "Spend 10 trade goods."
     },
     "command_armada": {
+      "id": "command_armada",
       "name": "Command an Armada",
       "phase": "Status",
       "points": 2,
-      "description": "Have 8 or more non-fighter ships in 1 system.",
-      "id": "command_armada"
+      "description": "Have 8 or more non-fighter ships in 1 system."
     },
     "conquer": {
+      "id": "conquer",
       "name": "Conquer the Weak",
       "phase": "Status",
       "points": 2,
-      "description": "Control 1 planet that is in another player's home system.",
-      "id": "conquer"
+      "description": "Control 1 planet that is in another player's home system."
     },
     "control_borderlands": {
+      "id": "control_borderlands",
       "name": "Control the Borderlands",
       "phase": "Status",
       "points": 2,
-      "description": "Have units in 5 systems on the edge of the game board other than your home system.",
-      "id": "control_borderlands"
+      "description": "Have units in 5 systems on the edge of the game board other than your home system."
     },
     "corner": {
+      "id": "corner",
       "name": "Corner the Market",
       "phase": "Status",
       "points": 1,
-      "description": "Control 4 planets that each have the same planet trait.",
-      "id": "corner"
+      "description": "Control 4 planets that each have the same planet trait."
     },
     "deep_space": {
+      "id": "deep_space",
       "name": "Explore Deep Space",
       "phase": "Status",
       "points": 1,
-      "description": "Have units in 3 systems that do not contain planets.",
-      "id": "deep_space"
+      "description": "Have units in 3 systems that do not contain planets."
     },
     "develop": {
+      "id": "develop",
       "name": "Develop Weaponry",
       "phase": "Status",
       "points": 1,
-      "description": "Own 2 unit upgrade technologies.",
-      "id": "develop"
+      "description": "Own 2 unit upgrade technologies."
     },
     "distant_lands": {
+      "id": "distant_lands",
       "name": "Rule Distant Lands",
       "phase": "Status",
       "points": 2,
-      "description": "Control 2 planets that are each in or adjacent to a different, other player's home system.",
-      "id": "distant_lands"
+      "description": "Control 2 planets that are each in or adjacent to a different, other player's home system."
     },
     "diversify": {
+      "id": "diversify",
       "name": "Diversify Research",
       "phase": "Status",
       "points": 1,
-      "description": "Own 2 technologies in each of 2 colors.",
-      "id": "diversify"
+      "description": "Own 2 technologies in each of 2 colors."
     },
     "engineer_marvel": {
+      "id": "engineer_marvel",
       "name": "Engineer a Marvel",
       "phase": "Status",
       "points": 1,
-      "description": "Have your flagship or a war sun on the game board.",
-      "id": "engineer_marvel"
+      "description": "Have your flagship or a war sun on the game board."
     },
     "expand_borders": {
+      "id": "expand_borders",
       "name": "Expand Borders",
       "phase": "Status",
       "points": 1,
-      "description": "Control 6 planets in non-home systems.",
-      "id": "expand_borders"
+      "description": "Control 6 planets in non-home systems."
     },
     "galvanize": {
+      "id": "galvanize",
       "name": "Galvanize the People",
       "phase": "Status",
       "points": 2,
-      "description": "Spend a total of 6 tokens from your tactic and/or strategy pools.",
-      "id": "galvanize"
+      "description": "Spend a total of 6 tokens from your tactic and/or strategy pools."
     },
     "golden_age": {
+      "id": "golden_age",
       "name": "Found a Golden Age",
       "phase": "Status",
       "points": 2,
-      "description": "Spend 16 resources.",
-      "id": "golden_age"
+      "description": "Spend 16 resources."
     },
     "infrastructure": {
+      "id": "infrastructure",
       "name": "Improve Infrastructure",
       "phase": "Status",
       "points": 1,
-      "description": "Have structures on 3 planets outside of your home system.",
-      "id": "infrastructure"
+      "description": "Have structures on 3 planets outside of your home system."
     },
     "intimidate": {
+      "id": "intimidate",
       "name": "Intimidate Council",
       "phase": "Status",
       "points": 1,
-      "description": "Have 1 or more ships in 2 systems that are adjacent to Mecatol Rex's system.",
-      "id": "intimidate"
+      "description": "Have 1 or more ships in 2 systems that are adjacent to Mecatol Rex's system."
     },
     "lead": {
+      "id": "lead",
       "name": "Lead From the Front",
       "phase": "Status",
       "points": 1,
-      "description": "Spend a total of 3 tokens from your tactic and/or strategy pools.",
-      "id": "lead"
+      "description": "Spend a total of 3 tokens from your tactic and/or strategy pools."
     },
     "lost_outposts": {
+      "id": "lost_outposts",
       "name": "Discover Lost Outposts",
       "phase": "Status",
       "points": 1,
-      "description": "Control 2 planets that have attachments.",
-      "id": "lost_outposts"
+      "description": "Control 2 planets that have attachments."
     },
     "make_history": {
+      "id": "make_history",
       "name": "Make History",
       "phase": "Status",
       "points": 1,
-      "description": "Have units in 2 systems that contain legendary planets, Mecatol Rex, or anomalies.",
-      "id": "make_history"
+      "description": "Have units in 2 systems that contain legendary planets, Mecatol Rex, or anomalies."
     },
     "manipulate_law": {
+      "id": "manipulate_law",
       "name": "Manipulate Galactic Law",
       "phase": "Status",
       "points": 2,
-      "description": "Spend 16 influence.",
-      "id": "manipulate_law"
+      "description": "Spend 16 influence."
     },
     "massive_cities": {
+      "id": "massive_cities",
       "name": "Construct Massive Cities",
       "phase": "Status",
       "points": 2,
-      "description": "Have 7 or more structures.",
-      "id": "massive_cities"
+      "description": "Have 7 or more structures."
     },
     "master_science": {
+      "id": "master_science",
       "name": "Master the Sciences",
       "phase": "Status",
       "points": 2,
-      "description": "Own 2 technologies in each of 4 colors.",
-      "id": "master_science"
+      "description": "Own 2 technologies in each of 4 colors."
     },
     "monument": {
+      "id": "monument",
       "name": "Erect a Monument",
       "phase": "Status",
       "points": 1,
-      "description": "Spend 8 resources.",
-      "id": "monument"
+      "description": "Spend 8 resources."
     },
     "outer_rim": {
+      "id": "outer_rim",
       "name": "Populate the Outer Rim",
       "phase": "Status",
       "points": 1,
-      "description": "Have units in 3 systems on the edge of the game board other than your home system.",
-      "id": "outer_rim"
+      "description": "Have units in 3 systems on the edge of the game board other than your home system."
     },
     "protect_border": {
+      "id": "protect_border",
       "name": "Protect the Border",
       "phase": "Status",
       "points": 2,
-      "description": "Have structures on 5 planets outside of your home system.",
-      "id": "protect_border"
+      "description": "Have structures on 5 planets outside of your home system."
     },
     "push_boundaries": {
+      "id": "push_boundaries",
       "name": "Push Boundaries",
       "phase": "Status",
       "points": 1,
-      "description": "Control more planets than each of 2 of your neighbors.",
-      "id": "push_boundaries"
+      "description": "Control more planets than each of 2 of your neighbors."
     },
     "raise_fleet": {
+      "id": "raise_fleet",
       "name": "Raise a Fleet",
       "phase": "Status",
       "points": 1,
-      "description": "Have 5 or more non-fighter ships in 1 system.",
-      "id": "raise_fleet"
+      "description": "Have 5 or more non-fighter ships in 1 system."
     },
     "research_outposts": {
+      "id": "research_outposts",
       "name": "Found Research Outposts",
       "phase": "Status",
       "points": 1,
-      "description": "Control 3 planets that have technology specialties.",
-      "id": "research_outposts"
+      "description": "Control 3 planets that have technology specialties."
     },
     "revolutionize": {
+      "id": "revolutionize",
       "name": "Revolutionize Warfare",
       "phase": "Status",
       "points": 2,
-      "description": "Own 3 unit upgrade technologies.",
-      "id": "revolutionize"
+      "description": "Own 3 unit upgrade technologies."
     },
     "subdue": {
+      "id": "subdue",
       "name": "Subdue the Galaxy",
       "phase": "Status",
       "points": 2,
-      "description": "Control 11 planets in non-home systems.",
-      "id": "subdue"
+      "description": "Control 11 planets in non-home systems."
     },
     "supremacy": {
+      "id": "supremacy",
       "name": "Achieve Supremacy",
       "phase": "Status",
       "points": 2,
-      "description": "Have your flagship or war sun in another player's home system or the Mecatol Rex system.",
-      "id": "supremacy"
+      "description": "Have your flagship or war sun in another player's home system or the Mecatol Rex system."
     },
     "sway_council": {
+      "id": "sway_council",
       "name": "Sway the Council",
       "phase": "Status",
       "points": 1,
-      "description": "Spend 8 influence.",
-      "id": "sway_council"
+      "description": "Spend 8 influence."
     },
     "trade_routes": {
+      "id": "trade_routes",
       "name": "Negotiate Trade Routes",
       "phase": "Status",
       "points": 1,
-      "description": "Spend 5 trade goods.",
-      "id": "trade_routes"
+      "description": "Spend 5 trade goods."
     },
     "unify_colonies": {
+      "id": "unify_colonies",
       "name": "Unify the Colonies",
       "phase": "Status",
       "points": 2,
-      "description": "Control 6 planets that each have the same planet trait.",
-      "id": "unify_colonies"
+      "description": "Control 6 planets that each have the same planet trait."
     },
     "vast_reserves": {
+      "id": "vast_reserves",
       "name": "Hold Vast Reserves",
       "phase": "Status",
       "points": 2,
-      "description": "Spend 6 influence, 6 resources, and 6 trade goods.",
-      "id": "vast_reserves"
+      "description": "Spend 6 influence, 6 resources, and 6 trade goods."
     },
     "vast_territories": {
+      "id": "vast_territories",
       "name": "Patrol Vast Territories",
       "phase": "Status",
       "points": 2,
-      "description": "Have units in 5 systems that do not contain planets.",
-      "id": "vast_territories"
+      "description": "Have units in 5 systems that do not contain planets."
     }
   },
   "actionCards": {
     "abs": {
+      "id": "abs",
       "name": "Ancient Burial Sites",
       "phase": "Agenda",
-      "description": "Choose 1 player. Exhaust each cultural planet owned by that player.",
-      "id": "abs"
+      "description": "Choose 1 player. Exhaust each cultural planet owned by that player."
     },
     "arch_expedition": {
+      "id": "arch_expedition",
       "name": "Archaeological Expedition",
       "phase": "Action",
-      "description": "Reveal the top 3 cards of an exploration deck that matches a planet you control; gain any relic fragments that you reveal and discard the rest.",
-      "id": "arch_expedition"
+      "description": "Reveal the top 3 cards of an exploration deck that matches a planet you control; gain any relic fragments that you reveal and discard the rest."
     },
     "assassin": {
+      "id": "assassin",
       "name": "Assassinate Representative",
       "phase": "Agenda",
-      "description": "Choose 1 player. That player cannot vote on this agenda.",
-      "id": "assassin"
+      "description": "Choose 1 player. That player cannot vote on this agenda."
     },
     "blackmarketdealing": {
+      "id": "blackmarketdealing",
       "name": "Black Market Dealings",
       "phase": "Any",
-      "description": "You and the other player may include relics, action cards, and unscored secret objectives as part of the transaction. This card cannot be canceled.",
-      "id": "blackmarketdealing"
+      "description": "You and the other player may include relics, action cards, and unscored secret objectives as part of the transaction. This card cannot be canceled."
     },
     "blitz": {
+      "id": "blitz",
       "name": "Blitz",
       "phase": "Action",
-      "description": "Each of your non-fighter ships in the active system that do not have BOMBARDMENT gain BOMBARDMENT 6 until the end of the invasion.",
-      "id": "blitz"
+      "description": "Each of your non-fighter ships in the active system that do not have BOMBARDMENT gain BOMBARDMENT 6 until the end of the invasion."
     },
     "bribery": {
+      "id": "bribery",
       "name": "Bribery",
       "phase": "Agenda",
-      "description": "Spend any number of trade goods. For each trade good spent, cast 1 additional vote for the outcome on which you voted.",
-      "id": "bribery"
+      "description": "Spend any number of trade goods. For each trade good spent, cast 1 additional vote for the outcome on which you voted."
     },
     "brilliance": {
+      "id": "brilliance",
       "name": "Brilliance",
       "phase": "Action",
-      "description": "Ready 1 of your planets that has a technology specialty or choose 1 player to gain their breakthrough.",
-      "id": "brilliance"
+      "description": "Ready 1 of your planets that has a technology specialty or choose 1 player to gain their breakthrough."
     },
     "bunker": {
+      "id": "bunker",
       "name": "Bunker",
       "phase": "Action",
-      "description": "During this invasion, apply -4 to the result of each BOMBARDMENT roll against planets you control.",
-      "id": "bunker"
+      "description": "During this invasion, apply -4 to the result of each BOMBARDMENT roll against planets you control."
     },
     "confounding": {
+      "id": "confounding",
       "name": "Confounding Legal Text",
       "phase": "Agenda",
-      "description": "You are the elected player instead.",
-      "id": "confounding"
+      "description": "You are the elected player instead."
     },
     "confusing": {
+      "id": "confusing",
       "name": "Confusing Legal Text",
       "phase": "Agenda",
-      "description": "Choose 1 player. That player is the elected player instead.",
-      "id": "confusing"
+      "description": "Choose 1 player. That player is the elected player instead."
     },
     "const_rider": {
+      "id": "const_rider",
       "name": "Construction Rider",
       "phase": "Agenda",
-      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, place 1 space dock from your reinforcements on a planet you control.",
-      "id": "const_rider"
+      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, place 1 space dock from your reinforcements on a planet you control."
     },
     "counterstroke": {
+      "id": "counterstroke",
       "name": "Counterstroke",
       "phase": "Action",
-      "description": "Return that command token to your tactic pool.",
-      "id": "counterstroke"
+      "description": "Return that command token to your tactic pool."
     },
     "coup": {
+      "id": "coup",
       "name": "Coup d'Etat",
       "phase": "Action",
-      "description": "End that player's turn, the strategic action is not resolved and the strategy card is not exhausted.",
-      "id": "coup"
+      "description": "End that player's turn, the strategic action is not resolved and the strategy card is not exhausted."
     },
     "courageous": {
+      "id": "courageous",
       "name": "Courageous to the End",
       "phase": "Action",
-      "description": "Roll 2 dice. For each result equal to or greater than that ship's combat value, your opponent must choose and destroy 1 of their ships.",
-      "id": "courageous"
+      "description": "Roll 2 dice. For each result equal to or greater than that ship's combat value, your opponent must choose and destroy 1 of their ships."
     },
     "crashlanding": {
+      "id": "crashlanding",
       "name": "Crash Landing",
       "phase": "Action",
-      "description": "Place 1 of your ground forces from the space area of the active system onto a planet in that system other than Mecatol Rex; if the planet contains other players' units, place your ground force into coexistence.",
-      "id": "crashlanding"
+      "description": "Place 1 of your ground forces from the space area of the active system onto a planet in that system other than Mecatol Rex; if the planet contains other players' units, place your ground force into coexistence."
     },
     "cripple": {
+      "id": "cripple",
       "name": "Cripple Defenses",
       "phase": "Action",
-      "description": "Choose 1 planet. Destroy each PDS on that planet.",
-      "id": "cripple"
+      "description": "Choose 1 planet. Destroy each PDS on that planet."
     },
     "crisis": {
+      "id": "crisis",
       "name": "Crisis",
       "phase": "Action",
-      "description": "Skip the next player's turn.",
-      "id": "crisis"
+      "description": "Skip the next player's turn."
     },
     "deadly_plot": {
+      "id": "deadly_plot",
       "name": "Deadly Plot",
       "phase": "Agenda",
-      "description": "If you voted for or predicted another outcome, discard the agenda instead. The agenda is resolved with no effect and it is not replaced. Then, exhaust all of your planets.",
-      "id": "deadly_plot"
+      "description": "If you voted for or predicted another outcome, discard the agenda instead. The agenda is resolved with no effect and it is not replaced. Then, exhaust all of your planets."
     },
     "decoy": {
+      "id": "decoy",
       "name": "Decoy Operation",
       "phase": "Action",
-      "description": "Remove up to 2 of your ground forces from the game board and place them on a planet you control in the active system.",
-      "id": "decoy"
+      "description": "Remove up to 2 of your ground forces from the game board and place them on a planet you control in the active system."
     },
     "dh1": {
+      "id": "dh1",
       "name": "Direct Hit",
       "phase": "Action",
-      "description": "Destroy that ship.",
-      "id": "dh1"
+      "description": "Destroy that ship."
     },
     "dh2": {
+      "id": "dh2",
       "name": "Direct Hit",
       "phase": "Action",
-      "description": "Destroy that ship.",
-      "id": "dh2"
+      "description": "Destroy that ship."
     },
     "dh3": {
+      "id": "dh3",
       "name": "Direct Hit",
       "phase": "Action",
-      "description": "Destroy that ship.",
-      "id": "dh3"
+      "description": "Destroy that ship."
     },
     "dh4": {
+      "id": "dh4",
       "name": "Direct Hit",
       "phase": "Action",
-      "description": "Destroy that ship.",
-      "id": "dh4"
+      "description": "Destroy that ship."
     },
     "diplo_pressure": {
+      "id": "diplo_pressure",
       "name": "Diplomatic Pressure",
       "phase": "Agenda",
-      "description": "Choose another player. That player must give you 1 promissory note from their hand.",
-      "id": "diplo_pressure"
+      "description": "Choose another player. That player must give you 1 promissory note from their hand."
     },
     "diplo_rider": {
+      "id": "diplo_rider",
       "name": "Diplomacy Rider",
       "phase": "Agenda",
-      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, choose 1 system that contains a planet you control. Each other player places a command token from their reinforcements in that system.",
-      "id": "diplo_rider"
+      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, choose 1 system that contains a planet you control. Each other player places a command token from their reinforcements in that system."
     },
     "direct_hit": {
+      "id": "direct_hit",
       "name": "Direct Hit",
       "phase": "Action",
-      "description": "Destroy that ship.",
-      "id": "direct_hit"
+      "description": "Destroy that ship."
     },
     "disable": {
+      "id": "disable",
       "name": "Disable",
       "phase": "Action",
-      "description": "Your opponents' PDS units lose PLANETARY SHIELD and SPACE CANNON during this invasion.",
-      "id": "disable"
+      "description": "Your opponents' PDS units lose PLANETARY SHIELD and SPACE CANNON during this invasion."
     },
     "disgrace": {
+      "id": "disgrace",
       "name": "Public Disgrace",
       "phase": "Strategy",
-      "description": "That player must choose a different strategy card instead, if able.",
-      "id": "disgrace"
+      "description": "That player must choose a different strategy card instead, if able."
     },
     "distinguished": {
+      "id": "distinguished",
       "name": "Distinguished Councilor",
       "phase": "Agenda",
-      "description": "Cast 5 additional votes for that outcome.",
-      "id": "distinguished"
+      "description": "Cast 5 additional votes for that outcome."
     },
     "divert_funding": {
+      "id": "divert_funding",
       "name": "Divert Funding",
       "phase": "Action",
-      "description": "Return a non-unit upgrade, non-faction technology that you own to your technology deck. Then, research another technology.",
-      "id": "divert_funding"
+      "description": "Return a non-unit upgrade, non-faction technology that you own to your technology deck. Then, research another technology."
     },
     "dp1": {
+      "id": "dp1",
       "name": "Diplomatic Pressure",
       "phase": "Agenda",
-      "description": "Choose another player. That player must give you 1 promissory note from their hand.",
-      "id": "dp1"
+      "description": "Choose another player. That player must give you 1 promissory note from their hand."
     },
     "dp2": {
+      "id": "dp2",
       "name": "Diplomatic Pressure",
       "phase": "Agenda",
-      "description": "Choose another player. That player must give you 1 promissory note from their hand.",
-      "id": "dp2"
+      "description": "Choose another player. That player must give you 1 promissory note from their hand."
     },
     "dp3": {
+      "id": "dp3",
       "name": "Diplomatic Pressure",
       "phase": "Agenda",
-      "description": "Choose another player. That player must give you 1 promissory note from their hand.",
-      "id": "dp3"
+      "description": "Choose another player. That player must give you 1 promissory note from their hand."
     },
     "dp4": {
+      "id": "dp4",
       "name": "Diplomatic Pressure",
       "phase": "Agenda",
-      "description": "Choose another player. That player must give you 1 promissory note from their hand.",
-      "id": "dp4"
+      "description": "Choose another player. That player must give you 1 promissory note from their hand."
     },
     "economic_initiative": {
+      "id": "economic_initiative",
       "name": "Economic Initiative",
       "phase": "Action",
-      "description": "Ready each cultural planet you control.",
-      "id": "economic_initiative"
+      "description": "Ready each cultural planet you control."
     },
     "emergency": {
+      "id": "emergency",
       "name": "Emergency Repairs",
       "phase": "Action",
-      "description": "Repair all of your units that have SUSTAIN DAMAGE in the active system.",
-      "id": "emergency"
+      "description": "Repair all of your units that have SUSTAIN DAMAGE in the active system."
     },
     "emergency_repairs": {
+      "id": "emergency_repairs",
       "name": "Emergency Repairs",
       "phase": "Action",
-      "description": "Repair all of your units that have SUSTAIN DAMAGE in the active system.",
-      "id": "emergency_repairs"
+      "description": "Repair all of your units that have SUSTAIN DAMAGE in the active system."
     },
     "exchangeprogram": {
+      "id": "exchangeprogram",
       "name": "Exchange Program",
       "phase": "Action",
-      "description": "Choose another player. You and that player may agree to place 1 infantry from each of your reinforcements into coexistence on a planet the other player controls that contains their ground forces; if no agreement is reached, you each discard 1 token from your fleet pool.",
-      "id": "exchangeprogram"
+      "description": "Choose another player. You and that player may agree to place 1 infantry from each of your reinforcements into coexistence on a planet the other player controls that contains their ground forces; if no agreement is reached, you each discard 1 token from your fleet pool."
     },
     "experimental": {
+      "id": "experimental",
       "name": "Experimental Battlestation",
       "phase": "Action",
-      "description": "Choose 1 of your space docks that is either in or adjacent to that system. That space dock uses SPACE CANNON 5(x3) against the active player's ships in the active system.",
-      "id": "experimental"
+      "description": "Choose 1 of your space docks that is either in or adjacent to that system. That space dock uses SPACE CANNON 5(x3) against the active player's ships in the active system."
     },
     "extremeduress": {
+      "id": "extremeduress",
       "name": "Extreme Duress",
       "phase": "Action",
-      "description": "If that player's next action is not a strategic action, they discard all of their action cards, give you all of their trade goods, and show you all of their secret objectives.",
-      "id": "extremeduress"
+      "description": "If that player's next action is not a strategic action, they discard all of their action cards, give you all of their trade goods, and show you all of their secret objectives."
     },
     "f_conscription": {
+      "id": "f_conscription",
       "name": "Fighter Conscription",
       "phase": "Action",
-      "description": "Place 1 fighter from your reinforcements in each system that contains 1 or more of your space docks or units that have capacity. They cannot be placed in systems that contain other players' ships.",
-      "id": "f_conscription"
+      "description": "Place 1 fighter from your reinforcements in each system that contains 1 or more of your space docks or units that have capacity. They cannot be placed in systems that contain other players' ships."
     },
     "f_deployment": {
+      "id": "f_deployment",
       "name": "Frontline Deployment",
       "phase": "Action",
-      "description": "Place 3 infantry from your reinforcements on 1 planet you control.",
-      "id": "f_deployment"
+      "description": "Place 3 infantry from your reinforcements on 1 planet you control."
     },
     "f_prototype": {
+      "id": "f_prototype",
       "name": "Fighter Prototype",
       "phase": "Action",
-      "description": "Apply +2 to the result of each of your fighters' combat rolls during this combat round.",
-      "id": "f_prototype"
+      "description": "Apply +2 to the result of each of your fighters' combat rolls during this combat round."
     },
     "f_researched": {
+      "id": "f_researched",
       "name": "Focused Research",
       "phase": "Action",
-      "description": "Spend 4 trade goods to research 1 technology",
-      "id": "f_researched"
+      "description": "Spend 4 trade goods to research 1 technology"
     },
     "fire_team": {
+      "id": "fire_team",
       "name": "Fire Team",
       "phase": "Action",
-      "description": "Reroll any number of your dice.",
-      "id": "fire_team"
+      "description": "Reroll any number of your dice."
     },
     "flank_speed": {
+      "id": "flank_speed",
       "name": "Flank Speed",
       "phase": "Action",
-      "description": "Apply +1 to the move value of each of your ships during this tactical action.",
-      "id": "flank_speed"
+      "description": "Apply +1 to the move value of each of your ships during this tactical action."
     },
     "fs1": {
+      "id": "fs1",
       "name": "Flank Speed",
       "phase": "Action",
-      "description": "Apply +1 to the move value of each of your ships during this tactical action.",
-      "id": "fs1"
+      "description": "Apply +1 to the move value of each of your ships during this tactical action."
     },
     "fs2": {
+      "id": "fs2",
       "name": "Flank Speed",
       "phase": "Action",
-      "description": "Apply +1 to the move value of each of your ships during this tactical action.",
-      "id": "fs2"
+      "description": "Apply +1 to the move value of each of your ships during this tactical action."
     },
     "fs3": {
+      "id": "fs3",
       "name": "Flank Speed",
       "phase": "Action",
-      "description": "Apply +1 to the move value of each of your ships during this tactical action.",
-      "id": "fs3"
+      "description": "Apply +1 to the move value of each of your ships during this tactical action."
     },
     "fs4": {
+      "id": "fs4",
       "name": "Flank Speed",
       "phase": "Action",
-      "description": "Apply +1 to the move value of each of your ships during this tactical action.",
-      "id": "fs4"
+      "description": "Apply +1 to the move value of each of your ships during this tactical action."
     },
     "fsb": {
+      "id": "fsb",
       "name": "Forward Supply Base",
       "phase": "Action",
-      "description": "Gain 3 trade goods. Then, choose another player to gain 1 trade good.",
-      "id": "fsb"
+      "description": "Gain 3 trade goods. Then, choose another player to gain 1 trade good."
     },
     "ghost_ship": {
+      "id": "ghost_ship",
       "name": "Ghost Ship",
       "phase": "Action",
-      "description": "Place 1 destroyer from your reinforcements in a non-home system that contains a wormhole and does not contain other players' ships.",
-      "id": "ghost_ship"
+      "description": "Place 1 destroyer from your reinforcements in a non-home system that contains a wormhole and does not contain other players' ships."
     },
     "ghost_squad": {
+      "id": "ghost_squad",
       "name": "Ghost Squad",
       "phase": "Action",
-      "description": "Move any number of your ground forces from any planet you control in the active system to any other planet you control in the active system.",
-      "id": "ghost_squad"
+      "description": "Move any number of your ground forces from any planet you control in the active system to any other planet you control in the active system."
     },
     "hack": {
+      "id": "hack",
       "name": "Hack Election",
       "phase": "Agenda",
-      "description": "During this agenda, you vote last.",
-      "id": "hack"
+      "description": "During this agenda, you vote last."
     },
     "harness": {
+      "id": "harness",
       "name": "Harness Energy",
       "phase": "Action",
-      "description": "Replenish your commodities.",
-      "id": "harness"
+      "description": "Replenish your commodities."
     },
     "imp_rider": {
+      "id": "imp_rider",
       "name": "Imperial Rider",
       "phase": "Agenda",
-      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, gain 1 victory point.",
-      "id": "imp_rider"
+      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, gain 1 victory point."
     },
     "impersonation": {
+      "id": "impersonation",
       "name": "Impersonation",
       "phase": "Action",
-      "description": "Spend 3 influence to draw 1 secret objective.",
-      "id": "impersonation"
+      "description": "Spend 3 influence to draw 1 secret objective."
     },
     "industrial_initiative": {
+      "id": "industrial_initiative",
       "name": "Industrial Initiative",
       "phase": "Action",
-      "description": "Gain 1 trade good for each industrial planet you control.",
-      "id": "industrial_initiative"
+      "description": "Gain 1 trade good for each industrial planet you control."
     },
     "infiltrate": {
+      "id": "infiltrate",
       "name": "Infiltrate",
       "phase": "Action",
-      "description": "Replace each PDS and space dock that is on that planet with a matching unit from your reinforcements.",
-      "id": "infiltrate"
+      "description": "Replace each PDS and space dock that is on that planet with a matching unit from your reinforcements."
     },
     "insider": {
+      "id": "insider",
       "name": "Insider Information",
       "phase": "Agenda",
-      "description": "Look at the top 3 cards of the agenda deck.",
-      "id": "insider"
+      "description": "Look at the top 3 cards of the agenda deck."
     },
     "insub": {
+      "id": "insub",
       "name": "Insubordination",
       "phase": "Action",
-      "description": "Remove 1 token from another player's tactic pool and return it to their reinforcements.",
-      "id": "insub"
+      "description": "Remove 1 token from another player's tactic pool and return it to their reinforcements."
     },
     "intercept": {
+      "id": "intercept",
       "name": "Intercept",
       "phase": "Action",
-      "description": "Your opponent cannot retreat during this round of space combat.",
-      "id": "intercept"
+      "description": "Your opponent cannot retreat during this round of space combat."
     },
     "investments": {
+      "id": "investments",
       "name": "Manipulate Investments",
       "phase": "Strategy",
-      "description": "Place a total of 5 trade goods from the supply on strategy cards of your choice. You must place these tokens on at least 3 different cards.",
-      "id": "investments"
+      "description": "Place a total of 5 trade goods from the supply on strategy cards of your choice. You must place these tokens on at least 3 different cards."
     },
     "jamming": {
+      "id": "jamming",
       "name": "Signal Jamming",
       "phase": "Action",
-      "description": "Choose 1 non-home system that contains or is adjacent to 1 of your ships. Place a command token from another player's reinforcements in that system.",
-      "id": "jamming"
+      "description": "Choose 1 non-home system that contains or is adjacent to 1 of your ships. Place a command token from another player's reinforcements in that system."
     },
     "lead_rider": {
+      "id": "lead_rider",
       "name": "Leadership Rider",
       "phase": "Agenda",
-      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, gain 3 command tokens.",
-      "id": "lead_rider"
+      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, gain 3 command tokens."
     },
     "lieinwait": {
+      "id": "lieinwait",
       "name": "Lie in Wait",
       "phase": "Any",
-      "description": "Look at each of those players' hands of action cards, then choose and take 1 action card from each.",
-      "id": "lieinwait"
+      "description": "Look at each of those players' hands of action cards, then choose and take 1 action card from each."
     },
     "lost_star": {
+      "id": "lost_star",
       "name": "Lost Star Chart",
       "phase": "Action",
-      "description": "During this tactical action, systems that contain alpha and beta wormholes are adjacent to each other.",
-      "id": "lost_star"
+      "description": "During this tactical action, systems that contain alpha and beta wormholes are adjacent to each other."
     },
     "lucky": {
+      "id": "lucky",
       "name": "Lucky Shot",
       "phase": "Action",
-      "description": "Destroy 1 dreadnought, cruiser, or destroyer in a system that contains a planet you control.",
-      "id": "lucky"
+      "description": "Destroy 1 dreadnought, cruiser, or destroyer in a system that contains a planet you control."
     },
     "master_plan": {
+      "id": "master_plan",
       "name": "Master Plan",
       "phase": "Action",
-      "description": "Perform an additional action.",
-      "id": "master_plan"
+      "description": "Perform an additional action."
     },
     "mb1": {
+      "id": "mb1",
       "name": "Morale Boost",
       "phase": "Action",
-      "description": "Apply +1 to the result of each of your unit's combat rolls during this combat round.",
-      "id": "mb1"
+      "description": "Apply +1 to the result of each of your unit's combat rolls during this combat round."
     },
     "mb2": {
+      "id": "mb2",
       "name": "Morale Boost",
       "phase": "Action",
-      "description": "Apply +1 to the result of each of your unit's combat rolls during this combat round.",
-      "id": "mb2"
+      "description": "Apply +1 to the result of each of your unit's combat rolls during this combat round."
     },
     "mb3": {
+      "id": "mb3",
       "name": "Morale Boost",
       "phase": "Action",
-      "description": "Apply +1 to the result of each of your unit's combat rolls during this combat round.",
-      "id": "mb3"
+      "description": "Apply +1 to the result of each of your unit's combat rolls during this combat round."
     },
     "mb4": {
+      "id": "mb4",
       "name": "Morale Boost",
       "phase": "Action",
-      "description": "Apply +1 to the result of each of your unit's combat rolls during this combat round.",
-      "id": "mb4"
+      "description": "Apply +1 to the result of each of your unit's combat rolls during this combat round."
     },
     "meltdown": {
+      "id": "meltdown",
       "name": "Reactor Meltdown",
       "phase": "Action",
-      "description": "Destroy 1 space dock in a non-home system.",
-      "id": "meltdown"
+      "description": "Destroy 1 space dock in a non-home system."
     },
     "mercenarycontract": {
+      "id": "mercenarycontract",
       "name": "Mercenary Contract",
       "phase": "Action",
-      "description": "Spend 2 trade goods to place 2 neutral infantry on any non-home planet that contains no units; if that planet was owned by another player, they return its planet card to the planet card deck.",
-      "id": "mercenarycontract"
+      "description": "Spend 2 trade goods to place 2 neutral infantry on any non-home planet that contains no units; if that planet was owned by another player, they return its planet card to the planet card deck."
     },
     "messiah": {
+      "id": "messiah",
       "name": "Rise of a Messiah",
       "phase": "Action",
-      "description": "Place 1 infantry from your reinforcements on each planet you control.",
-      "id": "messiah"
+      "description": "Place 1 infantry from your reinforcements on each planet you control."
     },
     "mining_initiative": {
+      "id": "mining_initiative",
       "name": "Mining Initiative",
       "phase": "Action",
-      "description": "Gain trade goods equal to the resource value of 1 planet you control.",
-      "id": "mining_initiative"
+      "description": "Gain trade goods equal to the resource value of 1 planet you control."
     },
     "mjets1": {
+      "id": "mjets1",
       "name": "Maneuvering Jets",
       "phase": "Action",
-      "description": "Cancel 1 hit.",
-      "id": "mjets1"
+      "description": "Cancel 1 hit."
     },
     "mjets2": {
+      "id": "mjets2",
       "name": "Maneuvering Jets",
       "phase": "Action",
-      "description": "Cancel 1 hit.",
-      "id": "mjets2"
+      "description": "Cancel 1 hit."
     },
     "mjets3": {
+      "id": "mjets3",
       "name": "Maneuvering Jets",
       "phase": "Action",
-      "description": "Cancel 1 hit.",
-      "id": "mjets3"
+      "description": "Cancel 1 hit."
     },
     "mjets4": {
+      "id": "mjets4",
       "name": "Maneuvering Jets",
       "phase": "Action",
-      "description": "Cancel 1 hit.",
-      "id": "mjets4"
+      "description": "Cancel 1 hit."
     },
     "nav_suite": {
+      "id": "nav_suite",
       "name": "Nav Suite",
       "phase": "Action",
-      "description": "During the 'Movement' step of this tactical action, ignore the effect of anomalies.",
-      "id": "nav_suite"
+      "description": "During the 'Movement' step of this tactical action, ignore the effect of anomalies."
     },
     "overrule": {
+      "id": "overrule",
       "name": "Overrule",
       "phase": "Action",
-      "description": "Perform the primary ability of a readied or unchosen strategy card.",
-      "id": "overrule"
+      "description": "Perform the primary ability of a readied or unchosen strategy card."
     },
     "parley": {
+      "id": "parley",
       "name": "Parley",
       "phase": "Action",
-      "description": "Return the committed units to the space area.",
-      "id": "parley"
+      "description": "Return the committed units to the space area."
     },
     "piratecontract1": {
+      "id": "piratecontract1",
       "name": "Pirate Contract",
       "phase": "Action",
-      "description": "Place 1 neutral destroyer in a non-home system that contains no non-neutral ships.",
-      "id": "piratecontract1"
+      "description": "Place 1 neutral destroyer in a non-home system that contains no non-neutral ships."
     },
     "piratecontract2": {
+      "id": "piratecontract2",
       "name": "Pirate Contract",
       "phase": "Action",
-      "description": "Place 1 neutral destroyer in a non-home system that contains no non-neutral ships.",
-      "id": "piratecontract2"
+      "description": "Place 1 neutral destroyer in a non-home system that contains no non-neutral ships."
     },
     "piratecontract3": {
+      "id": "piratecontract3",
       "name": "Pirate Contract",
       "phase": "Action",
-      "description": "Place 1 neutral destroyer in a non-home system that contains no non-neutral ships.",
-      "id": "piratecontract3"
+      "description": "Place 1 neutral destroyer in a non-home system that contains no non-neutral ships."
     },
     "piratecontract4": {
+      "id": "piratecontract4",
       "name": "Pirate Contract",
       "phase": "Action",
-      "description": "Place 1 neutral destroyer in a non-home system that contains no non-neutral ships.",
-      "id": "piratecontract4"
+      "description": "Place 1 neutral destroyer in a non-home system that contains no non-neutral ships."
     },
     "piratefleet": {
+      "id": "piratefleet",
       "name": "Pirate Fleet",
       "phase": "Action",
-      "description": "Spend 3 resources to place 1 neutral carrier, 1 neutral cruiser, 1 neutral destroyer, and 2 neutral fighters in a non-home system that contains no non-neutral ships.",
-      "id": "piratefleet"
+      "description": "Spend 3 resources to place 1 neutral carrier, 1 neutral cruiser, 1 neutral destroyer, and 2 neutral fighters in a non-home system that contains no non-neutral ships."
     },
     "plagiarize": {
+      "id": "plagiarize",
       "name": "Plagiarize",
       "phase": "Action",
-      "description": "Spend 5 influence and choose a non-faction technology owned by 1 of your neighbors. Gain that technology.",
-      "id": "plagiarize"
+      "description": "Spend 5 influence and choose a non-faction technology owned by 1 of your neighbors. Gain that technology."
     },
     "plague": {
+      "id": "plague",
       "name": "Plague",
       "phase": "Action",
-      "description": "Choose 1 planet that is controlled by another player. Roll 1 die for each infantry on that planet. For each result of 6 or greater, destroy 1 of those units.",
-      "id": "plague"
+      "description": "Choose 1 planet that is controlled by another player. Roll 1 die for each infantry on that planet. For each result of 6 or greater, destroy 1 of those units."
     },
     "politic_rider": {
+      "id": "politic_rider",
       "name": "Politics Rider",
       "phase": "Agenda",
-      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, draw 3 action cards and gain the speaker token.",
-      "id": "politic_rider"
+      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, draw 3 action cards and gain the speaker token."
     },
     "probe": {
+      "id": "probe",
       "name": "Exploration Probe",
       "phase": "Action",
-      "description": "Explore a frontier token that is in or adjacent to a system that contains 1 or more of your ships.",
-      "id": "probe"
+      "description": "Explore a frontier token that is in or adjacent to a system that contains 1 or more of your ships."
     },
     "puppetsonastring": {
+      "id": "puppetsonastring",
       "name": "Puppets on a String",
       "phase": "Action",
-      "description": "Perform 1 action.",
-      "id": "puppetsonastring"
+      "description": "Perform 1 action."
     },
     "rally": {
+      "id": "rally",
       "name": "Rally",
       "phase": "Action",
-      "description": "Place 2 command tokens from your reinforcements in your fleet pool.",
-      "id": "rally"
+      "description": "Place 2 command tokens from your reinforcements in your fleet pool."
     },
     "refit": {
+      "id": "refit",
       "name": "Refit Troops",
       "phase": "Action",
-      "description": "Choose 1 or 2 of your infantry on the game board. Replace each of those infantry with mechs.",
-      "id": "refit"
+      "description": "Choose 1 or 2 of your infantry on the game board. Replace each of those infantry with mechs."
     },
     "reflective": {
+      "id": "reflective",
       "name": "Reflective Shielding",
       "phase": "Action",
-      "description": "Produce 2 hits against your opponent's ships in the active system.",
-      "id": "reflective"
+      "description": "Produce 2 hits against your opponent's ships in the active system."
     },
     "reparations": {
+      "id": "reparations",
       "name": "Reparations",
       "phase": "Action",
-      "description": "Exhaust 1 planet that player controls and ready 1 planet you control.",
-      "id": "reparations"
+      "description": "Exhaust 1 planet that player controls and ready 1 planet you control."
     },
     "repeal": {
+      "id": "repeal",
       "name": "Repeal Law",
       "phase": "Action",
-      "description": "Discard 1 law from play.",
-      "id": "repeal"
+      "description": "Discard 1 law from play."
     },
     "rescue": {
+      "id": "rescue",
       "name": "Rescue",
       "phase": "Action",
-      "description": "You may move 1 of your ships into the active system from any system that does not contain one of your command tokens.",
-      "id": "rescue"
+      "description": "You may move 1 of your ships into the active system from any system that does not contain one of your command tokens."
     },
     "reveal_prototype": {
+      "id": "reveal_prototype",
       "name": "Reveal Prototype",
       "phase": "Action",
-      "description": "Spend 4 resources to research a unit upgrade technology of the same type as 1 of your units that is participating in this combat.",
-      "id": "reveal_prototype"
+      "description": "Spend 4 resources to research a unit upgrade technology of the same type as 1 of your units that is participating in this combat."
     },
     "reverse_engineer": {
+      "id": "reverse_engineer",
       "name": "Reverse Engineer",
       "phase": "Any",
-      "description": "Take that action card from the discard pile.",
-      "id": "reverse_engineer"
+      "description": "Take that action card from the discard pile."
     },
     "rout": {
+      "id": "rout",
       "name": "Rout",
       "phase": "Action",
-      "description": "Your opponent must announce a retreat, if able.",
-      "id": "rout"
+      "description": "Your opponent must announce a retreat, if able."
     },
     "s_retreat1": {
+      "id": "s_retreat1",
       "name": "Skilled Retreat",
       "phase": "Action",
-      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
-      "id": "s_retreat1"
+      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system."
     },
     "s_retreat2": {
+      "id": "s_retreat2",
       "name": "Skilled Retreat",
       "phase": "Action",
-      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
-      "id": "s_retreat2"
+      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system."
     },
     "s_retreat3": {
+      "id": "s_retreat3",
       "name": "Skilled Retreat",
       "phase": "Action",
-      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
-      "id": "s_retreat3"
+      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system."
     },
     "s_retreat4": {
+      "id": "s_retreat4",
       "name": "Skilled Retreat",
       "phase": "Action",
-      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
-      "id": "s_retreat4"
+      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system."
     },
     "sabo1": {
+      "id": "sabo1",
       "name": "Sabotage",
       "phase": "Any",
-      "description": "Cancel that action card.",
-      "id": "sabo1"
+      "description": "Cancel that action card."
     },
     "sabo2": {
+      "id": "sabo2",
       "name": "Sabotage",
       "phase": "Any",
-      "description": "Cancel that action card.",
-      "id": "sabo2"
+      "description": "Cancel that action card."
     },
     "sabo3": {
+      "id": "sabo3",
       "name": "Sabotage",
       "phase": "Any",
-      "description": "Cancel that action card.",
-      "id": "sabo3"
+      "description": "Cancel that action card."
     },
     "sabo4": {
+      "id": "sabo4",
       "name": "Sabotage",
       "phase": "Any",
-      "description": "Cancel that action card.",
-      "id": "sabo4"
+      "description": "Cancel that action card."
     },
     "salvage": {
+      "id": "salvage",
       "name": "Salvage",
       "phase": "Action",
-      "description": "Your opponent gives you all of their commodities.",
-      "id": "salvage"
+      "description": "Your opponent gives you all of their commodities."
     },
     "sanction": {
+      "id": "sanction",
       "name": "Sanction",
       "phase": "Agenda",
-      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, each player that voted for that outcome returns 1 command token from their fleet supply to their reinforcements.",
-      "id": "sanction"
+      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, each player that voted for that outcome returns 1 command token from their fleet supply to their reinforcements."
     },
     "scramble": {
+      "id": "scramble",
       "name": "Scramble Frequency",
       "phase": "Action",
-      "description": "That player rerolls all of their dice.",
-      "id": "scramble"
+      "description": "That player rerolls all of their dice."
     },
     "scuttle": {
+      "id": "scuttle",
       "name": "Scuttle",
       "phase": "Action",
-      "description": "Choose 1 or 2 of your non-fighter ships on the game board and return them to your reinforcements. Gain trade goods equal to the combined cost of those ships.",
-      "id": "scuttle"
+      "description": "Choose 1 or 2 of your non-fighter ships on the game board and return them to your reinforcements. Gain trade goods equal to the combined cost of those ships."
     },
     "seize": {
+      "id": "seize",
       "name": "Seize Artifact",
       "phase": "Action",
-      "description": "Choose 1 of your neighbors that has 1 or more relic fragments. That player must give you 1 relic fragment of your choice.",
-      "id": "seize"
+      "description": "Choose 1 of your neighbors that has 1 or more relic fragments. That player must give you 1 relic fragment of your choice."
     },
     "sh1": {
+      "id": "sh1",
       "name": "Shields Holding",
       "phase": "Action",
-      "description": "Cancel up to 2 hits.",
-      "id": "sh1"
+      "description": "Cancel up to 2 hits."
     },
     "sh2": {
+      "id": "sh2",
       "name": "Shields Holding",
       "phase": "Action",
-      "description": "Cancel up to 2 hits.",
-      "id": "sh2"
+      "description": "Cancel up to 2 hits."
     },
     "sh3": {
+      "id": "sh3",
       "name": "Shields Holding",
       "phase": "Action",
-      "description": "Cancel up to 2 hits.",
-      "id": "sh3"
+      "description": "Cancel up to 2 hits."
     },
     "sh4": {
+      "id": "sh4",
       "name": "Shields Holding",
       "phase": "Action",
-      "description": "Cancel up to 2 hits.",
-      "id": "sh4"
+      "description": "Cancel up to 2 hits."
     },
     "silence_space": {
+      "id": "silence_space",
       "name": "In The Silence Of Space",
       "phase": "Action",
-      "description": "Choose 1 system. During this tactical action, your ships in the chosen system can move through systems that contain other players' ships.",
-      "id": "silence_space"
+      "description": "Choose 1 system. During this tactical action, your ships in the chosen system can move through systems that contain other players' ships."
     },
     "skilled_retreat": {
+      "id": "skilled_retreat",
       "name": "Skilled Retreat",
       "phase": "Action",
-      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
-      "id": "skilled_retreat"
+      "description": "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system."
     },
     "solar_flare": {
+      "id": "solar_flare",
       "name": "Solar Flare",
       "phase": "Action",
-      "description": "During the \"Movement\" step of this tactical action, other players cannot use SPACE CANNON against your ships.",
-      "id": "solar_flare"
+      "description": "During the \"Movement\" step of this tactical action, other players cannot use SPACE CANNON against your ships."
     },
     "spy": {
+      "id": "spy",
       "name": "Spy",
       "phase": "Action",
-      "description": "Choose 1 player. That player gives you 1 random action card from their hand.",
-      "id": "spy"
+      "description": "Choose 1 player. That player gives you 1 random action card from their hand."
     },
     "stability": {
+      "id": "stability",
       "name": "Political Stability",
       "phase": "Status",
-      "description": "Do not return your strategy card(s). You do not choose strategy cards during the next strategy phase.",
-      "id": "stability"
+      "description": "Do not return your strategy card(s). You do not choose strategy cards during the next strategy phase."
     },
     "strategize1": {
+      "id": "strategize1",
       "name": "Strategize",
       "phase": "Action",
-      "description": "Perform the secondary ability of any readied or unchosen strategy card.",
-      "id": "strategize1"
+      "description": "Perform the secondary ability of any readied or unchosen strategy card."
     },
     "strategize2": {
+      "id": "strategize2",
       "name": "Strategize",
       "phase": "Action",
-      "description": "Perform the secondary ability of any readied or unchosen strategy card.",
-      "id": "strategize2"
+      "description": "Perform the secondary ability of any readied or unchosen strategy card."
     },
     "strategize3": {
+      "id": "strategize3",
       "name": "Strategize",
       "phase": "Action",
-      "description": "Perform the secondary ability of any readied or unchosen strategy card.",
-      "id": "strategize3"
+      "description": "Perform the secondary ability of any readied or unchosen strategy card."
     },
     "strategize4": {
+      "id": "strategize4",
       "name": "Strategize",
       "phase": "Action",
-      "description": "Perform the secondary ability of any readied or unchosen strategy card.",
-      "id": "strategize4"
+      "description": "Perform the secondary ability of any readied or unchosen strategy card."
     },
     "summit": {
+      "id": "summit",
       "name": "Summit",
       "phase": "Strategy",
-      "description": "Gain 2 command tokens.",
-      "id": "summit"
+      "description": "Gain 2 command tokens."
     },
     "tactical": {
+      "id": "tactical",
       "name": "Tactical Bombardment",
       "phase": "Action",
-      "description": "Choose 1 system that contains 1 or more of your units that have BOMBARDMENT. Exhaust each planet controlled by other players in that system.",
-      "id": "tactical"
+      "description": "Choose 1 system that contains 1 or more of your units that have BOMBARDMENT. Exhaust each planet controlled by other players in that system."
     },
     "tech_rider": {
+      "id": "tech_rider",
       "name": "Technology Rider",
       "phase": "Agenda",
-      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, research 1 technology.",
-      "id": "tech_rider"
+      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, research 1 technology."
     },
     "trade_rider": {
+      "id": "trade_rider",
       "name": "Trade Rider",
       "phase": "Agenda",
-      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, gain 5 trade goods.",
-      "id": "trade_rider"
+      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, gain 5 trade goods."
     },
     "unexpected": {
+      "id": "unexpected",
       "name": "Unexpected Action",
       "phase": "Action",
-      "description": "Remove 1 of your command tokens from the game board and return it to your reinforcements.",
-      "id": "unexpected"
+      "description": "Remove 1 of your command tokens from the game board and return it to your reinforcements."
     },
     "unstable": {
+      "id": "unstable",
       "name": "Unstable Planet",
       "phase": "Action",
-      "description": "Choose 1 hazardous planet. Exhaust that planet and destroy up to 3 infantry on it.",
-      "id": "unstable"
+      "description": "Choose 1 hazardous planet. Exhaust that planet and destroy up to 3 infantry on it."
     },
     "upgrade": {
+      "id": "upgrade",
       "name": "Upgrade",
       "phase": "Action",
-      "description": "Replace 1 of your cruisers in that system with 1 dreadnought from your reinforcements.",
-      "id": "upgrade"
+      "description": "Replace 1 of your cruisers in that system with 1 dreadnought from your reinforcements."
     },
     "uprising": {
+      "id": "uprising",
       "name": "Uprising",
       "phase": "Action",
-      "description": "Exhaust 1 non-home planet controlled by another player. Then gain trade goods equal to its resource value.",
-      "id": "uprising"
+      "description": "Exhaust 1 non-home planet controlled by another player. Then gain trade goods equal to its resource value."
     },
     "veto": {
+      "id": "veto",
       "name": "Veto",
       "phase": "Agenda",
-      "description": "Discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this agenda instead.",
-      "id": "veto"
+      "description": "Discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this agenda instead."
     },
     "veto3": {
+      "id": "veto3",
       "name": "Veto",
       "phase": "Agenda",
-      "description": "Discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this agenda instead.",
-      "id": "veto3"
+      "description": "Discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this agenda instead."
     },
     "veto4": {
+      "id": "veto4",
       "name": "Veto",
       "phase": "Agenda",
-      "description": "Discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this agenda instead.",
-      "id": "veto4"
+      "description": "Discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this agenda instead."
     },
     "war_effort": {
+      "id": "war_effort",
       "name": "War Effort",
       "phase": "Action",
-      "description": "Place 1 cruiser from your reinforcements in a system that contains 1 or more of your ships.",
-      "id": "war_effort"
+      "description": "Place 1 cruiser from your reinforcements in a system that contains 1 or more of your ships."
     },
     "war_machine": {
+      "id": "war_machine",
       "name": "War Machine",
       "phase": "Action",
-      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
-      "id": "war_machine"
+      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1."
     },
     "war_machine1": {
+      "id": "war_machine1",
       "name": "War Machine",
       "phase": "Action",
-      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
-      "id": "war_machine1"
+      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1."
     },
     "war_machine2": {
+      "id": "war_machine2",
       "name": "War Machine",
       "phase": "Action",
-      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
-      "id": "war_machine2"
+      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1."
     },
     "war_machine3": {
+      "id": "war_machine3",
       "name": "War Machine",
       "phase": "Action",
-      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
-      "id": "war_machine3"
+      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1."
     },
     "war_machine4": {
+      "id": "war_machine4",
       "name": "War Machine",
       "phase": "Action",
-      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
-      "id": "war_machine4"
+      "description": "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1."
     },
     "war_rider": {
+      "id": "war_rider",
       "name": "Warfare Rider",
       "phase": "Agenda",
-      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, place 1 dreadnought from your reinforcements in a system that contains 1 or more of your ships.",
-      "id": "war_rider"
+      "description": "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, place 1 dreadnought from your reinforcements in a system that contains 1 or more of your ships."
     },
     "waylay": {
+      "id": "waylay",
       "name": "Waylay",
       "phase": "Action",
-      "description": "Hits from this roll are produced against all ships (not just fighters).",
-      "id": "waylay"
+      "description": "Hits from this roll are produced against all ships (not just fighters)."
     }
   },
   "technologies": {
     "ac2": {
+      "id": "ac2",
       "name": "Advanced Carrier II",
-      "description": "Cost 3, Combat 9, Move 2, Capacity 8\nSUSTAIN DAMAGE",
-      "id": "ac2"
+      "description": "Cost 3, Combat 9, Move 2, Capacity 8\nSUSTAIN DAMAGE"
     },
     "ah": {
+      "id": "ah",
       "name": "Aerie Hololattice",
-      "description": "Other players cannot move ships through systems that contain your structures.\nEach planet that contains 1 or more of your structures gains the PRODUCTION 1 ability as if it were a unit.",
-      "id": "ah"
+      "description": "Other players cannot move ships through systems that contain your structures.\nEach planet that contains 1 or more of your structures gains the PRODUCTION 1 ability as if it were a unit."
     },
     "aida": {
+      "id": "aida",
       "name": "AI Development Algorithm",
-      "description": "When you research a unit upgrade technology, you may exhaust this card to ignore any 1 prerequisite.\nWhen 1 or more of your units use PRODUCTION, you may exhaust this card to reduce the combined cost of the produced units by the number of unit upgrade technologies that you own.",
-      "id": "aida"
+      "description": "When you research a unit upgrade technology, you may exhaust this card to ignore any 1 prerequisite.\nWhen 1 or more of your units use PRODUCTION, you may exhaust this card to reduce the combined cost of the produced units by the number of unit upgrade technologies that you own."
     },
     "amd": {
+      "id": "amd",
       "name": "Antimass Deflectors",
-      "description": "Your ships can move into and through asteroid fields.\nWhen other players' units use SPACE CANNON against your units, apply -1 to the result of each die roll.",
-      "id": "amd"
+      "description": "Your ships can move into and through asteroid fields.\nWhen other players' units use SPACE CANNON against your units, apply -1 to the result of each die roll."
     },
     "as": {
+      "id": "as",
       "name": "Aetherstream",
-      "description": "After you or one of your neighbors activates a system that is adjacent to an anomaly, you may apply +1 to the move value of all of that player's ships during this tactical action.",
-      "id": "as"
+      "description": "After you or one of your neighbors activates a system that is adjacent to an anomaly, you may apply +1 to the move value of all of that player's ships during this tactical action."
     },
     "asc": {
+      "id": "asc",
       "name": "Assault Cannon",
-      "description": "At the start of a space combat in a system that contains 3 or more of your non-fighter ships, your opponent must destroy 1 of their non-fighter ships.",
-      "id": "asc"
+      "description": "At the start of a space combat in a system that contains 3 or more of your non-fighter ships, your opponent must destroy 1 of their non-fighter ships."
     },
     "asn": {
+      "id": "asn",
       "name": "Agency Supply Network",
-      "description": "Once per action, when you resolve a unit's PRODUCTION ability, you may resolve another of your unit's PRODUCTION abilities in any system.",
-      "id": "asn"
+      "description": "Once per action, when you resolve a unit's PRODUCTION ability, you may resolve another of your unit's PRODUCTION abilities in any system."
     },
     "bio": {
+      "id": "bio",
       "name": "Bioplasmosis",
-      "description": "At the end of the status phase, you may remove any number of infantry from planets you control and place them on 1 or more planets you control in the same or adjacent systems.",
-      "id": "bio"
+      "description": "At the end of the status phase, you may remove any number of infantry from planets you control and place them on 1 or more planets you control in the same or adjacent systems."
     },
     "bs": {
+      "id": "bs",
       "name": "Bio-Stims",
-      "description": "You may exhaust this card at the end of your turn to ready 1 of your planets that has a technology specialty or 1 of your other technologies.",
-      "id": "bs"
+      "description": "You may exhaust this card at the end of your turn to ready 1 of your planets that has a technology specialty or 1 of your other technologies."
     },
     "cl2": {
+      "id": "cl2",
       "name": "Crimson Legionnaire II",
-      "description": "Cost 1(x2), Combat 7\nAfter this unit is destroyed, gain 1 commodity or convert 1 of your commodities to a trade good. Then, place the unit on this card. At the start of your next turn, place each unit that is on this card on a planet you control in your home system.",
-      "id": "cl2"
+      "description": "Cost 1(x2), Combat 7\nAfter this unit is destroyed, gain 1 commodity or convert 1 of your commodities to a trade good. Then, place the unit on this card. At the start of your next turn, place each unit that is on this card on a planet you control in your home system."
     },
     "cm": {
+      "id": "cm",
       "name": "Chaos Mapping",
-      "description": "Other players cannot activate asteroid fields that contain 1 or more of your ships.\nAt the start of your turn during the action phase, you may produce 1 unit in a system that contains at least 1 of your units that has PRODUCTION.",
-      "id": "cm"
+      "description": "Other players cannot activate asteroid fields that contain 1 or more of your ships.\nAt the start of your turn during the action phase, you may produce 1 unit in a system that contains at least 1 of your units that has PRODUCTION."
     },
     "cr2": {
+      "id": "cr2",
       "name": "Cruiser II",
-      "description": "Cost 2, Combat 6, Move 3, Capacity 1",
-      "id": "cr2"
+      "description": "Cost 2, Combat 6, Move 3, Capacity 1"
     },
     "cv2": {
+      "id": "cv2",
       "name": "Carrier II",
-      "description": "Cost 3, Combat 9, Move 2, Capacity 6",
-      "id": "cv2"
+      "description": "Cost 3, Combat 9, Move 2, Capacity 6"
     },
     "da": {
+      "id": "da",
       "name": "Duranium Armor",
-      "description": "During each combat round, after you assign hits to your units, repair 1 of your damaged units that did not use SUSTAIN DAMAGE during this combat round.",
-      "id": "da"
+      "description": "During each combat round, after you assign hits to your units, repair 1 of your damaged units that did not use SUSTAIN DAMAGE during this combat round."
     },
     "dd2": {
+      "id": "dd2",
       "name": "Destroyer II",
-      "description": "Cost 1, Combat 8, Move 2\nANTI-FIGHTER BARRAGE 6(x3)",
-      "id": "dd2"
+      "description": "Cost 1, Combat 8, Move 2\nANTI-FIGHTER BARRAGE 6(x3)"
     },
     "det": {
+      "id": "det",
       "name": "Dark Energy Tap",
-      "description": "After you perform a tactical action in a system that contains a frontier token, if you have 1 or more ships in that system, explore that token.\nYour ships can retreat into adjacent systems that do not contain other players' units, even if you do not have units or control planets in that system.",
-      "id": "det"
+      "description": "After you perform a tactical action in a system that contains a frontier token, if you have 1 or more ships in that system, explore that token.\nYour ships can retreat into adjacent systems that do not contain other players' units, even if you do not have units or control planets in that system."
     },
     "dn2": {
+      "id": "dn2",
       "name": "Dreadnought II",
-      "description": "Cost 4, Combat 5, Move 2, Capacity 1\nSUSTAIN DAMAGE, BOMBARDMENT 5\nThis unit cannot be destroyed by \"Direct Hit\" action cards.",
-      "id": "dn2"
+      "description": "Cost 4, Combat 5, Move 2, Capacity 1\nSUSTAIN DAMAGE, BOMBARDMENT 5\nThis unit cannot be destroyed by \"Direct Hit\" action cards."
     },
     "ds": {
+      "id": "ds",
       "name": "Dimensional Splicer",
-      "description": "At the start of space combat in a system that contains a wormhole and 1 or more of your ships, you may produce 1 hit and assign it to 1 of your opponent's ships.",
-      "id": "ds"
+      "description": "At the start of space combat in a system that contains a wormhole and 1 or more of your ships, you may produce 1 hit and assign it to 1 of your opponent's ships."
     },
     "dt2": {
+      "id": "dt2",
       "name": "Dimensional Tear II",
-      "description": "PRODUCTION 7\nThis system is a gravity rift; your ships do not roll for this gravity rift. Place a dimensional tear token beneath this unit as a reminder.\nUp to 12 fighters in this system do not count against your ships' capacity.",
-      "id": "dt2"
+      "description": "PRODUCTION 7\nThis system is a gravity rift; your ships do not roll for this gravity rift. Place a dimensional tear token beneath this unit as a reminder.\nUp to 12 fighters in this system do not count against your ships' capacity."
     },
     "dxa": {
+      "id": "dxa",
       "name": "Dacxive Animators",
-      "description": "After you win a ground combat, you may place 1 infantry from your reinforcements on that planet.",
-      "id": "dxa"
+      "description": "After you win a ground combat, you may place 1 infantry from your reinforcements on that planet."
     },
     "ers": {
+      "id": "ers",
       "name": "E-Res Siphons",
-      "description": "After another player activates a system that contains 1 or more of your ships, gain 4 trade goods.",
-      "id": "ers"
+      "description": "After another player activates a system that contains 1 or more of your ships, gain 4 trade goods."
     },
     "executiveorder": {
+      "id": "executiveorder",
       "name": "Executive Order",
-      "description": "ACTION: Exhaust this card and draw the top or bottom card of the Agenda deck. Players immediately vote on this agenda as if you were the speaker; you can spend trade goods and resources on this agenda as if they were votes.",
-      "id": "executiveorder"
+      "description": "ACTION: Exhaust this card and draw the top or bottom card of the Agenda deck. Players immediately vote on this agenda as if you were the speaker; you can spend trade goods and resources on this agenda as if they were votes."
     },
     "exile2": {
+      "id": "exile2",
       "name": "Exile II",
-      "description": "Cost 1, Combat 7, Move 2, ANTI-FIGHTER BARRAGE 6 (x3). At the end of any players' combat in this unit's system or up to 2 systems away, you may place 1 active or inactive breach in that system.",
-      "id": "exile2"
+      "description": "Cost 1, Combat 7, Move 2, ANTI-FIGHTER BARRAGE 6 (x3). At the end of any players' combat in this unit's system or up to 2 systems away, you may place 1 active or inactive breach in that system."
     },
     "exo2": {
+      "id": "exo2",
       "name": "Exotrireme II",
-      "description": "Cost 4, Combat 5, Move 2, Capacity 1\nSUSTAIN DAMAGE, BOMBARDMENT 4(x2)\nThis unit cannot be destroyed by \"Direct Hit\" action cards.\nAfter a round of space combat, you may destroy this unit to destroy up to 2 ships in this system.",
-      "id": "exo2"
+      "description": "Cost 4, Combat 5, Move 2, Capacity 1\nSUSTAIN DAMAGE, BOMBARDMENT 4(x2)\nThis unit cannot be destroyed by \"Direct Hit\" action cards.\nAfter a round of space combat, you may destroy this unit to destroy up to 2 ships in this system."
     },
     "ff2": {
+      "id": "ff2",
       "name": "Fighter II",
-      "description": "Cost 1(x2), Combat 8, Move 2\nThis unit may move without being transported.\nFighters in excess of your ships' capacity count against your fleet pool.",
-      "id": "ff2"
+      "description": "Cost 1(x2), Combat 8, Move 2\nThis unit may move without being transported.\nFighters in excess of your ships' capacity count against your fleet pool."
     },
     "ffac2": {
+      "id": "ffac2",
       "name": "Floating Factory II",
-      "description": "Move 2, Capacity 5\nPRODUCTION 7.\nThis unit is placed in the space area instead of on a planet.\nThis unit can move and retreat as if it were a ship.\nIf this unit is blockaded, it is destroyed.",
-      "id": "ffac2"
+      "description": "Move 2, Capacity 5\nPRODUCTION 7.\nThis unit is placed in the space area instead of on a planet.\nThis unit can move and retreat as if it were a ship.\nIf this unit is blockaded, it is destroyed."
     },
     "fl": {
+      "id": "fl",
       "name": "Fleet Logistics",
-      "description": "During each of your turns of the action phase, you may perform 2 actions instead of 1.",
-      "id": "fl"
+      "description": "During each of your turns of the action phase, you may perform 2 actions instead of 1."
     },
     "gd": {
+      "id": "gd",
       "name": "Gravity Drive",
-      "description": "After you activate a system, apply +1 to the move value of 1 of your ships during this tactical action.",
-      "id": "gd"
+      "description": "After you activate a system, apply +1 to the move value of 1 of your ships during this tactical action."
     },
     "gls": {
+      "id": "gls",
       "name": "Graviton Laser System",
-      "description": "You may exhaust this card before 1 or more of your units uses SPACE CANNON; hits produced by those units must be assigned to non-fighter ships if able.",
-      "id": "gls"
+      "description": "You may exhaust this card before 1 or more of your units uses SPACE CANNON; hits produced by those units must be assigned to non-fighter ships if able."
     },
     "gr": {
+      "id": "gr",
       "name": "Genetic Recombination",
-      "description": "You may exhaust this card before a player casts votes; that player must cast at least 1 vote for an outcome of your choice or remove 1 token from their fleet pool and return it to their reinforcements.",
-      "id": "gr"
+      "description": "You may exhaust this card before a player casts votes; that player must cast at least 1 vote for an outcome of your choice or remove 1 token from their fleet pool and return it to their reinforcements."
     },
     "hcf2": {
+      "id": "hcf2",
       "name": "Hybrid Crystal Fighter II",
-      "description": "Cost 1(x2), Combat 7, Move 2\nThis unit may move without being transported.\nFighters in excess of your ships' capacity count as 1/2 of a ship against your fleet pool.",
-      "id": "hcf2"
+      "description": "Cost 1(x2), Combat 7, Move 2\nThis unit may move without being transported.\nFighters in excess of your ships' capacity count as 1/2 of a ship against your fleet pool."
     },
     "helios2": {
+      "id": "helios2",
       "name": "4X41C \"Helios\" V2",
-      "description": "This unit's PRODUCTION value is equal to 4 more than the resource value of this planet.\nThe resource value of this planet is increased by 2. \nUp to 3 fighters in this system do not count against your ships' capacity.",
-      "id": "helios2"
+      "description": "This unit's PRODUCTION value is equal to 4 more than the resource value of this planet.\nThe resource value of this planet is increased by 2. \nUp to 3 fighters in this system do not count against your ships' capacity."
     },
     "hm": {
+      "id": "hm",
       "name": "Hyper Metabolism",
-      "description": "During the status phase, gain 3 command tokens instead of 2.",
-      "id": "hm"
+      "description": "During the status phase, gain 3 command tokens instead of 2."
     },
     "ht2": {
+      "id": "ht2",
       "name": "Hel-Titan II",
-      "description": "Combat 6\nPLANETARY SHIELD, SPACE CANNON 5, SUSTAIN DAMAGE, PRODUCTION 1\nThis unit is treated as both a structure and a ground force. It cannot be transported.\nYou may use this unit's SPACE CANNON against ships that are adjacent to this unit's systems.",
-      "id": "ht2"
+      "description": "Combat 6\nPLANETARY SHIELD, SPACE CANNON 5, SUSTAIN DAMAGE, PRODUCTION 1\nThis unit is treated as both a structure and a ground force. It cannot be transported.\nYou may use this unit's SPACE CANNON against ships that are adjacent to this unit's systems."
     },
     "htp": {
+      "id": "htp",
       "name": "Hegemonic Trade Policy",
-      "description": "Exhaust this card when 1 or more of your units use PRODUCTION; swap the resource and influence values of 1 planet you control during that use of Production.",
-      "id": "htp"
+      "description": "Exhaust this card when 1 or more of your units use PRODUCTION; swap the resource and influence values of 1 planet you control during that use of Production."
     },
     "hydrothermal": {
+      "id": "hydrothermal",
       "name": "Hydrothermal Mining",
-      "description": "At the start of the status phase, gain 1 trade good for each ocean card in play.",
-      "id": "hydrothermal"
+      "description": "At the start of the status phase, gain 1 trade good for each ocean card in play."
     },
     "ic": {
+      "id": "ic",
       "name": "Impulse Core",
-      "description": "At the start of a space combat, you may destroy 1 of your cruisers or destroyers in the active system to produce 1 hit against your opponent's ships; that hit must be assigned by your opponent to 1 of their non-fighters ships if able.",
-      "id": "ic"
+      "description": "At the start of a space combat, you may destroy 1 of your cruisers or destroyers in the active system to produce 1 hit against your opponent's ships; that hit must be assigned by your opponent to 1 of their non-fighters ships if able."
     },
     "ie": {
+      "id": "ie",
       "name": "Integrated Economy",
-      "description": "After you gain control of a planet, you may produce any number of units on that planet that have a combined cost equal to or less than that planet's resource value.",
-      "id": "ie"
+      "description": "After you gain control of a planet, you may produce any number of units on that planet that have a combined cost equal to or less than that planet's resource value."
     },
     "iihq": {
+      "id": "iihq",
       "name": "I.I.H.Q. Modernization",
-      "description": "You are neighbors with all players that have units or control planets in or adjacent to the Mecatol Rex system.\nGain the Custodia Vigilia planet card and its legendary planet ability card. You cannot lose these cards, and this card cannot have an X or Y assimilator token placed on it.",
-      "id": "iihq"
+      "description": "You are neighbors with all players that have units or control planets in or adjacent to the Mecatol Rex system.\nGain the Custodia Vigilia planet card and its legendary planet ability card. You cannot lose these cards, and this card cannot have an X or Y assimilator token placed on it."
     },
     "inf2": {
+      "id": "inf2",
       "name": "Infantry II",
-      "description": "Cost 1(x2), Combat 7\nAfter this unit is destroyed, roll 1 die. If the result is 6 or greater, place the unit on this card. At the start of your next turn, place each unit that is on this card on a planet you control in your home system.",
-      "id": "inf2"
+      "description": "Cost 1(x2), Combat 7\nAfter this unit is destroyed, roll 1 die. If the result is 6 or greater, place the unit on this card. At the start of your next turn, place each unit that is on this card on a planet you control in your home system."
     },
     "is": {
+      "id": "is",
       "name": "Inheritance Systems",
-      "description": "You may exhaust this card and spend 2 resources when you research a technology; ignore all of that technology's prerequisites.",
-      "id": "is"
+      "description": "You may exhaust this card and spend 2 resources when you research a technology; ignore all of that technology's prerequisites."
     },
     "it": {
+      "id": "it",
       "name": "Instinct Training",
-      "description": "You may exhaust this card and spend 1 token from your strategy pool when another player plays an action card; cancel that action card.",
-      "id": "it"
+      "description": "You may exhaust this card and spend 1 token from your strategy pool when another player plays an action card; cancel that action card."
     },
     "l4": {
+      "id": "l4",
       "name": "L4 Disruptors",
-      "description": "During an invasion, units cannot use SPACE CANNON against your units.",
-      "id": "l4"
+      "description": "During an invasion, units cannot use SPACE CANNON against your units."
     },
     "lgf": {
+      "id": "lgf",
       "name": "Lazax Gate Folding",
-      "description": "During your tactical actions, if you do not control Mecatol Rex, treat its system as if it has both an α and β wormhole.\nACTION: If you control Mecatol Rex, exhaust this card to place 1 infantry from your reinforcements on Mecatol Rex.",
-      "id": "lgf"
+      "description": "During your tactical actions, if you do not control Mecatol Rex, treat its system as if it has both an α and β wormhole.\nACTION: If you control Mecatol Rex, exhaust this card to place 1 infantry from your reinforcements on Mecatol Rex."
     },
     "linkship2": {
+      "id": "linkship2",
       "name": "Linkship II",
-      "description": "Cost 1, Combat 8, Move 4, ANTI-FIGHTER BARRAGE 6 (x3). This unit can use the SPACE CANNON ability of one of your structures in its space area; each linkship can trigger the same structure.",
-      "id": "linkship2"
+      "description": "Cost 1, Combat 8, Move 4, ANTI-FIGHTER BARRAGE 6 (x3). This unit can use the SPACE CANNON ability of one of your structures in its space area; each linkship can trigger the same structure."
     },
     "lw2": {
+      "id": "lw2",
       "name": "Letani Warrior II",
-      "description": "Cost 1(x2), Combat 7\nPRODUCTION 2\nAfter this unit is destroyed, roll 1 die. If the result is 6 or greater, place the unit on this card. At the start of your next turn, place each unit that is on this card on a planet you control in your home system.",
-      "id": "lw2"
+      "description": "Cost 1(x2), Combat 7\nPRODUCTION 2\nAfter this unit is destroyed, roll 1 die. If the result is 6 or greater, place the unit on this card. At the start of your next turn, place each unit that is on this card on a planet you control in your home system."
     },
     "lwd": {
+      "id": "lwd",
       "name": "Light/Wave Deflector",
-      "description": "Your ships can move through systems that contain other players' ships.",
-      "id": "lwd"
+      "description": "Your ships can move through systems that contain other players' ships."
     },
     "m2": {
+      "id": "m2",
       "name": "Memoria II",
-      "description": "Cost 8, Combat 5(x2), Move 2, Capacity 6\nSUSTAIN DAMAGE, ANTI-FIGHTER BARRAGE 5(x3)\nYou may treat this unit as if it were adjacent to systems that contain one or more of your mechs.",
-      "id": "m2"
+      "description": "Cost 8, Combat 5(x2), Move 2, Capacity 6\nSUSTAIN DAMAGE, ANTI-FIGHTER BARRAGE 5(x3)\nYou may treat this unit as if it were adjacent to systems that contain one or more of your mechs."
     },
     "mc": {
+      "id": "mc",
       "name": "Mirror Computing",
-      "description": "When you spend trade goods, each trade good is worth 2 resources or influence instead of 1.",
-      "id": "mc"
+      "description": "When you spend trade goods, each trade good is worth 2 resources or influence instead of 1."
     },
     "md": {
+      "id": "md",
       "name": "Magen Defense Grid ΩΩ",
-      "description": "When any player activates a system that contains 1 or more of your structures, place 1 infantry from your reinforcements with each of those structures.\nAt the start of ground combat on a planet that contains 1 or more of your structures, produce 1 hit and assign it to 1 of your opponent's ground forces.",
-      "id": "md"
+      "description": "When any player activates a system that contains 1 or more of your structures, place 1 infantry from your reinforcements with each of those structures.\nAt the start of ground combat on a planet that contains 1 or more of your structures, produce 1 hit and assign it to 1 of your opponent's ground forces."
     },
     "md_base": {
+      "id": "md_base",
       "name": "Magen Defense Grid",
-      "description": "You may exhaust this card at the start of a round of ground combat on a planet that contains 1 or more of your units that have PLANETARY SHIELD; your opponent cannot make combat rolls this combat round.",
-      "id": "md_base"
+      "description": "You may exhaust this card at the start of a round of ground combat on a planet that contains 1 or more of your units that have PLANETARY SHIELD; your opponent cannot make combat rolls this combat round."
     },
     "md_c1": {
+      "id": "md_c1",
       "name": "Magen Defense Grid Ω",
-      "description": "At the start of ground combat on a planet that contains 1 or more of your structures, produce 1 hit and assign it to 1 of your opponent's ground forces.",
-      "id": "md_c1"
+      "description": "At the start of ground combat on a planet that contains 1 or more of your structures, produce 1 hit and assign it to 1 of your opponent's ground forces."
     },
     "mi": {
+      "id": "mi",
       "name": "Mageon Implants",
-      "description": "ACTION: Exhaust this card to look at another player's hand of action cards.  Choose 1 of those cards and add it to your hand.",
-      "id": "mi"
+      "description": "ACTION: Exhaust this card to look at another player's hand of action cards.  Choose 1 of those cards and add it to your hand."
     },
     "mr": {
+      "id": "mr",
       "name": "Magmus Reactor",
-      "description": "Your ships can move into supernovas.\nEach supernova that contains 1 or more of your units gains the PRODUCTION 5 ability as if it were 1 of your units.",
-      "id": "mr"
+      "description": "Your ships can move into supernovas.\nEach supernova that contains 1 or more of your units gains the PRODUCTION 5 ability as if it were 1 of your units."
     },
     "nanomachines": {
+      "id": "nanomachines",
       "name": "Nanomachines",
-      "description": "ACTION: Exhaust this card to place 1 PDS on a planet you control.\nACTION: Exhaust this card to repair all of your damaged units.\nACTION: Exhaust this card and discard 1 action card to draw 1 action card.",
-      "id": "nanomachines"
+      "description": "ACTION: Exhaust this card to place 1 PDS on a planet you control.\nACTION: Exhaust this card to repair all of your damaged units.\nACTION: Exhaust this card and discard 1 action card to draw 1 action card."
     },
     "nekroc4r": {
+      "id": "nekroc4r",
       "name": "???\\_ERROR\\_ERROR\\_???",
-      "description": "ACTION: Exhaust this card to place 1 PDS on a planet you control. \nACTION: Exhaust this card to repair all of your damaged units. \nACTION: Exhaust this card and discard 1 action card to draw 1 action card.",
-      "id": "nekroc4r"
+      "description": "ACTION: Exhaust this card to place 1 PDS on a planet you control. \nACTION: Exhaust this card to repair all of your damaged units. \nACTION: Exhaust this card and discard 1 action card to draw 1 action card."
     },
     "nekroc4y": {
+      "id": "nekroc4y",
       "name": "???\\_NULL\\_REFERENCE\\_???",
-      "description": "When one of your ships is destroyed, you may produce a ship of the same type at a space dock in your home system.",
-      "id": "nekroc4y"
+      "description": "When one of your ships is destroyed, you may produce a ship of the same type at a space dock in your home system."
     },
     "nes": {
+      "id": "nes",
       "name": "Non-Euclidean Shielding",
-      "description": "When 1 of your units uses SUSTAIN DAMAGE, cancel 2 hits instead of 1.",
-      "id": "nes"
+      "description": "When 1 of your units uses SUSTAIN DAMAGE, cancel 2 hits instead of 1."
     },
     "nf": {
+      "id": "nf",
       "name": "Nullification Field",
-      "description": "After another player activates a system that contains 1 or more of your ships, you may exhaust this card and spend 1 token from your strategy pool; immediately end that player's turn.",
-      "id": "nf"
+      "description": "After another player activates a system that contains 1 or more of your ships, you may exhaust this card and spend 1 token from your strategy pool; immediately end that player's turn."
     },
     "ng": {
+      "id": "ng",
       "name": "Neuroglaive",
-      "description": "After another player activates a system that contains 1 or more of your ships, that player removes 1 token from their fleet pool and returns it to their reinforcements.",
-      "id": "ng"
+      "description": "After another player activates a system that contains 1 or more of your ships, that player removes 1 token from their fleet pool and returns it to their reinforcements."
     },
     "nm": {
+      "id": "nm",
       "name": "Neural Motivator",
-      "description": "During the status phase, draw 2 action cards instead of 1.",
-      "id": "nm"
+      "description": "During the status phase, draw 2 action cards instead of 1."
     },
     "pa": {
+      "id": "pa",
       "name": "Psychoarchaeology",
-      "description": "You can use technology specialties on planets you control without exhausting them, even if those planets are exhausted.\nDuring the action phase, you can exhaust planets you control that have technology specialties to gain 1 trade good.",
-      "id": "pa"
+      "description": "You can use technology specialties on planets you control without exhausting them, even if those planets are exhausted.\nDuring the action phase, you can exhaust planets you control that have technology specialties to gain 1 trade good."
     },
     "parasite-firm": {
+      "id": "parasite-firm",
       "name": "Neural Parasite (Firmament)",
-      "description": "At the start of the status phase, you may place 1 infantry from your reinforcements on a planet you control in your home system.\nFlip this card if the Obsidian faction is in play.",
-      "id": "parasite-firm"
+      "description": "At the start of the status phase, you may place 1 infantry from your reinforcements on a planet you control in your home system.\nFlip this card if the Obsidian faction is in play."
     },
     "parasite-obs": {
+      "id": "parasite-obs",
       "name": "Neural Parasite (Obsidian)",
-      "description": "At the start of your turn, destroy 1 of another player's infantry in or adjacent to a system that contains your infantry.\nThis technology cannot be researched.",
-      "id": "parasite-obs"
+      "description": "At the start of your turn, destroy 1 of another player's infantry in or adjacent to a system that contains your infantry.\nThis technology cannot be researched."
     },
     "pds2": {
+      "id": "pds2",
       "name": "PDS II",
-      "description": "PLANETARY SHIELD, SPACE CANNON 5\nYou may use this unit's SPACE CANNON against ships that are adjacent to this unit's system.",
-      "id": "pds2"
+      "description": "PLANETARY SHIELD, SPACE CANNON 5\nYou may use this unit's SPACE CANNON against ships that are adjacent to this unit's system."
     },
     "pfa": {
+      "id": "pfa",
       "name": "Pre-Fab Arcologies",
-      "description": "After you explore a planet, ready that planet.",
-      "id": "pfa"
+      "description": "After you explore a planet, ready that planet."
     },
     "pi": {
+      "id": "pi",
       "name": "Predictive Intelligence",
-      "description": "At the end of your turn, you may exhaust this card to redistribute your command tokens.\nWhen you cast votes during the agenda phase, you may cast 3 additional votes; if you do, and the outcome you voted for is not resolved, exhaust this card.",
-      "id": "pi"
+      "description": "At the end of your turn, you may exhaust this card to redistribute your command tokens.\nWhen you cast votes during the agenda phase, you may cast 3 additional votes; if you do, and the outcome you voted for is not resolved, exhaust this card."
     },
     "planesplitter-firm": {
+      "id": "planesplitter-firm",
       "name": "Planesplitter (Firmament)",
-      "description": "When you gain this card, put The Fracture into play.\nFlip this card if the Obsidian faction is in play.",
-      "id": "planesplitter-firm"
+      "description": "When you gain this card, put The Fracture into play.\nFlip this card if the Obsidian faction is in play."
     },
     "planesplitter-obs": {
+      "id": "planesplitter-obs",
       "name": "Planesplitter (Obsidian)",
-      "description": "When you perform a strategic action, you may move an ingress token into a system that contains or is adjacent to your units.\nThis technology cannot be researched.",
-      "id": "planesplitter-obs"
+      "description": "When you perform a strategic action, you may move an ingress token into a system that contains or is adjacent to your units.\nThis technology cannot be researched."
     },
     "pm": {
+      "id": "pm",
       "name": "Production Biomes",
-      "description": "ACTION: Exhaust this card and spend 1 token from your strategy pool to gain 4 trade goods and choose 1 other player; that player gains 2 trade goods.",
-      "id": "pm"
+      "description": "ACTION: Exhaust this card and spend 1 token from your strategy pool to gain 4 trade goods and choose 1 other player; that player gains 2 trade goods."
     },
     "proxima": {
+      "id": "proxima",
       "name": "Proxima Targeting VI",
-      "description": "Cancel 1 hit produced by BOMBARDMENT rolls made against your ground forces for each of your galvanized units present. \nAt the start of a round of ground combat, you may resolve BOMBARDMENT 8 (x3) against your opponent's ground forces; if you do, make an identical roll against your ground forces.",
-      "id": "proxima"
+      "description": "Cancel 1 hit produced by BOMBARDMENT rolls made against your ground forces for each of your galvanized units present. \nAt the start of a round of ground combat, you may resolve BOMBARDMENT 8 (x3) against your opponent's ground forces; if you do, make an identical roll against your ground forces."
     },
     "ps": {
+      "id": "ps",
       "name": "Plasma Scoring",
-      "description": "When 1 or more of your units use BOMBARDMENT or SPACE CANNON, 1 of those units may roll 1 additional die.",
-      "id": "ps"
+      "description": "When 1 or more of your units use BOMBARDMENT or SPACE CANNON, 1 of those units may roll 1 additional die."
     },
     "pws2": {
+      "id": "pws2",
       "name": "Prototype War Sun II",
-      "description": "Cost 10, Combat 3(x3), Move 3, Capacity 6\nSUSTAIN DAMAGE, BOMBARDMENT 3(x3)\nOther players' units in this system lose PLANETARY SHIELD.",
-      "id": "pws2"
+      "description": "Cost 10, Combat 3(x3), Move 3, Capacity 6\nSUSTAIN DAMAGE, BOMBARDMENT 3(x3)\nOther players' units in this system lose PLANETARY SHIELD."
     },
     "qdn": {
+      "id": "qdn",
       "name": "Quantum Datahub Node",
-      "description": "At the end of the strategy phase, you may spend 1 token from your strategy pool and give another player 3 of your trade goods. If you do, give 1 of your strategy cards to that player and take 1 of their strategy cards.",
-      "id": "qdn"
+      "description": "At the end of the strategy phase, you may spend 1 token from your strategy pool and give another player 3 of your trade goods. If you do, give 1 of your strategy cards to that player and take 1 of their strategy cards."
     },
     "radical": {
+      "id": "radical",
       "name": "Radical Advancement",
-      "description": "At the start of the status phase, you may replace one of your non-unit upgrade technologies with a technology of the same color that has exactly 1 more prerequisite.",
-      "id": "radical"
+      "description": "At the start of the status phase, you may replace one of your non-unit upgrade technologies with a technology of the same color that has exactly 1 more prerequisite."
     },
     "sar": {
+      "id": "sar",
       "name": "Self-Assembly Routines",
-      "description": "After 1 or more of your units use PRODUCTION, you may exhaust this card to place 1 mech from your reinforcements on a planet you control in that system.\nAfter 1 of your mechs is destroyed, gain 1 trade good.",
-      "id": "sar"
+      "description": "After 1 or more of your units use PRODUCTION, you may exhaust this card to place 1 mech from your reinforcements on a planet you control in that system.\nAfter 1 of your mechs is destroyed, gain 1 trade good."
     },
     "sc": {
+      "id": "sc",
       "name": "Supercharge",
-      "description": "At the start of a combat round, you may exhaust this card to apply +1 to the result of each of your unit's combat rolls during this combat round.",
-      "id": "sc"
+      "description": "At the start of a combat round, you may exhaust this card to apply +1 to the result of each of your unit's combat rolls during this combat round."
     },
     "scc": {
+      "id": "scc",
       "name": "Spatial Conduit Cylinders",
-      "description": "You may exhaust this card after you activate a system that contains 1 or more of your units; that system is adjacent to all other systems that contain 1 or more of your units during this activation.",
-      "id": "scc"
+      "description": "You may exhaust this card after you activate a system that contains 1 or more of your units; that system is adjacent to all other systems that contain 1 or more of your units during this activation."
     },
     "sd2": {
+      "id": "sd2",
       "name": "Space Dock II",
-      "description": "PRODUCTION X\nThis unit's PRODUCTION value is equal to 4 more than the resource value of this planet.\nUp to 3 fighters in this system do not count against your ships' capacity.",
-      "id": "sd2"
+      "description": "PRODUCTION X\nThis unit's PRODUCTION value is equal to 4 more than the resource value of this planet.\nUp to 3 fighters in this system do not count against your ships' capacity."
     },
     "sdn": {
+      "id": "sdn",
       "name": "Scanlink Drone Network",
-      "description": "When you activate a system, you may explore 1 planet in that system which contains 1 or more of your units.",
-      "id": "sdn"
+      "description": "When you activate a system, you may explore 1 planet in that system which contains 1 or more of your units."
     },
     "sdn2": {
+      "id": "sdn2",
       "name": "Super Dreadnought II",
-      "description": "Cost 4, Combat 4, Move 2, Capacity 2\nSUSTAIN DAMAGE, BOMBARDMENT 4\nThis unit cannot be destroyed by \"Direct Hit\" action cards.",
-      "id": "sdn2"
+      "description": "Cost 4, Combat 4, Move 2, Capacity 2\nSUSTAIN DAMAGE, BOMBARDMENT 4\nThis unit cannot be destroyed by \"Direct Hit\" action cards."
     },
     "se2": {
+      "id": "se2",
       "name": "Saturn Engine II",
-      "description": "Cost 2, Combat 6, Move 3, Capacity 2\nSUSTAIN DAMAGE",
-      "id": "se2"
+      "description": "Cost 2, Combat 6, Move 3, Capacity 2\nSUSTAIN DAMAGE"
     },
     "so": {
+      "id": "so",
       "name": "Salvage Operations",
-      "description": "After you win or lose a space combat, gain 1 trade good; if you won the combat, you may also produce 1 ship in that system of any ship type that was destroyed during the combat.",
-      "id": "so"
+      "description": "After you win or lose a space combat, gain 1 trade good; if you won the combat, you may also produce 1 ship in that system of any ship type that was destroyed during the combat."
     },
     "so2": {
+      "id": "so2",
       "name": "Spec Ops II",
-      "description": "Cost 1(x2), Combat 6\nAfter this unit is destroyed, roll 1 die. If the result is 5 or greater, place the unit on this card. At the start of your next turn, place each unit that is on this card on a planet you control in your home system.",
-      "id": "so2"
+      "description": "Cost 1(x2), Combat 6\nAfter this unit is destroyed, roll 1 die. If the result is 5 or greater, place the unit on this card. At the start of your next turn, place each unit that is on this card on a planet you control in your home system."
     },
     "sr": {
+      "id": "sr",
       "name": "Sling Relay",
-      "description": "ACTION: Exhaust this card to produce 1 ship in any system that contains one of your space docks.",
-      "id": "sr"
+      "description": "ACTION: Exhaust this card to produce 1 ship in any system that contains one of your space docks."
     },
     "st": {
+      "id": "st",
       "name": "Sarween Tools",
-      "description": "When 1 or more of your units use PRODUCTION, reduce the combined cost of the produced units by 1.",
-      "id": "st"
+      "description": "When 1 or more of your units use PRODUCTION, reduce the combined cost of the produced units by 1."
     },
     "subatomic": {
+      "id": "subatomic",
       "name": "Subatomic Splicer",
-      "description": "When one of your ships is destroyed, you may produce a ship of the same type at a space dock in your home system.",
-      "id": "subatomic"
+      "description": "When one of your ships is destroyed, you may produce a ship of the same type at a space dock in your home system."
     },
     "swa2": {
+      "id": "swa2",
       "name": "Strike Wing Alpha II",
-      "description": "Cost 1, Combat 7, Move 2, Capacity 1\nANTI-FIGHTER BARRAGE 6(x3)\nWhen this unit uses ANTI-FIGHTER BARRAGE, each result of 9 or 10 also destroys 1 of your opponents infantry in the space area of the active system.",
-      "id": "swa2"
+      "description": "Cost 1, Combat 7, Move 2, Capacity 1\nANTI-FIGHTER BARRAGE 6(x3)\nWhen this unit uses ANTI-FIGHTER BARRAGE, each result of 9 or 10 also destroys 1 of your opponents infantry in the space area of the active system."
     },
     "tcs": {
+      "id": "tcs",
       "name": "Temporal Command Suite",
-      "description": "After any player's agent becomes exhausted, you may exhaust this card to ready that agent; if you ready another player's agent, you may perform a transaction with that player.",
-      "id": "tcs"
+      "description": "After any player's agent becomes exhausted, you may exhaust this card to ready that agent; if you ready another player's agent, you may perform a transaction with that player."
     },
     "td": {
+      "id": "td",
       "name": "Transit Diodes",
-      "description": "You may exhaust this card at the start of your turn during the action phase; remove up to 4 of your ground forces from the game board and place them on 1 or more planets you control.",
-      "id": "td"
+      "description": "You may exhaust this card at the start of your turn during the action phase; remove up to 4 of your ground forces from the game board and place them on 1 or more planets you control."
     },
     "tp": {
+      "id": "tp",
       "name": "Transparasteel Plating",
-      "description": "During your turn of the action phase, players that have passed cannot play action cards.",
-      "id": "tp"
+      "description": "During your turn of the action phase, players that have passed cannot play action cards."
     },
     "vax": {
+      "id": "vax",
       "name": "Valefar Assimilator X",
-      "description": "When you would gain another player's technology using 1 of your faction abilities, you may place the \"X\" assimilator token on a faction technology owned by that player instead.\nWhile that token is on a technology, this card gains that technology's text.\nYou cannot place an assimilator token on technology that already has an assimilator token.",
-      "id": "vax"
+      "description": "When you would gain another player's technology using 1 of your faction abilities, you may place the \"X\" assimilator token on a faction technology owned by that player instead.\nWhile that token is on a technology, this card gains that technology's text.\nYou cannot place an assimilator token on technology that already has an assimilator token."
     },
     "vay": {
+      "id": "vay",
       "name": "Valefar Assimilator Y",
-      "description": "When you would gain another player's technology using 1 of your faction abilities, you may place the \"Y\" assimilator token on a faction technology owned by that player instead.\nWhile that token is on a technology, this card gains that technology's text.\nYou cannot place an assimilator token on technology that already has an assimilator token.",
-      "id": "vay"
+      "description": "When you would gain another player's technology using 1 of your faction abilities, you may place the \"Y\" assimilator token on a faction technology owned by that player instead.\nWhile that token is on a technology, this card gains that technology's text.\nYou cannot place an assimilator token on technology that already has an assimilator token."
     },
     "vpw": {
+      "id": "vpw",
       "name": "Valkyrie Particle Weave",
-      "description": "After making combat rolls during a round of ground combat, if your opponent produced 1 or more hits, you produce 1 additional hit.",
-      "id": "vpw"
+      "description": "After making combat rolls during a round of ground combat, if your opponent produced 1 or more hits, you produce 1 additional hit."
     },
     "vtx": {
+      "id": "vtx",
       "name": "Vortex",
-      "description": "ACTION: Exhaust this card to choose another player's non-structure unit in a system that is adjacent to 1 or more of your space docks. Capture 1 unit of that type from that player's reinforcements.",
-      "id": "vtx"
+      "description": "ACTION: Exhaust this card to choose another player's non-structure unit in a system that is adjacent to 1 or more of your space docks. Capture 1 unit of that type from that player's reinforcements."
     },
     "vw": {
+      "id": "vw",
       "name": "Voidwatch",
-      "description": "After a player moves ships into a system that contains 1 or more of your units, they must give you 1 promissory note from their hand, if able.",
-      "id": "vw"
+      "description": "After a player moves ships into a system that contains 1 or more of your units, they must give you 1 promissory note from their hand, if able."
     },
     "wg": {
+      "id": "wg",
       "name": "Wormhole Generator",
-      "description": "ACTION: Exhaust this card to place or move a Creuss wormhole token into either a system that contains a planet you control or a non-home system that does not contain another player's ships.",
-      "id": "wg"
+      "description": "ACTION: Exhaust this card to place or move a Creuss wormhole token into either a system that contains a planet you control or a non-home system that does not contain another player's ships."
     },
     "ws": {
+      "id": "ws",
       "name": "War Sun",
-      "description": "Cost 12, Combat 3(x3), Move 2, Capacity 6\nSUSTAIN DAMAGE, BOMBARDMENT 3(x3)\n Other players' units in this system lose PLANETARY SHIELD.",
-      "id": "ws"
+      "description": "Cost 12, Combat 3(x3), Move 2, Capacity 6\nSUSTAIN DAMAGE, BOMBARDMENT 3(x3)\n Other players' units in this system lose PLANETARY SHIELD."
     },
     "x89": {
+      "id": "x89",
       "name": "X-89 Bacterial Weapon Ω",
-      "description": "After 1 or more of your units use BOMBARDMENT against a planet, if at least 1 of your opponent's infantry was destroyed, you may destroy all of your opponent's infantry on that planet.",
-      "id": "x89"
+      "description": "After 1 or more of your units use BOMBARDMENT against a planet, if at least 1 of your opponent's infantry was destroyed, you may destroy all of your opponent's infantry on that planet."
     },
     "x89_base": {
+      "id": "x89_base",
       "name": "X-89 Bacterial Weapon",
-      "description": "ACTION: Exhaust this card and choose 1 planet in a system that contains 1 or more of your ships that have BOMBARDMENT; destroy all infantry on that planet",
-      "id": "x89_base"
+      "description": "ACTION: Exhaust this card and choose 1 planet in a system that contains 1 or more of your ships that have BOMBARDMENT; destroy all infantry on that planet"
     },
     "x89c4": {
+      "id": "x89c4",
       "name": "X-89 Bacterial Weapon ΩΩ",
-      "description": "Double the hits produced by your units' BOMBARDMENT and ground combat rolls.\nExhaust each planet you use BOMBARDMENT against.",
-      "id": "x89c4"
+      "description": "Double the hits produced by your units' BOMBARDMENT and ground combat rolls.\nExhaust each planet you use BOMBARDMENT against."
     },
     "yso": {
+      "id": "yso",
       "name": "Yin Spinner Omega",
-      "description": "After you produce units, place up to 2 infantry from your reinforcements on any planet you control or in any space area that contains 1 or more of your ships.",
-      "id": "yso"
+      "description": "After you produce units, place up to 2 infantry from your reinforcements on any planet you control or in any space area that contains 1 or more of your ships."
     }
   }
 } as const;

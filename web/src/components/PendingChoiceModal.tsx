@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getStrategyCardMeta } from '../protocol/contentCatalog.ts';
 import { PendingChoiceDto } from '../protocol/types.ts';
 
 export interface PendingChoiceModalProps {
@@ -233,20 +232,12 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto' }}>
             {choice.options.map((opt) => {
               const isChecked = selectedOptionId === opt.id;
-              const scMeta = getStrategyCardMeta(opt.id);
-              const displayDesc =
-                opt.description ||
-                (scMeta.primaryText ? `Primary: ${scMeta.primaryText}` : undefined);
-              const tooltip =
-                scMeta.secondaryText ? `Secondary Ability:\n${scMeta.secondaryText}` : undefined;
-
               return (
                 <label
                   key={opt.id}
                   data-testid="choice-option"
                   data-option-id={opt.id}
                   data-actionable="true"
-                  title={tooltip}
                   className={`card${isChecked ? ' card--selected' : ''}`}
                   style={{
                     display: 'flex',
@@ -271,9 +262,9 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                     <div style={{ fontWeight: 600, color: isChecked ? '#38bdf8' : '#e2e8f0' }}>
                       {opt.label}
                     </div>
-                    {displayDesc && (
+                    {opt.description && (
                       <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2, whiteSpace: 'pre-line' }}>
-                        {displayDesc}
+                        {opt.description}
                       </div>
                     )}
                   </div>

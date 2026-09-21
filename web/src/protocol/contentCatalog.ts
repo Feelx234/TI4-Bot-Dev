@@ -23,15 +23,11 @@ export interface CardMeta {
   description: string;
 }
 
-export const STRATEGY_CARDS: Record<string, StrategyCardMeta> = GENERATED_CONTENT_CATALOG.strategyCards;
-export const SECRET_OBJECTIVES: Record<string, ObjectiveMeta> = GENERATED_CONTENT_CATALOG.secretObjectives;
-export const PUBLIC_OBJECTIVES: Record<string, ObjectiveMeta> = GENERATED_CONTENT_CATALOG.publicObjectives;
-export const ACTION_CARDS: Record<string, CardMeta> = GENERATED_CONTENT_CATALOG.actionCards;
-export const TECHNOLOGIES: Record<string, CardMeta> = GENERATED_CONTENT_CATALOG.technologies;
-
-function normalizeId(id: string): string {
-  return id.toLowerCase().trim();
-}
+export const STRATEGY_CARDS = GENERATED_CONTENT_CATALOG.strategyCards;
+export const SECRET_OBJECTIVES = GENERATED_CONTENT_CATALOG.secretObjectives;
+export const PUBLIC_OBJECTIVES = GENERATED_CONTENT_CATALOG.publicObjectives;
+export const ACTION_CARDS = GENERATED_CONTENT_CATALOG.actionCards;
+export const TECHNOLOGIES = GENERATED_CONTENT_CATALOG.technologies;
 
 export function humanizeId(id: string): string {
   return id
@@ -39,8 +35,16 @@ export function humanizeId(id: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function exactLookup<T>(catalog: Record<string, T>, id: string): T | undefined {
+  return catalog[id];
+}
+
+export function findStrategyCardMeta(id: string): StrategyCardMeta | undefined {
+  return exactLookup(STRATEGY_CARDS, id);
+}
+
 export function getStrategyCardMeta(id: string): StrategyCardMeta {
-  return STRATEGY_CARDS[normalizeId(id)] ?? {
+  return findStrategyCardMeta(id) ?? {
     id,
     name: humanizeId(id),
     initiative: 0,
@@ -49,8 +53,12 @@ export function getStrategyCardMeta(id: string): StrategyCardMeta {
   };
 }
 
+export function findSecretObjectiveMeta(id: string): ObjectiveMeta | undefined {
+  return exactLookup(SECRET_OBJECTIVES, id);
+}
+
 export function getSecretObjectiveMeta(id: string): ObjectiveMeta {
-  return SECRET_OBJECTIVES[normalizeId(id)] ?? {
+  return findSecretObjectiveMeta(id) ?? {
     id,
     name: humanizeId(id),
     phase: 'Secret',
@@ -59,8 +67,12 @@ export function getSecretObjectiveMeta(id: string): ObjectiveMeta {
   };
 }
 
+export function findPublicObjectiveMeta(id: string): ObjectiveMeta | undefined {
+  return exactLookup(PUBLIC_OBJECTIVES, id);
+}
+
 export function getPublicObjectiveMeta(id: string): ObjectiveMeta {
-  return PUBLIC_OBJECTIVES[normalizeId(id)] ?? {
+  return findPublicObjectiveMeta(id) ?? {
     id,
     name: humanizeId(id),
     phase: 'Public',
@@ -69,71 +81,26 @@ export function getPublicObjectiveMeta(id: string): ObjectiveMeta {
   };
 }
 
+export function findActionCardMeta(id: string): CardMeta | undefined {
+  return exactLookup(ACTION_CARDS, id);
+}
+
 export function getActionCardMeta(id: string): CardMeta {
-  return ACTION_CARDS[normalizeId(id)] ?? {
+  return findActionCardMeta(id) ?? {
     id,
     name: humanizeId(id),
     description: 'Action Card',
   };
 }
 
+export function findTechnologyMeta(id: string): CardMeta | undefined {
+  return exactLookup(TECHNOLOGIES, id);
+}
+
 export function getTechnologyMeta(id: string): CardMeta {
-  return TECHNOLOGIES[normalizeId(id)] ?? {
+  return findTechnologyMeta(id) ?? {
     id,
     name: humanizeId(id),
     description: 'Technology',
   };
-}
-
-export function formatActionDescription(optionId: string): string {
-  if (!optionId) return '';
-  const trimmed = optionId.trim();
-
-  if (trimmed.startsWith('strategic|')) {
-    const cardId = trimmed.slice('strategic|'.length);
-    const meta = getStrategyCardMeta(cardId);
-    return `Play Strategy Card: ${meta.initiative > 0 ? `${meta.initiative}. ` : ''}${meta.name}`;
-  }
-
-  if (trimmed.startsWith('pok') || STRATEGY_CARDS[normalizeId(trimmed)]) {
-    const meta = getStrategyCardMeta(trimmed);
-    if (meta.initiative > 0) {
-      return `Strategy Card: ${meta.initiative}. ${meta.name}`;
-    }
-  }
-
-  if (trimmed.startsWith('tactical|')) {
-    return `Tactical Action (System ${trimmed.slice('tactical|'.length)})`;
-  }
-
-  if (trimmed.startsWith('component|')) {
-    return `Component Action: ${humanizeId(trimmed.slice('component|'.length))}`;
-  }
-
-  if (trimmed === 'pass') {
-    return 'Pass Turn';
-  }
-
-  if (trimmed === 'generic') {
-    return 'Confirm Selection';
-  }
-
-  if (trimmed === 'top') {
-    return 'Place on Top of Deck';
-  }
-
-  if (trimmed === 'bottom') {
-    return 'Place on Bottom of Deck';
-  }
-
-  if (trimmed.startsWith('produce|') || trimmed.startsWith('produce_unit|')) {
-    const unit = trimmed.split('|')[1];
-    return `Produce ${humanizeId(unit)}`;
-  }
-
-  if (trimmed.startsWith('place ')) {
-    return humanizeId(trimmed);
-  }
-
-  return humanizeId(trimmed);
 }
