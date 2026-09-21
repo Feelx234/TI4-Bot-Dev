@@ -9853,3 +9853,25 @@ Not done, in the order I would take them:
 The four files that were already modified when this batch started (`ti4-mlp/examples/capture_offline_pilot.rs`,
 `offline_bc.rs`, `plans/INDEX.md`, `scripts/publish_and_train_stopped_corpus.ps1`) are still
 uncommitted and still not ours.
+
+## 2026-09-21 (third): OP-04 landed, and the queue after it
+
+`1c4a86a` — the five transaction shapes. Engine 1352 green, behaviour re-baselined to **v44** (one
+metric, `faction_differentiation`, and it rose), reviewer golden re-generated with its diff read
+first: first divergence at frame 19, where a Hacan seat is offered four note-for-note trades for the
+first time, and 178 new options visible across 241 frames. The number worth carrying forward is that
+**the sampled policy takes none of them** — the capability is for the human at the table, and the
+bots' play moved only through softmax renormalization. If paper trading is wanted from the bots, that
+is a training change and no amount of offer shapes will produce it.
+
+Two of the three defects the design carried were caught by tests rather than reading: `pc` emitted
+the same id once per note across the table (the pre-existing `no_deal_shape_is_written_twice` guard),
+and the card-for-note shape inherited the one-good gate, which is precisely the reported table —
+Hacan facing a partner holding paper and no goods — offered nothing. The third was my own test
+pointing the ask the wrong way round.
+
+Still open, dependency-free and ready for a fresh context, in the order I would take them: the
+`&state.board` audit (18 sites, the Maxis fault class), BUG-08 refresh-versus-pay-the-due, OP-03 dice
+rolls (check the recording before the renderer), BUG-07, UI-06 (note the golden carries tile text, so
+it will move again), and UI-05's wording rule. BUG-05/06 wait on the operator's saved game and BUG-04
+on their A/B/C.
