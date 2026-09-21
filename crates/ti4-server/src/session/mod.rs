@@ -16,7 +16,9 @@ use ti4_model::state::GameState;
 use crate::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg, ServerMessage};
 use crate::protocol::status::{RejectionReason, ViewerRole};
 use crate::session::decider::ChoiceSubmission;
-use crate::session::worker::{SessionShared, Subscriber, spawn_session_worker};
+use crate::session::worker::{
+    PendingSubmissionState, SessionShared, Subscriber, spawn_session_worker,
+};
 
 /// Transport-neutral bounded subscription that unregisters itself when dropped.
 pub struct SessionSubscription {
@@ -239,7 +241,7 @@ impl GameSession {
                 });
             }
 
-            if pending.reserved {
+            if pending.submission_state == PendingSubmissionState::Reserved {
                 return Err(RejectionReason::NoPendingChoice);
             }
             if pending.nonce != nonce {
@@ -261,7 +263,7 @@ impl GameSession {
                     option_id: option_id.to_owned(),
                 });
             }
-            pending.reserved = true;
+            pending.submission_state = PendingSubmissionState::Reserved;
 
             lock.seat_inboxes.get(seat).cloned()
         };
@@ -282,7 +284,7 @@ impl GameSession {
                 lock.pending_decision
                     .as_mut()
                     .expect("pending decision")
-                    .reserved = false;
+                    .submission_state = PendingSubmissionState::AwaitingSubmission;
             }
             return Err(RejectionReason::NoPendingChoice);
         }

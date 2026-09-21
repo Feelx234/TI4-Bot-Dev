@@ -6,7 +6,7 @@ use ti4_model::id::PlayerId;
 
 use crate::protocol::server::ActionAcceptedMsg;
 use crate::protocol::status::RejectionReason;
-use crate::session::worker::{PendingDecision, SessionShared};
+use crate::session::worker::{PendingDecision, PendingSubmissionState, SessionShared};
 
 /// Incoming choice submission from a client.
 #[derive(Debug)]
@@ -57,7 +57,7 @@ impl Decider for RemoteHumanDecider {
                 nonce: nonce.clone(),
                 game_version: shared.game_version,
                 choice: choice.clone(),
-                reserved: false,
+                submission_state: PendingSubmissionState::AwaitingSubmission,
                 reply_tx: None,
             });
             shared.broadcast_pending_decision(choice, &nonce);

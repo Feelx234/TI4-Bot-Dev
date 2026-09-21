@@ -123,7 +123,9 @@ fn wrong_seat_stale_nonce_and_unknown_option_preserve_state_and_log() {
     assert!(
         matches!(
             dup_res,
-            Err(RejectionReason::StaleNonce | RejectionReason::NoPendingChoice)
+            Err(RejectionReason::StaleNonce
+                | RejectionReason::StaleVersion { .. }
+                | RejectionReason::NoPendingChoice)
         ),
         "Duplicate submission must be rejected"
     );

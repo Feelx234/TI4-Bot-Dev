@@ -33,7 +33,7 @@ pub struct PendingDecision {
     pub nonce: String,
     pub game_version: u64,
     pub choice: Choice,
-    pub reserved: bool,
+    pub submission_state: PendingSubmissionState,
     pub reply_tx: Option<
         mpsc::Sender<
             Result<
@@ -42,6 +42,16 @@ pub struct PendingDecision {
             >,
         >,
     >,
+}
+
+/// Lifecycle of an engine-generated choice while the worker waits for a client submission.
+///
+/// A submission is reserved before it enters the worker inbox so concurrent requests cannot
+/// advance the same engine choice twice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingSubmissionState {
+    AwaitingSubmission,
+    Reserved,
 }
 
 /// Active subscriber receiving real-time server messages.
