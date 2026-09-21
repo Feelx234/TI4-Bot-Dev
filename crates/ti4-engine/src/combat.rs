@@ -843,6 +843,40 @@ fn fleet_hits(
     (free, forced)
 }
 
+/// Duranium Armor: "During each combat round, after you assign hits to your units, repair 1 of
+/// your damaged units that did not use SUSTAIN DAMAGE during this combat round."
+///
+/// `before` lists the types of this side's ships that were already damaged when the round's hits
+/// were queued; a unit of such a type still damaged now cannot be one that sustained this round
+/// (a sustain damages an undamaged unit). Damaged units of one type are interchangeable, so the
+/// first such unit is repaired.
+fn duranium_armor(state: &mut GameState, system: &SystemId, player: &PlayerId, before: &[String]) {
+    if before.is_empty()
+        || !state.player(player).is_some_and(|seat| {
+            seat.technologies
+                .contains(&ti4_model::id::TechnologyId::new("da"))
+        })
+    {
+        return;
+    }
+    let Some(unit) = state
+        .system_state(system)
+        .units
+        .iter()
+        .find(|unit| {
+            &unit.owner == player
+                && unit.sustained_damage
+                && before.iter().any(|kind| kind == unit.type_id.as_str())
+        })
+        .cloned()
+    else {
+        return;
+    };
+    let mut repaired = unit.clone();
+    repaired.sustained_damage = false;
+    state.system_mut(system).replace_unit(&unit, repaired);
+}
+
 /// Arc Secundus repairs itself at the start of each space combat round.
 fn repair_self_repairing(state: &mut GameState, system: &SystemId, player: &PlayerId) {
     let damaged: Vec<Unit> = state
@@ -2409,6 +2443,9 @@ pub struct CombatWindow {
     combat_occurrence: Option<FeatOccurrence>,
     /// A timing pause that the game driver has not yet opened a scoring window for.
     pending_scoring_occurrence: Option<FeatOccurrence>,
+    /// Each side's ships already damaged when this round's hits were queued, by unit type: the
+    /// ones Duranium Armor may repair, since they did not use SUSTAIN DAMAGE this round.
+    damaged_before_round: std::collections::BTreeMap<PlayerId, Vec<String>>,
 }
 
 impl CombatWindow {
@@ -2453,6 +2490,7 @@ impl CombatWindow {
                 pending_retreats: Vec::new(),
                 combat_occurrence: None,
                 pending_scoring_occurrence: None,
+                damaged_before_round: std::collections::BTreeMap::new(),
             };
         };
         Self {
@@ -2464,6 +2502,7 @@ impl CombatWindow {
             pending_retreats: Vec::new(),
             combat_occurrence: None,
             pending_scoring_occurrence: None,
+            damaged_before_round: std::collections::BTreeMap::new(),
         }
     }
 
@@ -2983,6 +3022,19 @@ impl CombatWindow {
         .filter(|pending| pending.hits > 0)
         .collect();
 
+        self.damaged_before_round = [self.attacker.clone(), self.defender.clone()]
+            .into_iter()
+            .map(|side| {
+                let damaged = state
+                    .system_state(&self.system)
+                    .units
+                    .iter()
+                    .filter(|unit| unit.owner == side && unit.sustained_damage)
+                    .map(|unit| unit.type_id.to_string())
+                    .collect();
+                (side, damaged)
+            })
+            .collect();
         self.stage = Stage::Sustaining { queue, round };
         self.settle(state, ctx)
     }
@@ -3019,7 +3071,13 @@ impl CombatWindow {
             match self.stage.clone() {
                 Stage::Sustaining { queue, round } | Stage::Assigning { queue, round } => {
                     let Some(front) = queue.first().cloned() else {
-                        // Both sides absorbed: the round is over.
+                        // Both sides absorbed: the round is over. Duranium Armor repairs now,
+                        // "after you assign hits to your units".
+                        for side in [self.attacker.clone(), self.defender.clone()] {
+                            let before =
+                                self.damaged_before_round.remove(&side).unwrap_or_default();
+                            duranium_armor(state, &self.system, &side, &before);
+                        }
                         if self.over(state, content, sources) || round >= MAX_ROUNDS {
                             self.stage = self.conclude(state, content, sources, round);
                             return Ok(());
@@ -4826,6 +4884,38 @@ mod tests {
             plain_dice.history()[0].faces.len() + 1,
             marked_dice.history()[0].faces.len()
         );
+    }
+
+    #[test]
+    fn duranium_armor_repairs_a_ship_damaged_in_an_earlier_round() {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "dreadnought", &attacker(), 1);
+        let damaged = state.system_state(&system).units[0].clone();
+        state
+            .system_mut(&system)
+            .replace_unit(&damaged, damaged.sustained());
+        state
+            .player_mut(&attacker())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("da"));
+
+        // Damaged before this round: repaired.
+        duranium_armor(
+            &mut state,
+            &system,
+            &attacker(),
+            &["dreadnought".to_owned()],
+        );
+        assert!(!state.system_state(&system).units[0].sustained_damage);
+
+        // Damaged this round (nothing was damaged before it): left as it is.
+        let fresh = state.system_state(&system).units[0].clone();
+        state
+            .system_mut(&system)
+            .replace_unit(&fresh, fresh.sustained());
+        duranium_armor(&mut state, &system, &attacker(), &[]);
+        assert!(state.system_state(&system).units[0].sustained_damage);
     }
 
     #[test]
