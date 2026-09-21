@@ -1945,6 +1945,25 @@ pub fn absorb_hits_seeing(
     Ok(())
 }
 
+/// This player's ships in the system other than fighters.
+fn non_fighter_ships(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<Unit> {
+    let types = catalogue(content, sources);
+    ships_of(state, content, sources, player, system)
+        .into_iter()
+        .filter(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(|kind| !kind.is_fighter())
+        })
+        .collect()
+}
+
 /// Announce one destroyed ship, and whether it was the owner's last in the system.
 ///
 /// Two printed windows read this: "after 1 of your ships is destroyed during a space combat", and
@@ -2709,6 +2728,55 @@ impl CombatWindow {
         }
 
         if round == 1 {
+            // Assault Cannon: "At the start of a space combat in a system that contains 3 or more
+            // of your non-fighter ships, your opponent must destroy 1 of their non-fighter ships."
+            // Both sides' eligibility is read before either loss, so the two resolve as one moment.
+            let firing: Vec<(PlayerId, PlayerId)> = [
+                (self.attacker.clone(), self.defender.clone()),
+                (self.defender.clone(), self.attacker.clone()),
+            ]
+            .into_iter()
+            .filter(|(holder, _)| {
+                state.player(holder).is_some_and(|seat| {
+                    seat.technologies
+                        .contains(&ti4_model::id::TechnologyId::new("asc"))
+                }) && non_fighter_ships(state, content, sources, holder, &self.system).len() >= 3
+            })
+            .collect();
+            for (_, victim) in firing {
+                let targets = non_fighter_ships(state, content, sources, &victim, &self.system);
+                if targets.is_empty() {
+                    continue;
+                }
+                let casualty = choose_casualty(
+                    state,
+                    content,
+                    sources,
+                    self.galaxy.as_ref(),
+                    ctx.table,
+                    &victim,
+                    &targets,
+                    &DecisionSource::Content("asc".to_owned()),
+                    "assault_cannon_destroy",
+                    Some(&self.system),
+                )?;
+                state
+                    .system_mut(&self.system)
+                    .remove(std::slice::from_ref(&casualty));
+                announce_ship_destroyed(
+                    state,
+                    ctx,
+                    &self.system,
+                    &victim,
+                    &casualty,
+                    content,
+                    sources,
+                );
+            }
+            if self.over(state, content, sources) {
+                self.stage = self.conclude(state, content, sources, round);
+                return Ok(());
+            }
             let occurrence = self.ensure_combat_occurrence(state);
             // Both barrages are rolled before either is applied (78.3), one side at a time:
             // each side's reroll windows (Agnlan Oln, Scramble Frequency) open between its
@@ -4757,6 +4825,43 @@ mod tests {
         assert_eq!(
             plain_dice.history()[0].faces.len() + 1,
             marked_dice.history()[0].faces.len()
+        );
+    }
+
+    #[test]
+    fn assault_cannon_costs_the_opponent_a_non_fighter_ship_before_any_die() {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &attacker(), 3);
+        put(&mut state, &system, "destroyer", &defender(), 1);
+        state
+            .player_mut(&attacker())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("asc"));
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(3);
+        resolve(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &mut table,
+            &mut dice,
+            &mut rng,
+            &system,
+        )
+        .unwrap();
+        assert!(
+            ships_of(&state, ContentStore::embedded(), POK, &defender(), &system).is_empty(),
+            "the destroyer went to the cannon"
+        );
+        assert_eq!(
+            ships_of(&state, ContentStore::embedded(), POK, &attacker(), &system).len(),
+            3
+        );
+        assert!(
+            dice.rolled("space combat").is_empty(),
+            "the fight ended before any die"
         );
     }
 
