@@ -976,7 +976,25 @@ pub struct GameState {
     pub strategy_cards_per_player: usize,
 
     // -- board ------------------------------------------------------------------
-    /// Space areas by system. Absent entries are empty systems. Not compared.
+    /// Space areas by system, for the systems something has *touched*.
+    ///
+    /// An absent entry is not an empty system. It is a system that exists on the map, with its
+    /// planets, its tokens, its anomalies and its wormholes, in which nothing has happened yet: no
+    /// unit has entered, nothing has been captured, no token has been taken. Reading this map is
+    /// correct for one question only — *which systems contain things* — and it is quietly wrong for
+    /// the two neighbours of that question, which rules ask constantly:
+    ///
+    /// * *which planets satisfy X* — an uninhabited planet is exactly what a "select a planet with a
+    ///   resource" effect wants, and it is absent here;
+    /// * *which systems/tokens/anomalies are on the map* — same reason, one level up.
+    ///
+    /// Both belong to [`Galaxy`], which is the map, not to this map, which is the ledger of what has
+    /// happened on it. Maxis Central Control was shipped iterating this field for years and could
+    /// only ever offer planets somebody had already visited, which is the bug the `galaxy`
+    /// parameter to `legendary::maxis_candidates` exists to fix.
+    ///
+    /// Connectivity is not affected either way: movement routes through `Galaxy::adjacent`, so a
+    /// system absent from here is still on every path through it. Not compared.
     pub board: BTreeMap<SystemId, SystemState>,
     /// The system activated by the tactical action in progress (LRR 89.1a).
     pub active_system: Option<SystemId>,

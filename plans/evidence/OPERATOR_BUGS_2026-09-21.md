@@ -402,3 +402,39 @@ later. So this closes a capability gap for a human at the table and costs nothin
 except noise; if the bots are to use paper, that is a training question and not one this commit answers.
 
 Regenerated through `TI4_REVIEW_GOLDEN_UPDATE=1` after the diff above was read, not before.
+
+## The lazy-board audit, part way
+
+The Maxis fix raised a class: rules that read `state.board` when they mean the map. Started, not
+finished, and what follows is the part that cost real reading, written down so the next session does
+not pay it twice.
+
+**The doc comment on `GameState::board` was the bug.** It read, in full: *"Space areas by system.
+Absent entries are empty systems. Not compared."* That sentence is true of units and false of
+everything else, and it is the sentence a rule author reads before writing a rule. It now states the
+three questions separately — which systems contain things (this map, correct), which planets satisfy
+a predicate and which systems/tokens/anomalies exist (both `Galaxy`, because an absent entry is a
+place nothing has visited rather than a place with nothing in it) — with the Maxis case named, and
+with the routing finding below so nobody re-derives it.
+
+**Movement is not affected.** `movement::path_from` expands neighbours through
+`self.galaxy.adjacent(&current)`, not through `state.board`, so a system nobody has entered is still
+on every path that crosses it, and wormholes come from the galaxy plus an explicit
+`token_wormhole_systems` set. That is also the reason the F-03 Nexus fix works at all: the tile
+became reachable the moment it entered the galaxy, and no board entry was needed for it.
+
+**The class is narrower than the 18 grep hits suggested, and the discriminator is what the rule asks
+about, not what it iterates.** For a rule about *things in systems* — units present, who controls a
+system, counts of ships — iterating the board is not merely adequate but exactly right, because an
+absent entry and an empty system have the same answer. The fault needs a rule whose subject can exist
+without being touched: a planet, a token, an anomaly, a legendary, a wormhole. Searching the
+planet-shaped rules (`planets()`, `select a planet`, `pick(` on a planet list) found the
+planet-selection effects in `action_cards.rs` taking their candidate lists from a *system context* —
+the system a ship is in — which is the correct source and not the fault.
+
+That is as far as it got. What remains is named rather than guessed at: `agenda_effects.rs` (an agenda
+that scans the map is a galaxy question by construction — lines 144, 217, 284, 1024, 1071 iterate the
+board and each deserves ten minutes), `legendary.rs` beyond the Maxis path (a legendary planet is
+uninhabited by definition), and the exploration/wild draw paths, which read the board for token
+placement. None of them was shown to be wrong; none was cleared either, and this file does not clear
+them.
