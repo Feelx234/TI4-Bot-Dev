@@ -635,3 +635,131 @@ fn attachments_are_named_not_counted() {
         "an attachment the content cannot name must still appear, by id"
     );
 }
+
+/// The planet rider adds up what the engine would charge, and exhausting a planet moves only the ready
+/// half of each total.
+#[test]
+fn planet_totals_split_ready_from_total() {
+    let session = started_session();
+    let frame = session
+        .frames
+        .last()
+        .expect("a started table has at least one frame");
+    let content = ContentStore::embedded();
+    let seat = frame.state.players[0].id.clone();
+    let owned: Vec<PlanetId> = frame
+        .state
+        .controlled_planets(&seat)
+        .into_iter()
+        .map(|(_, planet)| planet.clone())
+        .collect();
+    assert!(
+        !owned.is_empty(),
+        "a seated player starts with a home system"
+    );
+
+    let fresh = view::planet_totals(&session, frame, &seat, content);
+    assert_eq!(fresh.planets, owned.len());
+    assert_eq!(
+        fresh.ready,
+        owned.len(),
+        "nothing is exhausted at the start"
+    );
+    assert_eq!(fresh.resources_ready, fresh.resources_total);
+    assert_eq!(fresh.influence_ready, fresh.influence_total);
+    assert!(
+        fresh.resources_total > 0,
+        "a home system is worth something"
+    );
+
+    let mut spent = frame.clone();
+    spent.state.exhausted_planets.insert(owned[0].clone());
+    let after = view::planet_totals(&session, &spent, &seat, content);
+    assert_eq!(after.ready, owned.len() - 1);
+    assert_eq!(after.resources_total, fresh.resources_total);
+    assert_eq!(after.influence_total, fresh.influence_total);
+    assert!(
+        after.resources_ready + after.influence_ready
+            < fresh.resources_ready + fresh.influence_ready
+    );
+
+    let lines = view::planet_totals_lines(&after);
+    assert_eq!(
+        lines[0],
+        format!(
+            "Resources {} ready / {}",
+            after.resources_ready, after.resources_total
+        )
+    );
+    assert!(lines[1].starts_with("Influence "));
+}
+
+#[test]
+fn planet_totals_lines_name_traits_and_ready_specialties() {
+    let mut totals = view::PlanetTotals::default();
+    totals.traits.insert("cultural".into(), 2);
+    totals.traits.insert("industrial".into(), 1);
+    totals.specialties.insert("warfare".into(), (0, 1));
+    let lines = view::planet_totals_lines(&totals);
+    assert_eq!(lines[2], "Traits cultural 2 · industrial 1");
+    assert_eq!(lines[3], "Specialties warfare 0/1 (ready/total)");
+    assert_eq!(
+        view::planet_totals_lines(&view::PlanetTotals::default()).len(),
+        2,
+        "no traits or specialties, no empty lines"
+    );
+}
+
+/// Engine text names a seat alone; the reader always sees the seat with its faction, whether the
+/// session carries frames (R01) or is a frame-less shell (the replayer).
+#[test]
+fn a_seat_in_engine_text_is_named_with_its_faction() {
+    let session = started_session();
+    let content = ContentStore::embedded();
+    let frame = session.frames.last().expect("a started table has frames");
+    let seat2 = PlayerId::new("seat2");
+    let named = view::seat_name(frame, &seat2, content);
+    assert_ne!(named, "seat2", "the fixture seats a faction at seat2");
+
+    assert_eq!(
+        view::annotate_seats(&session, "seat2 offers a deal to seat0."),
+        format!(
+            "{named} offers a deal to {}.",
+            view::seat_name(frame, &PlayerId::new("seat0"), content)
+        )
+    );
+    // Not a seat token: glued to a word, or followed by more identifier.
+    assert_eq!(view::annotate_seats(&session, "myseat2"), "myseat2");
+    assert_eq!(view::annotate_seats(&session, "seat2x"), "seat2x");
+    assert_eq!(view::annotate_seats(&session, "seats"), "seats");
+    assert_eq!(view::annotate_seats(&session, "seat"), "seat");
+    // Named once, never twice.
+    let once = view::annotate_seats(&session, "seat2 passes");
+    assert_eq!(view::annotate_seats(&session, &once), once);
+
+    let mut shell = session.clone();
+    shell.frames.clear();
+    assert_eq!(
+        view::annotate_seats(&shell, "seat2 passes"),
+        once,
+        "the manifest names the seat when the session carries no frames"
+    );
+}
+
+/// UI-05: the policy's numbers are named for what they are, and the legend says what they are not.
+#[test]
+fn policy_numbers_are_named_and_never_a_win_chance() {
+    assert_eq!(
+        view::policy_odds(Some(-11.591), Some(0.006)),
+        " · logit -11.59 · bot picks 0.6%"
+    );
+    assert_eq!(
+        view::policy_odds(None, None),
+        "",
+        "a human seat's options carry no numbers"
+    );
+    assert_eq!(view::policy_odds(None, Some(0.25)), " · bot picks 25.0%");
+    let legend = view::policy_odds_legend(0.5);
+    assert!(legend.contains("temperature 0.5"));
+    assert!(legend.contains("Not a chance of winning"));
+}

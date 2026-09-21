@@ -6,6 +6,8 @@
 //! app state, no `LiveReview`, no clock, no filesystem. A re-tone is a change to this file and
 //! nowhere else, and the snapshot tests pin the values the two apps promise each other.
 
+use std::collections::BTreeMap;
+
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Shape, Stroke, Vec2};
 use ti4_content::ContentStore;
 use ti4_model::content_types::{ContentType, FULL};
@@ -133,6 +135,113 @@ pub fn attachment_names(ids: &[String], content: &ContentStore) -> Vec<String> {
                 .map_or_else(|| id.clone(), std::borrow::ToOwned::to_owned)
         })
         .collect()
+}
+
+/// What a seat's planets add up to: ready and total resources and influence, and how many of them
+/// carry each trait and tech specialty.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PlanetTotals {
+    pub planets: usize,
+    pub ready: usize,
+    pub resources_ready: i64,
+    pub resources_total: i64,
+    pub influence_ready: i64,
+    pub influence_total: i64,
+    /// Trait → planets controlled, exhausted or not: trait objectives count control, not readiness.
+    pub traits: BTreeMap<String, usize>,
+    /// Specialty → (ready, total): only a ready specialty can stand in for a prerequisite.
+    pub specialties: BTreeMap<String, (usize, usize)>,
+}
+
+/// A seat's planet totals, valued the way the engine charges them.
+///
+/// Values come from `production::planet_value_now`, so a law or relic that attaches to a planet moves
+/// the total exactly as it moves a payment; a printed-value sum would disagree with the price the
+/// engine asks. Traits and specialties come from the session's planet catalog, which is the same
+/// content record the engine reads.
+#[must_use]
+pub fn planet_totals(
+    session: &ReviewSession,
+    frame: &ReviewFrame,
+    player: &PlayerId,
+    content: &ContentStore,
+) -> PlanetTotals {
+    use ti4_engine::production::{Spend, planet_value_now};
+
+    let mut totals = PlanetTotals::default();
+    for (_, planet) in frame.state.controlled_planets(player) {
+        let ready = !frame.state.exhausted_planets.contains(planet);
+        let resources = planet_value_now(&frame.state, content, FULL, planet, Spend::Resources);
+        let influence = planet_value_now(&frame.state, content, FULL, planet, Spend::Influence);
+        totals.planets += 1;
+        totals.resources_total += resources;
+        totals.influence_total += influence;
+        if ready {
+            totals.ready += 1;
+            totals.resources_ready += resources;
+            totals.influence_ready += influence;
+        }
+        let Some(meta) = session
+            .planet_catalog
+            .iter()
+            .find(|meta| meta.id == planet.as_str())
+        else {
+            continue;
+        };
+        for name in &meta.traits {
+            *totals.traits.entry(name.to_ascii_lowercase()).or_default() += 1;
+        }
+        for name in &meta.tech_specialties {
+            let entry = totals
+                .specialties
+                .entry(name.to_ascii_lowercase())
+                .or_default();
+            entry.1 += 1;
+            if ready {
+                entry.0 += 1;
+            }
+        }
+    }
+    totals
+}
+
+/// The totals as rider lines: `Resources 7 ready / 12`, `Influence 4 ready / 9`,
+/// `Traits cultural 2 · industrial 3`, `Specialties biotic 1/1 · warfare 0/1` (ready/total).
+#[must_use]
+pub fn planet_totals_lines(totals: &PlanetTotals) -> Vec<String> {
+    let mut lines = vec![
+        format!(
+            "Resources {} ready / {}",
+            totals.resources_ready, totals.resources_total
+        ),
+        format!(
+            "Influence {} ready / {}",
+            totals.influence_ready, totals.influence_total
+        ),
+    ];
+    if !totals.traits.is_empty() {
+        lines.push(format!(
+            "Traits {}",
+            totals
+                .traits
+                .iter()
+                .map(|(name, count)| format!("{name} {count}"))
+                .collect::<Vec<_>>()
+                .join(" · ")
+        ));
+    }
+    if !totals.specialties.is_empty() {
+        lines.push(format!(
+            "Specialties {} (ready/total)",
+            totals
+                .specialties
+                .iter()
+                .map(|(name, (ready, total))| format!("{name} {ready}/{total}"))
+                .collect::<Vec<_>>()
+                .join(" · ")
+        ));
+    }
+    lines
 }
 
 /// A seat as the table knows it: `seat2 "Clan of Hacan"`, or the bare id before seating is known.
@@ -300,6 +409,103 @@ pub fn annotate_systems(session: &ReviewSession, text: &str) -> String {
         rest = tail;
     }
     out
+}
+
+/// Rewrite every bare seat id in `text` as [`seat_name`] spells it: `seat2` becomes
+/// `seat2 "The Emirates of Hacan"`.
+///
+/// The operator's rule: a seat and its faction are always named together. Engine prompts, option
+/// labels and events say `seat2` alone, so this is applied to the same strings [`annotate_systems`]
+/// is. A seat already followed by a name (` "` or ` (`) is left alone, so text that went through
+/// [`seat_name`] or this function once is not named twice. The faction comes from the session's
+/// newest frame, or from the manifest's seat-ordered faction list when the session is a frame-less
+/// shell (the replayer's case); seating does not change during a game.
+#[must_use]
+pub fn annotate_seats(session: &ReviewSession, text: &str) -> String {
+    if !text.contains("seat") {
+        return text.to_owned();
+    }
+    let content = ContentStore::embedded();
+    let name = |seat: &str| -> String {
+        let player = PlayerId::new(seat);
+        if let Some(frame) = session.frames.last() {
+            return seat_name(frame, &player, content);
+        }
+        let faction = seat
+            .strip_prefix("seat")
+            .and_then(|index| index.parse::<usize>().ok())
+            .and_then(|index| session.manifest.factions.get(index))
+            .filter(|faction| !faction.is_empty());
+        match faction {
+            None => seat.to_owned(),
+            Some(faction) => {
+                match ti4_content::factions::get(content, faction).and_then(|f| f.name()) {
+                    Some(full) => format!("{seat} \"{full}\""),
+                    None => format!("{seat} ({faction})"),
+                }
+            }
+        }
+    };
+    let mut out = String::with_capacity(text.len() + 32);
+    let mut rest = text;
+    while let Some(start) = rest.find("seat") {
+        out.push_str(&rest[..start]);
+        rest = &rest[start..];
+        let digits = rest[4..]
+            .find(|character: char| !character.is_ascii_digit())
+            .map_or(rest.len(), |end| end + 4);
+        let (token, tail) = rest.split_at(digits);
+        let attached = out
+            .chars()
+            .next_back()
+            .is_some_and(|previous| previous.is_alphanumeric() || previous == '_');
+        let detached = tail
+            .chars()
+            .next()
+            .is_none_or(|next| !next.is_alphanumeric() && next != '_');
+        let already_named = tail.starts_with(" \"") || tail.starts_with(" (");
+        if token.len() == 4 || attached || !detached || already_named {
+            out.push_str(token);
+        } else {
+            out.push_str(&name(token));
+        }
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The policy's numbers on an option, named for what they are: ` · logit -11.59 · bot picks 0.6%`.
+///
+/// The score is the model's raw logit, and the percentage is the softmax share of *the options on
+/// offer* at the sampling temperature: how often the bot would take this one here. Neither is a
+/// chance of winning, and the wording must never let it read as one (UI-05, `DIPLOMACY_HONESTY.md`).
+#[must_use]
+pub fn policy_odds(score: Option<f64>, probability: Option<f64>) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::new();
+    if let Some(score) = score {
+        let _ = write!(out, " · logit {score:.2}");
+    }
+    if let Some(probability) = probability {
+        let _ = write!(out, " · bot picks {:.1}%", probability * 100.0);
+    }
+    out
+}
+
+/// The legend printed once under a list of scored options, so the rule is on screen, not in a plan.
+#[must_use]
+pub fn policy_odds_legend(temperature: f64) -> String {
+    format!(
+        "logit = the policy's raw preference. bot picks % = how often the bot would choose that option          among these, sampling at temperature {temperature}. Not a chance of winning."
+    )
+}
+
+/// Engine text as a reader wants it: systems with their planets, seats with their factions.
+#[must_use]
+pub fn annotate(session: &ReviewSession, text: &str) -> String {
+    annotate_seats(session, &annotate_systems(session, text))
 }
 
 pub fn polygon(center: Pos2, radius: f32, sides: usize, offset: f32) -> Vec<Pos2> {

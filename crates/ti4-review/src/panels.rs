@@ -46,8 +46,9 @@ impl SystemNaming {
     #[must_use]
     pub fn apply(self, session: &ReviewSession, text: &str) -> String {
         match self {
-            Self::TileOnly => text.to_owned(),
-            Self::TileAndPlanets => crate::view::annotate_systems(session, text),
+            // Seats are named in both modes: a seat and its faction always appear together.
+            Self::TileOnly => crate::view::annotate_seats(session, text),
+            Self::TileAndPlanets => crate::view::annotate(session, text),
         }
     }
 }
@@ -67,11 +68,19 @@ pub fn diplomacy_sheet(ui: &mut egui::Ui, frame: &ReviewFrame) {
         .show(ui, |ui| {
             ui.strong("regards →");
             for subject in &state.seating_order {
-                seat_label(ui, subject, subject.to_string());
+                seat_label(
+                    ui,
+                    subject,
+                    crate::view::seat_name(frame, subject, ContentStore::embedded()),
+                );
             }
             ui.end_row();
             for observer in &state.seating_order {
-                seat_label(ui, observer, observer.to_string());
+                seat_label(
+                    ui,
+                    observer,
+                    crate::view::seat_name(frame, observer, ContentStore::embedded()),
+                );
                 for subject in &state.seating_order {
                     if observer == subject {
                         ui.weak("—");
@@ -567,6 +576,10 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
                         }
                     }
                     item_section(ui, "●", "Planets", controlled_planets, color);
+                    let totals = crate::view::planet_totals(session, frame, &player.id, content);
+                    for line in crate::view::planet_totals_lines(&totals) {
+                        ui.label(egui::RichText::new(line).color(crate::view::PANEL_TEXT));
+                    }
 
                     let mut unit_counts: BTreeMap<String, usize> = BTreeMap::new();
                     for state in frame.state.board.values() {
@@ -702,7 +715,12 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
                             .support_holders
                             .iter()
                             .filter(|(_, holder)| *holder == &player.id)
-                            .map(|(owner, _)| format!("Support for the Throne:{owner} · faceup")),
+                            .map(|(owner, _)| {
+                                format!(
+                                    "Support for the Throne: {} · faceup",
+                                    crate::view::seat_name(frame, owner, content)
+                                )
+                            }),
                     );
                     promissory.sort();
                     promissory.dedup();
@@ -769,7 +787,9 @@ pub fn decision_sheet(
     ));
     ui.label(format!(
         "Round {} · {} · active {}",
-        step.round, step.phase, step.active
+        step.round,
+        step.phase,
+        naming.apply(session, &step.active)
     ));
     ui.horizontal_wrapped(|ui| {
         stat_badge(

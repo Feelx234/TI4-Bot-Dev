@@ -1269,13 +1269,20 @@ impl Replayer {
                 ui.visuals_mut().override_text_color = Some(PANEL_TEXT);
                 if let Some(pending) = pending {
                     ui.heading(format!("{} is asked", pending.actor));
-                    ui.strong(view::annotate_systems(session, &pending.prompt));
+                    ui.strong(view::annotate(session, &pending.prompt));
                     ui.small(format!(
                         "frame {} · ask {} · {} option(s), in the order the engine offered them",
                         pending.frame,
                         pending.ask,
                         pending.options.len()
                     ));
+                    if pending
+                        .options
+                        .iter()
+                        .any(|option| option.score.is_some() || option.probability.is_some())
+                    {
+                        ui.small(view::policy_odds_legend(session.manifest.temperature));
+                    }
                     let fingerprint = pending.fingerprint.clone();
                     let mut chosen: Option<String> = None;
                     // Half the panel at most, and never less than a few rows: the options are the
@@ -1290,15 +1297,10 @@ impl Replayer {
                                 // The policy's own numbers, when the recording has them. A manual seat
                                 // choosing against the top-ranked option is the point of the whole
                                 // application, so the odds are on the button and not behind a tooltip.
-                                let policy = option
-                                    .score
-                                    .map_or(String::new(), |score| format!(" · policy {score:.2}"));
-                                let odds = option.probability.map_or(String::new(), |probability| {
-                                    format!(" · {:.1}%", probability * 100.0)
-                                });
                                 let text = format!(
-                                    "{}{policy}{odds}",
-                                    view::annotate_systems(session, &option.label)
+                                    "{}{}",
+                                    view::annotate(session, &option.label),
+                                    view::policy_odds(option.score, option.probability)
                                 );
                                 let button = ui.add(
                                     egui::Button::new(egui::RichText::new(text)).wrap_mode(
@@ -1334,7 +1336,7 @@ impl Replayer {
                                 } else {
                                     ui.indent(("terms", option.id.clone()), |ui| {
                                         for line in terms {
-                                            ui.small(view::annotate_systems(session, &line));
+                                            ui.small(view::annotate(session, &line));
                                         }
                                         ui.small(format!("{} · {}", option.id, option.kind));
                                     });
