@@ -17,7 +17,10 @@ use ti4_model::state::GameState;
 use crate::projection::project_turn_status;
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::choice::PendingChoiceDto;
-use crate::protocol::server::{GameOverMsg, PendingChoiceMsg, ServerMessage, TurnStatusMsg};
+use crate::protocol::server::{
+    EventVisibility, GameEvent, GameEventKind, GameOverMsg, PendingChoiceMsg, ServerMessage,
+    TurnStatusMsg,
+};
 use crate::protocol::status::ViewerRole;
 use crate::session::decider::{ChoiceSubmission, RemoteHumanDecider};
 use crate::session::{SeatController, SessionConfig};
@@ -58,12 +61,11 @@ pub struct SessionShared {
     pub subscribers: BTreeMap<u64, Subscriber>,
     pub next_subscriber_id: u64,
     pub decision_log: Vec<DecisionRecord>,
-    pub events: Vec<String>,
     pub finished: bool,
     pub stopped: bool,
     pub error: Option<String>,
     pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
-    pub event_log: Vec<crate::protocol::server::GameEventDto>,
+    pub event_log: Vec<GameEvent>,
     pub event_counter: u64,
     pub store: Option<Arc<FileGameStore>>,
     pub snapshot_decision_count: usize,
@@ -82,7 +84,6 @@ impl SessionShared {
             subscribers: BTreeMap::new(),
             next_subscriber_id: 0,
             decision_log: Vec::new(),
-            events: Vec::new(),
             event_log: Vec::new(),
             event_counter: 0,
             finished: false,
@@ -102,19 +103,19 @@ impl SessionShared {
     /// Records an authoritative event and broadcasts it to all subscribers.
     pub fn record_and_broadcast_event(
         &mut self,
-        text: impl Into<String>,
-        category: impl Into<String>,
+        visibility: EventVisibility,
+        event: GameEventKind,
         version: Option<u64>,
     ) -> Result<(), String> {
         self.event_counter += 1;
         let id = format!("{}-{}", self.game_id, self.event_counter);
         let timestamp = current_utc_time_string();
-        let entry = crate::protocol::server::GameEventDto {
+        let entry = GameEvent {
             id,
             timestamp,
             version,
-            text: text.into(),
-            category: category.into(),
+            visibility,
+            event,
         };
         if let Some(store) = &self.store {
             store
@@ -124,13 +125,16 @@ impl SessionShared {
 
         self.event_log.push(entry.clone());
 
+        let visible = entry.visibility.clone();
         let msg = ServerMessage::Event(crate::protocol::server::GameEventMsg {
             protocol_version: PROTOCOL_VERSION,
             game_id: self.game_id.clone(),
             entry,
         });
 
-        self.publish(|_| msg.clone());
+        self.subscribers.retain(|_, subscriber| {
+            !visible.permits(&subscriber.viewer) || subscriber.tx.try_send(msg.clone()).is_ok()
+        });
         Ok(())
     }
 
@@ -204,6 +208,37 @@ impl SessionShared {
         });
 
         self.publish(|_| msg.clone());
+    }
+
+    /// Records and broadcasts every terminal-game consequence through one path.
+    fn finish_session(&mut self, game: &Game) -> Result<(), String> {
+        self.finished = true;
+        let winner = game
+            .state
+            .players
+            .iter()
+            .max_by_key(|player| player.victory_points)
+            .map(|player| player.id.clone());
+        let final_scores = game
+            .state
+            .players
+            .iter()
+            .map(|player| {
+                (
+                    player.id.clone(),
+                    player.victory_points.max(0).cast_unsigned(),
+                )
+            })
+            .collect();
+        self.record_and_broadcast_event(
+            EventVisibility::Public,
+            GameEventKind::GameFinished {
+                winner: winner.clone(),
+            },
+            Some(self.game_version),
+        )?;
+        self.broadcast_game_over(winner, final_scores);
+        Ok(())
     }
 
     /// Returns canonical hashes of all recorded decisions.
@@ -341,12 +376,15 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             // Emit initial game initialization event
             let mut lock = worker_shared.lock().expect("shared lock");
             let round = game.state.round;
-            let phase = format!("{:?}", game.state.phase).to_uppercase();
             let speaker = &game.state.speaker;
             let version = lock.game_version;
             if let Err(error) = lock.record_and_broadcast_event(
-                format!("Game initialized (Round {round}, {phase} Phase, Speaker: {speaker})"),
-                "system",
+                EventVisibility::Public,
+                GameEventKind::GameInitialized {
+                    round,
+                    phase: game.state.phase,
+                    speaker: speaker.clone(),
+                },
                 Some(version),
             ) {
                 lock.error = Some(error);
@@ -387,36 +425,15 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 let mut lock = worker_shared.lock().expect("shared lock");
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
-                lock.events.clone_from(&game.events);
             }
 
             // Check if finished
             if game.state.finished {
                 let mut lock = worker_shared.lock().expect("shared lock");
-                lock.finished = true;
-                let winner = game
-                    .state
-                    .players
-                    .iter()
-                    .max_by_key(|p| p.victory_points)
-                    .map(|p| p.id.clone());
-                let mut final_scores = BTreeMap::new();
-                for p in &game.state.players {
-                    final_scores.insert(p.id.clone(), p.victory_points.max(0).cast_unsigned());
-                }
-                let winner_str = winner
-                    .as_ref()
-                    .map_or_else(|| "Draw".to_owned(), ToString::to_string);
-                let version = lock.game_version;
-                if let Err(error) = lock.record_and_broadcast_event(
-                    format!("Game Over! Winner: {winner_str}"),
-                    "status",
-                    Some(version),
-                ) {
+                if let Err(error) = lock.finish_session(&game) {
                     lock.error = Some(error);
                     break;
                 }
-                lock.broadcast_game_over(winner, final_scores);
                 break;
             }
 
@@ -429,7 +446,6 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 let mut accepted_reply = None;
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
-                lock.events.clone_from(&game.events);
 
                 if let Some(err) = result.error {
                     lock.error = Some(err.to_string());
@@ -471,8 +487,8 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         let version = lock.game_version;
                         let event_error = lock
                             .record_and_broadcast_event(
-                                "Decision resolved",
-                                "action",
+                                EventVisibility::Public,
+                                GameEventKind::DecisionResolved,
                                 Some(version),
                             )
                             .err();
@@ -534,12 +550,14 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
 
                 // Phase transition:
                 if game.state.phase != prev_phase || game.state.round != prev_round {
-                    let phase = format!("{:?}", game.state.phase).to_uppercase();
                     let round = game.state.round;
                     let version = lock.game_version;
                     if let Err(error) = lock.record_and_broadcast_event(
-                        format!("Phase transition: {phase} Phase (Round {round})"),
-                        "phase",
+                        EventVisibility::Public,
+                        GameEventKind::PhaseTransition {
+                            phase: game.state.phase,
+                            round,
+                        },
                         Some(version),
                     ) {
                         lock.error = Some(error);
@@ -550,33 +568,13 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 }
 
                 if result.finished {
-                    lock.finished = true;
-                    let winner = game
-                        .state
-                        .players
-                        .iter()
-                        .max_by_key(|p| p.victory_points)
-                        .map(|p| p.id.clone());
-                    let mut final_scores = BTreeMap::new();
-                    for p in &game.state.players {
-                        final_scores.insert(p.id.clone(), p.victory_points.max(0).cast_unsigned());
-                    }
-                    let winner_str = winner
-                        .as_ref()
-                        .map_or_else(|| "Draw".to_owned(), ToString::to_string);
-                    let version = lock.game_version;
-                    if let Err(error) = lock.record_and_broadcast_event(
-                        format!("Game Over! Winner: {winner_str}"),
-                        "status",
-                        Some(version),
-                    ) {
+                    if let Err(error) = lock.finish_session(&game) {
                         lock.error = Some(error);
                         break;
                     }
                     if let Some((reply_tx, accepted)) = accepted_reply {
                         let _ = reply_tx.send(Ok(accepted));
                     }
-                    lock.broadcast_game_over(winner, final_scores);
                     break;
                 }
 

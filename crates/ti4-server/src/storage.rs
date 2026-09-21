@@ -15,7 +15,7 @@ use ti4_engine::choice::DecisionRecord;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-use crate::protocol::server::GameEventDto;
+use crate::protocol::server::GameEvent;
 use crate::protocol::view::BoardTileView;
 use crate::session::replay::replay_session;
 use crate::session::{GameSession, SeatController, SessionConfig};
@@ -152,7 +152,7 @@ impl FileGameStore {
     /// # Errors
     ///
     /// Returns [`StorageError`] if append or sync fails.
-    pub fn append_event(&self, game_id: &str, event: &GameEventDto) -> Result<(), StorageError> {
+    pub fn append_event(&self, game_id: &str, event: &GameEvent) -> Result<(), StorageError> {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
         let path = dir.join("events.jsonl");
@@ -213,7 +213,7 @@ impl FileGameStore {
     /// # Errors
     ///
     /// Returns [`StorageError`] on I/O error.
-    pub fn load_events(&self, game_id: &str) -> Result<Vec<GameEventDto>, StorageError> {
+    pub fn load_events(&self, game_id: &str) -> Result<Vec<GameEvent>, StorageError> {
         let path = self.game_dir(game_id)?.join("events.jsonl");
         read_json_lines(&path)
     }
@@ -332,13 +332,7 @@ impl FileGameStore {
             config.seat_tokens = init_record.seat_tokens;
         }
 
-        let session = GameSession::start_recovered(
-            config,
-            init_record.initial_state,
-            galaxy,
-            decisions,
-            events,
-        );
+        let session = GameSession::start_recovered(config, decisions, events);
 
         Ok(session)
     }

@@ -3,7 +3,7 @@
  * Exactly mirrors Rust structs from `crates/ti4-server/src/protocol/`.
  */
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export type ViewerRole =
   | { role: 'player'; seat: string; seatToken?: string }
@@ -146,19 +146,29 @@ export interface GameView {
   table: TableView;
 }
 
-export interface GameEventDto {
+export type EventVisibility =
+  | { visibility: 'public' }
+  | { visibility: 'seat'; seat: string }
+  | { visibility: 'referee' };
+
+export type GameEventKind =
+  | { kind: 'game_initialized'; round: number; phase: string; speaker: string }
+  | { kind: 'decision_resolved' }
+  | { kind: 'phase_transition'; phase: string; round: number }
+  | { kind: 'game_finished'; winner?: string | null };
+
+export type GameEvent = EventVisibility & {
   id: string;
   timestamp: string;
   version?: number;
-  text: string;
-  category: 'system' | 'action' | 'decision' | 'status' | 'phase' | 'error';
-}
+  event: GameEventKind;
+};
 
 export interface GameEventMsg {
   type?: 'event';
   protocol_version: number;
   game_id: string;
-  entry: GameEventDto;
+  entry: GameEvent;
 }
 
 export interface InitialSnapshotMsg {
@@ -170,7 +180,7 @@ export interface InitialSnapshotMsg {
   view: GameView;
   pending_choice?: PendingChoiceDto | null;
   turn_status: PublicTurnStatus;
-  events?: GameEventDto[];
+  events?: GameEvent[];
 }
 
 export interface StateUpdateMsg {

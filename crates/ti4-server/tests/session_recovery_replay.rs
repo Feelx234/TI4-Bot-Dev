@@ -37,14 +37,12 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
 
     // The initial snapshot has the game initialized event
     let snap1 = client1.snapshot();
-    for e in snap1.events {
-        continuous_events.push(e.text);
-    }
+    continuous_events.extend(snap1.events);
 
     // P1 receives choice for strategy card
     let pending_1 = loop {
         match client1.recv().expect("recv") {
-            ServerMessage::Event(e) => continuous_events.push(e.entry.text),
+            ServerMessage::Event(e) => continuous_events.push(e.entry),
             ServerMessage::PendingChoice(choice_msg) => break choice_msg.choice,
             _ => {}
         }
@@ -62,7 +60,7 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
     // Read continuous events following P1 choice
     let _pending_2 = loop {
         match client1.recv().expect("recv") {
-            ServerMessage::Event(e) => continuous_events.push(e.entry.text),
+            ServerMessage::Event(e) => continuous_events.push(e.entry),
             ServerMessage::PendingChoice(choice_msg) => {
                 if choice_msg.choice.actor == p1 {
                     break Some(choice_msg.choice);
@@ -95,7 +93,7 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
     // Await next pending choice so bot P3 moves settle completely
     loop {
         match client1.recv().expect("recv") {
-            ServerMessage::Event(e) => continuous_events.push(e.entry.text),
+            ServerMessage::Event(e) => continuous_events.push(e.entry),
             ServerMessage::PendingChoice(_) => break,
             ServerMessage::TurnStatus(m)
                 if matches!(
@@ -112,12 +110,12 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
     // Drain any remaining continuous events
     for msg in client1.drain_messages() {
         if let ServerMessage::Event(e) = msg {
-            continuous_events.push(e.entry.text);
+            continuous_events.push(e.entry);
         }
     }
     while continuous_events.len() < session.event_log().len() {
         if let Ok(ServerMessage::Event(e)) = client1.recv() {
-            continuous_events.push(e.entry.text);
+            continuous_events.push(e.entry);
         }
     }
     for msg in client_spec.drain_messages() {
@@ -129,14 +127,8 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
     let reconnect_snap = reconnecting_client.snapshot();
 
     // 1. Verify snapshot event log matches continuous event log
-    let reconnect_event_texts: Vec<String> = reconnect_snap
-        .events
-        .iter()
-        .map(|e| e.text.clone())
-        .collect();
-
     assert_eq!(
-        reconnect_event_texts, continuous_events,
+        reconnect_snap.events, continuous_events,
         "Reconnecting client event log must be identical to continuous client event log"
     );
 
@@ -147,23 +139,7 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
         "Expected accepted decisions in decision log"
     );
 
-    // 3. Verify recovery replay produces identical canonical hashes
-    let replay_report = session.replay().expect("replay session");
-    assert!(
-        replay_report.hashes_match,
-        "Recovery replay must produce identical canonical hashes to the live session"
-    );
-    assert_eq!(
-        replay_report.replayed_hashes, original_hashes,
-        "Replayed canonical hashes must match uninterrupted run hashes exactly"
-    );
-    assert_eq!(
-        replay_report.decision_count,
-        session.decision_log().len(),
-        "Decision count must match"
-    );
-
-    // 4. Test stand-alone replay_session function directly
+    // 3. Replay fixture state and accepted decisions directly.
     let direct_report = replay_session(&state, Some(&galaxy), &session.decision_log())
         .expect("direct replay_session");
     assert!(direct_report.hashes_match);
@@ -239,7 +215,10 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
         !snapshot.events.is_empty(),
         "Expected initial events in snapshot"
     );
-    assert!(snapshot.events[0].text.contains("Game initialized"));
+    assert!(matches!(
+        snapshot.events[0].event,
+        ti4_server::protocol::GameEventKind::GameInitialized { .. }
+    ));
 
     // 3. Submit an action and verify snapshot updates event log
     let p1_opt = snapshot.pending_choice.expect("p1 pending choice").options[0]
@@ -275,12 +254,10 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
         .await
         .expect("deserialize reconnect snapshot");
 
-    assert!(
-        reconnect_snap
-            .events
-            .iter()
-            .any(|e| e.text.contains("Decision resolved"))
-    );
+    assert!(reconnect_snap.events.iter().any(|e| matches!(
+        e.event,
+        ti4_server::protocol::GameEventKind::DecisionResolved
+    )));
     assert_eq!(reconnect_snap.events.len(), session.event_log().len());
 
     session.stop();

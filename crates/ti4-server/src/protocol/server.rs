@@ -8,6 +8,7 @@ use super::choice::PendingChoiceDto;
 use super::error::ErrorKind;
 use super::status::{PublicTurnStatus, RejectionReason, ViewerRole};
 use super::view::GameView;
+use ti4_model::state::Phase;
 
 /// Initial per-viewer snapshot sent upon subscription or reconnection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,19 +23,59 @@ pub struct InitialSnapshotMsg {
     pub pending_choice: Option<PendingChoiceDto>,
     pub turn_status: PublicTurnStatus,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub events: Vec<GameEventDto>,
+    pub events: Vec<GameEvent>,
 }
 
-/// Authoritative event log entry recorded during game execution.
+/// Explicit audience for an authoritative event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct GameEventDto {
+#[serde(tag = "visibility", content = "seat", rename_all = "snake_case")]
+pub enum EventVisibility {
+    Public,
+    Seat(PlayerId),
+    Referee,
+}
+
+impl EventVisibility {
+    #[must_use]
+    pub fn permits(&self, viewer: &ViewerRole) -> bool {
+        match self {
+            Self::Public => true,
+            Self::Seat(seat) => viewer.is_actor(seat),
+            Self::Referee => false,
+        }
+    }
+}
+
+/// Typed event payload. Visibility is never inferred from presentation text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum GameEventKind {
+    GameInitialized {
+        round: u32,
+        phase: Phase,
+        speaker: PlayerId,
+    },
+    DecisionResolved,
+    PhaseTransition {
+        phase: Phase,
+        round: u32,
+    },
+    GameFinished {
+        winner: Option<PlayerId>,
+    },
+}
+
+/// Authoritative, auditable event log entry recorded during game execution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GameEvent {
     pub id: String,
     pub timestamp: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<u64>,
-    pub text: String,
-    pub category: String,
+    pub visibility: EventVisibility,
+    pub event: GameEventKind,
 }
 
 /// Server message carrying a new game event to all subscribers.
@@ -43,7 +84,7 @@ pub struct GameEventDto {
 pub struct GameEventMsg {
     pub protocol_version: u16,
     pub game_id: String,
-    pub entry: GameEventDto,
+    pub entry: GameEvent,
 }
 
 /// Versioned state update or replacement snapshot after state transition.

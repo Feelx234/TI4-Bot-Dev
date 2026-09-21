@@ -5,21 +5,33 @@ export interface EventLogProps {
   events: GameLogEntry[];
 }
 
-function getCategoryColor(category?: GameLogEntry['category']): string {
-  switch (category) {
-    case 'action':
-      return '#38bdf8'; // Sky blue
-    case 'decision':
-      return '#f59e0b'; // Amber
-    case 'phase':
-      return '#c084fc'; // Purple
-    case 'status':
-      return '#34d399'; // Emerald
-    case 'error':
-      return '#f87171'; // Red
-    case 'system':
+function eventPresentation(event: GameLogEntry['event']): { color: string; text: string } {
+  switch (event.kind) {
+    case 'decision_resolved':
+      return { color: '#38bdf8', text: 'Decision resolved' };
+    case 'game_initialized':
+      return { color: '#e2e8f0', text: `Game initialized: round ${event.round}, ${event.phase} phase, speaker ${event.speaker}` };
+    case 'phase_transition':
+      return { color: '#c084fc', text: `Phase transition: round ${event.round}, ${event.phase} phase` };
+    case 'game_finished':
+      return { color: '#34d399', text: event.winner ? `Game finished: ${event.winner} wins` : 'Game finished: draw' };
     default:
-      return '#e2e8f0'; // Light slate
+      return assertNever(event);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unknown game event: ${JSON.stringify(value)}`);
+}
+
+function getVisibilityLabel(visibility: GameLogEntry): string | null {
+  switch (visibility.visibility) {
+    case 'public':
+      return null;
+    case 'seat':
+      return 'Private';
+    case 'referee':
+      return 'Referee';
   }
 }
 
@@ -93,6 +105,8 @@ export const EventLog: React.FC<EventLogProps> = ({ events }) => {
             <div style={{ color: '#64748b' }}>No events recorded yet.</div>
           ) : (
             events.map((ev, i) => {
+              const presentation = eventPresentation(ev.event);
+              const visibility = getVisibilityLabel(ev);
               return (
                 <div
                   key={ev.id}
@@ -128,8 +142,9 @@ export const EventLog: React.FC<EventLogProps> = ({ events }) => {
                       v{ev.version}
                     </span>
                   )}
-                  <span style={{ color: getCategoryColor(ev.category), wordBreak: 'break-word' }}>
-                    {ev.text}
+                  {visibility && <span style={{ color: '#f59e0b' }}>{visibility}</span>}
+                  <span style={{ color: presentation.color, wordBreak: 'break-word' }}>
+                    {presentation.text}
                   </span>
                 </div>
               );

@@ -3,6 +3,7 @@ use ti4_server::fixtures::{create_sample_game, create_sample_pending_choice};
 use ti4_server::projection::{project_initial_snapshot, project_state_update};
 use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::ViewerRole;
+use ti4_server::protocol::{EventVisibility, GameEvent, GameEventKind};
 
 #[test]
 fn actor_payload_includes_own_private_information_and_pending_choice() {
@@ -200,4 +201,49 @@ fn state_update_preserves_identical_redaction_guarantees() {
     assert!(!json.contains("destroy_their_greatest_ship"));
     assert!(!json.contains("opt_carrier"));
     assert!(!json.contains("\"pending_choice\""));
+}
+
+#[test]
+fn event_history_is_projected_to_its_explicit_audience() {
+    let game = create_sample_game();
+    let choice = create_sample_pending_choice();
+    let events = vec![
+        GameEvent {
+            id: "test-1".to_owned(),
+            timestamp: "00:00:00".to_owned(),
+            version: Some(1),
+            visibility: EventVisibility::Public,
+            event: GameEventKind::DecisionResolved,
+        },
+        GameEvent {
+            id: "test-2".to_owned(),
+            timestamp: "00:00:01".to_owned(),
+            version: Some(1),
+            visibility: EventVisibility::Seat(PlayerId::new("seat_a")),
+            event: GameEventKind::DecisionResolved,
+        },
+    ];
+
+    let actor = ti4_server::projection::project_initial_snapshot_with_map(
+        "test_game",
+        1,
+        &game,
+        &ViewerRole::Player(PlayerId::new("seat_a")),
+        Some((&choice, "nonce_123")),
+        &[],
+        &events,
+    );
+    let opponent = ti4_server::projection::project_initial_snapshot_with_map(
+        "test_game",
+        1,
+        &game,
+        &ViewerRole::Player(PlayerId::new("seat_b")),
+        Some((&choice, "nonce_123")),
+        &[],
+        &events,
+    );
+
+    assert_eq!(actor.events.len(), 2);
+    assert_eq!(opponent.events.len(), 1);
+    assert_eq!(opponent.events[0].id, "test-1");
 }

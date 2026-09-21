@@ -7,7 +7,7 @@ use ti4_model::state::{GameState, Player};
 
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::choice::PendingChoiceDto;
-use crate::protocol::server::{InitialSnapshotMsg, StateUpdateMsg};
+use crate::protocol::server::{GameEvent, InitialSnapshotMsg, StateUpdateMsg};
 use crate::protocol::status::{PublicTurnStatus, ViewerRole};
 use crate::protocol::view::{
     BoardTileView, BoardView, GameView, PlacedUnitView, PlanetView, PlayerView, SystemView,
@@ -219,6 +219,19 @@ pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -
     }
 }
 
+/// Projects a pending choice only to its owning seat.
+#[must_use]
+pub fn project_pending_choice(
+    viewer: &ViewerRole,
+    pending_choice: Option<(&Choice, &str)>,
+) -> Option<PendingChoiceDto> {
+    pending_choice.and_then(|(choice, nonce)| {
+        viewer
+            .is_actor(&choice.player)
+            .then(|| PendingChoiceDto::from_choice(choice, nonce.to_owned(), true))
+    })
+}
+
 /// Projects an initial snapshot for a connecting viewer with static map tiles.
 #[must_use]
 pub fn project_initial_snapshot_with_map(
@@ -228,29 +241,21 @@ pub fn project_initial_snapshot_with_map(
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
     map_tiles: &[BoardTileView],
-    events: &[crate::protocol::server::GameEventDto],
+    events: &[GameEvent],
 ) -> InitialSnapshotMsg {
-    let pending_choice_dto = pending_choice.and_then(|(choice, nonce)| {
-        if viewer.is_actor(&choice.player) {
-            Some(PendingChoiceDto::from_choice(
-                choice,
-                nonce.to_owned(),
-                true,
-            ))
-        } else {
-            None
-        }
-    });
-
     InitialSnapshotMsg {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.to_owned(),
         game_version,
         viewer: viewer.clone(),
         view: project_game_view_with_map(state, viewer, map_tiles),
-        pending_choice: pending_choice_dto,
+        pending_choice: project_pending_choice(viewer, pending_choice),
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
-        events: events.to_vec(),
+        events: events
+            .iter()
+            .filter(|event| event.visibility.permits(viewer))
+            .cloned()
+            .collect(),
     }
 }
 
@@ -284,25 +289,13 @@ pub fn project_state_update_with_map(
     pending_choice: Option<(&Choice, &str)>,
     map_tiles: &[BoardTileView],
 ) -> StateUpdateMsg {
-    let pending_choice_dto = pending_choice.and_then(|(choice, nonce)| {
-        if viewer.is_actor(&choice.player) {
-            Some(PendingChoiceDto::from_choice(
-                choice,
-                nonce.to_owned(),
-                true,
-            ))
-        } else {
-            None
-        }
-    });
-
     StateUpdateMsg {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.to_owned(),
         game_version,
         viewer: viewer.clone(),
         view: project_game_view_with_map(state, viewer, map_tiles),
-        pending_choice: pending_choice_dto,
+        pending_choice: project_pending_choice(viewer, pending_choice),
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
     }
 }

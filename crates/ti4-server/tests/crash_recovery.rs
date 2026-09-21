@@ -155,7 +155,7 @@ fn test_crash_recovery_persists_and_resumes_cleanly() {
     assert_eq!(recovered_events.len(), pre_crash_events.len());
     for (orig, rec) in pre_crash_events.iter().zip(recovered_events.iter()) {
         assert_eq!(orig.id, rec.id);
-        assert_eq!(orig.text, rec.text);
+        assert_eq!(orig.event, rec.event);
         assert_eq!(orig.version, rec.version);
     }
 

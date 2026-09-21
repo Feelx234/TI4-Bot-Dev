@@ -263,27 +263,28 @@ describe('Frontend Invariants & Property-based Checks', () => {
   });
 
   it('preserves event log identity across reconnect snapshots and live event messages', () => {
-    const events: import('../protocol/types.ts').GameEventDto[] = [
+    const events: import('../protocol/types.ts').GameEvent[] = [
       {
         id: 'game_1-1',
         timestamp: '10:00:00',
         version: 1,
-        text: 'Game initialized (Round 1, STRATEGY Phase, Speaker: p1)',
-        category: 'system',
+        visibility: 'public',
+        event: { kind: 'game_initialized', round: 1, phase: 'strategy', speaker: 'p1' },
       },
       {
         id: 'game_1-2',
         timestamp: '10:00:01',
         version: 2,
-        text: 'Decision required for p1: choose a strategy card',
-        category: 'decision',
+        visibility: 'seat',
+        seat: 'p1',
+        event: { kind: 'decision_resolved' },
       },
       {
         id: 'game_1-3',
         timestamp: '10:00:05',
         version: 2,
-        text: 'Action accepted: Strategy Card: 1. Leadership',
-        category: 'action',
+        visibility: 'public',
+        event: { kind: 'phase_transition', phase: 'action', round: 1 },
       },
     ];
 
@@ -292,8 +293,7 @@ describe('Frontend Invariants & Property-based Checks', () => {
     for (const e of events) {
       expect(e.id).toMatch(/^game_1-\d+$/);
       expect(e.timestamp).toMatch(/^\d{2}:\d{2}:\d{2}$/);
-      expect(e.text).toBeTruthy();
-      expect(['system', 'action', 'decision', 'status', 'phase', 'error']).toContain(e.category);
+      expect(e.event.kind).toBeTruthy();
     }
   });
 });

@@ -108,16 +108,14 @@ fn wrong_seat_stale_nonce_and_unknown_option_preserve_state_and_log() {
     assert!(valid_res.is_ok(), "Valid submission should succeed");
     let events = session.event_log();
     assert!(
-        events
-            .iter()
-            .all(|event| !event.text.contains(&valid_option_id)),
-        "public event history must not contain private option IDs"
-    );
-    assert!(
-        events
-            .iter()
-            .all(|event| !event.text.contains(&choice.prompt)),
-        "public event history must not contain private choice prompts"
+        events.iter().all(|event| matches!(
+            event.event,
+            ti4_server::protocol::GameEventKind::GameInitialized { .. }
+                | ti4_server::protocol::GameEventKind::DecisionResolved
+                | ti4_server::protocol::GameEventKind::PhaseTransition { .. }
+                | ti4_server::protocol::GameEventKind::GameFinished { .. }
+        )),
+        "public event history must use the fixed non-private event vocabulary"
     );
 
     // 6. Duplicate submission: submitting again for the same nonce fails

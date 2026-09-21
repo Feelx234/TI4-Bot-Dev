@@ -11,9 +11,9 @@ pub use choice::{ChoiceOptionDto, DecisionContextDto, OutstandingConstraintDto, 
 pub use client::ClientMessage;
 pub use error::{ErrorKind, ProtocolError};
 pub use server::{
-    ActionAcceptedMsg, ActionRejectedMsg, GameEventDto, GameEventMsg, GameOverMsg,
-    InitialSnapshotMsg, PendingChoiceMsg, PongMsg, ProtocolErrorMsg, ServerMessage, StateUpdateMsg,
-    TurnStatusMsg,
+    ActionAcceptedMsg, ActionRejectedMsg, EventVisibility, GameEvent, GameEventKind, GameEventMsg,
+    GameOverMsg, InitialSnapshotMsg, PendingChoiceMsg, PongMsg, ProtocolErrorMsg, ServerMessage,
+    StateUpdateMsg, TurnStatusMsg,
 };
 pub use status::{PublicTurnStatus, RejectionReason, ViewerRole};
 pub use view::{
@@ -21,7 +21,7 @@ pub use view::{
 };
 
 /// Current supported wire protocol schema version.
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 
 /// Validates that the provided protocol version matches the current build.
 ///

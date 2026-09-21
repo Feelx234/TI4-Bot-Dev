@@ -167,17 +167,17 @@ fn server_event_round_trips() {
     let msg = ServerMessage::Event(ti4_server::protocol::server::GameEventMsg {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_abc".to_owned(),
-        entry: ti4_server::protocol::server::GameEventDto {
+        entry: ti4_server::protocol::server::GameEvent {
             id: "game_abc-1".to_owned(),
             timestamp: "12:34:56".to_owned(),
             version: Some(2),
-            text: "Action accepted: Strategy Card: 1. Leadership".to_owned(),
-            category: "action".to_owned(),
+            visibility: ti4_server::protocol::server::EventVisibility::Public,
+            event: ti4_server::protocol::server::GameEventKind::DecisionResolved,
         },
     });
     let json = serde_json::to_string(&msg).expect("serialize");
     assert!(json.contains("\"type\":\"event\""));
-    assert!(json.contains("\"category\":\"action\""));
+    assert!(json.contains("\"kind\":\"decision_resolved\""));
     let deserialized = parse_server_message(&json).expect("parse");
     assert_eq!(msg, deserialized);
 }
@@ -208,7 +208,7 @@ fn unknown_protocol_version_is_rejected() {
 fn unknown_wire_fields_are_rejected() {
     let client_json_with_extra = r#"{
         "type": "ping",
-        "protocol_version": 1,
+        "protocol_version": 2,
         "sequence": 1,
         "extra_field": "unexpected"
     }"#;
@@ -219,7 +219,7 @@ fn unknown_wire_fields_are_rejected() {
 
     let server_json_with_extra = r#"{
         "type": "pong",
-        "protocol_version": 1,
+        "protocol_version": 2,
         "sequence": 1,
         "unexpected": true
     }"#;

@@ -12,7 +12,7 @@ import { decodeInitialSnapshot, decodeServerMessage, isStaleServerMessage } from
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
-export type GameLogEntry = import('./types.ts').GameEventDto;
+export type GameLogEntry = import('./types.ts').GameEvent;
 
 const MAX_EVENT_LOG_ENTRIES = 500;
 

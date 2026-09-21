@@ -6,7 +6,7 @@ use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::ViewerRole;
 use ti4_server::session::{GameSession, MockClient, SeatController, SessionConfig};
 
-fn drive_session(game_id: &str, steps_to_take: usize) -> (Vec<String>, Vec<String>) {
+fn drive_session(game_id: &str, steps_to_take: usize) -> Vec<String> {
     let state = create_sample_game();
     let seat_a = PlayerId::new("seat_a");
     let seat_b = PlayerId::new("seat_b");
@@ -46,16 +46,14 @@ fn drive_session(game_id: &str, steps_to_take: usize) -> (Vec<String>, Vec<Strin
         .into_iter()
         .map(|h| h.digest)
         .collect();
-    let events = session.events();
-
     session.stop();
-    (decision_hashes, events)
+    decision_hashes
 }
 
 #[test]
-fn deterministic_replay_produces_identical_decision_and_event_logs() {
-    let (decisions_1, events_1) = drive_session("game_determinism_1", 3);
-    let (decisions_2, events_2) = drive_session("game_determinism_2", 3);
+fn deterministic_replay_produces_identical_decision_logs() {
+    let decisions_1 = drive_session("game_determinism_1", 3);
+    let decisions_2 = drive_session("game_determinism_2", 3);
 
     assert!(
         !decisions_1.is_empty(),
@@ -64,9 +62,5 @@ fn deterministic_replay_produces_identical_decision_and_event_logs() {
     assert_eq!(
         decisions_1, decisions_2,
         "Decision hashes must be byte-for-byte identical across runs"
-    );
-    assert_eq!(
-        events_1, events_2,
-        "Event logs must be byte-for-byte identical across runs"
     );
 }

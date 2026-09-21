@@ -82,7 +82,7 @@ pub struct SessionConfig {
     pub player_ids: Vec<PlayerId>,
     pub store: Option<Arc<crate::storage::FileGameStore>>,
     pub prior_decisions: Vec<DecisionRecord>,
-    pub prior_events: Vec<crate::protocol::server::GameEventDto>,
+    pub prior_events: Vec<crate::protocol::server::GameEvent>,
 }
 
 impl SessionConfig {
@@ -145,7 +145,7 @@ impl SessionConfig {
     pub fn with_prior_history(
         mut self,
         decisions: Vec<DecisionRecord>,
-        events: Vec<crate::protocol::server::GameEventDto>,
+        events: Vec<crate::protocol::server::GameEvent>,
     ) -> Self {
         self.prior_decisions = decisions;
         self.prior_events = events;
@@ -156,8 +156,6 @@ impl SessionConfig {
 /// Handle to an active authoritative game session.
 pub struct GameSession {
     game_id: String,
-    initial_state: GameState,
-    initial_galaxy: Option<ti4_content::galaxy::Galaxy>,
     shared: Arc<Mutex<SessionShared>>,
     worker_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -167,14 +165,10 @@ impl GameSession {
     #[must_use]
     pub fn start(config: SessionConfig) -> Self {
         let game_id = config.game_id.clone();
-        let initial_state = config.state.clone();
-        let initial_galaxy = config.galaxy.clone();
         let (shared, handle) = spawn_session_worker(config);
 
         Self {
             game_id,
-            initial_state,
-            initial_galaxy,
             shared,
             worker_handle: Mutex::new(Some(handle)),
         }
@@ -184,10 +178,8 @@ impl GameSession {
     #[must_use]
     pub fn start_recovered(
         mut config: SessionConfig,
-        initial_state: GameState,
-        galaxy: Option<ti4_content::galaxy::Galaxy>,
         prior_decisions: Vec<DecisionRecord>,
-        prior_events: Vec<crate::protocol::server::GameEventDto>,
+        prior_events: Vec<crate::protocol::server::GameEvent>,
     ) -> Self {
         let game_id = config.game_id.clone();
         config.prior_decisions = prior_decisions;
@@ -196,8 +188,6 @@ impl GameSession {
 
         Self {
             game_id,
-            initial_state,
-            initial_galaxy: galaxy,
             shared,
             worker_handle: Mutex::new(Some(handle)),
         }
@@ -407,27 +397,10 @@ impl GameSession {
         self.shared.lock().expect("shared lock").decision_hashes()
     }
 
-    /// Returns the accumulated game event logs.
-    #[must_use]
-    pub fn events(&self) -> Vec<String> {
-        self.shared.lock().expect("shared lock").events.clone()
-    }
-
     /// Returns the accumulated authoritative game event log.
     #[must_use]
-    pub fn event_log(&self) -> Vec<crate::protocol::server::GameEventDto> {
+    pub fn event_log(&self) -> Vec<crate::protocol::server::GameEvent> {
         self.shared.lock().expect("shared lock").event_log.clone()
-    }
-
-    /// Performs in-memory recovery replay of the session from initial configuration,
-    /// verifying that replaying the accepted decision log yields identical canonical hashes.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReplayError`] if the engine fails or decisions diverge.
-    pub fn replay(&self) -> Result<ReplayReport, ReplayError> {
-        let records = self.decision_log();
-        replay_session(&self.initial_state, self.initial_galaxy.as_ref(), &records)
     }
 
     /// Stops the worker thread cleanly.

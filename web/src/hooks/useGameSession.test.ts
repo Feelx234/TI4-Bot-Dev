@@ -5,8 +5,8 @@ const entry = (id: string): GameLogEntry => ({
   id,
   timestamp: '12:00:00',
   version: 1,
-  text: `Authoritative event ${id}`,
-  category: 'action',
+  visibility: 'public',
+  event: { kind: 'decision_resolved' },
 });
 
 describe('serverEventLog', () => {

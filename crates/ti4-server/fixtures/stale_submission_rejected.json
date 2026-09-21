@@ -1,6 +1,6 @@
 {
   "type": "action_rejected",
-  "protocol_version": 1,
+  "protocol_version": 2,
   "game_id": "game_12345",
   "game_version": 42,
   "reason": {

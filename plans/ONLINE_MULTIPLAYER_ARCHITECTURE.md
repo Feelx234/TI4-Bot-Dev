@@ -233,7 +233,8 @@ code.
   - Default `demo` game is resumed if present on disk, or created and persisted if not.
   - New games created via HTTP `POST /api/games` automatically save `init.json` and persist all subsequent moves.
 - **Snapshot Recovery & Event Log Parity (`crates/ti4-server/src/session/worker.rs`, `web/src/hooks/useGameSession.ts`)**:
-  - Monotonic `GameEventDto` log maintained in server shared session state and persisted to disk.
+   - Monotonic typed `GameEvent` log maintained in server shared session state and persisted to disk;
+     visibility is explicit and events are projected per viewer.
   - Reconnecting clients fetch current snapshot (via WebSocket or HTTP), receiving the complete authoritative event log and matching continuous subscribers 1:1.
   - Human-readable action formatting in `crates/ti4-server/src/format.rs` aligns with frontend representations.
 - **Verification**:
