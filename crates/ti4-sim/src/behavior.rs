@@ -1075,9 +1075,19 @@ pub fn baseline_bounds() -> BTreeMap<String, (f64, f64)> {
         (1.680_032_094_254_723_6, 2.085_685_619_847_455),
     );
     // V3: the spec's across-faction quantity — re-deriven with the same baseline run.
+    //
+    // v44 — 2026-09-21. One metric moves, and it moves the way a fix should: `faction_differentiation`
+    // [0.500247, 1.050646] -> [0.548201, 1.101080]. The transaction offer set gained five shapes that
+    // take an asset *from* the partner (a note bought for goods `np`, for commodities `cp`, my note for
+    // their commodities `pc`, note-for-note `nn`, a card for a note `cn`), which is the first time the
+    // engine could ask at all. Notes are the most asymmetric cards in the game — a Research Agreement
+    // is worth four goods to its own faction and two to anybody else — so a table that can trade them
+    // separates its factions by what each one wanted. Every other metric, including the four action-mix
+    // shares that moved at v43, is inside its v43 interval unchanged; the point metric also stays
+    // inside, so this is the interval widening, not the games drifting.
     bounds.insert(
         "faction_differentiation".to_owned(),
-        (0.500_246_852_644_019, 1.050_646_479_407_492_1),
+        (0.548_201_323_747_056_3, 1.101_079_717_009_571),
     );
     bounds.insert(
         "share_INVASION_RESOLVED".to_owned(),

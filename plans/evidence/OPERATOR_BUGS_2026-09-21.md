@@ -326,3 +326,62 @@ gitignored `out/` (`s6`, `pools`, `wiring-v3`, `rollout-batch-*`, `probe-*`) dis
 listings, at ~02:13 on 2026-09-21. Nothing in this batch wrote to `out/` except two scratch files and
 a temporary Python script, all of which are still there, and no command run here deleted a directory.
 `out/` is scratch by the artifact policy, so nothing tracked was lost and nothing was restored.
+
+## F-07 landed: the engine can now ask
+
+The design above, implemented. Five shapes in `transactions::partner_assets` plus one in
+`action_card_shape`, parsed by `offer_from` in the same order, priced only from the posted prices
+that already existed:
+
+| id | the ask | what gates it |
+|---|---|---|
+| `np{note}:{g}` | my goods for their note | posted price, and I hold the goods |
+| `cp{note}:{c}` | my commodities for their note | same price, paid in commodities |
+| `pc{note}:{c}` | my note for their commodities | their commodity count, capped by the note's price |
+| `nn{mine}>{theirs}` | one of my notes for one of theirs | different promises, net ≥ 0, best four |
+| `cn{card}>{note}` | my action card for their note | 94.3 Arbiters / Black Market, as the card sale |
+
+Three things the design note got wrong and the tests corrected:
+
+1. **`pc` was written once per note across the table**, which emitted the same id several times in
+   one window — caught by `no_deal_shape_is_written_twice`, a guard that predates this work and that
+   I had not thought about. It is a function of the note I give and of what they hold, so it is now
+   generated once per note of mine.
+2. **The card-for-note shape inherited the goods gate.** The card sale is gated on the partner being
+   able to pay one good; that gate is about the price in goods, and a partner paying in paper is by
+   definition a partner who might not have the good. Hacan with a note-holding, goods-less partner was
+   the exact table the operator reported and it offered nothing. The gate now applies to `ac` alone.
+3. **The buy test had its direction backwards**: as the proposer, `theirs` is what the *partner*
+   holds, so a Jol-Nar seat buys Hacan's ceasefire, not its own Research Agreement.
+
+Every shape is tested by settling it, not just parsing it — the note changes holder in the
+ownership map, commodities land as trade goods on the receiving side (21.5), the card leaves one hand
+and arrives in the other — plus a sweep that every generated ask parses into a deal with two
+non-empty sides. `no_deal_shape_is_written_twice` covers the new set for free.
+
+### Fixture effect, measured
+
+`cargo test -p ti4-engine --lib` 1352 passed. Then the two fixtures the design note said would move:
+
+**Behaviour suite: one metric, `faction_differentiation` [0.500247, 1.050646] → [0.548201,
+1.101080].** Everything else — including the four action-mix shares that moved at v43 — is inside its
+v43 interval unchanged, and the point metric stays inside its own interval, so the interval widened
+rather than the games drifting. Notes are the most asymmetric cards in the game, so a table that can
+trade them separates its factions by what each one wanted. Attributed by scope rather than by
+reverting: `git status` shows one engine file changed, and it is the trade generator. Re-baselined to
+**v44** in `behavior.rs` with that narrative attached.
+
+**Reviewer golden: 60 of 241 frames differ; first divergence at frame 19.** Frame 19 is a Hacan seat
+opening a transaction with Sol, and it is exactly the report: the golden shows six options, the tree
+shows ten, and the four new ones read `give the note cf:hacan for the note ta:sol`. The chosen option
+in that frame is `decline` in both, and the frame's event hashes are identical — the offer set
+changed, the play did not. Choices first differ at frame 194.
+
+The honest number from that comparison: **the policy takes none of the 178 new options in this game.**
+They are offered, they are legible, they are priced, and the current MLP scores them badly — a note
+given for a note it values less is a bad trade, and it is right to say so. What changed downstream is
+that the softmax now normalizes over more options, which is enough to move a sampled choice 175 frames
+later. So this closes a capability gap for a human at the table and costs nothing in bot behaviour
+except noise; if the bots are to use paper, that is a training question and not one this commit answers.
+
+Regenerated through `TI4_REVIEW_GOLDEN_UPDATE=1` after the diff above was read, not before.
