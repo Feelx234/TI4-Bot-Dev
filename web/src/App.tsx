@@ -110,6 +110,7 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
       playerSheet={snapshot ? <PlayerSheet players={snapshot.view.players} userSeat={userSeat} /> : null}
       events={events}
       choice={pendingChoice}
+      viewerSeat={userSeat}
       onSubmitChoice={submitChoice}
       lastError={lastError}
       selectedOptionId={selectedOptionId}

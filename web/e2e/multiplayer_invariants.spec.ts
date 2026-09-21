@@ -72,6 +72,7 @@ test.describe('Multiplayer Online Flow & Invariant Suite', () => {
       },
     });
     expect(apiRes.ok()).toBeTruthy();
+    const createdGame = await apiRes.json();
 
     // 1. Open Player 1 (p1)
     const contextP1 = await browser.newContext();
@@ -81,7 +82,8 @@ test.describe('Multiplayer Online Flow & Invariant Suite', () => {
 
     // Join fresh game as Seat P1
     await pageP1.locator('[data-testid="input-game-id"]').fill(gameId);
-    await pageP1.locator('[data-testid="select-seat"]').selectOption('p1');
+    await pageP1.locator('[data-testid="select-seat"]').fill('p1');
+    await pageP1.locator('[data-testid="input-seat-token"]').fill(createdGame.seat_tokens.p1);
     await pageP1.locator('[data-testid="join-game-button"]').click();
 
     // 2. Open Player 2 (p2)
@@ -92,7 +94,8 @@ test.describe('Multiplayer Online Flow & Invariant Suite', () => {
 
     // Join fresh game as Seat P2
     await pageP2.locator('[data-testid="input-game-id"]').fill(gameId);
-    await pageP2.locator('[data-testid="select-seat"]').selectOption('p2');
+    await pageP2.locator('[data-testid="select-seat"]').fill('p2');
+    await pageP2.locator('[data-testid="input-seat-token"]').fill(createdGame.seat_tokens.p2);
     await pageP2.locator('[data-testid="join-game-button"]').click();
 
     // 3. Open Spectator
@@ -233,7 +236,8 @@ test.describe('Multiplayer Online Flow & Invariant Suite', () => {
 
     // Rejoin as p1
     await pageP1.locator('[data-testid="input-game-id"]').fill(gameId);
-    await pageP1.locator('[data-testid="select-seat"]').selectOption('p1');
+    await pageP1.locator('[data-testid="select-seat"]').fill('p1');
+    await pageP1.locator('[data-testid="input-seat-token"]').fill(createdGame.seat_tokens.p1);
     await pageP1.locator('[data-testid="join-game-button"]').click();
 
     await expect(pageP1.locator('[data-testid="turn-status-bar"]')).toBeVisible();

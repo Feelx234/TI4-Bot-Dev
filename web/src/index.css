@@ -20,8 +20,8 @@
   --shadow-panel: 0 10px 30px rgba(0, 0, 0, 0.8);
   --layer-board: 0;
   --layer-board-chrome: 1;
-  --layer-drawer: 10;
-  --layer-banner: 20;
+  --layer-banner: 15;
+  --layer-drawer: 20;
   --layer-modal: 30;
 }
 
@@ -61,7 +61,7 @@ body, html, #root {
 }
 
 .app-shell__header {
-  z-index: var(--layer-board-chrome);
+  z-index: 35;
 }
 
 .game-header {

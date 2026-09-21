@@ -396,3 +396,73 @@ export function deriveChoiceRendererModel(
     optionsByTarget,
   };
 }
+
+export function classifyChoiceWorkflow(choice: PendingChoiceDto | null): ChoiceWorkflowKind {
+  if (!choice) return 'generic_selection';
+  const subtype = choice.context?.subtype ?? '';
+  const isOptional = Boolean(choice.context?.optional || choice.options.some((o) => o.id === 'decline' || o.kind === 'decline'));
+  const options = choice.options;
+
+  if (
+    subtype === 'pay_resources' ||
+    subtype === 'pay_influence' ||
+    subtype === 'spend_command_tokens' ||
+    subtype === 'leadership_spend_influence' ||
+    subtype === 'tactical_production' ||
+    options.some((o) => o.kind === 'pay')
+  ) {
+    return 'payment';
+  }
+
+  if (
+    subtype === 'activate_system' ||
+    (options.length > 0 && options.every((o) => o.kind === 'activate'))
+  ) {
+    return 'system_activation';
+  }
+
+  if (subtype === 'movement_step' || choice.prompt.toLowerCase().includes('movement')) {
+    return 'tactical_movement';
+  }
+
+  if (subtype === 'load_cargo') {
+    return 'tactical_cargo';
+  }
+
+  if (subtype === 'commit_ground_forces') {
+    return 'tactical_invasion';
+  }
+
+  if (subtype === 'produce_unit' || subtype === 'place_unit') {
+    return 'production';
+  }
+
+  if (subtype === 'sustain_damage') {
+    return 'combat_sustain';
+  }
+
+  if (subtype === 'assign_casualty' || options.some((o) => o.kind === 'casualty')) {
+    return 'combat_casualty';
+  }
+
+  if (subtype === 'announce_retreat' || subtype === 'retreat_to' || options.some((o) => o.kind === 'retreat')) {
+    return 'combat_retreat';
+  }
+
+  if (subtype === 'propose_transaction' || subtype === 'answer_transaction' || options.some((o) => o.kind === 'offer')) {
+    return subtype === 'answer_transaction' ? 'transaction_answer' : 'transaction_propose';
+  }
+
+  if (subtype === 'cast_vote' || subtype === 'vote_exhaust_planet' || subtype === 'vote_tiebreak') {
+    return subtype === 'vote_exhaust_planet' ? 'agenda_vote_planets' : 'agenda_vote_outcome';
+  }
+
+  if (
+    subtype.startsWith('play_reaction_') ||
+    (isOptional && options.length <= 4 && choice.context?.source && 'Reaction' in choice.context.source)
+  ) {
+    return 'action_card_reaction';
+  }
+
+  return 'generic_selection';
+}

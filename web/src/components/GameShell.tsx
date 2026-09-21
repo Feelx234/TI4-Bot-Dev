@@ -3,6 +3,14 @@ import { GameLogEntry } from '../hooks/useGameSession.ts';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { EventLog } from './EventLog.tsx';
 import { PendingChoiceModal } from './PendingChoiceModal.tsx';
+import { PaymentDrawer } from './PaymentDrawer.tsx';
+import { TacticalMovementOverlay } from './TacticalMovementOverlay.tsx';
+import { CombatResolutionModal } from './CombatResolutionModal.tsx';
+import { TradeDeskModal } from './TradeDeskModal.tsx';
+import { AgendaBallotModal } from './AgendaBallotModal.tsx';
+import { ReactionStatusBar } from './ReactionStatusBar.tsx';
+import { ProductionBuilderDrawer } from './ProductionBuilderDrawer.tsx';
+import { classifyChoiceWorkflow } from '../presentation/choiceModel.ts';
 import { overlayStack } from '../primitives/index.ts';
 
 export interface GameShellProps {
@@ -15,7 +23,168 @@ export interface GameShellProps {
   lastError?: string | null;
   selectedOptionId?: string;
   onSelectOption?: (optionId: string) => void;
+  viewerSeat?: string | null;
 }
+
+export interface ChoiceRendererDispatcherProps {
+  choice: PendingChoiceDto | null;
+  viewerSeat?: string | null;
+  onSubmit: (optionId: string) => Promise<void>;
+  lastError?: string | null;
+  selectedOptionId?: string;
+  onSelectOption?: (optionId: string) => void;
+  isMinimized: boolean;
+  onMinimizedChange: (minimized: boolean) => void;
+}
+
+export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> = ({
+  choice,
+  viewerSeat,
+  onSubmit,
+  lastError,
+  selectedOptionId,
+  onSelectOption,
+  isMinimized,
+  onMinimizedChange,
+}) => {
+  if (!choice) return null;
+
+  const workflow = classifyChoiceWorkflow(choice);
+
+  return (
+    <>
+      {/* Minimized Decision Pill for dedicated drawers/modals */}
+      {isMinimized && workflow !== 'generic_selection' && workflow !== 'system_activation' && (
+        <div
+          className="choice-banner"
+          data-testid="choice-minimized-pill"
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(15, 23, 42, 0.95)',
+            border: '2px solid #38bdf8',
+            borderRadius: 8,
+            padding: '8px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+            zIndex: 1000,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#f8fafc' }}>{choice.prompt}</span>
+          <button
+            type="button"
+            data-testid="resume-decision-btn"
+            onClick={() => onMinimizedChange(false)}
+            className="button button--primary button--sm"
+          >
+            Resume Decision
+          </button>
+        </div>
+      )}
+
+      {/* 1. Payment Drawer */}
+      {workflow === 'payment' && (
+        <PaymentDrawer
+          choice={choice}
+          viewerSeat={viewerSeat}
+          onSubmit={onSubmit}
+          isOpen={!isMinimized}
+          onClose={() => onMinimizedChange(true)}
+          lastError={lastError}
+        />
+      )}
+
+      {/* 2. Tactical Movement Overlay */}
+      {workflow === 'tactical_movement' && (
+        <TacticalMovementOverlay
+          choice={choice}
+          viewerSeat={viewerSeat}
+          onSubmit={onSubmit}
+          isOpen={!isMinimized}
+          onClose={() => onMinimizedChange(true)}
+          lastError={lastError}
+        />
+      )}
+
+      {/* 3. Combat Resolution Modal */}
+      {(workflow === 'combat_sustain' || workflow === 'combat_casualty' || workflow === 'combat_retreat') && (
+        <CombatResolutionModal
+          choice={choice}
+          viewerSeat={viewerSeat}
+          onSubmit={onSubmit}
+          isOpen={!isMinimized}
+          onClose={() => onMinimizedChange(true)}
+          lastError={lastError}
+        />
+      )}
+
+      {/* 4. Trade Desk Modal */}
+      {(workflow === 'transaction_propose' || workflow === 'transaction_answer') && (
+        <TradeDeskModal
+          choice={choice}
+          viewerSeat={viewerSeat}
+          onSubmit={onSubmit}
+          isOpen={!isMinimized}
+          onClose={() => onMinimizedChange(true)}
+          lastError={lastError}
+        />
+      )}
+
+      {/* 5. Agenda Ballot Modal */}
+      {(workflow === 'agenda_vote_outcome' || workflow === 'agenda_vote_planets') && (
+        <AgendaBallotModal
+          choice={choice}
+          viewerSeat={viewerSeat}
+          onSubmit={onSubmit}
+          isOpen={!isMinimized}
+          onClose={() => onMinimizedChange(true)}
+          lastError={lastError}
+        />
+      )}
+
+      {/* 6. Reaction Status Bar */}
+      {workflow === 'action_card_reaction' && (
+        <ReactionStatusBar
+          choice={choice}
+          viewerSeat={viewerSeat}
+          onSubmit={onSubmit}
+          isOpen={!isMinimized}
+          onClose={() => onMinimizedChange(true)}
+          lastError={lastError}
+        />
+      )}
+
+      {/* 7. Production Builder Drawer */}
+      {workflow === 'production' && (
+        <ProductionBuilderDrawer
+          choice={choice}
+          viewerSeat={viewerSeat}
+          onSubmit={onSubmit}
+          isOpen={!isMinimized}
+          onClose={() => onMinimizedChange(true)}
+          lastError={lastError}
+        />
+      )}
+
+      {/* 8. Fallback / Generic Selection & System Activation Modal */}
+      {(workflow === 'generic_selection' || workflow === 'system_activation') && (
+        <PendingChoiceModal
+          choice={choice}
+          onSubmit={onSubmit}
+          lastError={lastError}
+          isMinimized={isMinimized}
+          onMinimizedChange={onMinimizedChange}
+          selectedOptionId={selectedOptionId}
+          onSelectOption={onSelectOption}
+        />
+      )}
+    </>
+  );
+};
 
 export const GameShell: React.FC<GameShellProps> = ({
   header,
@@ -27,6 +196,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   lastError,
   selectedOptionId,
   onSelectOption,
+  viewerSeat,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<'events' | 'players' | null>(null);
   const [isChoiceMinimized, setIsChoiceMinimized] = useState(false);
@@ -96,14 +266,15 @@ export const GameShell: React.FC<GameShellProps> = ({
       </section>
 
       <div className="app-shell__overlays">
-        <PendingChoiceModal
+        <ChoiceRendererDispatcher
           choice={choice}
+          viewerSeat={viewerSeat}
           onSubmit={onSubmitChoice}
           lastError={lastError}
-          isMinimized={isChoiceMinimized}
-          onMinimizedChange={setIsChoiceMinimized}
           selectedOptionId={selectedOptionId}
           onSelectOption={onSelectOption}
+          isMinimized={isChoiceMinimized}
+          onMinimizedChange={setIsChoiceMinimized}
         />
       </div>
     </div>

@@ -99,4 +99,127 @@ describe('GameShell', () => {
     fireEvent.click(radio1);
     expect(onSelectOption).toHaveBeenCalledWith('opt_1');
   });
+
+  it('dispatches to domain-specific drawers and modals based on workflow subtype', () => {
+    // 1. Payment Drawer
+    const { rerender } = render(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{
+          actor: 'p1',
+          nonce: 'pay-1',
+          prompt: 'Pay 3 resources',
+          context: { subtype: 'pay_resources' },
+          options: [{ id: 'opt_1', label: 'Planet 1' }],
+        }}
+        viewerSeat="p1"
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    expect(screen.getByTestId('payment-drawer')).toBeInTheDocument();
+
+    // 2. Combat Resolution Modal
+    rerender(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{
+          actor: 'p1',
+          nonce: 'combat-1',
+          prompt: 'Sustain damage',
+          context: { subtype: 'sustain_damage' },
+          options: [{ id: 'opt_1', label: 'Dreadnought' }],
+        }}
+        viewerSeat="p1"
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    expect(screen.getByTestId('combat-resolution-modal')).toBeInTheDocument();
+
+    // 3. Trade Desk Modal
+    rerender(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{
+          actor: 'p1',
+          nonce: 'trade-1',
+          prompt: 'Propose transaction',
+          context: { subtype: 'propose_transaction' },
+          options: [{ id: 'cc1', label: 'Swap' }],
+        }}
+        viewerSeat="p1"
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    expect(screen.getByTestId('trade-desk-modal')).toBeInTheDocument();
+
+    // 4. Agenda Ballot Modal
+    rerender(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{
+          actor: 'p1',
+          nonce: 'agenda-1',
+          prompt: 'Cast vote',
+          context: { subtype: 'cast_vote' },
+          options: [{ id: 'FOR', label: 'FOR' }],
+        }}
+        viewerSeat="p1"
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    expect(screen.getByTestId('agenda-ballot-modal')).toBeInTheDocument();
+
+    // 5. Reaction Status Bar
+    rerender(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{
+          actor: 'p1',
+          nonce: 'reaction-1',
+          prompt: 'Sabotage?',
+          context: { subtype: 'play_reaction_when_action_card_played' },
+          options: [{ id: 'sabotage', label: 'Sabotage' }],
+        }}
+        viewerSeat="p1"
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    expect(screen.getByTestId('reaction-status-bar')).toBeInTheDocument();
+
+    // 6. Production Builder Drawer
+    rerender(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{
+          actor: 'p1',
+          nonce: 'prod-1',
+          prompt: 'Produce units',
+          context: { subtype: 'produce_unit' },
+          options: [{ id: 'produce|fighter', label: 'Fighter' }],
+        }}
+        viewerSeat="p1"
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    expect(screen.getByTestId('production-builder-drawer')).toBeInTheDocument();
+  });
 });
+
