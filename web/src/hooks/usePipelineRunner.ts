@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { PendingChoiceDto, ChoiceOptionDto } from '../protocol/types.ts';
 
 export interface SemanticIntent {
+  /** Identifies the intent type for logging/tracing. */
   kind: 'movement' | 'casualty' | 'payment' | 'selection';
   predicate: (option: ChoiceOptionDto) => boolean;
   description: string;
@@ -15,6 +16,11 @@ export function usePipelineRunner(
   const [isRunning, setIsRunning] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const isSubmittingRef = useRef(false);
+  // Keep a stable ref to submitChoice so the effect never lists it as a
+  // dependency. This prevents the effect from firing mid-run whenever the
+  // parent re-creates onSubmit on every render.
+  const submitRef = useRef(submitChoice);
+  submitRef.current = submitChoice;
 
   useEffect(() => {
     if (!isRunning) return;
@@ -32,7 +38,7 @@ export function usePipelineRunner(
 
     if (matchingOption) {
       isSubmittingRef.current = true;
-      submitChoice(matchingOption.id)
+      submitRef.current(matchingOption.id)
         .then(() => {
           setActiveQueue((prev) => {
             const next = prev.slice(1);
@@ -56,7 +62,7 @@ export function usePipelineRunner(
       setActiveQueue([]);
       isSubmittingRef.current = false;
     }
-  }, [pendingChoice?.nonce, isRunning, activeQueue, submitChoice]);
+  }, [pendingChoice?.nonce, isRunning, activeQueue]);
 
   const executePipeline = (intents: SemanticIntent[]) => {
     if (intents.length === 0) {

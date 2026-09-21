@@ -155,7 +155,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
     }
   };
 
-  const handleConfirmSustain = async (optionId: string) => {
+  const handleDirectConfirm = async (optionId: string) => {
     setIsDirectSubmitting(true);
     try {
       await onSubmit(optionId);
@@ -310,7 +310,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                       key={opt.id}
                       type="button"
                       data-testid={`sustain-opt-${opt.id}`}
-                      onClick={() => handleConfirmSustain(opt.id)}
+                      onClick={() => handleDirectConfirm(opt.id)}
                       disabled={isDirectSubmitting}
                       className="button button--secondary"
                       style={{
@@ -335,7 +335,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                   <button
                     type="button"
                     data-testid="decline-sustain-btn"
-                    onClick={() => handleConfirmSustain(declineOption.id)}
+                    onClick={() => handleDirectConfirm(declineOption.id)}
                     disabled={isDirectSubmitting}
                     className="button button--secondary"
                   >
@@ -482,7 +482,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                     key={opt.id}
                     type="button"
                     data-testid={`retreat-opt-${opt.id}`}
-                    onClick={() => handleConfirmSustain(opt.id)}
+                    onClick={() => handleDirectConfirm(opt.id)}
                     disabled={isDirectSubmitting}
                     className="button button--secondary"
                     style={{ textAlign: 'left', padding: '10px 14px' }}

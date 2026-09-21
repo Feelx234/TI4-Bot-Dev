@@ -109,4 +109,67 @@ describe('tradeDecoder', () => {
     expect(decodedFr.details.fragment).toBe('cultural');
     expect(decodedFr.details.price).toBe(4);
   });
+
+  // --- conflict / edge-case paths (finding #15) ---
+
+  it('prefix precedence: ct prefix beats the generic c-with-colon branch', () => {
+    // "ct3:2" starts with 'ct', which is case 6 (commodity→TG).
+    // It also starts with 'c' and contains ':', which is case 8 (commodity gift).
+    // Case 6 must win because it appears first in the decoder.
+    const opt: ChoiceOptionDto = {
+      id: 'ct3:2',
+      kind: 'offer',
+      label: 'give 3 commodities for 2 trade goods',
+    };
+    const decoded = decodeTradeOption(opt);
+    expect(decoded.category).toBe('goods_exchange');
+    expect(decoded.details.giveCommodities).toBe(3);
+    expect(decoded.details.receiveTradeGoods).toBe(2);
+    // Must NOT be misread as a commodity gift
+    expect(decoded.details.receiveTradeGoods).not.toBeUndefined();
+  });
+
+  it('payload fields take priority over prefix heuristics (pn id + swap_commodities payload)', () => {
+    // The id starts with 'pn' (promissory branch) but the payload carries
+    // swap_commodities — payload.note is absent, so the pn branch is still
+    // exercised (id prefix wins over the extra payload field).
+    // This verifies that a mismatched payload does not corrupt the category.
+    const opt: ChoiceOptionDto = {
+      id: 'pnsupport:sol:0',
+      kind: 'offer',
+      label: 'Support for the Throne (gift)',
+      payload: { swap_commodities: 2, gift: true },
+    };
+    const decoded = decodeTradeOption(opt);
+    // pn prefix matches first; swap_commodities in payload is ignored
+    expect(decoded.category).toBe('promissory');
+    expect(decoded.details.promissoryNote).toBe('support:sol');
+    expect(decoded.details.price).toBe(0);
+  });
+
+  it('unknown id format falls back to category "other"', () => {
+    const opt: ChoiceOptionDto = {
+      id: 'zzunknown_format',
+      kind: 'offer',
+      label: 'Some unknown offer',
+    };
+    const decoded = decodeTradeOption(opt);
+    expect(decoded.category).toBe('other');
+    expect(decoded.label).toBe('Some unknown offer');
+    // details should be empty, not throw
+    expect(Object.keys(decoded.details)).toHaveLength(0);
+  });
+
+  it('mutual_support via payload.kind overrides id prefix', () => {
+    // An id that does NOT equal 'ss' but carries kind='mutual_support' in
+    // the payload should still be classified as mutual_support.
+    const opt: ChoiceOptionDto = {
+      id: 'ms_custom',
+      kind: 'offer',
+      label: 'Mutual Support Variant',
+      payload: { kind: 'mutual_support', net: 0, their_net: 0 },
+    };
+    const decoded = decodeTradeOption(opt);
+    expect(decoded.category).toBe('mutual_support');
+  });
 });

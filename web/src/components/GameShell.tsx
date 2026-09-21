@@ -53,8 +53,8 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   players,
 }) => {
   const derivedModel = useMemo(() => {
-    return choice ? deriveChoiceRendererModel(choice, choice.actor) : null;
-  }, [choice]);
+    return choice ? deriveChoiceRendererModel(choice, viewerSeat ?? null) : null;
+  }, [choice, viewerSeat]);
 
   if (!choice) return null;
 

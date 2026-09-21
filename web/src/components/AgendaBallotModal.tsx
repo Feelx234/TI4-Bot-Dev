@@ -73,7 +73,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
         return {
           id: opt.id,
           label: opt.label,
-          planetName: opt.id,
+          planetName: opt.label || opt.id,
           votes,
         };
       });

@@ -6,6 +6,9 @@ import {
   PendingChoiceDto,
 } from '../protocol/types.ts';
 
+/** The four closed tech-specialty colours in TI4. */
+export type TechSpecialty = 'biotic' | 'propulsion' | 'cybernetic' | 'warfare';
+
 export const PLAYER_PALETTE: readonly string[] = [
   '#ef4444', // Red
   '#38bdf8', // Sky blue
@@ -42,7 +45,7 @@ export interface PlanetPresentation {
   resources: number;
   influence: number;
   traits: string[];
-  techSpecialties: string[];
+  techSpecialties: TechSpecialty[];
   legendary: boolean;
   controlledBy: string | null;
   controllerColor: string;
@@ -374,7 +377,7 @@ export function deriveSelectedSystemDetails(
       resources: sp.resources,
       influence: sp.influence,
       traits: sp.traits || [],
-      techSpecialties: sp.tech_specialties || [],
+      techSpecialties: (sp.tech_specialties || []) as TechSpecialty[],
       legendary: Boolean(sp.legendary),
       controlledBy: dyn?.controlled_by || null,
       controllerColor: getPlayerColor(dyn?.controlled_by, seatingOrder),
@@ -574,7 +577,7 @@ export function buildBoardPresentationModel(
         resources: sp.resources,
         influence: sp.influence,
         traits: sp.traits || [],
-        techSpecialties: sp.tech_specialties || [],
+        techSpecialties: (sp.tech_specialties || []) as TechSpecialty[],
         legendary: Boolean(sp.legendary),
         controlledBy: dyn?.controlled_by || null,
         controllerColor: getPlayerColor(dyn?.controlled_by, seatingOrder),

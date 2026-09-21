@@ -63,7 +63,9 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
 
       const isFighter = unit.includes('fighter');
       const isGroundForce = unit.includes('infantry') || unit.includes('mech');
-      const capacityPerUnit = p.capacity ?? (unit.includes('carrier') ? 4 : unit.includes('dreadnought') ? 1 : 0);
+      // Capacity comes from the engine payload; default to 0 rather than
+      // hard-coding faction-specific values (Nomad, Nekro, Titans, etc.).
+      const capacityPerUnit = p.capacity ?? 0;
 
       const existing = groupMap.get(key);
       if (existing) {

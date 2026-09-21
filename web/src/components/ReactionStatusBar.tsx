@@ -98,6 +98,10 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
 
     if (secondsRemaining <= 0) {
       if (declineOption) {
+        // Clear the countdown immediately before calling handleAction so the
+        // effect cannot re-fire if isSubmitting changes while the network
+        // call is in flight.
+        setSecondsRemaining(null);
         handleAction(declineOption.id);
       }
       return;
