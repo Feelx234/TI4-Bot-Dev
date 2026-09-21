@@ -479,3 +479,31 @@ come with this analysis attached.
 
 That leaves the class where the Maxis fix left it: a rule about *things* may read the board, a rule
 about *places* may not, and the field now says so on itself.
+
+## BUG-08: refresh offered, paying the due is not — one cause fixed, one left open
+
+**The fault.** A due was gated on the transaction budget. `payment_actions` skipped a pending promise
+whenever the owing seat had already `transacted_with` the beneficiary or spent an initiation on them,
+and `fulfill_payment` both recorded the transaction and consumed an initiation. So paying one due
+made it impossible to pay the next one to the same player, and any voluntary trade with them made you
+unable to honour the treaty at all — obeying a deal removed the option to obey it. A promise already
+in force is not a new contact, so neither the gate nor the budget belongs here.
+
+**Red first, and proved red.** `a_due_survives_having_transacted_with_the_person_it_is_owed_to` offers
+a 2-goods due, records a transaction, asserts the due is still offered, consumes an initiation,
+asserts it again. The fix and the test were written in one sitting, so the fix was reverted and the
+test re-run to confirm it actually fails without it: `FAILED` with the gate, passes without.
+
+**Verification.** Engine 1354, `ti4-sim` 52, reviewer golden byte-identical. Inert in the recorded
+corpus — that game never tried to pay twice to one player — which is why the strict re-derivation
+never fired and no fixture moved.
+
+**What is NOT fixed, and it may be the half the operator saw.** A seat that owes 2 trade goods and
+holds 1 is offered **nothing**: the affordability filter returns an empty list rather than a partial
+payment, while an affordable refresh on the same deal still shows. That reproduces the reported
+symptom at least as directly as the gate did. Whether TI4 diplomacy allows a partial payment, and
+what happens to the shortfall, is not answered by `agendas.json`/deal text and I would be inventing a
+rule to write either behaviour. Open, with the file and line named: the affordability filter in
+`diplomacy/candidates.rs::payment_actions` and its test
+`payment_actions_offer_only_currently_legal_atomic_transfers`, which currently *demands* emptiness
+when the seat is short. Needs the rules text or the operator's saved game.

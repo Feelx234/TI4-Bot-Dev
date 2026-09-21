@@ -90,15 +90,13 @@ pub fn payment_actions(
             if side_actor != actor {
                 continue;
             }
-            if state.transacted_with(actor).contains(beneficiary)
-                || state
-                    .diplomacy
-                    .initiations_this_turn
-                    .get(actor)
-                    .is_some_and(|used| used.contains(beneficiary))
-            {
-                continue;
-            }
+            // No initiation gate here, deliberately. This loop lists the ways to perform a
+            // promise that is already in force -- a payment that is due, a relation to refresh --
+            // and performing one is not conducting a transaction. Gating it on the transaction
+            // budget made a seat unable to pay a second due to the same player, and unable to pay
+            // at all after any voluntary trade with them, so that obeying a treaty could remove
+            // the option to obey it. The budget is spent by the initiator's own offer path.
+
             for (index, (term, status)) in terms.iter().zip(statuses).enumerate() {
                 if *status != ti4_model::PromiseStatus::Pending {
                     continue;
@@ -1168,6 +1166,53 @@ mod tests {
         );
         state.player_mut(&pid("a")).unwrap().trade_goods = 1;
         assert!(payment_actions(&state, content, &galaxy, &pid("a")).is_empty());
+    }
+
+    /// Paying what you owe is not starting a conversation.
+    ///
+    /// A due was gated on the same budget as an initiation, so a seat that had already traded with
+    /// -- or already paid -- somebody could not pay them again. Compliance was locking itself out,
+    /// which is how "refresh offered, paying the due not" reaches the screen.
+    #[test]
+    fn a_due_survives_having_transacted_with_the_person_it_is_owed_to() {
+        let (mut state, galaxy) = fixture();
+        let content = ContentStore::embedded();
+        let revision = DealRevision::new(
+            0,
+            pid("a"),
+            vec![DealTerm::FuturePayment {
+                asset: TransferAsset::TradeGoods(2),
+                deadline_round: state.round,
+            }],
+            vec![],
+            state.round,
+        )
+        .unwrap();
+        let id = state
+            .diplomacy
+            .create_deal(pid("a"), pid("b"), state.round, revision)
+            .unwrap();
+        state.diplomacy.active_deals.get_mut(&id).unwrap().status = DealStatus::Active;
+        assert_eq!(
+            payment_actions(&state, content, &galaxy, &pid("a")).len(),
+            1
+        );
+
+        // Same seat, same partner, one transaction already conducted this turn.
+        state.record_transaction(&pid("a"), &pid("b"));
+        assert_eq!(
+            payment_actions(&state, content, &galaxy, &pid("a")).len(),
+            1,
+            "the due is owed whether or not they also traded"
+        );
+
+        // An initiation spent on them cancels the obligation no better.
+        let _ = state.diplomacy.consume_initiation(&pid("a"), &pid("b"));
+        assert_eq!(
+            payment_actions(&state, content, &galaxy, &pid("a")).len(),
+            1,
+            "a payment fulfils a promise; it does not initiate a deal"
+        );
     }
 
     #[test]
