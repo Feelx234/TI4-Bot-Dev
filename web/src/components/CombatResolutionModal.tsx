@@ -3,6 +3,7 @@ import { PendingChoiceDto } from '../protocol/types.ts';
 import { getCombatPayload, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { Dialog } from '../primitives/index.ts';
+import { WorkflowShell } from './WorkflowShell.tsx';
 
 export interface CombatResolutionModalProps {
   choice: PendingChoiceDto | null;
@@ -33,11 +34,9 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
 }) => {
   // Staged casualties: unitType -> count
   const [stagedCasualties, setStagedCasualties] = useState<Record<string, number>>({});
-  const [isDirectSubmitting, setIsDirectSubmitting] = useState(false);
 
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
 
-  const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const subtype = choice?.context?.subtype ?? '';
   const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
   const hitsOwed = model?.selectionMode.mode === 'casualty'
@@ -49,10 +48,6 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
   const isSustainStage = subtype === 'sustain_damage' || model?.workflow === 'combat_sustain';
   const isCasualtyStage = subtype === 'assign_casualty' || model?.workflow === 'combat_casualty' || choice?.options.some((o) => o.kind === 'casualty');
   const isRetreatStage = subtype === 'announce_retreat' || subtype === 'retreat_to' || model?.workflow === 'combat_retreat';
-
-  const declineOption = useMemo(() => {
-    return model?.declineOption ?? (choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null);
-  }, [choice, model]);
 
   // Group casualty options
   const casualtyGroups = useMemo(() => {
@@ -84,7 +79,6 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
   // Reset staging on nonce change
   useEffect(() => {
     setStagedCasualties({});
-    setIsDirectSubmitting(false);
   }, [choice?.nonce]);
 
   const totalCasualtiesAllocated = Object.values(stagedCasualties).reduce((a, b) => a + b, 0);
@@ -120,7 +114,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
     setStagedCasualties(allocation);
   };
 
-  const handleConfirmCasualties = async () => {
+  const handleConfirmCasualties = async (isDirectSubmitting: boolean, submitDirect: (optionId: string) => Promise<void>) => {
     if (!isCasualtyAllocationValid || isPipelineRunning || isDirectSubmitting || !choice) return;
 
     const intents: SemanticIntent[] = [];
@@ -141,24 +135,10 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
     }
 
     if (intents.length === 1) {
-      setIsDirectSubmitting(true);
-      try {
         const opt = choice.options.find(intents[0].predicate);
-        if (opt) await onSubmit(opt.id);
-      } finally {
-        setIsDirectSubmitting(false);
-      }
+        if (opt) await submitDirect(opt.id);
     } else {
       executePipeline(intents);
-    }
-  };
-
-  const handleDirectConfirm = async (optionId: string) => {
-    setIsDirectSubmitting(true);
-    try {
-      await onSubmit(optionId);
-    } finally {
-      setIsDirectSubmitting(false);
     }
   };
 
@@ -263,22 +243,17 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
             </div>
           )}
 
-          {/* Spectator Notice */}
-          {!isActor && (
-            <div
-              data-testid="spectator-combat-notice"
-              style={{
-                background: 'rgba(56, 189, 248, 0.15)',
-                border: '1px solid #38bdf8',
-                borderRadius: 6,
-                padding: 10,
-                fontSize: 13,
-                color: '#38bdf8',
-              }}
-            >
-              Observing combat resolution in progress for seat {choice.actor}...
-            </div>
-          )}
+          <WorkflowShell
+            choice={choice}
+            model={model}
+            viewerSeat={viewerSeat}
+            onSubmit={onSubmit}
+            lastError={lastError}
+            spectatorNotice={`Observing combat resolution in progress for seat ${choice.actor}...`}
+            spectatorNoticeTestId="spectator-combat-notice"
+            errorTestId="combat-error-banner"
+          >
+            {({ isActor, isDirectSubmitting, declineOption, submitDirect }) => <>
 
           {/* Stage 1: Sustain Damage */}
           {isActor && isSustainStage && (
@@ -308,7 +283,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                       key={opt.id}
                       type="button"
                       data-testid={`sustain-opt-${opt.id}`}
-                      onClick={() => handleDirectConfirm(opt.id)}
+                       onClick={() => submitDirect(opt.id)}
                       disabled={isDirectSubmitting}
                       className="button button--secondary"
                       style={{
@@ -333,7 +308,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                   <button
                     type="button"
                     data-testid="decline-sustain-btn"
-                    onClick={() => handleDirectConfirm(declineOption.id)}
+                     onClick={() => submitDirect(declineOption.id)}
                     disabled={isDirectSubmitting}
                     className="button button--secondary"
                   >
@@ -449,7 +424,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                 <button
                   type="button"
                   data-testid="confirm-casualties-btn"
-                  onClick={handleConfirmCasualties}
+                   onClick={() => handleConfirmCasualties(isDirectSubmitting, submitDirect)}
                   disabled={!isCasualtyAllocationValid || isPipelineRunning || isDirectSubmitting}
                   className="button button--primary"
                   style={{
@@ -480,7 +455,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                     key={opt.id}
                     type="button"
                     data-testid={`retreat-opt-${opt.id}`}
-                    onClick={() => handleDirectConfirm(opt.id)}
+                    onClick={() => submitDirect(opt.id)}
                     disabled={isDirectSubmitting}
                     className="button button--secondary"
                     style={{ textAlign: 'left', padding: '10px 14px' }}
@@ -492,22 +467,8 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
             </div>
           )}
 
-          {lastError && (
-            <div
-              data-testid="combat-error-banner"
-              role="alert"
-              style={{
-                background: 'rgba(239, 68, 68, 0.15)',
-                border: '1px solid #ef4444',
-                color: '#fca5a5',
-                padding: '8px 12px',
-                borderRadius: 6,
-                fontSize: 12,
-              }}
-            >
-              {lastError}
-            </div>
-          )}
+            </>}
+          </WorkflowShell>
         </div>
       </Dialog.Content>
     </Dialog.Root>

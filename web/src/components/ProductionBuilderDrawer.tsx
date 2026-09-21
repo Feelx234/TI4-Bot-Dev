@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { Dialog } from '../primitives/index.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
+import { WorkflowShell } from './WorkflowShell.tsx';
 
 export interface ProductionBuilderDrawerProps {
   choice: PendingChoiceDto | null;
@@ -22,21 +23,9 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   onClose,
   lastError,
 }) => {
-  const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const subtype = choice?.context?.subtype ?? '';
   const isPlaceUnit = subtype === 'place_unit';
   const isProduceUnit = subtype === 'produce_unit' || !isPlaceUnit;
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Reset submitting state on nonce change
-  useEffect(() => {
-    setIsSubmitting(false);
-  }, [choice?.nonce]);
-
-  const declineOption = useMemo(() => {
-    return model?.declineOption ?? (choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null);
-  }, [choice, model]);
 
   const productionOptions = useMemo(() => {
     if (!choice) return [];
@@ -55,16 +44,6 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
     : (choice?.context?.target && 'System' in choice.context.target
       ? choice.context.target.System
       : '');
-
-  const handleSelectOption = async (optionId: string) => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      await onSubmit(optionId);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   if (!isOpen || !choice) return null;
 
@@ -120,23 +99,17 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
           </button>
         </div>
 
-        {/* Spectator Notice */}
-        {!isActor && (
-          <div
-            data-testid="spectator-production-notice"
-            style={{
-              background: 'rgba(16, 185, 129, 0.15)',
-              border: '1px solid #10b981',
-              borderRadius: 6,
-              padding: 10,
-              fontSize: 13,
-              color: '#6ee7b7',
-              marginBottom: 16,
-            }}
-          >
-            Observing unit production in progress for seat {choice.actor}...
-          </div>
-        )}
+        <WorkflowShell
+          choice={choice}
+          model={model}
+          viewerSeat={viewerSeat}
+          onSubmit={onSubmit}
+          lastError={lastError}
+          spectatorNotice={`Observing unit production in progress for seat ${choice.actor}...`}
+          spectatorNoticeTestId="spectator-production-notice"
+          errorTestId="production-error-banner"
+        >
+          {({ isActor, isDirectSubmitting: isSubmitting, declineOption, submitDirect }) => <>
 
         {/* Produce Unit Mode */}
         {isActor && isProduceUnit && (
@@ -203,7 +176,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                   key={opt.id}
                   type="button"
                   data-testid={`produce-unit-btn-${opt.id}`}
-                  onClick={() => handleSelectOption(opt.id)}
+                  onClick={() => submitDirect(opt.id)}
                   disabled={isSubmitting}
                   className="button button--secondary"
                   style={{
@@ -231,7 +204,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                 <button
                   type="button"
                   data-testid="done-producing-btn"
-                  onClick={() => handleSelectOption(declineOption.id)}
+                   onClick={() => submitDirect(declineOption.id)}
                   disabled={isSubmitting}
                   className="button button--primary"
                   style={{
@@ -262,7 +235,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                   key={opt.id}
                   type="button"
                   data-testid={`place-spot-btn-${opt.id}`}
-                  onClick={() => handleSelectOption(opt.id)}
+                  onClick={() => submitDirect(opt.id)}
                   disabled={isSubmitting}
                   className="button button--secondary"
                   style={{
@@ -281,24 +254,8 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
           </div>
         )}
 
-        {/* Error Banner */}
-        {lastError && (
-          <div
-            data-testid="production-error-banner"
-            role="alert"
-            style={{
-              background: 'rgba(239, 68, 68, 0.15)',
-              border: '1px solid #ef4444',
-              color: '#fca5a5',
-              padding: '8px 12px',
-              borderRadius: 6,
-              fontSize: 12,
-              marginTop: 12,
-            }}
-          >
-            {lastError}
-          </div>
-        )}
+          </>}
+        </WorkflowShell>
       </Dialog.Content>
     </Dialog.Root>
   );

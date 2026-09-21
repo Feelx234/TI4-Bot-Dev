@@ -3,6 +3,7 @@ import { PendingChoiceDto } from '../protocol/types.ts';
 import { decodeTradeOption, DecodedTradeOffer, TradeCategory } from '../presentation/tradeDecoder.ts';
 import { Dialog } from '../primitives/index.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
+import { WorkflowShell } from './WorkflowShell.tsx';
 
 export interface TradeDeskModalProps {
   choice: PendingChoiceDto | null;
@@ -31,7 +32,6 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
   onClose,
   lastError,
 }) => {
-  const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const subtype = choice?.context?.subtype ?? '';
   const isAnswering = subtype === 'answer_transaction'
     || (model?.workflow === 'transaction_answer');
@@ -43,7 +43,6 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<TradeCategory>('commodity_swap');
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Parse all propose offers
   const decodedOffers = useMemo<DecodedTradeOffer[]>(() => {
@@ -79,23 +78,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
   // Reset selection on nonce change
   useEffect(() => {
     setSelectedOfferId(null);
-    setIsSubmitting(false);
   }, [choice?.nonce]);
-
-  // Use model.declineOption when available (centralized extraction), fallback to local search
-  const declineOption = useMemo(() => {
-    return model?.declineOption ?? choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
-  }, [choice, model]);
-
-  const handleSubmitOption = async (optionId: string) => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      await onSubmit(optionId);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const currentTabOffers = decodedOffers.filter((o) => o.category === activeTab);
   const selectedOffer = decodedOffers.find((o) => o.id === selectedOfferId) ?? null;
@@ -158,22 +141,17 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
             </button>
           </div>
 
-          {/* Spectator Notice */}
-          {!isActor && (
-            <div
-              data-testid="spectator-trade-notice"
-              style={{
-                background: 'rgba(56, 189, 248, 0.15)',
-                border: '1px solid #38bdf8',
-                borderRadius: 6,
-                padding: 10,
-                fontSize: 13,
-                color: '#38bdf8',
-              }}
-            >
-              Observing bilateral trade negotiations between {choice.actor} and {partnerSeat}...
-            </div>
-          )}
+          <WorkflowShell
+            choice={choice}
+            model={model}
+            viewerSeat={viewerSeat}
+            onSubmit={onSubmit}
+            lastError={lastError}
+            spectatorNotice={`Observing bilateral trade negotiations between ${choice.actor} and ${partnerSeat}...`}
+            spectatorNoticeTestId="spectator-trade-notice"
+            errorTestId="trade-error-banner"
+          >
+            {({ isActor, isDirectSubmitting: isSubmitting, declineOption, submitDirect }) => <>
 
           {/* Answer Mode */}
           {isActor && isAnswering && (
@@ -212,7 +190,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                       key={opt.id}
                       type="button"
                       data-testid={`answer-opt-${opt.id}`}
-                      onClick={() => handleSubmitOption(opt.id)}
+                       onClick={() => submitDirect(opt.id)}
                       disabled={isSubmitting}
                       className={`button ${isAccept ? 'button--primary' : 'button--secondary'}`}
                       style={btnStyle}
@@ -348,7 +326,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                   <button
                     type="button"
                     data-testid="decline-trade-btn"
-                    onClick={() => handleSubmitOption(declineOption.id)}
+                    onClick={() => submitDirect(declineOption.id)}
                     disabled={isSubmitting}
                     className="button button--secondary"
                     style={{ fontSize: 13 }}
@@ -360,7 +338,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                 <button
                   type="button"
                   data-testid="propose-trade-btn"
-                  onClick={() => selectedOfferId && handleSubmitOption(selectedOfferId)}
+                   onClick={() => selectedOfferId && submitDirect(selectedOfferId)}
                   disabled={!selectedOfferId || isSubmitting}
                   className="button button--primary"
                   style={{ padding: '8px 20px', fontSize: 13 }}
@@ -371,23 +349,8 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
             </div>
           )}
 
-          {/* Error Banner */}
-          {lastError && (
-            <div
-              data-testid="trade-error-banner"
-              role="alert"
-              style={{
-                background: 'rgba(239, 68, 68, 0.15)',
-                border: '1px solid #ef4444',
-                color: '#fca5a5',
-                padding: '8px 12px',
-                borderRadius: 6,
-                fontSize: 12,
-              }}
-            >
-              {lastError}
-            </div>
-          )}
+            </>}
+          </WorkflowShell>
         </div>
       </Dialog.Content>
     </Dialog.Root>

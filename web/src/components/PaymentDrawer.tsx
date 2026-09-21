@@ -3,6 +3,7 @@ import { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
 import { getPaymentPayload, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { Drawer } from '../primitives/index.ts';
+import { WorkflowShell } from './WorkflowShell.tsx';
 
 export interface PaymentDrawerProps {
   choice: PendingChoiceDto | null;
@@ -26,7 +27,7 @@ interface DraftPlanet {
 export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   choice,
   model,
-  viewerSeat: _viewerSeat,
+  viewerSeat,
   player,
   onSubmit,
   isOpen,
@@ -35,7 +36,6 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
 }) => {
   const [selectedPlanetIds, setSelectedPlanetIds] = useState<string[]>([]);
   const [tradeGoodsToSpend, setTradeGoodsToSpend] = useState<number>(0);
-  const [isDirectSubmitting, setIsDirectSubmitting] = useState(false);
 
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
 
@@ -54,13 +54,12 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       : 'Resources');
 
   // Extract payment options from legal options
-  const { availablePlanets, hasTradeGoodOption, tradeGoodWorth, declineOption } = useMemo(() => {
+  const { availablePlanets, hasTradeGoodOption, tradeGoodWorth } = useMemo(() => {
     if (!choice) {
       return {
         availablePlanets: [] as DraftPlanet[],
         hasTradeGoodOption: false,
         tradeGoodWorth: 1,
-        declineOption: null,
       };
     }
 
@@ -90,13 +89,10 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       }
     }
 
-    const decline = model?.declineOption ?? (choice.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null);
-
     return {
       availablePlanets: planets,
       hasTradeGoodOption: hasTG,
       tradeGoodWorth: tgWorth,
-      declineOption: decline,
     };
   }, [choice, model]);
 
@@ -104,7 +100,6 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   useEffect(() => {
     setSelectedPlanetIds([]);
     setTradeGoodsToSpend(0);
-    setIsDirectSubmitting(false);
   }, [choice?.nonce]);
 
   const maxTradeGoodsAvailable = player?.trade_goods ?? (hasTradeGoodOption ? 10 : 0);
@@ -125,7 +120,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
     );
   };
 
-  const handleConfirmPayment = async () => {
+  const handleConfirmPayment = async (isDirectSubmitting: boolean, submitDirect: (optionId: string) => Promise<void>) => {
     if (!isSettled || isPipelineRunning || isDirectSubmitting || !choice) return;
 
     // Build execution list
@@ -146,15 +141,8 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
     }
 
     if (intents.length === 1) {
-      setIsDirectSubmitting(true);
-      try {
         const targetOption = choice.options.find(intents[0].predicate);
-        if (targetOption) {
-          await onSubmit(targetOption.id);
-        }
-      } finally {
-        setIsDirectSubmitting(false);
-      }
+        if (targetOption) await submitDirect(targetOption.id);
     } else if (intents.length > 1) {
       executePipeline(intents);
     }
@@ -216,7 +204,18 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
         </button>
       </div>
 
-      {/* Progress and Debt Tally */}
+      <WorkflowShell
+        choice={choice}
+        model={model}
+        viewerSeat={viewerSeat}
+        onSubmit={onSubmit}
+        lastError={lastError}
+        spectatorNotice={`Observing payment in progress for seat ${choice.actor}...`}
+        spectatorNoticeTestId="spectator-payment-notice"
+        errorTestId="payment-error-banner"
+      >
+        {({ isActor, isDirectSubmitting, declineOption, submitDirect }) => isActor && <>
+       {/* Progress and Debt Tally */}
       <div
         data-testid="payment-tally-card"
         style={{
@@ -419,7 +418,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
         <button
           type="button"
           data-testid="confirm-payment-btn"
-          onClick={handleConfirmPayment}
+           onClick={() => handleConfirmPayment(isDirectSubmitting, submitDirect)}
           disabled={!isSettled || isPipelineRunning || isDirectSubmitting}
           className="button button--primary"
           style={{
@@ -429,6 +428,8 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
           {isPipelineRunning || isDirectSubmitting ? 'Paying...' : `Confirm Payment (${totalCommitted})`}
         </button>
       </div>
+        </>}
+      </WorkflowShell>
     </Drawer>
   );
 };

@@ -3,6 +3,7 @@ import { PendingChoiceDto } from '../protocol/types.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { Dialog } from '../primitives/index.ts';
 import { getAgendaPlanetVotes, ChoiceRendererModel } from '../presentation/choiceModel.ts';
+import { WorkflowShell } from './WorkflowShell.tsx';
 
 export interface AgendaBallotModalProps {
   choice: PendingChoiceDto | null;
@@ -23,7 +24,6 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
   onClose,
   lastError,
 }) => {
-  const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const subtype = model?.workflow
     ? (model.workflow === 'agenda_vote_planets' ? 'vote_exhaust_planet'
       : model.workflow === 'agenda_vote_outcome' ? 'cast_vote'
@@ -36,20 +36,13 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
 
   // For planet basket in vote_exhaust_planet
   const [stagedPlanets, setStagedPlanets] = useState<string[]>([]);
-  const [isSubmittingDirect, setIsSubmittingDirect] = useState(false);
 
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
 
   // Reset staging on nonce change
   useEffect(() => {
     setStagedPlanets([]);
-    setIsSubmittingDirect(false);
   }, [choice?.nonce]);
-
-  // Use model.declineOption when available (centralized extraction), fallback to local search
-  const declineOption = useMemo(() => {
-    return model?.declineOption ?? choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
-  }, [choice, model]);
 
   // Extract vote tallies if in cast_vote
   const outcomeTallies = useMemo(() => {
@@ -95,8 +88,8 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
     );
   };
 
-  const handleCommitPlanetVotes = () => {
-    if (stagedPlanets.length === 0 || isPipelineRunning || isSubmittingDirect) return;
+  const handleCommitPlanetVotes = (isDirectSubmitting: boolean) => {
+    if (stagedPlanets.length === 0 || isPipelineRunning || isDirectSubmitting) return;
 
     const intents: SemanticIntent[] = stagedPlanets.map((planetId) => ({
       predicate: (opt) => opt.id === planetId,
@@ -108,16 +101,6 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
     });
 
     executePipeline(intents);
-  };
-
-  const handleDirectSubmit = async (optionId: string) => {
-    if (isSubmittingDirect || isPipelineRunning) return;
-    setIsSubmittingDirect(true);
-    try {
-      await onSubmit(optionId);
-    } finally {
-      setIsSubmittingDirect(false);
-    }
   };
 
   if (!isOpen || !choice) return null;
@@ -182,22 +165,17 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
             </button>
           </div>
 
-          {/* Spectator Notice */}
-          {!isActor && (
-            <div
-              data-testid="spectator-agenda-notice"
-              style={{
-                background: 'rgba(168, 85, 247, 0.15)',
-                border: '1px solid #a855f7',
-                borderRadius: 6,
-                padding: 10,
-                fontSize: 13,
-                color: '#d8b4fe',
-              }}
-            >
-              Observing council voting in progress for seat {choice.actor}...
-            </div>
-          )}
+          <WorkflowShell
+            choice={choice}
+            model={model}
+            viewerSeat={viewerSeat}
+            onSubmit={onSubmit}
+            lastError={lastError}
+            spectatorNotice={`Observing council voting in progress for seat ${choice.actor}...`}
+            spectatorNoticeTestId="spectator-agenda-notice"
+            errorTestId="agenda-error-banner"
+          >
+            {({ isActor, isDirectSubmitting, declineOption, submitDirect }) => <>
 
           {/* Stage 1: Cast Vote Outcome Selection */}
           {isActor && isCastVote && (
@@ -213,8 +191,8 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                     key={outcome.id}
                     type="button"
                     data-testid={`vote-outcome-opt-${outcome.id}`}
-                    onClick={() => handleDirectSubmit(outcome.id)}
-                    disabled={isSubmittingDirect}
+                    onClick={() => submitDirect(outcome.id)}
+                    disabled={isDirectSubmitting}
                     className="button button--secondary"
                     style={{
                       display: 'flex',
@@ -251,8 +229,8 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                   <button
                     type="button"
                     data-testid="abstain-vote-btn"
-                    onClick={() => handleDirectSubmit(declineOption.id)}
-                    disabled={isSubmittingDirect}
+                    onClick={() => submitDirect(declineOption.id)}
+                    disabled={isDirectSubmitting}
                     className="button button--secondary"
                     style={{ fontSize: 13 }}
                   >
@@ -301,7 +279,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                       type="button"
                       data-testid={`planet-card-${planet.id}`}
                       onClick={() => togglePlanetStage(planet.id)}
-                      disabled={isPipelineRunning || isSubmittingDirect}
+                       disabled={isPipelineRunning || isDirectSubmitting}
                       className="button button--secondary"
                       style={{
                         padding: '10px 12px',
@@ -340,8 +318,8 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                   <button
                     type="button"
                     data-testid="done-voting-planets-btn"
-                    onClick={() => handleDirectSubmit(declineOption.id)}
-                    disabled={isPipelineRunning || isSubmittingDirect}
+                    onClick={() => submitDirect(declineOption.id)}
+                     disabled={isPipelineRunning || isDirectSubmitting}
                     className="button button--secondary"
                     style={{ fontSize: 13 }}
                   >
@@ -352,8 +330,8 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                 <button
                   type="button"
                   data-testid="commit-planet-votes-btn"
-                  onClick={handleCommitPlanetVotes}
-                  disabled={stagedPlanets.length === 0 || isPipelineRunning || isSubmittingDirect}
+                   onClick={() => handleCommitPlanetVotes(isDirectSubmitting)}
+                   disabled={stagedPlanets.length === 0 || isPipelineRunning || isDirectSubmitting}
                   className="button button--primary"
                   style={{
                     padding: '8px 20px',
@@ -393,8 +371,8 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                     key={opt.id}
                     type="button"
                     data-testid={`tiebreak-opt-${opt.id}`}
-                    onClick={() => handleDirectSubmit(opt.id)}
-                    disabled={isSubmittingDirect}
+                    onClick={() => submitDirect(opt.id)}
+                    disabled={isDirectSubmitting}
                     className="button button--primary"
                     style={{
                       padding: '12px 16px',
@@ -411,23 +389,8 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
             </div>
           )}
 
-          {/* Error Banner */}
-          {lastError && (
-            <div
-              data-testid="agenda-error-banner"
-              role="alert"
-              style={{
-                background: 'rgba(239, 68, 68, 0.15)',
-                border: '1px solid #ef4444',
-                color: '#fca5a5',
-                padding: '8px 12px',
-                borderRadius: 6,
-                fontSize: 12,
-              }}
-            >
-              {lastError}
-            </div>
-          )}
+            </>}
+          </WorkflowShell>
         </div>
       </Dialog.Content>
     </Dialog.Root>
