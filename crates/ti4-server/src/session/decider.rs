@@ -62,6 +62,11 @@ impl Decider for RemoteHumanDecider {
                 game_version: v,
                 choice: choice.clone(),
             });
+            shared.record_and_broadcast_event(
+                format!("Decision required for {}: {}", choice.player, choice.prompt),
+                "decision",
+                Some(v),
+            );
             shared.broadcast_pending_decision(choice, &nonce);
             v
         };

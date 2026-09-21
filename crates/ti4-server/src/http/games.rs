@@ -79,7 +79,10 @@ pub async fn create_game(
         })?;
     let map_tiles = crate::map::build_board_tiles(content, &galaxy);
 
-    let mut config = SessionConfig::new(game_id.clone(), state).with_galaxy(galaxy, map_tiles);
+    let mut config = SessionConfig::new(game_id.clone(), state)
+        .with_seed(seed)
+        .with_player_ids(player_ids.clone())
+        .with_galaxy(galaxy, map_tiles);
     for p in player_ids {
         if payload.bot_seats.iter().any(|b| b == p.as_str()) {
             config = config.with_seat(p, SeatController::BotFirstOption);

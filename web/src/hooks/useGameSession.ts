@@ -37,6 +37,7 @@ export interface UseGameSessionReturn {
   lastError: string | null;
   events: GameLogEntry[];
   submitChoice: (optionId: string) => Promise<void>;
+  fetchSnapshot: () => Promise<InitialSnapshotMsg | null>;
   reconnect: () => void;
 }
 
@@ -132,18 +133,46 @@ export function useGameSession({
             setGameVersion(msg.game_version);
             setTurnStatus(msg.turn_status);
             setPendingChoice(msg.pending_choice ?? null);
-            addLog(
-              `Game initialized (Round ${msg.view.round}, ${msg.view.phase.toUpperCase()} Phase, Speaker: ${msg.view.speaker})`,
-              'system',
-              msg.game_version
-            );
-            if (msg.pending_choice) {
+            if (msg.events && msg.events.length > 0) {
+              setEvents(
+                msg.events.map((e) => ({
+                  id: e.id,
+                  timestamp: e.timestamp,
+                  version: e.version,
+                  text: e.text,
+                  category: e.category,
+                }))
+              );
+            } else {
               addLog(
-                `Decision required for ${msg.pending_choice.actor}: ${msg.pending_choice.prompt}`,
-                'decision',
+                `Game initialized (Round ${msg.view.round}, ${msg.view.phase.toUpperCase()} Phase, Speaker: ${msg.view.speaker})`,
+                'system',
                 msg.game_version
               );
+              if (msg.pending_choice) {
+                addLog(
+                  `Decision required for ${msg.pending_choice.actor}: ${msg.pending_choice.prompt}`,
+                  'decision',
+                  msg.game_version
+                );
+              }
             }
+            break;
+          }
+          case 'event': {
+            setEvents((prev) => {
+              if (prev.some((e) => e.id === msg.entry.id)) return prev;
+              return [
+                ...prev,
+                {
+                  id: msg.entry.id,
+                  timestamp: msg.entry.timestamp,
+                  version: msg.entry.version,
+                  text: msg.entry.text,
+                  category: msg.entry.category,
+                },
+              ];
+            });
             break;
           }
           case 'state_update': {
@@ -295,6 +324,36 @@ export function useGameSession({
     [gameId, pendingChoice, gameVersion]
   );
 
+  const fetchSnapshot = useCallback(async (): Promise<InitialSnapshotMsg | null> => {
+    try {
+      const protocol = window.location.protocol;
+      const host = window.location.host;
+      const seatParam = viewer.role === 'player' ? `?seat=${viewer.seat}` : '?seat=spectator';
+      const res = await fetch(`${protocol}//${host}/api/games/${gameId}/snapshot${seatParam}`);
+      if (!res.ok) return null;
+      const data: InitialSnapshotMsg = await res.json();
+      setSnapshot(data);
+      setGameVersion(data.game_version);
+      setTurnStatus(data.turn_status);
+      setPendingChoice(data.pending_choice ?? null);
+      if (data.events && data.events.length > 0) {
+        setEvents(
+          data.events.map((e) => ({
+            id: e.id,
+            timestamp: e.timestamp,
+            version: e.version,
+            text: e.text,
+            category: e.category,
+          }))
+        );
+      }
+      return data;
+    } catch (e) {
+      console.error('Failed to fetch snapshot via HTTP:', e);
+      return null;
+    }
+  }, [gameId, viewer]);
+
   return {
     status,
     gameVersion,
@@ -304,6 +363,7 @@ export function useGameSession({
     lastError,
     events,
     submitChoice,
+    fetchSnapshot,
     reconnect: connect,
   };
 }

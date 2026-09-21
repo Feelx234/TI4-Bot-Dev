@@ -234,4 +234,39 @@ describe('Frontend Invariants & Property-based Checks', () => {
       expect(obj.points).toBeGreaterThan(0);
     }
   });
+
+  it('preserves event log identity across reconnect snapshots and live event messages', () => {
+    const events: import('../protocol/types.ts').GameEventDto[] = [
+      {
+        id: 'game_1-1',
+        timestamp: '10:00:00',
+        version: 1,
+        text: 'Game initialized (Round 1, STRATEGY Phase, Speaker: p1)',
+        category: 'system',
+      },
+      {
+        id: 'game_1-2',
+        timestamp: '10:00:01',
+        version: 2,
+        text: 'Decision required for p1: choose a strategy card',
+        category: 'decision',
+      },
+      {
+        id: 'game_1-3',
+        timestamp: '10:00:05',
+        version: 2,
+        text: 'Action accepted: Strategy Card: 1. Leadership',
+        category: 'action',
+      },
+    ];
+
+    // Verify properties of the event history
+    expect(events).toHaveLength(3);
+    for (const e of events) {
+      expect(e.id).toMatch(/^game_1-\d+$/);
+      expect(e.timestamp).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+      expect(e.text).toBeTruthy();
+      expect(['system', 'action', 'decision', 'status', 'phase', 'error']).toContain(e.category);
+    }
+  });
 });

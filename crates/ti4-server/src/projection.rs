@@ -252,6 +252,7 @@ pub fn project_initial_snapshot_with_map(
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
     map_tiles: &[BoardTileView],
+    events: &[crate::protocol::server::GameEventDto],
 ) -> InitialSnapshotMsg {
     let pending_choice_dto = pending_choice.and_then(|(choice, nonce)| {
         if viewer.is_actor(&choice.player) {
@@ -273,6 +274,7 @@ pub fn project_initial_snapshot_with_map(
         view: project_game_view_with_map(state, viewer, map_tiles),
         pending_choice: pending_choice_dto,
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
+        events: events.to_vec(),
     }
 }
 
@@ -285,7 +287,15 @@ pub fn project_initial_snapshot(
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
 ) -> InitialSnapshotMsg {
-    project_initial_snapshot_with_map(game_id, game_version, state, viewer, pending_choice, &[])
+    project_initial_snapshot_with_map(
+        game_id,
+        game_version,
+        state,
+        viewer,
+        pending_choice,
+        &[],
+        &[],
+    )
 }
 
 /// Projects a versioned state update message with static map tiles.

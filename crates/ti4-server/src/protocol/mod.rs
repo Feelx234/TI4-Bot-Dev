@@ -11,8 +11,9 @@ pub use choice::{ChoiceOptionDto, DecisionContextDto, OutstandingConstraintDto, 
 pub use client::ClientMessage;
 pub use error::{ErrorKind, ProtocolError};
 pub use server::{
-    ActionAcceptedMsg, ActionRejectedMsg, GameOverMsg, InitialSnapshotMsg, PendingChoiceMsg,
-    PongMsg, ProtocolErrorMsg, ServerMessage, StateUpdateMsg, TurnStatusMsg,
+    ActionAcceptedMsg, ActionRejectedMsg, GameEventDto, GameEventMsg, GameOverMsg,
+    InitialSnapshotMsg, PendingChoiceMsg, PongMsg, ProtocolErrorMsg, ServerMessage, StateUpdateMsg,
+    TurnStatusMsg,
 };
 pub use status::{PublicTurnStatus, RejectionReason, ViewerRole};
 pub use view::{

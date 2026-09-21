@@ -146,6 +146,21 @@ export interface GameView {
   table: TableView;
 }
 
+export interface GameEventDto {
+  id: string;
+  timestamp: string;
+  version?: number;
+  text: string;
+  category: 'system' | 'action' | 'decision' | 'status' | 'phase' | 'error';
+}
+
+export interface GameEventMsg {
+  type?: 'event';
+  protocol_version: number;
+  game_id: string;
+  entry: GameEventDto;
+}
+
 export interface InitialSnapshotMsg {
   type?: 'initial_snapshot';
   protocol_version: number;
@@ -155,6 +170,7 @@ export interface InitialSnapshotMsg {
   view: GameView;
   pending_choice?: PendingChoiceDto | null;
   turn_status: PublicTurnStatus;
+  events?: GameEventDto[];
 }
 
 export interface StateUpdateMsg {
@@ -231,7 +247,8 @@ export type ServerMessage =
   | ({ type: 'action_rejected' } & ActionRejectedMsg)
   | ({ type: 'error' } & ProtocolErrorMsg)
   | ({ type: 'game_over' } & GameOverMsg)
-  | ({ type: 'pong' } & PongMsg);
+  | ({ type: 'pong' } & PongMsg)
+  | ({ type: 'event' } & GameEventMsg);
 
 export type ClientMessage =
   | {

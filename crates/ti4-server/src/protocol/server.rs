@@ -21,6 +21,29 @@ pub struct InitialSnapshotMsg {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_choice: Option<PendingChoiceDto>,
     pub turn_status: PublicTurnStatus,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<GameEventDto>,
+}
+
+/// Authoritative event log entry recorded during game execution.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GameEventDto {
+    pub id: String,
+    pub timestamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u64>,
+    pub text: String,
+    pub category: String,
+}
+
+/// Server message carrying a new game event to all subscribers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GameEventMsg {
+    pub protocol_version: u16,
+    pub game_id: String,
+    pub entry: GameEventDto,
 }
 
 /// Versioned state update or replacement snapshot after state transition.
@@ -118,6 +141,7 @@ pub enum ServerMessage {
     Error(ProtocolErrorMsg),
     GameOver(GameOverMsg),
     Pong(PongMsg),
+    Event(GameEventMsg),
 }
 
 impl ServerMessage {
@@ -134,6 +158,7 @@ impl ServerMessage {
             Self::Error(m) => m.protocol_version,
             Self::GameOver(m) => m.protocol_version,
             Self::Pong(m) => m.protocol_version,
+            Self::Event(m) => m.protocol_version,
         }
     }
 
@@ -148,6 +173,7 @@ impl ServerMessage {
             Self::ActionAccepted(m) => Some(&m.game_id),
             Self::ActionRejected(m) => Some(&m.game_id),
             Self::GameOver(m) => Some(&m.game_id),
+            Self::Event(m) => Some(&m.game_id),
             Self::Error(_) | Self::Pong(_) => None,
         }
     }
@@ -163,6 +189,7 @@ impl ServerMessage {
             Self::ActionAccepted(m) => Some(m.game_version),
             Self::ActionRejected(m) => Some(m.game_version),
             Self::GameOver(m) => Some(m.game_version),
+            Self::Event(m) => m.entry.version,
             Self::Error(_) | Self::Pong(_) => None,
         }
     }

@@ -1,7 +1,6 @@
-//! Authoritative game session vertical slice.
-
 pub mod decider;
 pub mod registry;
+pub mod replay;
 pub mod transport;
 pub mod worker;
 
@@ -19,12 +18,15 @@ use crate::protocol::status::{RejectionReason, ViewerRole};
 use crate::session::decider::ChoiceSubmission;
 use crate::session::worker::{SessionShared, Subscriber, spawn_session_worker};
 
+use serde::{Deserialize, Serialize};
+
 pub use decider::RemoteHumanDecider;
 pub use registry::GameRegistry;
+pub use replay::{ReplayError, ReplayReport, replay_session};
 pub use transport::MockClient;
 
 /// Configuration for the controller occupying a table seat.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SeatController {
     /// Remote human seat routed through channels to network/mock clients.
     Human,
@@ -44,6 +46,11 @@ pub struct SessionConfig {
     pub seats: BTreeMap<PlayerId, SeatController>,
     pub galaxy: Option<ti4_content::galaxy::Galaxy>,
     pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
+    pub seed: Option<u64>,
+    pub player_ids: Vec<PlayerId>,
+    pub store: Option<Arc<crate::storage::FileGameStore>>,
+    pub prior_decisions: Vec<DecisionRecord>,
+    pub prior_events: Vec<crate::protocol::server::GameEventDto>,
 }
 
 impl SessionConfig {
@@ -55,6 +62,11 @@ impl SessionConfig {
             seats: BTreeMap::new(),
             galaxy: None,
             map_tiles: Vec::new(),
+            seed: None,
+            player_ids: Vec::new(),
+            store: None,
+            prior_decisions: Vec::new(),
+            prior_events: Vec::new(),
         }
     }
 
@@ -74,11 +86,42 @@ impl SessionConfig {
         self.map_tiles = map_tiles;
         self
     }
+
+    #[must_use]
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
+    #[must_use]
+    pub fn with_player_ids(mut self, player_ids: Vec<PlayerId>) -> Self {
+        self.player_ids = player_ids;
+        self
+    }
+
+    #[must_use]
+    pub fn with_store(mut self, store: Arc<crate::storage::FileGameStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    #[must_use]
+    pub fn with_prior_history(
+        mut self,
+        decisions: Vec<DecisionRecord>,
+        events: Vec<crate::protocol::server::GameEventDto>,
+    ) -> Self {
+        self.prior_decisions = decisions;
+        self.prior_events = events;
+        self
+    }
 }
 
 /// Handle to an active authoritative game session.
 pub struct GameSession {
     game_id: String,
+    initial_state: GameState,
+    initial_galaxy: Option<ti4_content::galaxy::Galaxy>,
     shared: Arc<Mutex<SessionShared>>,
     worker_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -88,13 +131,46 @@ impl GameSession {
     #[must_use]
     pub fn start(config: SessionConfig) -> Self {
         let game_id = config.game_id.clone();
+        let initial_state = config.state.clone();
+        let initial_galaxy = config.galaxy.clone();
         let (shared, handle) = spawn_session_worker(config);
 
         Self {
             game_id,
+            initial_state,
+            initial_galaxy,
             shared,
             worker_handle: Mutex::new(Some(handle)),
         }
+    }
+
+    /// Starts a recovered game session with prior decision and event histories.
+    #[must_use]
+    pub fn start_recovered(
+        mut config: SessionConfig,
+        initial_state: GameState,
+        galaxy: Option<ti4_content::galaxy::Galaxy>,
+        prior_decisions: Vec<DecisionRecord>,
+        prior_events: Vec<crate::protocol::server::GameEventDto>,
+    ) -> Self {
+        let game_id = config.game_id.clone();
+        config.prior_decisions = prior_decisions;
+        config.prior_events = prior_events;
+        let (shared, handle) = spawn_session_worker(config);
+
+        Self {
+            game_id,
+            initial_state,
+            initial_galaxy: galaxy,
+            shared,
+            worker_handle: Mutex::new(Some(handle)),
+        }
+    }
+
+    /// Attaches or updates the durable storage manager for this session.
+    pub fn set_store(&self, store: Arc<crate::storage::FileGameStore>) {
+        let mut lock = self.shared.lock().expect("shared lock");
+        lock.store = Some(store);
     }
 
     /// Returns the session's unique game ID.
@@ -184,6 +260,7 @@ impl GameSession {
             viewer,
             pending,
             &lock.map_tiles,
+            &lock.event_log,
         )
     }
 
@@ -239,6 +316,23 @@ impl GameSession {
     #[must_use]
     pub fn events(&self) -> Vec<String> {
         self.shared.lock().expect("shared lock").events.clone()
+    }
+
+    /// Returns the accumulated authoritative game event log.
+    #[must_use]
+    pub fn event_log(&self) -> Vec<crate::protocol::server::GameEventDto> {
+        self.shared.lock().expect("shared lock").event_log.clone()
+    }
+
+    /// Performs in-memory recovery replay of the session from initial configuration,
+    /// verifying that replaying the accepted decision log yields identical canonical hashes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReplayError`] if the engine fails or decisions diverge.
+    pub fn replay(&self) -> Result<ReplayReport, ReplayError> {
+        let records = self.decision_log();
+        replay_session(&self.initial_state, self.initial_galaxy.as_ref(), &records)
     }
 
     /// Stops the worker thread cleanly.
