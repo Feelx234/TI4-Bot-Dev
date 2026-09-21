@@ -177,7 +177,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
         right: 16,
         bottom: 16,
         width: 360,
-        zIndex: 25,
+        zIndex: 'var(--layer-modal)',
         background: 'rgba(15, 23, 42, 0.98)',
         backdropFilter: 'blur(12px)',
         border: '1px solid #38bdf8',

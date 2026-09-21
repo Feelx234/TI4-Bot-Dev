@@ -23,6 +23,9 @@
   --layer-banner: 15;
   --layer-drawer: 20;
   --layer-modal: 30;
+  --layer-header: 35;
+  --layer-popover: 40;
+  --layer-dialog: 50;
 }
 
 * {
@@ -61,7 +64,7 @@ body, html, #root {
 }
 
 .app-shell__header {
-  z-index: 35;
+  z-index: var(--layer-header);
 }
 
 .game-header {
@@ -382,4 +385,3 @@ select:focus-visible,
   outline: 2px solid var(--color-accent) !important;
   outline-offset: 4px;
 }
-

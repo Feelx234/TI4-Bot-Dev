@@ -32,7 +32,7 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
         width: 320,
         maxHeight: 'calc(100% - 32px)',
         overflowY: 'auto',
-        zIndex: 20,
+        zIndex: 'var(--layer-drawer)',
         background: 'rgba(15, 23, 42, 0.95)',
         backdropFilter: 'blur(8px)',
         border: '1px solid #38bdf8',

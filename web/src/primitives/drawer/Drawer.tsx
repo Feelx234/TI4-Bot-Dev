@@ -62,7 +62,7 @@ export const Drawer: React.FC<DrawerProps> = ({
             inset: 0,
             background: 'rgba(3, 7, 18, 0.6)',
             backdropFilter: 'blur(2px)',
-            zIndex: 40,
+            zIndex: 'var(--layer-popover)',
           }}
         />
       )}
@@ -85,7 +85,7 @@ export const Drawer: React.FC<DrawerProps> = ({
         }}
         style={{
           position: modal ? 'fixed' : 'absolute',
-          zIndex: modal ? 50 : 20,
+          zIndex: modal ? 'var(--layer-dialog)' : 'var(--layer-drawer)',
           ...(position === 'right'
             ? { top: 0, right: 0, bottom: 0 }
             : position === 'left'

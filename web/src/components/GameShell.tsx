@@ -81,7 +81,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
             alignItems: 'center',
             gap: 12,
             boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
-            zIndex: 1000,
+            zIndex: 'var(--layer-banner)',
           }}
         >
           <span style={{ fontSize: 13, fontWeight: 600, color: '#f8fafc' }}>{choice.prompt}</span>

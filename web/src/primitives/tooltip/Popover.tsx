@@ -118,7 +118,7 @@ export const Popover: React.FC<PopoverProps> = ({
               : position === 'left'
               ? { right: '100%', top: '50%', transform: 'translateY(-50%) translateX(-8px)' }
               : { left: '100%', top: '50%', transform: 'translateY(-50%) translateX(8px)' }),
-            zIndex: 100,
+            zIndex: 'var(--layer-popover)',
           }}
         >
           {content}

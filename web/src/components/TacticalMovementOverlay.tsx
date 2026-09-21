@@ -191,7 +191,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
         right: 16,
         maxWidth: 720,
         margin: '0 auto',
-        zIndex: 25,
+        zIndex: 'var(--layer-modal)',
         background: 'rgba(15, 23, 42, 0.95)',
         backdropFilter: 'blur(10px)',
         border: '1px solid #38bdf8',

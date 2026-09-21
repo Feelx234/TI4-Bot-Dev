@@ -87,7 +87,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
           color: '#f8fafc',
           display: 'flex',
           flexDirection: 'column',
-          zIndex: 9000,
+          zIndex: 'var(--layer-modal)',
           boxSizing: 'border-box',
           padding: 24,
           overflowY: 'auto',

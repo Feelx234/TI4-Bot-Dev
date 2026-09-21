@@ -145,7 +145,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
               : position === 'left'
               ? { right: '100%', top: '50%', transform: 'translateY(-50%) translateX(-6px)' }
               : { left: '100%', top: '50%', transform: 'translateY(-50%) translateX(6px)' }),
-            zIndex: 100,
+            zIndex: 'var(--layer-popover)',
             pointerEvents: 'none',
             whiteSpace: typeof content === 'string' ? 'pre-line' : 'normal',
           }}

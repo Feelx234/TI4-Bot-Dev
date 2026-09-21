@@ -126,7 +126,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
         bottom: 24,
         left: '50%',
         transform: 'translateX(-50%)',
-        zIndex: 9999,
+        zIndex: 'var(--layer-dialog)',
         background: 'rgba(15, 23, 42, 0.95)',
         backdropFilter: 'blur(12px)',
         border: '2px solid #eab308',
