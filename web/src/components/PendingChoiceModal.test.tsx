@@ -124,4 +124,79 @@ describe('PendingChoiceModal Component', () => {
     expect(screen.getByTestId('pending-choice-dialog')).toBeInTheDocument();
     expect(screen.queryByTestId('minimized-choice-banner')).toBeNull();
   });
+
+  it('handles bounded multi-selection constraints with checkboxes and counter', async () => {
+    const multiChoice: PendingChoiceDto = {
+      prompt: 'Select 2 technologies',
+      actor: 'p1',
+      nonce: 'nonce_multi',
+      options: [
+        { id: 'tech_a', label: 'Tech A' },
+        { id: 'tech_b', label: 'Tech B' },
+        { id: 'tech_c', label: 'Tech C' },
+      ],
+      constraints: {
+        min_selection: 2,
+        max_selection: 2,
+      },
+    };
+
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<PendingChoiceModal choice={multiChoice} onSubmit={onSubmit} />);
+
+    // Renders checkboxes instead of radios
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes).toHaveLength(3);
+
+    const badge = screen.getByTestId('multi-selection-badge');
+    expect(badge).toHaveTextContent('Selected: 0 of 2 (Minimum: 2)');
+
+    const submitBtn = screen.getByTestId('submit-choice-button');
+    expect(submitBtn).toBeDisabled();
+
+    // Check first option
+    fireEvent.click(checkboxes[0]);
+    expect(badge).toHaveTextContent('Selected: 1 of 2 (Minimum: 2)');
+    expect(submitBtn).toBeDisabled();
+
+    // Check second option -> reaches required 2
+    fireEvent.click(checkboxes[1]);
+    expect(badge).toHaveTextContent('Selected: 2 of 2 (Minimum: 2)');
+    expect(submitBtn).not.toBeDisabled();
+
+    // Third option should be disabled since max is reached
+    expect(checkboxes[2]).toBeDisabled();
+
+    // Submit
+    await act(async () => {
+      fireEvent.click(submitBtn);
+    });
+    expect(onSubmit).toHaveBeenCalledWith('tech_a');
+  });
+
+  it('renders search filter when options >= 6 and filters list', () => {
+    const largeChoice: PendingChoiceDto = {
+      prompt: 'Select an Action Card',
+      actor: 'p1',
+      nonce: 'nonce_large',
+      options: [
+        { id: 'card_1', label: 'Morale Boost', description: 'Combat roll bonus' },
+        { id: 'card_2', label: 'Shields Holding', description: 'Cancel hits' },
+        { id: 'card_3', label: 'Direct Hit', description: 'Destroy sustained unit' },
+        { id: 'card_4', label: 'Sabotage', description: 'Cancel action card' },
+        { id: 'card_5', label: 'Fighter Prototype', description: 'Fighter bonus' },
+        { id: 'card_6', label: 'Skilled Retreat', description: 'Retreat ship' },
+      ],
+    };
+
+    render(<PendingChoiceModal choice={largeChoice} onSubmit={vi.fn()} />);
+
+    const searchInput = screen.getByTestId('choice-search-input');
+    expect(searchInput).toBeInTheDocument();
+
+    // Filter for "Direct"
+    fireEvent.change(searchInput, { target: { value: 'Direct' } });
+    expect(screen.getByText('Direct Hit')).toBeInTheDocument();
+    expect(screen.queryByText('Morale Boost')).toBeNull();
+  });
 });

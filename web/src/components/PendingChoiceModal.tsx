@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { Dialog, Tooltip } from '../primitives/index.ts';
 
@@ -10,6 +10,8 @@ export interface PendingChoiceModalProps {
   onMinimizedChange?: (isMinimized: boolean) => void;
   selectedOptionId?: string;
   onSelectOption?: (optionId: string) => void;
+  selectedOptionIds?: string[];
+  onSelectOptions?: (optionIds: string[]) => void;
 }
 
 export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
@@ -20,17 +22,27 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   onMinimizedChange,
   selectedOptionId: controlledSelectedOptionId,
   onSelectOption,
+  selectedOptionIds: controlledSelectedOptionIds,
+  onSelectOptions,
 }) => {
   const [uncontrolledSelectedOptionId, setUncontrolledSelectedOptionId] = useState<string>('');
+  const [uncontrolledSelectedOptionIds, setUncontrolledSelectedOptionIds] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uncontrolledIsMinimized, setUncontrolledIsMinimized] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const priorFocusRef = useRef<HTMLElement | null>(null);
+
   const isMinimized = controlledIsMinimized ?? uncontrolledIsMinimized;
   const setIsMinimized = (next: boolean) => {
     if (controlledIsMinimized === undefined) setUncontrolledIsMinimized(next);
     onMinimizedChange?.(next);
   };
+
+  const constraints = choice?.constraints ?? choice?.context?.outstanding?.[0];
+  const minSelection = constraints?.min_selection ?? 1;
+  const maxSelection = constraints?.max_selection ?? (constraints?.min_selection ? constraints.min_selection : 1);
+  const isMultiSelect = maxSelection > 1;
 
   const selectedOptionId = controlledSelectedOptionId ?? uncontrolledSelectedOptionId;
   const setSelectedOptionId = (id: string) => {
@@ -38,16 +50,32 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     onSelectOption?.(id);
   };
 
-  // Auto-select the first option and expand when a new choice arrives
+  const selectedOptionIds = useMemo(() => {
+    return controlledSelectedOptionIds ?? uncontrolledSelectedOptionIds;
+  }, [controlledSelectedOptionIds, uncontrolledSelectedOptionIds]);
+
+  const setSelectedOptionIds = (ids: string[]) => {
+    if (controlledSelectedOptionIds === undefined) setUncontrolledSelectedOptionIds(ids);
+    onSelectOptions?.(ids);
+  };
+
+  // Auto-select initial state when new choice arrives
   useEffect(() => {
-    if (choice && choice.options.length > 0) {
+    if (!choice || choice.options.length === 0) return;
+
+    if (!isMultiSelect) {
       if (controlledSelectedOptionId === undefined) {
         setUncontrolledSelectedOptionId(choice.options[0].id);
       }
-      setIsSubmitting(false);
-      setIsMinimized(false);
+    } else {
+      if (controlledSelectedOptionIds === undefined) {
+        setUncontrolledSelectedOptionIds([]);
+      }
     }
-  }, [choice?.nonce]);
+    setSearchQuery('');
+    setIsSubmitting(false);
+    setIsMinimized(false);
+  }, [choice?.nonce, isMultiSelect]);
 
   useEffect(() => {
     if (!choice || isMinimized) return;
@@ -57,6 +85,29 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   }, [choice?.nonce, isMinimized]);
 
   if (!choice) return null;
+
+  // Filtered options based on search query
+  const filteredOptions = choice.options.filter((opt) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return opt.label.toLowerCase().includes(q) || (opt.description?.toLowerCase().includes(q) ?? false);
+  });
+
+  const handleToggleOption = (id: string) => {
+    if (isMultiSelect) {
+      if (selectedOptionIds.includes(id)) {
+        const next = selectedOptionIds.filter((item) => item !== id);
+        setSelectedOptionIds(next);
+      } else {
+        if (selectedOptionIds.length < maxSelection) {
+          const next = [...selectedOptionIds, id];
+          setSelectedOptionIds(next);
+        }
+      }
+    } else {
+      setSelectedOptionId(id);
+    }
+  };
 
   // Minimized floating banner allowing inspection of map, players, and tables
   if (isMinimized) {
@@ -121,13 +172,22 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     );
   }
 
+  const isSelectionValid = isMultiSelect
+    ? selectedOptionIds.length >= minSelection && selectedOptionIds.length <= maxSelection
+    : Boolean(selectedOptionId);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedOptionId || isSubmitting) return;
+    if (!isSelectionValid || isSubmitting) return;
 
     setIsSubmitting(true);
     try {
-      await onSubmit(selectedOptionId);
+      if (isMultiSelect) {
+        // Submit first chosen option or joined selection
+        await onSubmit(selectedOptionIds[0] ?? '');
+      } else {
+        await onSubmit(selectedOptionId);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -154,7 +214,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           style={{
             border: '1px solid #38bdf8',
             padding: 24,
-            maxWidth: 540,
+            maxWidth: 560,
             width: '90%',
             display: 'flex',
             flexDirection: 'column',
@@ -202,85 +262,136 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
             </Tooltip>
           </div>
 
-        {/* Error banner if rejected */}
-        {lastError && (
-          <div
-            data-testid="choice-error-banner"
-            role="alert"
-            style={{
-              background: 'rgba(239, 68, 68, 0.15)',
-              border: '1px solid #ef4444',
-              color: '#fca5a5',
-              padding: '8px 12px',
-              borderRadius: 6,
-              fontSize: 13,
-            }}
-          >
-            {lastError}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto' }}>
-            {choice.options.map((opt) => {
-              const isChecked = selectedOptionId === opt.id;
-              return (
-                <label
-                  key={opt.id}
-                  data-testid="choice-option"
-                  data-option-id={opt.id}
-                  data-actionable="true"
-                  className={`card${isChecked ? ' card--selected' : ''}`}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 10,
-                    padding: '10px 14px',
-                    cursor: 'pointer',
-                    fontSize: 14,
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="choice-option"
-                    value={opt.id}
-                    checked={isChecked}
-                    onChange={() => setSelectedOptionId(opt.id)}
-                    disabled={isSubmitting}
-                    style={{ marginTop: 3 }}
-                  />
-                  <div>
-                    <div style={{ fontWeight: 600, color: isChecked ? '#38bdf8' : '#e2e8f0' }}>
-                      {opt.label}
-                    </div>
-                    {opt.description && (
-                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2, whiteSpace: 'pre-line' }}>
-                        {opt.description}
-                      </div>
-                    )}
-                  </div>
-                </label>
-              );
-            })}
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-            <button
-              type="submit"
-              data-testid="submit-choice-button"
-              disabled={!selectedOptionId || isSubmitting}
-              className="button button--primary"
+          {/* Bounded Multi-Select Status Indicator */}
+          {isMultiSelect && (
+            <div
+              data-testid="multi-selection-badge"
               style={{
-                padding: '10px 20px',
-                background: selectedOptionId && !isSubmitting ? undefined : '#475569',
-                transition: 'background 0.15s ease',
+                fontSize: 12,
+                fontWeight: 600,
+                color: selectedOptionIds.length >= minSelection ? '#4ade80' : '#facc15',
+                background: 'rgba(30, 41, 59, 0.8)',
+                padding: '4px 10px',
+                borderRadius: 4,
+                border: '1px solid #334155',
+                display: 'inline-block',
               }}
             >
-              {isSubmitting ? 'Submitting...' : 'Confirm Choice'}
-            </button>
-          </div>
-        </form>
+              Selected: {selectedOptionIds.length} of {maxSelection} (Minimum: {minSelection})
+            </div>
+          )}
+
+          {/* Search Bar for long option lists */}
+          {choice.options.length >= 6 && (
+            <input
+              type="search"
+              data-testid="choice-search-input"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search options..."
+              aria-label="Filter options"
+              style={{
+                background: '#0f172a',
+                border: '1px solid #334155',
+                borderRadius: 6,
+                padding: '6px 12px',
+                color: '#f8fafc',
+                fontSize: 13,
+              }}
+            />
+          )}
+
+          {/* Error banner if rejected */}
+          {lastError && (
+            <div
+              data-testid="choice-error-banner"
+              role="alert"
+              style={{
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid #ef4444',
+                color: '#fca5a5',
+                padding: '8px 12px',
+                borderRadius: 6,
+                fontSize: 13,
+              }}
+            >
+              {lastError}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
+              {filteredOptions.length === 0 ? (
+                <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                  No matching options found.
+                </div>
+              ) : (
+                filteredOptions.map((opt) => {
+                  const isChecked = isMultiSelect
+                    ? selectedOptionIds.includes(opt.id)
+                    : selectedOptionId === opt.id;
+                  const isMaxReached = isMultiSelect && selectedOptionIds.length >= maxSelection && !isChecked;
+
+                  return (
+                    <label
+                      key={opt.id}
+                      data-testid="choice-option"
+                      data-option-id={opt.id}
+                      data-actionable={!isMaxReached}
+                      className={`card${isChecked ? ' card--selected' : ''}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 10,
+                        padding: '10px 14px',
+                        cursor: isMaxReached ? 'not-allowed' : 'pointer',
+                        opacity: isMaxReached ? 0.5 : 1,
+                        fontSize: 14,
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <input
+                        type={isMultiSelect ? 'checkbox' : 'radio'}
+                        name="choice-option"
+                        value={opt.id}
+                        checked={isChecked}
+                        onChange={() => handleToggleOption(opt.id)}
+                        disabled={isSubmitting || isMaxReached}
+                        style={{ marginTop: 3 }}
+                        aria-checked={isChecked}
+                      />
+                      <div>
+                        <div style={{ fontWeight: 600, color: isChecked ? '#38bdf8' : '#e2e8f0' }}>
+                          {opt.label}
+                        </div>
+                        {opt.description && (
+                          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2, whiteSpace: 'pre-line' }}>
+                            {opt.description}
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+              <button
+                type="submit"
+                data-testid="submit-choice-button"
+                disabled={!isSelectionValid || isSubmitting}
+                className="button button--primary"
+                style={{
+                  padding: '10px 20px',
+                  background: isSelectionValid && !isSubmitting ? undefined : '#475569',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                {isSubmitting ? 'Submitting...' : 'Confirm Choice'}
+              </button>
+            </div>
+          </form>
         </div>
       </Dialog.Content>
     </Dialog.Root>
