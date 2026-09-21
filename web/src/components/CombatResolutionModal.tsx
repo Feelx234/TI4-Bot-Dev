@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
-import { getCombatPayload } from '../presentation/choiceModel.ts';
+import { getCombatPayload, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { Dialog } from '../primitives/index.ts';
 
 export interface CombatResolutionModalProps {
   choice: PendingChoiceDto | null;
+  model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
   isOpen: boolean;
@@ -22,6 +23,7 @@ interface CasualtyGroup {
 
 export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
   choice,
+  model,
   viewerSeat,
   onSubmit,
   isOpen,
@@ -37,16 +39,20 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
 
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const subtype = choice?.context?.subtype ?? '';
-  const constraints = choice?.context?.outstanding?.[0];
-  const hitsOwed = constraints?.amount ?? 1;
+  const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
+  const hitsOwed = model?.selectionMode.mode === 'casualty'
+    ? model.selectionMode.hitsToAssign
+    : model?.selectionMode.mode === 'sustain'
+      ? model.selectionMode.hitsRemaining
+      : (constraints?.amount ?? 1);
 
-  const isSustainStage = subtype === 'sustain_damage';
-  const isCasualtyStage = subtype === 'assign_casualty' || choice?.options.some((o) => o.kind === 'casualty');
-  const isRetreatStage = subtype === 'announce_retreat' || subtype === 'retreat_to';
+  const isSustainStage = subtype === 'sustain_damage' || model?.workflow === 'combat_sustain';
+  const isCasualtyStage = subtype === 'assign_casualty' || model?.workflow === 'combat_casualty' || choice?.options.some((o) => o.kind === 'casualty');
+  const isRetreatStage = subtype === 'announce_retreat' || subtype === 'retreat_to' || model?.workflow === 'combat_retreat';
 
   const declineOption = useMemo(() => {
-    return choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
-  }, [choice]);
+    return model?.declineOption ?? (choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null);
+  }, [choice, model]);
 
   // Group casualty options
   const casualtyGroups = useMemo(() => {

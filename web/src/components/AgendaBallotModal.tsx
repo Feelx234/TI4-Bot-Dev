@@ -2,9 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { Dialog } from '../primitives/index.ts';
+import { getAgendaPlanetVotes, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 
 export interface AgendaBallotModalProps {
   choice: PendingChoiceDto | null;
+  model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
   isOpen: boolean;
@@ -14,6 +16,7 @@ export interface AgendaBallotModalProps {
 
 export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
   choice,
+  model,
   viewerSeat,
   onSubmit,
   isOpen,
@@ -21,7 +24,11 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
   lastError,
 }) => {
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
-  const subtype = choice?.context?.subtype ?? '';
+  const subtype = model?.workflow
+    ? (model.workflow === 'agenda_vote_planets' ? 'vote_exhaust_planet'
+      : model.workflow === 'agenda_vote_outcome' ? 'cast_vote'
+      : choice?.context?.subtype ?? '')
+    : (choice?.context?.subtype ?? '');
 
   const isCastVote = subtype === 'cast_vote';
   const isExhaustPlanet = subtype === 'vote_exhaust_planet';
@@ -39,9 +46,10 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
     setIsSubmittingDirect(false);
   }, [choice?.nonce]);
 
+  // Use model.declineOption when available (centralized extraction), fallback to local search
   const declineOption = useMemo(() => {
-    return choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
-  }, [choice]);
+    return model?.declineOption ?? choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
+  }, [choice, model]);
 
   // Extract vote tallies if in cast_vote
   const outcomeTallies = useMemo(() => {
@@ -61,9 +69,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
     return choice.options
       .filter((o) => o.id !== 'decline' && o.kind !== 'decline')
       .map((opt) => {
-        // label format: "exhaust {planet} for {influence} votes"
-        const match = opt.label.match(/for (\d+) votes/);
-        const votes = match ? parseInt(match[1], 10) : 1;
+        const votes = getAgendaPlanetVotes(opt);
         return {
           id: opt.id,
           label: opt.label,

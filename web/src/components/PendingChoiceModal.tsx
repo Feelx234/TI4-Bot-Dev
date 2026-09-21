@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { Dialog, Tooltip } from '../primitives/index.ts';
+import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
+import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
+  model?: ChoiceRendererModel | null;
   onSubmit: (optionId: string) => Promise<void>;
   lastError?: string | null;
   isMinimized?: boolean;
@@ -16,6 +19,7 @@ export interface PendingChoiceModalProps {
 
 export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   choice,
+  model,
   onSubmit,
   lastError,
   isMinimized: controlledIsMinimized,
@@ -33,15 +37,21 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const dialogRef = useRef<HTMLDivElement>(null);
   const priorFocusRef = useRef<HTMLElement | null>(null);
 
+  const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
+
   const isMinimized = controlledIsMinimized ?? uncontrolledIsMinimized;
   const setIsMinimized = (next: boolean) => {
     if (controlledIsMinimized === undefined) setUncontrolledIsMinimized(next);
     onMinimizedChange?.(next);
   };
 
-  const constraints = choice?.context?.outstanding?.[0];
-  const minSelection = constraints?.min_selection ?? 1;
-  const maxSelection = constraints?.max_selection ?? (constraints?.min_selection ? constraints.min_selection : 1);
+  const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
+  const minSelection = model?.selectionMode.mode === 'multi'
+    ? model.selectionMode.min
+    : (constraints?.min_selection ?? 1);
+  const maxSelection = model?.selectionMode.mode === 'multi'
+    ? model.selectionMode.max
+    : (constraints?.max_selection ?? (constraints?.min_selection ? constraints.min_selection : 1));
   const isMultiSelect = maxSelection > 1;
 
   const selectedOptionId = controlledSelectedOptionId ?? uncontrolledSelectedOptionId;
@@ -178,19 +188,22 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isSelectionValid || isSubmitting) return;
+    if (!isSelectionValid || isSubmitting || isPipelineRunning) return;
 
-    setIsSubmitting(true);
-    try {
-      if (isMultiSelect) {
-        for (const optId of selectedOptionIds) {
-          await onSubmit(optId);
-        }
-      } else {
+    if (isMultiSelect) {
+      const intents: SemanticIntent[] = selectedOptionIds.map((optId) => ({
+        kind: 'selection',
+        predicate: (o) => o.id === optId,
+        description: `Select option ${optId}`,
+      }));
+      executePipeline(intents);
+    } else {
+      setIsSubmitting(true);
+      try {
         await onSubmit(selectedOptionId);
+      } finally {
+        setIsSubmitting(false);
       }
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -357,7 +370,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         value={opt.id}
                         checked={isChecked}
                         onChange={() => handleToggleOption(opt.id)}
-                        disabled={isSubmitting || isMaxReached}
+                        disabled={isSubmitting || isPipelineRunning || isMaxReached}
                         style={{ marginTop: 3 }}
                         aria-checked={isChecked}
                       />
@@ -381,15 +394,15 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               <button
                 type="submit"
                 data-testid="submit-choice-button"
-                disabled={!isSelectionValid || isSubmitting}
+                disabled={!isSelectionValid || isSubmitting || isPipelineRunning}
                 className="button button--primary"
                 style={{
                   padding: '10px 20px',
-                  background: isSelectionValid && !isSubmitting ? undefined : '#475569',
+                  background: isSelectionValid && !isSubmitting && !isPipelineRunning ? undefined : '#475569',
                   transition: 'background 0.15s ease',
                 }}
               >
-                {isSubmitting ? 'Submitting...' : 'Confirm Choice'}
+                {isSubmitting || isPipelineRunning ? 'Submitting...' : 'Confirm Choice'}
               </button>
             </div>
           </form>

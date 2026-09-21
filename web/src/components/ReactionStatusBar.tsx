@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
+import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
 
 export interface ReactionStatusBarProps {
   choice: PendingChoiceDto | null;
+  model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
   isOpen: boolean;
@@ -13,6 +15,7 @@ export interface ReactionStatusBarProps {
 
 export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   choice,
+  model,
   viewerSeat,
   onSubmit,
   isOpen,
@@ -32,9 +35,10 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
     setSecondsRemaining(autoPassTimeoutSeconds ?? null);
   }, [choice?.nonce, autoPassTimeoutSeconds]);
 
+  // Use model.declineOption when available (centralized extraction), fallback to local search
   const declineOption = useMemo(() => {
-    return choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
-  }, [choice]);
+    return model?.declineOption ?? choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
+  }, [choice, model]);
 
   const reactionOptions = useMemo(() => {
     if (!choice) return [];

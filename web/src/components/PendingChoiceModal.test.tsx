@@ -144,7 +144,7 @@ describe('PendingChoiceModal Component', () => {
     };
 
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(<PendingChoiceModal choice={multiChoice} onSubmit={onSubmit} />);
+    const { rerender } = render(<PendingChoiceModal choice={multiChoice} onSubmit={onSubmit} />);
 
     // Renders checkboxes instead of radios
     const checkboxes = screen.getAllByRole('checkbox');
@@ -169,11 +169,25 @@ describe('PendingChoiceModal Component', () => {
     // Third option should be disabled since max is reached
     expect(checkboxes[2]).toBeDisabled();
 
-    // Submit
+    // Submit step 1
     await act(async () => {
       fireEvent.click(submitBtn);
     });
     expect(onSubmit).toHaveBeenNthCalledWith(1, 'tech_a');
+
+    // Simulate choice update from server after step 1 with new nonce and remaining options
+    const secondChoice: PendingChoiceDto = {
+      ...multiChoice,
+      nonce: 'nonce_multi_step_2',
+      options: [
+        { id: 'tech_b', label: 'Tech B' },
+        { id: 'tech_c', label: 'Tech C' },
+      ],
+    };
+
+    await act(async () => {
+      rerender(<PendingChoiceModal choice={secondChoice} onSubmit={onSubmit} />);
+    });
     expect(onSubmit).toHaveBeenNthCalledWith(2, 'tech_b');
   });
 

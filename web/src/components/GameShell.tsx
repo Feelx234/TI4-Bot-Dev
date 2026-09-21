@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { GameLogEntry } from '../hooks/useGameSession.ts';
 import { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
 import { EventLog } from './EventLog.tsx';
@@ -10,7 +10,7 @@ import { TradeDeskModal } from './TradeDeskModal.tsx';
 import { AgendaBallotModal } from './AgendaBallotModal.tsx';
 import { ReactionStatusBar } from './ReactionStatusBar.tsx';
 import { ProductionBuilderDrawer } from './ProductionBuilderDrawer.tsx';
-import { classifyChoiceWorkflow } from '../presentation/choiceModel.ts';
+import { deriveChoiceRendererModel, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { overlayStack } from '../primitives/index.ts';
 
 export interface GameShellProps {
@@ -29,6 +29,7 @@ export interface GameShellProps {
 
 export interface ChoiceRendererDispatcherProps {
   choice: PendingChoiceDto | null;
+  model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
   lastError?: string | null;
@@ -41,6 +42,7 @@ export interface ChoiceRendererDispatcherProps {
 
 export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> = ({
   choice,
+  model: propModel,
   viewerSeat,
   onSubmit,
   lastError,
@@ -50,9 +52,14 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   onMinimizedChange,
   players,
 }) => {
+  const derivedModel = useMemo(() => {
+    return choice ? deriveChoiceRendererModel(choice, choice.actor) : null;
+  }, [choice]);
+
   if (!choice) return null;
 
-  const workflow = classifyChoiceWorkflow(choice);
+  const model = propModel ?? derivedModel;
+  const workflow = model?.workflow ?? 'generic_selection';
 
   return (
     <>
@@ -93,6 +100,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {workflow === 'payment' && (
         <PaymentDrawer
           choice={choice}
+          model={model}
           viewerSeat={viewerSeat}
           player={choice ? players?.[choice.actor] : null}
           onSubmit={onSubmit}
@@ -106,7 +114,13 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {workflow === 'tactical_movement' && (
         <TacticalMovementOverlay
           choice={choice}
+          model={model}
           viewerSeat={viewerSeat}
+          activeSystemId={
+            model?.selectionMode.mode === 'tactical_move'
+              ? model.selectionMode.activeSystem
+              : (choice?.context?.target && 'System' in choice.context.target ? choice.context.target.System : null)
+          }
           player={choice ? players?.[choice.actor] : null}
           onSubmit={onSubmit}
           isOpen={!isMinimized}
@@ -119,6 +133,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {(workflow === 'combat_sustain' || workflow === 'combat_casualty' || workflow === 'combat_retreat') && (
         <CombatResolutionModal
           choice={choice}
+          model={model}
           viewerSeat={viewerSeat}
           onSubmit={onSubmit}
           isOpen={!isMinimized}
@@ -131,6 +146,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {(workflow === 'transaction_propose' || workflow === 'transaction_answer') && (
         <TradeDeskModal
           choice={choice}
+          model={model}
           viewerSeat={viewerSeat}
           onSubmit={onSubmit}
           isOpen={!isMinimized}
@@ -143,6 +159,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {(workflow === 'agenda_vote_outcome' || workflow === 'agenda_vote_planets') && (
         <AgendaBallotModal
           choice={choice}
+          model={model}
           viewerSeat={viewerSeat}
           onSubmit={onSubmit}
           isOpen={!isMinimized}
@@ -155,6 +172,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {workflow === 'action_card_reaction' && (
         <ReactionStatusBar
           choice={choice}
+          model={model}
           viewerSeat={viewerSeat}
           onSubmit={onSubmit}
           isOpen={!isMinimized}
@@ -167,6 +185,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {workflow === 'production' && (
         <ProductionBuilderDrawer
           choice={choice}
+          model={model}
           viewerSeat={viewerSeat}
           onSubmit={onSubmit}
           isOpen={!isMinimized}
@@ -179,6 +198,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {(workflow === 'generic_selection' || workflow === 'system_activation') && (
         <PendingChoiceModal
           choice={choice}
+          model={model}
           onSubmit={onSubmit}
           lastError={lastError}
           isMinimized={isMinimized}

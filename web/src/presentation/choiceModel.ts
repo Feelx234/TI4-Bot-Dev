@@ -104,6 +104,22 @@ export function getCombatPayload(opt: ChoiceOptionDto): {
   };
 }
 
+export function getAgendaPlanetVotes(opt: ChoiceOptionDto): number {
+  const p = opt.payload ?? {};
+  if (typeof p.votes === 'number') return p.votes;
+  if (typeof p.influence === 'number') return p.influence;
+  if (typeof p.worth === 'number') return p.worth;
+  if (typeof p.amount === 'number') return p.amount;
+
+  // Structured fallback for engine label format "exhaust {planet} for {N} votes"
+  const match = opt.label.match(/for (\d+) votes/i);
+  if (match) {
+    const parsed = parseInt(match[1], 10);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 1;
+}
+
 export function deriveChoiceRendererModel(
   choice: PendingChoiceDto | null,
   viewerSeat: string | null

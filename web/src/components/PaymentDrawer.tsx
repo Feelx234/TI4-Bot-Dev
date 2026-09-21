@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
-import { getPaymentPayload } from '../presentation/choiceModel.ts';
+import { getPaymentPayload, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { Drawer } from '../primitives/index.ts';
 
 export interface PaymentDrawerProps {
   choice: PendingChoiceDto | null;
+  model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   player?: PlayerView | null;
   onSubmit: (optionId: string) => Promise<void>;
@@ -24,6 +25,7 @@ interface DraftPlanet {
 
 export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   choice,
+  model,
   viewerSeat: _viewerSeat,
   player,
   onSubmit,
@@ -37,14 +39,19 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
 
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
 
-  const constraints = choice?.context?.outstanding?.[0];
-  const totalAmount = constraints?.amount ?? 0;
-  const alreadyPaid = constraints?.paid ?? 0;
+  const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
+  const totalAmount = model?.selectionMode.mode === 'quantity'
+    ? model.selectionMode.target
+    : (constraints?.amount ?? 0);
+  const alreadyPaid = model?.selectionMode.mode === 'quantity'
+    ? model.selectionMode.paid
+    : (constraints?.paid ?? 0);
   const owed = Math.max(0, totalAmount - alreadyPaid);
-  const currency =
-    choice?.context?.subtype === 'pay_influence' || constraints?.kind?.toLowerCase() === 'influence'
+  const currency = model?.selectionMode.mode === 'quantity'
+    ? (model.selectionMode.unit === 'influence' ? 'Influence' : 'Resources')
+    : (choice?.context?.subtype === 'pay_influence' || constraints?.kind?.toLowerCase() === 'influence'
       ? 'Influence'
-      : 'Resources';
+      : 'Resources');
 
   // Extract payment options from legal options
   const { availablePlanets, hasTradeGoodOption, tradeGoodWorth, declineOption } = useMemo(() => {
@@ -84,7 +91,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       }
     }
 
-    const decline = choice.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
+    const decline = model?.declineOption ?? (choice.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null);
 
     return {
       availablePlanets: planets,
@@ -92,7 +99,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       tradeGoodWorth: tgWorth,
       declineOption: decline,
     };
-  }, [choice]);
+  }, [choice, model]);
 
   // Reset draft state on new choice nonce
   useEffect(() => {

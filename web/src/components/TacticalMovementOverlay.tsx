@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
-import { getMovementPayload } from '../presentation/choiceModel.ts';
+import { getMovementPayload, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 
 export interface TacticalMovementOverlayProps {
   choice: PendingChoiceDto | null;
+  model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   activeSystemId?: string | null;
   player?: PlayerView | null;
@@ -26,6 +27,7 @@ interface OriginShipGroup {
 
 export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = ({
   choice,
+  model,
   activeSystemId,
   player,
   onSubmit,
@@ -41,9 +43,9 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
 
   const doneMovingOption = useMemo(() => {
     return (
-      choice?.options.find((o) => o.id === 'done_moving' || o.kind === 'decline') ?? null
+      model?.declineOption ?? (choice?.options.find((o) => o.id === 'done_moving' || o.kind === 'decline') ?? null)
     );
-  }, [choice]);
+  }, [choice, model]);
 
   // Extract and group move options
   const shipGroups = useMemo(() => {
@@ -173,6 +175,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
 
   if (!isOpen || !choice) return null;
 
+  const destinationSystemId =
+    activeSystemId ??
+    (model?.selectionMode.mode === 'tactical_move' ? model.selectionMode.activeSystem : null) ??
+    (choice?.context?.target && 'System' in choice.context.target ? choice.context.target.System : null);
+
   return (
     <aside
       role="region"
@@ -206,7 +213,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
             Tactical Action • Fleet Movement Staging
           </div>
           <h3 style={{ margin: '2px 0 0 0', fontSize: 16, fontWeight: 700, color: '#f8fafc' }}>
-            Destination System: #{activeSystemId ?? 'Active'}
+            Destination System: #{destinationSystemId ?? 'Active'}
           </h3>
         </div>
 

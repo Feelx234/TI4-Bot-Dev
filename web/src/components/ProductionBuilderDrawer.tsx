@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { Dialog } from '../primitives/index.ts';
+import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
 
 export interface ProductionBuilderDrawerProps {
   choice: PendingChoiceDto | null;
+  model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
   isOpen: boolean;
@@ -13,6 +15,7 @@ export interface ProductionBuilderDrawerProps {
 
 export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = ({
   choice,
+  model,
   viewerSeat,
   onSubmit,
   isOpen,
@@ -32,22 +35,26 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   }, [choice?.nonce]);
 
   const declineOption = useMemo(() => {
-    return choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
-  }, [choice]);
+    return model?.declineOption ?? (choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null);
+  }, [choice, model]);
 
   const productionOptions = useMemo(() => {
     if (!choice) return [];
     return choice.options.filter((o) => o.id !== 'decline' && o.kind !== 'decline');
   }, [choice]);
 
-  const constraints = choice?.context?.outstanding?.[0];
-  const capacityLimit = constraints?.amount ?? 0;
+  const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
+  const capacityLimit = model?.selectionMode.mode === 'production'
+    ? model.selectionMode.capacity
+    : (constraints?.amount ?? 0);
   const capacitySpent = constraints?.paid ?? 0;
   const capacityRemaining = Math.max(0, capacityLimit - capacitySpent);
 
-  const systemId = choice?.context?.target && 'System' in choice.context.target
-    ? choice.context.target.System
-    : '';
+  const systemId = model?.selectionMode.mode === 'production'
+    ? model.selectionMode.systemId
+    : (choice?.context?.target && 'System' in choice.context.target
+      ? choice.context.target.System
+      : '');
 
   const handleSelectOption = async (optionId: string) => {
     if (isSubmitting) return;

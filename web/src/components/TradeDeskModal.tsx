@@ -2,9 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { decodeTradeOption, DecodedTradeOffer, TradeCategory } from '../presentation/tradeDecoder.ts';
 import { Dialog } from '../primitives/index.ts';
+import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
 
 export interface TradeDeskModalProps {
   choice: PendingChoiceDto | null;
+  model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
   isOpen: boolean;
@@ -22,6 +24,7 @@ const CATEGORY_NAMES: Record<TradeCategory, string> = {
 
 export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
   choice,
+  model,
   viewerSeat,
   onSubmit,
   isOpen,
@@ -30,10 +33,13 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
 }) => {
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const subtype = choice?.context?.subtype ?? '';
-  const isAnswering = subtype === 'answer_transaction';
-  const partnerSeat = choice?.context?.target && 'Player' in choice.context.target
-    ? choice.context.target.Player
-    : 'Unknown Partner';
+  const isAnswering = subtype === 'answer_transaction'
+    || (model?.workflow === 'transaction_answer');
+  // Use centralized model for partner seat when available
+  const partnerSeat = (model?.selectionMode.mode === 'transaction' ? model.selectionMode.partnerSeat : null)
+    ?? (choice?.context?.target && 'Player' in choice.context.target
+      ? choice.context.target.Player
+      : 'Unknown Partner');
 
   const [activeTab, setActiveTab] = useState<TradeCategory>('commodity_swap');
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
@@ -76,9 +82,10 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
     setIsSubmitting(false);
   }, [choice?.nonce]);
 
+  // Use model.declineOption when available (centralized extraction), fallback to local search
   const declineOption = useMemo(() => {
-    return choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
-  }, [choice]);
+    return model?.declineOption ?? choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
+  }, [choice, model]);
 
   const handleSubmitOption = async (optionId: string) => {
     if (isSubmitting) return;
