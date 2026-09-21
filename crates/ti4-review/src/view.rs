@@ -738,10 +738,21 @@ pub fn board_view(
         if tile.special_area.as_deref() == Some("fracture") && !fracture_visible {
             continue;
         }
-        if tile.special_area.as_deref() == Some("nexus")
-            && !state.board.contains_key(&SystemId::new(&tile.system))
-        {
-            continue;
+        // The Wormhole Nexus: one tile beside the board, two faces, and the face is a fact about
+        // this frame. It used to be shown only when `state.board` held that system id — and
+        // `GameState::board` is written the first time a unit, a capture or a token touches a
+        // system, so the tile was hidden until somebody had already flown into the one place they
+        // could only find by looking at it. Whether it is in play at all is the session's business
+        // (`board_metadata` lists it only when the map knows it); which face is up is the frame's.
+        if tile.special_area.as_deref() == Some("nexus") {
+            let face: &str = if state.nexus_unlocked {
+                ti4_engine::seating::OPEN_NEXUS
+            } else {
+                ti4_engine::seating::LOCKED_NEXUS
+            };
+            if tile.system != face {
+                continue;
+            }
         }
         let system_id = SystemId::new(&tile.system);
         let system_purged = state.purged_systems.contains(&system_id);

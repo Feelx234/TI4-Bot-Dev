@@ -149,3 +149,93 @@ The four unrelated paths that were already dirty when this batch started
 (`crates/ti4-mlp/examples/capture_offline_pilot.rs`, `crates/ti4-mlp/examples/offline_bc.rs`,
 `plans/INDEX.md`, `scripts/publish_and_train_stopped_corpus.ps1`) belong to earlier in-flight work
 and are left uncommitted. `target-cuda-repack/` is untracked build output and stays that way.
+
+---
+
+## F-01a — what F-01 broke, and the lesson about which suite to run
+
+F-01 ran the engine suite (1347 green) and stopped. The workspace suite says more:
+
+- `ti4-sim::behavior::tests::the_suite_reproduces_and_stays_within_the_recorded_bounds` — four
+  action-mix shares left the recorded bounds, because a Hacan seat now uses a component action and
+  every use lengthens the event stream the shares divide by. Re-baselined to **v43** through the
+  versioned process, with the bisection that attributes it to F-01 alone (Maxis and the Nexus
+  measured inert), the old/new table, and one uncomfortable finding: the suite was *already* outside
+  its recorded `faction_differentiation` floor on the tree this batch started from. Details and
+  numbers: `plans/evidence/M08-021.md`.
+- `ti4-review`'s semantic golden — regenerated, with the diff inspected: the first divergence is at
+  frame 18, where a Hacan seat is offered `component|leader|hacanagent` for the first time (14
+  occurrences across 241 frames, none in the recorded file). The same golden is byte-identical with
+  and without the Wormhole Nexus change, which is how F-03 is proven innocent of it.
+- The three `ti4-bridge` golden binaries and `ti4-mlp`'s `smoke_refusals` fail in this checkout
+  before any of this work and for a reason unrelated to it: `crates/ti4-bridge/tests/golden/` is not
+  in Git, and `out/vocabulary/current.json` is a machine-local artifact. Recorded so a later run
+  does not read them as damage from this batch.
+
+Running only the crate you edited is how a delivered leader stays undelivered for eight days: F-01
+was tested exactly as far as the file it changed. The workspace suite is the cheapest thing that
+knows about the offer set from the outside.
+
+---
+
+## F-03 — the Wormhole Nexus was not on the board (operator: "malice / wormhole nexus is not on the board")
+
+**Symptom.** Mallice and its wormhole nexus do not appear on the map in either viewer, and no gamma
+wormhole leads anywhere.
+
+**Two separate causes, both real.**
+
+1. *It was not in the game.* The Nexus is placed off the hex grid — `Galaxy::place_off_map`, because
+   it has no hex and is reached only through the wormholes printed on it. That call lived inline at
+   the end of `seating::build_board`, which is the Rust spiral board. The reviewer and the replayer
+   do not use the spiral: they build from a captured Python map pool
+   (`OpeningMap::PythonPool` → `MapPool::galaxy` → `Galaxy::placed`), and so does `Save54Captured`.
+   Neither ever placed the Nexus. It is not in the pools either — all 1000 arrangements of
+   `out/pools/full_np8_12_final.json` were checked: no `82` in any of them, and tile `39` appears in
+   597 of them as the ordinary alpha wormhole. What was captured is the ring of hexes, and the Nexus
+   is not one, so a pool cannot contain it; a map family that builds from a pool silently drops a
+   tile that is always in play under Prophecy of Kings.
+2. *Even when it was in the game, it was invisible.* `view::board_view` showed a nexus tile only if
+   `state.board` held that system id — and `GameState::board` is written the first time a unit, a
+   capture or a token touches a system (the same trap as F-02). The tile was therefore hidden until a
+   player had already flown into the one place they could only find by looking at it. The HTML export
+   carried the same rule in its own JavaScript, and `board_metadata` listed both faces for every
+   session whatever the sources were, so a base-scope game would have shown a tile it never had.
+
+**Fix.**
+- `seating::place_wormhole_nexus(galaxy, content, sources)`: the rule, in one place, idempotent and
+  quiet when the tile is already on the grid. `build_board` calls it (as before) and
+  `ti4-training::rollout::seated` calls it for every family after the match that chooses the map, so
+  the pool and Save-54 boards gain it. Gated on `Source::Pok`, as the rule is.
+- `board_metadata` lists the two faces only when the game's map knows the tile
+  (`wormhole_kinds`, whose own documentation says it is how a caller sees that an off-grid system is
+  in play).
+- `board_view` draws exactly one face — `82b` when `state.nexus_unlocked`, `82a` otherwise — because
+  the face is a fact about the frame, and drawing both would stack two hexes in the lower-left
+  corner. The export's JavaScript makes the same choice from `state.nexus_unlocked`.
+
+**Tests.**
+- `rollout::tests::every_map_family_has_the_wormhole_nexus_in_play` — three families, and the
+  assertion that fails first is `save-54 captured: the Wormhole Nexus is not in play at all ({})`.
+  Red before the fix, and it also pins the face: gamma alone while locked.
+- `rollout::tests::the_nexus_is_a_prophecy_of_kings_rule_and_is_placed_once` — no Nexus for `BASE`,
+  one for `POK`, and the second call changes nothing (so the family that already placed it does not
+  turn setup into a `DuplicateSystem` error).
+- `board_view::the_wormhole_nexus_is_drawn_before_anybody_has_been_there` — the tile is drawn with no
+  `state.board` entry for it, one face only, and the face follows the latch.
+- `board_view::a_game_whose_map_has_no_nexus_draws_none` — the other half of the rule.
+- `lib::tests::metadata_invents_no_wormhole_nexus_for_a_map_that_has_none`, and
+  `replay_metadata_carries_detached_special_areas_before_they_enter_play` updated to place the tile
+  off the map rather than rely on metadata inventing it.
+
+**Fixture the change had to move.** `board_layout::a_wider_window_moves_the_board_not_the_meaning`
+asserted `tiles.len() == 37` — the example arrangement's hexes, with no Nexus because no pool board
+had ever had one. It is 38 now, and the same test's special-area expectation turned out to be wrong
+in a way nobody had ever seen: it expected the band offset unscaled (`- 61.0`) where the painter
+scales it (`- 61.0 * scale`) for both special areas. Dead code, because no frame in that test had
+ever had a nexus tile. The assertion is now the one the renderer implements.
+
+**Not claimed.** That a player can *reach* the Nexus on any particular board. The locked face prints
+gamma only, and the map filler deliberately excludes wormhole tiles (`neutral_systems`), so whether
+a given generated map has a gamma partner at all is a property of that arrangement. Reachability on
+a map that does have one is covered by `galaxy::an_off_map_system_reaches_its_wormhole_partners_both_ways`.

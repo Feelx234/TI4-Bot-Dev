@@ -9787,3 +9787,37 @@ green; clippy emits nothing for `leaders.rs` or `legendary.rs`, pre-existing war
 count. Next in this batch, in order: the Wormhole Nexus (never placed on a map-pool board at all),
 then the transaction shapes (note for note, other players' notes, action cards for notes), then the
 viewer items (diplomacy terms, planet totals, dice rolls, strategy picks).
+
+## 2026-09-21 (later) F-03: the Wormhole Nexus was not on the board at all
+
+`malice / wormhole nexus is not on the board` was two faults, and the first is bigger than a
+rendering problem. The Nexus is placed **off the hex grid** (`Galaxy::place_off_map`), and that call
+lived inline at the end of `seating::build_board` — the Rust spiral. The reviewer and the replayer do
+not build the spiral; they build from a captured Python map pool (`OpeningMap::PythonPool` →
+`MapPool::galaxy`), as does `Save54Captured`, so on every table either viewer actually runs the tile
+was never in the game: no gamma partner, no Mallice. Checked against the pools themselves — no `82`
+in any of the 1000 arrangements of `out/pools/full_np8_12_final.json`. What was captured is the ring
+of hexes and the Nexus is not one, so a pool cannot contain it.
+
+The rule now lives in `seating::place_wormhole_nexus` (idempotent, PoK-gated), called by
+`build_board` as before and by `ti4-training::rollout::seated` for every map family. The second half
+was the viewer hiding the tile until `state.board` held it — and `state.board` is written the first
+time a unit, a capture or a token touches a system, the same trap as F-02, so the tile appeared only
+after the player had flown into the place they could only find by looking. `board_metadata` now lists
+the two faces only when the map knows the tile (`wormhole_kinds`), and `board_view` — plus the export's
+own JavaScript — draws exactly one: `82b` when `nexus_unlocked`, `82a` otherwise.
+
+Four new tests (three map families in play; base scope gets nothing and a second placement is a
+no-op; the tile draws untouched and the face follows the latch; no tile for a map that has none).
+Two fixtures moved and both are explained in the evidence: the example board is 38 tiles not 37, and
+the layout test's special-area expectation was wrong about scaling in a branch no frame had ever
+reached.
+
+Also committed with it: the F-01a fallout, which is the process lesson. F-01 ran the engine suite and
+stopped; the workspace suite found the behavioural floors (re-baselined to v43, attributed by
+bisecting — Maxis and the Nexus measured inert in that suite) and the reviewer's semantic golden
+(regenerated through `TI4_REVIEW_GOLDEN_UPDATE=1`, first divergence at frame 18 where a Hacan seat is
+offered Carth for the first time, byte-identical with the Nexus change removed). The same workspace
+run also surfaced something not mine: `faction_differentiation` was already below its v42 floor on the
+tree this batch started from. Recorded as an open item in `plans/evidence/M08-021.md`, not bisected,
+not silently absorbed.

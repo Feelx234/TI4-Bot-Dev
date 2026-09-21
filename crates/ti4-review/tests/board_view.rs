@@ -310,7 +310,7 @@ fn the_board_shows_only_what_the_frame_has() {
         "the two boards disagree about which ordinary systems exist"
     );
 
-    // A nexus only appears once the game has put one on the board.
+    // The nexus depends on the map and on `nexus_unlocked`, never on the Fracture.
     let nexus_before = without_fracture
         .iter()
         .filter(|tile| tile.special_area.as_deref() == Some("nexus"))
@@ -330,6 +330,73 @@ fn the_board_shows_only_what_the_frame_has() {
         without_fracture.len(),
         "the same frame answered differently twice"
     );
+}
+
+#[test]
+fn the_wormhole_nexus_is_drawn_before_anybody_has_been_there() {
+    // The Nexus sits beside the hex grid and is reached only through its own wormholes, so a player
+    // finds it by looking at the board. Gating the tile on `state.board` — which is written the first
+    // time a unit, a capture or a token touches a system — meant it appeared only once the player
+    // had already flown somewhere they could not see. In play is the map's answer; which face is up
+    // is the frame's.
+    let session = started_session();
+    let content = ContentStore::embedded();
+    assert!(
+        session
+            .board
+            .iter()
+            .any(|tile| tile.special_area.as_deref() == Some("nexus")),
+        "this review's own map carries no Wormhole Nexus, so the test below would prove nothing"
+    );
+
+    let mut frame = frame_of(&session);
+    // Nothing has ever touched the tile: no board entry either way.
+    frame.state.board.remove(&SystemId::new("82a"));
+    frame.state.board.remove(&SystemId::new("82b"));
+
+    frame.state.nexus_unlocked = false;
+    let locked: Vec<String> = board_view(content, &session, &frame, None)
+        .iter()
+        .filter(|tile| tile.special_area.as_deref() == Some("nexus"))
+        .map(|tile| tile.system.clone())
+        .collect();
+    assert_eq!(
+        locked, ["82a".to_owned()],
+        "the locked face, and one tile rather than two stacked on the same corner"
+    );
+
+    frame.state.nexus_unlocked = true;
+    let open: Vec<String> = board_view(content, &session, &frame, None)
+        .iter()
+        .filter(|tile| tile.special_area.as_deref() == Some("nexus"))
+        .map(|tile| tile.system.clone())
+        .collect();
+    assert_eq!(
+        open, ["82b".to_owned()],
+        "once it is triggered the open face is what is on the table"
+    );
+}
+
+#[test]
+fn a_game_whose_map_has_no_nexus_draws_none() {
+    // In play comes from the map, so a table whose map has no Nexus — a base-scope game — shows no
+    // tile, unlocked or not. It is the other half of the rule, and the half that stops the viewer
+    // inventing a Prophecy of Kings tile.
+    let mut session = started_session();
+    session
+        .board
+        .retain(|tile| tile.special_area.as_deref() != Some("nexus"));
+    let content = ContentStore::embedded();
+    for unlocked in [false, true] {
+        let mut frame = frame_of(&session);
+        frame.state.nexus_unlocked = unlocked;
+        assert!(
+            board_view(content, &session, &frame, None)
+                .iter()
+                .all(|tile| tile.special_area.as_deref() != Some("nexus")),
+            "a nexus was drawn for a map that has none (unlocked: {unlocked})"
+        );
+    }
 }
 
 #[test]

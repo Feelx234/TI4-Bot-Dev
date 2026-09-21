@@ -1950,11 +1950,23 @@ fn board_metadata(content: &ContentStore, galaxy: &ti4_content::galaxy::Galaxy) 
         })
         .collect();
     board.sort_by_key(|tile| (tile.special_area.is_some(), tile.q, tile.r));
-    for id in ["82a", "82b"] {
-        if !board.iter().any(|tile| tile.system == id)
-            && let Some(tile) = system_metadata(content, id, 0, 0, Some("nexus"))
-        {
-            board.push(tile);
+    // The Wormhole Nexus is one tile with two faces, listed here as both because the face a frame
+    // shows is `GameState::nexus_unlocked` and this is a session snapshot. `board_view` and the
+    // export's own renderer each draw exactly one of the pair, so listing both is not two hexes in
+    // the lower-left corner; it is the two answers to "which face is up".
+    //
+    // Gated on the game's map knowing the tile. A system placed off the hex grid is invisible to
+    // `system_ids`, and the Nexus is only in play when the sources say so — listing it unconditionally
+    // handed every base-scope table a Prophecy of Kings tile to look at.
+    let nexus_in_play = !galaxy.wormhole_kinds("82a").is_empty()
+        || !galaxy.wormhole_kinds("82b").is_empty();
+    if nexus_in_play {
+        for id in ["82a", "82b"] {
+            if !board.iter().any(|tile| tile.system == id)
+                && let Some(tile) = system_metadata(content, id, 0, 0, Some("nexus"))
+            {
+                board.push(tile);
+            }
         }
     }
     board.extend(
@@ -2396,7 +2408,8 @@ function drawDynamic(f){
  const svg=document.querySelector('#board');svg.innerHTML='';const fractureVisible=!!f.state.fracture_in_play,mainYOffset=fractureVisible?-85:0;
  if(fractureVisible)svg.appendChild(el('text',{x:0,y:330,'font-size':13,fill:'#43d8e8'},'THE FRACTURE · SPECIAL AREA'));
  for(const t of session.board){
-  if(t.special_area==='fracture'&&!fractureVisible)continue;if(t.special_area==='nexus'&&!f.state.board[t.system])continue;
+  if(t.special_area==='fracture'&&!fractureVisible)continue;
+  if(t.special_area==='nexus'&&t.system!==(f.state.nexus_unlocked?'82b':'82a'))continue;
   let x,y;if(t.special_area==='fracture'){x=(t.q-3)*125;y=420}else if(t.special_area==='nexus'){x=-500;y=420}else{x=150*(t.q+t.r/2);y=130*t.r+mainYOffset}const pts=[];for(let k=0;k<6;k++){const a=Math.PI/6+Math.PI/3*k;pts.push(`${x+72*Math.cos(a)},${y+72*Math.sin(a)}`)}
   const state=f.state.board[t.system]||{units:[],planet_control:{},planet_units:{},command_tokens:[],purged_planets:[],coexisting:{}},purgedSystem=list(f.state.purged_systems).includes(t.system),planets=planetsIn(t,f),anomaly=anomalyStyle(t.anomalies);
   const groundKinds=['infantry','mech','pds','spacedock'],owners=[...new Set(state.units.filter(u=>!groundKinds.includes(kind(u.type_id))).map(u=>u.owner))];
@@ -3018,6 +3031,34 @@ mod tests {
     #[test]
     fn replay_metadata_carries_detached_special_areas_before_they_enter_play() {
         let content = ContentStore::embedded();
+        let mut galaxy = ti4_content::galaxy::Galaxy::placed(
+            content,
+            &[("18", ti4_model::hex::Hex::ORIGIN)],
+            FULL,
+        )
+        .unwrap();
+        // A tile is in play because the game's map knows it. `place_off_map` is how one joins the
+        // map without taking a hex, and `wormhole_kinds` is how anybody can then ask.
+        galaxy.place_off_map(content, "82a", FULL).expect("the nexus");
+        let board = board_metadata(content, &galaxy);
+        assert!(board.iter().any(|tile| tile.system == "82a"));
+        assert!(board.iter().any(|tile| tile.system == "82b"), "both faces are listed; \
+                 which one a frame draws is `nexus_unlocked`, and the view draws exactly one");
+        assert_eq!(
+            board
+                .iter()
+                .filter(|tile| tile.special_area.as_deref() == Some("fracture"))
+                .count(),
+            7
+        );
+    }
+
+    #[test]
+    fn metadata_invents_no_wormhole_nexus_for_a_map_that_has_none() {
+        // Both faces used to be appended to every session, whatever the game. That is fine until the
+        // viewer stops hiding them — at which point a base-scope table grows a Prophecy of Kings
+        // tile it never had, with a Mallice to be conquered on it.
+        let content = ContentStore::embedded();
         let galaxy = ti4_content::galaxy::Galaxy::placed(
             content,
             &[("18", ti4_model::hex::Hex::ORIGIN)],
@@ -3025,14 +3066,16 @@ mod tests {
         )
         .unwrap();
         let board = board_metadata(content, &galaxy);
-        assert!(board.iter().any(|tile| tile.system == "82a"));
-        assert!(board.iter().any(|tile| tile.system == "82b"));
-        assert_eq!(
+        assert!(
             board
                 .iter()
-                .filter(|tile| tile.special_area.as_deref() == Some("fracture"))
-                .count(),
-            7
+                .all(|tile| tile.special_area.as_deref() != Some("nexus")),
+            "a nexus was listed for a map that does not know one: {:?}",
+            board
+                .iter()
+                .filter(|tile| tile.special_area.as_deref() == Some("nexus"))
+                .map(|tile| tile.system.clone())
+                .collect::<Vec<_>>()
         );
     }
 }

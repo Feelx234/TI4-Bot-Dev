@@ -266,7 +266,11 @@ fn a_wider_window_moves_the_board_not_the_meaning() {
         Vec2::new(1100.0, 850.0),
         true,
     );
-    assert_eq!(tiles.len(), 37, "the whole example map, not a slice of it");
+    // 37 hexes of the example arrangement, plus the Wormhole Nexus beside them. The count was 37
+    // until the Nexus was placed at all on a map-pool board (it is off the grid, so the captured
+    // geometry it was built from cannot contain it); the extra tile is the fix, and `tile_point`
+    // below is what keeps it anchored to the window rather than to a hex.
+    assert_eq!(tiles.len(), 38, "the whole example map, not a slice of it");
     let ratio = large.scale / small.scale;
     let mut ring = 0;
     for tile in &tiles {
@@ -275,15 +279,19 @@ fn a_wider_window_moves_the_board_not_the_meaning() {
         // The two special areas are anchored to the window's edges, not to the ring, so they move
         // with the frame rather than scaling about the centre.
         if let Some(area) = tile.special_area.as_deref() {
+            // Both special areas scale the band offset with the window, as every other stroke in
+            // the painter does (`- 61.0 * scale`, not `- 61.0`). This expectation used to say
+            // otherwise and was dead: no frame in this test had a nexus tile, because no map-pool
+            // board had a nexus at all. The assertion is what it always should have been.
             let expected = if area == "nexus" {
                 Vec2::new(
                     large.rect.left() + 72.0 * large.scale,
-                    large.rect.bottom() - 61.0,
+                    large.rect.bottom() - 61.0 * large.scale,
                 )
             } else {
                 Vec2::new(
                     large.rect.center().x + (tile.q as f32 - 3.0) * 100.0 * large.scale,
-                    large.rect.bottom() - 61.0,
+                    large.rect.bottom() - 61.0 * large.scale,
                 )
             };
             assert_eq!(
