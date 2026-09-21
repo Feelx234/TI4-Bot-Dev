@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_content::units::{UnitType, catalogue};
-use ti4_model::content_types::SourceSet;
+use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
@@ -179,9 +179,34 @@ pub fn planet_value_now(
 ) -> i64 {
     planet_value(content, sources, planet, kind)
         + crate::laws::planet_value_bonus(state, planet, kind)
-        // Nano-Forge attaches to a planet and adds two of each, the same shape as the three
-        // attachment laws, so it belongs on the same path rather than a second one.
-        + crate::relics::nanoforge_bonus(state, planet)
+        + attachment_bonus(state, content, planet, kind)
+}
+
+/// What the attachments on a planet add to it (LRR 35.8): each attachment record's
+/// `resourcesModifier` / `influenceModifier`, summed.
+///
+/// Exploration attachments (Dyson Sphere, Mining World, a research facility on a planet that
+/// already has a specialty, ...) and Nano-Forge all land in `planet_attachments` by attachment id,
+/// so one reading of the content covers them. Nano-Forge used to be a special case here; it is now
+/// just the `nanoforge` record's +2/+2. An id the content does not know adds nothing.
+#[must_use]
+pub fn attachment_bonus(
+    state: &GameState,
+    content: &ContentStore,
+    planet: &PlanetId,
+    kind: Spend,
+) -> i64 {
+    let key = match kind {
+        Spend::Resources => "resourcesModifier",
+        Spend::Influence => "influenceModifier",
+    };
+    state.planet_attachments.get(planet).map_or(0, |attached| {
+        attached
+            .iter()
+            .filter_map(|id| content.get(ContentType::Attachments, id))
+            .filter_map(|record| record.int(key))
+            .sum()
+    })
 }
 
 /// Controlled planets whose cards are still readied (LRR 34, 75.2).
@@ -487,7 +512,7 @@ fn apply_payment_option(
         .payload
         .get("worth")
         .and_then(serde_json::Value::as_i64)
-        .unwrap_or_else(|| planet_value(content, sources, &planet, source));
+        .unwrap_or_else(|| planet_value_now(state, content, sources, &planet, source));
     state.exhaust_planet(planet);
     Some(worth)
 }
@@ -844,7 +869,7 @@ pub fn integrated_economy(
     system: &SystemId,
     planet: &PlanetId,
 ) -> Result<bool, IllegalChoice> {
-    let mut budget = planet_value(content, sources, planet, Spend::Resources);
+    let mut budget = planet_value_now(state, content, sources, planet, Spend::Resources);
     if budget <= 0 {
         return Ok(false);
     }
@@ -1230,7 +1255,7 @@ pub fn capacity(
         .filter_map(|(unit, planet)| {
             let kind = types.get(unit.type_id.as_str())?;
             let resources = planet.map_or(0, |planet| {
-                planet_value(content, sources, &planet, Spend::Resources)
+                planet_value_now(state, content, sources, &planet, Spend::Resources)
             });
             Some(kind.production(resources))
         })

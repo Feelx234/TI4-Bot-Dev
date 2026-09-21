@@ -139,27 +139,33 @@ pub fn votable_planets(
     sources: SourceSet,
     player: &PlayerId,
 ) -> Vec<PlanetId> {
-    let catalogue = all_planets(content, sources);
     state
         .controlled_planets(player)
         .into_iter()
         .map(|(_, planet)| planet.clone())
         .filter(|planet| !state.exhausted_planets.contains(planet))
-        .filter(|planet| {
-            catalogue
-                .get(planet.as_str())
-                .is_some_and(|record| record.influence() > 0)
-        })
+        .filter(|planet| influence_of(state, content, sources, planet) > 0)
         .collect()
 }
 
-/// The influence a planet casts when exhausted.
+/// The influence a planet casts when exhausted: its value as it now stands, attachments and
+/// attachment laws included.
 ///
 /// 8.6a: exhausting a planet casts its *full* influence, never part of it.
 #[must_use]
-pub fn influence_of(content: &ContentStore, sources: SourceSet, planet: &PlanetId) -> i64 {
-    ti4_content::galaxy::planet(content, planet.as_str(), sources)
-        .map_or(0, |record| record.influence())
+pub fn influence_of(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &PlanetId,
+) -> i64 {
+    crate::production::planet_value_now(
+        state,
+        content,
+        sources,
+        planet,
+        crate::production::Spend::Influence,
+    )
 }
 
 /// Whether an agenda is a law, which decides if a passed outcome stays in play (8.20).
@@ -398,7 +404,7 @@ impl VoteWindow {
                     remaining
                         .iter()
                         .map(|planet| {
-                            let influence = influence_of(content, sources, planet);
+                            let influence = influence_of(state, content, sources, planet);
                             ChoiceOption::labelled(
                                 planet.as_str(),
                                 VOTE_PLANET_KIND,
@@ -548,7 +554,7 @@ impl VoteWindow {
                     self.stage = Stage::Outcome(index + 1);
                 } else {
                     let planet = PlanetId::new(option.id);
-                    let influence = influence_of(content, sources, &planet);
+                    let influence = influence_of(state, content, sources, &planet);
                     state.exhaust_planet(planet);
                     self.stage = Stage::Planets {
                         index,
@@ -848,11 +854,8 @@ mod tests {
         let (mut state, _) = game(&["a", "b"]);
         let mut window = VoteWindow::new(&state, "x", for_against());
         let first_voter = window.order[0].clone();
-        let expected = influence_of(
-            ContentStore::embedded(),
-            POK,
-            &give_voting_planet(&mut state, &first_voter),
-        );
+        let voting_planet = give_voting_planet(&mut state, &first_voter);
+        let expected = influence_of(&state, ContentStore::embedded(), POK, &voting_planet);
         window.open(&state, ContentStore::embedded(), POK);
 
         let first = window
@@ -919,7 +922,7 @@ mod tests {
         // 8.6a: full influence, never part of it.
         let (mut state, players) = game(&["a"]);
         let planet = give_voting_planet(&mut state, &players[0]);
-        let expected = influence_of(ContentStore::embedded(), POK, &planet);
+        let expected = influence_of(&state, ContentStore::embedded(), POK, &planet);
         assert!(expected > 0);
 
         let mut window = VoteWindow::new(&state, "x", for_against());

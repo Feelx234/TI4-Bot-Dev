@@ -122,6 +122,28 @@ pub fn resolution(content: &ContentStore, card: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+/// The attachment an `Attach` explore card puts on `planet`.
+///
+/// The card's `attachmentId`, or the card id when the content gives none. A research facility is
+/// two attachments: on a planet that already has a technology specialty it is the `...stat` record,
+/// +1 resource and +1 influence; otherwise it is the record that gives the planet that specialty.
+#[must_use]
+pub fn attachment_for(content: &ContentStore, card: &str, planet: &PlanetId) -> String {
+    let id = content
+        .get(ContentType::Explores, card)
+        .and_then(|record| record.text("attachmentId"))
+        .unwrap_or(card)
+        .to_owned();
+    let stat = format!("{id}stat");
+    if content.get(ContentType::Attachments, &stat).is_none() {
+        return id;
+    }
+    let has_specialty =
+        ti4_content::galaxy::planet(content, planet.as_str(), ti4_model::content_types::FULL)
+            .is_some_and(|record| !record.tech_specialties().is_empty());
+    if has_specialty { stat } else { id }
+}
+
 /// This player's commodity value, from their faction (21.1).
 fn commodity_limit(state: &GameState, content: &ContentStore, player: &PlayerId) -> i32 {
     state.player(player).map_or(0, |seat| {
@@ -921,11 +943,15 @@ pub fn explore_with(
                 // count of unresolved cards stays honest.
                 return Some(Explored::Discarded { card });
             };
+            // Stored by *attachment* id, the key every reader uses (`tombofemphidia` for the
+            // Crown's check, the attachment record for the planet's value). The explore card id
+            // (`toe`, `ds`) named nothing outside this deck.
+            let attachment = attachment_for(content, &card, planet);
             state
                 .planet_attachments
                 .entry(planet.clone())
                 .or_default()
-                .push(card.clone());
+                .push(attachment);
             Explored::Attached { card }
         }
         // Instant and token cards need per-card handlers. Those this engine has are resolved;
@@ -1257,6 +1283,87 @@ mod tests {
             None,
         );
         assert!(matches!(outcome, Some(Explored::Discarded { .. })));
+    }
+
+    /// A controlled, printed planet with (or without) a technology specialty, for attachment tests.
+    fn a_planet(with_specialty: bool) -> (PlanetId, i64, i64) {
+        let planets = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK);
+        let (id, record) = planets
+            .iter()
+            .filter(|(_, record)| !record.is_placed_during_play())
+            .find(|(_, record)| record.tech_specialties().is_empty() != with_specialty)
+            .expect("the corpus has planets of both kinds");
+        (PlanetId::new(*id), record.resources(), record.influence())
+    }
+
+    fn value(state: &GameState, planet: &PlanetId, kind: crate::production::Spend) -> i64 {
+        crate::production::planet_value_now(state, ContentStore::embedded(), POK, planet, kind)
+    }
+
+    /// An explored attachment is stored by its attachment id and changes what the planet is worth:
+    /// to pay with, and to vote with. Before, the explore card id (`ds`) was stored, which no
+    /// reader recognised, and no reader added an exploration attachment's modifiers at all.
+    #[test]
+    fn an_explored_attachment_is_stored_by_its_id_and_changes_the_planets_value() {
+        use crate::production::Spend;
+        let (planet, resources, influence) = a_planet(false);
+        let mut state = game(&["a"]);
+        state
+            .exploration_decks
+            .insert("CULTURAL".to_owned(), vec!["ds".to_owned()]);
+        let outcome = explore(
+            &mut state,
+            ContentStore::embedded(),
+            &player(),
+            "CULTURAL",
+            Some(&planet),
+        );
+        assert!(matches!(outcome, Some(Explored::Attached { .. })));
+        assert_eq!(
+            state.planet_attachments.get(&planet),
+            Some(&vec!["dysonsphere".to_owned()])
+        );
+        // Dyson Sphere: +2 resources, +1 influence.
+        assert_eq!(value(&state, &planet, Spend::Resources), resources + 2);
+        assert_eq!(value(&state, &planet, Spend::Influence), influence + 1);
+        assert_eq!(
+            crate::vote::influence_of(&state, ContentStore::embedded(), POK, &planet),
+            influence + 1,
+            "an attachment's influence votes"
+        );
+    }
+
+    /// A research facility is +1/+1 on a planet that already has a specialty, and otherwise gives
+    /// the planet the specialty and no value.
+    #[test]
+    fn a_research_facility_depends_on_the_planets_specialty() {
+        use crate::production::Spend;
+        for (with_specialty, stored, bonus) in [(true, "bioticstat", 1), (false, "biotic", 0)] {
+            let (planet, resources, influence) = a_planet(with_specialty);
+            assert_eq!(
+                attachment_for(ContentStore::embedded(), "biotic", &planet),
+                stored
+            );
+            let mut state = game(&["a"]);
+            state
+                .planet_attachments
+                .insert(planet.clone(), vec![stored.to_owned()]);
+            assert_eq!(value(&state, &planet, Spend::Resources), resources + bonus);
+            assert_eq!(value(&state, &planet, Spend::Influence), influence + bonus);
+        }
+    }
+
+    /// Nano-Forge is no longer a special case, and must still be worth exactly +2/+2, not +4/+4.
+    #[test]
+    fn nanoforge_counts_once() {
+        use crate::production::Spend;
+        let (planet, resources, influence) = a_planet(false);
+        let mut state = game(&["a"]);
+        state
+            .planet_attachments
+            .insert(planet.clone(), vec!["nanoforge".to_owned()]);
+        assert_eq!(value(&state, &planet, Spend::Resources), resources + 2);
+        assert_eq!(value(&state, &planet, Spend::Influence), influence + 2);
     }
 
     #[test]

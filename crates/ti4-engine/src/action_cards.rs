@@ -4559,7 +4559,8 @@ fn mining_initiative(context: &mut crate::timing::TimingContext<'_>, player: &Pl
     let Some((_, planet)) = spot(&chosen) else {
         return;
     };
-    let worth = crate::production::planet_value(
+    let worth = crate::production::planet_value_now(
+        context.state,
         context.content,
         context.sources,
         &planet,
@@ -4838,7 +4839,8 @@ fn uprising(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let Some((_, planet)) = spot(&chosen) else {
         return;
     };
-    let worth = crate::production::planet_value(
+    let worth = crate::production::planet_value_now(
+        context.state,
         context.content,
         context.sources,
         &planet,

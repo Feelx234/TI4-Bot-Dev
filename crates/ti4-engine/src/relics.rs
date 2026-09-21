@@ -162,20 +162,6 @@ pub fn secret_objective_bonus(state: &GameState, player: &PlayerId) -> usize {
     usize::from(holds(state, player, &RelicId::new("obsidian")))
 }
 
-/// Nano-Forge: the attached planet is worth two more of each, and is legendary.
-///
-/// Attached rather than held, so the bonus follows the planet and not the owner. Read through the
-/// same `planet_value_now` path the three attachment laws use.
-#[must_use]
-pub fn nanoforge_bonus(state: &GameState, planet: &ti4_model::id::PlanetId) -> i64 {
-    i64::from(
-        state
-            .planet_attachments
-            .get(planet)
-            .is_some_and(|attached| attached.iter().any(|card| card == "nanoforge")),
-    ) * 2
-}
-
 /// Ask which technology to gain, and gain it without checking prerequisites.
 ///
 /// Maw of Worlds and Enigmatic Device both say *gain* or *research 1 technology* as the whole of

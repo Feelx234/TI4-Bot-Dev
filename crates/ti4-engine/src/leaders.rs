@@ -42,7 +42,9 @@ fn controlled_total(
     state
         .controlled_planets(player)
         .into_iter()
-        .map(|(_, planet)| crate::production::planet_value(content, sources, planet, kind))
+        .map(|(_, planet)| {
+            crate::production::planet_value_now(state, content, sources, planet, kind)
+        })
         .sum()
 }
 
