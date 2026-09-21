@@ -442,6 +442,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Scanlink Drone Network: which planet to explore, or none.
+        module: "faction_techs.rs",
+        function: "offer_scanlink",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Spatial Conduit Cylinders: use (exhaust, link the active system) or decline.
         module: "faction_techs.rs",
         function: "offer_spatial_conduit",
@@ -952,6 +959,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("faction_abilities.rs", "strategy_resolved", 1),
     ("faction_techs.rs", "offer_nullification_field", 1),
     ("faction_techs.rs", "offer_quantum_datahub", 1),
+    ("faction_techs.rs", "offer_scanlink", 1),
     ("faction_techs.rs", "offer_spatial_conduit", 1),
     ("fleet.rs", "remove_one", 1),
     ("game.rs", "step", 1),

@@ -2072,6 +2072,46 @@ impl<'a> Game<'a> {
                     }
                     self.emit(&format!("SPATIAL_CONDUIT:{}:{system}", window.player));
                 }
+                if let Some(planet) = crate::faction_techs::offer_scanlink(
+                    &self.state,
+                    self.content,
+                    self.sources,
+                    &mut self.table,
+                    self.galaxy.as_ref(),
+                    &system,
+                    &window.player,
+                ) {
+                    let mut dice = std::mem::take(&mut self.dice);
+                    let mut rng = self.rng.clone();
+                    let mut ctx = Resolving {
+                        content: self.content,
+                        sources: self.sources,
+                        dice: &mut dice,
+                        rng: &mut rng,
+                        table: &mut self.table,
+                        timing: None,
+                    };
+                    let explored = crate::exploration::choose_deck(
+                        &mut ctx,
+                        &self.state,
+                        &window.player,
+                        &planet,
+                    )
+                    .and_then(|deck| {
+                        crate::exploration::explore_with(
+                            &mut self.state,
+                            &mut ctx,
+                            &window.player,
+                            &deck,
+                            Some(&planet),
+                        )
+                    });
+                    self.dice = dice;
+                    self.rng = rng;
+                    if explored.is_some() {
+                        self.emit(&format!("SCANLINK_EXPLORED:{planet}"));
+                    }
+                }
                 for holder in crate::faction_techs::e_res_siphons(
                     &mut self.state,
                     self.content,

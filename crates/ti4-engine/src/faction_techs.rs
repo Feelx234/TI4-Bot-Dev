@@ -466,6 +466,65 @@ pub fn dacxive_animators(
     true
 }
 
+/// Scanlink Drone Network: "When you activate a system, you may explore 1 planet in that system
+/// which contains 1 or more of your units." Asks which planet, or none; returns the choice. The
+/// exploration itself runs in the game step, where its dice and table are.
+pub fn offer_scanlink(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    system: &SystemId,
+    active: &PlayerId,
+) -> Option<ti4_model::id::PlanetId> {
+    if !state
+        .player(active)
+        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("sdn")))
+    {
+        return None;
+    }
+    let planets: Vec<ti4_model::id::PlanetId> =
+        crate::planets::in_system(state, content, sources, system)
+            .into_iter()
+            .filter(|planet| {
+                !state
+                    .system_state(system)
+                    .on_planet_of(planet, active)
+                    .is_empty()
+            })
+            .filter(|planet| crate::exploration::trait_of(content, sources, planet).is_some())
+            .collect();
+    if planets.is_empty() {
+        return None;
+    }
+    let mut options: Vec<ChoiceOption> = planets
+        .iter()
+        .map(|planet| {
+            ChoiceOption::labelled(planet.to_string(), "planet", format!("explore {planet}"))
+        })
+        .collect();
+    options.push(ChoiceOption::decline());
+    let choice = Choice::new(
+        active.clone(),
+        "Scanlink Drone Network: explore a planet here with your units on it",
+        options,
+    )
+    .contextualized(DecisionContext::new(
+        active.clone(),
+        DecisionSource::Content("sdn".to_owned()),
+        "scanlink_explore",
+        state.phase,
+        state.round,
+    ));
+    let answer = table
+        .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
+        .ok()?;
+    planets
+        .into_iter()
+        .find(|planet| planet.as_str() == answer.id)
+}
+
 #[cfg(test)]
 mod tests {
     use ti4_model::content_types::POK;
@@ -736,5 +795,46 @@ mod tests {
             crate::faction_abilities::status_tokens(&state, ContentStore::embedded(), &player, 2),
             without + 1
         );
+    }
+
+    #[test]
+    fn scanlink_offers_only_planets_with_the_players_units() {
+        let mut state = game(&["a"]);
+        let player = PlayerId::new("a");
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        state
+            .player_mut(&player)
+            .unwrap()
+            .technologies
+            .insert(TechnologyId::new("sdn"));
+        assert_eq!(
+            offer_scanlink(
+                &state,
+                ContentStore::embedded(),
+                POK,
+                &mut table,
+                None,
+                &system,
+                &player
+            ),
+            None,
+            "no units on the planet, nothing to explore"
+        );
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &player, 1);
+        let chosen = offer_scanlink(
+            &state,
+            ContentStore::embedded(),
+            POK,
+            &mut table,
+            None,
+            &system,
+            &player,
+        );
+        if crate::exploration::trait_of(ContentStore::embedded(), POK, &planet).is_some() {
+            assert_eq!(chosen, Some(planet));
+        } else {
+            assert_eq!(chosen, None, "a planet with no trait cannot be explored");
+        }
     }
 }
