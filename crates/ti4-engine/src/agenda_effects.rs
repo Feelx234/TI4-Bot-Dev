@@ -227,8 +227,8 @@ fn system_of(
     sources: ti4_model::content_types::SourceSet,
     planet: &str,
 ) -> Option<ti4_model::id::SystemId> {
-    if let Some(system) = ti4_content::galaxy::planet(content, planet, sources)
-        .and_then(|record| record.system_id())
+    if let Some(system) =
+        ti4_content::galaxy::planet(content, planet, sources).and_then(|record| record.system_id())
     {
         return Some(ti4_model::id::SystemId::new(system));
     }
@@ -1276,7 +1276,10 @@ mod tests {
         let state = crate::fixtures::game(&["a", "b"]);
         let content = ti4_content::ContentStore::embedded();
         // Nothing has touched the system abaddon sits in, which is the condition that hid it.
-        assert!(state.board.is_empty(), "the fixture has touched no system at all");
+        assert!(
+            state.board.is_empty(),
+            "the fixture has touched no system at all"
+        );
         let system = system_of(&state, &content, ti4_model::content_types::POK, "abaddon");
         assert_eq!(
             system.map(|id| id.as_str().to_owned()),
@@ -1286,7 +1289,12 @@ mod tests {
         // And a planet the corpus does not print on a tile still falls back to the board, where a
         // planet placed during play has its system recorded.
         assert_eq!(
-            system_of(&state, &content, ti4_model::content_types::POK, "no-such-planet"),
+            system_of(
+                &state,
+                &content,
+                ti4_model::content_types::POK,
+                "no-such-planet"
+            ),
             None
         );
     }

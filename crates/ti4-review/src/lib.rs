@@ -1958,8 +1958,8 @@ fn board_metadata(content: &ContentStore, galaxy: &ti4_content::galaxy::Galaxy) 
     // Gated on the game's map knowing the tile. A system placed off the hex grid is invisible to
     // `system_ids`, and the Nexus is only in play when the sources say so — listing it unconditionally
     // handed every base-scope table a Prophecy of Kings tile to look at.
-    let nexus_in_play = !galaxy.wormhole_kinds("82a").is_empty()
-        || !galaxy.wormhole_kinds("82b").is_empty();
+    let nexus_in_play =
+        !galaxy.wormhole_kinds("82a").is_empty() || !galaxy.wormhole_kinds("82b").is_empty();
     if nexus_in_play {
         for id in ["82a", "82b"] {
             if !board.iter().any(|tile| tile.system == id)
@@ -3039,11 +3039,16 @@ mod tests {
         .unwrap();
         // A tile is in play because the game's map knows it. `place_off_map` is how one joins the
         // map without taking a hex, and `wormhole_kinds` is how anybody can then ask.
-        galaxy.place_off_map(content, "82a", FULL).expect("the nexus");
+        galaxy
+            .place_off_map(content, "82a", FULL)
+            .expect("the nexus");
         let board = board_metadata(content, &galaxy);
         assert!(board.iter().any(|tile| tile.system == "82a"));
-        assert!(board.iter().any(|tile| tile.system == "82b"), "both faces are listed; \
-                 which one a frame draws is `nexus_unlocked`, and the view draws exactly one");
+        assert!(
+            board.iter().any(|tile| tile.system == "82b"),
+            "both faces are listed; \
+                 which one a frame draws is `nexus_unlocked`, and the view draws exactly one"
+        );
         assert_eq!(
             board
                 .iter()
