@@ -164,6 +164,20 @@ describe('choiceModel', () => {
       expect(model?.isOptional).toBe(true);
     });
 
+    it('classifies public and secret objective scoring', () => {
+      const publicObjective: PendingChoiceDto = {
+        ...baseChoice,
+        context: { subtype: 'score_objective' },
+      };
+      const secretObjective: PendingChoiceDto = {
+        ...baseChoice,
+        context: { subtype: 'score_secret_objective' },
+      };
+
+      expect(deriveChoiceRendererModel(publicObjective, 'seat_1')?.workflow).toBe('objective_scoring');
+      expect(deriveChoiceRendererModel(secretObjective, 'seat_1')?.workflow).toBe('objective_scoring');
+    });
+
     it('classifies combat sustain and casualty assignment', () => {
       const sustainChoice: PendingChoiceDto = {
         ...baseChoice,

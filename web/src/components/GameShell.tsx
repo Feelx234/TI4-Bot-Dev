@@ -195,7 +195,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       )}
 
       {/* 8. Fallback / Generic Selection & System Activation Modal */}
-      {(workflow === 'generic_selection' || workflow === 'system_activation') && (
+      {(workflow === 'generic_selection' || workflow === 'system_activation' || workflow === 'objective_scoring') && (
         <PendingChoiceModal
           choice={choice}
           model={model}

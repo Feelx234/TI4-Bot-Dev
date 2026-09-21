@@ -220,6 +220,25 @@ describe('GameShell', () => {
       />
     );
     expect(screen.getByTestId('production-builder-drawer')).toBeInTheDocument();
+
+    // 7. Objective scoring uses the generic selection modal.
+    rerender(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{
+          actor: 'p1',
+          nonce: 'score-1',
+          prompt: 'Score an objective',
+          context: { subtype: 'score_objective' },
+          options: [{ id: 'obj-1', label: 'Objective' }],
+        }}
+        viewerSeat="p1"
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+    expect(screen.getByTestId('pending-choice-dialog')).toBeInTheDocument();
   });
 });
-

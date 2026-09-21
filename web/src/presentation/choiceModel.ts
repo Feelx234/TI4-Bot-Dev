@@ -280,6 +280,25 @@ export function deriveChoiceRendererModel(
     };
   }
 
+  // Objective scoring uses the generic selection UI but remains distinct for
+  // workflow-level presentation and future scoring-specific enhancements.
+  if (subtype === 'score_objective' || subtype === 'score_secret_objective') {
+    return {
+      workflow: 'objective_scoring',
+      selectionMode: { mode: 'single' },
+      prompt: choice.prompt,
+      actor: choice.actor,
+      nonce: choice.nonce,
+      isOptional,
+      contextTarget: choice.context?.target ?? null,
+      options: choice.options,
+      outstanding: choice.context?.outstanding ?? [],
+      declineOption,
+      optionsByKind,
+      optionsByTarget,
+    };
+  }
+
   // 4. Combat Phasing: Sustain vs Casualties vs Retreat
   if (subtype === 'sustain_damage') {
     return {
