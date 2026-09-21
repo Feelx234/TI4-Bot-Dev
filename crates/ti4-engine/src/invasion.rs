@@ -467,7 +467,7 @@ fn roll_bombard_plan(
                 Some(u32::try_from(value).unwrap_or(u32::MAX)),
                 invader,
             );
-            let produced = roll.hits();
+            let produced = roll.hits() * x89_multiplier(state, invader);
             if produced > 0 {
                 groups.push(produced);
             }
@@ -577,6 +577,10 @@ fn apply_bombard_plan(
     let mut killed = 0;
     let mut noted = false;
     for entry in plan {
+        // X-89: "Exhaust each planet you use BOMBARDMENT against."
+        if x89_multiplier(state, invader) > 1 {
+            state.exhaust_planet(entry.planet.clone());
+        }
         let mut taken = 0;
         for produced in &entry.groups {
             let target = if entry.victims.len() == 1 {
@@ -955,7 +959,20 @@ fn roll_ground(
         state.reroll_staging.insert(player.clone(), set);
         state.last_reroll_player = Some(player.clone());
     }
-    hits
+    hits * x89_multiplier(state, player)
+}
+
+/// X-89 Bacterial Weapon (the codex printing in play): "Double the hits produced by your units'
+/// BOMBARDMENT and ground combat rolls."
+fn x89_multiplier(state: &GameState, player: &PlayerId) -> usize {
+    if state.player(player).is_some_and(|seat| {
+        seat.technologies
+            .contains(&ti4_model::id::TechnologyId::new("x89c4"))
+    }) {
+        2
+    } else {
+        1
+    }
 }
 
 /// Apply one hit to `player`'s ground forces on `planet`: an undamaged unit with SUSTAIN DAMAGE
@@ -1563,12 +1580,13 @@ impl InvasionWindow {
         }
         crate::combat::open_reroll_windows(state, ctx, &self.invader);
         if let Some(set) = state.reroll_staging.get(&self.invader).cloned() {
+            let multiplier = x89_multiplier(state, &self.invader);
             for entry in &mut self.bombard_plan {
                 entry.groups = set
                     .rolls
                     .iter()
                     .filter(|roll| roll.planet.as_ref() == Some(&entry.planet))
-                    .map(ti4_model::state::RerollEntry::hits)
+                    .map(|roll| roll.hits() * multiplier)
                     .filter(|hits| *hits > 0)
                     .collect();
             }
@@ -1776,15 +1794,20 @@ impl InvasionWindow {
         defender: &PlayerId,
         defender_hits: usize,
     ) -> (usize, usize) {
+        // Staged dice are raw faces; X-89 doubles what they produce, as `roll_ground` did.
         (
             state
                 .reroll_staging
                 .get(invader)
-                .map_or(invader_hits, crate::combat::staged_hits),
+                .map_or(invader_hits, |set| {
+                    crate::combat::staged_hits(set) * x89_multiplier(state, invader)
+                }),
             state
                 .reroll_staging
                 .get(defender)
-                .map_or(defender_hits, crate::combat::staged_hits),
+                .map_or(defender_hits, |set| {
+                    crate::combat::staged_hits(set) * x89_multiplier(state, defender)
+                }),
         )
     }
 
@@ -4161,6 +4184,43 @@ mod tests {
             .on_planet_of(&planet, &invader())
             .len();
         assert_eq!(landed, 1, "the PDS hit one of the two infantry");
+    }
+
+    #[test]
+    fn x89_doubles_ground_combat_hits() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = arena_off_mecatol();
+        on_planet(&mut state, &system, &planet, "infantry", &invader(), 1);
+        let mut rng = GameRng::new(7);
+        let mut dice = Dice::from_faces([10u32]);
+        let plain = roll_ground(
+            &mut state,
+            content,
+            POK,
+            &mut dice,
+            &mut rng,
+            &invader(),
+            &system,
+            &planet,
+        );
+        state.reroll_staging.clear();
+        state
+            .player_mut(&invader())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("x89c4"));
+        let mut dice = Dice::from_faces([10u32]);
+        let doubled = roll_ground(
+            &mut state,
+            content,
+            POK,
+            &mut dice,
+            &mut rng,
+            &invader(),
+            &system,
+            &planet,
+        );
+        assert_eq!((plain, doubled), (1, 2));
     }
 
     #[test]
