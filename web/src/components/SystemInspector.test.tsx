@@ -79,4 +79,12 @@ describe('SystemInspector Component', () => {
     const { container } = render(<SystemInspector system={null} onClose={() => {}} />);
     expect(container.firstChild).toBeNull();
   });
+
+  it('dismisses on Escape key', () => {
+    const onClose = vi.fn();
+    render(<SystemInspector system={mockSystem} onClose={onClose} />);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

@@ -44,10 +44,12 @@ export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle }) 
       className="event-log"
     >
       <button
+        id="event-log-toggle"
         type="button"
         data-testid="event-log-toggle"
         onClick={onToggle}
         aria-expanded={isOpen}
+        aria-controls="event-log-list"
         className="button"
         style={{
           display: 'flex',
@@ -81,6 +83,9 @@ export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle }) 
 
       {isOpen && (
         <div
+          id="event-log-list"
+          role="region"
+          aria-labelledby="event-log-toggle"
           data-testid="event-log-list"
           style={{
             maxHeight: 200,

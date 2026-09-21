@@ -35,11 +35,17 @@ describe('GameShell', () => {
     fireEvent.click(screen.getByTestId('player-sheet-toggle'));
     expect(playerDrawer).toHaveClass('app-shell__drawer--open');
     expect(screen.getByTestId('player-sheet-toggle')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('player-sheet-toggle')).toHaveAttribute('aria-controls', 'player-sheet-drawer');
 
     fireEvent.click(screen.getByTestId('event-log-mobile-toggle'));
     expect(eventDrawer).toHaveClass('app-shell__drawer--open');
     expect(playerDrawer).not.toHaveClass('app-shell__drawer--open');
+    expect(screen.getByTestId('event-log-mobile-toggle')).toHaveAttribute('aria-controls', 'event-log-drawer');
     expect(screen.getByTestId('event-log-toggle')).toHaveAttribute('aria-expanded', 'true');
+
+    // Escape closes the open mobile drawer
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(eventDrawer).not.toHaveClass('app-shell__drawer--open');
   });
 
   it('renders pending choices through the shell overlay and resets minimization for a new nonce', () => {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { SelectedSystemDetails } from '../presentation/boardPresentation.ts';
+import { Drawer } from '../primitives/index.ts';
 
 export interface SystemInspectorProps {
   system: SelectedSystemDetails | null;
@@ -15,14 +16,19 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
   if (!system) return null;
 
   return (
-    <aside
-      className="system-inspector panel"
+    <Drawer
+      open={true}
+      onClose={onClose}
+      modal={false}
+      position="right"
+      ariaLabel={`System ${system.systemId} details`}
       data-testid="system-inspector"
-      aria-label={`System ${system.systemId} details`}
+      className="system-inspector panel"
       style={{
         position: 'absolute',
         top: 16,
         right: 16,
+        bottom: 'auto',
         width: 320,
         maxHeight: 'calc(100% - 32px)',
         overflowY: 'auto',
@@ -301,6 +307,6 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
           </div>
         </div>
       )}
-    </aside>
+    </Drawer>
   );
 };

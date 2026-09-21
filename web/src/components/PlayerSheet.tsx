@@ -6,6 +6,8 @@ import {
   getActionCardMeta,
 } from '../protocol/contentCatalog.ts';
 
+import { Tooltip } from '../primitives/index.ts';
+
 export interface PlayerSheetProps {
   players: PlayerView[];
   userSeat?: string;
@@ -76,7 +78,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
               <div>Tokens: <strong>{player.tactic_tokens}/{player.fleet_tokens}/{player.strategic_tokens}</strong></div>
             </div>
 
-            {/* Strategy Cards (Human Readable with Tooltips) */}
+            {/* Strategy Cards (Human Readable with Accessible Tooltips) */}
             {player.strategy_cards.length > 0 && (
               <div style={{ fontSize: 12 }}>
                 <div style={{ color: '#94a3b8', marginBottom: 4, fontWeight: 500 }}>
@@ -88,25 +90,27 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                     const tooltipText = `${meta.name} (Initiative ${meta.initiative})\n\nPrimary:\n${meta.primaryText}\n\nSecondary:\n${meta.secondaryText}`;
 
                     return (
-                      <span
-                        key={scId}
-                        data-testid={`strategy-card-badge-${scId}`}
-                        data-card-id={scId}
-                        title={tooltipText}
-                        style={{
-                          background: '#090d16',
-                          border: '1px solid #38bdf8',
-                          borderRadius: 4,
-                          padding: '2px 8px',
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: '#38bdf8',
-                          cursor: 'help',
-                          display: 'inline-block',
-                        }}
-                      >
-                        {meta.initiative > 0 ? `${meta.initiative}. ` : ''}{meta.name}
-                      </span>
+                      <Tooltip key={scId} content={tooltipText} delayMs={100}>
+                        <span
+                          tabIndex={0}
+                          data-testid={`strategy-card-badge-${scId}`}
+                          data-card-id={scId}
+                          title={tooltipText}
+                          style={{
+                            background: '#090d16',
+                            border: '1px solid #38bdf8',
+                            borderRadius: 4,
+                            padding: '2px 8px',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: '#38bdf8',
+                            cursor: 'help',
+                            display: 'inline-block',
+                          }}
+                        >
+                          {meta.initiative > 0 ? `${meta.initiative}. ` : ''}{meta.name}
+                        </span>
+                      </Tooltip>
                     );
                   })}
                 </div>
@@ -150,29 +154,35 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                         return (
                           <li
                             key={cardId}
+                            tabIndex={0}
                             data-private-card="true"
                             data-private-card-owner={player.id}
                             data-action-card-id={cardId}
-                          data-testid={`action-card-item-${cardId}`}
-                          title={tooltipText}
-                          className="card"
-                          style={{
+                            data-testid={`action-card-item-${cardId}`}
+                            title={tooltipText}
+                            className="card"
+                            style={{
                               border: '1px solid #475569',
                               padding: '6px 10px',
                               cursor: 'help',
+                              position: 'relative',
                             }}
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <strong style={{ color: '#e2e8f0', fontSize: 12 }}>{meta.name}</strong>
-                              {meta.phase && (
-                                <span style={{ fontSize: 10, color: '#94a3b8', background: '#1e293b', padding: '1px 5px', borderRadius: 3 }}>
-                                  {meta.phase}
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, lineHeight: 1.3 }}>
-                              {meta.description}
-                            </div>
+                            <Tooltip content={tooltipText} delayMs={100} wrapperStyle={{ width: '100%' }}>
+                              <div style={{ width: '100%' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <strong style={{ color: '#e2e8f0', fontSize: 12 }}>{meta.name}</strong>
+                                  {meta.phase && (
+                                    <span style={{ fontSize: 10, color: '#94a3b8', background: '#1e293b', padding: '1px 5px', borderRadius: 3 }}>
+                                      {meta.phase}
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, lineHeight: 1.3 }}>
+                                  {meta.description}
+                                </div>
+                              </div>
+                            </Tooltip>
                           </li>
                         );
                       })}
@@ -196,27 +206,33 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                         return (
                           <li
                             key={objId}
+                            tabIndex={0}
                             data-private-card="true"
                             data-private-card-owner={player.id}
                             data-secret-obj-id={objId}
-                          data-testid={`secret-objective-item-${objId}`}
-                          title={tooltipText}
-                          className="card"
-                          style={{
+                            data-testid={`secret-objective-item-${objId}`}
+                            title={tooltipText}
+                            className="card"
+                            style={{
                               border: '1px solid #fbbf24',
                               padding: '6px 10px',
                               cursor: 'help',
+                              position: 'relative',
                             }}
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <strong style={{ color: '#fbbf24', fontSize: 12 }}>{meta.name}</strong>
-                              <span style={{ fontSize: 10, color: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', padding: '1px 5px', borderRadius: 3 }}>
-                                {meta.phase} • {meta.points} VP
-                              </span>
-                            </div>
-                            <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 3, lineHeight: 1.3 }}>
-                              {meta.description}
-                            </div>
+                            <Tooltip content={tooltipText} delayMs={100} wrapperStyle={{ width: '100%' }}>
+                              <div style={{ width: '100%' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <strong style={{ color: '#fbbf24', fontSize: 12 }}>{meta.name}</strong>
+                                  <span style={{ fontSize: 10, color: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', padding: '1px 5px', borderRadius: 3 }}>
+                                    {meta.phase} • {meta.points} VP
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 3, lineHeight: 1.3 }}>
+                                  {meta.description}
+                                </div>
+                              </div>
+                            </Tooltip>
                           </li>
                         );
                       })}

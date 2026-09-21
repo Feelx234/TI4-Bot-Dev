@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
+import { Dialog, Tooltip } from '../primitives/index.ts';
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -133,14 +134,13 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   };
 
   return (
-      <div
+    <Dialog.Root open={!isMinimized} onOpenChange={(open) => setIsMinimized(!open)}>
+      <Dialog.Content
         ref={dialogRef}
         data-testid="pending-choice-dialog"
-        role="dialog"
-        tabIndex={-1}
-        aria-modal="true"
-        aria-labelledby="choice-prompt-title"
         className="choice-dialog"
+        onEscape={() => setIsMinimized(true)}
+        initialFocusRef={dialogRef}
         style={{
           background: 'rgba(3, 7, 18, 0.75)',
           backdropFilter: 'blur(4px)',
@@ -148,78 +148,59 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           alignItems: 'center',
           justifyContent: 'center',
         }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            setIsMinimized(true);
-            return;
-          }
-          if (event.key !== 'Tab') return;
-          const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
-            'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])'
-          );
-          if (!focusable?.length) return;
-          const first = focusable[0];
-          const last = focusable[focusable.length - 1];
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-          }
-        }}
       >
-      <div
-        className="choice-dialog__panel panel"
-        style={{
-          border: '1px solid #38bdf8',
-          padding: 24,
-          maxWidth: 540,
-          width: '90%',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 'bold', color: '#38bdf8', textTransform: 'uppercase' }}>
-              Decision Required • Seat: {choice.actor}
-            </div>
-            <h2
-              id="choice-prompt-title"
-              data-testid="choice-prompt"
-              style={{ fontSize: 18, fontWeight: 'bold', margin: '6px 0 0 0', color: '#f8fafc' }}
-            >
-              {choice.prompt}
-            </h2>
-            {choice.context && (
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
-                Context: {choice.context.subtype}
+        <div
+          className="choice-dialog__panel panel"
+          style={{
+            border: '1px solid #38bdf8',
+            padding: 24,
+            maxWidth: 540,
+            width: '90%',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 'bold', color: '#38bdf8', textTransform: 'uppercase' }}>
+                Decision Required • Seat: {choice.actor}
               </div>
-            )}
-          </div>
+              <Dialog.Title
+                as="h2"
+                id="choice-prompt-title"
+                data-testid="choice-prompt"
+                style={{ fontSize: 18, fontWeight: 'bold', margin: '6px 0 0 0', color: '#f8fafc' }}
+              >
+                {choice.prompt}
+              </Dialog.Title>
+              {choice.context && (
+                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                  Context: {choice.context.subtype}
+                </div>
+              )}
+            </div>
 
-          <button
-            type="button"
-            data-testid="minimize-choice-button"
-            onClick={() => setIsMinimized(true)}
-            title="Minimize decision dialog to inspect map and player sheets"
-            className="button button--secondary"
-            style={{
-              padding: '5px 12px',
-              fontSize: 12,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              flexShrink: 0,
-            }}
-          >
-            <span>Inspect Map</span>
-            <span style={{ fontWeight: 'bold' }}>—</span>
-          </button>
-        </div>
+            <Tooltip content="Minimize decision dialog to inspect map and player sheets">
+              <button
+                type="button"
+                data-testid="minimize-choice-button"
+                onClick={() => setIsMinimized(true)}
+                className="button button--secondary"
+                style={{
+                  padding: '5px 12px',
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  flexShrink: 0,
+                }}
+              >
+                <span>Inspect Map</span>
+                <span style={{ fontWeight: 'bold' }}>—</span>
+              </button>
+            </Tooltip>
+          </div>
 
         {/* Error banner if rejected */}
         {lastError && (
@@ -300,7 +281,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+        </div>
+      </Dialog.Content>
+    </Dialog.Root>
   );
 };

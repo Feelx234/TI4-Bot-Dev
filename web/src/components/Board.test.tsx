@@ -207,5 +207,52 @@ describe('Board Component', () => {
     expect(screen.getByTestId('system-inspector')).toBeInTheDocument();
     expect(screen.getByTestId('inspector-system-title')).toHaveTextContent('Mecatol Rex');
   });
+
+  it('assigns accessible button semantics and keyboard activation to candidate target planets', () => {
+    const onSelectTarget = vi.fn();
+    const pendingChoice = {
+      nonce: 'nonce_planet',
+      actor: 'p1',
+      prompt: 'Commit ground forces to planet',
+      options: [
+        {
+          id: 'opt_land_mecatol',
+          kind: 'commit_ground_forces',
+          label: 'Land on Mecatol Rex',
+          payload: { system: '18', planet: 'mecatol_rex' },
+        },
+      ],
+    };
+
+    render(
+      <Board
+        board={mockBoard}
+        seatingOrder={['p1', 'p2']}
+        pendingChoice={pendingChoice}
+        viewerSeat="p1"
+        onSelectTarget={onSelectTarget}
+      />
+    );
+
+    const planetMecatol = screen.getByTestId('planet-mecatol_rex');
+    const planetAbyz = screen.getByTestId('planet-abyz');
+
+    expect(planetMecatol).toHaveAttribute('data-target-candidate', 'true');
+    expect(planetMecatol).toHaveAttribute('role', 'button');
+    expect(planetMecatol).toHaveAttribute('tabindex', '0');
+    expect(planetMecatol).toHaveAttribute('aria-label', 'Target planet mecatol_rex');
+
+    expect(planetAbyz).not.toHaveAttribute('data-target-candidate');
+    expect(planetAbyz).not.toHaveAttribute('role');
+
+    // Keyboard activation via Enter
+    fireEvent.keyDown(planetMecatol, { key: 'Enter' });
+    expect(onSelectTarget).toHaveBeenCalledWith('18', 'mecatol_rex');
+
+    // Keyboard activation via Space
+    fireEvent.keyDown(planetMecatol, { key: ' ' });
+    expect(onSelectTarget).toHaveBeenCalledWith('18', 'mecatol_rex');
+    expect(onSelectTarget).toHaveBeenCalledTimes(2);
+  });
 });
 

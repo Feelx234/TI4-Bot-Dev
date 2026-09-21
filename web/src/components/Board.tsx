@@ -7,6 +7,7 @@ import {
   TilePresentation,
 } from '../presentation/boardPresentation.ts';
 import { SystemInspector } from './SystemInspector.tsx';
+import { Tooltip, SvgButton } from '../primitives/index.ts';
 
 export { getPlayerColor, PLAYER_PALETTE };
 
@@ -127,33 +128,39 @@ export const Board: React.FC<BoardProps> = ({
           gap: 6,
         }}
       >
-        <button
-          type="button"
-          onClick={zoomIn}
-          title="Zoom In"
-          className="button button--secondary button--icon"
-          style={{ fontSize: 16 }}
-        >
-          +
-        </button>
-        <button
-          type="button"
-          onClick={zoomOut}
-          title="Zoom Out"
-          className="button button--secondary button--icon"
-          style={{ fontSize: 16 }}
-        >
-          −
-        </button>
-        <button
-          type="button"
-          onClick={resetView}
-          title="Reset Pan & Zoom"
-          className="button button--secondary button--icon"
-          style={{ fontSize: 14 }}
-        >
-          ⟲
-        </button>
+        <Tooltip content="Zoom In">
+          <button
+            type="button"
+            onClick={zoomIn}
+            title="Zoom In"
+            className="button button--secondary button--icon"
+            style={{ fontSize: 16 }}
+          >
+            +
+          </button>
+        </Tooltip>
+        <Tooltip content="Zoom Out">
+          <button
+            type="button"
+            onClick={zoomOut}
+            title="Zoom Out"
+            className="button button--secondary button--icon"
+            style={{ fontSize: 16 }}
+          >
+            −
+          </button>
+        </Tooltip>
+        <Tooltip content="Reset Pan & Zoom">
+          <button
+            type="button"
+            onClick={resetView}
+            title="Reset Pan & Zoom"
+            className="button button--secondary button--icon"
+            style={{ fontSize: 14 }}
+          >
+            ⟲
+          </button>
+        </Tooltip>
       </div>
 
       <svg
@@ -186,16 +193,16 @@ export const Board: React.FC<BoardProps> = ({
                 : null;
 
             return (
-              <g
+              <SvgButton
                 key={`hex-${sysId}-${idx}`}
                 data-testid={`system-hex-${sysId}`}
                 data-system-id={sysId}
                 data-target-candidate={tile.isCandidateTarget ? 'true' : undefined}
                 data-context-subject={tile.isContextSubject ? 'true' : undefined}
                 data-system-selected={isSelected ? 'true' : undefined}
-                role={tile.isCandidateTarget ? 'button' : undefined}
-                tabIndex={tile.isCandidateTarget ? 0 : undefined}
-                aria-label={tile.isCandidateTarget ? `Target system ${tile.label} #${sysId}` : undefined}
+                isInteractive={tile.isCandidateTarget}
+                label={tile.isCandidateTarget ? `Target system ${tile.label} #${sysId}` : ''}
+                onActivate={() => handleTileClick(tile)}
                 onClick={() => handleTileClick(tile)}
                 onKeyDown={(e) => handleTileKeyDown(e, tile)}
                 onMouseEnter={() => {
@@ -311,10 +318,17 @@ export const Board: React.FC<BoardProps> = ({
                   const isControlled = Boolean(p.controlledBy);
 
                   return (
-                    <g
+                    <SvgButton
                       key={p.id}
                       data-testid={`planet-${p.id}`}
                       data-target-candidate={p.isCandidateTarget ? 'true' : undefined}
+                      isInteractive={p.isCandidateTarget}
+                      label={`Target planet ${p.label}`}
+                      onActivate={() => {
+                        if (p.isCandidateTarget) {
+                          onSelectTarget?.(sysId, p.id);
+                        }
+                      }}
                       onClick={(e) => {
                         if (p.isCandidateTarget) {
                           e.stopPropagation();
@@ -357,7 +371,7 @@ export const Board: React.FC<BoardProps> = ({
                           {p.resources}/{p.influence}
                         </text>
                       )}
-                    </g>
+                    </SvgButton>
                   );
                 })}
 
@@ -400,7 +414,7 @@ export const Board: React.FC<BoardProps> = ({
                     strokeWidth="1"
                   />
                 ))}
-              </g>
+              </SvgButton>
             );
           })}
         </g>
@@ -422,6 +436,8 @@ export const Board: React.FC<BoardProps> = ({
       {/* Hover Info Tooltip */}
       {hoveredTile && !presentation.selectedSystem && (
         <div
+          role="tooltip"
+          aria-live="polite"
           data-testid="system-tooltip"
           className="board-tooltip panel"
           style={{

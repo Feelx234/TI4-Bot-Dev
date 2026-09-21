@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { PlayerSheet } from './PlayerSheet.tsx';
 import { PlayerView } from '../protocol/types.ts';
 
@@ -104,5 +104,25 @@ describe('PlayerSheet Component & Human Readable Metadata', () => {
 
     // Only public counts are rendered
     expect(screen.getAllByText(/Action Cards:/i)).toHaveLength(2);
+  });
+
+  it('renders accessible tooltip with role="tooltip" and aria-describedby when badge is focused', () => {
+    vi.useFakeTimers();
+    render(<PlayerSheet players={mockPlayers} userSeat="p1" />);
+
+    const badge = screen.getByTestId('strategy-card-badge-pok1leadership');
+    expect(badge).not.toHaveAttribute('aria-describedby');
+
+    fireEvent.focus(badge);
+    act(() => {
+      vi.advanceTimersByTime(120);
+    });
+
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toBeInTheDocument();
+    expect(badge).toHaveAttribute('aria-describedby', tooltip.id);
+    expect(tooltip).toHaveTextContent(/Gain 3 command tokens/);
+
+    vi.useRealTimers();
   });
 });
