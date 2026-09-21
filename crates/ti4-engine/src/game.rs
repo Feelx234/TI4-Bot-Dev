@@ -3167,6 +3167,11 @@ impl<'a> Game<'a> {
         }
         resolve_after_token_gain(&mut self.state, &mut report);
         self.emit("COMMAND_TOKENS_GAINED");
+        for (owner, system) in
+            crate::faction_techs::genesis(&mut self.state, self.content, self.sources)
+        {
+            self.emit(&format!("GENESIS_INFANTRY:{owner}:{system}"));
+        }
         self.emit("STATUS_PHASE_RESOLVED");
         self.result(false, None)
     }

@@ -1,4 +1,4 @@
-//! Faction technologies whose effect is a reaction at a fixed point of the turn.
+//! Faction technologies and faction unit abilities whose effect happens at a fixed point of the turn.
 //!
 //! Each is called from the one place in the engine where its printed timing happens, the same way
 //! Minister of Peace and the Dominus Orb are, rather than through a registry: a faction technology is
@@ -120,6 +120,51 @@ pub fn offer_nullification_field(
     None
 }
 
+/// Genesis, the Sol flagship: "At the end of the status phase, place 1 infantry from your
+/// reinforcements in this system's space area." One infantry per flagship, of the type the owner
+/// currently builds (Spec Ops once upgraded), and only while the box has one left. Returns the
+/// systems that got one.
+pub fn genesis(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Vec<(PlayerId, SystemId)> {
+    let flagships: Vec<(PlayerId, SystemId)> = state
+        .board
+        .iter()
+        .flat_map(|(system, here)| {
+            here.units
+                .iter()
+                .filter(|unit| unit.type_id.as_str() == "sol_flagship")
+                .map(|unit| (unit.owner.clone(), system.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let mut placed = Vec::new();
+    for (owner, system) in flagships {
+        let Some(infantry) = crate::production::buildable_for(state, content, sources, &owner)
+            .into_iter()
+            .find(|kind| {
+                ti4_content::units::catalogue(content, sources)
+                    .get(kind.as_str())
+                    .is_some_and(|record| record.base_type() == "infantry")
+            })
+        else {
+            continue;
+        };
+        let infantry = ti4_model::id::UnitTypeId::new(infantry);
+        if crate::supply::remaining(state, content, sources, &owner, &infantry) < 1 {
+            continue;
+        }
+        state
+            .system_mut(&system)
+            .units
+            .push(ti4_model::units::Unit::new(infantry, owner.clone()));
+        placed.push((owner, system));
+    }
+    placed
+}
+
 #[cfg(test)]
 mod tests {
     use ti4_model::content_types::POK;
@@ -197,6 +242,29 @@ mod tests {
                 &active,
             ),
             None
+        );
+    }
+
+    #[test]
+    fn genesis_places_one_infantry_beside_each_sol_flagship() {
+        let mut state = game(&["a"]);
+        let sol = PlayerId::new("a");
+        state.player_mut(&sol).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        let system = SystemId::new("19");
+        put(&mut state, &system, "sol_flagship", &sol, 1);
+        let placed = genesis(&mut state, ContentStore::embedded(), POK);
+        assert_eq!(placed, vec![(sol.clone(), system.clone())]);
+        let infantry: Vec<String> = state
+            .system_state(&system)
+            .units
+            .iter()
+            .filter(|unit| unit.type_id.as_str() != "sol_flagship")
+            .map(|unit| unit.type_id.to_string())
+            .collect();
+        assert_eq!(
+            infantry,
+            vec!["sol_infantry".to_owned()],
+            "Sol builds Spec Ops"
         );
     }
 }
