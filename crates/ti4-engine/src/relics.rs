@@ -883,13 +883,10 @@ fn controls_all_four_specialties(
     sources: SourceSet,
     player: &PlayerId,
 ) -> bool {
-    let catalogue = ti4_content::galaxy::all_planets(content, sources);
     let mut found = std::collections::BTreeSet::new();
     for (_, planet) in state.controlled_planets(player) {
-        if let Some(record) = catalogue.get(planet.as_str()) {
-            for specialty in record.tech_specialties() {
-                found.insert(specialty.to_ascii_uppercase());
-            }
+        for specialty in crate::planets::tech_specialties_now(state, content, sources, planet) {
+            found.insert(specialty.to_ascii_uppercase());
         }
     }
     found.len() >= 4

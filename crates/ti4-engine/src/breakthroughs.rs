@@ -172,16 +172,12 @@ pub fn specialty_research_planets(
     if !holds(state, player, "jolnarbt") {
         return Vec::new();
     }
-    let catalogue = ti4_content::galaxy::all_planets(content, sources);
     let mut found = Vec::new();
     for (_, planet) in state.controlled_planets(player) {
         if state.exhausted_planets.contains(planet) {
             continue; // 34.2: an exhausted planet cannot be exhausted again
         }
-        let Some(record) = catalogue.get(planet.as_str()) else {
-            continue;
-        };
-        for specialty in record.tech_specialties() {
+        for specialty in crate::planets::tech_specialties_now(state, content, sources, planet) {
             let upper = specialty.to_ascii_uppercase();
             if let Some(colour) = crate::technology::COLOURS.iter().find(|c| **c == upper) {
                 found.push((planet.clone(), *colour));

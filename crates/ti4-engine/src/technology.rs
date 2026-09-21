@@ -156,7 +156,6 @@ pub fn start_turn(
         .player(player)
         .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("pa")))
     {
-        let planets = ti4_content::galaxy::all_planets(content, sources);
         loop {
             let candidates: Vec<PlanetId> = state
                 .controlled_planets(player)
@@ -164,9 +163,8 @@ pub fn start_turn(
                 .map(|(_, planet)| planet.clone())
                 .filter(|planet| !state.exhausted_planets.contains(planet))
                 .filter(|planet| {
-                    planets
-                        .get(planet.as_str())
-                        .is_some_and(|record| !record.tech_specialties().is_empty())
+                    !crate::planets::tech_specialties_now(state, content, sources, planet)
+                        .is_empty()
                 })
                 .collect();
             if candidates.is_empty() {
@@ -434,16 +432,13 @@ pub fn end_turn(
     if state.player(player).is_some_and(|seat| {
         seat.technologies.contains(&bio_stims) && !seat.exhausted_technologies.contains(&bio_stims)
     }) {
-        let planets = ti4_content::galaxy::all_planets(content, sources);
         let mut options: Vec<ChoiceOption> = state
             .controlled_planets(player)
             .into_iter()
             .map(|(_, planet)| planet.clone())
             .filter(|planet| state.exhausted_planets.contains(planet))
             .filter(|planet| {
-                planets
-                    .get(planet.as_str())
-                    .is_some_and(|record| !record.tech_specialties().is_empty())
+                !crate::planets::tech_specialties_now(state, content, sources, planet).is_empty()
             })
             .map(|planet| {
                 ChoiceOption::labelled(
@@ -858,13 +853,9 @@ pub fn specialties(
     sources: SourceSet,
     player: &PlayerId,
 ) -> BTreeMap<&'static str, usize> {
-    let catalogue = ti4_content::galaxy::all_planets(content, sources);
     let mut found = BTreeMap::new();
     for (_, planet) in state.controlled_planets(player) {
-        let Some(record) = catalogue.get(planet.as_str()) else {
-            continue;
-        };
-        for specialty in record.tech_specialties() {
+        for specialty in crate::planets::tech_specialties_now(state, content, sources, planet) {
             let upper = specialty.to_ascii_uppercase();
             if let Some(colour) = COLOURS.iter().find(|c| **c == upper) {
                 *found.entry(*colour).or_insert(0) += 1;
@@ -1895,6 +1886,40 @@ mod tests {
         assert!(
             can_research(&state, ContentStore::embedded(), POK, &player(), &target),
             "the specialty covers the prerequisite"
+        );
+    }
+
+    /// A research facility on a planet without a specialty gives it one (LRR 35.8), and that
+    /// specialty stands in for a prerequisite like a printed one.
+    #[test]
+    fn an_attached_specialty_stands_in_for_a_prerequisite() {
+        let mut state = game(&["a"]);
+        let target = TechnologyId::new("gd"); // one propulsion
+        let (id, record) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+            .into_iter()
+            .find(|(_, record)| {
+                record.tech_specialties().is_empty() && !record.is_placed_during_play()
+            })
+            .expect("a planet without a specialty");
+        let planet = ti4_model::id::PlanetId::new(id);
+        let system = ti4_model::id::SystemId::new(record.system_id().unwrap_or("18"));
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        assert!(!can_research(
+            &state,
+            ContentStore::embedded(),
+            POK,
+            &player(),
+            &target
+        ));
+
+        state
+            .planet_attachments
+            .insert(planet, vec!["propulsion".to_owned()]);
+        assert!(
+            can_research(&state, ContentStore::embedded(), POK, &player(), &target),
+            "the facility's specialty covers the prerequisite"
         );
     }
 

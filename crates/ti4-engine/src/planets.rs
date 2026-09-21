@@ -56,6 +56,42 @@ pub fn place(
     true
 }
 
+/// A planet's technology specialties as they now stand: those printed on its card plus any an
+/// attachment gave it (a research facility on a planet without one, LRR 35.8), lower-case.
+///
+/// Every rules question about specialties — prerequisites (90.8), specialty-exhausting abilities,
+/// "control planets with specialties" — asks here, so an attached specialty is never invisible.
+#[must_use]
+pub fn tech_specialties_now(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &PlanetId,
+) -> Vec<String> {
+    let mut found: Vec<String> = ti4_content::galaxy::planet(content, planet.as_str(), sources)
+        .map(|record| {
+            record
+                .tech_specialties()
+                .into_iter()
+                .map(str::to_ascii_lowercase)
+                .collect()
+        })
+        .unwrap_or_default();
+    for id in state.planet_attachments.get(planet).into_iter().flatten() {
+        let Some(record) = content.get(ti4_model::content_types::ContentType::Attachments, id)
+        else {
+            continue;
+        };
+        for specialty in record.strings("techSpeciality") {
+            let specialty = specialty.to_ascii_lowercase();
+            if !found.contains(&specialty) {
+                found.push(specialty);
+            }
+        }
+    }
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
