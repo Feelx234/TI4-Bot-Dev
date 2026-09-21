@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { GameLogEntry } from '../hooks/useGameSession.ts';
 
 export interface EventLogProps {
-  events: (GameLogEntry | string)[];
+  events: GameLogEntry[];
 }
 
 function getCategoryColor(category?: GameLogEntry['category']): string {
@@ -29,30 +29,34 @@ export const EventLog: React.FC<EventLogProps> = ({ events }) => {
   return (
     <div
       data-testid="event-log-container"
+      className="event-log"
       style={{
         position: 'fixed',
         bottom: 0,
         left: 0,
         right: 330, // leave space for player sheet
-        background: '#090d16',
-        borderTop: '1px solid #1e293b',
+        borderTop: '1px solid var(--color-border)',
         color: '#cbd5e1',
         fontSize: 12,
         zIndex: 35,
       }}
     >
-      <div
+      <button
+        type="button"
         data-testid="event-log-toggle"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setIsOpen((open) => !open)}
+        aria-expanded={isOpen}
+        className="button"
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           padding: '6px 16px',
-          cursor: 'pointer',
-          background: '#0f172a',
+          width: '100%',
+          textAlign: 'left',
+          background: 'var(--color-surface)',
           fontWeight: 600,
-          color: '#94a3b8',
+          color: 'var(--color-text-muted)',
           userSelect: 'none',
         }}
       >
@@ -71,7 +75,7 @@ export const EventLog: React.FC<EventLogProps> = ({ events }) => {
           </span>
         </span>
         <span style={{ fontSize: 11 }}>{isOpen ? '▼ Hide' : '▲ Show'}</span>
-      </div>
+      </button>
 
       {isOpen && (
         <div
@@ -83,22 +87,15 @@ export const EventLog: React.FC<EventLogProps> = ({ events }) => {
             display: 'flex',
             flexDirection: 'column',
             gap: 6,
-            background: '#090d16',
           }}
         >
           {events.length === 0 ? (
             <div style={{ color: '#64748b' }}>No events recorded yet.</div>
           ) : (
             events.map((ev, i) => {
-              const isObj = typeof ev !== 'string';
-              const text = isObj ? ev.text : ev;
-              const timestamp = isObj ? ev.timestamp : undefined;
-              const version = isObj ? ev.version : undefined;
-              const category = isObj ? ev.category : undefined;
-
               return (
                 <div
-                  key={isObj ? ev.id : i}
+                  key={ev.id}
                   data-testid="event-log-entry"
                   style={{
                     fontFamily: 'ui-monospace, monospace',
@@ -112,12 +109,12 @@ export const EventLog: React.FC<EventLogProps> = ({ events }) => {
                   <span style={{ color: '#475569', fontSize: 11, flexShrink: 0 }}>
                     [{i + 1}]
                   </span>
-                  {timestamp && (
+                  {ev.timestamp && (
                     <span style={{ color: '#64748b', fontSize: 11, flexShrink: 0 }}>
-                      {timestamp}
+                      {ev.timestamp}
                     </span>
                   )}
-                  {version !== undefined && (
+                  {ev.version !== undefined && (
                     <span
                       style={{
                         color: '#0284c7',
@@ -128,11 +125,11 @@ export const EventLog: React.FC<EventLogProps> = ({ events }) => {
                         flexShrink: 0,
                       }}
                     >
-                      v{version}
+                      v{ev.version}
                     </span>
                   )}
-                  <span style={{ color: getCategoryColor(category), wordBreak: 'break-word' }}>
-                    {text}
+                  <span style={{ color: getCategoryColor(ev.category), wordBreak: 'break-word' }}>
+                    {ev.text}
                   </span>
                 </div>
               );

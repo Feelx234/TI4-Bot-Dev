@@ -1,31 +1,17 @@
 import React, { useState, useRef } from 'react';
-import { BoardView, SystemView, BoardTileView } from '../protocol/types.ts';
+import { BoardView, BoardTileView } from '../protocol/types.ts';
 
 export interface BoardProps {
   board: BoardView;
-  selectedSystemId?: string | null;
-  onSelectSystem?: (system: SystemView) => void;
-  actionableSystemIds?: string[];
+  seatingOrder: string[];
 }
 
-const PLAYER_COLORS: Record<string, string> = {
-  p1: '#ef4444', // Red
-  p2: '#38bdf8', // Blue
-  p3: '#facc15', // Yellow
-  p4: '#4ade80', // Green
-  p5: '#c084fc', // Purple
-  p6: '#fb923c', // Orange
-  seat0: '#ef4444',
-  seat1: '#38bdf8',
-  seat2: '#facc15',
-  seat3: '#4ade80',
-  seat4: '#c084fc',
-  seat5: '#fb923c',
-};
+const PLAYER_COLORS = ['#ef4444', '#38bdf8', '#facc15', '#4ade80', '#c084fc', '#fb923c'];
 
-function getPlayerColor(owner?: string | null): string {
+export function getPlayerColor(owner: string | null | undefined, seatingOrder: readonly string[]): string {
   if (!owner) return '#64748b';
-  return PLAYER_COLORS[owner.toLowerCase()] || '#94a3b8';
+  const seatIndex = seatingOrder.indexOf(owner);
+  return seatIndex === -1 ? '#94a3b8' : PLAYER_COLORS[seatIndex % PLAYER_COLORS.length];
 }
 
 function getHexPoints(cx: number, cy: number, radius = 70): string {
@@ -63,12 +49,7 @@ function getWormholeColor(kind: string): { color: string; symbol: string } {
   return { color: '#94a3b8', symbol: 'ω' };
 }
 
-export const Board: React.FC<BoardProps> = ({
-  board,
-  selectedSystemId,
-  onSelectSystem,
-  actionableSystemIds = [],
-}) => {
+export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
   const [hoveredTile, setHoveredTile] = useState<{
     systemId: string;
     label: string;
@@ -111,14 +92,14 @@ export const Board: React.FC<BoardProps> = ({
         };
       });
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button === 0) {
       setIsPanning(true);
       startPanRef.current = { x: e.clientX - viewTransform.x, y: e.clientY - viewTransform.y };
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handlePointerMove = (e: React.PointerEvent) => {
     if (isPanning) {
       setViewTransform((prev) => ({
         ...prev,
@@ -128,7 +109,7 @@ export const Board: React.FC<BoardProps> = ({
     }
   };
 
-  const handleMouseUp = () => setIsPanning(false);
+  const handlePointerUp = () => setIsPanning(false);
 
   const zoomIn = () => setViewTransform((prev) => ({ ...prev, scale: Math.min(prev.scale * 1.25, 2.5) }));
   const zoomOut = () => setViewTransform((prev) => ({ ...prev, scale: Math.max(prev.scale / 1.25, 0.5) }));
@@ -146,10 +127,10 @@ export const Board: React.FC<BoardProps> = ({
         background: '#090d16',
         userSelect: 'none',
       }}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
     >
       {/* Pan / Zoom Control Overlay */}
       <div
@@ -165,16 +146,9 @@ export const Board: React.FC<BoardProps> = ({
         <button
           onClick={zoomIn}
           title="Zoom In"
+          className="button button--secondary button--icon"
           style={{
-            background: '#1e293b',
-            border: '1px solid #475569',
-            color: '#f8fafc',
-            borderRadius: 6,
-            width: 32,
-            height: 32,
-            cursor: 'pointer',
             fontSize: 16,
-            fontWeight: 'bold',
           }}
         >
           +
@@ -182,16 +156,9 @@ export const Board: React.FC<BoardProps> = ({
         <button
           onClick={zoomOut}
           title="Zoom Out"
+          className="button button--secondary button--icon"
           style={{
-            background: '#1e293b',
-            border: '1px solid #475569',
-            color: '#f8fafc',
-            borderRadius: 6,
-            width: 32,
-            height: 32,
-            cursor: 'pointer',
             fontSize: 16,
-            fontWeight: 'bold',
           }}
         >
           −
@@ -199,14 +166,8 @@ export const Board: React.FC<BoardProps> = ({
         <button
           onClick={resetView}
           title="Reset Pan & Zoom"
+          className="button button--secondary button--icon"
           style={{
-            background: '#1e293b',
-            border: '1px solid #475569',
-            color: '#f8fafc',
-            borderRadius: 6,
-            width: 32,
-            height: 32,
-            cursor: 'pointer',
             fontSize: 14,
           }}
         >
@@ -244,9 +205,6 @@ export const Board: React.FC<BoardProps> = ({
 
             const points = getHexPoints(x, y, 70);
             const innerPoints = getInnerPoints(x, y, 64);
-            const isSelected = selectedSystemId === sysId;
-            const isActionable = actionableSystemIds.includes(sysId);
-
             // Anomaly / System background fill
             const anomalyColor = getAnomalyColor(tile.anomalies);
             let fillColor = sysId === '18' ? '#1e1b4b' : anomalyColor || (tile.hyperlane ? '#1e1b4b' : '#0f172a');
@@ -272,14 +230,8 @@ export const Board: React.FC<BoardProps> = ({
             // Border stroke
             let strokeColor = '#334155';
             let strokeWidth = 1.5;
-            if (isSelected) {
-              strokeColor = '#fbbf24';
-              strokeWidth = 3.5;
-            } else if (isActionable) {
-              strokeColor = '#38bdf8';
-              strokeWidth = 3;
-            } else if (singleSpaceOwner) {
-              strokeColor = getPlayerColor(singleSpaceOwner);
+            if (singleSpaceOwner) {
+              strokeColor = getPlayerColor(singleSpaceOwner, seatingOrder);
               strokeWidth = 3;
             }
 
@@ -324,23 +276,6 @@ export const Board: React.FC<BoardProps> = ({
                 key={`hex-${sysId}-${idx}`}
                 data-testid={`system-hex-${sysId}`}
                 data-system-id={sysId}
-                data-actionable={isActionable ? 'true' : 'false'}
-                tabIndex={0}
-                role="button"
-                aria-label={`System ${tile.label}, ${planetsToDisplay.length} planets, ${totalUnits} units`}
-                onClick={() => {
-                  if (dynamicSystem && onSelectSystem) {
-                    onSelectSystem(dynamicSystem);
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (dynamicSystem && onSelectSystem) {
-                      onSelectSystem(dynamicSystem);
-                    }
-                  }
-                }}
                 onMouseEnter={() => {
                   setHoveredTile({
                     systemId: sysId,
@@ -358,7 +293,7 @@ export const Board: React.FC<BoardProps> = ({
                   });
                 }}
                 onMouseLeave={() => setHoveredTile(null)}
-                style={{ cursor: 'pointer', outline: 'none' }}
+                style={{ cursor: 'default', outline: 'none' }}
               >
                 {/* Hexagon Tile */}
                 <polygon
@@ -366,7 +301,6 @@ export const Board: React.FC<BoardProps> = ({
                   fill={fillColor}
                   stroke={strokeColor}
                   strokeWidth={strokeWidth}
-                  filter={isActionable || isSelected ? 'url(#glow)' : undefined}
                 />
 
                 {/* Inner border for exclusive planet control */}
@@ -374,7 +308,7 @@ export const Board: React.FC<BoardProps> = ({
                   <polygon
                     points={innerPoints}
                     fill="none"
-                    stroke={getPlayerColor(singlePlanetOwner)}
+                    stroke={getPlayerColor(singlePlanetOwner, seatingOrder)}
                     strokeWidth={2}
                     strokeDasharray="4 2"
                   />
@@ -436,7 +370,7 @@ export const Board: React.FC<BoardProps> = ({
                   const pCount = planetsToDisplay.length;
                   const pX = x + (pCount === 1 ? 0 : (pIdx - (pCount - 1) / 2) * 36);
                   const pY = y + 16;
-                  const ownerColor = getPlayerColor(p.controlled_by);
+                  const ownerColor = getPlayerColor(p.controlled_by, seatingOrder);
                   const isControlled = Boolean(p.controlled_by);
 
                   return (
@@ -513,7 +447,7 @@ export const Board: React.FC<BoardProps> = ({
                     cx={x - 42 + cIdx * 12}
                     cy={y + 56}
                     r="4"
-                    fill={getPlayerColor(owner)}
+                    fill={getPlayerColor(owner, seatingOrder)}
                     stroke="#f8fafc"
                     strokeWidth="1"
                   />
@@ -528,19 +462,16 @@ export const Board: React.FC<BoardProps> = ({
       {hoveredTile && (
         <div
           data-testid="system-tooltip"
+          className="panel"
           style={{
             position: 'absolute',
             bottom: 16,
             left: 16,
-            background: 'rgba(15, 23, 42, 0.95)',
             border: '1px solid #38bdf8',
-            borderRadius: 8,
             padding: '10px 14px',
-            color: '#f8fafc',
             fontSize: 13,
             pointerEvents: 'none',
             zIndex: 30,
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.6)',
             maxWidth: 320,
           }}
         >
@@ -564,7 +495,7 @@ export const Board: React.FC<BoardProps> = ({
                 <div key={i} style={{ marginLeft: 6, fontSize: 12 }}>
                   • {p.label}
                   {p.resources !== undefined && ` (${p.resources} Res / ${p.influence} Inf)`}
-                  {p.owner && <span style={{ color: getPlayerColor(p.owner) }}> [{p.owner}]</span>}
+                  {p.owner && <span style={{ color: getPlayerColor(p.owner, seatingOrder) }}> [{p.owner}]</span>}
                 </div>
               ))
             ) : (

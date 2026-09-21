@@ -1,10 +1,11 @@
 //! HTTP endpoints for listing, creating, and inspecting game sessions.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
 
 use ti4_content::ContentStore;
@@ -14,6 +15,9 @@ use crate::protocol::server::InitialSnapshotMsg;
 use crate::protocol::status::ViewerRole;
 use crate::session::registry::GameSummary;
 use crate::session::{GameRegistry, SeatController, SessionConfig};
+
+const MAX_PLAYERS: usize = 8;
+const MAX_PLAYER_ID_BYTES: usize = 64;
 
 /// Request to create a new game session.
 #[derive(Debug, Deserialize)]
@@ -31,12 +35,7 @@ pub struct CreateGameRequest {
 pub struct CreateGameResponse {
     pub game_id: String,
     pub players: Vec<String>,
-}
-
-/// Query parameters for snapshot requests.
-#[derive(Debug, Deserialize)]
-pub struct SnapshotQuery {
-    pub seat: Option<String>,
+    pub seat_tokens: BTreeMap<String, String>,
 }
 
 /// Handler for `GET /api/games`.
@@ -53,6 +52,8 @@ pub async fn create_game(
         .game_id
         .unwrap_or_else(|| format!("game_{:08x}", rand::random::<u32>()));
 
+    crate::storage::validate_game_id(&game_id)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     if registry.get_game(&game_id).is_some() {
         return Err((
             StatusCode::CONFLICT,
@@ -65,6 +66,32 @@ pub async fn create_game(
     } else {
         payload.players
     };
+
+    if player_names.len() > MAX_PLAYERS
+        || player_names
+            .iter()
+            .any(|player| player.is_empty() || player.len() > MAX_PLAYER_ID_BYTES)
+        || player_names
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != player_names.len()
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "players must contain at most eight unique, non-empty 64-byte IDs".to_owned(),
+        ));
+    }
+    if payload.bot_seats.iter().any(|seat| {
+        seat.is_empty()
+            || seat.len() > MAX_PLAYER_ID_BYTES
+            || !player_names.iter().any(|player| player == seat)
+    }) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "bot_seats must name configured players using bounded IDs".to_owned(),
+        ));
+    }
 
     let player_ids: Vec<PlayerId> = player_names.iter().map(PlayerId::new).collect();
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
@@ -91,13 +118,18 @@ pub async fn create_game(
         }
     }
 
-    registry
+    let session = registry
         .create_game(config)
         .map_err(|e| (StatusCode::CONFLICT, e))?;
 
     Ok(Json(CreateGameResponse {
         game_id,
         players: player_names,
+        seat_tokens: session
+            .seat_tokens()
+            .into_iter()
+            .map(|(seat, token)| (seat.to_string(), token))
+            .collect(),
     }))
 }
 
@@ -116,16 +148,23 @@ pub async fn get_map(
 /// Handler for `GET /api/games/{game_id}/snapshot`.
 pub async fn get_snapshot(
     Path(game_id): Path<String>,
-    Query(query): Query<SnapshotQuery>,
+    headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
 ) -> Result<Json<InitialSnapshotMsg>, (StatusCode, String)> {
     let session = registry
         .get_game(&game_id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Game '{game_id}' not found")))?;
 
-    let viewer = match query.seat {
-        Some(seat) if seat != "spectator" => ViewerRole::Player(PlayerId::new(seat)),
-        _ => ViewerRole::Spectator,
+    let viewer = match headers.get("x-ti4-seat-token") {
+        Some(token) => session
+            .viewer_for_seat_token(token.to_str().map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Invalid seat capability".to_owned(),
+                )
+            })?)
+            .ok_or_else(|| (StatusCode::FORBIDDEN, "Invalid seat capability".to_owned()))?,
+        None => ViewerRole::Spectator,
     };
 
     let snapshot = session.get_snapshot(&viewer);

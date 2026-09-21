@@ -51,6 +51,29 @@ describe('PendingChoiceModal Component', () => {
     expect(onSubmit).toHaveBeenCalledWith('strat_diplomacy');
   });
 
+  it('submits once until the server response resolves the submission', async () => {
+    let resolveSubmission!: () => void;
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => { resolveSubmission = resolve; }));
+    render(<PendingChoiceModal choice={mockChoice} onSubmit={onSubmit} />);
+
+    const submitButton = screen.getByTestId('submit-choice-button');
+    fireEvent.click(submitButton);
+    fireEvent.click(submitButton);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(submitButton).toBeDisabled();
+
+    await act(async () => resolveSubmission());
+    expect(submitButton).not.toBeDisabled();
+  });
+
+  it('moves focus into the dialog and minimizes on Escape', () => {
+    render(<PendingChoiceModal choice={mockChoice} onSubmit={vi.fn()} />);
+    const dialog = screen.getByTestId('pending-choice-dialog');
+    expect(dialog).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.getByTestId('minimized-choice-banner')).toBeInTheDocument();
+  });
+
   it('displays error banner when lastError is set', () => {
     render(
       <PendingChoiceModal

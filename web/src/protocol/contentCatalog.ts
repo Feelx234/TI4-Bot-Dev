@@ -3476,7 +3476,7 @@ export const TECHNOLOGIES: Record<string, CardMeta> = {
 export function humanizeId(id: string): string {
   return id
     .replace(/_/g, ' ')
-    .replace(/w/g, (char) => char.toUpperCase());
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export function getStrategyCardMeta(id: string): StrategyCardMeta {
@@ -3602,4 +3602,3 @@ export function formatActionDescription(optionId: string): string {
 
   return humanizeId(trimmed);
 }
-

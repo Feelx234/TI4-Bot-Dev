@@ -8,6 +8,7 @@ import {
 import {
   getSecretObjectiveMeta,
   getStrategyCardMeta,
+  humanizeId,
   STRATEGY_CARDS,
   SECRET_OBJECTIVES,
 } from '../protocol/contentCatalog.ts';
@@ -233,6 +234,11 @@ describe('Frontend Invariants & Property-based Checks', () => {
       expect(obj.description).toBeTruthy();
       expect(obj.points).toBeGreaterThan(0);
     }
+  });
+
+  it('title-cases unknown content identifiers', () => {
+    expect(humanizeId('direct_hit')).toBe('Direct Hit');
+    expect(getSecretObjectiveMeta('unknown_secret').name).toBe('Unknown Secret');
   });
 
   it('preserves event log identity across reconnect snapshots and live event messages', () => {

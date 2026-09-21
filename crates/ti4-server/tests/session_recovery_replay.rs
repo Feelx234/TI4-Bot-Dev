@@ -205,6 +205,10 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     let session = registry
         .get_game("game_http_snapshot_test")
         .expect("session exists");
+    let p1_token = session
+        .seat_tokens()
+        .remove(&PlayerId::new("p1"))
+        .expect("p1 seat capability");
 
     // 2. Wait for initial pending decision to be raised by worker thread
     let mut decision = session.current_pending_decision();
@@ -220,8 +224,9 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
 
     let snap_res = client
         .get(format!(
-            "{base_url}/api/games/game_http_snapshot_test/snapshot?seat=p1"
+            "{base_url}/api/games/game_http_snapshot_test/snapshot"
         ))
+        .header("x-ti4-seat-token", &p1_token)
         .send()
         .await
         .expect("fetch snapshot");
@@ -257,8 +262,9 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     // 4. Reconnecting client fetches snapshot via HTTP
     let reconnect_res = client
         .get(format!(
-            "{base_url}/api/games/game_http_snapshot_test/snapshot?seat=p1"
+            "{base_url}/api/games/game_http_snapshot_test/snapshot"
         ))
+        .header("x-ti4-seat-token", &p1_token)
         .send()
         .await
         .expect("fetch reconnect snapshot");
@@ -273,7 +279,7 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
         reconnect_snap
             .events
             .iter()
-            .any(|e| e.text.contains("Action accepted"))
+            .any(|e| e.text.contains("Decision resolved"))
     );
     assert_eq!(reconnect_snap.events.len(), session.event_log().len());
 

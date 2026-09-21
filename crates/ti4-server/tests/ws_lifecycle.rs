@@ -19,6 +19,7 @@ use ti4_server::protocol::client::ClientMessage;
 use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::{RejectionReason, ViewerRole};
 use ti4_server::session::GameRegistry;
+use ti4_server::ws::MAX_CLIENT_MESSAGE_BYTES;
 
 /// Spawns the test server on an ephemeral port and returns its base URL and registry.
 async fn spawn_test_server() -> (String, Arc<GameRegistry>) {
@@ -69,6 +70,20 @@ where
     panic!("Stream ended without ActionAccepted");
 }
 
+async fn wait_for_protocol_error<S>(stream: &mut S) -> ti4_server::protocol::error::ErrorKind
+where
+    S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+{
+    while let Some(Ok(msg)) = stream.next().await {
+        if let Ok(text) = msg.to_text()
+            && let Ok(ServerMessage::Error(error)) = serde_json::from_str::<ServerMessage>(text)
+        {
+            return error.kind;
+        }
+    }
+    panic!("Stream ended without ProtocolError");
+}
+
 async fn wait_for_state_update<S>(stream: &mut S) -> ti4_server::protocol::server::StateUpdateMsg
 where
     S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
@@ -113,6 +128,27 @@ async fn http_health_and_games_crud() {
         .await
         .expect("post games");
     assert_eq!(res.status(), reqwest::StatusCode::OK);
+    let created: serde_json::Value = res.json().await.expect("parse created game");
+    let p1_token = created["seat_tokens"]["p1"]
+        .as_str()
+        .expect("p1 seat capability");
+
+    let res = client
+        .post(format!("http://{addr}/api/games"))
+        .json(&serde_json::json!({ "game_id": "../escaped", "players": ["p1", "p2", "p3"] }))
+        .send()
+        .await
+        .expect("post invalid game id");
+    assert_eq!(res.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    let res = client
+        .post(format!("http://{addr}/api/games"))
+        .header("content-type", "application/json")
+        .body(format!("{{\"game_id\":\"{}\"}}", "x".repeat(9 * 1024)))
+        .send()
+        .await
+        .expect("post oversized request");
+    assert_eq!(res.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
 
     // 3. GET /api/games -> list games
     let res = client
@@ -124,11 +160,10 @@ async fn http_health_and_games_crud() {
     let games: Vec<serde_json::Value> = res.json().await.expect("parse games list");
     assert!(games.iter().any(|g| g["game_id"] == "game_http_crud"));
 
-    // 4. GET /api/games/game_http_crud/snapshot?seat=p1
+    // 4. GET /api/games/game_http_crud/snapshot with an unguessable seat capability.
     let res = client
-        .get(format!(
-            "http://{addr}/api/games/game_http_crud/snapshot?seat=p1"
-        ))
+        .get(format!("http://{addr}/api/games/game_http_crud/snapshot"))
+        .header("x-ti4-seat-token", p1_token)
         .send()
         .await
         .expect("get snapshot p1");
@@ -136,6 +171,14 @@ async fn http_health_and_games_crud() {
     let snapshot: serde_json::Value = res.json().await.expect("parse snapshot");
     assert_eq!(snapshot["game_id"], "game_http_crud");
     assert_eq!(snapshot["viewer"]["role"], "player");
+
+    let res = client
+        .get(format!("http://{addr}/api/games/game_http_crud/snapshot"))
+        .header("x-ti4-seat-token", "p1")
+        .send()
+        .await
+        .expect("get snapshot with forged capability");
+    assert_eq!(res.status(), reqwest::StatusCode::FORBIDDEN);
 
     // 5. GET /api/games/game_http_crud/snapshot (spectator)
     let res = client
@@ -160,12 +203,21 @@ async fn websocket_full_lifecycle_and_rejections() {
         "seed": 100,
         "bot_seats": ["p3"]
     });
-    client
+    let res = client
         .post(format!("http://{addr}/api/games"))
         .json(&create_body)
         .send()
         .await
         .expect("post games");
+    let created: serde_json::Value = res.json().await.expect("parse created game");
+    let p1_token = created["seat_tokens"]["p1"]
+        .as_str()
+        .expect("p1 seat capability")
+        .to_owned();
+    let p2_token = created["seat_tokens"]["p2"]
+        .as_str()
+        .expect("p2 seat capability")
+        .to_owned();
 
     // Connect WebSocket
     let ws_url = format!("ws://{addr}/ws/games/game_ws_test");
@@ -203,7 +255,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     let sub_msg = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_ws_test".to_owned(),
-        seat_token: Some("p1".to_owned()),
+        seat_token: Some(p1_token),
     };
     ws_stream
         .send(Message::Text(
@@ -226,6 +278,23 @@ async fn websocket_full_lifecycle_and_rejections() {
     assert_eq!(
         initial_snapshot.viewer,
         ViewerRole::Player(ti4_model::id::PlayerId::new("p1"))
+    );
+
+    // A connection is bound to its first authorized viewer and cannot collect another seat feed.
+    let second_subscribe = ClientMessage::Subscribe {
+        protocol_version: PROTOCOL_VERSION,
+        game_id: "game_ws_test".to_owned(),
+        seat_token: Some(p2_token),
+    };
+    ws_stream
+        .send(Message::Text(
+            serde_json::to_string(&second_subscribe).unwrap().into(),
+        ))
+        .await
+        .expect("send second subscribe");
+    assert_eq!(
+        wait_for_protocol_error(&mut ws_stream).await,
+        ti4_server::protocol::error::ErrorKind::MalformedMessage
     );
 
     // Receive pending choice if one is pending, or read it from initial snapshot
@@ -254,7 +323,26 @@ async fn websocket_full_lifecycle_and_rejections() {
         }
     };
 
-    // 3. Stale nonce rejection over WS
+    // 3. The protocol game ID is bound to the WebSocket path.
+    let wrong_game_msg = ClientMessage::SubmitChoice {
+        protocol_version: PROTOCOL_VERSION,
+        game_id: "another_game".to_owned(),
+        nonce: nonce.clone(),
+        expected_version,
+        option_id: option_id.clone(),
+    };
+    ws_stream
+        .send(Message::Text(
+            serde_json::to_string(&wrong_game_msg).unwrap().into(),
+        ))
+        .await
+        .expect("send mismatched game id");
+    assert_eq!(
+        wait_for_rejection(&mut ws_stream).await,
+        RejectionReason::NoPendingChoice
+    );
+
+    // 4. Stale nonce rejection over WS
     let bad_nonce_msg = ClientMessage::SubmitChoice {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_ws_test".to_owned(),
@@ -272,7 +360,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     let reason = wait_for_rejection(&mut ws_stream).await;
     assert_eq!(reason, RejectionReason::StaleNonce);
 
-    // 4. Stale version rejection over WS
+    // 5. Stale version rejection over WS
     let bad_ver_msg = ClientMessage::SubmitChoice {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_ws_test".to_owned(),
@@ -296,7 +384,7 @@ async fn websocket_full_lifecycle_and_rejections() {
         }
     );
 
-    // 5. Valid submission over WS
+    // 6. Valid submission over WS
     let valid_msg = ClientMessage::SubmitChoice {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_ws_test".to_owned(),
@@ -331,12 +419,17 @@ async fn spectator_role_isolation_and_reconnection() {
         "seed": 200,
         "bot_seats": ["p2", "p3"]
     });
-    client
+    let res = client
         .post(format!("http://{addr}/api/games"))
         .json(&create_body)
         .send()
         .await
         .expect("post games");
+    let created: serde_json::Value = res.json().await.expect("parse created game");
+    let p1_token = created["seat_tokens"]["p1"]
+        .as_str()
+        .expect("p1 seat capability")
+        .to_owned();
 
     // 1. Connect Spectator
     let ws_url = format!("ws://{addr}/ws/games/game_spectator_test");
@@ -412,7 +505,7 @@ async fn spectator_role_isolation_and_reconnection() {
     let sub_reconnect = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_spectator_test".to_owned(),
-        seat_token: Some("p1".to_owned()),
+        seat_token: Some(p1_token),
     };
     reconnected_stream
         .send(Message::Text(
@@ -436,4 +529,36 @@ async fn spectator_role_isolation_and_reconnection() {
         }
         other => panic!("Expected InitialSnapshot, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn websocket_rejects_oversized_messages_before_deserialization() {
+    let (addr, _) = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("http://{addr}/api/games"))
+        .json(&serde_json::json!({ "game_id": "game_size_test", "players": ["p1", "p2", "p3"] }))
+        .send()
+        .await
+        .expect("create game");
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
+
+    let (mut stream, _) =
+        tokio_tungstenite::connect_async(format!("ws://{addr}/ws/games/game_size_test"))
+            .await
+            .expect("connect ws");
+    stream
+        .send(Message::Text(
+            "x".repeat(MAX_CLIENT_MESSAGE_BYTES + 1).into(),
+        ))
+        .await
+        .expect("send oversized frame");
+
+    let result = tokio::time::timeout(Duration::from_secs(1), stream.next())
+        .await
+        .expect("server must close an oversized frame");
+    assert!(
+        !matches!(result, Some(Ok(Message::Text(_)))),
+        "oversized payload must not reach JSON deserialization"
+    );
 }

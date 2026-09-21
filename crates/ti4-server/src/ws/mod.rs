@@ -10,8 +10,6 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use ti4_model::id::PlayerId;
-
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::client::ClientMessage;
 use crate::protocol::error::ErrorKind;
@@ -26,7 +24,9 @@ pub async fn ws_handler(
     State(registry): State<Arc<GameRegistry>>,
 ) -> Response {
     if let Some(session) = registry.get_game(&game_id) {
-        ws.on_upgrade(move |socket| handle_socket(socket, game_id, session))
+        ws.max_frame_size(MAX_CLIENT_MESSAGE_BYTES)
+            .max_message_size(MAX_CLIENT_MESSAGE_BYTES)
+            .on_upgrade(move |socket| handle_socket(socket, game_id, session))
             .into_response()
     } else {
         (StatusCode::NOT_FOUND, format!("Game '{game_id}' not found")).into_response()
@@ -35,6 +35,8 @@ pub async fn ws_handler(
 
 /// Outbound queue bounded capacity to prevent slow consumers from buffering indefinitely.
 const OUTBOUND_QUEUE_CAPACITY: usize = 128;
+/// Maximum complete client WebSocket message, including JSON framing.
+pub const MAX_CLIENT_MESSAGE_BYTES: usize = 4 * 1024;
 
 #[allow(clippy::too_many_lines)]
 async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSession>) {
@@ -104,6 +106,17 @@ async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSess
             }
         };
 
+        if let Err(field) = client_msg.validate_bounds() {
+            let _ = outbound_tx
+                .send(ServerMessage::Error(ProtocolErrorMsg {
+                    protocol_version: PROTOCOL_VERSION,
+                    kind: ErrorKind::MalformedMessage,
+                    message: format!("Invalid or oversized {field}"),
+                }))
+                .await;
+            continue;
+        }
+
         // Validate protocol version
         if client_msg.protocol_version() != PROTOCOL_VERSION {
             let _ = outbound_tx
@@ -129,15 +142,54 @@ async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSess
                     }))
                     .await;
             }
-            ClientMessage::Subscribe { seat_token, .. } => {
+            ClientMessage::Subscribe {
+                game_id: message_game_id,
+                seat_token,
+                ..
+            } => {
+                if message_game_id != game_id {
+                    let _ = outbound_tx
+                        .send(ServerMessage::Error(ProtocolErrorMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            kind: ErrorKind::MalformedMessage,
+                            message: "Subscribe game_id does not match the WebSocket path"
+                                .to_owned(),
+                        }))
+                        .await;
+                    continue;
+                }
+                if current_role.is_some() {
+                    let _ = outbound_tx
+                        .send(ServerMessage::Error(ProtocolErrorMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            kind: ErrorKind::MalformedMessage,
+                            message: "A connection may subscribe to only one viewer role"
+                                .to_owned(),
+                        }))
+                        .await;
+                    continue;
+                }
                 let role = match seat_token {
-                    Some(s) if s != "spectator" => ViewerRole::Player(PlayerId::new(s)),
+                    Some(token) => {
+                        if let Some(role) = session.viewer_for_seat_token(&token) {
+                            role
+                        } else {
+                            let _ = outbound_tx
+                                .send(ServerMessage::Error(ProtocolErrorMsg {
+                                    protocol_version: PROTOCOL_VERSION,
+                                    kind: ErrorKind::MalformedMessage,
+                                    message: "Invalid seat capability".to_owned(),
+                                }))
+                                .await;
+                            continue;
+                        }
+                    }
                     _ => ViewerRole::Spectator,
                 };
                 current_role = Some(role.clone());
 
                 // Subscribe to session updates
-                let mpsc_rx = session.subscribe(role.clone());
+                let subscription = session.subscribe(role.clone());
 
                 // Send immediate snapshot upon subscription
                 let snapshot = session.get_snapshot(&role);
@@ -148,7 +200,7 @@ async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSess
                 // Bridge session broadcast updates to tokio outbound queue
                 let tx_clone = outbound_tx.clone();
                 tokio::task::spawn_blocking(move || {
-                    while let Ok(broadcast_msg) = mpsc_rx.recv() {
+                    while let Ok(broadcast_msg) = subscription.recv() {
                         if tx_clone.blocking_send(broadcast_msg).is_err() {
                             break;
                         }
@@ -156,43 +208,61 @@ async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSess
                 });
             }
             ClientMessage::SubmitChoice {
+                game_id: message_game_id,
                 expected_version,
                 nonce,
                 option_id,
                 ..
-            } => match &current_role {
-                Some(ViewerRole::Player(acting_seat)) => {
-                    let res =
-                        session.submit_choice(acting_seat, &nonce, expected_version, &option_id);
-                    match res {
-                        Ok(accepted) => {
-                            let _ = outbound_tx
-                                .send(ServerMessage::ActionAccepted(accepted))
-                                .await;
-                        }
-                        Err(reason) => {
-                            let _ = outbound_tx
-                                .send(ServerMessage::ActionRejected(ActionRejectedMsg {
-                                    protocol_version: PROTOCOL_VERSION,
-                                    game_id: game_id.clone(),
-                                    game_version: expected_version,
-                                    reason,
-                                }))
-                                .await;
-                        }
-                    }
-                }
-                Some(ViewerRole::Spectator) | None => {
+            } => {
+                if message_game_id != game_id {
                     let _ = outbound_tx
                         .send(ServerMessage::ActionRejected(ActionRejectedMsg {
                             protocol_version: PROTOCOL_VERSION,
                             game_id: game_id.clone(),
                             game_version: expected_version,
-                            reason: RejectionReason::UnauthorizedSeat { seat: None },
+                            reason: RejectionReason::NoPendingChoice,
                         }))
                         .await;
+                    continue;
                 }
-            },
+                match &current_role {
+                    Some(ViewerRole::Player(acting_seat)) => {
+                        let res = session.submit_choice(
+                            acting_seat,
+                            &nonce,
+                            expected_version,
+                            &option_id,
+                        );
+                        match res {
+                            Ok(accepted) => {
+                                let _ = outbound_tx
+                                    .send(ServerMessage::ActionAccepted(accepted))
+                                    .await;
+                            }
+                            Err(reason) => {
+                                let _ = outbound_tx
+                                    .send(ServerMessage::ActionRejected(ActionRejectedMsg {
+                                        protocol_version: PROTOCOL_VERSION,
+                                        game_id: game_id.clone(),
+                                        game_version: expected_version,
+                                        reason,
+                                    }))
+                                    .await;
+                            }
+                        }
+                    }
+                    Some(ViewerRole::Spectator) | None => {
+                        let _ = outbound_tx
+                            .send(ServerMessage::ActionRejected(ActionRejectedMsg {
+                                protocol_version: PROTOCOL_VERSION,
+                                game_id: game_id.clone(),
+                                game_version: expected_version,
+                                reason: RejectionReason::UnauthorizedSeat { seat: None },
+                            }))
+                            .await;
+                    }
+                }
+            }
         }
     }
 

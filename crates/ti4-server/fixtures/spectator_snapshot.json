@@ -126,6 +126,6 @@
     "seat": "seat_a",
     "phase": "action",
     "round": 2,
-    "stage": "Action Phase Decision"
+    "stage": "Waiting for player"
   }
 }

@@ -138,6 +138,14 @@ fn opponent_payload_strictly_redacts_actor_private_cards_options_and_constraints
         json.contains("\"seat\":\"seat_a\""),
         "Waiting seat must be seat_a"
     );
+    assert!(
+        json.contains("\"stage\":\"Waiting for player\""),
+        "Public waiting status must not disclose an actor-only decision context"
+    );
+    assert!(
+        !json.contains("Reaction Window"),
+        "Public waiting status must not disclose a private reaction window"
+    );
 }
 
 #[test]

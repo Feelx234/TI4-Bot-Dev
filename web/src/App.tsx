@@ -52,28 +52,15 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
 
   const userSeat = viewer.role === 'player' ? viewer.seat : undefined;
 
-  // Compute actionable system IDs if choice context names targets/destinations
-  const actionableSystemIds = React.useMemo(() => {
-    if (!pendingChoice) return [];
-    // Extract any system IDs mentioned in options
-    const ids: string[] = [];
-    for (const opt of pendingChoice.options) {
-      const match = /system_?(\d+)/i.exec(opt.id);
-      if (match) ids.push(match[1]);
-    }
-    return ids;
-  }, [pendingChoice]);
-
   return (
     <div
       data-testid="game-container"
+      className="app-shell"
       style={{
         display: 'flex',
         flexDirection: 'column',
         height: '100vh',
         width: '100vw',
-        background: '#090d16',
-        color: '#f8fafc',
         overflow: 'hidden',
         position: 'relative',
       }}
@@ -92,14 +79,11 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
         <button
           data-testid="leave-game-button"
           onClick={onLeave}
+          className="button button--secondary"
           style={{
-            background: '#1e293b',
-            color: '#94a3b8',
-            border: 'none',
             borderBottom: '1px solid #1e293b',
             padding: '0 16px',
             fontSize: 12,
-            cursor: 'pointer',
           }}
         >
           Exit Game
@@ -107,13 +91,10 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
       </div>
 
       {/* Main Content: SVG Board + Player Sheet Sidebar */}
-      <div style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <main style={{ flex: 1, position: 'relative', height: '100%' }}>
+      <div className="game-main-content" style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden' }}>
+        <main className="game-board" style={{ flex: 1, position: 'relative', height: '100%' }}>
           {snapshot ? (
-            <Board
-              board={snapshot.view.board}
-              actionableSystemIds={actionableSystemIds}
-            />
+            <Board board={snapshot.view.board} seatingOrder={snapshot.view.seating_order} />
           ) : (
             <div
               style={{
@@ -121,7 +102,6 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
                 alignItems: 'center',
                 justifyContent: 'center',
                 height: '100%',
-                color: '#94a3b8',
               }}
             >
               Loading game state...

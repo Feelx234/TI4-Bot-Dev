@@ -5,7 +5,7 @@ pub mod transport;
 pub mod worker;
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::thread::JoinHandle;
 
 use ti4_engine::choice::DecisionRecord;
@@ -17,6 +17,37 @@ use crate::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg, ServerMessa
 use crate::protocol::status::{RejectionReason, ViewerRole};
 use crate::session::decider::ChoiceSubmission;
 use crate::session::worker::{SessionShared, Subscriber, spawn_session_worker};
+
+/// Transport-neutral bounded subscription that unregisters itself when dropped.
+pub struct SessionSubscription {
+    id: u64,
+    receiver: mpsc::Receiver<ServerMessage>,
+    shared: Weak<Mutex<SessionShared>>,
+}
+
+impl SessionSubscription {
+    /// Receives the next update for this subscription.
+    pub fn recv(&self) -> Result<ServerMessage, mpsc::RecvError> {
+        self.receiver.recv()
+    }
+
+    /// Attempts to receive an update without blocking.
+    pub fn try_recv(&self) -> Result<ServerMessage, mpsc::TryRecvError> {
+        self.receiver.try_recv()
+    }
+}
+
+impl Drop for SessionSubscription {
+    fn drop(&mut self) {
+        if let Some(shared) = self.shared.upgrade() {
+            shared
+                .lock()
+                .expect("shared lock")
+                .subscribers
+                .remove(&self.id);
+        }
+    }
+}
 
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +75,7 @@ pub struct SessionConfig {
     pub game_id: String,
     pub state: GameState,
     pub seats: BTreeMap<PlayerId, SeatController>,
+    pub seat_tokens: BTreeMap<PlayerId, String>,
     pub galaxy: Option<ti4_content::galaxy::Galaxy>,
     pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
     pub seed: Option<u64>,
@@ -60,6 +92,7 @@ impl SessionConfig {
             game_id: game_id.into(),
             state,
             seats: BTreeMap::new(),
+            seat_tokens: BTreeMap::new(),
             galaxy: None,
             map_tiles: Vec::new(),
             seed: None,
@@ -72,6 +105,9 @@ impl SessionConfig {
 
     #[must_use]
     pub fn with_seat(mut self, seat: PlayerId, controller: SeatController) -> Self {
+        self.seat_tokens
+            .entry(seat.clone())
+            .or_insert_with(|| format!("{:032x}", rand::random::<u128>()));
         self.seats.insert(seat, controller);
         self
     }
@@ -167,12 +203,6 @@ impl GameSession {
         }
     }
 
-    /// Attaches or updates the durable storage manager for this session.
-    pub fn set_store(&self, store: Arc<crate::storage::FileGameStore>) {
-        let mut lock = self.shared.lock().expect("shared lock");
-        lock.store = Some(store);
-    }
-
     /// Returns the session's unique game ID.
     #[must_use]
     pub fn id(&self) -> &str {
@@ -208,8 +238,8 @@ impl GameSession {
         };
 
         let target_inbox = {
-            let lock = self.shared.lock().expect("shared lock");
-            let Some(pending) = &lock.pending_decision else {
+            let mut lock = self.shared.lock().expect("shared lock");
+            let Some(pending) = &mut lock.pending_decision else {
                 return Err(RejectionReason::NoPendingChoice);
             };
 
@@ -218,6 +248,30 @@ impl GameSession {
                     seat: Some(seat.clone()),
                 });
             }
+
+            if pending.reserved {
+                return Err(RejectionReason::NoPendingChoice);
+            }
+            if pending.nonce != nonce {
+                return Err(RejectionReason::StaleNonce);
+            }
+            if pending.game_version != expected_version {
+                return Err(RejectionReason::StaleVersion {
+                    expected: expected_version,
+                    current: pending.game_version,
+                });
+            }
+            if !pending
+                .choice
+                .options
+                .iter()
+                .any(|option| option.id == option_id)
+            {
+                return Err(RejectionReason::UnknownOption {
+                    option_id: option_id.to_owned(),
+                });
+            }
+            pending.reserved = true;
 
             lock.seat_inboxes.get(seat).cloned()
         };
@@ -228,20 +282,40 @@ impl GameSession {
             });
         };
 
-        inbox
-            .send(submission)
-            .map_err(|_| RejectionReason::NoPendingChoice)?;
+        if inbox.send(submission).is_err() {
+            let mut lock = self.shared.lock().expect("shared lock");
+            if lock
+                .pending_decision
+                .as_ref()
+                .is_some_and(|pending| pending.seat == *seat && pending.nonce == nonce)
+            {
+                lock.pending_decision
+                    .as_mut()
+                    .expect("pending decision")
+                    .reserved = false;
+            }
+            return Err(RejectionReason::NoPendingChoice);
+        }
 
         rx.recv().unwrap_or(Err(RejectionReason::NoPendingChoice))
     }
 
     /// Subscribes a viewer role to receive live server messages.
+    ///
+    /// Slow subscribers are disconnected when their bounded queue fills.
     #[must_use]
-    pub fn subscribe(&self, viewer: ViewerRole) -> mpsc::Receiver<ServerMessage> {
-        let (tx, rx) = mpsc::channel();
+    pub fn subscribe(&self, viewer: ViewerRole) -> SessionSubscription {
+        const SUBSCRIBER_QUEUE_CAPACITY: usize = 128;
+        let (tx, receiver) = mpsc::sync_channel(SUBSCRIBER_QUEUE_CAPACITY);
         let mut lock = self.shared.lock().expect("shared lock");
-        lock.subscribers.push(Subscriber { viewer, tx });
-        rx
+        lock.next_subscriber_id += 1;
+        let id = lock.next_subscriber_id;
+        lock.subscribers.insert(id, Subscriber { viewer, tx });
+        SessionSubscription {
+            id,
+            receiver,
+            shared: Arc::downgrade(&self.shared),
+        }
     }
 
     /// Fetches an initial snapshot for the given viewer role.
@@ -262,6 +336,21 @@ impl GameSession {
             &lock.map_tiles,
             &lock.event_log,
         )
+    }
+
+    /// Resolves an unguessable seat capability to its authorized viewer role.
+    #[must_use]
+    pub fn viewer_for_seat_token(&self, token: &str) -> Option<ViewerRole> {
+        let lock = self.shared.lock().expect("shared lock");
+        lock.seat_tokens.iter().find_map(|(seat, candidate)| {
+            (candidate == token).then(|| ViewerRole::Player(seat.clone()))
+        })
+    }
+
+    /// Returns the seat capabilities created for this session.
+    #[must_use]
+    pub fn seat_tokens(&self) -> BTreeMap<PlayerId, String> {
+        self.shared.lock().expect("shared lock").seat_tokens.clone()
     }
 
     /// Returns static board tiles for the game session.
@@ -294,6 +383,12 @@ impl GameSession {
     #[must_use]
     pub fn is_finished(&self) -> bool {
         self.shared.lock().expect("shared lock").finished
+    }
+
+    /// Returns the terminal engine or persistence error, if the session failed closed.
+    #[must_use]
+    pub fn error(&self) -> Option<String> {
+        self.shared.lock().expect("shared lock").error.clone()
     }
 
     /// Returns a copy of the accumulated decision log records.

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { Board } from './Board.tsx';
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { Board, getPlayerColor } from './Board.tsx';
 import { BoardView } from '../protocol/types.ts';
 
 const mockBoard: BoardView = {
@@ -49,7 +49,7 @@ const mockBoard: BoardView = {
 
 describe('Board Component', () => {
   it('renders all systems in SVG with correct coordinates and planet labels', () => {
-    render(<Board board={mockBoard} />);
+    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} />);
 
     expect(screen.getByTestId('ti4-board-svg')).toBeInTheDocument();
     expect(screen.getByTestId('system-hex-18')).toBeInTheDocument();
@@ -68,27 +68,20 @@ describe('Board Component', () => {
     expect(screen.getByText('2 units')).toBeInTheDocument();
   });
 
-  it('triggers onSelectSystem on click and keyboard activation', () => {
-    const onSelect = vi.fn();
-    render(<Board board={mockBoard} onSelectSystem={onSelect} />);
+  it('keeps non-interactive systems out of the keyboard tab order', () => {
+    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} />);
 
     const hex18 = screen.getByTestId('system-hex-18');
-    fireEvent.click(hex18);
-    expect(onSelect).toHaveBeenCalledWith(mockBoard.systems['18']);
-
     const hex34 = screen.getByTestId('system-hex-34');
-    fireEvent.keyDown(hex34, { key: 'Enter' });
-    expect(onSelect).toHaveBeenCalledWith(mockBoard.systems['34']);
+    expect(hex18).not.toHaveAttribute('role');
+    expect(hex18).not.toHaveAttribute('tabindex');
+    expect(hex34).not.toHaveAttribute('role');
   });
 
-  it('marks actionable systems with data-actionable and highlight styling', () => {
-    render(<Board board={mockBoard} actionableSystemIds={['34']} />);
-
-    const hex18 = screen.getByTestId('system-hex-18');
-    const hex34 = screen.getByTestId('system-hex-34');
-
-    expect(hex18).toHaveAttribute('data-actionable', 'false');
-    expect(hex34).toHaveAttribute('data-actionable', 'true');
+  it('assigns colors by projected seating order, not seat name', () => {
+    expect(getPlayerColor('unusual-seat', ['unusual-seat', 'another-seat'])).toBe('#ef4444');
+    expect(getPlayerColor('another-seat', ['unusual-seat', 'another-seat'])).toBe('#38bdf8');
+    expect(getPlayerColor('absent-seat', ['unusual-seat'])).toBe('#94a3b8');
   });
 
   it('renders static map_tiles with anomalies, wormholes, and zoom controls', () => {
@@ -121,7 +114,7 @@ describe('Board Component', () => {
       ],
     };
 
-    render(<Board board={boardWithMap} />);
+    render(<Board board={boardWithMap} seatingOrder={['p1']} />);
 
     expect(screen.getByTestId('system-hex-18')).toBeInTheDocument();
     expect(screen.getByTestId('system-hex-67')).toBeInTheDocument();

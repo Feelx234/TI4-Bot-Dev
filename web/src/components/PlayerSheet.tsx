@@ -15,12 +15,11 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
   return (
     <aside
       data-testid="player-sheet-panel"
+      className="player-sheet-panel"
       style={{
         width: 330,
         height: '100%',
-        background: '#090d16',
-        borderLeft: '1px solid #1e293b',
-        color: '#f8fafc',
+        borderLeft: '1px solid var(--color-border)',
         overflowY: 'auto',
         padding: 16,
         display: 'flex',
@@ -40,10 +39,8 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
             key={player.id}
             data-testid={`player-card-${player.id}`}
             data-is-self={isSelf ? 'true' : 'false'}
+            className={`card${isSelf ? ' card--selected' : ''}`}
             style={{
-              background: isSelf ? '#1e293b' : '#0f172a',
-              border: isSelf ? '1px solid #38bdf8' : '1px solid #334155',
-              borderRadius: 8,
               padding: 14,
               display: 'flex',
               flexDirection: 'column',
@@ -96,7 +93,6 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                         data-testid={`strategy-card-badge-${scId}`}
                         data-card-id={scId}
                         title={tooltipText}
-                        tabIndex={0}
                         style={{
                           background: '#090d16',
                           border: '1px solid #38bdf8',
@@ -157,13 +153,11 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                             data-private-card="true"
                             data-private-card-owner={player.id}
                             data-action-card-id={cardId}
-                            data-testid={`action-card-item-${cardId}`}
-                            title={tooltipText}
-                            tabIndex={0}
-                            style={{
-                              background: '#090d16',
+                          data-testid={`action-card-item-${cardId}`}
+                          title={tooltipText}
+                          className="card"
+                          style={{
                               border: '1px solid #475569',
-                              borderRadius: 6,
                               padding: '6px 10px',
                               cursor: 'help',
                             }}
@@ -205,13 +199,11 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                             data-private-card="true"
                             data-private-card-owner={player.id}
                             data-secret-obj-id={objId}
-                            data-testid={`secret-objective-item-${objId}`}
-                            title={tooltipText}
-                            tabIndex={0}
-                            style={{
-                              background: '#090d16',
+                          data-testid={`secret-objective-item-${objId}`}
+                          title={tooltipText}
+                          className="card"
+                          style={{
                               border: '1px solid #fbbf24',
-                              borderRadius: 6,
                               padding: '6px 10px',
                               cursor: 'help',
                             }}

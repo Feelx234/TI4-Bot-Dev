@@ -57,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let map_tiles = ti4_server::map::build_board_tiles(content, &galaxy);
             let config = SessionConfig::new("demo", state)
                 .with_seed(42)
+                .with_player_ids(players.to_vec())
                 .with_galaxy(galaxy, map_tiles)
                 .with_seat(p1, SeatController::Human)
                 .with_seat(p2, SeatController::Human)

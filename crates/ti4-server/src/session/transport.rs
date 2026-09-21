@@ -1,7 +1,7 @@
 //! In-memory mock client transport adapter for test harnesses and integration flows.
 
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, RecvError, TryRecvError};
+use std::sync::mpsc::{RecvError, TryRecvError};
 use ti4_model::id::PlayerId;
 
 use crate::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg, ServerMessage};
@@ -11,7 +11,7 @@ use crate::session::GameSession;
 /// In-memory mock client connected to a `GameSession`.
 pub struct MockClient {
     viewer: ViewerRole,
-    receiver: Receiver<ServerMessage>,
+    subscription: crate::session::SessionSubscription,
     session: Arc<GameSession>,
 }
 
@@ -19,10 +19,10 @@ impl MockClient {
     /// Connects a new mock client with the specified role.
     #[must_use]
     pub fn connect(session: Arc<GameSession>, viewer: ViewerRole) -> Self {
-        let receiver = session.subscribe(viewer.clone());
+        let subscription = session.subscribe(viewer.clone());
         Self {
             viewer,
-            receiver,
+            subscription,
             session,
         }
     }
@@ -45,7 +45,7 @@ impl MockClient {
     ///
     /// Returns [`RecvError`] if the channel disconnected.
     pub fn recv(&self) -> Result<ServerMessage, RecvError> {
-        self.receiver.recv()
+        self.subscription.recv()
     }
 
     /// Attempts to receive a message without blocking.
@@ -54,14 +54,14 @@ impl MockClient {
     ///
     /// Returns [`TryRecvError`] if empty or disconnected.
     pub fn try_recv(&self) -> Result<ServerMessage, TryRecvError> {
-        self.receiver.try_recv()
+        self.subscription.try_recv()
     }
 
     /// Drains and returns all currently buffered messages.
     #[must_use]
     pub fn drain_messages(&self) -> Vec<ServerMessage> {
         let mut messages = Vec::new();
-        while let Ok(msg) = self.receiver.try_recv() {
+        while let Ok(msg) = self.subscription.try_recv() {
             messages.push(msg);
         }
         messages

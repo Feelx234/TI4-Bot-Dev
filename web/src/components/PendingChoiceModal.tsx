@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getStrategyCardMeta } from '../protocol/contentCatalog.ts';
 import { PendingChoiceDto } from '../protocol/types.ts';
 
@@ -16,6 +16,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const [selectedOptionId, setSelectedOptionId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const priorFocusRef = useRef<HTMLElement | null>(null);
 
   // Auto-select the first option and expand when a new choice arrives
   useEffect(() => {
@@ -26,6 +28,13 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     }
   }, [choice?.nonce]);
 
+  useEffect(() => {
+    if (!choice || isMinimized) return;
+    priorFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    return () => priorFocusRef.current?.focus();
+  }, [choice?.nonce, isMinimized]);
+
   if (!choice) return null;
 
   // Minimized floating banner allowing inspection of map, players, and tables
@@ -33,17 +42,14 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     return (
       <div
         data-testid="minimized-choice-banner"
+        className="panel"
         style={{
           position: 'fixed',
           bottom: 24,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: '#0f172a',
           border: '2px solid #38bdf8',
-          borderRadius: 30,
           padding: '8px 20px',
-          color: '#f8fafc',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 16px rgba(56, 189, 248, 0.3)',
           display: 'flex',
           alignItems: 'center',
           gap: 16,
@@ -82,15 +88,11 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           type="button"
           data-testid="resume-choice-button"
           onClick={() => setIsMinimized(false)}
+          className="button button--primary"
           style={{
-            background: '#0284c7',
-            color: '#ffffff',
-            border: 'none',
             borderRadius: 16,
             padding: '6px 14px',
             fontSize: 12,
-            fontWeight: 'bold',
-            cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             gap: 6,
@@ -116,9 +118,11 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   };
 
   return (
-    <div
-      data-testid="pending-choice-dialog"
-      role="dialog"
+      <div
+        ref={dialogRef}
+        data-testid="pending-choice-dialog"
+        role="dialog"
+        tabIndex={-1}
       aria-modal="true"
       aria-labelledby="choice-prompt-title"
       style={{
@@ -134,17 +138,35 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
         justifyContent: 'center',
         zIndex: 100,
       }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          setIsMinimized(true);
+          return;
+        }
+        if (event.key !== 'Tab') return;
+        const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])'
+        );
+        if (!focusable?.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }}
     >
       <div
+        className="panel"
         style={{
-          background: '#0f172a',
           border: '1px solid #38bdf8',
-          borderRadius: 12,
           padding: 24,
           maxWidth: 540,
           width: '90%',
-          color: '#f8fafc',
-          boxShadow: '0 10px 30px rgba(0, 0, 0, 0.8)',
           display: 'flex',
           flexDirection: 'column',
           gap: 16,
@@ -174,15 +196,10 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
             data-testid="minimize-choice-button"
             onClick={() => setIsMinimized(true)}
             title="Minimize decision dialog to inspect map and player sheets"
+            className="button button--secondary"
             style={{
-              background: '#1e293b',
-              border: '1px solid #475569',
-              color: '#94a3b8',
-              borderRadius: 6,
               padding: '5px 12px',
               fontSize: 12,
-              fontWeight: 500,
-              cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: 6,
@@ -230,14 +247,12 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                   data-option-id={opt.id}
                   data-actionable="true"
                   title={tooltip}
+                  className={`card${isChecked ? ' card--selected' : ''}`}
                   style={{
                     display: 'flex',
                     alignItems: 'flex-start',
                     gap: 10,
                     padding: '10px 14px',
-                    borderRadius: 8,
-                    background: isChecked ? '#1e293b' : '#090d16',
-                    border: isChecked ? '1px solid #38bdf8' : '1px solid #334155',
                     cursor: 'pointer',
                     fontSize: 14,
                     transition: 'all 0.15s ease',
@@ -249,6 +264,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                     value={opt.id}
                     checked={isChecked}
                     onChange={() => setSelectedOptionId(opt.id)}
+                    disabled={isSubmitting}
                     style={{ marginTop: 3 }}
                   />
                   <div>
@@ -271,15 +287,10 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               type="submit"
               data-testid="submit-choice-button"
               disabled={!selectedOptionId || isSubmitting}
+              className="button button--primary"
               style={{
-                background: selectedOptionId && !isSubmitting ? '#0284c7' : '#475569',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: 6,
                 padding: '10px 20px',
-                fontSize: 14,
-                fontWeight: 'bold',
-                cursor: selectedOptionId && !isSubmitting ? 'pointer' : 'not-allowed',
+                background: selectedOptionId && !isSubmitting ? undefined : '#475569',
                 transition: 'background 0.15s ease',
               }}
             >

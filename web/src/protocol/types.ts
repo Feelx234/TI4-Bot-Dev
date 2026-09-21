@@ -6,7 +6,7 @@
 export const PROTOCOL_VERSION = 1;
 
 export type ViewerRole =
-  | { role: 'player'; seat: string }
+  | { role: 'player'; seat: string; seatToken?: string }
   | { role: 'spectator' };
 
 export type PublicTurnStatus =

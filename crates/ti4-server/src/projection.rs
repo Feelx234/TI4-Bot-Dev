@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use ti4_engine::choice::Choice;
 use ti4_model::id::PlanetId;
-use ti4_model::state::{GameState, Phase, Player};
+use ti4_model::state::{GameState, Player};
 
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::choice::PendingChoiceDto;
@@ -196,36 +196,12 @@ pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -
     }
 
     if let Some(choice) = pending_choice {
-        let stage = match choice.context.as_ref() {
-            Some(ctx) => {
-                if ctx.subtype.starts_with("reaction")
-                    || ctx.subtype.contains("action_card")
-                    || ctx.subtype.starts_with("timing")
-                {
-                    "Reaction Window".to_owned()
-                } else if ctx.phase == Phase::Agenda {
-                    "Agenda Voting".to_owned()
-                } else if ctx.phase == Phase::Strategy {
-                    "Strategy Phase Selection".to_owned()
-                } else if ctx.phase == Phase::Status {
-                    "Status Phase".to_owned()
-                } else {
-                    "Action Phase Decision".to_owned()
-                }
-            }
-            None => match state.phase {
-                Phase::Strategy => "Strategy Phase Selection".to_owned(),
-                Phase::Action => "Action Phase Decision".to_owned(),
-                Phase::Status => "Status Phase".to_owned(),
-                Phase::Agenda => "Agenda Voting".to_owned(),
-            },
-        };
-
         return PublicTurnStatus::WaitingForDecision {
             seat: choice.player.clone(),
             phase: state.phase,
             round: state.round,
-            stage,
+            // The existence of a choice is public; its context can reveal a private reaction.
+            stage: "Waiting for player".to_owned(),
         };
     }
 

@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ClientMessage,
-  ServerMessage,
   InitialSnapshotMsg,
   StateUpdateMsg,
   PendingChoiceDto,
@@ -9,17 +8,18 @@ import {
   PROTOCOL_VERSION,
   ViewerRole,
 } from '../protocol/types.ts';
-import { formatActionDescription } from '../protocol/contentCatalog.ts';
+import { decodeServerMessage, isStaleServerMessage } from '../protocol/decode.ts';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
 
-export interface GameLogEntry {
-  id: string;
-  timestamp: string;
-  version?: number;
-  text: string;
-  category?: 'system' | 'action' | 'decision' | 'status' | 'phase' | 'error';
+export type GameLogEntry = import('../protocol/types.ts').GameEventDto;
+
+const MAX_EVENT_LOG_ENTRIES = 500;
+
+/** Keeps the rendered audit log server-authored while bounding client memory use. */
+export function serverEventLog(entries: readonly GameLogEntry[] | undefined): GameLogEntry[] {
+  return (entries ?? []).slice(-MAX_EVENT_LOG_ENTRIES);
 }
 
 export interface UseGameSessionOptions {
@@ -37,13 +37,6 @@ export interface UseGameSessionReturn {
   lastError: string | null;
   events: GameLogEntry[];
   submitChoice: (optionId: string) => Promise<void>;
-  fetchSnapshot: () => Promise<InitialSnapshotMsg | null>;
-  reconnect: () => void;
-}
-
-function formatTimestamp(): string {
-  const d = new Date();
-  return d.toTimeString().split(' ')[0];
 }
 
 export function useGameSession({
@@ -60,8 +53,18 @@ export function useGameSession({
   const [events, setEvents] = useState<GameLogEntry[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const gameVersionRef = useRef(0);
+  const submittedNonceRef = useRef<string | null>(null);
+  const submissionResolveRef = useRef<(() => void) | null>(null);
   const viewerRef = useRef<ViewerRole>(viewer);
   viewerRef.current = viewer;
+  gameVersionRef.current = gameVersion;
+
+  const resolveSubmission = useCallback(() => {
+    submittedNonceRef.current = null;
+    submissionResolveRef.current?.();
+    submissionResolveRef.current = null;
+  }, []);
 
   const viewerKey = viewer.role === 'player' ? `player:${viewer.seat}` : 'spectator';
 
@@ -70,20 +73,6 @@ export function useGameSession({
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${protocol}//${window.location.host}/ws/games/${gameId}`;
   }, [serverUrl, gameId]);
-
-  const addLog = useCallback(
-    (text: string, category: GameLogEntry['category'] = 'system', version?: number) => {
-      const entry: GameLogEntry = {
-        id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        timestamp: formatTimestamp(),
-        version,
-        text,
-        category,
-      };
-      setEvents((prev) => [...prev, entry]);
-    },
-    []
-  );
 
   const connect = useCallback(() => {
     if (wsRef.current) {
@@ -113,7 +102,7 @@ export function useGameSession({
 
       // Subscribe immediately with viewer role
       const currentViewer = viewerRef.current;
-      const seatToken = currentViewer.role === 'player' ? currentViewer.seat : undefined;
+      const seatToken = currentViewer.role === 'player' ? currentViewer.seatToken : undefined;
       const subMsg: ClientMessage = {
         type: 'subscribe',
         protocol_version: PROTOCOL_VERSION,
@@ -126,111 +115,53 @@ export function useGameSession({
     ws.onmessage = (ev) => {
       if (closedIntentionally) return;
       try {
-        const msg = JSON.parse(ev.data) as ServerMessage;
+        const msg = decodeServerMessage(JSON.parse(ev.data), gameId);
+        if (isStaleServerMessage(msg, gameVersionRef.current)) return;
         switch (msg.type) {
           case 'initial_snapshot': {
             setSnapshot(msg);
             setGameVersion(msg.game_version);
             setTurnStatus(msg.turn_status);
             setPendingChoice(msg.pending_choice ?? null);
-            if (msg.events && msg.events.length > 0) {
-              setEvents(
-                msg.events.map((e) => ({
-                  id: e.id,
-                  timestamp: e.timestamp,
-                  version: e.version,
-                  text: e.text,
-                  category: e.category,
-                }))
-              );
-            } else {
-              addLog(
-                `Game initialized (Round ${msg.view.round}, ${msg.view.phase.toUpperCase()} Phase, Speaker: ${msg.view.speaker})`,
-                'system',
-                msg.game_version
-              );
-              if (msg.pending_choice) {
-                addLog(
-                  `Decision required for ${msg.pending_choice.actor}: ${msg.pending_choice.prompt}`,
-                  'decision',
-                  msg.game_version
-                );
-              }
-            }
+            if (submittedNonceRef.current && msg.pending_choice?.nonce !== submittedNonceRef.current) resolveSubmission();
+            setEvents(serverEventLog(msg.events));
             break;
           }
           case 'event': {
             setEvents((prev) => {
               if (prev.some((e) => e.id === msg.entry.id)) return prev;
-              return [
-                ...prev,
-                {
-                  id: msg.entry.id,
-                  timestamp: msg.entry.timestamp,
-                  version: msg.entry.version,
-                  text: msg.entry.text,
-                  category: msg.entry.category,
-                },
-              ];
+              return serverEventLog([...prev, msg.entry]);
             });
             break;
           }
           case 'state_update': {
-            setSnapshot((prev) => {
-              if (
-                prev &&
-                (prev.view.phase !== msg.view.phase || prev.view.round !== msg.view.round)
-              ) {
-                addLog(
-                  `Phase transition: ${msg.view.phase.toUpperCase()} Phase (Round ${msg.view.round})`,
-                  'phase',
-                  msg.game_version
-                );
-              }
-              return prev ? { ...prev, ...msg } : msg;
-            });
+            setSnapshot((prev) => (prev ? { ...prev, ...msg } : msg));
             setGameVersion(msg.game_version);
             setTurnStatus(msg.turn_status);
             setPendingChoice(msg.pending_choice ?? null);
+            if (submittedNonceRef.current && msg.pending_choice?.nonce !== submittedNonceRef.current) resolveSubmission();
             // Redundant "State updated to version X" spam intentionally omitted!
             break;
           }
           case 'pending_choice': {
             setPendingChoice(msg.choice);
+            if (submittedNonceRef.current && msg.choice.nonce !== submittedNonceRef.current) resolveSubmission();
             setGameVersion(msg.game_version);
-            addLog(
-              `Decision required for ${msg.choice.actor}: ${msg.choice.prompt}`,
-              'decision',
-              msg.game_version
-            );
             break;
           }
           case 'turn_status': {
             setTurnStatus(msg.status);
             setGameVersion(msg.game_version);
-            if (msg.status.kind === 'active_turn') {
-              addLog(
-                `Active Turn: ${msg.status.player} (Round ${msg.status.round}, ${msg.status.phase})`,
-                'status',
-                msg.game_version
-              );
-            } else if (msg.status.kind === 'phase_transition') {
-              addLog(
-                `Phase Transition: ${msg.status.phase} Phase (Round ${msg.status.round})`,
-                'phase',
-                msg.game_version
-              );
-            }
             break;
           }
           case 'action_accepted': {
+            resolveSubmission();
             setPendingChoice(null);
             setLastError(null);
-            const formattedAction = formatActionDescription(msg.option_id);
-            addLog(`Action accepted: ${formattedAction}`, 'action', msg.game_version);
             break;
           }
           case 'action_rejected': {
+            resolveSubmission();
             let reasonStr = 'Action rejected';
             if (msg.reason.reason === 'stale_version') {
               reasonStr = `Rejected: Stale version (expected ${msg.reason.expected}, server at ${msg.reason.current})`;
@@ -242,22 +173,14 @@ export function useGameSession({
               reasonStr = `Rejected: Unknown option '${msg.reason.option_id}'`;
             }
             setLastError(reasonStr);
-            addLog(reasonStr, 'error', msg.game_version);
             break;
           }
           case 'error': {
             setLastError(`Server Error: ${msg.message}`);
-            addLog(`Server Error: ${msg.message}`, 'error');
             break;
           }
-          case 'game_over': {
-            addLog(
-              `Game Over! Winner: ${msg.winner ?? 'Draw'}`,
-              'status',
-              msg.game_version
-            );
+          case 'game_over':
             break;
-          }
           case 'pong':
             break;
         }
@@ -287,7 +210,7 @@ export function useGameSession({
         ws.close();
       }
     };
-  }, [gameId, viewerKey, defaultWsUrl, addLog]);
+  }, [gameId, viewerKey, defaultWsUrl, resolveSubmission]);
 
   useEffect(() => {
     const cleanup = connect();
@@ -309,6 +232,7 @@ export function useGameSession({
         setLastError('No decision currently pending');
         return;
       }
+      if (submittedNonceRef.current === pendingChoice.nonce) return;
 
       const msg: ClientMessage = {
         type: 'submit_choice',
@@ -319,40 +243,14 @@ export function useGameSession({
         option_id: optionId,
       };
 
-      wsRef.current.send(JSON.stringify(msg));
+      submittedNonceRef.current = pendingChoice.nonce;
+      return new Promise<void>((resolve) => {
+        submissionResolveRef.current = resolve;
+        wsRef.current?.send(JSON.stringify(msg));
+      });
     },
     [gameId, pendingChoice, gameVersion]
   );
-
-  const fetchSnapshot = useCallback(async (): Promise<InitialSnapshotMsg | null> => {
-    try {
-      const protocol = window.location.protocol;
-      const host = window.location.host;
-      const seatParam = viewer.role === 'player' ? `?seat=${viewer.seat}` : '?seat=spectator';
-      const res = await fetch(`${protocol}//${host}/api/games/${gameId}/snapshot${seatParam}`);
-      if (!res.ok) return null;
-      const data: InitialSnapshotMsg = await res.json();
-      setSnapshot(data);
-      setGameVersion(data.game_version);
-      setTurnStatus(data.turn_status);
-      setPendingChoice(data.pending_choice ?? null);
-      if (data.events && data.events.length > 0) {
-        setEvents(
-          data.events.map((e) => ({
-            id: e.id,
-            timestamp: e.timestamp,
-            version: e.version,
-            text: e.text,
-            category: e.category,
-          }))
-        );
-      }
-      return data;
-    } catch (e) {
-      console.error('Failed to fetch snapshot via HTTP:', e);
-      return null;
-    }
-  }, [gameId, viewer]);
 
   return {
     status,
@@ -363,7 +261,5 @@ export function useGameSession({
     lastError,
     events,
     submitChoice,
-    fetchSnapshot,
-    reconnect: connect,
   };
 }

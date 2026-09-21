@@ -36,11 +36,6 @@ impl GameRegistry {
         self
     }
 
-    /// Sets or updates the store for this registry.
-    pub fn set_store(&mut self, store: Arc<crate::storage::FileGameStore>) {
-        self.store = Some(store);
-    }
-
     /// Returns the optional underlying game store.
     #[must_use]
     pub fn store(&self) -> Option<Arc<crate::storage::FileGameStore>> {
@@ -85,6 +80,7 @@ impl GameRegistry {
     ///
     /// Returns error if a game with the same ID already exists or storage write fails.
     pub fn create_game(&self, mut config: SessionConfig) -> Result<Arc<GameSession>, String> {
+        crate::storage::validate_game_id(&config.game_id).map_err(|error| error.to_string())?;
         let mut lock = self.sessions.write().expect("registry write lock");
         if lock.contains_key(&config.game_id) {
             return Err(format!("Game session '{}' already exists", config.game_id));
@@ -95,17 +91,16 @@ impl GameRegistry {
         }
 
         if let Some(store) = &config.store {
-            let player_ids = if config.player_ids.is_empty() {
-                config.seats.keys().cloned().collect()
-            } else {
-                config.player_ids.clone()
-            };
+            if config.player_ids.is_empty() {
+                return Err("durable sessions require an explicit player order".to_owned());
+            }
             let init_record = crate::storage::GameInitRecord {
                 game_id: config.game_id.clone(),
                 seed: config.seed,
-                player_ids,
+                player_ids: config.player_ids.clone(),
                 initial_state: config.state.clone(),
                 seats: config.seats.clone(),
+                seat_tokens: config.seat_tokens.clone(),
                 map_tiles: config.map_tiles.clone(),
             };
             store

@@ -7,6 +7,7 @@ pub mod health;
 use std::sync::Arc;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::get;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -37,6 +38,7 @@ async fn root_handler() -> axum::response::Html<&'static str> {
 
 /// Construct the authoritative application router with all HTTP and WebSocket endpoints.
 pub fn create_app(registry: Arc<GameRegistry>) -> Router {
+    const MAX_HTTP_REQUEST_BYTES: usize = 8 * 1024;
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -55,5 +57,6 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
         .route("/ws/games/{game_id}", get(ws_handler))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(DefaultBodyLimit::max(MAX_HTTP_REQUEST_BYTES))
         .with_state(registry)
 }

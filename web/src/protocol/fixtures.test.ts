@@ -7,6 +7,7 @@ import {
   GameOverMsg,
   PROTOCOL_VERSION,
 } from './types.ts';
+import { decodeServerMessage, isStaleServerMessage } from './decode.ts';
 
 const FIXTURES_DIR = path.resolve(__dirname, '../../../crates/ti4-server/fixtures');
 
@@ -76,5 +77,22 @@ describe('Golden Fixtures Conformance', () => {
     expect(data.winner).toBe('seat_a');
     expect(data.final_scores['seat_a']).toBe(10);
     expect(data.final_scores['seat_b']).toBe(8);
+  });
+
+  it('rejects malformed, wrong-version, and wrong-game messages at ingress', () => {
+    const snapshot = loadFixture<Record<string, unknown>>('actor_snapshot.json');
+    expect(() => decodeServerMessage({ type: 'initial_snapshot' }, 'game_12345')).toThrow(/invalid server message/i);
+    expect(() => decodeServerMessage({ ...snapshot, protocol_version: 99 }, 'game_12345')).toThrow(/unsupported protocol version/i);
+    expect(() => decodeServerMessage({ ...snapshot, game_id: 'other_game' }, 'game_12345')).toThrow(/unexpected game id/i);
+  });
+
+  it('rejects state updates older than the current game version', () => {
+    const update = decodeServerMessage({
+      ...loadFixture<Record<string, unknown>>('actor_snapshot.json'),
+      type: 'state_update',
+      game_version: 41,
+    }, 'game_12345');
+    expect(isStaleServerMessage(update, 42)).toBe(true);
+    expect(isStaleServerMessage(update, 41)).toBe(false);
   });
 });

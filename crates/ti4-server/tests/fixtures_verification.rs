@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Once;
 use ti4_server::fixtures::{
     sample_actor_snapshot, sample_opponent_snapshot, sample_spectator_snapshot,
     sample_stale_submission_rejected, sample_terminal_game_over,
@@ -9,40 +8,12 @@ use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::RejectionReason;
 use ti4_server::protocol::{PROTOCOL_VERSION, parse_server_message};
 
-static INIT: Once = Once::new();
-
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures")
 }
 
-fn init_fixtures() {
-    INIT.call_once(|| {
-        let dir = fixture_dir();
-        fs::create_dir_all(&dir).expect("create fixture dir");
-
-        let fixtures = [
-            ("actor_snapshot.json", sample_actor_snapshot()),
-            ("opponent_snapshot.json", sample_opponent_snapshot()),
-            ("spectator_snapshot.json", sample_spectator_snapshot()),
-            (
-                "stale_submission_rejected.json",
-                sample_stale_submission_rejected(),
-            ),
-            ("terminal_game_over.json", sample_terminal_game_over()),
-        ];
-
-        for (name, expected_msg) in &fixtures {
-            let path = dir.join(name);
-            let expected_json =
-                serde_json::to_string_pretty(expected_msg).expect("serialize expected");
-            fs::write(&path, &expected_json).expect("write fixture");
-        }
-    });
-}
-
 #[test]
 fn ensure_and_verify_fixtures() {
-    init_fixtures();
     let dir = fixture_dir();
 
     let fixtures = [
@@ -68,7 +39,6 @@ fn ensure_and_verify_fixtures() {
 
 #[test]
 fn fixture_actor_snapshot_has_choice_and_private_cards() {
-    init_fixtures();
     let path = fixture_dir().join("actor_snapshot.json");
     let content = fs::read_to_string(&path).expect("read fixture");
     let msg = parse_server_message(&content).expect("parse");
@@ -97,7 +67,6 @@ fn fixture_actor_snapshot_has_choice_and_private_cards() {
 
 #[test]
 fn fixture_opponent_snapshot_has_no_private_cards_or_choice() {
-    init_fixtures();
     let path = fixture_dir().join("opponent_snapshot.json");
     let content = fs::read_to_string(&path).expect("read fixture");
     let msg = parse_server_message(&content).expect("parse");
@@ -135,7 +104,6 @@ fn fixture_opponent_snapshot_has_no_private_cards_or_choice() {
 
 #[test]
 fn fixture_spectator_snapshot_redacts_all_private_cards() {
-    init_fixtures();
     let path = fixture_dir().join("spectator_snapshot.json");
     let content = fs::read_to_string(&path).expect("read fixture");
     let msg = parse_server_message(&content).expect("parse");
@@ -154,7 +122,6 @@ fn fixture_spectator_snapshot_redacts_all_private_cards() {
 
 #[test]
 fn fixture_stale_submission_rejected() {
-    init_fixtures();
     let path = fixture_dir().join("stale_submission_rejected.json");
     let content = fs::read_to_string(&path).expect("read fixture");
     let msg = parse_server_message(&content).expect("parse");
@@ -175,7 +142,6 @@ fn fixture_stale_submission_rejected() {
 
 #[test]
 fn fixture_terminal_game_over() {
-    init_fixtures();
     let path = fixture_dir().join("terminal_game_over.json");
     let content = fs::read_to_string(&path).expect("read fixture");
     let msg = parse_server_message(&content).expect("parse");

@@ -9,13 +9,20 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
   const [gameId, setGameId] = useState('demo');
   const [roleType, setRoleType] = useState<'player' | 'spectator'>('player');
   const [seat, setSeat] = useState('p1');
+  const [seatToken, setSeatToken] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [newGameId, setNewGameId] = useState('');
   const [seed, setSeed] = useState('42');
   const [botSeats, setBotSeats] = useState<string[]>(['p3']);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    const parsedSeed = Number(seed);
+    if (!Number.isSafeInteger(parsedSeed) || parsedSeed < 0) {
+      setCreateError('Seed must be a non-negative whole number.');
+      return;
+    }
     try {
       const res = await fetch('/api/games', {
         method: 'POST',
@@ -23,13 +30,13 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
         body: JSON.stringify({
           game_id: newGameId.trim() || undefined,
           players: ['p1', 'p2', 'p3'],
-          seed: parseInt(seed, 10) || 42,
+          seed: parsedSeed,
           bot_seats: botSeats,
         }),
       });
       if (res.ok) {
         const data = await res.json();
-        onJoin(data.game_id, { role: 'player', seat: 'p1' });
+        onJoin(data.game_id, { role: 'player', seat: 'p1', seatToken: data.seat_tokens.p1 });
       } else {
         alert('Failed to create game: ' + (await res.text()));
       }
@@ -41,26 +48,22 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
   return (
     <div
       data-testid="lobby-container"
+      className="app-shell"
       style={{
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: '100vh',
-        background: '#090d16',
-        color: '#f8fafc',
         padding: 20,
       }}
     >
       <div
+        className="panel"
         style={{
-          background: '#0f172a',
-          border: '1px solid #1e293b',
-          borderRadius: 12,
           padding: 32,
           maxWidth: 440,
           width: '100%',
-          boxShadow: '0 12px 40px rgba(0, 0, 0, 0.7)',
         }}
       >
         <h1 style={{ fontSize: 24, fontWeight: 'bold', color: '#38bdf8', marginTop: 0, marginBottom: 8 }}>
@@ -76,13 +79,13 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
               e.preventDefault();
               onJoin(
                 gameId,
-                roleType === 'player' ? { role: 'player', seat } : { role: 'spectator' }
+                roleType === 'player' ? { role: 'player', seat, seatToken } : { role: 'spectator' }
               );
             }}
             style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
           >
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#cbd5e1', marginBottom: 6 }}>
+              <label className="field-label">
                 Game Session ID:
               </label>
               <input
@@ -90,21 +93,12 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
                 type="text"
                 value={gameId}
                 onChange={(e) => setGameId(e.target.value)}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  background: '#1e293b',
-                  border: '1px solid #334155',
-                  borderRadius: 6,
-                  color: '#f8fafc',
-                  padding: '10px 12px',
-                  fontSize: 14,
-                }}
+                className="input"
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#cbd5e1', marginBottom: 6 }}>
+              <label className="field-label">
                 Role:
               </label>
               <div style={{ display: 'flex', gap: 16 }}>
@@ -130,43 +124,41 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
             </div>
 
             {roleType === 'player' && (
-              <div>
-                <label style={{ display: 'block', fontSize: 13, color: '#cbd5e1', marginBottom: 6 }}>
+              <>
+                <div>
+                <label className="field-label">
                   Select Seat:
                 </label>
-                <select
+                <input
                   data-testid="select-seat"
+                  type="text"
                   value={seat}
                   onChange={(e) => setSeat(e.target.value)}
-                  style={{
-                    width: '100%',
-                    background: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: 6,
-                    color: '#f8fafc',
-                    padding: '10px 12px',
-                    fontSize: 14,
-                  }}
-                >
-                  <option value="p1">Seat P1</option>
-                  <option value="p2">Seat P2</option>
-                  <option value="p3">Seat P3</option>
-                </select>
-              </div>
+                  className="input"
+                />
+                </div>
+                <div>
+                  <label className="field-label">
+                    Seat Capability:
+                  </label>
+                  <input
+                    data-testid="input-seat-token"
+                    type="password"
+                    required
+                    value={seatToken}
+                    onChange={(e) => setSeatToken(e.target.value)}
+                    className="input"
+                  />
+                </div>
+              </>
             )}
 
             <button
               type="submit"
               data-testid="join-game-button"
+              className="button button--primary"
               style={{
-                background: '#0284c7',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: 6,
                 padding: '12px',
-                fontWeight: 'bold',
-                fontSize: 14,
-                cursor: 'pointer',
                 marginTop: 8,
               }}
             >
@@ -176,23 +168,22 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
             <button
               type="button"
               onClick={() => setIsCreating(true)}
+              className="button button--outline"
               style={{
-                background: 'transparent',
-                color: '#38bdf8',
-                border: '1px solid #334155',
-                borderRadius: 6,
                 padding: '10px',
                 fontSize: 13,
-                cursor: 'pointer',
               }}
             >
-              + Create New Game
+              + Create Three-Seat Demo
             </button>
           </form>
         ) : (
           <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>
+              Demo setup: you join as p1; p2 and p3 can be bots.
+            </p>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>
+              <label className="field-label" style={{ marginBottom: 4 }}>
                 Custom Game ID (optional):
               </label>
               <input
@@ -200,46 +191,31 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
                 value={newGameId}
                 placeholder="e.g. game_my_session"
                 onChange={(e) => setNewGameId(e.target.value)}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  background: '#1e293b',
-                  border: '1px solid #334155',
-                  borderRadius: 6,
-                  color: '#f8fafc',
-                  padding: '8px 12px',
-                  fontSize: 14,
-                }}
+                className="input"
+                style={{ padding: '8px 12px' }}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>
+              <label className="field-label" style={{ marginBottom: 4 }}>
                 RNG Seed:
               </label>
               <input
                 type="number"
+                step="1"
                 value={seed}
                 onChange={(e) => setSeed(e.target.value)}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  background: '#1e293b',
-                  border: '1px solid #334155',
-                  borderRadius: 6,
-                  color: '#f8fafc',
-                  padding: '8px 12px',
-                  fontSize: 14,
-                }}
+                className="input"
+                style={{ padding: '8px 12px' }}
               />
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>
+              <label className="field-label" style={{ marginBottom: 4 }}>
                 Bot Seat Assignment:
               </label>
               <div style={{ display: 'flex', gap: 12 }}>
-                {['p1', 'p2', 'p3'].map((p) => (
+                {['p2', 'p3'].map((p) => (
                   <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
                     <input
                       type="checkbox"
@@ -255,19 +231,15 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
               </div>
             </div>
 
+            {createError && <div role="alert" style={{ color: '#fca5a5', fontSize: 13 }}>{createError}</div>}
+
             <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
               <button
                 type="submit"
+                className="button button--success"
                 style={{
                   flex: 1,
-                  background: '#10b981',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: 6,
                   padding: '10px',
-                  fontWeight: 'bold',
-                  fontSize: 14,
-                  cursor: 'pointer',
                 }}
               >
                 Create & Join
@@ -275,14 +247,10 @@ export const Lobby: React.FC<LobbyProps> = ({ onJoin }) => {
               <button
                 type="button"
                 onClick={() => setIsCreating(false)}
+                className="button button--secondary"
                 style={{
-                  background: '#334155',
-                  color: '#f8fafc',
-                  border: 'none',
-                  borderRadius: 6,
                   padding: '10px',
                   fontSize: 13,
-                  cursor: 'pointer',
                 }}
               >
                 Cancel

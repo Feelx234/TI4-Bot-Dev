@@ -30,12 +30,21 @@ pub struct PendingDecision {
     pub nonce: String,
     pub game_version: u64,
     pub choice: Choice,
+    pub reserved: bool,
+    pub reply_tx: Option<
+        mpsc::Sender<
+            Result<
+                crate::protocol::server::ActionAcceptedMsg,
+                crate::protocol::status::RejectionReason,
+            >,
+        >,
+    >,
 }
 
 /// Active subscriber receiving real-time server messages.
 pub struct Subscriber {
     pub viewer: ViewerRole,
-    pub tx: mpsc::Sender<ServerMessage>,
+    pub tx: mpsc::SyncSender<ServerMessage>,
 }
 
 /// Shared session state accessible across threads.
@@ -45,7 +54,9 @@ pub struct SessionShared {
     pub latest_state: GameState,
     pub pending_decision: Option<PendingDecision>,
     pub seat_inboxes: BTreeMap<PlayerId, mpsc::Sender<ChoiceSubmission>>,
-    pub subscribers: Vec<Subscriber>,
+    pub seat_tokens: BTreeMap<PlayerId, String>,
+    pub subscribers: BTreeMap<u64, Subscriber>,
+    pub next_subscriber_id: u64,
     pub decision_log: Vec<DecisionRecord>,
     pub events: Vec<String>,
     pub finished: bool,
@@ -55,6 +66,7 @@ pub struct SessionShared {
     pub event_log: Vec<crate::protocol::server::GameEventDto>,
     pub event_counter: u64,
     pub store: Option<Arc<FileGameStore>>,
+    pub snapshot_decision_count: usize,
 }
 
 impl SessionShared {
@@ -66,7 +78,9 @@ impl SessionShared {
             latest_state: initial_state,
             pending_decision: None,
             seat_inboxes: BTreeMap::new(),
-            subscribers: Vec::new(),
+            seat_tokens: BTreeMap::new(),
+            subscribers: BTreeMap::new(),
+            next_subscriber_id: 0,
             decision_log: Vec::new(),
             events: Vec::new(),
             event_log: Vec::new(),
@@ -76,7 +90,13 @@ impl SessionShared {
             error: None,
             map_tiles: Vec::new(),
             store: None,
+            snapshot_decision_count: 0,
         }
+    }
+
+    fn publish(&mut self, message: impl Fn(&ViewerRole) -> ServerMessage) {
+        self.subscribers
+            .retain(|_, subscriber| subscriber.tx.try_send(message(&subscriber.viewer)).is_ok());
     }
 
     /// Records an authoritative event and broadcasts it to all subscribers.
@@ -85,7 +105,7 @@ impl SessionShared {
         text: impl Into<String>,
         category: impl Into<String>,
         version: Option<u64>,
-    ) {
+    ) -> Result<(), String> {
         self.event_counter += 1;
         let id = format!("{}-{}", self.game_id, self.event_counter);
         let timestamp = current_utc_time_string();
@@ -96,11 +116,13 @@ impl SessionShared {
             text: text.into(),
             category: category.into(),
         };
-        self.event_log.push(entry.clone());
-
         if let Some(store) = &self.store {
-            let _ = store.append_event(&self.game_id, &entry);
+            store
+                .append_event(&self.game_id, &entry)
+                .map_err(|error| format!("failed to persist event: {error}"))?;
         }
+
+        self.event_log.push(entry.clone());
 
         let msg = ServerMessage::Event(crate::protocol::server::GameEventMsg {
             protocol_version: PROTOCOL_VERSION,
@@ -108,8 +130,8 @@ impl SessionShared {
             entry,
         });
 
-        self.subscribers
-            .retain(|sub| sub.tx.send(msg.clone()).is_ok());
+        self.publish(|_| msg.clone());
+        Ok(())
     }
 
     /// Broadcasts a newly raised decision to all subscribers.
@@ -118,25 +140,25 @@ impl SessionShared {
     /// Opponents and spectators receive a redacted `TurnStatusMsg::WaitingForDecision`.
     pub fn broadcast_pending_decision(&mut self, choice: &Choice, nonce: &str) {
         let status = project_turn_status(&self.latest_state, Some(choice));
+        let game_id = self.game_id.clone();
+        let game_version = self.game_version;
 
-        self.subscribers.retain(|sub| {
-            if sub.viewer.is_actor(&choice.player) {
+        self.publish(|viewer| {
+            if viewer.is_actor(&choice.player) {
                 let choice_dto = PendingChoiceDto::from_choice(choice, nonce.to_owned(), true);
-                let msg = ServerMessage::PendingChoice(PendingChoiceMsg {
+                ServerMessage::PendingChoice(PendingChoiceMsg {
                     protocol_version: PROTOCOL_VERSION,
-                    game_id: self.game_id.clone(),
-                    game_version: self.game_version,
+                    game_id: game_id.clone(),
+                    game_version,
                     choice: choice_dto,
-                });
-                sub.tx.send(msg).is_ok()
+                })
             } else {
-                let msg = ServerMessage::TurnStatus(TurnStatusMsg {
+                ServerMessage::TurnStatus(TurnStatusMsg {
                     protocol_version: PROTOCOL_VERSION,
-                    game_id: self.game_id.clone(),
-                    game_version: self.game_version,
+                    game_id: game_id.clone(),
+                    game_version,
                     status: status.clone(),
-                });
-                sub.tx.send(msg).is_ok()
+                })
             }
         });
     }
@@ -146,23 +168,24 @@ impl SessionShared {
         let pending = self
             .pending_decision
             .as_ref()
-            .map(|p| (&p.choice, p.nonce.as_str()));
+            .map(|p| (p.choice.clone(), p.nonce.clone()));
 
         let game_id = self.game_id.clone();
         let version = self.game_version;
-        let state = &self.latest_state;
-
-        let map_tiles = &self.map_tiles;
-        self.subscribers.retain(|sub| {
+        let state = self.latest_state.clone();
+        let map_tiles = self.map_tiles.clone();
+        self.publish(|viewer| {
             let update = crate::projection::project_state_update_with_map(
                 &game_id,
                 version,
-                state,
-                &sub.viewer,
-                pending,
-                map_tiles,
+                &state,
+                viewer,
+                pending
+                    .as_ref()
+                    .map(|(choice, nonce)| (choice, nonce.as_str())),
+                &map_tiles,
             );
-            sub.tx.send(ServerMessage::StateUpdate(update)).is_ok()
+            ServerMessage::StateUpdate(update)
         });
     }
 
@@ -180,8 +203,7 @@ impl SessionShared {
             final_scores,
         });
 
-        self.subscribers
-            .retain(|sub| sub.tx.send(msg.clone()).is_ok());
+        self.publish(|_| msg.clone());
     }
 
     /// Returns canonical hashes of all recorded decisions.
@@ -248,6 +270,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     let prior_queue = Arc::new(Mutex::new(VecDeque::from(config.prior_decisions.clone())));
 
     let mut initial_shared = SessionShared::new(config.game_id.clone(), config.state.clone());
+    initial_shared.seat_tokens.clone_from(&config.seat_tokens);
     initial_shared.map_tiles.clone_from(&config.map_tiles);
     initial_shared.store.clone_from(&config.store);
 
@@ -321,21 +344,27 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             let phase = format!("{:?}", game.state.phase).to_uppercase();
             let speaker = &game.state.speaker;
             let version = lock.game_version;
-            lock.record_and_broadcast_event(
+            if let Err(error) = lock.record_and_broadcast_event(
                 format!("Game initialized (Round {round}, {phase} Phase, Speaker: {speaker})"),
                 "system",
                 Some(version),
-            );
+            ) {
+                lock.error = Some(error);
+                return;
+            }
         } else {
             // Replay prior decisions to reach current state
             while game.table.log.records.len() < prior_count {
                 let result = game.step();
                 if let Some(err) = result.error {
-                    tracing::warn!("Replay step error during recovery: {err}");
-                    break;
+                    let mut lock = worker_shared.lock().expect("shared lock");
+                    lock.error = Some(format!("recovery replay failed: {err}"));
+                    return;
                 }
-                if result.finished {
-                    break;
+                if result.finished && game.table.log.records.len() < prior_count {
+                    let mut lock = worker_shared.lock().expect("shared lock");
+                    lock.error = Some("recovery replay ended before all decisions".to_owned());
+                    return;
                 }
             }
         }
@@ -344,7 +373,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         let mut prev_phase = game.state.phase;
         let mut prev_decision_count = game.table.log.records.len();
 
-        loop {
+        'worker: loop {
             // Check stop signal
             {
                 let lock = worker_shared.lock().expect("shared lock");
@@ -379,11 +408,14 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     .as_ref()
                     .map_or_else(|| "Draw".to_owned(), ToString::to_string);
                 let version = lock.game_version;
-                lock.record_and_broadcast_event(
+                if let Err(error) = lock.record_and_broadcast_event(
                     format!("Game Over! Winner: {winner_str}"),
                     "status",
                     Some(version),
-                );
+                ) {
+                    lock.error = Some(error);
+                    break;
+                }
                 lock.broadcast_game_over(winner, final_scores);
                 break;
             }
@@ -394,25 +426,110 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             // Record outcome
             {
                 let mut lock = worker_shared.lock().expect("shared lock");
+                let mut accepted_reply = None;
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
                 lock.events.clone_from(&game.events);
 
+                if let Some(err) = result.error {
+                    lock.error = Some(err.to_string());
+                    if let Some(reply_tx) = lock
+                        .pending_decision
+                        .as_mut()
+                        .and_then(|pending| pending.reply_tx.take())
+                    {
+                        let _ = reply_tx.send(Err(
+                            crate::protocol::status::RejectionReason::ValidationFailed {
+                                message: "engine transition failed".to_owned(),
+                            },
+                        ));
+                    }
+                    break 'worker;
+                }
+
                 // Any newly resolved decisions:
                 if game.table.log.records.len() > prev_decision_count {
                     for record in &game.table.log.records[prev_decision_count..] {
-                        if let Some(store) = &lock.store {
-                            let _ = store.append_decision(&lock.game_id, record);
+                        if let Some(store) = &lock.store
+                            && let Err(err) = store.append_decision(&lock.game_id, record)
+                        {
+                            lock.error =
+                                Some(format!("failed to persist accepted decision: {err}"));
+                            if let Some(reply_tx) = lock
+                                .pending_decision
+                                .as_mut()
+                                .and_then(|pending| pending.reply_tx.take())
+                            {
+                                let _ = reply_tx.send(Err(
+                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                        message: "decision could not be persisted".to_owned(),
+                                    },
+                                ));
+                            }
+                            break 'worker;
                         }
-                        let formatted = crate::format::format_action_id(&record.chosen);
                         let version = lock.game_version;
-                        lock.record_and_broadcast_event(
-                            format!("Action accepted: {formatted}"),
-                            "action",
-                            Some(version),
-                        );
+                        let event_error = lock
+                            .record_and_broadcast_event(
+                                "Decision resolved",
+                                "action",
+                                Some(version),
+                            )
+                            .err();
+                        if let Some(error) = event_error {
+                            lock.error = Some(error);
+                            if let Some(reply_tx) = lock
+                                .pending_decision
+                                .as_mut()
+                                .and_then(|pending| pending.reply_tx.take())
+                            {
+                                let _ = reply_tx.send(Err(
+                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                        message: "event could not be persisted".to_owned(),
+                                    },
+                                ));
+                            }
+                            break 'worker;
+                        }
+                        if accepted_reply.is_none()
+                            && let Some(reply_tx) = lock
+                                .pending_decision
+                                .take()
+                                .and_then(|pending| pending.reply_tx)
+                        {
+                            accepted_reply = Some((
+                                reply_tx,
+                                crate::protocol::server::ActionAcceptedMsg {
+                                    protocol_version: PROTOCOL_VERSION,
+                                    game_id: lock.game_id.clone(),
+                                    game_version: version,
+                                    option_id: record.chosen.clone(),
+                                },
+                            ));
+                        }
                     }
                     prev_decision_count = game.table.log.records.len();
+                }
+
+                if game.table.log.records.len() - lock.snapshot_decision_count >= 32 {
+                    if let Some(store) = &lock.store
+                        && let Err(error) = store.save_snapshot(
+                            &lock.game_id,
+                            game.table.log.records.len(),
+                            &game.state,
+                        )
+                    {
+                        lock.error = Some(format!("failed to persist snapshot: {error}"));
+                        if let Some((reply_tx, _)) = accepted_reply {
+                            let _ = reply_tx.send(Err(
+                                crate::protocol::status::RejectionReason::ValidationFailed {
+                                    message: "snapshot could not be persisted".to_owned(),
+                                },
+                            ));
+                        }
+                        break 'worker;
+                    }
+                    lock.snapshot_decision_count = game.table.log.records.len();
                 }
 
                 // Phase transition:
@@ -420,22 +537,17 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     let phase = format!("{:?}", game.state.phase).to_uppercase();
                     let round = game.state.round;
                     let version = lock.game_version;
-                    lock.record_and_broadcast_event(
+                    if let Err(error) = lock.record_and_broadcast_event(
                         format!("Phase transition: {phase} Phase (Round {round})"),
                         "phase",
                         Some(version),
-                    );
+                    ) {
+                        lock.error = Some(error);
+                        break 'worker;
+                    }
                     prev_phase = game.state.phase;
                     prev_round = game.state.round;
                 }
-
-                if let Some(err) = result.error {
-                    lock.error = Some(err.to_string());
-                    break;
-                }
-
-                lock.game_version += 1;
-                lock.broadcast_state_update();
 
                 if result.finished {
                     lock.finished = true;
@@ -453,14 +565,27 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         .as_ref()
                         .map_or_else(|| "Draw".to_owned(), ToString::to_string);
                     let version = lock.game_version;
-                    lock.record_and_broadcast_event(
+                    if let Err(error) = lock.record_and_broadcast_event(
                         format!("Game Over! Winner: {winner_str}"),
                         "status",
                         Some(version),
-                    );
+                    ) {
+                        lock.error = Some(error);
+                        break;
+                    }
+                    if let Some((reply_tx, accepted)) = accepted_reply {
+                        let _ = reply_tx.send(Ok(accepted));
+                    }
                     lock.broadcast_game_over(winner, final_scores);
                     break;
                 }
+
+                if let Some((reply_tx, accepted)) = accepted_reply {
+                    let _ = reply_tx.send(Ok(accepted));
+                }
+
+                lock.game_version += 1;
+                lock.broadcast_state_update();
             }
         }
     });
