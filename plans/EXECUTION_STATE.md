@@ -9896,3 +9896,18 @@ there?" — and none should be marked clean without being asked.
 
 This session ends here on context, not on blocked work. The queue after the audit is unchanged:
 BUG-08, then OP-03 dice rolls (check the recording first), then BUG-07, UI-06, UI-05's wording rule.
+
+## 2026-09-21 (fifth): the audit closed, and it found nothing live
+
+The lazy-board audit is finished — eight sites classified in `plans/evidence/OPERATOR_BUGS_2026-09-21.md`.
+One fault, `agenda_effects::system_of`, fixed (a planet's system now comes from the corpus, with the
+board as the fallback for planets placed during play). **It was latent, not live**: golden byte-identical
+and the behaviour suite unmoved, and the rules text for Colonial Redistribution explains why — the
+agenda destroys units before it asks who controls the planet, and a planet with units has a board
+entry, which is the only case where the old lookup was wrong. Exploration and wild tokens never read
+the board. The class is now a one-line rule: things may read the board, places may not.
+
+Queue unchanged and untouched by this session's remaining context: **BUG-08** (refresh offered while
+paying the due is not), **BUG-09**, **OP-03** dice rolls (check the recording before the renderer),
+**BUG-07**, **UI-06**, **BUG-10**, **OP-05**. Start at BUG-08 with a failing test that both answers
+exist at a due; nothing here needs the operator except BUG-04's A/B/C and the two BLOCKED saved games.
