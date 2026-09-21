@@ -9875,3 +9875,24 @@ Still open, dependency-free and ready for a fresh context, in the order I would 
 rolls (check the recording before the renderer), BUG-07, UI-06 (note the golden carries tile text, so
 it will move again), and UI-05's wording rule. BUG-05/06 wait on the operator's saved game and BUG-04
 on their A/B/C.
+
+## 2026-09-21 (fourth): lazy-board audit opened, and stopping mid-way
+
+`09b7ed6` fixes the thing that caused the class rather than another instance of it: the doc comment
+on `GameState::board` said "Absent entries are empty systems", which is true of units and false of
+planets, tokens and anomalies, and it is the sentence a rule author reads first. The field now states
+which of its three questions belongs to the board and which two belong to `Galaxy`, with Maxis named.
+ti4-model 81 green; no game behaviour touched, so no fixtures moved.
+
+Two findings worth not re-deriving: **movement is clean** (`path_from` expands via
+`Galaxy::adjacent`, which is also why the F-03 Nexus tile became reachable on placement alone), and
+**the class is narrower than 18 grep hits** — a rule about things in systems is right to read the
+board, the fault needs a subject that can exist untouched.
+
+Explicitly not cleared, and where to go next in this thread: the board-scanning agendas in
+`agenda_effects.rs` (144, 217, 284, 1024, 1071), the legendary-planet finder past Maxis, and the
+wild-token draw paths. Each is a ten-minute question — "does this rule's subject need a unit to be
+there?" — and none should be marked clean without being asked.
+
+This session ends here on context, not on blocked work. The queue after the audit is unchanged:
+BUG-08, then OP-03 dice rolls (check the recording first), then BUG-07, UI-06, UI-05's wording rule.
