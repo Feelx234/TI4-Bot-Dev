@@ -180,6 +180,17 @@ export const Board: React.FC<BoardProps> = ({
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <marker
+            id="vector-arrow"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#4ade80" />
+          </marker>
         </defs>
 
         <g transform={`translate(${viewTransform.x}, ${viewTransform.y}) scale(${viewTransform.scale})`}>
@@ -247,6 +258,53 @@ export const Board: React.FC<BoardProps> = ({
                     strokeDasharray="5 3"
                     className="target-pulse-ring"
                   />
+                )}
+
+                {/* Activation Mode Target Reticle */}
+                {tile.isCandidateTarget && presentation.targets.isActivationMode && (
+                  <g data-testid="activation-target-reticle" style={{ pointerEvents: 'none' }}>
+                    <circle
+                      cx={tile.center.x}
+                      cy={tile.center.y}
+                      r={28}
+                      fill="none"
+                      stroke="#38bdf8"
+                      strokeWidth={2}
+                      strokeDasharray="4 2"
+                    />
+                    <line
+                      x1={tile.center.x - 34}
+                      y1={tile.center.y}
+                      x2={tile.center.x - 20}
+                      y2={tile.center.y}
+                      stroke="#38bdf8"
+                      strokeWidth={2}
+                    />
+                    <line
+                      x1={tile.center.x + 20}
+                      y1={tile.center.y}
+                      x2={tile.center.x + 34}
+                      y2={tile.center.y}
+                      stroke="#38bdf8"
+                      strokeWidth={2}
+                    />
+                    <line
+                      x1={tile.center.x}
+                      y1={tile.center.y - 34}
+                      x2={tile.center.x}
+                      y2={tile.center.y - 20}
+                      stroke="#38bdf8"
+                      strokeWidth={2}
+                    />
+                    <line
+                      x1={tile.center.x}
+                      y1={tile.center.y + 20}
+                      x2={tile.center.x}
+                      y2={tile.center.y + 34}
+                      stroke="#38bdf8"
+                      strokeWidth={2}
+                    />
+                  </g>
                 )}
 
                 {/* Inner border for exclusive planet control */}
@@ -417,6 +475,44 @@ export const Board: React.FC<BoardProps> = ({
               </SvgButton>
             );
           })}
+
+          {/* Movement Vector Overlays */}
+          {presentation.targets.movementVectors.map((vec) => (
+            <g key={`vec-${vec.fromSystemId}-${vec.toSystemId}`}>
+              <line
+                data-testid="movement-vector-line"
+                x1={vec.fromCenter.x}
+                y1={vec.fromCenter.y}
+                x2={vec.toCenter.x}
+                y2={vec.toCenter.y}
+                stroke="#4ade80"
+                strokeWidth={3}
+                strokeDasharray="8 5"
+                markerEnd="url(#vector-arrow)"
+                style={{ opacity: 0.85, pointerEvents: 'none' }}
+              />
+              <circle
+                cx={(vec.fromCenter.x + vec.toCenter.x) / 2}
+                cy={(vec.fromCenter.y + vec.toCenter.y) / 2}
+                r={10}
+                fill="#0f172a"
+                stroke="#4ade80"
+                strokeWidth={1.5}
+                style={{ pointerEvents: 'none' }}
+              />
+              <text
+                x={(vec.fromCenter.x + vec.toCenter.x) / 2}
+                y={(vec.fromCenter.y + vec.toCenter.y) / 2 + 4}
+                textAnchor="middle"
+                fill="#4ade80"
+                fontSize="10"
+                fontWeight="bold"
+                style={{ pointerEvents: 'none' }}
+              >
+                {vec.unitCount}
+              </text>
+            </g>
+          ))}
         </g>
       </svg>
 

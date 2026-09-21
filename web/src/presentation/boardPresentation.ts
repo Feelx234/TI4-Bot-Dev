@@ -93,6 +93,15 @@ export interface SelectedSystemDetails {
   availableActions: { optionId: string; label: string; kind?: string }[];
 }
 
+export interface MovementVector {
+  fromSystemId: string;
+  toSystemId: string;
+  fromCenter: { x: number; y: number };
+  toCenter: { x: number; y: number };
+  unitCount: number;
+  optionIds: string[];
+}
+
 export interface TargetHighlightModel {
   targetableSystemIds: Set<string>;
   targetablePlanetIds: Set<string>;
@@ -101,6 +110,8 @@ export interface TargetHighlightModel {
   systemOptionMap: Map<string, string[]>;
   planetOptionMap: Map<string, string[]>;
   hasActiveTargets: boolean;
+  isActivationMode: boolean;
+  movementVectors: MovementVector[];
 }
 
 export interface BoardPresentationModel {
@@ -230,6 +241,8 @@ export function deriveActorTargetHighlights(
     systemOptionMap: new Map(),
     planetOptionMap: new Map(),
     hasActiveTargets: false,
+    isActivationMode: false,
+    movementVectors: [],
   };
 
   if (!pendingChoice || !viewerSeat || pendingChoice.actor !== viewerSeat) {
@@ -305,6 +318,11 @@ export function deriveActorTargetHighlights(
     }
   }
 
+  const isActivationMode = Boolean(
+    pendingChoice.context?.subtype === 'activate_system' ||
+      (pendingChoice.options.length > 0 && pendingChoice.options.every((o) => o.kind === 'activate'))
+  );
+
   return {
     targetableSystemIds,
     targetablePlanetIds,
@@ -313,6 +331,8 @@ export function deriveActorTargetHighlights(
     systemOptionMap,
     planetOptionMap,
     hasActiveTargets: targetableSystemIds.size > 0 || targetablePlanetIds.size > 0 || contextSubjectSystemId !== null,
+    isActivationMode,
+    movementVectors: [],
   };
 }
 
@@ -621,6 +641,44 @@ export function buildBoardPresentationModel(
   const selectedSystem = selectedSystemId
     ? deriveSelectedSystemDetails(selectedSystemId, board, seatingOrder, players, pendingChoice, viewerSeat)
     : null;
+
+  // Derive movement vectors from candidate move options to destination
+  const centerMap = new Map<string, { x: number; y: number }>();
+  for (const t of tiles) {
+    centerMap.set(t.systemId, t.center);
+  }
+
+  const destinationSystemId = targets.contextSubjectSystemId || board.active_system || null;
+  const movementVectors: MovementVector[] = [];
+
+  if (destinationSystemId && centerMap.has(destinationSystemId) && pendingChoice) {
+    const toCenter = centerMap.get(destinationSystemId)!;
+    const originOptionMap = new Map<string, string[]>();
+
+    for (const opt of pendingChoice.options) {
+      if ((opt.kind === 'move' || opt.id.startsWith('move|')) && opt.payload?.origin) {
+        const origin = String(opt.payload.origin);
+        const list = originOptionMap.get(origin) || [];
+        list.push(opt.id);
+        originOptionMap.set(origin, list);
+      }
+    }
+
+    for (const [origId, optIds] of originOptionMap.entries()) {
+      if (centerMap.has(origId) && origId !== destinationSystemId) {
+        movementVectors.push({
+          fromSystemId: origId,
+          toSystemId: destinationSystemId,
+          fromCenter: centerMap.get(origId)!,
+          toCenter,
+          unitCount: optIds.length,
+          optionIds: optIds,
+        });
+      }
+    }
+  }
+
+  targets.movementVectors = movementVectors;
 
   return {
     tiles,

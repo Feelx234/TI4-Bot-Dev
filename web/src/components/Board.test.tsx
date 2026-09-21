@@ -254,5 +254,59 @@ describe('Board Component', () => {
     expect(onSelectTarget).toHaveBeenCalledWith('18', 'mecatol_rex');
     expect(onSelectTarget).toHaveBeenCalledTimes(2);
   });
+
+  it('renders activation target reticles during system activation mode', () => {
+    const activationChoice = {
+      nonce: 'nonce_act',
+      actor: 'p1',
+      prompt: 'activate a system',
+      context: { subtype: 'activate_system' },
+      options: [
+        { id: '18', label: 'Mecatol Rex', kind: 'activate', payload: { system: '18' } },
+      ],
+    };
+
+    render(
+      <Board
+        board={mockBoard}
+        seatingOrder={['p1', 'p2']}
+        pendingChoice={activationChoice}
+        viewerSeat="p1"
+      />
+    );
+
+    expect(screen.getByTestId('activation-target-reticle')).toBeInTheDocument();
+  });
+
+  it('renders animated movement vector lines and badges between origin and destination', () => {
+    const movementChoice = {
+      nonce: 'nonce_move',
+      actor: 'p1',
+      prompt: 'movement',
+      context: {
+        subtype: 'movement_step',
+        target: { System: '18' },
+      },
+      options: [
+        { id: 'move|34|0', label: 'Cruiser', kind: 'move', payload: { origin: '34', unit: 'cruiser' } },
+        { id: 'move|34|1', label: 'Fighter', kind: 'move', payload: { origin: '34', unit: 'fighter' } },
+        { id: 'done_moving', label: 'Finish', kind: 'decline' },
+      ],
+    };
+
+    render(
+      <Board
+        board={mockBoard}
+        seatingOrder={['p1', 'p2']}
+        pendingChoice={movementChoice}
+        viewerSeat="p1"
+      />
+    );
+
+    const vectorLine = screen.getByTestId('movement-vector-line');
+    expect(vectorLine).toBeInTheDocument();
+    expect(vectorLine).toHaveAttribute('marker-end', 'url(#vector-arrow)');
+    expect(screen.getByText('2')).toBeInTheDocument(); // 2 units available to move
+  });
 });
 

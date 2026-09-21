@@ -283,5 +283,55 @@ describe('boardPresentation Presentation Model', () => {
       expect(model.selectedSystem?.systemId).toBe('18');
       expect(model.ownershipMap.has('seat_1')).toBe(true);
     });
+
+    it('derives isActivationMode and movementVectors from tactical choices', () => {
+      const board: BoardView = {
+        active_system: '18',
+        systems: {
+          '18': { system_id: '18', command_tokens: [], planets: {}, units: [] },
+          '24': { system_id: '24', command_tokens: [], planets: {}, units: [] },
+        },
+        map_tiles: [
+          { system_id: '18', label: 'Mecatol Rex', q: 0, r: 0 },
+          { system_id: '24', label: 'Moll Primus', q: 1, r: 0 },
+        ],
+      };
+
+      // 1. Activation Mode
+      const activationChoice: PendingChoiceDto = {
+        nonce: 'n_act',
+        actor: 'seat_1',
+        prompt: 'activate a system',
+        context: { subtype: 'activate_system' },
+        options: [{ id: '18', label: 'Mecatol Rex', kind: 'activate' }],
+      };
+      const actModel = buildBoardPresentationModel(board, ['seat_1'], [], activationChoice, 'seat_1');
+      expect(actModel.targets.isActivationMode).toBe(true);
+
+      // 2. Movement Vectors
+      const moveChoice: PendingChoiceDto = {
+        nonce: 'n_move',
+        actor: 'seat_1',
+        prompt: 'movement',
+        context: {
+          subtype: 'movement_step',
+          target: { System: '18' },
+        },
+        options: [
+          { id: 'move|24|0', label: 'Cruiser', kind: 'move', payload: { origin: '24', unit: 'cruiser' } },
+          { id: 'move|24|1', label: 'Carrier', kind: 'move', payload: { origin: '24', unit: 'carrier' } },
+          { id: 'done_moving', label: 'Finish', kind: 'decline' },
+        ],
+      };
+
+      const moveModel = buildBoardPresentationModel(board, ['seat_1'], [], moveChoice, 'seat_1');
+      expect(moveModel.targets.movementVectors).toHaveLength(1);
+      const vec = moveModel.targets.movementVectors[0];
+      expect(vec.fromSystemId).toBe('24');
+      expect(vec.toSystemId).toBe('18');
+      expect(vec.unitCount).toBe(2);
+      expect(vec.fromCenter.x).toBe(150);
+      expect(vec.toCenter.x).toBe(0);
+    });
   });
 });
