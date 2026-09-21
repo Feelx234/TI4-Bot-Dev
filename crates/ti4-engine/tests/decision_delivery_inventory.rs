@@ -357,6 +357,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Wrath of Kenara: how many near-miss dice to buy +1 on, or decline.
+        module: "combat.rs",
+        function: "wrath_of_kenara",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "combat.rs",
         function: "choose_casualty",
         count: 1,
@@ -916,6 +923,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "heart_ixth", 1),
     ("combat.rs", "offer_sustain", 1),
     ("combat.rs", "roll_round", 1),
+    ("combat.rs", "wrath_of_kenara", 1),
     ("exploration.rs", "ask", 1),
     ("faction_abilities.rs", "perform_component", 2),
     ("faction_abilities.rs", "production_biomes", 1),

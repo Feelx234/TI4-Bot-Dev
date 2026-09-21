@@ -1016,6 +1016,7 @@ pub fn roll_fleet_and_open_staged(
         state.last_reroll_player = Some(player.clone());
     }
     open_fleet_reroll_windows(state, ctx, player);
+    wrath_of_kenara(state, ctx, player, system);
     let staged = state.reroll_staging.remove(player);
     let hits = staged.as_ref().map_or(hits, |set| {
         let (free, forced) = fleet_hits(state, content, sources, player, system, set);
@@ -1023,6 +1024,94 @@ pub fn roll_fleet_and_open_staged(
     });
     state.last_reroll_player = None;
     (hits, staged)
+}
+
+/// Wrath of Kenara, the Hacan flagship: "After you roll a die during a space combat in this system,
+/// you may spend 1 trade good to apply +1 to the result."
+///
+/// Offered once per roll, after any rerolls, and only for dice the +1 would turn into hits: a +1
+/// on a die that already hits, or still misses, buys nothing (22.3). The player picks how many to
+/// buy; the lowest-positioned near misses take them, which is indistinguishable in effect.
+fn wrath_of_kenara(
+    state: &mut GameState,
+    ctx: &mut Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+) {
+    let has_flagship = state
+        .system_state(system)
+        .units
+        .iter()
+        .any(|unit| &unit.owner == player && unit.type_id.as_str() == "hacan_flagship");
+    let goods = state.player(player).map_or(0, |seat| seat.trade_goods);
+    if !has_flagship || goods <= 0 {
+        return;
+    }
+    let Some(set) = state.reroll_staging.get(player) else {
+        return;
+    };
+    let near: Vec<(usize, usize)> = set
+        .rolls
+        .iter()
+        .enumerate()
+        .flat_map(|(entry, roll)| {
+            roll.faces
+                .iter()
+                .enumerate()
+                .filter_map(move |(die, face)| {
+                    let on = i64::from(roll.hits_on?);
+                    let adjusted = i64::from(*face)
+                        + roll.deltas.get(&die).map_or(0, |offset| i64::from(*offset));
+                    (adjusted + 1 == on).then_some((entry, die))
+                })
+        })
+        .collect();
+    let most = near.len().min(usize::try_from(goods).unwrap_or(0));
+    if most == 0 {
+        return;
+    }
+    let mut options: Vec<ChoiceOption> = (1..=most)
+        .map(|count| {
+            ChoiceOption::labelled(
+                format!("kenara|{count}"),
+                "trade_goods",
+                format!("spend {count} trade good(s): +1 to {count} die/dice, {count} more hit(s)"),
+            )
+            .with("count", count)
+        })
+        .collect();
+    options.push(ChoiceOption::decline());
+    let choice = Choice::new(
+        player.clone(),
+        "Wrath of Kenara: spend trade goods to add 1 to dice",
+        options,
+    )
+    .contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::Content("hacan_flagship".to_owned()),
+        "wrath_of_kenara_bump",
+        state.phase,
+        state.round,
+    ));
+    let Ok(answer) = ctx.ask_seeing(state, &choice) else {
+        return;
+    };
+    let Some(count) = answer
+        .id
+        .strip_prefix("kenara|")
+        .and_then(|count| count.parse::<usize>().ok())
+        .filter(|count| *count <= most)
+    else {
+        return;
+    };
+    if let Some(set) = state.reroll_staging.get_mut(player) {
+        for (entry, die) in near.into_iter().take(count) {
+            *set.rolls[entry].deltas.entry(die).or_insert(0) += 1;
+        }
+    }
+    if let Some(seat) = state.player_mut(player) {
+        seat.trade_goods -= i32::try_from(count).unwrap_or(0);
+    }
 }
 
 /// The War Funding note this combatant holds from another player, if any.
@@ -4669,6 +4758,52 @@ mod tests {
             plain_dice.history()[0].faces.len() + 1,
             marked_dice.history()[0].faces.len()
         );
+    }
+
+    #[test]
+    fn wrath_of_kenara_buys_a_hit_for_a_trade_good() {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "hacan_flagship", &attacker(), 1);
+        state.player_mut(&attacker()).unwrap().trade_goods = 1;
+        // The flagship rolls 2 dice hitting on 7: two 6s are two near misses, and one trade good
+        // buys one of them.
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([
+            "kenara|1".to_owned()
+        ])));
+        let mut dice = Dice::from_faces([6, 6]);
+        let mut rng = GameRng::new(7);
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        let hits = roll_fleet_and_open(&mut state, &mut ctx, &attacker(), &system);
+        assert_eq!(hits, 1);
+        assert_eq!(state.player(&attacker()).unwrap().trade_goods, 0);
+
+        // Without the flagship nothing is offered, and the misses stay misses.
+        let (mut plain, system) = arena();
+        put(&mut plain, &system, "dreadnought", &attacker(), 2);
+        plain.player_mut(&attacker()).unwrap().trade_goods = 3;
+        let mut table =
+            Table::with_default(Box::new(crate::choice::Scripted::new(Vec::<String>::new())));
+        let mut dice = Dice::from_faces([4, 4]);
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        assert_eq!(
+            roll_fleet_and_open(&mut plain, &mut ctx, &attacker(), &system),
+            0
+        );
+        assert_eq!(plain.player(&attacker()).unwrap().trade_goods, 3);
     }
 
     #[test]
