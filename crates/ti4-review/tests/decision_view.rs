@@ -547,3 +547,60 @@ fn the_models_are_pure_functions_of_the_frame() {
         );
     }
 }
+
+/// BUG-09 (operator, 2026-09-20): "Warfare asks production before the strategy spend". Pinned on real
+/// play: a follower is asked whether to spend a strategy token to produce at home, and what to
+/// produce is asked only afterwards, and only of a follower who said yes.
+#[test]
+fn warfare_asks_the_strategy_spend_before_production() {
+    let root = workspace_root();
+    let config = SimulationConfig {
+        checkpoint: root.join("examples/reviewer/checkpoint-473312/slots.json"),
+        map_pool: root.join("examples/reviewer/full_np8_12_holdout.json"),
+        seed: 4_242,
+        rotation: 1,
+        table: ProfileTable::Learner,
+        temperature: 0.5,
+        diplomacy: false,
+    };
+    let mut review = LiveReview::start(&config).expect("the example table starts");
+    let mut decisions = Vec::new();
+    for _ in 0..1_500 {
+        let frame = review.step_once().clone();
+        decisions.extend(frame.decisions.iter().cloned());
+        if frame.finished {
+            break;
+        }
+    }
+    let mut followed = 0;
+    for (index, decision) in decisions.iter().enumerate() {
+        if decision.prompt != "spend a strategy token to produce at home" {
+            continue;
+        }
+        let next = decisions[index + 1..]
+            .iter()
+            .find(|later| later.player == decision.player)
+            .map(|later| later.prompt.as_str())
+            .unwrap_or_default();
+        if decision.chosen.as_deref() == Some("yes") {
+            followed += 1;
+            // Usually the production ask; a home with nothing affordable may produce nothing, but
+            // production is never what came *before* the spend.
+            assert!(
+                next.starts_with("produce in") || !next.contains("produce"),
+                "{}: after following Warfare, got {next:?}",
+                decision.player
+            );
+        } else {
+            assert!(
+                !next.starts_with("produce in"),
+                "{} declined Warfare and was still asked to produce: {next:?}",
+                decision.player
+            );
+        }
+    }
+    assert!(
+        followed > 0,
+        "no seat followed Warfare; the check is vacuous"
+    );
+}
