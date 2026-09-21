@@ -494,6 +494,20 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
             );
         });
         section(ui, "Diplomacy", |ui| diplomacy_sheet(ui, frame));
+        let explored = crate::view::exploration_lines(session, frame, content);
+        section_with_id(
+            ui,
+            &format!("Exploration this round · {}", explored.len()),
+            "exploration",
+            |ui| {
+                if explored.is_empty() {
+                    ui.weak("Nothing explored this round yet.");
+                }
+                for line in &explored {
+                    ui.label(line);
+                }
+            },
+        );
         section(ui, "Player sheets", |ui| {
             for player in &frame.state.players {
                 let color = player_color(&player.id);
@@ -564,7 +578,7 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
                                     format!(
                                         " · {} attachment(s): {}",
                                         attachments.len(),
-                                        crate::view::attachment_names(attachments, content)
+                                        crate::view::attachment_labels(attachments, content)
                                             .join(", ")
                                     )
                                 }

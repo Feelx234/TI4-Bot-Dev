@@ -807,3 +807,59 @@ fn combat_dice_reach_the_frames_with_their_roller() {
     }
     panic!("the example game rolled no combat dice in 20 000 steps");
 }
+
+/// UI-03: an attachment says what it does, from its own record, and nothing when the record is
+/// silent.
+#[test]
+fn attachments_say_what_they_do() {
+    let content = ContentStore::embedded();
+    assert_eq!(
+        view::attachment_effect("dysonsphere", content).as_deref(),
+        Some("+2 resources, +1 influence")
+    );
+    assert_eq!(
+        view::attachment_effect("biotic", content).as_deref(),
+        Some("gives the biotic specialty")
+    );
+    assert_eq!(view::attachment_effect("dmz", content), None);
+    assert_eq!(
+        view::attachment_labels(&["miningworld".to_owned()], content),
+        vec!["Mining World (+2 resources)".to_owned()]
+    );
+}
+
+/// UI-01: this round's draws, most recent first, with who, where, which card and what came of it.
+#[test]
+fn exploration_draws_are_listed_for_the_round() {
+    let session = started_session();
+    let content = ContentStore::embedded();
+    let mut frame = session.frames.last().expect("a frame").clone();
+    let seat = frame.state.players[0].id.clone();
+    let planet = PlanetId::new("mehar_xull");
+    frame.state.exploration_log = vec![
+        ti4_model::state::ExplorationRecord {
+            round: frame.state.round,
+            player: seat.clone(),
+            deck: "HAZARDOUS".to_owned(),
+            card: "mw".to_owned(),
+            planet: Some(planet),
+            outcome: "attached:miningworld".to_owned(),
+        },
+        ti4_model::state::ExplorationRecord {
+            round: frame.state.round.saturating_sub(1),
+            player: seat,
+            deck: "CULTURAL".to_owned(),
+            card: "ds".to_owned(),
+            planet: None,
+            outcome: "discarded".to_owned(),
+        },
+    ];
+    let lines = view::exploration_lines(&session, &frame, content);
+    assert_eq!(lines.len(), 1, "only this round: {lines:?}");
+    assert!(lines[0].contains("hazardous"), "{}", lines[0]);
+    assert!(
+        lines[0].contains("Mining World → attached Mining World (+2 resources)"),
+        "{}",
+        lines[0]
+    );
+}

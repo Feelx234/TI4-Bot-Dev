@@ -1034,6 +1034,10 @@ pub struct GameState {
     pub exploration_decks: BTreeMap<String, Vec<String>>,
     /// Attachments stuck to each planet (LRR 35.8). Not compared.
     pub planet_attachments: BTreeMap<PlanetId, Vec<String>>,
+    /// Every exploration card drawn, in order, and what came of it (UI-01). History for viewers;
+    /// no rule reads it, so it is not compared.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exploration_log: Vec<ExplorationRecord>,
     pub relic_deck: Vec<RelicId>,
     pub agenda_deck: Vec<String>,
     pub action_card_deck: Vec<ActionCardId>,
@@ -1517,6 +1521,7 @@ impl GameState {
             finished: false,
             exploration_decks: BTreeMap::new(),
             planet_attachments: BTreeMap::new(),
+            exploration_log: Vec::new(),
             relic_deck: Vec::new(),
             agenda_deck: Vec::new(),
             action_card_deck: Vec::new(),
@@ -2636,4 +2641,17 @@ mod tests {
 )]
 fn is_zero_u32(value: &u32) -> bool {
     *value == 0
+}
+
+/// One exploration card drawn: who drew it, from which deck, for which planet, and the outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExplorationRecord {
+    pub round: u32,
+    pub player: PlayerId,
+    pub deck: String,
+    pub card: String,
+    /// `None` for a frontier token.
+    pub planet: Option<PlanetId>,
+    /// `fragment`, `attached:<attachment>`, `resolved`, `unresolved` (no handler) or `discarded`.
+    pub outcome: String,
 }

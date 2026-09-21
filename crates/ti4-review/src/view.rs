@@ -137,6 +137,94 @@ pub fn attachment_names(ids: &[String], content: &ContentStore) -> Vec<String> {
         .collect()
 }
 
+/// What an attachment does, read from its corpus record: its resource and influence modifiers, a
+/// technology specialty it grants, traits it adds (UI-03). `None` when the record says nothing the
+/// viewer can state (a token such as the Demilitarized Zone); nothing is invented here.
+#[must_use]
+pub fn attachment_effect(id: &str, content: &ContentStore) -> Option<String> {
+    let record = content.get(ContentType::Attachments, id)?;
+    let mut parts = Vec::new();
+    let signed = |value: i64, what: &str| format!("{value:+} {what}");
+    if let Some(value) = record.int("resourcesModifier").filter(|value| *value != 0) {
+        parts.push(signed(value, "resources"));
+    }
+    if let Some(value) = record.int("influenceModifier").filter(|value| *value != 0) {
+        parts.push(signed(value, "influence"));
+    }
+    let specialties = record.strings("techSpeciality");
+    if !specialties.is_empty() {
+        parts.push(format!("gives the {} specialty", specialties.join("/")));
+    }
+    let traits = record.strings("planetTypes");
+    if !traits.is_empty() {
+        parts.push(format!("adds traits {}", traits.join(", ")));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
+/// Attachments named with what they do: `Dyson Sphere (+2 resources, +1 influence)`.
+#[must_use]
+pub fn attachment_labels(ids: &[String], content: &ContentStore) -> Vec<String> {
+    ids.iter()
+        .zip(attachment_names(ids, content))
+        .map(|(id, name)| match attachment_effect(id, content) {
+            Some(effect) => format!("{name} ({effect})"),
+            None => name,
+        })
+        .collect()
+}
+
+/// This round's exploration draws, most recent first (UI-01):
+/// `seat2 "…" · Mehar Xull · hazardous · Mining World → attached Mining World (+2 resources)`.
+#[must_use]
+pub fn exploration_lines(
+    session: &ReviewSession,
+    frame: &ReviewFrame,
+    content: &ContentStore,
+) -> Vec<String> {
+    frame
+        .state
+        .exploration_log
+        .iter()
+        .rev()
+        .filter(|record| record.round == frame.state.round)
+        .map(|record| {
+            let who = seat_name(frame, &record.player, content);
+            let card = content
+                .get(ContentType::Explores, &record.card)
+                .and_then(|entry| entry.text("name"))
+                .map_or_else(|| record.card.clone(), ToOwned::to_owned);
+            let place = record.planet.as_ref().map_or_else(
+                || "frontier".to_owned(),
+                |planet| {
+                    session
+                        .planet_catalog
+                        .iter()
+                        .find(|meta| meta.id == planet.as_str())
+                        .map_or_else(|| planet.to_string(), |meta| meta.label.clone())
+                },
+            );
+            let outcome = match record.outcome.split_once(':') {
+                Some(("attached", attachment)) => format!(
+                    "attached {}",
+                    attachment_labels(&[attachment.to_owned()], content).join("")
+                ),
+                _ => match record.outcome.as_str() {
+                    "fragment" => "relic fragment".to_owned(),
+                    "resolved" => "resolved".to_owned(),
+                    "unresolved" => "NOT RESOLVED (no engine handler)".to_owned(),
+                    "discarded" => "discarded (nothing to attach to)".to_owned(),
+                    other => other.to_owned(),
+                },
+            };
+            format!(
+                "{who} · {place} · {} · {card} → {outcome}",
+                record.deck.to_ascii_lowercase()
+            )
+        })
+        .collect()
+}
+
 /// What a seat's planets add up to: ready and total resources and influence, and how many of them
 /// carry each trait and tech specialty.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

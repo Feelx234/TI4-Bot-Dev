@@ -920,8 +920,47 @@ pub fn explore_with(
     deck: &str,
     planet: Option<&PlanetId>,
 ) -> Option<Explored> {
+    let logged = state.exploration_log.len();
+    let outcome = explore_drawn(state, ctx, player, deck, planet)?;
+    // UI-01: the record `explore_drawn` opened gets its outcome now that it is known.
+    let text = match &outcome {
+        Explored::Fragment { .. } => "fragment".to_owned(),
+        Explored::Attached { .. } => format!(
+            "attached:{}",
+            planet
+                .and_then(|planet| state.planet_attachments.get(planet))
+                .and_then(|attached| attached.last().cloned())
+                .unwrap_or_default()
+        ),
+        Explored::Unresolved { .. } => "unresolved".to_owned(),
+        Explored::Resolved { .. } => "resolved".to_owned(),
+        Explored::Discarded { .. } => "discarded".to_owned(),
+    };
+    if let Some(record) = state.exploration_log.get_mut(logged) {
+        record.outcome = text;
+    }
+    Some(outcome)
+}
+
+fn explore_drawn(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    deck: &str,
+    planet: Option<&PlanetId>,
+) -> Option<Explored> {
     let content = ctx.content;
     let card = draw(state, deck)?;
+    state
+        .exploration_log
+        .push(ti4_model::state::ExplorationRecord {
+            round: state.round,
+            player: player.clone(),
+            deck: deck.to_owned(),
+            card: card.clone(),
+            planet: planet.cloned(),
+            outcome: String::new(),
+        });
     let kind = resolution(content, &card).unwrap_or_default();
 
     let outcome = match kind.as_str() {
@@ -1322,6 +1361,16 @@ mod tests {
         assert_eq!(
             state.planet_attachments.get(&planet),
             Some(&vec!["dysonsphere".to_owned()])
+        );
+        // UI-01: the draw is logged with what came of it.
+        let logged = state.exploration_log.last().expect("the draw is logged");
+        assert_eq!(
+            (
+                logged.card.as_str(),
+                logged.outcome.as_str(),
+                logged.planet.as_ref()
+            ),
+            ("ds", "attached:dysonsphere", Some(&planet))
         );
         // Dyson Sphere: +2 resources, +1 influence.
         assert_eq!(value(&state, &planet, Spend::Resources), resources + 2);
