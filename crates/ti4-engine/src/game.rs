@@ -2027,6 +2027,31 @@ impl<'a> Game<'a> {
                 // Minister of Peace: "After a player activates a system that contains 1 or more of
                 // a different player's units, the owner of this card may discard this card --
                 // immediately end the active player's turn."
+                for holder in crate::faction_techs::e_res_siphons(
+                    &mut self.state,
+                    self.content,
+                    self.sources,
+                    &system,
+                    &window.player,
+                ) {
+                    self.emit(&format!("E_RES_SIPHONS:{holder}"));
+                }
+                if let Some(holder) = crate::faction_techs::offer_nullification_field(
+                    &mut self.state,
+                    self.content,
+                    self.sources,
+                    &mut self.table,
+                    self.galaxy.as_ref(),
+                    &system,
+                    &window.player,
+                ) {
+                    self.tactical = None;
+                    self.state.active_system = None;
+                    self.state.pending = None;
+                    self.emit(&format!("TURN_ENDED_BY_NULLIFICATION_FIELD:{holder}"));
+                    self.advance_turn()?;
+                    return Ok(self.result(true, None));
+                }
                 if self.minister_of_peace(&system, &window.player) {
                     self.tactical = None;
                     self.state.active_system = None;

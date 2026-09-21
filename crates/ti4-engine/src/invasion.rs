@@ -2715,6 +2715,14 @@ fn space_cannon_defense(
     if !crate::entropic_scars::abilities_usable(content, sources, system, Some(system)) {
         return;
     }
+    // L4 Disruptors (Letnev): "During an invasion, units cannot use SPACE CANNON against your
+    // units." Space cannon defense is the only cannon fire an invasion has.
+    if state.player(invader).is_some_and(|seat| {
+        seat.technologies
+            .contains(&ti4_model::id::TechnologyId::new("l4"))
+    }) {
+        return;
+    }
     let types = catalogue(content, sources);
     let guns: Vec<Unit> = state
         .system_state(system)
@@ -4140,6 +4148,40 @@ mod tests {
             .on_planet_of(&planet, &invader())
             .len();
         assert_eq!(landed, 1, "the PDS hit one of the two infantry");
+    }
+
+    #[test]
+    fn l4_disruptors_silence_space_cannon_defense() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = arena_off_mecatol();
+        on_planet(&mut state, &system, &planet, "pds", &holder(), 1);
+        on_planet(&mut state, &system, &planet, "infantry", &invader(), 2);
+        state
+            .player_mut(&invader())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("l4"));
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        let mut dice = Dice::from_faces([10u32]);
+        let mut rng = GameRng::new(7);
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        space_cannon_defense(&mut state, &mut ctx, &system, &planet, &invader());
+        assert_eq!(
+            state
+                .system_state(&system)
+                .on_planet_of(&planet, &invader())
+                .len(),
+            2,
+            "no cannon fired at the Letnev forces"
+        );
+        assert!(dice.rolled("space cannon defense").is_empty());
     }
 
     #[test]

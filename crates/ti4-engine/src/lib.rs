@@ -33,6 +33,7 @@ pub mod entropic_scars;
 pub mod event;
 pub mod exploration;
 pub mod faction_abilities;
+pub mod faction_techs;
 pub mod fingerprint;
 /// Test scaffolding: a small galaxy, and helpers that place units on it.
 ///

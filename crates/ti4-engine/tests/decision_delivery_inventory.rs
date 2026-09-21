@@ -421,6 +421,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Nullification Field: use (exhaust + a strategy token, end the turn) or decline.
+        module: "faction_techs.rs",
+        function: "offer_nullification_field",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "faction_abilities.rs",
         function: "space_combat_round_started",
         count: 1,
@@ -899,6 +906,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("faction_abilities.rs", "perform_component", 2),
     ("faction_abilities.rs", "space_combat_round_started", 1),
     ("faction_abilities.rs", "strategy_resolved", 1),
+    ("faction_techs.rs", "offer_nullification_field", 1),
     ("fleet.rs", "remove_one", 1),
     ("game.rs", "step", 1),
     ("game.rs", "step_aftermath", 1),
