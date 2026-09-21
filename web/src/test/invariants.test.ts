@@ -12,6 +12,7 @@ import {
   STRATEGY_CARDS,
   SECRET_OBJECTIVES,
 } from '../protocol/contentCatalog.ts';
+import { CONTENT_PRESENTATION_PROVENANCE } from '../protocol/generatedContentManifest.ts';
 
 /**
  * System invariant verification suite.
@@ -239,6 +240,26 @@ describe('Frontend Invariants & Property-based Checks', () => {
   it('title-cases unknown content identifiers', () => {
     expect(humanizeId('direct_hit')).toBe('Direct Hit');
     expect(getSecretObjectiveMeta('unknown_secret').name).toBe('Unknown Secret');
+  });
+
+  it('uses versioned corpus metadata with exact identifiers only', () => {
+    expect(CONTENT_PRESENTATION_PROVENANCE.generatorVersion).toBe(1);
+    expect(CONTENT_PRESENTATION_PROVENANCE.corpusSchemaVersion).toBe('1.1.0');
+    expect(CONTENT_PRESENTATION_PROVENANCE.corpusUpstreamCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(CONTENT_PRESENTATION_PROVENANCE.presentationSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(CONTENT_PRESENTATION_PROVENANCE.recordCounts).toEqual({
+      strategyCards: 12,
+      secretObjectives: 40,
+      publicObjectives: 40,
+      actionCards: 142,
+      technologies: 102,
+    });
+
+    // Strategy-card names are not lookup aliases: a malformed ID must not select a card.
+    const malformed = getStrategyCardMeta('leadership bonus');
+    expect(malformed.name).toBe('Leadership Bonus');
+    expect(malformed.initiative).toBe(0);
+    expect(malformed.primaryText).toBe('');
   });
 
   it('preserves event log identity across reconnect snapshots and live event messages', () => {

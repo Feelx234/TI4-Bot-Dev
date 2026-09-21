@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run verify:content && tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "npm run verify:content && vitest run",
+    "generate:content": "node scripts/generate-content-manifest.mjs",
+    "verify:content": "node scripts/generate-content-manifest.mjs --check",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
   },
