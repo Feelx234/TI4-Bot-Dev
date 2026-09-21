@@ -460,11 +460,12 @@ fn roll_bombard_plan(
                     .unwrap_or(i64::MAX)
                 });
             let value = value + bunker_penalty;
-            let roll = dice.roll(
+            let roll = dice.roll_by(
                 rng,
                 count,
                 "bombardment",
                 Some(u32::try_from(value).unwrap_or(u32::MAX)),
+                invader,
             );
             let produced = roll.hits();
             if produced > 0 {
@@ -932,11 +933,12 @@ fn roll_ground(
         if dice_count == 0 {
             continue;
         }
-        let roll = dice.roll(
+        let roll = dice.roll_by(
             rng,
             dice_count,
             "ground combat",
             Some(u32::try_from(value).unwrap_or(u32::MAX)),
+            player,
         );
         hits += roll.hits();
         set.rolls.push(ti4_model::state::RerollEntry {
@@ -2740,11 +2742,12 @@ fn space_cannon_defense(
         if count == 0 {
             continue;
         }
-        let roll = ctx.dice.roll(
+        let roll = ctx.dice.roll_by(
             ctx.rng,
             count,
             "space cannon defense",
             Some(u32::try_from(value).unwrap_or(u32::MAX)),
+            &unit.owner,
         );
         hits += roll.hits();
     }

@@ -763,3 +763,47 @@ fn policy_numbers_are_named_and_never_a_win_chance() {
     assert!(legend.contains("temperature 0.5"));
     assert!(legend.contains("Not a chance of winning"));
 }
+
+/// OP-03: a reviewed game carries its dice on the frames, combat rolls say whose they are, and the
+/// line a reader sees names the seat with its faction and counts the hits.
+#[test]
+fn combat_dice_reach_the_frames_with_their_roller() {
+    let root = workspace_root();
+    let config = SimulationConfig {
+        checkpoint: root.join("examples/reviewer/checkpoint-473312/slots.json"),
+        map_pool: root.join("examples/reviewer/full_np8_12_holdout.json"),
+        seed: 4_242,
+        rotation: 1,
+        table: ProfileTable::Learner,
+        temperature: 0.5,
+        diplomacy: false,
+    };
+    let mut review = LiveReview::start(&config).expect("the example table starts");
+    let content = ContentStore::embedded();
+    for _ in 0..20_000 {
+        let frame = review.step_once().clone();
+        if let Some(roll) = frame
+            .rolls
+            .iter()
+            .find(|roll| roll.reason == "space combat" || roll.reason == "ground combat")
+        {
+            let seat = roll.by.clone().expect("a combat roll names its roller");
+            let line = view::roll_line(&frame, roll, content);
+            assert!(
+                line.starts_with(&view::seat_name(&frame, &PlayerId::new(&seat), content)),
+                "{line}"
+            );
+            assert!(line.contains(&format!("→ {} hit", roll.hits())), "{line}");
+            let shown = view::rolls_for_action(&review.session.frames, &frame);
+            assert!(
+                shown.contains(roll),
+                "the step's own roll is on the Dice list"
+            );
+            return;
+        }
+        if frame.finished {
+            break;
+        }
+    }
+    panic!("the example game rolled no combat dice in 20 000 steps");
+}

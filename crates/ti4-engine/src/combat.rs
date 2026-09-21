@@ -337,6 +337,7 @@ pub fn apply_reroll_dice(
             faces: entry.faces.clone(),
             hits_on: entry.hits_on,
             rerolled: std::collections::BTreeSet::new(),
+            by: None,
         };
         let again = dice.reroll(rng, &original, [*die], Some(reason));
         entry.faces = again.faces;
@@ -950,7 +951,7 @@ pub fn roll_fleet(
             continue;
         }
         let threshold = u32::try_from(value).unwrap_or(u32::MAX);
-        let roll = dice.roll(rng, dice_count, "space combat", Some(threshold));
+        let roll = dice.roll_by(rng, dice_count, "space combat", Some(threshold), player);
         hits += reroll_munitions_misses(state, dice, rng, player, &roll).hits();
     }
     hits
@@ -997,7 +998,7 @@ pub fn roll_fleet_and_open_staged(
         let threshold = u32::try_from(value).unwrap_or(u32::MAX);
         let roll = ctx
             .dice
-            .roll(ctx.rng, dice_count, "space combat", Some(threshold));
+            .roll_by(ctx.rng, dice_count, "space combat", Some(threshold), player);
         let roll = reroll_munitions_misses(state, ctx.dice, ctx.rng, player, &roll);
         hits += roll.hits();
         set.rolls.push(RerollEntry {
@@ -1096,7 +1097,7 @@ pub fn roll_barrage_side(
     // Metali Void Armaments fires once for its holder, not once per ship: the card grants the
     // barrage to the player.
     if let Some((value, count)) = crate::relics::extra_barrage(state, player) {
-        let roll = dice.roll(rng, count, "anti_fighter_barrage", Some(value));
+        let roll = dice.roll_by(rng, count, "anti_fighter_barrage", Some(value), player);
         hits += roll.hits();
         set.rolls.push(RerollEntry {
             unit: "extra barrage".into(),
@@ -1127,11 +1128,12 @@ pub fn roll_barrage_side(
         } else {
             value
         };
-        let roll = dice.roll(
+        let roll = dice.roll_by(
             rng,
             count,
             "anti-fighter barrage",
             Some(u32::try_from(value).unwrap_or(u32::MAX)),
+            player,
         );
         hits += roll.hits();
         set.rolls.push(RerollEntry {
@@ -1503,11 +1505,12 @@ pub fn space_cannon_offense(
         if count == 0 {
             continue;
         }
-        let roll = dice.roll(
+        let roll = dice.roll_by(
             rng,
             count,
             "space cannon",
             Some(u32::try_from(value).unwrap_or(u32::MAX)),
+            &unit.owner,
         );
         let entry = RerollEntry {
             unit: unit.type_id.to_string(),
@@ -4665,6 +4668,7 @@ mod tests {
             faces: vec![1, 10],
             hits_on: Some(7),
             rerolled: std::collections::BTreeSet::new(),
+            by: None,
         };
         let rerolled = reroll_munitions_misses(&state, &mut dice, &mut rng, &attacker(), &original);
 

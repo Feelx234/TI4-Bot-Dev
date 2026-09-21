@@ -872,6 +872,14 @@ impl<'a> Game<'a> {
         &mut self.timing
     }
 
+    /// Every die this game has rolled, in order. Read-only: a viewer shows them, nothing may
+    /// change them. Rolls made on a scratch roller inside a helper that owns its own `Dice` are
+    /// not here.
+    #[must_use]
+    pub fn rolls(&self) -> &[crate::dice::Roll] {
+        self.dice.history()
+    }
+
     /// The choice currently offered, without resolving automatic followers or phase work.
     #[must_use]
     pub fn legal_options(&self) -> Option<Choice> {

@@ -1489,6 +1489,77 @@ pub fn action_summary_in(frames: &[ReviewFrame], frame: &ReviewFrame) -> ActionS
     }
 }
 
+/// The dice behind what is on screen: every roll from the start of the action this frame belongs
+/// to up to this frame, so a combat reads whole rather than one step at a time. Outside any action
+/// (setup, strategy, agenda) it is this frame's own rolls.
+#[must_use]
+pub fn rolls_for_action(
+    frames: &[ReviewFrame],
+    frame: &ReviewFrame,
+) -> Vec<ti4_engine::dice::Roll> {
+    let start = frame
+        .action_in_progress
+        .as_ref()
+        .map(|summary| summary.start_frame)
+        .or_else(|| {
+            frame
+                .action_summary
+                .as_ref()
+                .map(|summary| summary.start_frame)
+        });
+    let Some(start) = start else {
+        return frame.rolls.clone();
+    };
+    let mut rolls: Vec<ti4_engine::dice::Roll> = frames
+        .iter()
+        .filter(|candidate| candidate.index >= start && candidate.index < frame.index)
+        .flat_map(|candidate| candidate.rolls.iter().cloned())
+        .collect();
+    // This frame last, and from the frame itself: a replayer shell's history may not hold it yet.
+    rolls.extend(frame.rolls.iter().cloned());
+    rolls
+}
+
+/// One roll as a line: `seat2 "The Emirates of Hacan" · space combat · hits on 7+: 3 8 9 → 2 hits`.
+///
+/// Rerolled dice are marked `*`. A roll that is not a hit roll shows its faces alone, and a roll
+/// whose roller the engine did not record says so rather than guessing.
+#[must_use]
+pub fn roll_line(
+    frame: &ReviewFrame,
+    roll: &ti4_engine::dice::Roll,
+    content: &ContentStore,
+) -> String {
+    let who = roll.by.as_ref().map_or_else(
+        || "(roller not recorded)".to_owned(),
+        |seat| seat_name(frame, &PlayerId::new(seat), content),
+    );
+    let faces = roll
+        .faces
+        .iter()
+        .enumerate()
+        .map(|(index, face)| {
+            if roll.rerolled.contains(&index) {
+                format!("{face}*")
+            } else {
+                face.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    match roll.hits_on {
+        Some(on) => {
+            let hits = roll.hits();
+            format!(
+                "{who} · {} · hits on {on}+: {faces} → {hits} hit{}",
+                roll.reason,
+                if hits == 1 { "" } else { "s" }
+            )
+        }
+        None => format!("{who} · {} · {faces}", roll.reason),
+    }
+}
+
 /// One structured engine event, ready to fold open.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventRow {

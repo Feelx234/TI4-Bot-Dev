@@ -306,6 +306,10 @@ pub struct ReviewFrame {
     /// Payload-bearing events finalized during this engine step.
     #[serde(default)]
     pub structured_events: Vec<ReviewEvent>,
+    /// Every die rolled during this engine step, in order: what was rolled for, the faces, the
+    /// value that hits, and whose dice they were when the roller said.
+    #[serde(default)]
+    pub rolls: Vec<ti4_engine::dice::Roll>,
     pub decisions: Vec<DecisionDetail>,
     #[serde(default)]
     pub action_summary: Option<ActionSummary>,
@@ -752,6 +756,7 @@ pub struct LiveReview {
     captured_decisions: usize,
     captured_events: usize,
     captured_applied_events: usize,
+    captured_rolls: usize,
     engine_steps: usize,
     action_count: usize,
     action: Option<ActionCapture>,
@@ -974,6 +979,7 @@ impl LiveReview {
                 .iter()
                 .map(ReviewEvent::from)
                 .collect(),
+            rolls: game.rolls().to_vec(),
             decisions: Vec::new(),
             action_summary: None,
             action_in_progress: None,
@@ -991,6 +997,7 @@ impl LiveReview {
             },
             captured_events: game.events.len(),
             captured_applied_events: game.timing.applied_events().len(),
+            captured_rolls: game.rolls().len(),
             game,
             decisions,
             captured_decisions: 0,
@@ -1032,6 +1039,8 @@ impl LiveReview {
         };
         let new_events = self.game.events[self.captured_events..].to_vec();
         self.captured_events = self.game.events.len();
+        let rolls = self.game.rolls()[self.captured_rolls.min(self.game.rolls().len())..].to_vec();
+        self.captured_rolls = self.game.rolls().len();
         let structured_events = self.game.timing.applied_events()[self.captured_applied_events..]
             .iter()
             .map(ReviewEvent::from)
@@ -1107,6 +1116,7 @@ impl LiveReview {
             error,
             new_events,
             structured_events,
+            rolls,
             decisions,
             action_summary,
             action_in_progress,
@@ -2479,6 +2489,7 @@ mod tests {
             error: None,
             new_events: vec![],
             structured_events: vec![],
+            rolls: vec![],
             decisions: vec![],
             action_summary: None,
             action_in_progress: None,

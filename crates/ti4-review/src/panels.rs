@@ -822,6 +822,19 @@ pub fn decision_sheet(
                 ui.label("No action-phase turn has completed yet.");
             }
         });
+        let rolls = crate::view::rolls_for_action(source.frames, frame);
+        section_with_id(ui, &format!("Dice · {}", rolls.len()), "dice", |ui| {
+            if rolls.is_empty() {
+                ui.weak("No dice rolled in this action so far.");
+            }
+            for roll in &rolls {
+                ui.label(crate::view::roll_line(
+                    frame,
+                    roll,
+                    ContentStore::embedded(),
+                ));
+            }
+        });
         section(ui, "Decisions", |ui| {
             let rows = decision_rows(frame);
             if rows.is_empty() {
