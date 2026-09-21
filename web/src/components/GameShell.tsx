@@ -40,6 +40,64 @@ export interface ChoiceRendererDispatcherProps {
   players?: Record<string, PlayerView>;
 }
 
+type WorkflowRenderer = (props: Omit<ChoiceRendererDispatcherProps, 'model'> & {
+  choice: PendingChoiceDto;
+  model: ChoiceRendererModel | null;
+}) => React.ReactNode;
+
+const workflowRenderers = new Map<ChoiceRendererModel['workflow'], WorkflowRenderer>([
+  ['payment', ({ choice, model, viewerSeat, players, onSubmit, isMinimized, onMinimizedChange, lastError }) => (
+    <PaymentDrawer choice={choice} model={model} viewerSeat={viewerSeat} player={players?.[choice.actor] ?? null}
+      onSubmit={onSubmit} isOpen={!isMinimized} onClose={() => onMinimizedChange(true)} lastError={lastError} />
+  )],
+  ['tactical_movement', ({ choice, model, viewerSeat, players, onSubmit, isMinimized, onMinimizedChange, lastError }) => (
+    <TacticalMovementOverlay choice={choice} model={model} viewerSeat={viewerSeat}
+      activeSystemId={model?.selectionMode.mode === 'tactical_move' ? model.selectionMode.activeSystem
+        : (choice.context?.target && 'System' in choice.context.target ? choice.context.target.System : null)}
+      player={players?.[choice.actor] ?? null} onSubmit={onSubmit} isOpen={!isMinimized}
+      onClose={() => onMinimizedChange(true)} lastError={lastError} />
+  )],
+  ['combat_sustain', renderCombat],
+  ['combat_casualty', renderCombat],
+  ['combat_retreat', renderCombat],
+  ['transaction_propose', renderTrade],
+  ['transaction_answer', renderTrade],
+  ['agenda_vote_outcome', renderAgenda],
+  ['agenda_vote_planets', renderAgenda],
+  ['action_card_reaction', ({ choice, model, viewerSeat, onSubmit, isMinimized, onMinimizedChange, lastError }) => (
+    <ReactionStatusBar choice={choice} model={model} viewerSeat={viewerSeat} onSubmit={onSubmit}
+      isOpen={!isMinimized} onClose={() => onMinimizedChange(true)} lastError={lastError} />
+  )],
+  ['production', ({ choice, model, viewerSeat, onSubmit, isMinimized, onMinimizedChange, lastError }) => (
+    <ProductionBuilderDrawer choice={choice} model={model} viewerSeat={viewerSeat} onSubmit={onSubmit}
+      isOpen={!isMinimized} onClose={() => onMinimizedChange(true)} lastError={lastError} />
+  )],
+  ['generic_selection', renderGeneric],
+  ['system_activation', renderGeneric],
+  ['objective_scoring', renderGeneric],
+]);
+
+function renderCombat({ choice, model, viewerSeat, onSubmit, isMinimized, onMinimizedChange, lastError }: Parameters<WorkflowRenderer>[0]) {
+  return <CombatResolutionModal choice={choice} model={model} viewerSeat={viewerSeat} onSubmit={onSubmit}
+    isOpen={!isMinimized} onClose={() => onMinimizedChange(true)} lastError={lastError} />;
+}
+
+function renderTrade({ choice, model, viewerSeat, onSubmit, isMinimized, onMinimizedChange, lastError }: Parameters<WorkflowRenderer>[0]) {
+  return <TradeDeskModal choice={choice} model={model} viewerSeat={viewerSeat} onSubmit={onSubmit}
+    isOpen={!isMinimized} onClose={() => onMinimizedChange(true)} lastError={lastError} />;
+}
+
+function renderAgenda({ choice, model, viewerSeat, onSubmit, isMinimized, onMinimizedChange, lastError }: Parameters<WorkflowRenderer>[0]) {
+  return <AgendaBallotModal choice={choice} model={model} viewerSeat={viewerSeat} onSubmit={onSubmit}
+    isOpen={!isMinimized} onClose={() => onMinimizedChange(true)} lastError={lastError} />;
+}
+
+function renderGeneric({ choice, model, onSubmit, lastError, isMinimized, onMinimizedChange, selectedOptionId, onSelectOption }: Parameters<WorkflowRenderer>[0]) {
+  return <PendingChoiceModal choice={choice} model={model} onSubmit={onSubmit} lastError={lastError}
+    isMinimized={isMinimized} onMinimizedChange={onMinimizedChange} selectedOptionId={selectedOptionId}
+    onSelectOption={onSelectOption} />;
+}
+
 export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> = ({
   choice,
   model: propModel,
@@ -60,6 +118,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
 
   const model = propModel ?? derivedModel;
   const workflow = model?.workflow ?? 'generic_selection';
+  const renderer = workflowRenderers.get(workflow) ?? workflowRenderers.get('generic_selection')!;
 
   return (
     <>
@@ -96,117 +155,8 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
         </div>
       )}
 
-      {/* 1. Payment Drawer */}
-      {workflow === 'payment' && (
-        <PaymentDrawer
-          choice={choice}
-          model={model}
-          viewerSeat={viewerSeat}
-          player={choice ? players?.[choice.actor] : null}
-          onSubmit={onSubmit}
-          isOpen={!isMinimized}
-          onClose={() => onMinimizedChange(true)}
-          lastError={lastError}
-        />
-      )}
-
-      {/* 2. Tactical Movement Overlay */}
-      {workflow === 'tactical_movement' && (
-        <TacticalMovementOverlay
-          choice={choice}
-          model={model}
-          viewerSeat={viewerSeat}
-          activeSystemId={
-            model?.selectionMode.mode === 'tactical_move'
-              ? model.selectionMode.activeSystem
-              : (choice?.context?.target && 'System' in choice.context.target ? choice.context.target.System : null)
-          }
-          player={choice ? players?.[choice.actor] : null}
-          onSubmit={onSubmit}
-          isOpen={!isMinimized}
-          onClose={() => onMinimizedChange(true)}
-          lastError={lastError}
-        />
-      )}
-
-      {/* 3. Combat Resolution Modal */}
-      {(workflow === 'combat_sustain' || workflow === 'combat_casualty' || workflow === 'combat_retreat') && (
-        <CombatResolutionModal
-          choice={choice}
-          model={model}
-          viewerSeat={viewerSeat}
-          onSubmit={onSubmit}
-          isOpen={!isMinimized}
-          onClose={() => onMinimizedChange(true)}
-          lastError={lastError}
-        />
-      )}
-
-      {/* 4. Trade Desk Modal */}
-      {(workflow === 'transaction_propose' || workflow === 'transaction_answer') && (
-        <TradeDeskModal
-          choice={choice}
-          model={model}
-          viewerSeat={viewerSeat}
-          onSubmit={onSubmit}
-          isOpen={!isMinimized}
-          onClose={() => onMinimizedChange(true)}
-          lastError={lastError}
-        />
-      )}
-
-      {/* 5. Agenda Ballot Modal */}
-      {(workflow === 'agenda_vote_outcome' || workflow === 'agenda_vote_planets') && (
-        <AgendaBallotModal
-          choice={choice}
-          model={model}
-          viewerSeat={viewerSeat}
-          onSubmit={onSubmit}
-          isOpen={!isMinimized}
-          onClose={() => onMinimizedChange(true)}
-          lastError={lastError}
-        />
-      )}
-
-      {/* 6. Reaction Status Bar */}
-      {workflow === 'action_card_reaction' && (
-        <ReactionStatusBar
-          choice={choice}
-          model={model}
-          viewerSeat={viewerSeat}
-          onSubmit={onSubmit}
-          isOpen={!isMinimized}
-          onClose={() => onMinimizedChange(true)}
-          lastError={lastError}
-        />
-      )}
-
-      {/* 7. Production Builder Drawer */}
-      {workflow === 'production' && (
-        <ProductionBuilderDrawer
-          choice={choice}
-          model={model}
-          viewerSeat={viewerSeat}
-          onSubmit={onSubmit}
-          isOpen={!isMinimized}
-          onClose={() => onMinimizedChange(true)}
-          lastError={lastError}
-        />
-      )}
-
-      {/* 8. Fallback / Generic Selection & System Activation Modal */}
-      {(workflow === 'generic_selection' || workflow === 'system_activation' || workflow === 'objective_scoring') && (
-        <PendingChoiceModal
-          choice={choice}
-          model={model}
-          onSubmit={onSubmit}
-          lastError={lastError}
-          isMinimized={isMinimized}
-          onMinimizedChange={onMinimizedChange}
-          selectedOptionId={selectedOptionId}
-          onSelectOption={onSelectOption}
-        />
-      )}
+       {renderer({ choice, model, viewerSeat, onSubmit, lastError, selectedOptionId, onSelectOption,
+         isMinimized, onMinimizedChange, players })}
     </>
   );
 };

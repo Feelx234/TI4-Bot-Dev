@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { GameShell } from './GameShell.tsx';
+import { ChoiceRendererDispatcher, GameShell } from './GameShell.tsx';
 import { PendingChoiceDto } from '../protocol/types.ts';
+import { deriveChoiceRendererModel } from '../presentation/choiceModel.ts';
 
 const choice: PendingChoiceDto = {
   prompt: 'Choose a strategy card',
@@ -240,5 +241,27 @@ describe('GameShell', () => {
       />
     );
     expect(screen.getByTestId('pending-choice-dialog')).toBeInTheDocument();
+  });
+
+  it('uses a supplied workflow model when selecting a registered renderer', () => {
+    const productionChoice: PendingChoiceDto = {
+      actor: 'p1', nonce: 'production-model', prompt: 'Produce',
+      context: { subtype: 'produce_unit' }, options: [{ id: 'produce|fighter', label: 'Fighter' }],
+    };
+    const model = deriveChoiceRendererModel(productionChoice, 'p1');
+
+    render(
+      <ChoiceRendererDispatcher
+        choice={choice}
+        model={model}
+        viewerSeat="p1"
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+        isMinimized={false}
+        onMinimizedChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('production-builder-drawer')).toBeInTheDocument();
+    expect(screen.queryByTestId('pending-choice-dialog')).not.toBeInTheDocument();
   });
 });
