@@ -237,8 +237,11 @@ impl AftermathWindow {
             payload.insert("gunner".to_owned(), gunner.to_string().into());
             payload.insert("hits".to_owned(), i64::try_from(hits).unwrap_or(0).into());
             let _ = ctx.emit(state, "SPACE_CANNON_HITS", payload);
-            crate::combat::absorb_hits_seeing(
-                state, content, sources, galaxy, ctx, &victim, system, &gunner, hits,
+            let bound = crate::combat::use_graviton(
+                state, content, sources, &gunner, &victim, system, hits,
+            );
+            crate::combat::absorb_hits_seeing_with(
+                state, content, sources, galaxy, ctx, &victim, system, &gunner, hits, bound,
             )?;
         }
         let mut pending_event_scoring = None;

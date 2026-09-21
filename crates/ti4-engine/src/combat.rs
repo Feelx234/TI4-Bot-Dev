@@ -1946,6 +1946,33 @@ pub fn absorb_hits_seeing(
     producer: &PlayerId,
     hits: usize,
 ) -> Result<(), CombatError> {
+    absorb_hits_seeing_with(
+        state, content, sources, galaxy, ctx, player, system, producer, hits, false,
+    )
+}
+
+/// [`absorb_hits_seeing`], with the hits bound to non-fighter ships while any are left
+/// (Graviton Laser System: "hits produced by those units must be assigned to non-fighter ships
+/// if able").
+///
+/// # Errors
+/// As [`absorb_hits_seeing`].
+#[allow(
+    clippy::too_many_arguments,
+    reason = "absorb_hits_seeing's inputs plus the one binding"
+)]
+pub fn absorb_hits_seeing_with(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    ctx: &mut Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+    producer: &PlayerId,
+    hits: usize,
+    non_fighters_first: bool,
+) -> Result<(), CombatError> {
     // Shields Holding and Maneuvering Jets friends cancel hits before any are assigned: the
     // round-scoped pool they grant into is spent here, the way the combat window's queue
     // spends it, so a cancelled cannon or barrage hit is one nobody has to absorb.
@@ -1955,9 +1982,15 @@ pub fn absorb_hits_seeing(
     )?;
 
     while remaining > 0 {
-        let alive = ships_of(state, content, sources, player, system);
+        let mut alive = ships_of(state, content, sources, player, system);
         if alive.is_empty() {
             return Ok(()); // 15.2a
+        }
+        if non_fighters_first {
+            let bound = non_fighter_ships(state, content, sources, player, system);
+            if !bound.is_empty() {
+                alive = bound;
+            }
         }
         let casualty = choose_casualty(
             state,
@@ -1977,6 +2010,35 @@ pub fn absorb_hits_seeing(
         remaining -= 1;
     }
     Ok(())
+}
+
+/// Graviton Laser System: "You may exhaust this card before 1 or more of your units uses SPACE
+/// CANNON; hits produced by those units must be assigned to non-fighter ships if able."
+///
+/// Used (and exhausted) only when it can change something: hits to assign, and a target fleet
+/// with both fighters and non-fighters. Returns whether the hits are bound to non-fighters.
+pub fn use_graviton(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    gunner: &PlayerId,
+    victim: &PlayerId,
+    system: &SystemId,
+    hits: usize,
+) -> bool {
+    let card = ti4_model::id::TechnologyId::new("gls");
+    let ready = state.player(gunner).is_some_and(|seat| {
+        seat.technologies.contains(&card) && !seat.exhausted_technologies.contains(&card)
+    });
+    let ships = ships_of(state, content, sources, victim, system).len();
+    let non_fighters = non_fighter_ships(state, content, sources, victim, system).len();
+    if !ready || hits == 0 || non_fighters == 0 || non_fighters == ships {
+        return false;
+    }
+    if let Some(seat) = state.player_mut(gunner) {
+        seat.exhausted_technologies.insert(card);
+    }
+    true
 }
 
 /// This player's ships in the system other than fighters.
@@ -4916,6 +4978,74 @@ mod tests {
             .replace_unit(&fresh, fresh.sustained());
         duranium_armor(&mut state, &system, &attacker(), &[]);
         assert!(state.system_state(&system).units[0].sustained_damage);
+    }
+
+    #[test]
+    fn graviton_binds_cannon_hits_to_non_fighters_once_per_readying() {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "fighter", &defender(), 2);
+        put(&mut state, &system, "destroyer", &defender(), 1);
+        state
+            .player_mut(&attacker())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("gls"));
+        let content = ContentStore::embedded();
+        assert!(use_graviton(
+            &mut state,
+            content,
+            POK,
+            &attacker(),
+            &defender(),
+            &system,
+            1
+        ));
+        assert!(
+            !use_graviton(
+                &mut state,
+                content,
+                POK,
+                &attacker(),
+                &defender(),
+                &system,
+                1
+            ),
+            "exhausted after one use"
+        );
+
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(1);
+        let mut ctx = Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        absorb_hits_seeing_with(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut ctx,
+            &defender(),
+            &system,
+            &attacker(),
+            1,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            non_fighter_ships_of(&state, content, POK, &defender(), &system),
+            0,
+            "the destroyer took the hit, not a fighter"
+        );
+        assert_eq!(
+            ships_of(&state, content, POK, &defender(), &system).len(),
+            2
+        );
     }
 
     #[test]
