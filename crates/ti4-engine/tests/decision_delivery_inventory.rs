@@ -435,6 +435,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Quantum Datahub Node: (partner, card given, card taken), or decline.
+        module: "faction_techs.rs",
+        function: "offer_quantum_datahub",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Production Biomes: which other player gains the 2 trade goods.
         module: "faction_abilities.rs",
         function: "production_biomes",
@@ -930,6 +937,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("faction_abilities.rs", "space_combat_round_started", 1),
     ("faction_abilities.rs", "strategy_resolved", 1),
     ("faction_techs.rs", "offer_nullification_field", 1),
+    ("faction_techs.rs", "offer_quantum_datahub", 1),
     ("fleet.rs", "remove_one", 1),
     ("game.rs", "step", 1),
     ("game.rs", "step_aftermath", 1),

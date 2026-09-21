@@ -252,6 +252,89 @@ pub fn return_spec_ops(state: &mut GameState, player: &PlayerId) -> u32 {
     waiting
 }
 
+/// Quantum Datahub Node (Hacan): "At the end of the strategy phase, you may spend 1 token from
+/// your strategy pool and give another player 3 of your trade goods. If you do, give 1 of your
+/// strategy cards to that player and take 1 of their strategy cards."
+///
+/// One question: every (partner, card given, card taken) the holder could name, or decline.
+/// Returns the partner when it was used.
+pub fn offer_quantum_datahub(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+) -> Option<(PlayerId, PlayerId)> {
+    let holder = state
+        .players
+        .iter()
+        .find(|seat| {
+            seat.technologies.contains(&TechnologyId::new("qdn"))
+                && seat.strategic_tokens > 0
+                && seat.trade_goods >= QUANTUM_DATAHUB_GOODS
+                && !seat.strategy_cards.is_empty()
+        })?
+        .id
+        .clone();
+    let mine = state.player(&holder)?.strategy_cards.clone();
+    let mut options = Vec::new();
+    for seat in state.players.iter().filter(|seat| seat.id != holder) {
+        for given in &mine {
+            for taken in &seat.strategy_cards {
+                options.push(
+                    ChoiceOption::labelled(
+                        format!("qdn|{}|{given}|{taken}", seat.id),
+                        "strategy_card",
+                        format!("give {} 3 trade goods and {given}, take {taken}", seat.id),
+                    )
+                    .with("partner", seat.id.to_string())
+                    .with("give", given.to_string())
+                    .with("take", taken.to_string()),
+                );
+            }
+        }
+    }
+    if options.is_empty() {
+        return None;
+    }
+    options.push(ChoiceOption::decline());
+    let choice = Choice::new(
+        holder.clone(),
+        "Quantum Datahub Node: spend a strategy token and 3 trade goods to swap a strategy card",
+        options,
+    )
+    .contextualized(DecisionContext::new(
+        holder.clone(),
+        DecisionSource::Content("qdn".to_owned()),
+        "quantum_datahub_swap",
+        state.phase,
+        state.round,
+    ));
+    let answer = table
+        .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
+        .ok()?;
+    if answer.is_decline() {
+        return None;
+    }
+    let mut parts = answer.id.split('|').skip(1);
+    let (partner, given, taken) = (parts.next()?, parts.next()?, parts.next()?);
+    let partner = PlayerId::new(partner);
+    let given = ti4_model::id::StrategyCardId::new(given);
+    let taken = ti4_model::id::StrategyCardId::new(taken);
+    let seat = state.player_mut(&holder)?;
+    if !seat.spend_token(TokenPool::Strategic) {
+        return None;
+    }
+    seat.trade_goods -= QUANTUM_DATAHUB_GOODS;
+    state.player_mut(&partner)?.trade_goods += QUANTUM_DATAHUB_GOODS;
+    state.swap_strategy_card(&holder, &given, taken.clone());
+    state.swap_strategy_card(&partner, &taken, given);
+    Some((holder, partner))
+}
+
+/// What Quantum Datahub Node hands the other player.
+pub const QUANTUM_DATAHUB_GOODS: i32 = 3;
+
 #[cfg(test)]
 mod tests {
     use ti4_model::content_types::POK;
@@ -391,5 +474,36 @@ mod tests {
             1
         );
         assert_eq!(state.player(&sol).unwrap().spec_ops_card, 0);
+    }
+
+    #[test]
+    fn quantum_datahub_trades_three_goods_and_a_token_for_a_card_swap() {
+        let mut state = game(&["a", "b"]);
+        let (hacan, other) = (PlayerId::new("a"), PlayerId::new("b"));
+        let (low, high) = (
+            ti4_model::id::StrategyCardId::new("leadership"),
+            ti4_model::id::StrategyCardId::new("imperial"),
+        );
+        let seat = state.player_mut(&hacan).unwrap();
+        seat.technologies.insert(TechnologyId::new("qdn"));
+        seat.trade_goods = 5;
+        seat.strategic_tokens = 1;
+        seat.strategy_cards = vec![high.clone()];
+        let seat = state.player_mut(&other).unwrap();
+        seat.trade_goods = 0;
+        seat.strategy_cards = vec![low.clone()];
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([format!(
+            "qdn|b|{high}|{low}"
+        )])));
+        let used =
+            offer_quantum_datahub(&mut state, ContentStore::embedded(), POK, &mut table, None);
+        assert_eq!(used, Some((hacan.clone(), other.clone())));
+        let (a, b) = (state.player(&hacan).unwrap(), state.player(&other).unwrap());
+        assert_eq!(
+            (a.trade_goods, a.strategic_tokens, b.trade_goods),
+            (2, 0, 3)
+        );
+        assert_eq!(a.strategy_cards, vec![low]);
+        assert_eq!(b.strategy_cards, vec![high]);
     }
 }

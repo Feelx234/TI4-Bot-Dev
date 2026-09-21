@@ -1276,6 +1276,15 @@ impl<'a> Game<'a> {
                 // swap has to happen while the phase's own state is still the current one.
                 if strategy_options(&self.state, self.content).is_none() {
                     self.imperial_arbiter();
+                    if let Some((holder, partner)) = crate::faction_techs::offer_quantum_datahub(
+                        &mut self.state,
+                        self.content,
+                        self.sources,
+                        &mut self.table,
+                        self.galaxy.as_ref(),
+                    ) {
+                        self.emit(&format!("QUANTUM_DATAHUB_SWAP:{holder}:{partner}"));
+                    }
                 }
                 Ok(())
             }
