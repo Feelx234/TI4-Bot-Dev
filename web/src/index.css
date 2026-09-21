@@ -18,6 +18,11 @@
   --radius-md: 8px;
   --radius-lg: 12px;
   --shadow-panel: 0 10px 30px rgba(0, 0, 0, 0.8);
+  --layer-board: 0;
+  --layer-board-chrome: 1;
+  --layer-drawer: 10;
+  --layer-banner: 20;
+  --layer-modal: 30;
 }
 
 * {
@@ -40,6 +45,121 @@ body, html, #root {
 .event-log {
   background: var(--color-canvas);
   color: var(--color-text);
+}
+
+.board-container {
+  z-index: var(--layer-board);
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative;
+}
+
+.app-shell__header {
+  z-index: var(--layer-board-chrome);
+}
+
+.game-header {
+  display: flex;
+  align-items: stretch;
+}
+
+.game-header > :first-child {
+  flex: 1;
+}
+
+.game-header__exit {
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  padding: 0 16px;
+  font-size: 12px;
+}
+
+.app-shell__content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell__board {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+.app-shell__player-sheet {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell__player-sheet .player-sheet-panel {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.app-shell__event-log {
+  position: absolute;
+  right: 330px;
+  bottom: 0;
+  left: 0;
+  z-index: var(--layer-drawer);
+  border-top: 1px solid var(--color-border);
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.app-shell__mobile-actions {
+  display: none;
+}
+
+.app-shell__overlays {
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-banner);
+  pointer-events: none;
+}
+
+.choice-banner {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--layer-banner);
+  pointer-events: auto;
+}
+
+.choice-dialog {
+  position: absolute;
+  inset: 0;
+  z-index: var(--layer-modal);
+  pointer-events: auto;
+}
+
+.board-controls {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: var(--layer-board-chrome);
+}
+
+.board-tooltip {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  z-index: var(--layer-board-chrome);
+}
+
+.game-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
 }
 
 .panel {
@@ -130,25 +250,71 @@ body, html, #root {
     overflow: auto;
   }
 
-  .game-main-content {
-    flex-direction: column;
-    overflow: auto !important;
+  .app-shell {
+    display: block;
+    min-height: 100vh;
+    height: auto;
+    overflow: visible;
   }
 
-  .game-board {
+  .app-shell__content {
+    display: block;
+    overflow: visible;
+  }
+
+  .app-shell__board {
     min-height: 55vh;
   }
 
-  .player-sheet-panel {
-    width: 100% !important;
-    height: auto !important;
-    min-height: 35vh;
-    border-left: none !important;
-    border-top: 1px solid var(--color-border);
+  .app-shell__player-sheet,
+  .app-shell__event-log {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    max-height: min(70vh, 560px);
+    overflow: auto;
+    background: var(--color-canvas);
+    box-shadow: var(--shadow-panel);
+    transform: translateY(105%);
+    transition: transform 0.2s ease;
+    z-index: var(--layer-drawer);
   }
 
-  [data-testid='event-log-container'] {
-    right: 0 !important;
+  .app-shell__player-sheet.app-shell__drawer--open,
+  .app-shell__event-log.app-shell__drawer--open {
+    transform: translateY(0);
+  }
+
+  .app-shell__player-sheet .player-sheet-panel {
+    min-height: 35vh;
+    border-top: 1px solid var(--color-border);
+    border-left: none !important;
+  }
+
+  .app-shell__mobile-actions {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    display: flex;
+    gap: 8px;
+    z-index: var(--layer-board-chrome);
+  }
+
+  .app-shell__overlays {
+    position: fixed;
+  }
+
+  .choice-banner {
+    right: 12px;
+    bottom: 60px;
+    left: 12px;
+    transform: none;
+  }
+
+  .choice-dialog__panel {
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
   }
 }
 

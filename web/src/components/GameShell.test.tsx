@@ -1,0 +1,65 @@
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { GameShell } from './GameShell.tsx';
+import { PendingChoiceDto } from '../protocol/types.ts';
+
+const choice: PendingChoiceDto = {
+  prompt: 'Choose a strategy card',
+  actor: 'p1',
+  nonce: 'choice-1',
+  options: [{ id: 'leadership', label: 'Leadership' }],
+};
+
+function renderShell(pendingChoice: PendingChoiceDto | null = null) {
+  return render(
+    <GameShell
+      header={<div>Header</div>}
+      board={<div data-testid="board-content">Board</div>}
+      playerSheet={<div>Player sheet</div>}
+      events={[]}
+      choice={pendingChoice}
+      onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+    />
+  );
+}
+
+describe('GameShell', () => {
+  it('owns player and event drawer visibility', () => {
+    renderShell();
+
+    const playerDrawer = screen.getByTestId('player-sheet-drawer');
+    const eventDrawer = screen.getByLabelText('Event log');
+    expect(playerDrawer).not.toHaveClass('app-shell__drawer--open');
+    expect(eventDrawer).not.toHaveClass('app-shell__drawer--open');
+
+    fireEvent.click(screen.getByTestId('player-sheet-toggle'));
+    expect(playerDrawer).toHaveClass('app-shell__drawer--open');
+    expect(screen.getByTestId('player-sheet-toggle')).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(screen.getByTestId('event-log-mobile-toggle'));
+    expect(eventDrawer).toHaveClass('app-shell__drawer--open');
+    expect(playerDrawer).not.toHaveClass('app-shell__drawer--open');
+    expect(screen.getByTestId('event-log-toggle')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('renders pending choices through the shell overlay and resets minimization for a new nonce', () => {
+    const { rerender } = renderShell(choice);
+
+    expect(screen.getByTestId('pending-choice-dialog')).toHaveClass('choice-dialog');
+    fireEvent.click(screen.getByTestId('minimize-choice-button'));
+    expect(screen.getByTestId('minimized-choice-banner')).toHaveClass('choice-banner');
+
+    rerender(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{ ...choice, nonce: 'choice-2' }}
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    expect(screen.getByTestId('pending-choice-dialog')).toBeInTheDocument();
+  });
+});

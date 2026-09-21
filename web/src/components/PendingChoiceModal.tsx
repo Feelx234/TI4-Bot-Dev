@@ -5,18 +5,27 @@ export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
   onSubmit: (optionId: string) => Promise<void>;
   lastError?: string | null;
+  isMinimized?: boolean;
+  onMinimizedChange?: (isMinimized: boolean) => void;
 }
 
 export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   choice,
   onSubmit,
   lastError,
+  isMinimized: controlledIsMinimized,
+  onMinimizedChange,
 }) => {
   const [selectedOptionId, setSelectedOptionId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [uncontrolledIsMinimized, setUncontrolledIsMinimized] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const priorFocusRef = useRef<HTMLElement | null>(null);
+  const isMinimized = controlledIsMinimized ?? uncontrolledIsMinimized;
+  const setIsMinimized = (next: boolean) => {
+    if (controlledIsMinimized === undefined) setUncontrolledIsMinimized(next);
+    onMinimizedChange?.(next);
+  };
 
   // Auto-select the first option and expand when a new choice arrives
   useEffect(() => {
@@ -41,18 +50,13 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     return (
       <div
         data-testid="minimized-choice-banner"
-        className="panel"
+        className="choice-banner panel"
         style={{
-          position: 'fixed',
-          bottom: 24,
-          left: '50%',
-          transform: 'translateX(-50%)',
           border: '2px solid #38bdf8',
           padding: '8px 20px',
           display: 'flex',
           alignItems: 'center',
           gap: 16,
-          zIndex: 90,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -122,45 +126,40 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
         data-testid="pending-choice-dialog"
         role="dialog"
         tabIndex={-1}
-      aria-modal="true"
-      aria-labelledby="choice-prompt-title"
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: 'rgba(3, 7, 18, 0.75)',
-        backdropFilter: 'blur(4px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 100,
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          setIsMinimized(true);
-          return;
-        }
-        if (event.key !== 'Tab') return;
-        const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])'
-        );
-        if (!focusable?.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }}
-    >
+        aria-modal="true"
+        aria-labelledby="choice-prompt-title"
+        className="choice-dialog"
+        style={{
+          background: 'rgba(3, 7, 18, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            setIsMinimized(true);
+            return;
+          }
+          if (event.key !== 'Tab') return;
+          const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])'
+          );
+          if (!focusable?.length) return;
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }}
+      >
       <div
-        className="panel"
+        className="choice-dialog__panel panel"
         style={{
           border: '1px solid #38bdf8',
           padding: 24,

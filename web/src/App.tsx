@@ -4,9 +4,8 @@ import { useGameSession } from './hooks/useGameSession.ts';
 import { Board } from './components/Board.tsx';
 import { TurnStatusBar } from './components/TurnStatusBar.tsx';
 import { PlayerSheet } from './components/PlayerSheet.tsx';
-import { PendingChoiceModal } from './components/PendingChoiceModal.tsx';
-import { EventLog } from './components/EventLog.tsx';
 import { Lobby } from './components/Lobby.tsx';
+import { GameShell } from './components/GameShell.tsx';
 
 export const App: React.FC = () => {
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
@@ -53,21 +52,9 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
   const userSeat = viewer.role === 'player' ? viewer.seat : undefined;
 
   return (
-    <div
-      data-testid="game-container"
-      className="app-shell"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        width: '100vw',
-        overflow: 'hidden',
-        position: 'relative',
-      }}
-    >
-      {/* Top Turn & Status Bar */}
-      <div style={{ display: 'flex', alignItems: 'stretch', zIndex: 150, position: 'relative' }}>
-        <div style={{ flex: 1 }}>
+    <GameShell
+      header={(
+        <div className="game-header">
           <TurnStatusBar
             status={turnStatus}
             view={snapshot?.view ?? null}
@@ -75,58 +62,25 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
             connectionStatus={status}
             userSeat={userSeat}
           />
+          <button
+            data-testid="leave-game-button"
+            onClick={onLeave}
+            className="button button--secondary game-header__exit"
+          >
+            Exit Game
+          </button>
         </div>
-        <button
-          data-testid="leave-game-button"
-          onClick={onLeave}
-          className="button button--secondary"
-          style={{
-            borderBottom: '1px solid #1e293b',
-            padding: '0 16px',
-            fontSize: 12,
-          }}
-        >
-          Exit Game
-        </button>
-      </div>
-
-      {/* Main Content: SVG Board + Player Sheet Sidebar */}
-      <div className="game-main-content" style={{ display: 'flex', flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <main className="game-board" style={{ flex: 1, position: 'relative', height: '100%' }}>
-          {snapshot ? (
-            <Board board={snapshot.view.board} seatingOrder={snapshot.view.seating_order} />
-          ) : (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-              }}
-            >
-              Loading game state...
-            </div>
-          )}
-        </main>
-
-        {/* Player Sheet Sidebar */}
-        {snapshot && (
-          <PlayerSheet
-            players={snapshot.view.players}
-            userSeat={userSeat}
-          />
-        )}
-      </div>
-
-      {/* Interactive Choice Dialog (Only when a choice is pending for this user's seat) */}
-      <PendingChoiceModal
-        choice={pendingChoice}
-        onSubmit={submitChoice}
-        lastError={lastError}
-      />
-
-      {/* Collapsible Event Log Drawer */}
-      <EventLog events={events} />
-    </div>
+      )}
+      board={snapshot ? (
+        <Board board={snapshot.view.board} seatingOrder={snapshot.view.seating_order} />
+      ) : (
+        <div className="game-loading">Loading game state...</div>
+      )}
+      playerSheet={snapshot ? <PlayerSheet players={snapshot.view.players} userSeat={userSeat} /> : null}
+      events={events}
+      choice={pendingChoice}
+      onSubmitChoice={submitChoice}
+      lastError={lastError}
+    />
   );
 };

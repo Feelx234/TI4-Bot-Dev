@@ -134,13 +134,10 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
     >
       {/* Pan / Zoom Control Overlay */}
       <div
+        className="board-controls"
         style={{
-          position: 'absolute',
-          top: 14,
-          right: 14,
           display: 'flex',
           gap: 6,
-          zIndex: 20,
         }}
       >
         <button
@@ -462,16 +459,12 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
       {hoveredTile && (
         <div
           data-testid="system-tooltip"
-          className="panel"
+          className="board-tooltip panel"
           style={{
-            position: 'absolute',
-            bottom: 16,
-            left: 16,
             border: '1px solid #38bdf8',
             padding: '10px 14px',
             fontSize: 13,
             pointerEvents: 'none',
-            zIndex: 30,
             maxWidth: 320,
           }}
         >

@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { GameLogEntry } from '../hooks/useGameSession.ts';
 
 export interface EventLogProps {
   events: GameLogEntry[];
+  isOpen: boolean;
+  onToggle: () => void;
 }
 
 function eventPresentation(event: GameLogEntry['event']): { color: string; text: string } {
@@ -35,28 +37,16 @@ function getVisibilityLabel(visibility: GameLogEntry): string | null {
   }
 }
 
-export const EventLog: React.FC<EventLogProps> = ({ events }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
+export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle }) => {
   return (
     <div
       data-testid="event-log-container"
       className="event-log"
-      style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 330, // leave space for player sheet
-        borderTop: '1px solid var(--color-border)',
-        color: '#cbd5e1',
-        fontSize: 12,
-        zIndex: 35,
-      }}
     >
       <button
         type="button"
         data-testid="event-log-toggle"
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={onToggle}
         aria-expanded={isOpen}
         className="button"
         style={{
