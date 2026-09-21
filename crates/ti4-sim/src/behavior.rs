@@ -381,6 +381,38 @@ pub const BOOTSTRAP_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 /// the top of this module.
 #[must_use]
 pub fn baseline_bounds() -> BTreeMap<String, (f64, f64)> {
+    // v43 — 2026-09-21. `is_action_window` compared the corpus window against "during the action
+    // phase" without the colon the card frame prints, so every Prophecy of Kings agent — Carth of
+    // Golden Sands among them — was filtered out of `component_actions` before anything else was
+    // consulted. LEADER-FIX-001 (16f389a, the v37 note above) put `hacanagent` in the delivered set
+    // and tested `use_leader`, which never reads the window; the leader was therefore "delivered"
+    // for eight days and unreachable in play. Dropping the colon delivers it for real, and a Hacan
+    // seat now spends action-phase options on commodities. Guarded by
+    // `leaders::tests::every_delivered_action_leader_prints_an_action_window`.
+    //
+    // Four metrics leave v42, all of them the action mix: share_INVASION_RESOLVED
+    // 0.019538 -> 0.019071, share_PRODUCTION_RESOLVED 0.035318 -> 0.034880,
+    // share_SYSTEM_ACTIVATED 0.069826 -> 0.068945, share_TACTICAL_ACTION_BEGAN
+    // 0.034508 -> 0.034065 — each about 1% down, which is dilution: every use of the agent appends
+    // a COMPONENT_ACTION_RESOLVED to the stream the shares divide by. `faction_differentiation`
+    // 0.323989 -> 0.712759 is the interesting one and it was already outside v42 before this change
+    // (below its floor of 0.371517 on the tree this batch started from, measured by reverting
+    // leaders.rs and legendary.rs to 90afe71 and re-running the same example); a Hacan seat with a
+    // working economy pulls away from the seats that do not, and the interval comes back home.
+    //
+    // Attribution, because "four metrics at once" deserves a bisection rather than a story: the two
+    // other fixes in this batch leave this suite untouched. Reverting the Maxis change and
+    // re-running prints the same ten numbers; the Wormhole Nexus placement is inert here (the
+    // reviewer's semantic golden is byte-identical with and without it). `completion` is 1.0 again:
+    // all thirty games still end cleanly.
+    //
+    // Derived with `cargo run --release -p ti4-sim --example rebaseline_behavior`; the debug build
+    // of the same example prints these ten intervals to the last digit, checked both ways on this
+    // tree. The bootstrap seed and draw count are unchanged. Review approval, which this discipline
+    // normally asks for, is the operator's standing waiver of independent review for this batch
+    // (2026-09-20): the numbers are the implementer's, and the old/new table is in
+    // plans/evidence/M08-021.md.
+    //
     // v42 — 2026-09-17. b1330a5: only ships sustain a space hit (a carried mech no longer does),
     // start-of-combat-round cards go to the two combatants only, and Ceasefire denies movement
     // for the whole activation. Bisected on b1330a5: the Ceasefire fix alone stays inside v41;
@@ -1033,43 +1065,43 @@ pub fn baseline_bounds() -> BTreeMap<String, (f64, f64)> {
     let mut bounds = BTreeMap::new();
     bounds.insert(
         "vp_pace".to_owned(),
-        (0.378_395_061_728_395_1, 0.437_654_320_987_654_17),
+        (0.367_901_234_567_901_2, 0.426_543_209_876_543_2),
     );
     // Degenerate on purpose: all games in every recorded baseline ended cleanly, so the bound
     // is the strict invariant "every game ends cleanly", not a statistical interval.
     bounds.insert("completion".to_owned(), (1.0, 1.0));
     bounds.insert(
         "score_spread".to_owned(),
-        (1.795_363_964_616_141_2, 2.261_770_458_160_200_7),
+        (1.680_032_094_254_723_6, 2.085_685_619_847_455),
     );
     // V3: the spec's across-faction quantity — re-deriven with the same baseline run.
     bounds.insert(
         "faction_differentiation".to_owned(),
-        (0.371_516_744_384_455_37, 1.092_807_574_581_055_3),
+        (0.500_246_852_644_019, 1.050_646_479_407_492_1),
     );
     bounds.insert(
         "share_INVASION_RESOLVED".to_owned(),
-        (0.019_115_944_910_957_507, 0.020_127_060_909_007_55),
+        (0.018_565_462_744_310_698, 0.019_575_783_043_621_07),
     );
     bounds.insert(
         "share_PRODUCTION_RESOLVED".to_owned(),
-        (0.034_890_831_994_864_584, 0.036_340_109_077_348_26),
+        (0.034_285_007_173_302_32, 0.035_441_694_226_248_745),
     );
     bounds.insert(
         "share_SHIP_MOVED".to_owned(),
-        (0.045_206_739_940_504_84, 0.048_183_818_077_498_06),
+        (0.044_532_968_400_387_68, 0.047_176_618_384_988_07),
     );
     bounds.insert(
         "share_SPACE_COMBAT_RESOLVED".to_owned(),
-        (0.004_316_600_800_571_206, 0.005_090_458_836_192_481),
+        (0.004_174_224_755_733_688, 0.004_861_139_402_660_64),
     );
     bounds.insert(
         "share_SYSTEM_ACTIVATED".to_owned(),
-        (0.069_110_585_207_633_07, 0.071_842_061_831_318_97),
+        (0.067_776_647_634_267_65, 0.070_070_895_813_165_43),
     );
     bounds.insert(
         "share_TACTICAL_ACTION_BEGAN".to_owned(),
-        (0.034_202_350_692_948_86, 0.035_513_879_381_186_13),
+        (0.033_478_025_357_762_516, 0.034_617_306_182_648_94),
     );
     bounds
 }
