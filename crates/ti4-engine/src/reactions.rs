@@ -139,6 +139,8 @@ fn direct_hit_guard(event: &Event, player: &PlayerId, state: &GameState) -> bool
         && event
             .text("producer")
             .is_some_and(|who| who == player.as_str())
+        // Dreadnought II and its kin cannot be destroyed by Direct Hit, so the card is not offered.
+        && event.boolean("direct_hittable") != Some(false)
 }
 
 /// "When another player plays an action card other than 'Sabotage'": the committer is

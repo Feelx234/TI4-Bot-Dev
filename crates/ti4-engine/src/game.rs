@@ -6651,6 +6651,71 @@ mod tests {
         );
     }
 
+    /// Dreadnought II "cannot be destroyed by 'Direct Hit' action cards". The same fight as
+    /// `direct_hit_destroys_the_ship_that_sustained_the_holders_hit`, with A holding the card and B
+    /// flying a Dreadnought II: the window must not open (the script has no reaction answer, so an
+    /// offer would fail the run), and B keeps the damaged dreadnought.
+    #[test]
+    fn direct_hit_is_not_offered_against_a_dreadnought_two() {
+        assert!(!crate::combat::direct_hittable(
+            ContentStore::embedded(),
+            POK,
+            "dreadnought2"
+        ));
+        assert!(crate::combat::direct_hittable(
+            ContentStore::embedded(),
+            POK,
+            "dreadnought"
+        ));
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let (mut state, galaxy, ids) = combat_fixture(&["dh1"], &[]);
+        crate::fixtures::put(&mut state, &ids[0], "cruiser", &a, 1);
+        crate::fixtures::put(&mut state, &ids[0], "dreadnought2", &b, 1);
+        crate::fixtures::put(&mut state, &ids[0], "fighter", &b, 1);
+        let script: Vec<String> = [
+            TACTICAL_ACTION_ID,
+            ids[0].as_str(),
+            "done_moving",
+            "stay",
+            "sustain|1",
+            "destroy|1",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        let table = Table::with_default(Box::new(Scripted::new(script)));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        game.dice = Dice::from_faces([10; 20]);
+        for _ in 0..60 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        let survivors: Vec<(String, bool)> = game
+            .state
+            .system_state(&SystemId::new("01"))
+            .units
+            .iter()
+            .filter(|unit| unit.owner == b)
+            .map(|unit| (unit.type_id.to_string(), unit.sustained_damage))
+            .collect();
+        assert!(
+            survivors.contains(&("dreadnought2".to_owned(), true)),
+            "the damaged Dreadnought II survives: {survivors:?}"
+        );
+        assert!(
+            game.state
+                .player(&a)
+                .unwrap()
+                .action_cards
+                .iter()
+                .any(|card| card.as_str() == "dh1"),
+            "the card was never played"
+        );
+    }
+
     #[test]
     #[allow(
         clippy::too_many_lines,

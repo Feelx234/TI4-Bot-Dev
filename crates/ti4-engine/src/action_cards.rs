@@ -1030,6 +1030,9 @@ fn direct_hit(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
     if &producer != player {
         return; // defence in depth: the window guard already checks this
     }
+    if !crate::combat::direct_hittable(context.content, context.sources, unit_type.as_str()) {
+        return; // Dreadnought II and its kin: "cannot be destroyed by 'Direct Hit' action cards"
+    }
     let board = context.state.system_mut(&system);
     let index = board
         .units

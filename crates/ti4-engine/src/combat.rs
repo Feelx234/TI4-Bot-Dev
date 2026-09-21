@@ -1958,6 +1958,12 @@ fn emit_sustain_used(
     payload.insert("player".to_owned(), player.to_string().into());
     payload.insert("unit".to_owned(), unit.to_owned().into());
     payload.insert("producer".to_owned(), producer.to_string().into());
+    // Direct Hit's window reads this: Dreadnought II and its faction versions "cannot be destroyed
+    // by 'Direct Hit' action cards", which the corpus carries as the absence of `canBeDirectHit`.
+    payload.insert(
+        "direct_hittable".to_owned(),
+        direct_hittable(ctx.content, ctx.sources, unit).into(),
+    );
     let _ = ctx.emit(state, "SUSTAIN_DAMAGE_USED", payload);
     if let Some((sys, victim, hits)) = std::mem::take(&mut state.pending_reflective_hits)
         && victim != *player
@@ -1975,6 +1981,15 @@ fn emit_sustain_used(
         )?;
     }
     Ok(())
+}
+
+/// Whether a Direct Hit may destroy a ship of this unit type. A type the corpus does not know is
+/// treated as hittable, the card's printed default.
+#[must_use]
+pub fn direct_hittable(content: &ContentStore, sources: SourceSet, unit: &str) -> bool {
+    catalogue(content, sources)
+        .get(unit)
+        .is_none_or(ti4_content::units::UnitType::can_be_direct_hit)
 }
 
 /// 78.6: the owning player chooses which of their own units dies.
