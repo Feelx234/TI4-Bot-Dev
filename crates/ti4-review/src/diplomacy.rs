@@ -19,16 +19,22 @@ use ti4_model::{
 
 use crate::{DecisionDetail, OptionDetail};
 
-/// A seat as the reviewer names it: `seat2 (xxcha)`.
+/// A seat as the reviewer names it: `seat2 "The Xxcha Kingdom"`, the same form as
+/// [`crate::view::seat_name`]; a faction the content does not know keeps its id: `seat2 (xxcha)`.
 #[must_use]
 pub fn seat(state: &GameState, player: &PlayerId) -> String {
-    state
+    let Some(seat) = state
         .player(player)
         .filter(|seat| !seat.faction.as_str().is_empty())
-        .map_or_else(
-            || player.to_string(),
-            |seat| format!("{} ({})", seat.id, seat.faction),
-        )
+    else {
+        return player.to_string();
+    };
+    match ti4_content::factions::get(ti4_content::ContentStore::embedded(), seat.faction.as_str())
+        .and_then(|faction| faction.name())
+    {
+        Some(name) => format!("{} \"{name}\"", seat.id),
+        None => format!("{} ({})", seat.id, seat.faction),
+    }
 }
 
 fn count(amount: u8, one: &str, many: &str) -> String {

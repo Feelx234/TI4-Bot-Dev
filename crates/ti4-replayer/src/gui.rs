@@ -1268,7 +1268,10 @@ impl Replayer {
                 *ui.visuals_mut() = egui::Visuals::light();
                 ui.visuals_mut().override_text_color = Some(PANEL_TEXT);
                 if let Some(pending) = pending {
-                    ui.heading(format!("{} is asked", pending.actor));
+                    ui.heading(format!(
+                        "{} is asked",
+                        view::annotate(session, pending.actor.as_str())
+                    ));
                     ui.strong(view::annotate(session, &pending.prompt));
                     ui.small(format!(
                         "frame {} · ask {} · {} option(s), in the order the engine offered them",
@@ -1423,7 +1426,7 @@ impl Replayer {
                 for player in &frame.state.players {
                     ui.colored_label(
                         view::player_color(&player.id),
-                        format!("● {} {}", player.id, player.faction),
+                        format!("● {}", view::seat_name(frame, &player.id, content)),
                     );
                 }
             });

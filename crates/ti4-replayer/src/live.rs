@@ -962,7 +962,14 @@ impl Gate {
     }
 
     /// Answer one ask from the engine. Called from [`crate::decider::ControlledDecider`] only.
-    pub(crate) fn decision_for(&self, seat: &PlayerId, choice: &Choice) -> GateDecision {
+    /// Who answers this ask. `scores` are the policy's `(score, probability)` per option, shown on
+    /// the panel if the ask parks; they never influence the answer.
+    pub(crate) fn decision_for(
+        &self,
+        seat: &PlayerId,
+        choice: &Choice,
+        scores: Option<Vec<(Option<f64>, Option<f64>)>>,
+    ) -> GateDecision {
         let fingerprint = crate::control::ChoiceFingerprint::from_choice(choice);
         let (frame, ask) = self.clock.next_ask();
         let _ = (frame, ask); // answers are recorded by the decorator, which knows the final option
@@ -1006,7 +1013,7 @@ impl Gate {
             );
             return GateDecision::Policy { delegated: false };
         }
-        self.park(seat, choice, &fingerprint, frame, ask)
+        self.park(seat, choice, &fingerprint, frame, ask, scores)
     }
 
     /// Answer this ask from the replay prefix, if one is installed and not yet exhausted.
@@ -1046,6 +1053,7 @@ impl Gate {
         fingerprint: &crate::control::ChoiceFingerprint,
         frame: u64,
         ask: u32,
+        scores: Option<Vec<(Option<f64>, Option<f64>)>>,
     ) -> GateDecision {
         let offer = match PendingManualChoice::new(
             crate::control::BranchId::SOURCE,
@@ -1054,7 +1062,19 @@ impl Gate {
             None,
             choice,
         ) {
-            Ok(offer) => offer,
+            Ok(mut offer) => {
+                // Presentation only: the fingerprint is computed from ids and kinds, not scores.
+                if let Some(scores) = scores.filter(|scores| scores.len() == offer.options.len()) {
+                    offer.options = std::mem::take(&mut offer.options)
+                        .into_iter()
+                        .zip(scores)
+                        .map(|(option, (score, probability))| {
+                            option.with_scores(score, probability)
+                        })
+                        .collect();
+                }
+                offer
+            }
             Err(_degenerate) => {
                 // An empty or absurd offer cannot be shown; letting the policy answer keeps the
                 // step valid and is counted as the anomaly it is.

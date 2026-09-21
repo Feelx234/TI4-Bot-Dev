@@ -832,7 +832,7 @@ impl ReviewApp {
                 for player in &frame.state.players {
                     ui.colored_label(
                         player_color(&player.id),
-                        format!("● {} {}", player.id, player.faction),
+                        format!("● {}", crate::view::seat_name(frame, &player.id, content)),
                     );
                 }
             });

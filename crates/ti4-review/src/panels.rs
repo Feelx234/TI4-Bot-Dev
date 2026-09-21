@@ -405,9 +405,8 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
                         .collect::<Vec<_>>()
                         .join(", ");
                     format!(
-                        "{} {}{}",
-                        player.id,
-                        player.faction,
+                        "{}{}",
+                        crate::view::seat_name(frame, &player.id, content),
                         if cards.is_empty() {
                             String::new()
                         } else {
@@ -428,8 +427,8 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
             {
                 ui.strong(format!(
                     "Speaker changed: {} → {} · events: {}",
-                    previous.state.speaker,
-                    frame.state.speaker,
+                    crate::view::seat_name(frame, &previous.state.speaker, content),
+                    crate::view::seat_name(frame, &frame.state.speaker, content),
                     if frame.new_events.is_empty() {
                         "unrecorded cause".to_owned()
                     } else {
@@ -499,19 +498,16 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
             for player in &frame.state.players {
                 let color = player_color(&player.id);
                 egui::CollapsingHeader::new(format!(
-                    "● {} · {} · {} VP",
-                    player.id, player.faction, player.victory_points
+                    "● {} · {} VP",
+                    crate::view::seat_name(frame, &player.id, content),
+                    player.victory_points
                 ))
                 .default_open(true)
                 .show(ui, |ui| {
                     seat_label(
                         ui,
                         &player.id,
-                        format!(
-                            "{} · {}",
-                            player.faction,
-                            if player.passed { "PASSED" } else { "ACTIVE" }
-                        ),
+                        if player.passed { "PASSED" } else { "ACTIVE" },
                     );
                     ui.horizontal_wrapped(|ui| {
                         stat_badge(ui, "★", "VP", player.victory_points);
@@ -834,8 +830,13 @@ pub fn decision_sheet(
             for (decision_index, row) in rows.iter().enumerate() {
                 ui.separator();
                 ui.strong(format!(
-                    "Decision {} · {} · {}",
-                    row.sequence, row.player, row.faction
+                    "Decision {} · {}",
+                    row.sequence,
+                    crate::view::seat_name(
+                        frame,
+                        &ti4_model::id::PlayerId::new(&row.player),
+                        ContentStore::embedded()
+                    )
                 ));
                 // Who actually chose: the model, or a fleet plan carrying out an
                 // earlier decision. Without this a planned move reads as a decision
@@ -924,9 +925,12 @@ pub fn decision_sheet(
                 ui.label("—");
             } else {
                 for event in &events {
-                    egui::CollapsingHeader::new(&event.title).show(ui, |ui| {
-                        ui.monospace(&event.payload);
-                    });
+                    egui::CollapsingHeader::new(naming.apply(session, &event.title)).show(
+                        ui,
+                        |ui| {
+                            ui.monospace(&event.payload);
+                        },
+                    );
                 }
                 if !frame.new_events.is_empty() {
                     ui.collapsing("Legacy event-name trace", |ui| {

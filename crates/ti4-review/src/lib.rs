@@ -523,6 +523,12 @@ impl Decider for TraceBot {
                     .then_with(|| left.name.cmp(&right.name))
             });
         }
+        self.inner.stage_scores(
+            options
+                .iter()
+                .map(|option| (option.score, option.probability))
+                .collect(),
+        );
         let picked = self.inner.choose_seeing(choice, seen);
         self.push(
             choice,
@@ -655,6 +661,12 @@ impl Decider for MlpTraceBot {
                     .sort_by(|left, right| left.name.cmp(&right.name));
             }
         }
+        self.inner.stage_scores(
+            options
+                .iter()
+                .map(|option| (option.score, option.probability))
+                .collect(),
+        );
         let picked = self.inner.choose_seeing(choice, seen);
         // What the plan did during this call: a prompt it answered is marked, and a fleet decision
         // taken right after an activation is shown as its own entry.

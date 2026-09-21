@@ -632,3 +632,32 @@ fn the_same_command_script_produces_the_same_session() {
         "batching the same steps into three commands changed the game"
     );
 }
+
+/// UI-05: a person answering for a seat sees the numbers the policy would have sampled from.
+#[test]
+fn a_manual_offer_carries_the_policys_numbers() {
+    let branch = start(&ALL_SEATS);
+    branch
+        .gate()
+        .run(AdvanceGoal::Steps(1))
+        .expect("one step is accepted");
+    let pending = park(&branch);
+    let probabilities: Vec<f64> = pending
+        .options
+        .iter()
+        .map(|option| {
+            option
+                .probability
+                .unwrap_or_else(|| panic!("option {} has no probability", option.id))
+        })
+        .collect();
+    let total: f64 = probabilities.iter().sum();
+    assert!(
+        (total - 1.0).abs() < 1e-6,
+        "the shares are a distribution over the offered options, got {total}"
+    );
+    assert!(
+        pending.options.iter().all(|option| option.score.is_some()),
+        "every option carries its score"
+    );
+}

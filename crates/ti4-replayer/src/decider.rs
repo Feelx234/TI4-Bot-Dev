@@ -166,11 +166,18 @@ pub struct ControlledDecider {
     inner: Box<dyn Decider>,
     seat: PlayerId,
     gate: Arc<Gate>,
+    /// The policy's numbers for the next ask, staged by the trace wrapper outside this decider.
+    staged: Option<Vec<(Option<f64>, Option<f64>)>>,
 }
 
 impl ControlledDecider {
     pub fn new(inner: Box<dyn Decider>, seat: PlayerId, gate: Arc<Gate>) -> Self {
-        Self { inner, seat, gate }
+        Self {
+            inner,
+            seat,
+            gate,
+            staged: None,
+        }
     }
 
     #[must_use]
@@ -194,10 +201,11 @@ impl ControlledDecider {
     fn answer_via_gate(
         &mut self,
         choice: &Choice,
+        scores: Option<Vec<(Option<f64>, Option<f64>)>>,
         policy: impl FnOnce(&mut Box<dyn Decider>) -> Result<ChoiceOption, IllegalChoice>,
     ) -> Result<ChoiceOption, IllegalChoice> {
         let fingerprint = ChoiceFingerprint::from_choice(choice);
-        let decision = self.gate.decision_for(&self.seat, choice);
+        let decision = self.gate.decision_for(&self.seat, choice, scores);
         let (frame, ask) = self.gate.current_ordinal();
         match decision {
             GateDecision::Human { option_id } => {
@@ -293,7 +301,8 @@ impl ControlledDecider {
 impl Decider for ControlledDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         self.gate.record_delivery(false);
-        self.answer_via_gate(choice, |inner| inner.choose(choice))
+        let scores = self.staged.take();
+        self.answer_via_gate(choice, scores, |inner| inner.choose(choice))
     }
 
     fn choose_seeing(
@@ -302,7 +311,14 @@ impl Decider for ControlledDecider {
         seen: &SeatObservation<'_>,
     ) -> Result<ChoiceOption, IllegalChoice> {
         self.gate.record_delivery(true);
-        self.answer_via_gate(choice, |inner| inner.choose_seeing(choice, seen))
+        // Staged by the trace wrapper from the same scoring pass it records, so the panel shows
+        // exactly the numbers the policy would have sampled from.
+        let scores = self.staged.take();
+        self.answer_via_gate(choice, scores, |inner| inner.choose_seeing(choice, seen))
+    }
+
+    fn stage_scores(&mut self, scores: Vec<(Option<f64>, Option<f64>)>) {
+        self.staged = Some(scores);
     }
 }
 
