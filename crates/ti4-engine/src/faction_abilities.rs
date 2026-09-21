@@ -150,7 +150,14 @@ pub fn status_tokens(
     // Cybernetic Enhancements (L1Z1X): "When you gain command tokens during the status phase: Gain
     // 1 additional command token. Then, return this card to the L1Z1X player." Counted here; the
     // status phase returns the notes once the gain is dealt (`promissory::return_all_foreign`).
-    count + i32::try_from(crate::promissory::held_foreign(state, player, "ce")).unwrap_or(0)
+    // Hyper Metabolism: "During the status phase, gain 3 command tokens instead of 2."
+    let hyper = state.player(player).is_some_and(|seat| {
+        seat.technologies
+            .contains(&ti4_model::id::TechnologyId::new("hm"))
+    });
+    count
+        + i32::from(hyper)
+        + i32::try_from(crate::promissory::held_foreign(state, player, "ce")).unwrap_or(0)
 }
 
 /// Prerequisites this player may skip when researching `technology`.

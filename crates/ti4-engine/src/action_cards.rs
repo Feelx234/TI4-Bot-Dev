@@ -1989,6 +1989,14 @@ pub fn apply_movement_effects(
     let Some(seat) = state.player(player) else {
         return;
     };
+    // Light/Wave Deflector: "Your ships can move through systems that contain other players'
+    // ships." Held, not played, so it applies to every move.
+    if seat
+        .technologies
+        .contains(&ti4_model::id::TechnologyId::new("lwd"))
+    {
+        rules.ignore_enemy_ships = true;
+    }
     let this_activation = Some(state.activation_seq);
     if seat.anomalies_ignored_activation == this_activation {
         rules.anomalies_ignored = true;

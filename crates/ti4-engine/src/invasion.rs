@@ -1928,6 +1928,17 @@ impl InvasionWindow {
         } else {
             self.invader.clone()
         };
+        // Only a side with forces left has won (both wiped out is nobody's win).
+        if owners.contains(&winner) {
+            crate::faction_techs::dacxive_animators(
+                state,
+                content,
+                sources,
+                &winner,
+                &self.system,
+                planet,
+            );
+        }
         let noted = self
             .current_ground_occurrence
             .take()

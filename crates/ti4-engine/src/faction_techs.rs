@@ -426,6 +426,46 @@ pub fn spatial_conduit_links(
     links
 }
 
+/// Dacxive Animators: "After you win a ground combat, you may place 1 infantry from your
+/// reinforcements on that planet." Always taken when the box has one: an extra infantry on a
+/// planet just won is never worse than one in reinforcements. Returns whether it was placed.
+pub fn dacxive_animators(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    winner: &PlayerId,
+    system: &SystemId,
+    planet: &ti4_model::id::PlanetId,
+) -> bool {
+    if !state
+        .player(winner)
+        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("dxa")))
+    {
+        return false;
+    }
+    let Some(infantry) = crate::production::buildable_for(state, content, sources, winner)
+        .into_iter()
+        .find(|kind| {
+            ti4_content::units::catalogue(content, sources)
+                .get(kind.as_str())
+                .is_some_and(|record| record.base_type() == "infantry")
+        })
+    else {
+        return false;
+    };
+    let infantry = ti4_model::id::UnitTypeId::new(infantry);
+    if crate::supply::remaining(state, content, sources, winner, &infantry) < 1 {
+        return false;
+    }
+    state
+        .system_mut(system)
+        .planet_units
+        .entry(planet.clone())
+        .or_default()
+        .push(ti4_model::units::Unit::new(infantry, winner.clone()));
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use ti4_model::content_types::POK;
@@ -644,5 +684,57 @@ mod tests {
         // The next activation is ordinary again.
         state.activation_seq = 8;
         assert!(spatial_conduit_links(&state).is_empty());
+    }
+
+    #[test]
+    fn dacxive_animators_adds_an_infantry_to_the_planet_won() {
+        let mut state = game(&["a"]);
+        let winner = PlayerId::new("a");
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        assert!(!dacxive_animators(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &winner,
+            &system,
+            &planet
+        ));
+        state
+            .player_mut(&winner)
+            .unwrap()
+            .technologies
+            .insert(TechnologyId::new("dxa"));
+        assert!(dacxive_animators(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &winner,
+            &system,
+            &planet
+        ));
+        assert_eq!(
+            state
+                .system_state(&system)
+                .on_planet_of(&planet, &winner)
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn hyper_metabolism_gains_one_more_status_token() {
+        let mut state = game(&["a"]);
+        let player = PlayerId::new("a");
+        let without =
+            crate::faction_abilities::status_tokens(&state, ContentStore::embedded(), &player, 2);
+        state
+            .player_mut(&player)
+            .unwrap()
+            .technologies
+            .insert(TechnologyId::new("hm"));
+        assert_eq!(
+            crate::faction_abilities::status_tokens(&state, ContentStore::embedded(), &player, 2),
+            without + 1
+        );
     }
 }
