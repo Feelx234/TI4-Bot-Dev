@@ -428,6 +428,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Production Biomes: which other player gains the 2 trade goods.
+        module: "faction_abilities.rs",
+        function: "production_biomes",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "faction_abilities.rs",
         function: "space_combat_round_started",
         count: 1,
@@ -904,6 +911,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "roll_round", 1),
     ("exploration.rs", "ask", 1),
     ("faction_abilities.rs", "perform_component", 2),
+    ("faction_abilities.rs", "production_biomes", 1),
     ("faction_abilities.rs", "space_combat_round_started", 1),
     ("faction_abilities.rs", "strategy_resolved", 1),
     ("faction_techs.rs", "offer_nullification_field", 1),

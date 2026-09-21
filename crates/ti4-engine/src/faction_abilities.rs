@@ -329,7 +329,77 @@ pub fn component_actions(
             "Orbital Drop: spend a strategy token to land 2 infantry",
         ));
     }
+    // Production Biomes (Hacan technology): exhaust, and a strategy token, for 4 trade goods to
+    // the owner and 2 to another player. Needs somebody else to give the 2 to.
+    let biomes = ti4_model::id::TechnologyId::new("pm");
+    if state.player(player).is_some_and(|seat| {
+        seat.technologies.contains(&biomes)
+            && !seat.exhausted_technologies.contains(&biomes)
+            && seat.tokens(ti4_model::state::TokenPool::Strategic) > 0
+    }) && state.players.iter().any(|seat| &seat.id != player)
+    {
+        options.push(crate::choice::ChoiceOption::labelled(
+            "faction|production_biomes",
+            ACTION_KIND,
+            "Production Biomes: exhaust and spend a strategy token for 4 trade goods",
+        ));
+    }
     options
+}
+
+/// Production Biomes: "ACTION: Exhaust this card and spend 1 token from your strategy pool to gain
+/// 4 trade goods and choose 1 other player; that player gains 2 trade goods."
+fn production_biomes(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) -> bool {
+    let others: Vec<PlayerId> = context
+        .state
+        .players
+        .iter()
+        .map(|seat| seat.id.clone())
+        .filter(|seat| seat != player)
+        .collect();
+    if others.is_empty()
+        || context
+            .state
+            .player(player)
+            .is_none_or(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) <= 0)
+    {
+        return false; // 22.3
+    }
+    let choice = crate::choice::Choice::new(
+        player.clone(),
+        "Production Biomes: who gains 2 trade goods",
+        others
+            .iter()
+            .map(|seat| {
+                crate::choice::ChoiceOption::labelled(seat.to_string(), "player", seat.to_string())
+            })
+            .collect(),
+    )
+    .contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::Content("pm".to_owned()),
+        "production_biomes_choose_player",
+        context.state.phase,
+        context.state.round,
+    ));
+    let Ok(answer) = context.ask_seeing(&choice) else {
+        return false;
+    };
+    let Some(chosen) = others.into_iter().find(|seat| seat.as_str() == answer.id) else {
+        return false;
+    };
+    context
+        .state
+        .gain_token(player, ti4_model::state::TokenPool::Strategic, -1);
+    if let Some(seat) = context.state.player_mut(player) {
+        seat.exhausted_technologies
+            .insert(ti4_model::id::TechnologyId::new("pm"));
+        seat.trade_goods += 4;
+    }
+    if let Some(seat) = context.state.player_mut(&chosen) {
+        seat.trade_goods += 2;
+    }
+    true
 }
 
 /// Perform a faction component action. Returns `false` for an option that is not one.
@@ -342,6 +412,9 @@ pub fn perform_component(
     player: &PlayerId,
     option: &crate::choice::ChoiceOption,
 ) -> bool {
+    if option.id == "faction|production_biomes" {
+        return production_biomes(context, player);
+    }
     if option.id != "faction|orbital_drop" {
         return false;
     }
@@ -1313,6 +1386,47 @@ mod tests {
                 }),
             2,
             "two infantry landed"
+        );
+    }
+
+    #[test]
+    fn production_biomes_pays_four_and_two_for_a_token_and_the_card() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let (hacan, other) = (PlayerId::new("a"), PlayerId::new("b"));
+        let seat = state.player_mut(&hacan).unwrap();
+        seat.faction = ti4_model::id::FactionId::new("hacan");
+        seat.technologies.insert(TechnologyId::new("pm"));
+        seat.strategic_tokens = 1;
+        seat.trade_goods = 0;
+        state.player_mut(&other).unwrap().trade_goods = 0;
+
+        let offered = component_actions(&state, content, &hacan);
+        let biomes = offered
+            .iter()
+            .find(|option| option.id == "faction|production_biomes")
+            .expect("offered with the card ready and a token")
+            .clone();
+        let mut table =
+            crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([
+                "b".to_owned()
+            ])));
+        let done = with_table_context(&mut state, None, &mut table, |context| {
+            perform_component(context, &hacan, &biomes)
+        });
+        assert!(done);
+        let seat = state.player(&hacan).unwrap();
+        assert_eq!((seat.trade_goods, seat.strategic_tokens), (4, 0));
+        assert!(
+            seat.exhausted_technologies
+                .contains(&TechnologyId::new("pm"))
+        );
+        assert_eq!(state.player(&other).unwrap().trade_goods, 2);
+        assert!(
+            component_actions(&state, content, &hacan)
+                .iter()
+                .all(|option| option.id != "faction|production_biomes"),
+            "exhausted, it is not offered again"
         );
     }
 
