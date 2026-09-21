@@ -267,3 +267,62 @@ stay on the row, because for those the id is the information.
 No game state changes, so no fixture and no re-baseline. What is *not* done is the rest of UI-04's
 ambition: the rows are terms, not a valuation, and the legacy transaction offers still read as their
 labels ("sell cf:hacan for 2 trade goods"), which are self-describing but not netted.
+
+## F-07, designed and not landed: asking for what the partner holds
+
+Three of the operator's reports are one bug in the offer generator —
+`can't ask for opponent held promissory notes during transactions`,
+`hacan cant sell action cards for promissory notes`, and
+`deals often want tradegoods as payment although commodities would be available`.
+They are not in this batch. The design is written down so the next session does not redo the
+analysis, and the reason it is not here is stated so nobody mistakes the silence for a fix.
+
+Every shape `offer_options` produced gives something *to* the partner and takes payment back: notes
+(`pn{note}:{price}`), the Hacan card sale (`ac{card}:1`), the commodity swaps (`cc`, `ct`, `tc`),
+support (`ss`), fragments (`fr`), secret objectives (`so`). There is no shape in which the proposer
+receives an asset. That is why the operator could not ask for a note: not a legality gate, not a
+hidden-information wall — the ask was never one of the things that could be said.
+
+Five shapes close all three reports, priced only from the `NOTE_WORTH` table and
+`note_option_price` that already exist, so nothing here is a new valuation:
+
+| id | the ask | gate |
+|---|---|---|
+| `np{note}:{g}` | `g` of my trade goods for their note | posted price `g`, and I hold `g` |
+| `cp{note}:{c}` | `c` of my commodities for their note | same price, paid in commodities, and I hold them |
+| `pc{note}:{c}` | my note for `c` of their commodities | the note is worth at least `c` |
+| `nn{mine}>{theirs}` | one of my notes for one of theirs | different base aliases; net ≥ 0; capped at four pairs |
+| `cn{card}>{note}` | my action card for their note | the 94.3 Arbiters / Black Market gate the card sale already uses |
+
+Two things make this more than a code edit, and both are why it needs its own session:
+
+1. **The id grammar.** `|` splits an option id in token matching and `:` carries the price, so
+   neither can separate the halves of a two-asset id; note ids contain `:` themselves
+   (`alias:faction`). `>` is free, and `offer_from` must test the three-character prefixes
+   (`pnc`-style collisions were the reason `cp` was chosen over `pnc`) before the two-character and
+   single-character fallbacks, which return early on a failed parse.
+2. **It changes what the bots are offered**, and therefore every sampled game. The behaviour bounds
+   and the reviewer's semantic golden will move as they did for F-01a, and the same attribution —
+   run each change alone — has to be done again.
+
+Until it lands: BUG-03 on the plan stays **TODO**, and a table where somebody needs a note-for-note
+trade still has to be papered over with a gift and a promise.
+
+## What this batch does not do
+
+`the dice roll needs to surface better` is untouched, and the investigation stopped short of a
+verdict: `AutocombatRes` carries the per-step dice, and no consumer outside `ti4-engine` reads that
+event at all, so this is a recording-schema question (whether the steps reach the `.riv2`/`.rivs`
+frames) before it is a rendering one. The combat cards in the reviewer are a static rules reference,
+which is why the numbers are visible for the rules and not for the roll.
+
+Also untouched: BUG-08 (refresh versus paying the due), BUG-07 (the strategy pick shown unpicked),
+UI-06 (planet rider totals), and BUG-05/06/09/10/11/12 on the plan's list — none of them had a
+reproduction in this working tree, and the plan's own claim that BUG-01..04 were never fixed held
+true for every one this batch looked at.
+
+One loose end worth someone's attention: while this batch was running, several directories under the
+gitignored `out/` (`s6`, `pools`, `wiring-v3`, `rollout-batch-*`, `probe-*`) disappeared between two
+listings, at ~02:13 on 2026-09-21. Nothing in this batch wrote to `out/` except two scratch files and
+a temporary Python script, all of which are still there, and no command run here deleted a directory.
+`out/` is scratch by the artifact policy, so nothing tracked was lost and nothing was restored.

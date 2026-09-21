@@ -9821,3 +9821,35 @@ offered Carth for the first time, byte-identical with the Nexus change removed).
 run also surfaced something not mine: `faction_differentiation` was already below its v42 floor on the
 tree this batch started from. Recorded as an open item in `plans/evidence/M08-021.md`, not bisected,
 not silently absorbed.
+
+## 2026-09-21 handover: four commits, three reports closed, one design left behind
+
+Branch `wp/operator-bugs-2026-09-21`, from `90afe71`. All four commits are on it:
+
+| commit | the operator's words | what it was |
+|---|---|---|
+| `f28dcf1` | "the hacan agent is broken, never offered" | a `:` in the corpus text: `is_action_window` compared against the window without the frame's colon, so every PoK agent but Xxcha's was unofferable |
+| `d878701` | (fallout of the above) | behaviour bounds v43 + the reviewer's semantic golden, attributed by bisecting each change; records a pre-existing `faction_differentiation` breach that is not ours |
+| `7dbdce8` | "malice / wormhole nexus is not on the board" | the Nexus was placed only in the Rust spiral's own builder, so pool-built tables had no tile; and the view hid it until `state.board` held it |
+| `847548b` | "the diplomacy offers really need better ui" | the live replayer panel rendered an offer's label and raw id; the terms were computed and shown everywhere else |
+
+Verification: `ti4-engine` 1347, `ti4-training` 149, `ti4-review` (lib + all integration tests incl.
+golden and `review_compatibility`), `ti4-sim` behaviour v43 + `map_pool`, `ti4-replayer` 60; clippy
+reports nothing in the changed files. `ti4-bridge`'s 4 golden failures (missing
+`crates/ti4-bridge/tests/golden/`, not in Git) and `ti4-mlp`'s `smoke_refusals` (needs
+`out/vocabulary/current.json`) fail the same way before and after.
+
+Not done, in the order I would take them:
+
+1. **F-07, the five transaction shapes** — designed in the evidence file, including why `>` separates
+   the halves and why `cp` rather than `pnc`. This closes BUG-03 and two more operator reports at
+   once. It needs its own behaviour re-baseline.
+2. **BUG-08**, refresh versus paying the due.
+3. **Dice rolls surfacing** — check first whether the autocombat steps are in the recording at all;
+   they are not read by anything outside the engine.
+4. **BUG-07** (strategy pick shown unpicked), **UI-06** (planet totals), then the BUG-05/06 BLOCKED
+   items once the operator's saved game arrives.
+
+The four files that were already modified when this batch started (`ti4-mlp/examples/capture_offline_pilot.rs`,
+`offline_bc.rs`, `plans/INDEX.md`, `scripts/publish_and_train_stopped_corpus.ps1`) are still
+uncommitted and still not ours.
