@@ -104,6 +104,36 @@ describe('AgendaBallotModal', () => {
     expect(onSubmit).toHaveBeenCalled();
   });
 
+  it('uses the structured planet name instead of an encoded option id', () => {
+    const choice: PendingChoiceDto = {
+      actor: 'seat_1',
+      nonce: '31b',
+      prompt: 'exhaust a planet to vote FOR',
+      context: { subtype: 'vote_exhaust_planet' },
+      options: [
+        {
+          id: 'exhaust|mecatol_rex',
+          label: '',
+          kind: 'vote_planet',
+          payload: { planet_name: 'Mecatol Rex', votes: 6 },
+        },
+      ],
+    };
+
+    render(
+      <AgendaBallotModal
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('planet-card-exhaust|mecatol_rex')).toHaveTextContent('Mecatol Rex');
+    expect(screen.queryByText('exhaust|mecatol_rex')).not.toBeInTheDocument();
+  });
+
   it('renders vote_tiebreak stage with Speaker gavel and resolves tied outcome', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();

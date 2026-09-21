@@ -70,10 +70,13 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
       .filter((o) => o.id !== 'decline' && o.kind !== 'decline')
       .map((opt) => {
         const votes = getAgendaPlanetVotes(opt);
+        const payloadPlanetName = typeof opt.payload?.planet_name === 'string'
+          ? opt.payload.planet_name
+          : null;
         return {
           id: opt.id,
           label: opt.label,
-          planetName: opt.label || opt.id,
+          planetName: payloadPlanetName || opt.label || 'Planet',
           votes,
         };
       });
