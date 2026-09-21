@@ -1065,14 +1065,14 @@ pub fn baseline_bounds() -> BTreeMap<String, (f64, f64)> {
     let mut bounds = BTreeMap::new();
     bounds.insert(
         "vp_pace".to_owned(),
-        (0.367_901_234_567_901_2, 0.426_543_209_876_543_2),
+        (0.38765432098765423, 0.4493827160493827),
     );
     // Degenerate on purpose: all games in every recorded baseline ended cleanly, so the bound
     // is the strict invariant "every game ends cleanly", not a statistical interval.
     bounds.insert("completion".to_owned(), (1.0, 1.0));
     bounds.insert(
         "score_spread".to_owned(),
-        (1.680_032_094_254_723_6, 2.085_685_619_847_455),
+        (1.7469290304566525, 2.2226187705201847),
     );
     // V3: the spec's across-faction quantity — re-deriven with the same baseline run.
     //
@@ -1083,35 +1083,40 @@ pub fn baseline_bounds() -> BTreeMap<String, (f64, f64)> {
     // engine could ask at all. Notes are the most asymmetric cards in the game — a Research Agreement
     // is worth four goods to its own faction and two to anybody else — so a table that can trade them
     // separates its factions by what each one wanted. Every other metric, including the four action-mix
-    // shares that moved at v43, is inside its v43 interval unchanged; the point metric also stays
-    // inside, so this is the interval widening, not the games drifting.
+    // shares that moved at v43, stays inside its recorded interval -- but staying inside is a weak
+    // statement, and the protocol-integrity check under it is strict: eight more intervals
+    // (score_spread, vp_pace, share_SHIP_MOVED, share_SPACE_COMBAT_RESOLVED and the four v43 shares)
+    // no longer re-derived to the recorded constants and were re-derived here. Each moved by well
+    // under a tenth of its own width. The first version of this note claimed the rest was unchanged,
+    // which was true of the gate and false of the protocol, and the difference is exactly what the
+    // strict check exists to catch.
     bounds.insert(
         "faction_differentiation".to_owned(),
         (0.548_201_323_747_056_3, 1.101_079_717_009_571),
     );
     bounds.insert(
         "share_INVASION_RESOLVED".to_owned(),
-        (0.018_565_462_744_310_698, 0.019_575_783_043_621_07),
+        (0.018557398105767956, 0.01996169871417233),
     );
     bounds.insert(
         "share_PRODUCTION_RESOLVED".to_owned(),
-        (0.034_285_007_173_302_32, 0.035_441_694_226_248_745),
+        (0.03424312152473616, 0.035446678203117636),
     );
     bounds.insert(
         "share_SHIP_MOVED".to_owned(),
-        (0.044_532_968_400_387_68, 0.047_176_618_384_988_07),
+        (0.04440951672092693, 0.04757771765767625),
     );
     bounds.insert(
         "share_SPACE_COMBAT_RESOLVED".to_owned(),
-        (0.004_174_224_755_733_688, 0.004_861_139_402_660_64),
+        (0.004247960542862018, 0.004944546934263645),
     );
     bounds.insert(
         "share_SYSTEM_ACTIVATED".to_owned(),
-        (0.067_776_647_634_267_65, 0.070_070_895_813_165_43),
+        (0.06773490941954607, 0.07006122508954206),
     );
     bounds.insert(
         "share_TACTICAL_ACTION_BEGAN".to_owned(),
-        (0.033_478_025_357_762_516, 0.034_617_306_182_648_94),
+        (0.033491157736432034, 0.03463710552478524),
     );
     bounds
 }

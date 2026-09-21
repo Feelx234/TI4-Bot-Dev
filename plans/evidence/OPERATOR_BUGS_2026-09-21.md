@@ -363,13 +363,30 @@ non-empty sides. `no_deal_shape_is_written_twice` covers the new set for free.
 
 `cargo test -p ti4-engine --lib` 1352 passed. Then the two fixtures the design note said would move:
 
-**Behaviour suite: one metric, `faction_differentiation` [0.500247, 1.050646] → [0.548201,
-1.101080].** Everything else — including the four action-mix shares that moved at v43 — is inside its
-v43 interval unchanged, and the point metric stays inside its own interval, so the interval widened
-rather than the games drifting. Notes are the most asymmetric cards in the game, so a table that can
-trade them separates its factions by what each one wanted. Attributed by scope rather than by
-reverting: `git status` shows one engine file changed, and it is the trade generator. Re-baselined to
-**v44** in `behavior.rs` with that narrative attached.
+**Behaviour suite, nine metrics.** The first write-up of this section said "one metric moves" and it
+was wrong in a way worth keeping. It was read off the *gate* — every metric still sits inside its
+recorded interval, which is the assertion that asks whether the tree has got stranger. But the test
+also re-derives every recorded constant under the bootstrap protocol, and that check is exact: nine
+intervals no longer re-derived, and it reports one at a time, so it took a run per metric to find
+them. Re-derived in full (v44):
+
+| metric | v43 recorded | v44 recomputed |
+|---|---|---|
+| `faction_differentiation` | [0.500247, 1.050646] | [0.548201, 1.101080] |
+| `score_spread` | [1.680032, 2.085686] | [1.746929, 2.222619] |
+| `vp_pace` | [0.367901, 0.426543] | [0.387654, 0.449383] |
+| `share_SHIP_MOVED` | [0.044533, 0.047177] | [0.044410, 0.047578] |
+| `share_SPACE_COMBAT_RESOLVED` | [0.004174, 0.004861] | [0.004248, 0.004945] |
+| `share_INVASION_RESOLVED` | [0.018565, 0.019576] | [0.018557, 0.019962] |
+| `share_PRODUCTION_RESOLVED` | [0.034285, 0.035442] | [0.034243, 0.035447] |
+| `share_SYSTEM_ACTIVATED` | [0.067777, 0.070071] | [0.067735, 0.070061] |
+| `share_TACTICAL_ACTION_BEGAN` | [0.033478, 0.034617] | [0.033491, 0.034637] |
+
+Each is a fraction of its own width, and every point metric stayed inside, so nothing here says the
+games went strange — it says the batch was not inert, which is the honest reading of trading notes:
+the most asymmetric cards in the game, and a table that can trade them separates its factions by what
+each one wanted. Attributed by scope rather than by reverting: `git status` showed one engine file
+changed, and it is the trade generator.
 
 **Reviewer golden: 60 of 241 frames differ; first divergence at frame 19.** Frame 19 is a Hacan seat
 opening a transaction with Sol, and it is exactly the report: the golden shows six options, the tree
