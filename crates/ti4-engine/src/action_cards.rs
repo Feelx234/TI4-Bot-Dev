@@ -1113,7 +1113,7 @@ fn courageous(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
     };
     let roll = context
         .dice
-        .roll(context.rng, 2, "courageous to the end", None);
+        .roll_by(context.rng, 2, "courageous to the end", None, player);
     for face in roll.faces {
         if i64::from(face) < combat_value {
             continue;
@@ -2786,11 +2786,12 @@ fn experimental_battlestation(context: &mut crate::timing::TimingContext<'_>, pl
     ) else {
         return;
     };
-    let roll = context.dice.roll(
+    let roll = context.dice.roll_by(
         context.rng,
         3,
         "experimental_battlestation_space_cannon",
         Some(5),
+        player,
     );
     let hits = roll.hits();
     if hits == 0 {
@@ -4884,9 +4885,13 @@ fn plague(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
         return;
     }
     // One die each, through the seeded roller: an ambient generator here would break replay.
-    let roll = context
-        .dice
-        .roll(context.rng, infantry, "plague", Some(PLAGUE_KILLS_ON));
+    let roll = context.dice.roll_by(
+        context.rng,
+        infantry,
+        "plague",
+        Some(PLAGUE_KILLS_ON),
+        player,
+    );
     let kills = roll
         .faces
         .iter()
@@ -4922,7 +4927,7 @@ fn spy(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     // "Random" comes from the seeded roller too, or replay diverges.
     let face = context
         .dice
-        .roll(context.rng, 1, "spy", None)
+        .roll_by(context.rng, 1, "spy", None, player)
         .faces
         .first()
         .copied()

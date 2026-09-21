@@ -2331,7 +2331,9 @@ impl<'a> Game<'a> {
         // `anomalies_ignored` as well as `rifts_ignored`, so setting only the Circlet's immunity
         // here would let Nav Suite route around an anomaly and then roll for the rift anyway.
         crate::action_cards::apply_movement_effects(&mut rules, &self.state, &ship.owner);
+        let rolled_before = self.dice.count();
         let survives = survives_gravity_rifts(&mut self.dice, &mut self.rng, &rules, path);
+        self.dice.attribute_since(rolled_before, &ship.owner);
         apply_move(&mut self.state, origin, &active, ship, cargo, survives)
     }
 
@@ -2569,8 +2571,11 @@ impl<'a> Game<'a> {
                 .iter()
                 .any(|unit| unit.owner == player)
         {
-            let mut dice = crate::dice::Dice::new();
-            let mut rng = crate::rng::GameRng::new(0);
+            // The game's own dice and generator, as the agenda step does: a card resolved here
+            // that rolls must draw from the seeded stream and land in the game's roll history,
+            // not on a throwaway seeded 0 that no viewer ever sees.
+            let mut dice = std::mem::take(&mut self.dice);
+            let mut rng = self.rng.clone();
             let mut ctx = crate::choice::Resolving {
                 content: self.content,
                 sources: self.sources,
@@ -2579,9 +2584,11 @@ impl<'a> Game<'a> {
                 table: &mut self.table,
                 timing: None,
             };
-            if crate::exploration::explore_frontier(&mut self.state, &mut ctx, &player, &system)
-                .is_some()
-            {
+            let explored =
+                crate::exploration::explore_frontier(&mut self.state, &mut ctx, &player, &system);
+            self.dice = dice;
+            self.rng = rng;
+            if explored.is_some() {
                 self.emit("FRONTIER_EXPLORED");
             }
         }

@@ -223,6 +223,16 @@ impl Dice {
         record
     }
 
+    /// Name the seat behind every roll recorded since `start` (a [`Dice::count`] taken before the
+    /// call), for a helper that rolls without knowing whose dice they are.
+    pub fn attribute_since(&mut self, start: usize, by: &ti4_model::id::PlayerId) {
+        for roll in self.history.iter_mut().skip(start) {
+            if roll.by.is_none() {
+                roll.by = Some(by.to_string());
+            }
+        }
+    }
+
     /// Every roll made for one reason.
     #[must_use]
     pub fn rolled(&self, reason: &str) -> Vec<&Roll> {

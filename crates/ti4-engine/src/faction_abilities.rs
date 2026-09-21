@@ -755,11 +755,12 @@ pub fn ground_combat_round_ended(
         if count == 0 {
             continue;
         }
-        let roll = dice.roll(
+        let roll = dice.roll_by(
             rng,
             count,
             "harrow",
             kind.bombard_hits_on().and_then(|on| u32::try_from(on).ok()),
+            player,
         );
         hits += roll.hits();
     }

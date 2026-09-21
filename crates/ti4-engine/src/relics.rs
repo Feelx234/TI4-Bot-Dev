@@ -252,7 +252,7 @@ fn the_silver_flame(
     // public objectives for the rest of the game. The roll happens either way, so the
     // card is purged before the branch rather than in one arm of it.
     let roll = dice
-        .roll(rng, 1, "silver_flame", None)
+        .roll_by(rng, 1, "silver_flame", None, player)
         .faces
         .first()
         .copied()
