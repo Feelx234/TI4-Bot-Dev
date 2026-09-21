@@ -491,8 +491,16 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The seat's action-phase turn: strategic, tactical, component, pass, contacts.
         module: "game.rs",
-        function: "action_options",
+        function: "turn_options",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step"),
+    },
+    Producer {
+        // OP-08: end the turn, or do what does not take an action (and Fleet Logistics' second).
+        module: "game.rs",
+        function: "closing_options",
         count: 1,
         delivery: Delivery::ObservedVia("game.rs::step"),
     },

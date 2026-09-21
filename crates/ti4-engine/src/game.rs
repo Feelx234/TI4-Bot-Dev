@@ -113,6 +113,9 @@ pub enum RunError {
 }
 
 /// The action id that opens a tactical action.
+/// OP-08: the explicit end of an action-phase turn.
+pub const END_TURN_ID: &str = "end_turn";
+pub const END_TURN_KIND: &str = "end_turn";
 pub const TACTICAL_ACTION_ID: &str = "tactical";
 
 /// The steps after movement, as one resumable sequence (LRR 49 and around it).
@@ -750,6 +753,12 @@ pub struct Game<'a> {
     /// every other action is still available -- while making progress unavoidable, because the
     /// offer shrinks by one each time.
     failed_component_actions: std::collections::BTreeSet<String>,
+    /// OP-08: the active player finished an action and is deciding to end the turn, with other
+    /// things still open to them (a contact, a trade, a payment, a free ability, or with Fleet
+    /// Logistics a second action).
+    turn_closing: Option<PlayerId>,
+    /// Actions taken this turn, for Fleet Logistics' "2 actions instead of 1".
+    actions_this_turn: u8,
     /// Turn sequence whose free start-of-turn technology choices have been resolved.
     prepared_turn_seq: Option<u32>,
     blocked: Option<GameError>,
@@ -821,6 +830,8 @@ impl<'a> Game<'a> {
             agenda_resolved: false,
             strategy_phase_announced: false,
             failed_component_actions: std::collections::BTreeSet::new(),
+            turn_closing: None,
+            actions_this_turn: 0,
             prepared_turn_seq: None,
             blocked: None,
         }
@@ -1145,6 +1156,69 @@ impl<'a> Game<'a> {
         if let Some(window) = &self.secondary {
             return window.pending_choice(&self.state, self.content, self.sources);
         }
+        if let Some(player) = &self.turn_closing {
+            return Some(self.closing_options(player));
+        }
+        self.turn_options()
+    }
+
+    /// Whether an action-phase option leaves the turn's action untouched: a contact, a trade, a
+    /// payment on a deal, or a leader printed "During the action phase:".
+    fn is_free_option(&self, option: &ChoiceOption) -> bool {
+        crate::diplomacy::candidates::contact_seat_index(&option.id).is_some()
+            || crate::diplomacy::candidates::payment_action(option).is_some()
+            || option.kind == crate::transactions::OPEN_KIND
+            || option
+                .id
+                .strip_prefix("component|leader|")
+                .is_some_and(|leader| {
+                    !crate::leaders::uses_the_action(
+                        self.content,
+                        &ti4_model::id::LeaderId::new(leader),
+                    )
+                })
+    }
+
+    /// OP-08: after an action, the seat ends its turn explicitly, and may first do whatever does
+    /// not take an action. With Fleet Logistics and one action taken, a second action is offered
+    /// too. "End turn" comes first, so a table that takes the first option behaves as before.
+    fn closing_options(&self, player: &PlayerId) -> Choice {
+        let mut options = vec![ChoiceOption::labelled(
+            END_TURN_ID,
+            END_TURN_KIND,
+            "end your turn",
+        )];
+        let second_action = self.actions_this_turn < 2
+            && self.state.player(player).is_some_and(|seat| {
+                seat.technologies
+                    .contains(&ti4_model::id::TechnologyId::new("fl"))
+            });
+        if let Some(turn) = self.turn_options() {
+            for option in turn.options {
+                if self.is_free_option(&option) || (second_action && option.id != "pass") {
+                    options.push(option);
+                }
+            }
+        }
+        Choice::new(
+            player.clone(),
+            if second_action {
+                "end your turn, or take your second action"
+            } else {
+                "end your turn"
+            },
+            options,
+        )
+        .contextualized(crate::decision_context::DecisionContext::new(
+            player.clone(),
+            crate::decision_context::DecisionSource::Rule("end of turn".to_owned()),
+            "end_turn",
+            self.state.phase,
+            self.state.round,
+        ))
+    }
+
+    fn turn_options(&self) -> Option<Choice> {
         let active = self.state.active.as_ref()?;
         let mut choice = strategic_action_options(&self.state, self.content, active)
             .unwrap_or_else(|| {
@@ -1297,6 +1371,17 @@ impl<'a> Game<'a> {
                     .active
                     .clone()
                     .ok_or(GameError::MissingActivePlayer)?;
+                if self.turn_closing.is_some() {
+                    if answer.id == END_TURN_ID {
+                        self.turn_closing = None;
+                        return self.advance_turn();
+                    }
+                    // Anything that takes an action is Fleet Logistics' second one; the turn is
+                    // closed again when it finishes.
+                    if !self.is_free_option(&answer) {
+                        self.turn_closing = None;
+                    }
+                }
                 if answer.id == "pass" {
                     self.state
                         .player_mut(&active)
@@ -4165,6 +4250,22 @@ impl<'a> Game<'a> {
     fn finish_action(&mut self) -> Result<(), GameError> {
         if let Some(active) = self.state.active.clone() {
             self.emit_action_completed(&active)?;
+            // OP-08: the turn ends when its player says so, if there is anything left to say
+            // it about. A retained turn (Master Plan and friends) keeps its own path.
+            if self.state.phase == Phase::Action
+                && !self
+                    .state
+                    .transient_flags
+                    .has(TransientFlags::ADDITIONAL_ACTION)
+            {
+                self.actions_this_turn = self.actions_this_turn.saturating_add(1);
+                self.turn_closing = Some(active.clone());
+                if self.closing_options(&active).options.len() > 1 {
+                    self.emit("TURN_CLOSING");
+                    return Ok(());
+                }
+                self.turn_closing = None;
+            }
         }
         self.advance_turn()
     }
@@ -4191,6 +4292,7 @@ impl<'a> Game<'a> {
         reason = "one block per end-of-turn window, in the order the rules run them"
     )]
     fn advance_turn(&mut self) -> Result<(), GameError> {
+        self.turn_closing = None;
         // A new turn re-offers everything: the withholding below is scoped to the turn whose
         // action failed, not to the game.
         self.failed_component_actions.clear();
@@ -4224,6 +4326,7 @@ impl<'a> Game<'a> {
             }
         }
         let ended = self.state.active.clone();
+        self.actions_this_turn = 0;
         // A Black Market marker outlives no turn: the negotiation it unlocked is closed by
         // the time the turn ends, and the marker is cleared here too so a flag no window
         // consumed can never leak into another player's table.
@@ -4957,6 +5060,86 @@ mod tests {
         state.phase = Phase::Action;
         state.active = Some(PlayerId::new("a"));
         (state, galaxy, ids)
+    }
+
+    /// OP-08 with Fleet Logistics: after the first action the seat may take a second one or end
+    /// the turn; after the second, with nothing else open, the turn passes on its own.
+    #[test]
+    fn fleet_logistics_takes_two_actions_then_the_turn_passes() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        state
+            .player_mut(&a)
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("fl"));
+        let script: Vec<String> = vec![
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            "done_moving".to_owned(),
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[1].to_string(),
+            "done_moving".to_owned(),
+        ];
+        let table = Table::with_default(Box::new(Scripted::new(script)));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        let mut saw_closing = false;
+        for _ in 0..30 {
+            if let Some(choice) = game.legal_options()
+                && choice
+                    .options
+                    .first()
+                    .is_some_and(|option| option.id == END_TURN_ID)
+            {
+                saw_closing = true;
+                assert!(
+                    choice.ids().contains(&TACTICAL_ACTION_ID),
+                    "the second action is offered: {:?}",
+                    choice.ids()
+                );
+            }
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.state.active.as_ref() == Some(&b) {
+                break;
+            }
+        }
+        assert!(
+            saw_closing,
+            "the seat was asked to end its turn after one action"
+        );
+        let activations = game
+            .events
+            .iter()
+            .filter(|event| event.starts_with("SYSTEM_ACTIVATED:"))
+            .count();
+        assert_eq!(activations, 2, "two tactical actions in one turn");
+        assert_eq!(
+            game.state.active.as_ref(),
+            Some(&b),
+            "then the turn moved on"
+        );
+    }
+
+    /// OP-08 without anything left to do: the turn ends by itself, as before.
+    #[test]
+    fn a_turn_with_nothing_left_to_do_ends_without_asking() {
+        let (state, galaxy, ids) = tactical_fixture();
+        let b = PlayerId::new("b");
+        let script: Vec<String> = vec![
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            "done_moving".to_owned(),
+        ];
+        let table = Table::with_default(Box::new(Scripted::new(script)));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        for _ in 0..20 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.state.active.as_ref() == Some(&b) {
+                break;
+            }
+        }
+        assert_eq!(game.state.active.as_ref(), Some(&b));
+        assert!(!game.events.iter().any(|event| event == "TURN_CLOSING"));
     }
 
     /// OP-07: Carth of Golden Sands prints "During the action phase:", not "ACTION:". Using it

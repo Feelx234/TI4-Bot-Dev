@@ -371,8 +371,15 @@ fn scanning_a_supplied_history_answers_exactly_as_scanning_the_session() {
 
 #[test]
 fn an_action_in_progress_is_not_history() {
-    let session = played_session(12);
-    let frame = session.frames.last().expect("the run has frames");
+    let session = played_session(20);
+    // The last frame whose turn is over: since OP-08 a turn may pause on "end turn" after its
+    // action, and that pause is still the turn in progress.
+    let frame = session
+        .frames
+        .iter()
+        .rev()
+        .find(|frame| frame.action_in_progress.is_none() && frame.action_summary.is_some())
+        .expect("the run completes a turn");
     let summary = action_summary(&session, frame);
     assert!(
         summary.headline.is_some(),
@@ -604,3 +611,4 @@ fn warfare_asks_the_strategy_spend_before_production() {
         "no seat followed Warfare; the check is vacuous"
     );
 }
+
