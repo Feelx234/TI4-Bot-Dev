@@ -1321,7 +1321,24 @@ impl Replayer {
                                         )
                                     }
                                 ));
-                                ui.small(format!("{} · {}", option.id, option.kind));
+                                // What the option actually commits, when the engine put a bundle on
+                                // it. A diplomacy offer used to read as a label and a raw id, which
+                                // is not a thing anybody can accept or refuse knowingly: the terms
+                                // are the decision, and until now they were behind a hover over the
+                                // payload JSON. The id and kind stay visible for the options that
+                                // carry no terms, because for those the id is the information.
+                                let terms =
+                                    ti4_review::diplomacy::payload_lines(&frame.state, &option.payload);
+                                if terms.is_empty() {
+                                    ui.small(format!("{} · {}", option.id, option.kind));
+                                } else {
+                                    ui.indent(("terms", option.id.clone()), |ui| {
+                                        for line in terms {
+                                            ui.small(view::annotate_systems(session, &line));
+                                        }
+                                        ui.small(format!("{} · {}", option.id, option.kind));
+                                    });
+                                }
                             }
                         });
                     if let Some(option_id) = chosen {

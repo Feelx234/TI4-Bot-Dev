@@ -239,3 +239,31 @@ ever had a nexus tile. The assertion is now the one the renderer implements.
 gamma only, and the map filler deliberately excludes wormhole tiles (`neutral_systems`), so whether
 a given generated map has a gamma partner at all is a property of that arrangement. Reachability on
 a map that does have one is covered by `galaxy::an_off_map_system_reaches_its_wormhole_partners_both_ways`.
+
+## F-04. A diplomacy offer that could not be read
+
+The operator's `the diplomacy offers really need better ui`, and UI-04 on the plan's list.
+
+The terms were computed, recorded and rendered — in three of the four places. `diplomacy::option_lines`
+turns a bundle payload into `Deal: … / You commit to: … / They commit to: …`; the reviewer's decision
+panel calls it, the HTML export calls it, the deal sheet calls it. The live replayer panel — the one
+that stops a game and asks a human to answer — called nothing. It printed the label, and under it the
+raw option id and kind, with the terms available only as a hover over the payload JSON.
+
+That is the difference between a decision and a coin flip with a button on it, and it is the third
+face of the same fault as F-02 and F-03: the shared renderer had the fact, and the place a person
+actually looks did not.
+
+`option_lines` was a function of `OptionDetail`, the review crate's own recorded type, so the replayer
+could not reach it without inventing a fake recording. It is now a function of the payload map —
+[`payload_lines`] — and `option_lines` is the one-line delegation. The engine's option and the
+recording carry the same payload, so both windows now show the same sentence; a test asserts they are
+equal rather than asserting the wording twice. Where an option carries no bundle the raw id and kind
+stay on the row, because for those the id is the information.
+
+    cargo test -p ti4-review --lib        35 passed
+    cargo test -p ti4-replayer            60 passed
+
+No game state changes, so no fixture and no re-baseline. What is *not* done is the rest of UI-04's
+ambition: the rows are terms, not a valuation, and the legacy transaction offers still read as their
+labels ("sell cf:hacan for 2 trade goods"), which are self-describing but not netted.
