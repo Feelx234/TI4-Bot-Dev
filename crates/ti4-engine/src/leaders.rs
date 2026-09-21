@@ -400,6 +400,17 @@ fn is_action_window(content: &ContentStore, leader: &LeaderId) -> bool {
         })
 }
 
+/// Whether using this leader is a component action that takes the turn (`"ACTION:"`), or an
+/// ability usable during the action phase that does not (`"During the action phase:"`, the Prophecy
+/// of Kings agents such as Carth of Golden Sands). Only the first ends the turn (OP-07).
+#[must_use]
+pub fn uses_the_action(content: &ContentStore, leader: &LeaderId) -> bool {
+    content
+        .get(ContentType::Leaders, leader.as_str())
+        .and_then(|record| record.text("abilityWindow"))
+        .is_some_and(|window| window.trim().starts_with("ACTION"))
+}
+
 /// Action-phase leaders whose effects this engine actually delivers.
 ///
 /// Offering a leader with no delivery path would be an option that can never resolve, and legal

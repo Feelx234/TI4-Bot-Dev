@@ -1353,17 +1353,25 @@ impl<'a> Game<'a> {
                 }
                 if let Some(leader) = answer.id.strip_prefix("component|leader|") {
                     let leader = ti4_model::id::LeaderId::new(leader.to_owned());
+                    // "During the action phase:" is not "ACTION:" (OP-07): Carth and the other
+                    // Prophecy of Kings agents printed that way are used without spending the turn,
+                    // so the seat is asked for its action again. Extreme Duress binds an action, so
+                    // it is only settled for a use that is one.
+                    let takes_turn = crate::leaders::uses_the_action(self.content, &leader);
                     let done = self.perform_leader_action(&active, &leader);
-                    self.settle_extreme_duress(&active, false)?;
-                    self.emit(if done {
-                        "COMPONENT_ACTION_RESOLVED"
-                    } else {
-                        "COMPONENT_ACTION_FAILED"
-                    });
+                    if takes_turn {
+                        self.settle_extreme_duress(&active, false)?;
+                    }
                     if !done {
+                        self.emit("COMPONENT_ACTION_FAILED");
                         self.failed_component_actions.insert(answer.id.clone());
                         return Ok(());
                     }
+                    if !takes_turn {
+                        self.emit("LEADER_ABILITY_RESOLVED");
+                        return Ok(());
+                    }
+                    self.emit("COMPONENT_ACTION_RESOLVED");
                     self.finish_action()?;
                     return Ok(());
                 }
@@ -4906,6 +4914,38 @@ mod tests {
         state.phase = Phase::Action;
         state.active = Some(PlayerId::new("a"));
         (state, galaxy, ids)
+    }
+
+    /// OP-07: Carth of Golden Sands prints "During the action phase:", not "ACTION:". Using it
+    /// gains its commodities and the same seat is asked for its turn's action again.
+    #[test]
+    fn the_hacan_agent_does_not_take_the_turn() {
+        let (mut state, galaxy, _) = tactical_fixture();
+        let a = PlayerId::new("a");
+        let seat = state.player_mut(&a).unwrap();
+        seat.faction = ti4_model::id::FactionId::new("hacan");
+        seat.commodities = 0;
+        seat.leaders.insert(
+            ti4_model::id::LeaderId::new("hacanagent"),
+            ti4_model::state::LeaderStatus::Readied,
+        );
+        let turn = state.turn_seq;
+        let script = vec!["component|leader|hacanagent".to_owned(), "self".to_owned()];
+        let table = Table::with_default(Box::new(Scripted::new(script)));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        for _ in 0..4 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|e| e == "LEADER_ABILITY_RESOLVED") {
+                break;
+            }
+        }
+        assert!(game.events.iter().any(|e| e == "LEADER_ABILITY_RESOLVED"));
+        assert!(!game.events.iter().any(|e| e == "COMPONENT_ACTION_RESOLVED"));
+        assert_eq!(game.state.player(&a).unwrap().commodities, 2);
+        assert_eq!(game.state.active.as_ref(), Some(&a), "still a's turn");
+        assert_eq!(game.state.turn_seq, turn, "the turn did not advance");
+        let next = game.legal_options().expect("a is asked again");
+        assert_eq!(next.player, a);
     }
 
     /// A tactical fixture whose combat actually fights: ids[0] is the hub of the seven-system
