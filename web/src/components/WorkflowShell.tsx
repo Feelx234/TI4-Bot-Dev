@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
+import { useDeclineOption, useNonceReset } from '../hooks/useWorkflowState.ts';
 
 export interface WorkflowShellProps {
   choice: PendingChoiceDto;
@@ -34,14 +35,8 @@ export const WorkflowShell: React.FC<WorkflowShellProps> = ({
 }) => {
   const [isDirectSubmitting, setIsDirectSubmitting] = useState(false);
   const isActor = !viewerSeat || choice.actor === viewerSeat;
-  const declineOption = useMemo(
-    () => model?.declineOption ?? choice.options.find((option) => option.id === 'decline' || option.kind === 'decline') ?? null,
-    [choice, model],
-  );
-
-  useEffect(() => {
-    setIsDirectSubmitting(false);
-  }, [choice.nonce]);
+  const declineOption = useDeclineOption(choice, model);
+  useNonceReset(choice.nonce, () => setIsDirectSubmitting(false));
 
   const submitDirect = async (optionId: string) => {
     if (isDirectSubmitting) return;
