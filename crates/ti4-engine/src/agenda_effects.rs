@@ -210,8 +210,28 @@ fn discard_hand(state: &mut GameState, player: &PlayerId) -> usize {
     std::mem::take(&mut seat.action_cards).len()
 }
 
-/// The system a planet sits in, according to the board.
-fn system_of(state: &GameState, planet: &str) -> Option<ti4_model::id::SystemId> {
+/// The system a planet sits in.
+///
+/// The corpus is asked first, because which system a planet is in is a fact about the map and not
+/// about what has happened on it. The board is the fallback and only for what the corpus cannot
+/// answer: a planet with no printed tile, placed onto one during play, whose system exists nowhere
+/// else but state.
+///
+/// Asking the board first was the Maxis fault a second time (`legendary::maxis_candidates`):
+/// `planet_units` and `planet_control` are written the first time something touches a system, so a
+/// planet with nothing on it and nobody in charge of it was simply not on the map as far as an
+/// agenda was concerned, and [`clear_planet`] returned 0 having cleared nothing.
+fn system_of(
+    state: &GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    planet: &str,
+) -> Option<ti4_model::id::SystemId> {
+    if let Some(system) = ti4_content::galaxy::planet(content, planet, sources)
+        .and_then(|record| record.system_id())
+    {
+        return Some(ti4_model::id::SystemId::new(system));
+    }
     let planet = ti4_model::id::PlanetId::new(planet);
     state
         .board
@@ -240,7 +260,7 @@ fn clear_planet(
     doomed: impl Fn(&str) -> bool,
     limit: Option<usize>,
 ) -> usize {
-    let Some(system) = system_of(state, planet) else {
+    let Some(system) = system_of(state, content, sources, planet) else {
         return 0;
     };
     let types = ti4_content::units::catalogue(content, sources);
@@ -493,7 +513,7 @@ pub fn resolve_with(
             // Colonial Redistribution: wipe the elected planet, then hand it to whoever is
             // furthest behind. Several may be level, and the controller chooses between them.
             let controller = controller_of(state, outcome);
-            let system = system_of(state, outcome);
+            let system = system_of(state, content, sources, outcome);
             clear_planet(state, content, sources, outcome, |_| true, None);
             let (Some(controller), Some(system)) = (controller, system) else {
                 return Effect::Resolved {
@@ -1245,6 +1265,30 @@ mod tests {
         let mut state = crate::fixtures::game(&["a", "b"]);
         run(&mut state, "nexus", FOR, &no_votes());
         assert!(state.wormhole_tokens.is_empty());
+    }
+
+    /// A planet without a garrison and without a governor is still on the map.
+    ///
+    /// Colonial Redistribution elects a planet, and asking the board which system it belongs to
+    /// answered "none" for exactly the planets the agenda elects -- nothing had happened to them.
+    #[test]
+    fn a_planets_system_is_a_map_fact_not_something_that_has_happened() {
+        let state = crate::fixtures::game(&["a", "b"]);
+        let content = ti4_content::ContentStore::embedded();
+        // Nothing has touched the system abaddon sits in, which is the condition that hid it.
+        assert!(state.board.is_empty(), "the fixture has touched no system at all");
+        let system = system_of(&state, &content, ti4_model::content_types::POK, "abaddon");
+        assert_eq!(
+            system.map(|id| id.as_str().to_owned()),
+            Some("75".to_owned()),
+            "the tile the corpus prints the planet on"
+        );
+        // And a planet the corpus does not print on a tile still falls back to the board, where a
+        // planet placed during play has its system recorded.
+        assert_eq!(
+            system_of(&state, &content, ti4_model::content_types::POK, "no-such-planet"),
+            None
+        );
     }
 
     /// Search Warrant deals the elected player two secrets.

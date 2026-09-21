@@ -438,3 +438,44 @@ board and each deserves ten minutes), `legendary.rs` beyond the Maxis path (a le
 uninhabited by definition), and the exploration/wild draw paths, which read the board for token
 placement. None of them was shown to be wrong; none was cleared either, and this file does not clear
 them.
+
+## The lazy-board audit, finished
+
+Every named site looked at. **Nothing live came out of it**, and that is the finding; the honest
+summary is below because an audit that reports fixes it didn't need is worse than no audit.
+
+| Site | What it asks | Verdict |
+|---|---|---|
+| `agenda_effects.rs:144` | which of my units of a base type are on planets | board is right — the subject is a unit |
+| `agenda_effects.rs:~290` | count units of a type, destroy down to N | board is right |
+| `agenda_effects.rs:~1024` | turn every mech on a planet into infantry | board is right |
+| `agenda_effects.rs:~1071` | players sitting in wormhole systems | board is right (no entry ⇒ nobody there); it does clone the board for nothing |
+| `agenda_effects.rs::system_of` | **which system a planet is in** | **wrong in principle, now fixed** |
+| `legendary.rs:185` | who holds Styx | board is right — control is a state fact |
+| `legendary.rs:614` | systems where a player has a ship | board is right |
+| exploration / wild tokens | — | no `state.board` read at all; cleared |
+
+`system_of` asked the ledger a map question. It now asks the corpus (`galaxy::planet(...).system_id()`)
+and falls back to the board only for a planet with no printed tile — one placed onto a tile during
+play, whose system exists nowhere else. The test pins both halves: `abaddon` resolves to tile 75 with
+an empty board, and an unknown planet still resolves to nothing rather than to a guess.
+
+### Why this is called latent and not live, and how it was checked
+
+The engine behaviour did not move: **the reviewer golden is byte-identical and the whole behaviour
+suite is unchanged**, which was verified before committing rather than assumed. The reason is worth
+recording, because it came from the rules text and not from the diff. Colonial Redistribution reads:
+
+> Destroy each unit on the elected planet. Then, **the player who controls that planet** chooses 1
+> player with the fewest victory points — that player may place 1 infantry from their reinforcements
+> on that planet.
+
+`clear_planet` runs before the controller check, so the destroy sentence was already reached whenever
+there were units to destroy — and a planet with units has a board entry, which is the only case where
+the old lookup failed to find it. The second sentence genuinely requires a controller, so the
+early return when nobody holds the planet is *correct* and not a swallowed effect. The fault was real
+as code and inert in play: it is fixed because the next rule that asks the same question will not
+come with this analysis attached.
+
+That leaves the class where the Maxis fix left it: a rule about *things* may read the board, a rule
+about *places* may not, and the field now says so on itself.
