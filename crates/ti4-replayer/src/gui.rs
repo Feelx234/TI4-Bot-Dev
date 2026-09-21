@@ -702,23 +702,21 @@ impl Replayer {
     /// the first decision, which is the whole reason the replayer exists. Nothing is rebuilt, because
     /// nothing was recorded before - the table is the first thing, and the frame feed carries it out.
     fn start_table(&mut self) {
-        if self
-            .opened
-            .as_ref()
-            .is_some_and(|opened| opened.app.handle().is_some())
-        {
-            self.status = String::from(
-                "One table runs in a window at a time. Stop it (bar at the bottom) or save it, then \
-                 start another.",
-            );
-            return;
-        }
+        // The setup is checked before anything open is touched, so a bad knob never costs the table
+        // on screen.
         let config = match self.setup.simulation() {
             Ok(config) => config,
             Err(why) => {
                 self.status = why;
                 return;
             }
+        };
+        // One table per window: the one open is closed to make room. It used to refuse instead,
+        // telling the reader to press Stop first - but Stop ends the thread without detaching it, so
+        // after the first table every later one was refused (UI-08). A table with a file is saved
+        // first; one without has nowhere to go, and the status line says it was closed unsaved.
+        let Some(previous) = self.close_for_new_table() else {
+            return;
         };
         let inputs = ReplayInputs::of(&config);
         let base = Self::base();
@@ -799,6 +797,36 @@ impl Replayer {
                 ""
             }
         );
+        self.status.insert_str(0, &previous);
+    }
+
+    /// Close whatever is open so a new table can take the window, saving it first when it has a
+    /// file. Returns what happened to it, as a status-line prefix (empty when nothing was open), or
+    /// `None` when its save failed: then it stays open and nothing new starts.
+    fn close_for_new_table(&mut self) -> Option<String> {
+        let Some(path) = self.opened.as_ref().map(|opened| opened.path.clone()) else {
+            return Some(String::new());
+        };
+        let saved = match path {
+            Some(path) => {
+                self.save_project(path);
+                if !self.status.starts_with("Saved ") {
+                    self.status
+                        .push_str(" The open table was kept; no new table was started.");
+                    return None;
+                }
+                format!("Previous table: {} ", self.status)
+            }
+            None => String::from(
+                "Previous table closed unsaved (it had no file; Save As before starting another to                  keep it). ",
+            ),
+        };
+        if let Some(mut old) = self.opened.take() {
+            let _ = old.app.close();
+            old.branch = None;
+            old.rebuilding = None;
+        }
+        Some(saved)
     }
 
     /// The seven setup knobs, in the reviewer's words. Returns whether Load was pressed.

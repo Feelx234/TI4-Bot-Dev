@@ -418,3 +418,28 @@ fn a_fork_replays_the_answers_a_person_gave() {
         "every decision of the prefix was forced, the operator's three among them"
     );
 }
+
+/// UI-08: a table that was played and stopped can be closed and a second one started in its place.
+/// The window used to refuse the second table because Stop ends the thread without detaching it;
+/// `gui.rs::close_for_new_table` closes the app, and the next table must then run normally.
+#[test]
+fn a_second_table_starts_after_the_first_is_stopped_and_closed() {
+    let mut first = start_table();
+    run_until_idle(&mut first, AdvanceGoal::Steps(2));
+    first.branch.gate().stop();
+    assert!(
+        first.app.handle().is_some(),
+        "Stop alone leaves the branch attached - which is what the old guard tripped on"
+    );
+    let _ = first.app.close();
+    assert!(first.app.handle().is_none(), "closing detaches the branch");
+    drop(first);
+
+    let mut second = start_table();
+    run_until_idle(&mut second, AdvanceGoal::Steps(2));
+    assert!(
+        !second.store.frames(second.app.current()).is_empty(),
+        "the second table plays and sends frames"
+    );
+    assert_ne!(second.branch.gate().state(), LiveState::Failed);
+}
