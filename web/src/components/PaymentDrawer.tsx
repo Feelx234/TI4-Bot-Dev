@@ -80,10 +80,9 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       }
       if (opt.id.startsWith('exhaust|') || opt.kind === 'pay') {
         const p = getPaymentPayload(opt);
-        const planetName = opt.id.replace('exhaust|', '').split('|')[0] || opt.label;
         planets.push({
           id: opt.id,
-          planetName,
+          planetName: p.planetName || opt.label || 'Planet',
           worth: p.worth > 0 ? p.worth : 1,
           label: opt.label,
           sourceKind: p.source,
@@ -285,7 +284,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
             return (
               <label
                 key={planet.id}
-                data-testid={`planet-card-${planet.planetName}`}
+                data-testid={`planet-card-${planet.id}`}
                 className={`card${isSelected ? ' card--selected' : ''}`}
                 style={{
                   display: 'flex',

@@ -301,17 +301,18 @@ describe('choiceModel', () => {
   });
 
   describe('typed payload accessors', () => {
-    it('getPaymentPayload parses worth, owed, kind, and source', () => {
+    it('getPaymentPayload parses worth, owed, kind, source, and planet name', () => {
       const payload = getPaymentPayload({
         id: 'exhaust|jord',
         label: 'Jord',
-        payload: { worth: 4, owed: 6, kind: 'influence', source: 'planet' },
+        payload: { worth: 4, owed: 6, kind: 'influence', source: 'planet', planet_name: 'Jord' },
       });
       expect(payload).toEqual({
         worth: 4,
         owed: 6,
         kind: 'influence',
         source: 'planet',
+        planetName: 'Jord',
       });
     });
 

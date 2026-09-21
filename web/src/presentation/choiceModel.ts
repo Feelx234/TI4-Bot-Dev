@@ -55,6 +55,7 @@ export function getPaymentPayload(opt: ChoiceOptionDto): {
   owed: number;
   kind: 'resources' | 'influence';
   source?: string;
+  planetName?: string;
 } {
   const p = opt.payload ?? {};
   return {
@@ -62,6 +63,7 @@ export function getPaymentPayload(opt: ChoiceOptionDto): {
     owed: Number(p.owed ?? 0),
     kind: String(p.kind ?? 'resources').toLowerCase() === 'influence' ? 'influence' : 'resources',
     source: typeof p.source === 'string' ? p.source : undefined,
+    planetName: typeof p.planet_name === 'string' ? p.planet_name : undefined,
   };
 }
 

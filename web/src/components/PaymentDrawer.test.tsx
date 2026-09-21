@@ -16,13 +16,13 @@ const mockPaymentChoice: PendingChoiceDto = {
       id: 'exhaust|jord',
       label: 'exhaust jord for 4 resources',
       kind: 'pay',
-      payload: { worth: 4, owed: 4, kind: 'resources', source: 'planet' },
+      payload: { worth: 4, owed: 4, kind: 'resources', source: 'planet', planet_name: 'Jord' },
     },
     {
       id: 'exhaust|arinam',
       label: 'exhaust arinam for 1 resources',
       kind: 'pay',
-      payload: { worth: 1, owed: 4, kind: 'resources', source: 'planet' },
+      payload: { worth: 1, owed: 4, kind: 'resources', source: 'planet', planet_name: 'Arinam' },
     },
     {
       id: 'trade_good',
@@ -86,12 +86,39 @@ describe('PaymentDrawer Component', () => {
 
     expect(screen.getByTestId('payment-drawer-title')).toHaveTextContent('Pay 4 Resources');
     expect(screen.getByTestId('committed-amount')).toHaveTextContent('0 Resources');
-    expect(screen.getByTestId('planet-card-jord')).toBeInTheDocument();
-    expect(screen.getByTestId('planet-card-arinam')).toBeInTheDocument();
+    expect(screen.getByTestId('planet-card-exhaust|jord')).toBeInTheDocument();
+    expect(screen.getByTestId('planet-card-exhaust|arinam')).toBeInTheDocument();
     expect(screen.getByTestId('trade-goods-stepper')).toBeInTheDocument();
 
     const confirmBtn = screen.getByTestId('confirm-payment-btn');
     expect(confirmBtn).toBeDisabled();
+  });
+
+  it('uses the structured planet name rather than parsing its option id', () => {
+    const choice: PendingChoiceDto = {
+      ...mockPaymentChoice,
+      options: [
+        {
+          id: 'exhaust|mecatol_rex',
+          label: '',
+          kind: 'pay',
+          payload: { worth: 6, planet_name: 'Mecatol Rex' },
+        },
+      ],
+    };
+
+    render(
+      <PaymentDrawer
+        choice={choice}
+        player={mockPlayer}
+        onSubmit={vi.fn()}
+        isOpen={true}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('planet-card-exhaust|mecatol_rex')).toHaveTextContent('Mecatol Rex');
+    expect(screen.queryByText('mecatol_rex')).not.toBeInTheDocument();
   });
 
   it('toggles planet selection and enables confirm when debt is met', async () => {
@@ -106,7 +133,7 @@ describe('PaymentDrawer Component', () => {
       />
     );
 
-    const jordCard = screen.getByTestId('planet-card-jord');
+    const jordCard = screen.getByTestId('planet-card-exhaust|jord');
     const jordCheckbox = jordCard.querySelector('input[type="checkbox"]')!;
 
     // Select Jord (+4)
@@ -136,7 +163,7 @@ describe('PaymentDrawer Component', () => {
     );
 
     // Select Arinam (+1)
-    const arinamCard = screen.getByTestId('planet-card-arinam');
+    const arinamCard = screen.getByTestId('planet-card-exhaust|arinam');
     fireEvent.click(arinamCard.querySelector('input[type="checkbox"]')!);
     expect(screen.getByTestId('committed-amount')).toHaveTextContent('1 Resources');
 
@@ -148,7 +175,7 @@ describe('PaymentDrawer Component', () => {
     expect(screen.getByTestId('committed-amount')).toHaveTextContent('3 Resources');
 
     // Also select Jord (+4), bringing total to 7 (overpayment: 3 credit)
-    const jordCard = screen.getByTestId('planet-card-jord');
+    const jordCard = screen.getByTestId('planet-card-exhaust|jord');
     fireEvent.click(jordCard.querySelector('input[type="checkbox"]')!);
     expect(screen.getByTestId('committed-amount')).toHaveTextContent('7 Resources');
     expect(screen.getByText(/Credit Retained:/)).toBeInTheDocument();
