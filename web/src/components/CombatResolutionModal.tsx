@@ -31,14 +31,13 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
 }) => {
   // Staged casualties: unitType -> count
   const [stagedCasualties, setStagedCasualties] = useState<Record<string, number>>({});
-  const [selectedSustainId, setSelectedSustainId] = useState<string | null>(null);
   const [isDirectSubmitting, setIsDirectSubmitting] = useState(false);
 
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
 
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const subtype = choice?.context?.subtype ?? '';
-  const constraints = choice?.constraints ?? choice?.context?.outstanding?.[0];
+  const constraints = choice?.context?.outstanding?.[0];
   const hitsOwed = constraints?.amount ?? 1;
 
   const isSustainStage = subtype === 'sustain_damage';
@@ -79,7 +78,6 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
   // Reset staging on nonce change
   useEffect(() => {
     setStagedCasualties({});
-    setSelectedSustainId(null);
     setIsDirectSubmitting(false);
   }, [choice?.nonce]);
 
@@ -128,7 +126,10 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
           kind: 'casualty',
           predicate: (opt) => {
             const p = getCombatPayload(opt);
-            return p.unit === g.unitType || opt.id.startsWith('destroy|');
+            if (p.unit && p.unit.toLowerCase() === g.unitType.toLowerCase()) return true;
+            if (opt.id === `destroy|${g.unitType}` || opt.id.startsWith(`destroy|${g.unitType}|`)) return true;
+            const parts = opt.id.toLowerCase().split('|');
+            return parts.includes(g.unitType.toLowerCase());
           },
           description: `Destroy ${g.unitType}`,
         });

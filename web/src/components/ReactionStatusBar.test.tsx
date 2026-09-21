@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ReactionStatusBar } from './ReactionStatusBar.tsx';
@@ -10,7 +10,7 @@ describe('ReactionStatusBar', () => {
 
     const reactionChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 40,
+      nonce: '40',
       prompt: 'Play Sabotage to cancel Action Card?',
       context: {
         subtype: 'play_reaction_when_action_card_played',
@@ -45,7 +45,7 @@ describe('ReactionStatusBar', () => {
 
     const reactionChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 41,
+      nonce: '41',
       prompt: 'Reaction opportunity',
       options: [
         { id: 'sabotage', label: 'Sabotage' },
@@ -74,7 +74,7 @@ describe('ReactionStatusBar', () => {
 
     const reactionChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 42,
+      nonce: '42',
       prompt: 'Reaction opportunity',
       options: [
         { id: 'sabotage', label: 'Sabotage' },
@@ -102,7 +102,7 @@ describe('ReactionStatusBar', () => {
 
     const reactionChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 43,
+      nonce: '43',
       prompt: 'Reaction opportunity',
       options: [
         { id: 'sabotage', label: 'Sabotage' },
@@ -130,7 +130,7 @@ describe('ReactionStatusBar', () => {
 
     const reactionChoice: PendingChoiceDto = {
       actor: 'seat_2',
-      nonce: 44,
+      nonce: '44',
       prompt: 'Reaction opportunity',
       options: [{ id: 'sabotage', label: 'Sabotage' }],
     };
@@ -152,7 +152,7 @@ describe('ReactionStatusBar', () => {
 
     const reactionChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 45,
+      nonce: '45',
       prompt: 'Reaction opportunity',
       options: [{ id: 'decline', label: 'Pass' }],
     };

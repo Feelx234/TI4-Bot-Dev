@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PendingChoiceDto, ChoiceOptionDto } from '../protocol/types.ts';
 
 export interface SemanticIntent {
-  kind: 'movement' | 'casualty' | 'payment';
+  kind: 'movement' | 'casualty' | 'payment' | 'selection';
   predicate: (option: ChoiceOptionDto) => boolean;
   description: string;
 }
@@ -14,32 +14,55 @@ export function usePipelineRunner(
   const [activeQueue, setActiveQueue] = useState<SemanticIntent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const isSubmittingRef = useRef(false);
 
   useEffect(() => {
-    if (!isRunning || activeQueue.length === 0 || !pendingChoice) return;
+    if (!isRunning) return;
+
+    if (activeQueue.length === 0) {
+      setIsRunning(false);
+      isSubmittingRef.current = false;
+      return;
+    }
+
+    if (!pendingChoice || isSubmittingRef.current) return;
 
     const nextIntent = activeQueue[0];
     const matchingOption = pendingChoice.options.find(nextIntent.predicate);
 
     if (matchingOption) {
+      isSubmittingRef.current = true;
       submitChoice(matchingOption.id)
         .then(() => {
-          setActiveQueue((prev) => prev.slice(1));
+          setActiveQueue((prev) => {
+            const next = prev.slice(1);
+            if (next.length === 0) {
+              setIsRunning(false);
+            }
+            return next;
+          });
         })
         .catch((err) => {
           setIsRunning(false);
           setActiveQueue([]);
           setLastError(err instanceof Error ? err.message : String(err));
+        })
+        .finally(() => {
+          isSubmittingRef.current = false;
         });
     } else {
-      // Intervening decision occurred or intent no longer available: cleanly pause pipeline
+      // Intervening decision occurred or intent no longer available: cleanly stop pipeline
       setIsRunning(false);
       setActiveQueue([]);
+      isSubmittingRef.current = false;
     }
-  }, [pendingChoice?.nonce, isRunning]);
+  }, [pendingChoice?.nonce, isRunning, activeQueue, submitChoice]);
 
   const executePipeline = (intents: SemanticIntent[]) => {
-    if (intents.length === 0) return;
+    if (intents.length === 0) {
+      setIsRunning(false);
+      return;
+    }
     setActiveQueue(intents);
     setIsRunning(true);
     setLastError(null);
@@ -48,6 +71,7 @@ export function usePipelineRunner(
   const cancelPipeline = () => {
     setActiveQueue([]);
     setIsRunning(false);
+    isSubmittingRef.current = false;
   };
 
   return {

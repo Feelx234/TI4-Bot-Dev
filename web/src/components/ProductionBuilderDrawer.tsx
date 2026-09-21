@@ -40,7 +40,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
     return choice.options.filter((o) => o.id !== 'decline' && o.kind !== 'decline');
   }, [choice]);
 
-  const constraints = choice?.constraints ?? choice?.context?.outstanding?.[0];
+  const constraints = choice?.context?.outstanding?.[0];
   const capacityLimit = constraints?.amount ?? 0;
   const capacitySpent = constraints?.paid ?? 0;
   const capacityRemaining = Math.max(0, capacityLimit - capacitySpent);

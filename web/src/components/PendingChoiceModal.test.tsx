@@ -135,9 +135,11 @@ describe('PendingChoiceModal Component', () => {
         { id: 'tech_b', label: 'Tech B' },
         { id: 'tech_c', label: 'Tech C' },
       ],
-      constraints: {
-        min_selection: 2,
-        max_selection: 2,
+      context: {
+        subtype: 'research_technology',
+        outstanding: [
+          { min_selection: 2, max_selection: 2 },
+        ],
       },
     };
 
@@ -171,7 +173,8 @@ describe('PendingChoiceModal Component', () => {
     await act(async () => {
       fireEvent.click(submitBtn);
     });
-    expect(onSubmit).toHaveBeenCalledWith('tech_a');
+    expect(onSubmit).toHaveBeenNthCalledWith(1, 'tech_a');
+    expect(onSubmit).toHaveBeenNthCalledWith(2, 'tech_b');
   });
 
   it('renders search filter when options >= 6 and filters list', () => {

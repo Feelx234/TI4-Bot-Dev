@@ -65,7 +65,6 @@ export interface PendingChoiceDto {
   nonce: string;
   options: ChoiceOptionDto[];
   context?: DecisionContextDto;
-  constraints?: OutstandingConstraintDto;
 }
 
 export interface PlanetView {

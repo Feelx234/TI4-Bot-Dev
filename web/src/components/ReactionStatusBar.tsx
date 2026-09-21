@@ -87,26 +87,23 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       !isActor ||
       isPinned ||
       secondsRemaining === null ||
-      secondsRemaining <= 0 ||
       isSubmitting
     ) {
       return;
     }
 
-    const timer = setInterval(() => {
-      setSecondsRemaining((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(timer);
-          if (declineOption) {
-            handleAction(declineOption.id);
-          }
-          return 0;
-        }
-        return prev - 1;
-      });
+    if (secondsRemaining <= 0) {
+      if (declineOption) {
+        handleAction(declineOption.id);
+      }
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setSecondsRemaining((prev) => (prev !== null ? prev - 1 : null));
     }, 1000);
 
-    return () => clearInterval(timer);
+    return () => clearTimeout(timer);
   }, [isOpen, choice, isActor, isPinned, secondsRemaining, isSubmitting, declineOption]);
 
   if (!isOpen || !choice) return null;

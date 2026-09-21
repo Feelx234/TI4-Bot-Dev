@@ -1,7 +1,6 @@
 import {
   PendingChoiceDto,
   ChoiceOptionDto,
-  DecisionContextDto,
   OutstandingConstraintDto,
   DecisionTargetDto,
 } from '../protocol/types.ts';
@@ -116,7 +115,7 @@ export function deriveChoiceRendererModel(
   const subtype = choice.context?.subtype ?? '';
   const isOptional = Boolean(choice.context?.optional || choice.options.some((o) => o.id === 'decline' || o.kind === 'decline'));
   const declineOption = choice.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
-  const constraints = choice.constraints ?? choice.context?.outstanding?.[0];
+  const constraints = choice.context?.outstanding?.[0];
 
   // Grouping options by kind
   const optionsByKind = new Map<string, ChoiceOptionDto[]>();

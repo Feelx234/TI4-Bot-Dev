@@ -39,7 +39,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     onMinimizedChange?.(next);
   };
 
-  const constraints = choice?.constraints ?? choice?.context?.outstanding?.[0];
+  const constraints = choice?.context?.outstanding?.[0];
   const minSelection = constraints?.min_selection ?? 1;
   const maxSelection = constraints?.max_selection ?? (constraints?.min_selection ? constraints.min_selection : 1);
   const isMultiSelect = maxSelection > 1;
@@ -183,8 +183,9 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     setIsSubmitting(true);
     try {
       if (isMultiSelect) {
-        // Submit first chosen option or joined selection
-        await onSubmit(selectedOptionIds[0] ?? '');
+        for (const optId of selectedOptionIds) {
+          await onSubmit(optId);
+        }
       } else {
         await onSubmit(selectedOptionId);
       }

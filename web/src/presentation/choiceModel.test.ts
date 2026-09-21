@@ -168,8 +168,10 @@ describe('choiceModel', () => {
       const sustainChoice: PendingChoiceDto = {
         ...baseChoice,
         prompt: 'sustain damage',
-        context: { subtype: 'sustain_damage' },
-        constraints: { amount: 2 },
+        context: {
+          subtype: 'sustain_damage',
+          outstanding: [{ amount: 2 }],
+        },
       };
       const sustainModel = deriveChoiceRendererModel(sustainChoice, 'seat_1');
       expect(sustainModel?.workflow).toBe('combat_sustain');
@@ -178,8 +180,10 @@ describe('choiceModel', () => {
       const casualtyChoice: PendingChoiceDto = {
         ...baseChoice,
         prompt: 'assign hits',
-        context: { subtype: 'assign_casualty' },
-        constraints: { amount: 3 },
+        context: {
+          subtype: 'assign_casualty',
+          outstanding: [{ amount: 3 }],
+        },
       };
       const casualtyModel = deriveChoiceRendererModel(casualtyChoice, 'seat_1');
       expect(casualtyModel?.workflow).toBe('combat_casualty');
@@ -260,9 +264,14 @@ describe('choiceModel', () => {
       const multiChoice: PendingChoiceDto = {
         ...baseChoice,
         prompt: 'select 2 technologies',
-        constraints: {
-          min_selection: 2,
-          max_selection: 2,
+        context: {
+          subtype: 'research_technology',
+          outstanding: [
+            {
+              min_selection: 2,
+              max_selection: 2,
+            },
+          ],
         },
         options: [
           { id: 'tech1', label: 'Tech 1' },

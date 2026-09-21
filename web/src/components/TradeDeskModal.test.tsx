@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TradeDeskModal } from './TradeDeskModal.tsx';
@@ -11,7 +11,7 @@ describe('TradeDeskModal', () => {
 
     const proposeChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 20,
+      nonce: '20',
       prompt: 'Propose a transaction',
       context: {
         subtype: 'propose_transaction',
@@ -76,7 +76,7 @@ describe('TradeDeskModal', () => {
 
     const proposeChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 21,
+      nonce: '21',
       prompt: 'Propose a transaction',
       context: {
         subtype: 'propose_transaction',
@@ -111,7 +111,7 @@ describe('TradeDeskModal', () => {
 
     const answerChoice: PendingChoiceDto = {
       actor: 'seat_2',
-      nonce: 22,
+      nonce: '22',
       prompt: 'seat_1 offers 2 commodities for 2 trade goods -- accept?',
       context: {
         subtype: 'answer_transaction',
@@ -157,7 +157,7 @@ describe('TradeDeskModal', () => {
 
     const choice: PendingChoiceDto = {
       actor: 'seat_2',
-      nonce: 23,
+      nonce: '23',
       prompt: 'Propose transaction',
       context: {
         subtype: 'propose_transaction',
@@ -187,7 +187,7 @@ describe('TradeDeskModal', () => {
 
     const choice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 24,
+      nonce: '24',
       prompt: 'Propose transaction',
       context: {
         subtype: 'propose_transaction',

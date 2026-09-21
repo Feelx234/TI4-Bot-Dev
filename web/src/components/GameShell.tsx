@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { GameLogEntry } from '../hooks/useGameSession.ts';
-import { PendingChoiceDto } from '../protocol/types.ts';
+import { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
 import { EventLog } from './EventLog.tsx';
 import { PendingChoiceModal } from './PendingChoiceModal.tsx';
 import { PaymentDrawer } from './PaymentDrawer.tsx';
@@ -24,6 +24,7 @@ export interface GameShellProps {
   selectedOptionId?: string;
   onSelectOption?: (optionId: string) => void;
   viewerSeat?: string | null;
+  players?: Record<string, PlayerView> | PlayerView[];
 }
 
 export interface ChoiceRendererDispatcherProps {
@@ -35,6 +36,7 @@ export interface ChoiceRendererDispatcherProps {
   onSelectOption?: (optionId: string) => void;
   isMinimized: boolean;
   onMinimizedChange: (minimized: boolean) => void;
+  players?: Record<string, PlayerView>;
 }
 
 export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> = ({
@@ -46,6 +48,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   onSelectOption,
   isMinimized,
   onMinimizedChange,
+  players,
 }) => {
   if (!choice) return null;
 
@@ -91,6 +94,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
         <PaymentDrawer
           choice={choice}
           viewerSeat={viewerSeat}
+          player={choice ? players?.[choice.actor] : null}
           onSubmit={onSubmit}
           isOpen={!isMinimized}
           onClose={() => onMinimizedChange(true)}
@@ -103,6 +107,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
         <TacticalMovementOverlay
           choice={choice}
           viewerSeat={viewerSeat}
+          player={choice ? players?.[choice.actor] : null}
           onSubmit={onSubmit}
           isOpen={!isMinimized}
           onClose={() => onMinimizedChange(true)}
@@ -197,9 +202,18 @@ export const GameShell: React.FC<GameShellProps> = ({
   selectedOptionId,
   onSelectOption,
   viewerSeat,
+  players,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<'events' | 'players' | null>(null);
   const [isChoiceMinimized, setIsChoiceMinimized] = useState(false);
+
+  const playersMap = React.useMemo<Record<string, PlayerView>>(() => {
+    if (!players) return {};
+    if (Array.isArray(players)) {
+      return Object.fromEntries(players.map((p) => [p.id, p]));
+    }
+    return players;
+  }, [players]);
 
   useEffect(() => {
     setIsChoiceMinimized(false);
@@ -269,6 +283,7 @@ export const GameShell: React.FC<GameShellProps> = ({
         <ChoiceRendererDispatcher
           choice={choice}
           viewerSeat={viewerSeat}
+          players={playersMap}
           onSubmit={onSubmitChoice}
           lastError={lastError}
           selectedOptionId={selectedOptionId}

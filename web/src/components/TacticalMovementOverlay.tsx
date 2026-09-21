@@ -5,6 +5,7 @@ import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts
 
 export interface TacticalMovementOverlayProps {
   choice: PendingChoiceDto | null;
+  viewerSeat?: string | null;
   activeSystemId?: string | null;
   player?: PlayerView | null;
   onSubmit: (optionId: string) => Promise<void>;

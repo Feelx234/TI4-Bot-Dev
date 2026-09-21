@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AgendaBallotModal } from './AgendaBallotModal.tsx';
@@ -11,7 +11,7 @@ describe('AgendaBallotModal', () => {
 
     const castChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 30,
+      nonce: '30',
       prompt: 'vote for which outcome',
       context: {
         subtype: 'cast_vote',
@@ -58,7 +58,7 @@ describe('AgendaBallotModal', () => {
 
     const exhaustChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 31,
+      nonce: '31',
       prompt: 'exhaust a planet to vote FOR',
       context: {
         subtype: 'vote_exhaust_planet',
@@ -110,7 +110,7 @@ describe('AgendaBallotModal', () => {
 
     const tiebreakChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 32,
+      nonce: '32',
       prompt: 'speaker breaks the tie',
       context: {
         subtype: 'vote_tiebreak',
@@ -147,7 +147,7 @@ describe('AgendaBallotModal', () => {
 
     const choice: PendingChoiceDto = {
       actor: 'seat_2',
-      nonce: 33,
+      nonce: '33',
       prompt: 'vote for which outcome',
       context: {
         subtype: 'cast_vote',
@@ -176,7 +176,7 @@ describe('AgendaBallotModal', () => {
 
     const choice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 34,
+      nonce: '34',
       prompt: 'vote for which outcome',
       context: {
         subtype: 'cast_vote',

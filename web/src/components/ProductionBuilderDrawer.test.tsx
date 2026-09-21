@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ProductionBuilderDrawer } from './ProductionBuilderDrawer.tsx';
@@ -11,15 +11,12 @@ describe('ProductionBuilderDrawer', () => {
 
     const produceChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 50,
+      nonce: '50',
       prompt: 'produce a unit',
-      constraints: {
-        amount: 5,
-        paid: 2,
-      },
       context: {
         subtype: 'produce_unit',
         target: { System: '18' },
+        outstanding: [{ amount: 5, paid: 2 }],
       },
       options: [
         { id: 'produce|fighter', label: 'Fighter (0.5 cost)', kind: 'produce' },
@@ -62,7 +59,7 @@ describe('ProductionBuilderDrawer', () => {
 
     const placeChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 51,
+      nonce: '51',
       prompt: 'place the fighter',
       context: {
         subtype: 'place_unit',
@@ -99,7 +96,7 @@ describe('ProductionBuilderDrawer', () => {
 
     const choice: PendingChoiceDto = {
       actor: 'seat_2',
-      nonce: 52,
+      nonce: '52',
       prompt: 'produce a unit',
       context: {
         subtype: 'produce_unit',
@@ -128,7 +125,7 @@ describe('ProductionBuilderDrawer', () => {
 
     const choice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 53,
+      nonce: '53',
       prompt: 'produce a unit',
       context: {
         subtype: 'produce_unit',

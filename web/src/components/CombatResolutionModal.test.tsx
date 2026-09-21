@@ -1,4 +1,4 @@
-import React, { act } from 'react';
+import { act } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CombatResolutionModal } from './CombatResolutionModal.tsx';
@@ -11,7 +11,7 @@ describe('CombatResolutionModal', () => {
 
     const sustainChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 10,
+      nonce: '10',
       prompt: 'Sustain damage on a ship',
       context: {
         subtype: 'sustain_damage',
@@ -50,7 +50,7 @@ describe('CombatResolutionModal', () => {
 
     const sustainChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 11,
+      nonce: '11',
       prompt: 'Sustain damage',
       context: {
         subtype: 'sustain_damage',
@@ -84,15 +84,11 @@ describe('CombatResolutionModal', () => {
 
     const casualtyChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 12,
+      nonce: '12',
       prompt: 'Assign 2 hits',
-      constraints: {
-        min_selection: 1,
-        max_selection: 1,
-        amount: 2,
-      },
       context: {
         subtype: 'assign_casualty',
+        outstanding: [{ amount: 2 }],
       },
       options: [
         { id: 'destroy|fighter|0', label: 'destroy fighter (system 18)', kind: 'casualty', payload: { unit: 'fighter' } },
@@ -140,13 +136,11 @@ describe('CombatResolutionModal', () => {
 
     const casualtyChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 13,
+      nonce: '13',
       prompt: 'Assign 2 hits',
-      constraints: {
-        amount: 2,
-      },
       context: {
         subtype: 'assign_casualty',
+        outstanding: [{ amount: 2 }],
       },
       options: [
         { id: 'destroy|cruiser|0', label: 'destroy cruiser', kind: 'casualty', payload: { unit: 'cruiser' } },
@@ -185,7 +179,7 @@ describe('CombatResolutionModal', () => {
 
     const retreatChoice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 14,
+      nonce: '14',
       prompt: 'Announce retreat',
       context: {
         subtype: 'announce_retreat',
@@ -220,7 +214,7 @@ describe('CombatResolutionModal', () => {
 
     const sustainChoice: PendingChoiceDto = {
       actor: 'seat_2',
-      nonce: 15,
+      nonce: '15',
       prompt: 'Sustain damage',
       context: {
         subtype: 'sustain_damage',
@@ -249,7 +243,7 @@ describe('CombatResolutionModal', () => {
 
     const choice: PendingChoiceDto = {
       actor: 'seat_1',
-      nonce: 16,
+      nonce: '16',
       prompt: 'Sustain damage',
       context: {
         subtype: 'sustain_damage',

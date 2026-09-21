@@ -6,6 +6,7 @@ import { Drawer } from '../primitives/index.ts';
 
 export interface PaymentDrawerProps {
   choice: PendingChoiceDto | null;
+  viewerSeat?: string | null;
   player?: PlayerView | null;
   onSubmit: (optionId: string) => Promise<void>;
   isOpen: boolean;
@@ -23,6 +24,7 @@ interface DraftPlanet {
 
 export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   choice,
+  viewerSeat: _viewerSeat,
   player,
   onSubmit,
   isOpen,
@@ -35,7 +37,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
 
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
 
-  const constraints = choice?.constraints ?? choice?.context?.outstanding?.[0];
+  const constraints = choice?.context?.outstanding?.[0];
   const totalAmount = constraints?.amount ?? 0;
   const alreadyPaid = constraints?.paid ?? 0;
   const owed = Math.max(0, totalAmount - alreadyPaid);
@@ -108,7 +110,6 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
 
   const committedFromTG = tradeGoodsToSpend * tradeGoodWorth;
   const totalCommitted = committedFromPlanets + committedFromTG;
-  const remainingOwed = Math.max(0, owed - totalCommitted);
   const credit = Math.max(0, totalCommitted - owed);
   const isSettled = totalCommitted >= owed && owed > 0;
 

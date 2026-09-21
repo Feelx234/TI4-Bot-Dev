@@ -109,7 +109,7 @@ test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
     await expect(choiceDialog).toBeVisible();
 
     // Verify option search filter works for large lists
-    const searchFilter = pageP1.locator('[data-testid="choice-search-filter"]');
+    const searchFilter = pageP1.locator('[data-testid="choice-search-input"]');
     if (await searchFilter.isVisible()) {
       await searchFilter.fill('Leadership');
       const filteredOptions = pageP1.locator('[data-testid="choice-option"]');
