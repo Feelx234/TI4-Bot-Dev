@@ -184,33 +184,14 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       aria-label="Tactical Fleet Rally Tray"
       data-testid="tactical-movement-tray"
       className="fleet-rally-tray panel"
-      style={{
-        position: 'absolute',
-        bottom: 16,
-        left: 16,
-        right: 16,
-        maxWidth: 720,
-        margin: '0 auto',
-        zIndex: 'var(--layer-modal)',
-        background: 'rgba(15, 23, 42, 0.95)',
-        backdropFilter: 'blur(10px)',
-        border: '1px solid #38bdf8',
-        borderRadius: 10,
-        padding: '14px 20px',
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.7)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        color: '#f8fafc',
-      }}
     >
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="choice-workflow-row">
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase' }}>
+          <div className="choice-workflow-eyebrow">
             Tactical Action • Fleet Movement Staging
           </div>
-          <h3 style={{ margin: '2px 0 0 0', fontSize: 16, fontWeight: 700, color: '#f8fafc' }}>
+          <h3 className="choice-workflow-title">
             Destination System: #{destinationSystemId ?? 'Active'}
           </h3>
         </div>
@@ -219,29 +200,22 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
           type="button"
           data-testid="close-movement-tray"
           onClick={onClose}
-          className="button button--secondary button--icon"
           aria-label="Close rally tray"
-          style={{ padding: '2px 8px', fontSize: 14, minWidth: 28, height: 28 }}
+          className="button button--secondary button--icon choice-workflow-close"
         >
           ✕
         </button>
       </div>
 
       {/* Capacity & Fleet Supply Gauges */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      <div className="fleet-rally-tray__gauges">
         <div
           data-testid="fleet-supply-gauge"
-          style={{
-            background: '#1e293b',
-            borderRadius: 6,
-            padding: '8px 12px',
-            border: '1px solid #334155',
-            fontSize: 12,
-          }}
+          className="workflow-card"
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#94a3b8' }}>Fleet Supply:</span>
-            <span style={{ fontWeight: 700, color: totalNonFightersMoving > fleetTokens ? '#ef4444' : '#4ade80' }}>
+          <div className="workflow-card--row">
+            <span className="text-muted">Fleet Supply:</span>
+            <span className="fleet-rally-tray__status" data-alert={totalNonFightersMoving > fleetTokens}>
               {totalNonFightersMoving} / {fleetTokens} Ships
             </span>
           </div>
@@ -249,17 +223,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
 
         <div
           data-testid="cargo-capacity-gauge"
-          style={{
-            background: '#1e293b',
-            borderRadius: 6,
-            padding: '8px 12px',
-            border: '1px solid #334155',
-            fontSize: 12,
-          }}
+          className="workflow-card"
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#94a3b8' }}>Cargo Capacity:</span>
-            <span style={{ fontWeight: 700, color: totalCargoMoving > totalCapacityProvided ? '#ef4444' : '#38bdf8' }}>
+          <div className="workflow-card--row">
+            <span className="text-muted">Cargo Capacity:</span>
+            <span className="fleet-rally-tray__status" data-alert={totalCargoMoving > totalCapacityProvided}>
               {totalCargoMoving} / {totalCapacityProvided} Loaded
             </span>
           </div>
@@ -267,9 +235,9 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       </div>
 
       {/* Ship List by Origin */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto' }}>
+      <div className="fleet-rally-tray__list">
         {shipGroups.length === 0 ? (
-          <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+          <div className="text-muted">
             No ships eligible to move into the active system.
           </div>
         ) : (
@@ -281,39 +249,30 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
               <div
                 key={key}
                 data-testid={`rally-row-${g.originSystemId}-${g.unitType}`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  background: '#1e293b',
-                  borderRadius: 6,
-                  padding: '6px 12px',
-                  border: '1px solid #334155',
-                }}
+                className="workflow-card workflow-card--row"
               >
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#f8fafc', textTransform: 'capitalize' }}>
+                  <div className="workflow-unit-name">
                     {g.unitType}
                   </div>
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                  <div className="text-muted">
                     Origin: #{g.originSystemId} • Available: {g.totalAvailable}
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="workflow-row">
                   <button
                     type="button"
                     data-testid={`rally-dec-${g.originSystemId}-${g.unitType}`}
                     onClick={() => handleUpdateCount(key, -1, g.totalAvailable)}
                     disabled={count <= 0 || isPipelineRunning || isDirectSubmitting}
-                    className="button button--secondary button--icon"
-                    style={{ minWidth: 26, height: 26 }}
+                    className="button button--secondary button--icon workflow-button--stepper"
                   >
                     -
                   </button>
                   <span
                     data-testid={`rally-count-${g.originSystemId}-${g.unitType}`}
-                    style={{ fontSize: 13, fontWeight: 700, minWidth: 20, textAlign: 'center' }}
+                    className="workflow-count"
                   >
                     {count}
                   </span>
@@ -322,8 +281,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                     data-testid={`rally-inc-${g.originSystemId}-${g.unitType}`}
                     onClick={() => handleUpdateCount(key, 1, g.totalAvailable)}
                     disabled={count >= g.totalAvailable || isPipelineRunning || isDirectSubmitting}
-                    className="button button--secondary button--icon"
-                    style={{ minWidth: 26, height: 26 }}
+                    className="button button--secondary button--icon workflow-button--stepper"
                   >
                     +
                   </button>
@@ -338,29 +296,21 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
         <div
           data-testid="movement-error-banner"
           role="alert"
-          style={{
-            background: 'rgba(239, 68, 68, 0.15)',
-            border: '1px solid #ef4444',
-            color: '#fca5a5',
-            padding: '6px 10px',
-            borderRadius: 6,
-            fontSize: 12,
-          }}
+          className="workflow-error"
         >
           {lastError}
         </div>
       )}
 
       {/* Action Footer */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
+      <div className="workflow-actions">
         {doneMovingOption && (
           <button
             type="button"
             data-testid="finish-movement-btn"
             onClick={() => onSubmit(doneMovingOption.id)}
             disabled={isPipelineRunning || isDirectSubmitting}
-            className="button button--secondary"
-            style={{ fontSize: 13, padding: '8px 16px' }}
+            className="button button--secondary workflow-button--wide"
           >
             {doneMovingOption.label || 'Finish Movement'}
           </button>
@@ -371,8 +321,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
           data-testid="commit-moves-btn"
           onClick={handleCommitMoves}
           disabled={isPipelineRunning || isDirectSubmitting}
-          className="button button--primary"
-          style={{ fontSize: 13, padding: '8px 20px' }}
+          className="button button--primary workflow-button--wide"
         >
           {isPipelineRunning || isDirectSubmitting
             ? 'Moving Fleet...'

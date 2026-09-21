@@ -148,39 +148,23 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
     <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <Dialog.Content
         data-testid="combat-resolution-modal"
-        className="combat-dialog"
-        style={{
-          background: 'rgba(3, 7, 18, 0.85)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
+        className="combat-dialog choice-workflow-dialog"
+
       >
         <div
-          className="panel"
-          style={{
-            border: '2px solid #ef4444',
-            padding: 24,
-            maxWidth: 600,
-            width: '92%',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 16,
-            color: '#f8fafc',
-            boxShadow: '0 0 32px rgba(239, 68, 68, 0.25)',
-          }}
+          className="panel choice-workflow-modal"
+
         >
           {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div className="workflow-inline" >
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase' }}>
+              <div className="workflow-inline" >
                 Space Combat Arena • Seat: {choice.actor}
               </div>
               <Dialog.Title
                 as="h2"
                 data-testid="combat-stage-title"
-                style={{ fontSize: 18, fontWeight: 700, margin: '4px 0 0 0', color: '#f8fafc' }}
+                className="workflow-inline"
               >
                 {isSustainStage
                   ? 'Stage 1: Sustain Damage'
@@ -198,7 +182,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
               onClick={onClose}
               className="button button--secondary button--icon"
               aria-label="Close combat dialog"
-              style={{ minWidth: 28, height: 28 }}
+
             >
               ✕
             </button>
@@ -208,33 +192,17 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
           {recentDiceRolls.length > 0 && (
             <div
               data-testid="combat-dice-feed"
-              style={{
-                background: '#0f172a',
-                borderRadius: 6,
-                padding: '10px 14px',
-                border: '1px solid #334155',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-              }}
+              className="workflow-inline"
             >
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
+              <div className="workflow-inline" >
                 Recent Combat Rolls
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <div className="workflow-inline" >
                 {recentDiceRolls.map((d, i) => (
                   <span
                     key={i}
                     data-testid="dice-roll-badge"
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: 4,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      background: d.hit ? 'rgba(74, 222, 128, 0.2)' : 'rgba(100, 116, 139, 0.2)',
-                      border: d.hit ? '1px solid #4ade80' : '1px solid #475569',
-                      color: d.hit ? '#4ade80' : '#94a3b8',
-                    }}
+                    className="workflow-inline"
                   >
                     {d.unit} ({d.target}+): [{d.roll}] {d.hit ? '★ HIT' : 'MISS'}
                   </span>
@@ -257,25 +225,18 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
 
           {/* Stage 1: Sustain Damage */}
           {isActor && isSustainStage && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="workflow-inline" >
               <div
-                style={{
-                  background: 'rgba(234, 179, 8, 0.15)',
-                  border: '1px solid #eab308',
-                  borderRadius: 6,
-                  padding: '8px 12px',
-                  fontSize: 12,
-                  color: '#fef08a',
-                }}
+                className="workflow-inline"
               >
                 ⚠️ Caution: Opponents holding "Direct Hit" action cards may react to destroy sustained ships!
               </div>
 
-              <div style={{ fontSize: 13, color: '#cbd5e1' }}>
+              <div className="workflow-inline" >
                 Select capital ships to sustain damage, or choose decline to proceed to direct hits:
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="workflow-inline" >
                 {choice.options
                   .filter((o) => o.id !== 'decline' && o.kind !== 'decline')
                   .map((opt) => (
@@ -286,17 +247,10 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                        onClick={() => submitDirect(opt.id)}
                       disabled={isDirectSubmitting}
                       className="button button--secondary"
-                      style={{
-                        padding: '10px 16px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        border: '1px solid #eab308',
-                        color: '#fef08a',
-                      }}
+
                     >
-                      <span style={{ fontWeight: 600 }}>{opt.label}</span>
-                      <span style={{ fontSize: 11, background: '#0f172a', padding: '2px 6px', borderRadius: 4 }}>
+                      <span className="workflow-inline" >{opt.label}</span>
+                      <span className="workflow-inline" >
                         Sustain Hit
                       </span>
                     </button>
@@ -304,7 +258,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
               </div>
 
               {declineOption && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                <div className="workflow-inline" >
                   <button
                     type="button"
                     data-testid="decline-sustain-btn"
@@ -321,9 +275,9 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
 
           {/* Stage 3: Casualty Allocation Steppers */}
           {isActor && isCasualtyStage && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 13, color: '#cbd5e1' }}>
+            <div className="workflow-inline" >
+              <div className="workflow-inline" >
+                <span className="workflow-inline" >
                   Allocate exactly {hitsOwed} hits to destroy your units:
                 </span>
                 <button
@@ -331,7 +285,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                   data-testid="auto-cheapest-btn"
                   onClick={handleAutoCheapest}
                   className="button button--secondary"
-                  style={{ fontSize: 11, padding: '4px 10px' }}
+
                 >
                   Auto-Cheapest
                 </button>
@@ -339,68 +293,48 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
 
               {/* Tally Card */}
               <div
-                style={{
-                  background: '#1e293b',
-                  borderRadius: 6,
-                  padding: '8px 12px',
-                  border: isCasualtyAllocationValid ? '1px solid #4ade80' : '1px solid #ef4444',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
+                className="workflow-inline"
               >
-                <span style={{ fontSize: 13, color: '#94a3b8' }}>Hits Allocated:</span>
+                <span className="workflow-inline" >Hits Allocated:</span>
                 <span
                   data-testid="casualty-allocated-count"
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: isCasualtyAllocationValid ? '#4ade80' : '#ef4444',
-                  }}
+                  className="workflow-inline"
                 >
                   {totalCasualtiesAllocated} / {hitsOwed} Hits
                 </span>
               </div>
 
               {/* Grouped Unit Rows */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="workflow-inline" >
                 {casualtyGroups.map((g) => {
                   const count = stagedCasualties[g.unitType] ?? 0;
                   return (
                     <div
                       key={g.unitType}
                       data-testid={`casualty-row-${g.unitType}`}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        background: '#1e293b',
-                        padding: '8px 12px',
-                        borderRadius: 6,
-                        border: '1px solid #334155',
-                      }}
+                      className="workflow-inline"
                     >
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, textTransform: 'capitalize' }}>
+                        <div className="workflow-inline" >
                           {g.unitType}
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8' }}>Available: {g.totalAvailable}</div>
+                        <div className="workflow-inline" >Available: {g.totalAvailable}</div>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div className="workflow-inline" >
                         <button
                           type="button"
                           data-testid={`casualty-dec-${g.unitType}`}
                           onClick={() => handleUpdateCasualty(g.unitType, -1, g.totalAvailable)}
                           disabled={count <= 0 || isPipelineRunning || isDirectSubmitting}
                           className="button button--secondary button--icon"
-                          style={{ minWidth: 26, height: 26 }}
+
                         >
                           -
                         </button>
                         <span
                           data-testid={`casualty-count-${g.unitType}`}
-                          style={{ minWidth: 20, textAlign: 'center', fontSize: 13, fontWeight: 700 }}
+                          className="workflow-inline"
                         >
                           {count}
                         </span>
@@ -410,7 +344,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                           onClick={() => handleUpdateCasualty(g.unitType, 1, g.totalAvailable)}
                           disabled={count >= g.totalAvailable || isPipelineRunning || isDirectSubmitting}
                           className="button button--secondary button--icon"
-                          style={{ minWidth: 26, height: 26 }}
+
                         >
                           +
                         </button>
@@ -420,17 +354,14 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                 })}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+              <div className="workflow-inline" >
                 <button
                   type="button"
                   data-testid="confirm-casualties-btn"
                    onClick={() => handleConfirmCasualties(isDirectSubmitting, submitDirect)}
                   disabled={!isCasualtyAllocationValid || isPipelineRunning || isDirectSubmitting}
                   className="button button--primary"
-                  style={{
-                    padding: '8px 20px',
-                    background: isCasualtyAllocationValid && !isPipelineRunning && !isDirectSubmitting ? '#ef4444' : '#475569',
-                  }}
+
                 >
                   {isPipelineRunning || isDirectSubmitting
                     ? 'Destroying Units...'
@@ -442,14 +373,14 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
 
           {/* Retreat Stage */}
           {isActor && isRetreatStage && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ fontSize: 13, color: '#cbd5e1' }}>
+            <div className="workflow-inline" >
+              <div className="workflow-inline" >
                 {subtype === 'announce_retreat'
                   ? 'Choose whether to announce a retreat before combat rounds commence:'
                   : 'Select an adjacent system to retreat your surviving fleet to:'}
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="workflow-inline" >
                 {choice.options.map((opt) => (
                   <button
                     key={opt.id}
@@ -458,7 +389,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
                     onClick={() => submitDirect(opt.id)}
                     disabled={isDirectSubmitting}
                     className="button button--secondary"
-                    style={{ textAlign: 'left', padding: '10px 14px' }}
+
                   >
                     {opt.label}
                   </button>

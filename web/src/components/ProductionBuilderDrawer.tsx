@@ -52,36 +52,17 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
       <Dialog.Content
         data-testid="production-builder-drawer"
         className="production-drawer"
-        style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 440,
-          maxWidth: '100vw',
-          background: 'rgba(15, 23, 42, 0.96)',
-          backdropFilter: 'blur(16px)',
-          borderLeft: '2px solid #10b981',
-          boxShadow: '-8px 0 32px rgba(16, 185, 129, 0.25)',
-          color: '#f8fafc',
-          display: 'flex',
-          flexDirection: 'column',
-          zIndex: 'var(--layer-modal)',
-          boxSizing: 'border-box',
-          padding: 24,
-          overflowY: 'auto',
-        }}
       >
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div className="choice-workflow-header">
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#34d399', textTransform: 'uppercase' }}>
+            <div className="choice-workflow-eyebrow">
               Space Dock Production {systemId ? `• System ${systemId}` : ''}
             </div>
             <Dialog.Title
               as="h2"
               data-testid="production-drawer-title"
-              style={{ fontSize: 18, fontWeight: 700, margin: '4px 0 0 0', color: '#f8fafc' }}
+              className="choice-workflow-title"
             >
               {isPlaceUnit ? 'Place Produced Unit' : 'Unit Production Builder'}
             </Dialog.Title>
@@ -91,9 +72,8 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
             type="button"
             data-testid="close-production-drawer"
             onClick={onClose}
-            className="button button--secondary button--icon"
             aria-label="Close production builder"
-            style={{ minWidth: 28, height: 28 }}
+            className="button button--secondary button--icon choice-workflow-close"
           >
             ✕
           </button>
@@ -113,63 +93,34 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
 
         {/* Produce Unit Mode */}
         {isActor && isProduceUnit && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1 }}>
+          <div className="workflow-stack">
             {/* Capacity Progress Meter */}
             {capacityLimit > 0 && (
               <div
-                style={{
-                  background: '#1e293b',
-                  borderRadius: 8,
-                  padding: '12px 16px',
-                  border: '1px solid #334155',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                }}
+                className="workflow-card production-drawer__meter"
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 13, color: '#94a3b8' }}>Production Capacity:</span>
+                <div className="workflow-card--row">
+                  <span className="text-muted">Production Capacity:</span>
                   <span
                     data-testid="production-capacity-counter"
-                    style={{ fontSize: 14, fontWeight: 700, color: '#34d399' }}
+                    className="text-success"
                   >
                     {capacitySpent} / {capacityLimit} Units ({capacityRemaining} Left)
                   </span>
                 </div>
 
-                <div
-                  style={{
-                    height: 6,
-                    background: '#0f172a',
-                    borderRadius: 3,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${Math.min(100, (capacitySpent / capacityLimit) * 100)}%`,
-                      background: capacityRemaining > 0 ? '#10b981' : '#f59e0b',
-                      transition: 'width 0.2s ease',
-                    }}
-                  />
-                </div>
+                <progress className="production-drawer__progress" data-full={capacityRemaining === 0} max={capacityLimit} value={capacitySpent} />
               </div>
             )}
 
-            <div style={{ fontSize: 13, color: '#cbd5e1' }}>
+            <div className="workflow-copy">
               Select a unit to build, or click Done to proceed to payment:
             </div>
 
             {/* Units Grid */}
             <div
               data-testid="production-options-grid"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 10,
-                flex: 1,
-              }}
+              className="production-drawer__grid"
             >
               {productionOptions.map((opt) => (
                 <button
@@ -178,42 +129,22 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                   data-testid={`produce-unit-btn-${opt.id}`}
                   onClick={() => submitDirect(opt.id)}
                   disabled={isSubmitting}
-                  className="button button--secondary"
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '14px 10px',
-                    borderRadius: 8,
-                    background: '#1e293b',
-                    border: '1px solid #334155',
-                    color: '#f8fafc',
-                    cursor: 'pointer',
-                    gap: 4,
-                  }}
+                  className="button button--secondary production-drawer__unit"
                 >
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{opt.label}</span>
+                  <span>{opt.label}</span>
                 </button>
               ))}
             </div>
 
             {/* Done Producing Action */}
             {declineOption && (
-              <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+              <div>
                 <button
                   type="button"
                   data-testid="done-producing-btn"
                    onClick={() => submitDirect(declineOption.id)}
                   disabled={isSubmitting}
-                  className="button button--primary"
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    fontSize: 14,
-                    fontWeight: 700,
-                    background: '#10b981',
-                  }}
+                  className="button button--primary production-drawer__done"
                 >
                   {declineOption.label || 'Done Producing'}
                 </button>
@@ -224,12 +155,12 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
 
         {/* Place Unit Mode */}
         {isActor && isPlaceUnit && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
-            <div style={{ fontSize: 13, color: '#cbd5e1' }}>
+          <div className="workflow-stack">
+            <div className="workflow-copy">
               {choice.prompt}. Select destination location:
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="workflow-stack workflow-stack--compact">
               {productionOptions.map((opt) => (
                 <button
                   key={opt.id}
@@ -237,15 +168,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                   data-testid={`place-spot-btn-${opt.id}`}
                   onClick={() => submitDirect(opt.id)}
                   disabled={isSubmitting}
-                  className="button button--secondary"
-                  style={{
-                    padding: '12px 16px',
-                    textAlign: 'left',
-                    background: '#1e293b',
-                    border: '1px solid #334155',
-                    borderRadius: 6,
-                    color: '#f8fafc',
-                  }}
+                  className="button button--secondary workflow-button--wide"
                 >
                   {opt.label}
                 </button>

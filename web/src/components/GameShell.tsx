@@ -125,25 +125,10 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {/* Minimized Decision Pill for dedicated drawers/modals */}
       {isMinimized && workflow !== 'generic_selection' && workflow !== 'system_activation' && (
         <div
-          className="choice-banner"
+          className="choice-banner choice-minimized-pill"
           data-testid="choice-minimized-pill"
-          style={{
-            position: 'fixed',
-            bottom: 24,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'rgba(15, 23, 42, 0.95)',
-            border: '2px solid #38bdf8',
-            borderRadius: 8,
-            padding: '8px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
-            zIndex: 'var(--layer-banner)',
-          }}
         >
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#f8fafc' }}>{choice.prompt}</span>
+          <span className="choice-minimized-pill__prompt">{choice.prompt}</span>
           <button
             type="button"
             data-testid="resume-decision-btn"

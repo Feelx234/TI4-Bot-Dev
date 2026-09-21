@@ -89,39 +89,23 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
     <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
       <Dialog.Content
         data-testid="trade-desk-modal"
-        className="trade-dialog"
-        style={{
-          background: 'rgba(3, 7, 18, 0.85)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
+        className="trade-dialog choice-workflow-dialog"
+
       >
         <div
-          className="panel"
-          style={{
-            border: '2px solid #38bdf8',
-            padding: 24,
-            maxWidth: 620,
-            width: '92%',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 16,
-            color: '#f8fafc',
-            boxShadow: '0 0 32px rgba(56, 189, 248, 0.2)',
-          }}
+          className="panel choice-workflow-modal"
+
         >
           {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div className="workflow-inline" >
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase' }}>
+              <div className="workflow-inline" >
                 Bilateral Trade Negotiation
               </div>
               <Dialog.Title
                 as="h2"
                 data-testid="trade-desk-title"
-                style={{ fontSize: 18, fontWeight: 700, margin: '4px 0 0 0', color: '#f8fafc' }}
+                className="workflow-inline"
               >
                 {isAnswering
                   ? `Inbound Trade Offer from Seat ${partnerSeat}`
@@ -135,7 +119,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
               onClick={onClose}
               className="button button--secondary button--icon"
               aria-label="Close trade desk"
-              style={{ minWidth: 28, height: 28 }}
+
             >
               ✕
             </button>
@@ -155,35 +139,22 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
 
           {/* Answer Mode */}
           {isActor && isAnswering && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="workflow-inline" >
               <div
-                style={{
-                  background: '#1e293b',
-                  borderRadius: 6,
-                  padding: 14,
-                  border: '1px solid #334155',
-                  fontSize: 14,
-                  lineHeight: 1.5,
-                  color: '#f8fafc',
-                }}
+                className="workflow-inline"
               >
                 {choice.prompt}
               </div>
 
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+              <div className="workflow-inline" >
                 {choice.options.map((opt) => {
                   const isAccept = opt.id === 'accept';
                   const isRefuse = opt.id === 'refuse' || opt.kind === 'decline';
                   const isCounter = opt.id === 'counter';
 
-                  let btnStyle: React.CSSProperties = {};
-                  if (isAccept) {
-                    btnStyle = { background: '#22c55e', color: '#fff' };
-                  } else if (isRefuse) {
-                    btnStyle = { background: '#ef4444', color: '#fff' };
-                  } else if (isCounter) {
-                    btnStyle = { background: '#3b82f6', color: '#fff' };
-                  }
+                  const answerClass = isAccept ? 'trade-dialog__answer--accept'
+                    : isRefuse ? 'trade-dialog__answer--refuse'
+                    : isCounter ? 'trade-dialog__answer--counter' : '';
 
                   return (
                     <button
@@ -192,8 +163,8 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                       data-testid={`answer-opt-${opt.id}`}
                        onClick={() => submitDirect(opt.id)}
                       disabled={isSubmitting}
-                      className={`button ${isAccept ? 'button--primary' : 'button--secondary'}`}
-                      style={btnStyle}
+                      className={`button ${isAccept ? 'button--primary' : 'button--secondary'} ${answerClass}`}
+
                     >
                       {opt.label}
                     </button>
@@ -205,18 +176,12 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
 
           {/* Propose Mode */}
           {isActor && !isAnswering && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="workflow-inline" >
               {/* Category Tabs */}
               {availableCategories.length > 0 && (
                 <div
                   role="tablist"
-                  style={{
-                    display: 'flex',
-                    gap: 6,
-                    borderBottom: '1px solid #334155',
-                    paddingBottom: 6,
-                    overflowX: 'auto',
-                  }}
+                  className="workflow-inline"
                 >
                   {availableCategories.map((cat) => (
                     <button
@@ -227,11 +192,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                       type="button"
                       onClick={() => setActiveTab(cat)}
                       className={`button ${activeTab === cat ? 'button--primary' : 'button--secondary'}`}
-                      style={{
-                        fontSize: 12,
-                        padding: '6px 12px',
-                        borderRadius: 4,
-                      }}
+
                     >
                       {CATEGORY_NAMES[cat]}
                     </button>
@@ -241,17 +202,10 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
 
               {/* Offer Options List */}
               <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                  maxHeight: 220,
-                  overflowY: 'auto',
-                  paddingRight: 4,
-                }}
+                className="workflow-inline"
               >
                 {currentTabOffers.length === 0 ? (
-                  <div style={{ color: '#94a3b8', fontSize: 13, padding: 12, textAlign: 'center' }}>
+                  <div className="workflow-inline" >
                     No available offers in this category.
                   </div>
                 ) : (
@@ -263,31 +217,16 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                         type="button"
                         data-testid={`trade-opt-${offer.id}`}
                         onClick={() => setSelectedOfferId(offer.id)}
-                        className="button button--secondary"
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '10px 14px',
-                          borderRadius: 6,
-                          border: isSelected ? '2px solid #38bdf8' : '1px solid #334155',
-                          background: isSelected ? 'rgba(56, 189, 248, 0.15)' : '#1e293b',
-                          textAlign: 'left',
-                        }}
+                        className="button button--secondary trade-dialog__offer"
+                        data-selected={isSelected}
+
                       >
-                        <span style={{ fontSize: 13, fontWeight: 500, color: '#f8fafc' }}>
+                        <span className="workflow-inline" >
                           {offer.label}
                         </span>
                         {offer.net !== undefined && (
                           <span
-                            style={{
-                              fontSize: 12,
-                              fontWeight: 700,
-                              color: offer.net >= 0 ? '#4ade80' : '#f87171',
-                              background: '#0f172a',
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                            }}
+                            className="workflow-inline"
                           >
                             {offer.net >= 0 ? `+${offer.net}` : offer.net} Value
                           </span>
@@ -302,16 +241,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
               {selectedOffer && (
                 <div
                   data-testid="selected-trade-summary"
-                  style={{
-                    background: 'rgba(56, 189, 248, 0.1)',
-                    border: '1px solid #38bdf8',
-                    borderRadius: 6,
-                    padding: '8px 12px',
-                    fontSize: 12,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
+                  className="workflow-inline"
                 >
                   <span>Selected Deal: <strong>{selectedOffer.label}</strong></span>
                   {selectedOffer.net !== undefined && (
@@ -321,7 +251,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
               )}
 
               {/* Actions */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+              <div className="workflow-inline" >
                 {declineOption ? (
                   <button
                     type="button"
@@ -329,7 +259,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                     onClick={() => submitDirect(declineOption.id)}
                     disabled={isSubmitting}
                     className="button button--secondary"
-                    style={{ fontSize: 13 }}
+
                   >
                     {declineOption.label || 'Offer Nothing'}
                   </button>
@@ -341,7 +271,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                    onClick={() => selectedOfferId && submitDirect(selectedOfferId)}
                   disabled={!selectedOfferId || isSubmitting}
                   className="button button--primary"
-                  style={{ padding: '8px 20px', fontSize: 13 }}
+
                 >
                   {isSubmitting ? 'Proposing...' : 'Propose Deal'}
                 </button>

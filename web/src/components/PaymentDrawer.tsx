@@ -159,46 +159,27 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       ariaLabel="Payment and Economy Drawer"
       data-testid="payment-drawer"
       className="payment-drawer panel"
-      style={{
-        position: 'absolute',
-        top: 16,
-        right: 16,
-        bottom: 16,
-        width: 360,
-        zIndex: 'var(--layer-modal)',
-        background: 'rgba(15, 23, 42, 0.98)',
-        backdropFilter: 'blur(12px)',
-        border: '1px solid #38bdf8',
-        borderRadius: 8,
-        padding: 20,
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.7)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 16,
-        color: '#f8fafc',
-      }}
     >
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div className="choice-workflow-header">
         <div>
-          <div style={{ fontSize: 11, fontWeight: 'bold', color: '#38bdf8', textTransform: 'uppercase' }}>
+          <div className="choice-workflow-eyebrow">
             Economy Settlement • Seat {choice.actor}
           </div>
           <h3
             data-testid="payment-drawer-title"
-            style={{ margin: '4px 0 0 0', fontSize: 18, fontWeight: 700, color: '#f8fafc' }}
+            className="choice-workflow-title"
           >
             Pay {owed} {currency}
           </h3>
-          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{choice.prompt}</div>
+          <div className="text-muted">{choice.prompt}</div>
         </div>
         <button
           type="button"
           data-testid="close-payment-drawer"
           onClick={onClose}
-          className="button button--secondary button--icon"
           aria-label="Close payment drawer"
-          style={{ padding: '2px 8px', fontSize: 14, minWidth: 28, height: 28 }}
+          className="button button--secondary button--icon choice-workflow-close"
         >
           ✕
         </button>
@@ -218,59 +199,42 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
        {/* Progress and Debt Tally */}
       <div
         data-testid="payment-tally-card"
-        style={{
-          background: '#1e293b',
-          borderRadius: 6,
-          padding: 12,
-          border: '1px solid #334155',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-        }}
+        className="workflow-card payment-drawer__tally"
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-          <span style={{ color: '#94a3b8' }}>Total Owed:</span>
-          <span style={{ fontWeight: 700, color: '#f8fafc' }}>
+        <div className="workflow-card--row">
+          <span className="text-muted">Total Owed:</span>
+          <span>
             {owed} {currency}
           </span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-          <span style={{ color: '#94a3b8' }}>Committed:</span>
+        <div className="workflow-card--row">
+          <span className="text-muted">Committed:</span>
           <span
             data-testid="committed-amount"
-            style={{ fontWeight: 700, color: isSettled ? '#4ade80' : '#38bdf8' }}
+            className={isSettled ? 'text-success' : 'text-accent'}
           >
             {totalCommitted} {currency}
           </span>
         </div>
         {credit > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#facc15' }}>
+          <div className="workflow-card--row text-warning">
             <span>Credit Retained:</span>
             <span>+{credit} {currency}</span>
           </div>
         )}
 
         {/* Progress bar */}
-        <div style={{ background: '#0f172a', borderRadius: 4, height: 8, overflow: 'hidden' }}>
-          <div
-            style={{
-              height: '100%',
-              width: `${Math.min(100, owed > 0 ? (totalCommitted / owed) * 100 : 100)}%`,
-              background: isSettled ? '#4ade80' : '#38bdf8',
-              transition: 'width 0.2s ease, background 0.2s ease',
-            }}
-          />
-        </div>
+        <progress className="payment-drawer__progress" data-settled={isSettled} max={Math.max(owed, 1)} value={Math.min(totalCommitted, owed)} />
       </div>
 
       {/* Ready Planet Cards */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, overflowY: 'auto' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
+      <div className="payment-drawer__list">
+        <div className="choice-workflow-eyebrow text-muted">
           Ready Planets ({availablePlanets.length})
         </div>
 
         {availablePlanets.length === 0 ? (
-          <div style={{ fontSize: 13, color: '#64748b', padding: '8px 0' }}>
+          <div className="text-faint">
             No ready planets available to exhaust.
           </div>
         ) : (
@@ -280,20 +244,10 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
               <label
                 key={planet.id}
                 data-testid={`planet-card-${planet.id}`}
-                className={`card${isSelected ? ' card--selected' : ''}`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '8px 12px',
-                  cursor: 'pointer',
-                  borderRadius: 6,
-                  border: isSelected ? '1px solid #38bdf8' : '1px solid #334155',
-                  background: isSelected ? 'rgba(56, 189, 248, 0.1)' : '#1e293b',
-                  transition: 'all 0.15s ease',
-                }}
+                className={`card payment-drawer__planet${isSelected ? ' card--selected' : ''}`}
+                data-selected={isSelected}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="workflow-row">
                   <input
                     type="checkbox"
                     checked={isSelected}
@@ -301,23 +255,16 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                     disabled={isPipelineRunning || isDirectSubmitting}
                   />
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: isSelected ? '#38bdf8' : '#f8fafc' }}>
+                    <div className="payment-drawer__planet-name" data-selected={isSelected}>
                       {planet.planetName}
                     </div>
                     {planet.sourceKind && planet.sourceKind !== currency.toLowerCase() && (
-                      <div style={{ fontSize: 11, color: '#facc15' }}>via {planet.sourceKind}</div>
+                      <div className="text-warning">via {planet.sourceKind}</div>
                     )}
                   </div>
                 </div>
                 <span
-                  style={{
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    background: '#0f172a',
-                    color: '#38bdf8',
-                  }}
+                  className="workflow-badge"
                 >
                   +{planet.worth} {currency.slice(0, 3)}
                 </span>
@@ -330,36 +277,26 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
         {hasTradeGoodOption && (
           <div
             data-testid="trade-goods-stepper"
-            style={{
-              marginTop: 8,
-              padding: 12,
-              background: '#1e293b',
-              borderRadius: 6,
-              border: '1px solid #334155',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}
+            className="workflow-card workflow-card--row"
           >
             <div>
-              <div style={{ fontWeight: 600, fontSize: 13, color: '#f8fafc' }}>Trade Goods</div>
-              <div style={{ fontSize: 11, color: '#94a3b8' }}>
+              <div>Trade Goods</div>
+              <div className="text-muted">
                 1 TG = {tradeGoodWorth} {currency.slice(0, 3)} (Available: {maxTradeGoodsAvailable})
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="workflow-row">
               <button
                 type="button"
                 data-testid="tg-decrement-btn"
                 onClick={() => setTradeGoodsToSpend((prev) => Math.max(0, prev - 1))}
                 disabled={tradeGoodsToSpend <= 0 || isPipelineRunning || isDirectSubmitting}
-                className="button button--secondary button--icon"
-                style={{ minWidth: 28, height: 28 }}
+                className="button button--secondary button--icon choice-workflow-close"
               >
                 -
               </button>
-              <span data-testid="tg-count" style={{ fontSize: 14, fontWeight: 700, minWidth: 20, textAlign: 'center' }}>
+              <span data-testid="tg-count" className="workflow-count">
                 {tradeGoodsToSpend}
               </span>
               <button
@@ -375,8 +312,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                   isPipelineRunning ||
                   isDirectSubmitting
                 }
-                className="button button--secondary button--icon"
-                style={{ minWidth: 28, height: 28 }}
+                className="button button--secondary button--icon choice-workflow-close"
               >
                 +
               </button>
@@ -389,21 +325,14 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
         <div
           data-testid="payment-error-banner"
           role="alert"
-          style={{
-            background: 'rgba(239, 68, 68, 0.15)',
-            border: '1px solid #ef4444',
-            color: '#fca5a5',
-            padding: '8px 12px',
-            borderRadius: 6,
-            fontSize: 12,
-          }}
+          className="workflow-error"
         >
           {lastError}
         </div>
       )}
 
       {/* Action Footer */}
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', paddingTop: 8, borderTop: '1px solid #334155' }}>
+      <div className="payment-drawer__footer">
         {declineOption && (
           <button
             type="button"
@@ -421,9 +350,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
            onClick={() => handleConfirmPayment(isDirectSubmitting, submitDirect)}
           disabled={!isSettled || isPipelineRunning || isDirectSubmitting}
           className="button button--primary"
-          style={{
-            background: isSettled && !isPipelineRunning && !isDirectSubmitting ? undefined : '#475569',
-          }}
+          data-ready={isSettled && !isPipelineRunning && !isDirectSubmitting}
         >
           {isPipelineRunning || isDirectSubmitting ? 'Paying...' : `Confirm Payment (${totalCommitted})`}
         </button>

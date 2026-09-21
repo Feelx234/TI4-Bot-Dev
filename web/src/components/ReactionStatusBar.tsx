@@ -121,58 +121,26 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       role="region"
       aria-label="Reaction Window"
       data-testid="reaction-status-bar"
-      style={{
-        position: 'fixed',
-        bottom: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 'var(--layer-dialog)',
-        background: 'rgba(15, 23, 42, 0.95)',
-        backdropFilter: 'blur(12px)',
-        border: '2px solid #eab308',
-        borderRadius: 12,
-        padding: '12px 20px',
-        boxShadow: '0 8px 32px rgba(234, 179, 8, 0.35)',
-        color: '#f8fafc',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 16,
-        maxWidth: 720,
-        width: 'calc(100% - 32px)',
-        boxSizing: 'border-box',
-      }}
+      className="reaction-status-bar"
     >
       {/* Icon & Details */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 20 }} role="img" aria-label="Reaction opportunity">
+      <div className="reaction-status-bar__details">
+        <span className="reaction-status-bar__icon" role="img" aria-label="Reaction opportunity">
           ⚡
         </span>
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div className="reaction-status-bar__text">
           <div
             data-testid="reaction-bar-title"
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: '#fef08a',
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-            }}
+            className="reaction-status-bar__title"
           >
             Reaction Opportunity
             {secondsRemaining !== null && !isPinned && (
-              <span style={{ marginLeft: 8, color: '#94a3b8' }}>({secondsRemaining}s)</span>
+              <span className="reaction-status-bar__countdown">({secondsRemaining}s)</span>
             )}
           </div>
           <div
             data-testid="reaction-bar-prompt"
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              color: '#f8fafc',
-            }}
+            className="reaction-status-bar__prompt"
           >
             {choice.prompt}
           </div>
@@ -183,13 +151,13 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       {!isActor ? (
         <div
           data-testid="spectator-reaction-notice"
-          style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}
+          className="reaction-status-bar__spectator"
         >
           Waiting for seat {choice.actor}...
         </div>
       ) : (
         /* Action Buttons */
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+        <div className="reaction-status-bar__actions">
           {/* Reaction Cards */}
           {reactionOptions.map((opt) => (
             <button
@@ -198,14 +166,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
               data-testid={`play-reaction-btn-${opt.id}`}
               onClick={() => handleAction(opt.id)}
               disabled={isSubmitting}
-              className="button button--primary"
-              style={{
-                background: '#eab308',
-                color: '#0f172a',
-                fontWeight: 700,
-                fontSize: 12,
-                padding: '6px 14px',
-              }}
+              className="button button--primary reaction-status-bar__play"
             >
               Play {opt.label}
             </button>
@@ -218,13 +179,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
               data-testid="pass-reaction-btn"
               onClick={() => handleAction(declineOption.id)}
               disabled={isSubmitting}
-              className="button button--secondary"
-              style={{
-                fontSize: 12,
-                padding: '6px 14px',
-                borderColor: '#64748b',
-                color: '#cbd5e1',
-              }}
+              className="button button--secondary reaction-status-bar__pass"
             >
               Pass (Spacebar)
             </button>
@@ -232,22 +187,13 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
 
           {/* Pinned Toggle */}
           <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              fontSize: 11,
-              color: '#94a3b8',
-              cursor: 'pointer',
-              userSelect: 'none',
-            }}
+            className="reaction-status-bar__pin"
           >
             <input
               type="checkbox"
               data-testid="pin-reaction-toggle"
               checked={isPinned}
               onChange={(e) => setIsPinned(e.target.checked)}
-              style={{ cursor: 'pointer' }}
             />
             Pin
           </label>
@@ -258,17 +204,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       {lastError && (
         <div
           data-testid="reaction-error-badge"
-          style={{
-            position: 'absolute',
-            top: -28,
-            left: 20,
-            background: '#ef4444',
-            color: '#fff',
-            fontSize: 11,
-            fontWeight: 600,
-            padding: '2px 8px',
-            borderRadius: 4,
-          }}
+          className="reaction-status-bar__error"
         >
           {lastError}
         </div>

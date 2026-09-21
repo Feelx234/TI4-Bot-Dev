@@ -94,6 +94,20 @@ describe('PaymentDrawer Component', () => {
     expect(confirmBtn).toBeDisabled();
   });
 
+  it('represents planet selection with a class and data state instead of an inline style', () => {
+    render(
+      <PaymentDrawer choice={mockPaymentChoice} player={mockPlayer} viewerSeat="p1" onSubmit={vi.fn()} isOpen onClose={vi.fn()} />
+    );
+
+    const planet = screen.getByTestId('planet-card-exhaust|jord');
+    expect(planet).toHaveClass('payment-drawer__planet');
+    expect(planet).toHaveAttribute('data-selected', 'false');
+    fireEvent.click(planet.querySelector('input')!);
+    expect(planet).toHaveAttribute('data-selected', 'true');
+    expect(planet).toHaveClass('card--selected');
+    expect(planet).not.toHaveAttribute('style');
+  });
+
   it('uses the structured planet name rather than parsing its option id', () => {
     const choice: PendingChoiceDto = {
       ...mockPaymentChoice,
