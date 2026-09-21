@@ -281,6 +281,10 @@ configuration. This step requires a security review before an internet-facing de
 
 ### 6. Complete the gameplay UI and add AI seats
 
+> [!NOTE]
+> Detailed UI implementation plan: [`plans/GAMEPLAY_UI_COMPLETION_PLAN.md`](GAMEPLAY_UI_COMPLETION_PLAN.md).
+> Covers the Choice Renderer Model, constraint handling (`min_selection`/`max_selection`), and specialized workflow components (payments, tactical moves, combat, agenda voting, trade negotiation).
+
 Expand the browser UI from the vertical slice to all player-facing workflows: timing/reaction
 prompts, multi-step payments, transactions, agenda voting, combat assignment, action-card details,
 and history. Keep client-side drafts separate from authoritative submissions.
