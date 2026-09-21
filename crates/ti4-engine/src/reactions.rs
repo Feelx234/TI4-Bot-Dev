@@ -848,7 +848,74 @@ pub fn arm(resolver: &mut Resolver, state: &GameState) {
         for (event_type, relation) in &windows {
             resolver.register([slot(&owner_name, &seat.id, event_type, *relation)]);
         }
+        // Registered for every seat, because a technology can be gained mid-game and the resolver
+        // has no late registration; the condition is what limits it to the holder.
+        resolver.register([instinct_training(&owner_name, &seat.id)]);
     }
+}
+
+/// Whether `player` can use Instinct Training now: holds it ready, with a strategy token.
+fn instinct_training_ready(state: &GameState, player: &PlayerId) -> bool {
+    let card = ti4_model::id::TechnologyId::new("it");
+    state.player(player).is_some_and(|seat| {
+        seat.technologies.contains(&card)
+            && !seat.exhausted_technologies.contains(&card)
+            && seat.strategic_tokens > 0
+    })
+}
+
+/// Instinct Training (Xxcha): "You may exhaust this card and spend 1 token from your strategy pool
+/// when another player plays an action card; cancel that action card." Unlike Sabotage it can
+/// cancel any card, Sabotage included. The card is still spent (1.15), as with Sabotage.
+fn instinct_training(owner_name: &str, player: &PlayerId) -> Ability {
+    let owner = player.clone();
+    let condition_owner = player.clone();
+    Ability::stateful(
+        format!("technology:{owner_name}:it:ACTION_CARD_PLAYED:when"),
+        player.clone(),
+        "ACTION_CARD_PLAYED",
+        Relation::When,
+        Arc::new(move |event, _resolver, context| {
+            let card = event.text("card").unwrap_or_default().to_owned();
+            let choice = crate::choice::Choice::new(
+                owner.clone(),
+                format!("Instinct Training: exhaust and spend a strategy token to cancel {card}"),
+                vec![
+                    crate::choice::ChoiceOption::labelled(
+                        "use".to_owned(),
+                        "technology",
+                        "cancel it".to_owned(),
+                    ),
+                    crate::choice::ChoiceOption::decline(),
+                ],
+            )
+            .contextualized(DecisionContext::new(
+                owner.clone(),
+                DecisionSource::Content("it".to_owned()),
+                "instinct_training_cancel",
+                context.state.phase,
+                context.state.round,
+            ));
+            let Ok(answer) = context.ask_seeing(&choice) else {
+                return Ok(());
+            };
+            if answer.is_decline() || !instinct_training_ready(context.state, &owner) {
+                return Ok(());
+            }
+            if let Some(seat) = context.state.player_mut(&owner) {
+                seat.strategic_tokens -= 1;
+                seat.exhausted_technologies
+                    .insert(ti4_model::id::TechnologyId::new("it"));
+            }
+            event.cancel();
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        actor_is_not(event, &condition_owner, context.state)
+            && instinct_training_ready(context.state, &condition_owner)
+    }))
 }
 
 /// Reaction cards whose printed window this table maps.

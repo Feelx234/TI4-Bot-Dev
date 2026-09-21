@@ -5753,6 +5753,50 @@ mod tests {
     }
 
     #[test]
+    fn instinct_training_cancels_the_card_being_played() {
+        // Instinct Training (Xxcha): "You may exhaust this card and spend 1 token from your
+        // strategy pool when another player plays an action card; cancel that action card." The
+        // Sabotage test's play, with B holding the technology instead of the card.
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let (mut state, galaxy, ids) = tactical_fixture();
+        state.player_mut(&a).unwrap().action_cards = vec![ti4_model::id::ActionCardId::new("fs1")];
+        let seat = state.player_mut(&b).unwrap();
+        seat.technologies
+            .insert(ti4_model::id::TechnologyId::new("it"));
+        seat.strategic_tokens = 2;
+        let script: Vec<String> = vec![
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            "reaction:generic:SYSTEM_ACTIVATED:after".to_owned(),
+            "technology:generic:it:ACTION_CARD_PLAYED:when".to_owned(),
+            "use".to_owned(),
+            "done_moving".to_owned(),
+        ];
+        let table = Table::with_default(Box::new(Scripted::new(script)));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        for _ in 0..16 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        let played = game.state.player(&a).unwrap();
+        assert_eq!(
+            played.move_bonus_activation, None,
+            "the cancelled card did nothing"
+        );
+        assert!(played.action_cards.is_empty(), "and it is still spent");
+        let xxcha = game.state.player(&b).unwrap();
+        assert_eq!(xxcha.strategic_tokens, 1);
+        assert!(
+            xxcha
+                .exhausted_technologies
+                .contains(&ti4_model::id::TechnologyId::new("it"))
+        );
+    }
+
+    #[test]
     fn solar_flare_keeps_the_opponents_space_cannon_dark_for_the_action() {
         // Solar Flare: "During the 'Movement' step of this tactical action, other players
         // cannot use SPACE CANNON against your ships." A's cruiser sits in the system he

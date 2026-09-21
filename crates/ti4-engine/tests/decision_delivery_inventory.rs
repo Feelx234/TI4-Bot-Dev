@@ -637,6 +637,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Instinct Training: use (exhaust + a strategy token, cancel the card) or decline.
+        module: "reactions.rs",
+        function: "instinct_training",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "relics.rs",
         function: "codex",
         count: 1,
@@ -939,6 +946,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("production.rs", "produce_one", 2),
     ("production.rs", "resolve", 1),
     ("production.rs", "sling_relay", 2),
+    ("reactions.rs", "instinct_training", 1),
     ("reactions.rs", "slot", 1),
     ("relics.rs", "codex", 1),
     ("relics.rs", "crown_of_emphidia_explore", 1),
