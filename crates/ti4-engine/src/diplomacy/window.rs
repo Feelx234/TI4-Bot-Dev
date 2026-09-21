@@ -1,31 +1,42 @@
-//! Resumable, two-counter structured negotiation window.
+//! Resumable, two-counter structured negotiation window, with deals built item by item.
+//!
+//! `plans/TRADE_REWORK_2026-09-22.md`: the side building a revision adds what it gives, then what it
+//! asks for, one item at a time, reviews, and proposes. The other side accepts, declines, or builds
+//! a counter the same way, at most twice.
 
 use serde::{Deserialize, Serialize};
 use ti4_model::{
-    DealId, DealStatus, DealTerm, DiplomacyEvent, DiplomacyJournalEntry, GameState, PlayerId,
-    SignalStatement,
+    DealId, DealRevision, DealStatus, DealTerm, DiplomacyEvent, DiplomacyJournalEntry, GameState,
+    PlayerId, SignalStatement,
 };
 
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, Resolving, Window};
 use crate::decision_context::{DecisionContext, DecisionSource, DecisionTarget};
 use crate::transactions::Offer;
 
-use super::candidates::{CandidateBundle, generate_counter_candidates};
+use super::builder::{
+    CANCEL_ID, ContactScope, DONE_ID, Draft, EDIT_ID, ITEM_KIND, PROPOSE_ID, REVIEW_KIND,
+    amount_options, apply_item, describe, item_options,
+};
+use super::candidates::{CandidateBundle, built_bundle};
 use super::relations::{RelationshipEvent, apply_relationship_event};
 use super::signals::{SignalDraft, emit_signal_in_open_contact};
 
-pub const OFFER_KIND: &str = "diplomacy_offer";
 pub const RESPONSE_KIND: &str = "diplomacy_response";
 pub const COUNTER_KIND: &str = "diplomacy_counter";
 pub const ACCEPT_ID: &str = "diplomacy|accept";
 pub const DECLINE_ID: &str = "diplomacy|decline";
+pub const COUNTER_ID: &str = "diplomacy|counter";
 pub const SIGNAL_KIND: &str = "diplomacy_signal";
 const SIGNAL_PREFIX: &str = "diplomacy|signal|";
+/// Counter-offers allowed in one negotiation (operator decision, 2026-09-22).
+pub const MAX_COUNTERS: u8 = ti4_model::diplomacy::MAX_COUNTERS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiplomacyStage {
-    Proposing,
+    /// A revision is being built: the opening offer, or a counter.
+    Building,
     Responding,
     Done,
 }
@@ -35,12 +46,17 @@ pub struct DiplomacyWindow {
     pub proposer: PlayerId,
     pub recipient: PlayerId,
     pub stage: DiplomacyStage,
-    pub candidates: Vec<CandidateBundle>,
+    /// What the contact knew when it opened (physical trade allowed, promise subjects).
+    pub scope: ContactScope,
     /// The concrete signals the proposer may send instead of an offer, generated at contact.
     #[serde(default)]
     pub signals: Vec<SignalStatement>,
+    /// The revision under construction while `stage` is `Building`.
+    pub draft: Option<Draft>,
+    /// The revision on the table.
     pub current: Option<CandidateBundle>,
     pub deal_id: Option<DealId>,
+    /// Counters made so far.
     pub responses: u8,
 }
 
@@ -53,43 +69,27 @@ impl DiplomacyWindow {
         state: &mut GameState,
         proposer: PlayerId,
         recipient: PlayerId,
-        candidates: Vec<CandidateBundle>,
+        scope: ContactScope,
         signals: Vec<SignalStatement>,
     ) -> Result<Self, IllegalChoice> {
-        // No surviving bundle is still a contact: a signal and "make no offer" remain legal, and
-        // `available_contacts` cannot see bundle filtering without the map, so refusing here would
-        // turn an offered option into a refused step.
         if !state.diplomacy.enabled || !state.diplomacy.consume_initiation(&proposer, &recipient) {
             return Err(failed(&proposer, "diplomatic contact is unavailable"));
         }
+        let draft = Draft::new(proposer.clone(), recipient.clone());
         Ok(Self {
             proposer,
             recipient,
-            stage: DiplomacyStage::Proposing,
-            candidates,
+            stage: DiplomacyStage::Building,
+            scope,
             signals,
+            draft: Some(draft),
             current: None,
             deal_id: None,
             responses: 0,
         })
     }
 
-    fn counters(
-        &self,
-        state: &GameState,
-        current: &CandidateBundle,
-        author: &PlayerId,
-    ) -> Vec<CandidateBundle> {
-        generate_counter_candidates(
-            state,
-            &self.proposer,
-            &self.recipient,
-            current,
-            author,
-            state.round,
-        )
-    }
-
+    /// Who answers the revision on the table.
     fn actor(&self) -> PlayerId {
         if self.responses.is_multiple_of(2) {
             self.recipient.clone()
@@ -98,7 +98,30 @@ impl DiplomacyWindow {
         }
     }
 
-    fn response_options(&self, state: &GameState) -> Vec<ChoiceOption> {
+    /// The draft's terms as a revision stored against the original proposer and recipient.
+    fn revision(&self, state: &GameState, draft: &Draft) -> Result<DealRevision, IllegalChoice> {
+        let (proposer_terms, recipient_terms) = if draft.builder == self.proposer {
+            (draft.give.clone(), draft.take.clone())
+        } else {
+            (draft.take.clone(), draft.give.clone())
+        };
+        // Revision 0 is the opening offer; each counter is the next number.
+        let number = if self.deal_id.is_some() {
+            self.responses.saturating_add(1)
+        } else {
+            0
+        };
+        DealRevision::new(
+            number,
+            draft.builder.clone(),
+            proposer_terms,
+            recipient_terms,
+            state.round,
+        )
+        .map_err(|error| failed(&draft.builder, &error.to_string()))
+    }
+
+    fn response_options(&self) -> Vec<ChoiceOption> {
         let actor = self.actor();
         let actor_is_proposer = actor == self.proposer;
         // Accepting takes the bundle on the table, so the accept option carries it: a policy
@@ -112,16 +135,114 @@ impl DiplomacyWindow {
             accept,
             ChoiceOption::labelled(DECLINE_ID, RESPONSE_KIND, "Decline"),
         ];
-        if self.responses < 2
-            && let Some(current) = &self.current
-        {
-            options.extend(
-                self.counters(state, current, &actor)
-                    .into_iter()
-                    .map(|candidate| candidate_option(&candidate, COUNTER_KIND, actor_is_proposer)),
-            );
+        if self.responses < MAX_COUNTERS && self.current.is_some() {
+            options.push(ChoiceOption::labelled(
+                COUNTER_ID,
+                COUNTER_KIND,
+                "Counter: change the terms",
+            ));
         }
         options
+    }
+
+    fn building_choice(
+        &self,
+        state: &GameState,
+        content: &ti4_content::ContentStore,
+    ) -> Option<Choice> {
+        let draft = self.draft.as_ref()?;
+        let summary = format!(
+            "you give: {} · you ask: {}",
+            list(&draft.give),
+            list(&draft.take)
+        );
+        let (prompt, subtype, mut options) = if draft.pending.is_some() {
+            (
+                format!("How many? ({summary})"),
+                "diplomacy_amount",
+                amount_options(state, draft),
+            )
+        } else if draft.reviewing {
+            let mut options = Vec::new();
+            if !draft.is_empty() {
+                options.push(ChoiceOption::labelled(
+                    PROPOSE_ID,
+                    REVIEW_KIND,
+                    "Propose these terms",
+                ));
+            }
+            options.push(ChoiceOption::labelled(
+                EDIT_ID,
+                REVIEW_KIND,
+                "Edit the terms",
+            ));
+            options.push(ChoiceOption::labelled(
+                CANCEL_ID,
+                REVIEW_KIND,
+                if self.current.is_some() {
+                    "Back to the offer on the table"
+                } else {
+                    "Make no offer"
+                },
+            ));
+            (format!("Review: {summary}"), "diplomacy_review", options)
+        } else {
+            let mut options = item_options(state, content, &self.scope, draft);
+            options.push(ChoiceOption::labelled(
+                DONE_ID,
+                ITEM_KIND,
+                if draft.asking {
+                    "done asking"
+                } else {
+                    "done offering"
+                },
+            ));
+            // The opening screen of a fresh contact also sends a signal or walks away.
+            if self.current.is_none() && draft.is_empty() && !draft.asking {
+                options.extend(
+                    self.signals
+                        .iter()
+                        .map(|statement| signal_option(statement, state.round)),
+                );
+                options.push(ChoiceOption::labelled(
+                    CANCEL_ID,
+                    REVIEW_KIND,
+                    "Make no offer",
+                ));
+            }
+            let (prompt, subtype) = if draft.asking {
+                (format!("Ask for what? ({summary})"), "diplomacy_ask_item")
+            } else {
+                (format!("Offer what? ({summary})"), "diplomacy_offer_item")
+            };
+            (prompt, subtype, options)
+        };
+        let draft_value = serde_json::to_value(draft).expect("a draft serializes");
+        options = options
+            .into_iter()
+            .map(|option| option.with("draft", draft_value.clone()))
+            .collect();
+        Some(
+            Choice::new(draft.builder.clone(), prompt, options).contextualized(
+                DecisionContext::new(
+                    draft.builder.clone(),
+                    DecisionSource::Rule("94".to_owned()),
+                    subtype,
+                    state.phase,
+                    state.round,
+                )
+                .optional(true)
+                .about(DecisionTarget::Player(draft.other.clone())),
+            ),
+        )
+    }
+}
+
+fn list(terms: &[DealTerm]) -> String {
+    if terms.is_empty() {
+        "nothing".to_owned()
+    } else {
+        terms.iter().map(describe).collect::<Vec<_>>().join(", ")
     }
 }
 
@@ -129,53 +250,19 @@ impl Window for DiplomacyWindow {
     fn pending_choice(
         &self,
         state: &GameState,
-        _content: &ti4_content::ContentStore,
+        content: &ti4_content::ContentStore,
         _sources: ti4_model::SourceSet,
     ) -> Option<Choice> {
         match self.stage {
             DiplomacyStage::Done => None,
-            DiplomacyStage::Proposing => {
-                let mut options: Vec<_> = self
-                    .candidates
-                    .iter()
-                    .map(|c| candidate_option(c, OFFER_KIND, true))
-                    .collect();
-                options.extend(
-                    self.signals
-                        .iter()
-                        .map(|statement| signal_option(statement, state.round)),
-                );
-                options.push(ChoiceOption::labelled(
-                    DECLINE_ID,
-                    RESPONSE_KIND,
-                    "Make no offer",
-                ));
-                Some(
-                    Choice::new(
-                        self.proposer.clone(),
-                        "Choose a structured diplomatic offer",
-                        options,
-                    )
-                    .contextualized(
-                        DecisionContext::new(
-                            self.proposer.clone(),
-                            DecisionSource::Rule("94".to_owned()),
-                            "diplomacy_offer",
-                            state.phase,
-                            state.round,
-                        )
-                        .optional(true)
-                        .about(DecisionTarget::Player(self.recipient.clone())),
-                    ),
-                )
-            }
+            DiplomacyStage::Building => self.building_choice(state, content),
             DiplomacyStage::Responding => {
                 let actor = self.actor();
                 Some(
                     Choice::new(
                         actor.clone(),
                         "Respond to the structured diplomatic offer",
-                        self.response_options(state),
+                        self.response_options(),
                     )
                     .contextualized(
                         DecisionContext::new(
@@ -222,11 +309,11 @@ impl Window for DiplomacyWindow {
                     offered: choice.ids().into_iter().map(str::to_owned).collect(),
                 })?;
         match self.stage {
-            DiplomacyStage::Proposing => {
-                if offered.id == DECLINE_ID {
-                    self.stage = DiplomacyStage::Done;
-                    return Ok(());
-                }
+            DiplomacyStage::Building => {
+                let mut draft = self
+                    .draft
+                    .clone()
+                    .ok_or_else(|| failed(&choice.player, "no draft is open"))?;
                 if let Some(statement) = self
                     .signals
                     .iter()
@@ -249,27 +336,70 @@ impl Window for DiplomacyWindow {
                         },
                     )
                     .map_err(|error| failed(&self.proposer, &error.to_string()))?;
+                    self.draft = None;
                     self.stage = DiplomacyStage::Done;
                     return Ok(());
                 }
-                let candidate = self
-                    .candidates
-                    .iter()
-                    .find(|candidate| candidate.id == offered.id)
-                    .cloned()
-                    .ok_or_else(|| failed(&self.proposer, "stored offer disappeared"))?;
-                let id = state
-                    .diplomacy
-                    .create_deal(
-                        self.proposer.clone(),
-                        self.recipient.clone(),
-                        state.round,
-                        candidate.revision.clone(),
-                    )
-                    .map_err(|error| failed(&self.proposer, &error.to_string()))?;
-                self.current = Some(candidate);
-                self.deal_id = Some(id);
-                self.stage = DiplomacyStage::Responding;
+                match offered.id.as_str() {
+                    DONE_ID if !draft.asking => draft.asking = true,
+                    DONE_ID => draft.reviewing = true,
+                    EDIT_ID => {
+                        draft.reviewing = false;
+                        draft.asking = false;
+                    }
+                    CANCEL_ID => {
+                        self.draft = None;
+                        // Walking away from a counter leaves the offer on the table to answer.
+                        self.stage = if self.current.is_some() {
+                            DiplomacyStage::Responding
+                        } else {
+                            DiplomacyStage::Done
+                        };
+                        return Ok(());
+                    }
+                    PROPOSE_ID => {
+                        let revision = self.revision(state, &draft)?;
+                        let candidate = built_bundle(revision.clone());
+                        if let Some(id) = self.deal_id {
+                            state
+                                .diplomacy
+                                .active_deals
+                                .get_mut(&id)
+                                .ok_or_else(|| failed(&choice.player, "deal disappeared"))?
+                                .add_counter(revision.clone())
+                                .map_err(|error| failed(&choice.player, &error.to_string()))?;
+                            state.diplomacy.journal.push(DiplomacyJournalEntry {
+                                round: state.round,
+                                event: DiplomacyEvent::Countered {
+                                    deal_id: id,
+                                    revision,
+                                },
+                            });
+                            self.responses += 1;
+                        } else {
+                            let id = state
+                                .diplomacy
+                                .create_deal(
+                                    self.proposer.clone(),
+                                    self.recipient.clone(),
+                                    state.round,
+                                    revision,
+                                )
+                                .map_err(|error| failed(&self.proposer, &error.to_string()))?;
+                            self.deal_id = Some(id);
+                        }
+                        self.current = Some(candidate);
+                        self.draft = None;
+                        self.stage = DiplomacyStage::Responding;
+                        return Ok(());
+                    }
+                    id => {
+                        if !apply_item(state, &mut draft, id) {
+                            return Err(failed(&choice.player, "unknown deal item"));
+                        }
+                    }
+                }
+                self.draft = Some(draft);
             }
             DiplomacyStage::Responding => {
                 let id = self
@@ -299,31 +429,34 @@ impl Window for DiplomacyWindow {
                         .map_err(|error| failed(&choice.player, &error.to_string()))?;
                     self.stage = DiplomacyStage::Done;
                 } else {
+                    // Counter: the answering seat builds from the terms on the table, its own
+                    // side first.
                     let current = self
                         .current
                         .as_ref()
                         .ok_or_else(|| failed(&choice.player, "current bundle disappeared"))?;
-                    let candidate = self
-                        .counters(state, current, &choice.player)
-                        .into_iter()
-                        .find(|candidate| candidate.id == offered.id)
-                        .ok_or_else(|| failed(&choice.player, "stored counter disappeared"))?;
-                    state
-                        .diplomacy
-                        .active_deals
-                        .get_mut(&id)
-                        .ok_or_else(|| failed(&choice.player, "deal disappeared"))?
-                        .add_counter(candidate.revision.clone())
-                        .map_err(|error| failed(&choice.player, &error.to_string()))?;
-                    state.diplomacy.journal.push(DiplomacyJournalEntry {
-                        round: state.round,
-                        event: DiplomacyEvent::Countered {
-                            deal_id: id,
-                            revision: candidate.revision.clone(),
-                        },
-                    });
-                    self.current = Some(candidate);
-                    self.responses += 1;
+                    let builder = choice.player.clone();
+                    let (give, take) = if builder == self.proposer {
+                        (
+                            current.revision.proposer_terms.clone(),
+                            current.revision.recipient_terms.clone(),
+                        )
+                    } else {
+                        (
+                            current.revision.recipient_terms.clone(),
+                            current.revision.proposer_terms.clone(),
+                        )
+                    };
+                    let other = if builder == self.proposer {
+                        self.recipient.clone()
+                    } else {
+                        self.proposer.clone()
+                    };
+                    let mut draft = Draft::new(builder, other);
+                    draft.give = give;
+                    draft.take = take;
+                    self.draft = Some(draft);
+                    self.stage = DiplomacyStage::Building;
                 }
             }
             DiplomacyStage::Done => unreachable!(),
@@ -368,27 +501,6 @@ fn signal_option(statement: &SignalStatement, round: u32) -> ChoiceOption {
     ChoiceOption::labelled(signal_id(statement), SIGNAL_KIND, label)
         .with("signal_kind", kind)
         .with("signal_statement", statement_kind)
-}
-
-/// An option carrying a whole bundle.
-///
-/// Terms are stored against the original proposer and recipient however many counters later, so
-/// `actor_is_proposer` says which side is the seat deciding; without it a policy could not tell
-/// what it gives from what it gets.
-fn candidate_option(
-    candidate: &CandidateBundle,
-    kind: &str,
-    actor_is_proposer: bool,
-) -> ChoiceOption {
-    bundle_payload(
-        ChoiceOption::labelled(
-            candidate.id.clone(),
-            kind,
-            format!("{:?}", candidate.template),
-        ),
-        candidate,
-        actor_is_proposer,
-    )
 }
 
 fn bundle_payload(
@@ -556,16 +668,14 @@ fn failed(player: &PlayerId, reason: &str) -> IllegalChoice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diplomacy::candidates::{CandidateFeatures, DealTemplate};
     use std::collections::BTreeMap;
-    use ti4_model::{DealRevision, DiplomacyState, StrategyCardId, TransferAsset};
+    use ti4_model::{DiplomacyState, StrategyCardId, TransferAsset};
 
     fn pid(id: &str) -> PlayerId {
         PlayerId::new(id)
     }
 
-    #[test]
-    fn caller_payload_is_ignored_and_a_third_counter_is_never_offered() {
+    fn table(trade_goods: i32) -> GameState {
         let mut state = GameState::new(
             &[pid("a"), pid("b")],
             &[] as &[StrategyCardId],
@@ -574,34 +684,30 @@ mod tests {
             0,
         );
         state.diplomacy = DiplomacyState::for_players(&state.seating_order, true);
-        let revision = DealRevision::new(
-            0,
-            pid("a"),
-            vec![],
-            vec![DealTerm::FuturePayment {
-                asset: TransferAsset::TradeGoods(2),
-                deadline_round: 1,
-            }],
-            1,
-        )
-        .unwrap();
-        let candidate = CandidateBundle {
-            id: "diplomacy|test".to_owned(),
-            template: DealTemplate::FuturePayment,
-            revision,
-            features: CandidateFeatures {
-                immediate_value_self: 0.0,
-                immediate_value_other: 0.0,
-                future_value_self: 0.0,
-                future_value_other: 2.0,
-                target_relationship_effect: 0.0,
-                objective_relevance: 0.0,
-                military_relevance: 0.0,
-            },
-        };
-        let mut window =
-            DiplomacyWindow::open(&mut state, pid("a"), pid("b"), vec![candidate], vec![]).unwrap();
+        state.player_mut(&pid("a")).unwrap().trade_goods = trade_goods;
+        state.player_mut(&pid("b")).unwrap().commodities = 2;
+        state
+    }
+
+    fn scope(physical: bool) -> ContactScope {
+        ContactScope {
+            physical,
+            ..ContactScope::default()
+        }
+    }
+
+    /// Answer the window's pending choice with the option whose id is `id`.
+    fn answer(window: &mut DiplomacyWindow, state: &mut GameState, id: &str) {
         let content = ti4_content::ContentStore::embedded();
+        let choice = window
+            .pending_choice(state, content, ti4_model::POK)
+            .unwrap();
+        let option = choice
+            .options
+            .iter()
+            .find(|option| option.id == id)
+            .unwrap_or_else(|| panic!("{id} not offered: {:?}", choice.ids()))
+            .clone();
         let mut dice = crate::Dice::new();
         let mut rng = crate::GameRng::new(1);
         let mut table = crate::Table::new();
@@ -613,129 +719,172 @@ mod tests {
             table: &mut table,
             timing: None,
         };
+        window.resolve(state, &mut resolving, option).unwrap();
+    }
 
-        let tampered =
-            ChoiceOption::new("diplomacy|test", "invented").with("bundle", "caller controlled");
+    fn ids(window: &DiplomacyWindow, state: &GameState) -> Vec<String> {
         window
-            .resolve(&mut state, &mut resolving, tampered)
-            .unwrap();
-        assert_eq!(
-            state.diplomacy.active_deals[&DealId(1)]
-                .latest()
-                .recipient_terms[0],
-            DealTerm::FuturePayment {
-                asset: TransferAsset::TradeGoods(2),
-                deadline_round: 1
-            }
-        );
+            .pending_choice(state, ti4_content::ContentStore::embedded(), ti4_model::POK)
+            .map(|choice| choice.ids().into_iter().map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
 
-        for _ in 0..2 {
-            let choice = window
-                .pending_choice(&state, content, ti4_model::POK)
-                .unwrap();
-            let counter = choice
-                .options
-                .iter()
-                .find(|option| option.kind == COUNTER_KIND)
-                .unwrap()
-                .clone();
-            window.resolve(&mut state, &mut resolving, counter).unwrap();
-        }
-        let final_response = window
-            .pending_choice(&state, content, ti4_model::POK)
+    #[test]
+    fn a_deal_is_built_offer_first_then_ask_then_proposed() {
+        let mut state = table(3);
+        let mut window =
+            DiplomacyWindow::open(&mut state, pid("a"), pid("b"), scope(true), vec![]).unwrap();
+        answer(&mut window, &mut state, "diplomacy|now|tg");
+        assert_eq!(
+            ids(&window, &state),
+            [
+                "diplomacy|amount|1",
+                "diplomacy|amount|2",
+                "diplomacy|amount|3"
+            ]
+        );
+        answer(&mut window, &mut state, "diplomacy|amount|2");
+        answer(&mut window, &mut state, DONE_ID);
+        // Now asking: the partner's commodities, not the builder's trade goods.
+        let asking = ids(&window, &state);
+        assert!(asking.contains(&"diplomacy|now|commodities".to_owned()));
+        assert!(!asking.contains(&"diplomacy|now|tg".to_owned()));
+        answer(&mut window, &mut state, "diplomacy|now|commodities");
+        answer(&mut window, &mut state, "diplomacy|amount|2");
+        answer(&mut window, &mut state, DONE_ID);
+        answer(&mut window, &mut state, PROPOSE_ID);
+
+        assert_eq!(window.stage, DiplomacyStage::Responding);
+        let deal = &state.diplomacy.active_deals[&DealId(1)];
+        assert_eq!(
+            deal.latest().proposer_terms,
+            vec![DealTerm::ImmediateTransfer(TransferAsset::TradeGoods(2))]
+        );
+        assert_eq!(
+            deal.latest().recipient_terms,
+            vec![DealTerm::ImmediateTransfer(TransferAsset::Commodities(2))]
+        );
+        let response = window
+            .pending_choice(
+                &state,
+                ti4_content::ContentStore::embedded(),
+                ti4_model::POK,
+            )
             .unwrap();
+        assert_eq!(response.player, pid("b"));
+    }
+
+    #[test]
+    fn physical_items_need_a_transaction_partner_but_promises_do_not() {
+        let mut state = table(3);
+        let window =
+            DiplomacyWindow::open(&mut state, pid("a"), pid("b"), scope(false), vec![]).unwrap();
+        let offered = ids(&window, &state);
+        assert!(offered.iter().all(|id| !id.starts_with("diplomacy|now|")));
+        assert!(offered.iter().all(|id| !id.starts_with("diplomacy|note|")));
+        assert!(offered.contains(&"diplomacy|later|tg".to_owned()));
         assert!(
-            !final_response
-                .options
+            offered
                 .iter()
-                .any(|option| option.kind == COUNTER_KIND)
+                .any(|id| id.starts_with("diplomacy|promise|"))
         );
     }
 
     #[test]
-    fn selecting_a_signal_closes_without_opening_a_deal() {
-        let mut state = GameState::new(
-            &[pid("a"), pid("b")],
-            &[] as &[StrategyCardId],
-            BTreeMap::new(),
-            None,
-            0,
+    fn one_promissory_note_per_side() {
+        let mut state = table(0);
+        for note in ["cf:x", "ps:x"] {
+            state.promissory_notes.insert(note.to_owned(), pid("a"));
+        }
+        let mut window =
+            DiplomacyWindow::open(&mut state, pid("a"), pid("b"), scope(true), vec![]).unwrap();
+        let notes: Vec<String> = ids(&window, &state)
+            .into_iter()
+            .filter(|id| id.starts_with("diplomacy|note|"))
+            .collect();
+        assert!(notes.len() >= 2, "several notes to choose from: {notes:?}");
+        answer(&mut window, &mut state, &notes[0]);
+        assert!(
+            ids(&window, &state)
+                .iter()
+                .all(|id| !id.starts_with("diplomacy|note|")),
+            "a second note is never offered on the same side"
         );
-        state.diplomacy = DiplomacyState::for_players(&state.seating_order, true);
-        let revision = DealRevision::new(
-            0,
-            pid("a"),
-            vec![],
-            vec![DealTerm::FuturePayment {
-                asset: TransferAsset::TradeGoods(1),
-                deadline_round: 1,
-            }],
-            1,
-        )
-        .unwrap();
-        let candidate = CandidateBundle {
-            id: "deal".to_owned(),
-            template: DealTemplate::FuturePayment,
-            revision,
-            features: CandidateFeatures {
-                immediate_value_self: 0.0,
-                immediate_value_other: 0.0,
-                future_value_self: 0.0,
-                future_value_other: 1.0,
-                target_relationship_effect: 0.0,
-                objective_relevance: 0.0,
-                military_relevance: 0.0,
-            },
-        };
+    }
+
+    #[test]
+    fn a_gift_can_be_proposed_and_two_counters_is_the_limit() {
+        let mut state = table(3);
+        let mut window =
+            DiplomacyWindow::open(&mut state, pid("a"), pid("b"), scope(false), vec![]).unwrap();
+        answer(&mut window, &mut state, "diplomacy|later|tg");
+        answer(&mut window, &mut state, "diplomacy|amount|1");
+        answer(&mut window, &mut state, DONE_ID);
+        answer(&mut window, &mut state, DONE_ID);
+        answer(&mut window, &mut state, PROPOSE_ID);
+        // Nothing asked in return: a gift, allowed.
+        assert!(
+            state.diplomacy.active_deals[&DealId(1)]
+                .latest()
+                .recipient_terms
+                .is_empty()
+        );
+
+        for counter in 0..MAX_COUNTERS {
+            assert!(
+                ids(&window, &state).contains(&COUNTER_ID.to_owned()),
+                "counter {counter}"
+            );
+            answer(&mut window, &mut state, COUNTER_ID);
+            // The counter starts from the terms on the table; propose them back unchanged.
+            answer(&mut window, &mut state, DONE_ID);
+            answer(&mut window, &mut state, DONE_ID);
+            answer(&mut window, &mut state, PROPOSE_ID);
+        }
+        assert!(!ids(&window, &state).contains(&COUNTER_ID.to_owned()));
+        assert_eq!(window.responses, MAX_COUNTERS);
+    }
+
+    #[test]
+    fn walking_away_from_a_counter_returns_to_the_offer() {
+        let mut state = table(3);
+        let mut window =
+            DiplomacyWindow::open(&mut state, pid("a"), pid("b"), scope(false), vec![]).unwrap();
+        answer(&mut window, &mut state, "diplomacy|later|tg");
+        answer(&mut window, &mut state, "diplomacy|amount|2");
+        answer(&mut window, &mut state, DONE_ID);
+        answer(&mut window, &mut state, DONE_ID);
+        answer(&mut window, &mut state, PROPOSE_ID);
+        answer(&mut window, &mut state, COUNTER_ID);
+        answer(&mut window, &mut state, DONE_ID);
+        answer(&mut window, &mut state, DONE_ID);
+        answer(&mut window, &mut state, CANCEL_ID);
+        assert_eq!(window.stage, DiplomacyStage::Responding);
+        assert_eq!(window.responses, 0, "an abandoned counter is not a counter");
+        answer(&mut window, &mut state, ACCEPT_ID);
+        assert_eq!(window.stage, DiplomacyStage::Done);
+    }
+
+    #[test]
+    fn selecting_a_signal_closes_without_opening_a_deal() {
+        let mut state = table(0);
         let mut window = DiplomacyWindow::open(
             &mut state,
             pid("a"),
             pid("b"),
-            vec![candidate],
+            scope(false),
             vec![SignalStatement::AttackIfYouActivate {
                 system: ti4_model::SystemId::new("18"),
             }],
         )
         .unwrap();
-        let content = ti4_content::ContentStore::embedded();
-        let mut dice = crate::Dice::new();
-        let mut rng = crate::GameRng::new(1);
-        let mut table = crate::Table::new();
-        let mut resolving = Resolving {
-            content,
-            sources: ti4_model::POK,
-            dice: &mut dice,
-            rng: &mut rng,
-            table: &mut table,
-            timing: None,
-        };
-        let offered = window
-            .pending_choice(&state, content, ti4_model::POK)
-            .unwrap();
-        let threat = offered
-            .options
-            .iter()
-            .find(|option| option.kind == SIGNAL_KIND)
-            .expect("the warning is offered as a full sentence")
-            .clone();
-        assert!(
-            threat
-                .label
-                .starts_with("Warning: if you activate system 18")
-        );
-        window.resolve(&mut state, &mut resolving, threat).unwrap();
-        assert!(
-            window
-                .pending_choice(&state, content, ti4_model::POK)
-                .is_none()
-        );
+        let signal = ids(&window, &state)
+            .into_iter()
+            .find(|id| id.starts_with(SIGNAL_PREFIX))
+            .expect("the warning is offered on the opening screen");
+        answer(&mut window, &mut state, &signal);
+        assert_eq!(window.stage, DiplomacyStage::Done);
         assert!(state.diplomacy.active_deals.is_empty());
         assert_eq!(state.diplomacy.recent_signals.len(), 1);
-        assert_eq!(
-            state.diplomacy.recent_signals[0].statement,
-            SignalStatement::AttackIfYouActivate {
-                system: ti4_model::SystemId::new("18")
-            }
-        );
     }
 }

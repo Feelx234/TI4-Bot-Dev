@@ -2652,7 +2652,7 @@ impl<'a> Game<'a> {
             recipient: &partner,
             agenda: agenda.as_deref(),
         };
-        let candidates = crate::diplomacy::candidates::generate_initial_candidates(&context);
+        let scope = crate::diplomacy::candidates::contact_scope(&context, trading);
         let signals = crate::diplomacy::candidates::generate_signal_statements(&context);
         if trading {
             self.state.record_transaction(actor, &partner);
@@ -2661,7 +2661,7 @@ impl<'a> Game<'a> {
             &mut self.state,
             actor.clone(),
             partner,
-            candidates,
+            scope,
             signals,
         )?));
         Ok(())
@@ -8613,8 +8613,8 @@ mod tests {
             records
                 .iter()
                 .flat_map(|record| &record.offered)
-                .any(|id| id.starts_with("diplomacy|PayForVote|")),
-            "a contact before a vote can buy votes on it"
+                .any(|id| id.starts_with("diplomacy|promise|{\"vote\"")),
+            "a contact before a vote can promise votes on it"
         );
     }
 

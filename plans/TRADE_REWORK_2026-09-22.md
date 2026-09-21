@@ -76,3 +76,14 @@ item by item rather than pre-combined.
 2. Replayer: deal-so-far panel.
 3. Policy features for the new subtypes; retraining is a separate run.
 4. Shortcuts: pre-filled templates as `quick|<template>` options at the first `Offering` step.
+
+## Status
+
+- **Phase 1 done** (engine). `diplomacy/builder.rs` (item catalogue, draft, amounts),
+  `DiplomacyWindow` stages `Building` / `Responding` / `Done`, `candidates::contact_scope` computes the
+  map-dependent part when the contact opens. `MAX_TERMS_PER_SIDE` raised 3 → 12 (a safety bound; the
+  rule limit is one note per side). Pre-built bundles are no longer offered in a contact;
+  `generate_initial_candidates` stays for the phase-4 shortcuts. Rule 1 (action phase involves the
+  active player) already held: only the active player is offered contacts then.
+- Not yet: relic-fragment and secret-objective asks beyond what the catalogue offers, the
+  duplicate-obligation check on built deals, replayer deal panel (phase 2), policy features (phase 3).

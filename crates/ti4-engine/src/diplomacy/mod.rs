@@ -1,5 +1,6 @@
 //! Deterministic structured-diplomacy rules.
 
+pub mod builder;
 pub mod candidates;
 pub mod log;
 pub mod promises;

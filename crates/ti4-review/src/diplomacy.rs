@@ -550,6 +550,7 @@ const fn template_text(template: DealTemplate) -> &'static str {
         DealTemplate::PayForAgentFavour => "pay for an agent's help",
         DealTemplate::SellAgentFavour => "sell an agent's help",
         DealTemplate::NoteForNonAggression => "promissory note for non-aggression",
+        DealTemplate::Built => "a deal",
     }
 }
 

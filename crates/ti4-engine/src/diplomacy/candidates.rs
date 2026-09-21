@@ -152,6 +152,8 @@ pub enum DealTemplate {
     SellAgentFavour,
     /// One of the proposer's own notes now, for the recipient's non-aggression.
     NoteForNonAggression,
+    /// Built item by item in the contact window (`plans/TRADE_REWORK_2026-09-22.md`).
+    Built,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -623,6 +625,60 @@ fn append_template(out: &mut Vec<CandidateBundle>, mut variants: Vec<CandidateBu
     out.extend(variants);
 }
 
+/// What a contact's builder needs from the map, computed once when the contact opens.
+///
+/// `physical` is the caller's "this contact is a transaction" (partners, or the agenda phase, and
+/// not already transacted this turn). Attack targets are the seats whose forces share or border
+/// either party's; systems are those where the two parties' forces share or border each other.
+#[must_use]
+pub fn contact_scope(ctx: &CandidateContext<'_>, physical: bool) -> super::builder::ContactScope {
+    let mut attack_targets = relevant_attack_targets(ctx);
+    let flipped = CandidateContext {
+        state: ctx.state,
+        content: ctx.content,
+        galaxy: ctx.galaxy,
+        proposer: ctx.recipient,
+        recipient: ctx.proposer,
+        agenda: ctx.agenda,
+    };
+    for target in relevant_attack_targets(&flipped) {
+        if !attack_targets.contains(&target) {
+            attack_targets.push(target);
+        }
+    }
+    let mine = crate::transactions::presence(ctx.state, ctx.proposer);
+    let theirs = crate::transactions::presence(ctx.state, ctx.recipient);
+    let touches = |system: &ti4_model::SystemId, other: &BTreeSet<ti4_model::SystemId>| {
+        other.contains(system)
+            || ctx
+                .galaxy
+                .adjacent(system.as_str())
+                .into_iter()
+                .any(|adjacent| other.contains(&ti4_model::SystemId::new(adjacent)))
+    };
+    let mut systems: Vec<ti4_model::SystemId> = mine
+        .iter()
+        .filter(|system| touches(system, &theirs))
+        .chain(theirs.iter().filter(|system| touches(system, &mine)))
+        .cloned()
+        .collect();
+    systems.sort();
+    systems.dedup();
+    systems.truncate(4);
+    let agenda = ctx.agenda.map(|alias| {
+        (
+            alias.to_owned(),
+            ctx.state.agenda_choices.iter().take(4).cloned().collect(),
+        )
+    });
+    super::builder::ContactScope {
+        physical,
+        attack_targets,
+        systems,
+        agenda,
+    }
+}
+
 fn relevant_attack_targets(ctx: &CandidateContext<'_>) -> Vec<PlayerId> {
     let recipient_presence = crate::transactions::presence(ctx.state, ctx.recipient);
     ctx.state
@@ -951,6 +1007,12 @@ fn bundle(template: DealTemplate, revision: DealRevision) -> CandidateBundle {
             military_relevance: 0.0,
         },
     }
+}
+
+/// A revision built item by item, as the bundle the window keeps on the table.
+#[must_use]
+pub fn built_bundle(revision: DealRevision) -> CandidateBundle {
+    bundle(DealTemplate::Built, revision)
 }
 
 fn counter_bundle(current: &CandidateBundle, revision: DealRevision) -> CandidateBundle {

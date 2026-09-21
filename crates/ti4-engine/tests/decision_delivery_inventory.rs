@@ -897,7 +897,14 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         module: "window.rs",
         function: "pending_choice",
-        count: 2,
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_diplomacy"),
+    },
+    Producer {
+        // The deal builder: offer items, ask items, amounts, review (TRADE_REWORK_2026-09-22).
+        module: "window.rs",
+        function: "building_choice",
+        count: 1,
         delivery: Delivery::ObservedVia("game.rs::step_diplomacy"),
     },
     Producer {

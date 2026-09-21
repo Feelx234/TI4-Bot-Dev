@@ -1568,6 +1568,7 @@ fn diplomacy_decision_features(
         DealTemplate::PayForAgentFavour => "pay_for_agent_favour",
         DealTemplate::SellAgentFavour => "sell_agent_favour",
         DealTemplate::NoteForNonAggression => "note_for_non_aggression",
+        DealTemplate::Built => "built",
     };
     add_named(features, format_args!("diplomacy:template:{template}"), 1.0);
     let factual = &bundle.features;
