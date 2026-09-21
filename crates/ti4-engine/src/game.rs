@@ -2047,6 +2047,20 @@ impl<'a> Game<'a> {
                 // Minister of Peace: "After a player activates a system that contains 1 or more of
                 // a different player's units, the owner of this card may discard this card --
                 // immediately end the active player's turn."
+                if crate::faction_techs::offer_spatial_conduit(
+                    &mut self.state,
+                    self.content,
+                    self.sources,
+                    &mut self.table,
+                    self.galaxy.as_ref(),
+                    &system,
+                    &window.player,
+                ) {
+                    if let Some(galaxy) = self.galaxy.as_mut() {
+                        crate::laws::apply_to_galaxy(&self.state, galaxy);
+                    }
+                    self.emit(&format!("SPATIAL_CONDUIT:{}:{system}", window.player));
+                }
                 for holder in crate::faction_techs::e_res_siphons(
                     &mut self.state,
                     self.content,

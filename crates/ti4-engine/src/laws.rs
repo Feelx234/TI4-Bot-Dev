@@ -600,6 +600,7 @@ pub fn apply_to_galaxy(state: &GameState, galaxy: &mut ti4_content::galaxy::Gala
         .as_ref()
         .and_then(|acting| state.player(acting))
         .is_some_and(|seat| seat.lost_star.contains(&state.activation_seq));
+    galaxy.extra_links = crate::faction_techs::spatial_conduit_links(state);
 
     // Wormholes that came from tokens rather than from the map: the gamma tokens placed by Gamma
     // Wormhole, Gamma Relay and Nexus Sovereignty, and the ion storm's current face.

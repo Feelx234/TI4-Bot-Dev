@@ -335,6 +335,97 @@ pub fn offer_quantum_datahub(
 /// What Quantum Datahub Node hands the other player.
 pub const QUANTUM_DATAHUB_GOODS: i32 = 3;
 
+/// Spatial Conduit Cylinders (Jol-Nar): "You may exhaust this card after you activate a system
+/// that contains 1 or more of your units; that system is adjacent to all other systems that
+/// contain 1 or more of your units during this activation."
+///
+/// Offered to the active player right after activation. Returns whether it was used; the
+/// adjacency itself is [`spatial_conduit_links`], read into the galaxy every step.
+pub fn offer_spatial_conduit(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    system: &SystemId,
+    active: &PlayerId,
+) -> bool {
+    if !ready(state, active, "scc") || !state.system_state(system).has_units_of(active) {
+        return false;
+    }
+    // 22.3: nothing to connect unless the player has units somewhere else too.
+    if !state
+        .board
+        .iter()
+        .any(|(other, here)| other != system && here.has_units_of(active))
+    {
+        return false;
+    }
+    let choice = Choice::new(
+        active.clone(),
+        format!(
+            "Spatial Conduit Cylinders: make {system} adjacent to every system with your units"
+        ),
+        vec![
+            ChoiceOption::labelled("use".to_owned(), "technology", "exhaust it".to_owned()),
+            ChoiceOption::decline(),
+        ],
+    )
+    .contextualized(DecisionContext::new(
+        active.clone(),
+        DecisionSource::Content("scc".to_owned()),
+        "spatial_conduit_link",
+        state.phase,
+        state.round,
+    ));
+    let Ok(answer) = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
+    else {
+        return false;
+    };
+    if answer.is_decline() {
+        return false;
+    }
+    let activation = state.activation_seq;
+    let Some(seat) = state.player_mut(active) else {
+        return false;
+    };
+    seat.exhausted_technologies.insert(TechnologyId::new("scc"));
+    seat.spatial_conduit = Some(activation);
+    true
+}
+
+/// The adjacency Spatial Conduit Cylinders adds for the activation in flight, both directions.
+#[must_use]
+pub fn spatial_conduit_links(
+    state: &GameState,
+) -> std::collections::BTreeMap<String, std::collections::BTreeSet<String>> {
+    let mut links: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    let (Some(active), Some(system)) = (state.active.as_ref(), state.active_system.as_ref()) else {
+        return links;
+    };
+    if state
+        .player(active)
+        .is_none_or(|seat| seat.spatial_conduit != Some(state.activation_seq))
+    {
+        return links;
+    }
+    for (other, here) in &state.board {
+        if other == system || !here.has_units_of(active) {
+            continue;
+        }
+        links
+            .entry(system.to_string())
+            .or_default()
+            .insert(other.to_string());
+        links
+            .entry(other.to_string())
+            .or_default()
+            .insert(system.to_string());
+    }
+    links
+}
+
 #[cfg(test)]
 mod tests {
     use ti4_model::content_types::POK;
@@ -505,5 +596,53 @@ mod tests {
         );
         assert_eq!(a.strategy_cards, vec![low]);
         assert_eq!(b.strategy_cards, vec![high]);
+    }
+
+    #[test]
+    fn spatial_conduit_links_the_active_system_to_every_system_with_your_units() {
+        let mut state = game(&["a"]);
+        let jolnar = PlayerId::new("a");
+        let (here, far, empty) = (
+            SystemId::new("19"),
+            SystemId::new("40"),
+            SystemId::new("41"),
+        );
+        put(&mut state, &here, "cruiser", &jolnar, 1);
+        put(&mut state, &far, "carrier", &jolnar, 1);
+        state.board.entry(empty.clone()).or_default();
+        state
+            .player_mut(&jolnar)
+            .unwrap()
+            .technologies
+            .insert(TechnologyId::new("scc"));
+        state.active = Some(jolnar.clone());
+        state.active_system = Some(here.clone());
+        state.activation_seq = 7;
+        assert!(
+            spatial_conduit_links(&state).is_empty(),
+            "nothing until it is used"
+        );
+
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        assert!(offer_spatial_conduit(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &mut table,
+            None,
+            &here,
+            &jolnar,
+        ));
+        let links = spatial_conduit_links(&state);
+        assert!(links[here.as_str()].contains(far.as_str()));
+        assert!(links[far.as_str()].contains(here.as_str()));
+        assert!(
+            !links.contains_key(empty.as_str()),
+            "only systems with the player's units"
+        );
+
+        // The next activation is ordinary again.
+        state.activation_seq = 8;
+        assert!(spatial_conduit_links(&state).is_empty());
     }
 }

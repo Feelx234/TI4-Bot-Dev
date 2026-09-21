@@ -527,6 +527,9 @@ pub struct Player {
     /// the marker to it.
     #[serde(default)]
     pub lost_star: Vec<u32>,
+    /// Spatial Conduit Cylinders was exhausted for the activation numbered here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spatial_conduit: Option<u32>,
     /// The Dominus Orb: activations during which this player's command tokens do not pin their
     /// ships. Held per activation, like `lost_star`, because the card is purged into one tactical
     /// action and must not loosen the next one.
@@ -629,6 +632,7 @@ impl PartialEq for Player {
             && self.disable_invasion == other.disable_invasion
             && self.solar_flare == other.solar_flare
             && self.lost_star == other.lost_star
+            && self.spatial_conduit == other.spatial_conduit
             && self.dominus_orb == other.dominus_orb
             && self.stability == other.stability
             && self.duress_by == other.duress_by
@@ -707,6 +711,7 @@ impl Player {
             disable_invasion: Vec::new(),
             solar_flare: Vec::new(),
             lost_star: Vec::new(),
+            spatial_conduit: None,
             dominus_orb: Vec::new(),
             stability: false,
             duress_by: None,
