@@ -62,4 +62,35 @@ describe('GameShell', () => {
 
     expect(screen.getByTestId('pending-choice-dialog')).toBeInTheDocument();
   });
+
+  it('synchronizes selectedOptionId and propagates onSelectOption when options change', () => {
+    const onSelectOption = vi.fn();
+    render(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{
+          ...choice,
+          options: [
+            { id: 'opt_1', label: 'Option 1' },
+            { id: 'opt_2', label: 'Option 2' },
+          ],
+        }}
+        selectedOptionId="opt_2"
+        onSelectOption={onSelectOption}
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />
+    );
+
+    const radio2 = screen.getByDisplayValue('opt_2') as HTMLInputElement;
+    expect(radio2.checked).toBe(true);
+
+    const radio1 = screen.getByDisplayValue('opt_1') as HTMLInputElement;
+    expect(radio1.checked).toBe(false);
+
+    fireEvent.click(radio1);
+    expect(onSelectOption).toHaveBeenCalledWith('opt_1');
+  });
 });

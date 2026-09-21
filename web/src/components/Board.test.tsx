@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { Board, getPlayerColor } from './Board.tsx';
 import { BoardView } from '../protocol/types.ts';
 
@@ -128,4 +128,84 @@ describe('Board Component', () => {
     expect(screen.getByTitle('Zoom Out')).toBeInTheDocument();
     expect(screen.getByTitle('Reset Pan & Zoom')).toBeInTheDocument();
   });
+
+  it('highlights candidate targets on the board for the deciding actor and handles clicks', () => {
+    const onSelectTarget = vi.fn();
+    const onSelectSystem = vi.fn();
+    const pendingChoice = {
+      nonce: 'nonce_test',
+      actor: 'p1',
+      prompt: 'Activate a system',
+      options: [
+        {
+          id: 'opt_activate_18',
+          kind: 'activate',
+          label: 'Activate Mecatol Rex',
+          payload: { system: '18' },
+        },
+      ],
+    };
+
+    render(
+      <Board
+        board={mockBoard}
+        seatingOrder={['p1', 'p2']}
+        pendingChoice={pendingChoice}
+        viewerSeat="p1"
+        onSelectTarget={onSelectTarget}
+        onSelectSystem={onSelectSystem}
+      />
+    );
+
+    const hex18 = screen.getByTestId('system-hex-18');
+    const hex34 = screen.getByTestId('system-hex-34');
+
+    expect(hex18).toHaveAttribute('data-target-candidate', 'true');
+    expect(hex18).toHaveAttribute('role', 'button');
+    expect(hex18).toHaveAttribute('tabindex', '0');
+
+    expect(hex34).not.toHaveAttribute('data-target-candidate');
+
+    // Click candidate target hex
+    fireEvent.click(hex18);
+    expect(onSelectTarget).toHaveBeenCalledWith('18');
+    expect(onSelectSystem).toHaveBeenCalledWith('18');
+  });
+
+  it('redacts target candidate highlighting when viewer is not the actor', () => {
+    const pendingChoice = {
+      nonce: 'nonce_test',
+      actor: 'p1',
+      prompt: 'Activate a system',
+      options: [
+        {
+          id: 'opt_activate_18',
+          kind: 'activate',
+          label: 'Activate Mecatol Rex',
+          payload: { system: '18' },
+        },
+      ],
+    };
+
+    render(
+      <Board
+        board={mockBoard}
+        seatingOrder={['p1', 'p2']}
+        pendingChoice={pendingChoice}
+        viewerSeat="p2"
+      />
+    );
+
+    const hex18 = screen.getByTestId('system-hex-18');
+    expect(hex18).not.toHaveAttribute('data-target-candidate');
+    expect(hex18).not.toHaveAttribute('role');
+  });
+
+  it('displays SystemInspector when a system is selected', () => {
+    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} selectedSystemId="18" />);
+
+    expect(screen.getByTestId('system-inspector')).toBeInTheDocument();
+    expect(screen.getByTestId('inspector-system-title')).toHaveTextContent('Mecatol Rex');
+  });
 });
+

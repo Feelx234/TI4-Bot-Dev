@@ -12,6 +12,8 @@ export interface GameShellProps {
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
   lastError?: string | null;
+  selectedOptionId?: string;
+  onSelectOption?: (optionId: string) => void;
 }
 
 export const GameShell: React.FC<GameShellProps> = ({
@@ -22,6 +24,8 @@ export const GameShell: React.FC<GameShellProps> = ({
   choice,
   onSubmitChoice,
   lastError,
+  selectedOptionId,
+  onSelectOption,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<'events' | 'players' | null>(null);
   const [isChoiceMinimized, setIsChoiceMinimized] = useState(false);
@@ -82,6 +86,8 @@ export const GameShell: React.FC<GameShellProps> = ({
           lastError={lastError}
           isMinimized={isChoiceMinimized}
           onMinimizedChange={setIsChoiceMinimized}
+          selectedOptionId={selectedOptionId}
+          onSelectOption={onSelectOption}
         />
       </div>
     </div>

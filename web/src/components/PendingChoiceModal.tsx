@@ -7,6 +7,8 @@ export interface PendingChoiceModalProps {
   lastError?: string | null;
   isMinimized?: boolean;
   onMinimizedChange?: (isMinimized: boolean) => void;
+  selectedOptionId?: string;
+  onSelectOption?: (optionId: string) => void;
 }
 
 export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
@@ -15,8 +17,10 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   lastError,
   isMinimized: controlledIsMinimized,
   onMinimizedChange,
+  selectedOptionId: controlledSelectedOptionId,
+  onSelectOption,
 }) => {
-  const [selectedOptionId, setSelectedOptionId] = useState<string>('');
+  const [uncontrolledSelectedOptionId, setUncontrolledSelectedOptionId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uncontrolledIsMinimized, setUncontrolledIsMinimized] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -27,10 +31,18 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     onMinimizedChange?.(next);
   };
 
+  const selectedOptionId = controlledSelectedOptionId ?? uncontrolledSelectedOptionId;
+  const setSelectedOptionId = (id: string) => {
+    if (controlledSelectedOptionId === undefined) setUncontrolledSelectedOptionId(id);
+    onSelectOption?.(id);
+  };
+
   // Auto-select the first option and expand when a new choice arrives
   useEffect(() => {
     if (choice && choice.options.length > 0) {
-      setSelectedOptionId(choice.options[0].id);
+      if (controlledSelectedOptionId === undefined) {
+        setUncontrolledSelectedOptionId(choice.options[0].id);
+      }
       setIsSubmitting(false);
       setIsMinimized(false);
     }

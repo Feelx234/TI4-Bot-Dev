@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ViewerRole } from './protocol/types.ts';
 import { useGameSession } from './hooks/useGameSession.ts';
 import { Board } from './components/Board.tsx';
@@ -50,6 +50,28 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
   } = useGameSession({ gameId, viewer });
 
   const userSeat = viewer.role === 'player' ? viewer.seat : undefined;
+  const [selectedOptionId, setSelectedOptionId] = useState<string | undefined>();
+  const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedOptionId(undefined);
+  }, [pendingChoice?.nonce]);
+
+  const handleSelectTarget = (systemId: string, planetId?: string) => {
+    if (pendingChoice && userSeat && pendingChoice.actor === userSeat) {
+      const match = pendingChoice.options.find((opt) => {
+        const payload = opt.payload;
+        if (planetId && payload?.planet === planetId) return true;
+        if (payload?.system !== undefined && String(payload.system) === systemId) return true;
+        if (payload?.to !== undefined && String(payload.to) === systemId) return true;
+        if (opt.kind === 'activate' && String(payload?.system || opt.id) === systemId) return true;
+        return false;
+      });
+      if (match) {
+        setSelectedOptionId(match.id);
+      }
+    }
+  };
 
   return (
     <GameShell
@@ -72,7 +94,16 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
         </div>
       )}
       board={snapshot ? (
-        <Board board={snapshot.view.board} seatingOrder={snapshot.view.seating_order} />
+        <Board
+          board={snapshot.view.board}
+          seatingOrder={snapshot.view.seating_order}
+          players={snapshot.view.players}
+          pendingChoice={pendingChoice}
+          viewerSeat={userSeat}
+          selectedSystemId={selectedSystemId}
+          onSelectSystem={setSelectedSystemId}
+          onSelectTarget={handleSelectTarget}
+        />
       ) : (
         <div className="game-loading">Loading game state...</div>
       )}
@@ -81,6 +112,8 @@ const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, o
       choice={pendingChoice}
       onSubmitChoice={submitChoice}
       lastError={lastError}
+      selectedOptionId={selectedOptionId}
+      onSelectOption={setSelectedOptionId}
     />
   );
 };

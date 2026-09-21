@@ -1,55 +1,45 @@
 import React, { useState, useRef } from 'react';
-import { BoardView, BoardTileView } from '../protocol/types.ts';
+import { BoardView, PlayerView, PendingChoiceDto } from '../protocol/types.ts';
+import {
+  buildBoardPresentationModel,
+  getPlayerColor,
+  PLAYER_PALETTE,
+  TilePresentation,
+} from '../presentation/boardPresentation.ts';
+import { SystemInspector } from './SystemInspector.tsx';
+
+export { getPlayerColor, PLAYER_PALETTE };
 
 export interface BoardProps {
   board: BoardView;
   seatingOrder: string[];
+  players?: readonly PlayerView[];
+  pendingChoice?: PendingChoiceDto | null;
+  viewerSeat?: string | null;
+  selectedSystemId?: string | null;
+  onSelectSystem?: (systemId: string) => void;
+  onSelectTarget?: (systemId: string, planetId?: string) => void;
 }
 
-const PLAYER_COLORS = ['#ef4444', '#38bdf8', '#facc15', '#4ade80', '#c084fc', '#fb923c'];
+export const Board: React.FC<BoardProps> = ({
+  board,
+  seatingOrder,
+  players = [],
+  pendingChoice = null,
+  viewerSeat = null,
+  selectedSystemId: controlledSelectedSystemId,
+  onSelectSystem,
+  onSelectTarget,
+}) => {
+  const [uncontrolledSelectedSystemId, setUncontrolledSelectedSystemId] = useState<string | null>(null);
+  const selectedSystemId = controlledSelectedSystemId ?? uncontrolledSelectedSystemId;
+  const setSelectedSystemId = (id: string | null) => {
+    if (controlledSelectedSystemId === undefined) {
+      setUncontrolledSelectedSystemId(id);
+    }
+    onSelectSystem?.(id || '');
+  };
 
-export function getPlayerColor(owner: string | null | undefined, seatingOrder: readonly string[]): string {
-  if (!owner) return '#64748b';
-  const seatIndex = seatingOrder.indexOf(owner);
-  return seatIndex === -1 ? '#94a3b8' : PLAYER_COLORS[seatIndex % PLAYER_COLORS.length];
-}
-
-function getHexPoints(cx: number, cy: number, radius = 70): string {
-  const points: string[] = [];
-  for (let k = 0; k < 6; k++) {
-    const angle = Math.PI / 6 + (Math.PI / 3) * k;
-    const px = cx + radius * Math.cos(angle);
-    const py = cy + radius * Math.sin(angle);
-    points.push(`${px.toFixed(1)},${py.toFixed(1)}`);
-  }
-  return points.join(' ');
-}
-
-function getInnerPoints(cx: number, cy: number, radius = 64): string {
-  return getHexPoints(cx, cy, radius);
-}
-
-function getAnomalyColor(anomalies?: string[]): string | null {
-  if (!anomalies || anomalies.length === 0) return null;
-  const lower = anomalies.map((a) => a.toLowerCase());
-  if (lower.some((a) => a.includes('supernova'))) return '#6b271a';
-  if (lower.some((a) => a.includes('gravity rift'))) return '#38235f';
-  if (lower.some((a) => a.includes('nebula'))) return '#173f57';
-  if (lower.some((a) => a.includes('asteroid'))) return '#3f3b35';
-  if (lower.some((a) => a.includes('scar'))) return '#4a2025';
-  return null;
-}
-
-function getWormholeColor(kind: string): { color: string; symbol: string } {
-  const k = kind.toLowerCase();
-  if (k.includes('alpha')) return { color: '#38bdf8', symbol: 'α' };
-  if (k.includes('beta')) return { color: '#f43f5e', symbol: 'β' };
-  if (k.includes('gamma')) return { color: '#4ade80', symbol: 'γ' };
-  if (k.includes('delta')) return { color: '#fb923c', symbol: 'δ' };
-  return { color: '#94a3b8', symbol: 'ω' };
-}
-
-export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
   const [hoveredTile, setHoveredTile] = useState<{
     systemId: string;
     label: string;
@@ -65,32 +55,15 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
   const [isPanning, setIsPanning] = useState(false);
   const startPanRef = useRef({ x: 0, y: 0 });
 
-  const systemsMap = board.systems || {};
-
-  // Build unified tile representation: from board.map_tiles if available, else derive from board.systems
-  const tiles: BoardTileView[] = board.map_tiles && board.map_tiles.length > 0
-    ? board.map_tiles
-    : Object.keys(systemsMap).map((id, index) => {
-        // Fallback for tests/mocks without map_tiles
-        let q = 0;
-        let r = 0;
-        if (id === '18' || index === 0) {
-          q = 0;
-          r = 0;
-        } else if (id === '34' || index === 1) {
-          q = 1;
-          r = 0;
-        } else {
-          q = index;
-          r = -index;
-        }
-        return {
-          system_id: id,
-          label: id === '18' ? 'Mecatol Rex' : `#${id}`,
-          q,
-          r,
-        };
-      });
+  // Pure presentation derivation
+  const presentation = buildBoardPresentationModel(
+    board,
+    seatingOrder,
+    players,
+    pendingChoice,
+    viewerSeat,
+    selectedSystemId
+  );
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button === 0) {
@@ -114,6 +87,20 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
   const zoomIn = () => setViewTransform((prev) => ({ ...prev, scale: Math.min(prev.scale * 1.25, 2.5) }));
   const zoomOut = () => setViewTransform((prev) => ({ ...prev, scale: Math.max(prev.scale / 1.25, 0.5) }));
   const resetView = () => setViewTransform({ x: 0, y: 0, scale: 1 });
+
+  const handleTileClick = (tile: TilePresentation) => {
+    if (tile.isCandidateTarget) {
+      onSelectTarget?.(tile.systemId);
+    }
+    setSelectedSystemId(selectedSystemId === tile.systemId ? null : tile.systemId);
+  };
+
+  const handleTileKeyDown = (e: React.KeyboardEvent, tile: TilePresentation) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleTileClick(tile);
+    }
+  };
 
   return (
     <div
@@ -141,32 +128,29 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
         }}
       >
         <button
+          type="button"
           onClick={zoomIn}
           title="Zoom In"
           className="button button--secondary button--icon"
-          style={{
-            fontSize: 16,
-          }}
+          style={{ fontSize: 16 }}
         >
           +
         </button>
         <button
+          type="button"
           onClick={zoomOut}
           title="Zoom Out"
           className="button button--secondary button--icon"
-          style={{
-            fontSize: 16,
-          }}
+          style={{ fontSize: 16 }}
         >
           −
         </button>
         <button
+          type="button"
           onClick={resetView}
           title="Reset Pan & Zoom"
           className="button button--secondary button--icon"
-          style={{
-            fontSize: 14,
-          }}
+          style={{ fontSize: 14 }}
         >
           ⟲
         </button>
@@ -182,128 +166,86 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
             <feGaussianBlur stdDeviation="4" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
+          <filter id="target-glow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="6" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
         </defs>
 
         <g transform={`translate(${viewTransform.x}, ${viewTransform.y}) scale(${viewTransform.scale})`}>
-          {tiles.map((tile, idx) => {
-            const sysId = tile.system_id;
-            const dynamicSystem = systemsMap[sysId];
-
-            // Axial coordinates to Cartesian pixel center
-            let x = 150 * (tile.q + tile.r / 2);
-            let y = 130 * tile.r;
-            if (tile.special_area === 'fracture') {
-              x = (tile.q - 3) * 130;
-              y = 420;
-            } else if (tile.special_area === 'nexus') {
-              x = -500;
-              y = 420;
-            }
-
-            const points = getHexPoints(x, y, 70);
-            const innerPoints = getInnerPoints(x, y, 64);
-            // Anomaly / System background fill
-            const anomalyColor = getAnomalyColor(tile.anomalies);
-            let fillColor = sysId === '18' ? '#1e1b4b' : anomalyColor || (tile.hyperlane ? '#1e1b4b' : '#0f172a');
-            if (tile.special_area === 'fracture') fillColor = '#112f39';
-            if (tile.special_area === 'nexus') fillColor = '#29304d';
-
-            // Space control: check if single player has space units
-            const spaceUnits = (dynamicSystem?.units || []).filter((u) => !u.planet);
-            const spaceOwners = Array.from(new Set(spaceUnits.map((u) => u.owner)));
-            const singleSpaceOwner = spaceOwners.length === 1 ? spaceOwners[0] : null;
-
-            // Planet control
-            const dynamicPlanets = dynamicSystem?.planets || {};
-            const planetOwners = Array.from(
-              new Set(
-                Object.values(dynamicPlanets)
-                  .map((p) => p.controlled_by)
-                  .filter((o): o is string => Boolean(o))
-              )
-            );
-            const singlePlanetOwner = planetOwners.length === 1 ? planetOwners[0] : null;
-
-            // Border stroke
-            let strokeColor = '#334155';
-            let strokeWidth = 1.5;
-            if (singleSpaceOwner) {
-              strokeColor = getPlayerColor(singleSpaceOwner, seatingOrder);
-              strokeWidth = 3;
-            }
-
-            // Planets to display (merge static metadata with dynamic state)
-            const planetsToDisplay: {
-              id: string;
-              label: string;
-              resources?: number;
-              influence?: number;
-              traits?: string[];
-              specialties?: string[];
-              controlled_by?: string | null;
-              exhausted?: boolean;
-            }[] = (tile.planets || []).map((sp) => ({
-              id: sp.id,
-              label: sp.label,
-              resources: sp.resources,
-              influence: sp.influence,
-              traits: sp.traits,
-              specialties: sp.tech_specialties,
-              controlled_by: dynamicPlanets[sp.id]?.controlled_by,
-              exhausted: dynamicPlanets[sp.id]?.exhausted,
-            }));
-
-            // If no static planets but dynamic planets exist (e.g. in legacy tests)
-            if (planetsToDisplay.length === 0 && dynamicSystem?.planets) {
-              Object.values(dynamicSystem.planets).forEach((dp) => {
-                planetsToDisplay.push({
-                  id: dp.planet_id,
-                  label: dp.planet_id,
-                  controlled_by: dp.controlled_by,
-                  exhausted: dp.exhausted,
-                });
-              });
-            }
-
-            const totalUnits = dynamicSystem?.units?.length || 0;
-            const commandTokens = dynamicSystem?.command_tokens || [];
+          {presentation.tiles.map((tile, idx) => {
+            const sysId = tile.systemId;
+            const isSelected = selectedSystemId === sysId;
+            const singlePlanetOwner =
+              tile.planets.length > 0 &&
+              tile.planets.every((p) => p.controlledBy && p.controlledBy === tile.planets[0].controlledBy)
+                ? tile.planets[0].controlledBy
+                : null;
 
             return (
               <g
                 key={`hex-${sysId}-${idx}`}
                 data-testid={`system-hex-${sysId}`}
                 data-system-id={sysId}
+                data-target-candidate={tile.isCandidateTarget ? 'true' : undefined}
+                data-context-subject={tile.isContextSubject ? 'true' : undefined}
+                data-system-selected={isSelected ? 'true' : undefined}
+                role={tile.isCandidateTarget ? 'button' : undefined}
+                tabIndex={tile.isCandidateTarget ? 0 : undefined}
+                aria-label={tile.isCandidateTarget ? `Target system ${tile.label} #${sysId}` : undefined}
+                onClick={() => handleTileClick(tile)}
+                onKeyDown={(e) => handleTileKeyDown(e, tile)}
                 onMouseEnter={() => {
                   setHoveredTile({
                     systemId: sysId,
                     label: tile.label,
                     anomalies: tile.anomalies,
-                    wormholes: tile.wormholes,
-                    planets: planetsToDisplay.map((p) => ({
+                    wormholes: tile.wormholes.map((w) => w.kind),
+                    planets: tile.planets.map((p) => ({
                       label: p.label,
                       resources: p.resources,
                       influence: p.influence,
-                      owner: p.controlled_by,
+                      owner: p.controlledBy,
                     })),
-                    unitsCount: totalUnits,
-                    tokensCount: commandTokens.length,
+                    unitsCount: tile.totalUnits,
+                    tokensCount: tile.commandTokens.length,
                   });
                 }}
                 onMouseLeave={() => setHoveredTile(null)}
-                style={{ cursor: 'default', outline: 'none' }}
+                style={{
+                  cursor: tile.isCandidateTarget ? 'pointer' : 'default',
+                  outline: 'none',
+                }}
               >
                 {/* Hexagon Tile */}
                 <polygon
-                  points={points}
-                  fill={fillColor}
-                  stroke={strokeColor}
-                  strokeWidth={strokeWidth}
+                  points={tile.points}
+                  fill={tile.fillColor}
+                  stroke={isSelected ? '#facc15' : tile.isCandidateTarget ? '#38bdf8' : tile.strokeColor}
+                  strokeWidth={isSelected ? 4 : tile.isCandidateTarget ? 3.5 : tile.strokeWidth}
+                  strokeDasharray={tile.strokeDashArray}
+                  filter={tile.isCandidateTarget ? 'url(#target-glow)' : undefined}
                 />
 
-                {/* Inner border for exclusive planet control */}
-                {singlePlanetOwner && (
+                {/* Candidate target highlight animation ring */}
+                {tile.isCandidateTarget && (
                   <polygon
-                    points={innerPoints}
+                    points={tile.innerPoints}
+                    fill="none"
+                    stroke="#38bdf8"
+                    strokeWidth={2}
+                    strokeDasharray="5 3"
+                    className="target-pulse-ring"
+                  />
+                )}
+
+                {/* Inner border for exclusive planet control */}
+                {singlePlanetOwner && !tile.isCandidateTarget && (
+                  <polygon
+                    points={tile.innerPoints}
                     fill="none"
                     stroke={getPlayerColor(singlePlanetOwner, seatingOrder)}
                     strokeWidth={2}
@@ -313,8 +255,8 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
 
                 {/* Tile Label / System Number */}
                 <text
-                  x={x}
-                  y={y - 48}
+                  x={tile.center.x}
+                  y={tile.center.y - 48}
                   textAnchor="middle"
                   fill="#cbd5e1"
                   fontSize="11"
@@ -325,60 +267,69 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
                 </text>
 
                 {/* Anomaly badge text */}
-                {tile.anomalies && tile.anomalies.length > 0 && (
+                {tile.anomalyLabel && (
                   <text
-                    x={x}
-                    y={y - 36}
+                    x={tile.center.x}
+                    y={tile.center.y - 36}
                     textAnchor="middle"
                     fill="#fef08a"
                     fontSize="8"
                     fontWeight="bold"
                     pointerEvents="none"
                   >
-                    {tile.anomalies[0].toUpperCase()}
+                    {tile.anomalyLabel}
                   </text>
                 )}
 
                 {/* Printed Wormholes */}
-                {(tile.wormholes || []).map((wh, wIdx) => {
-                  const { color, symbol } = getWormholeColor(wh);
-                  const wX = x - 38 + wIdx * 20;
-                  const wY = y - 18;
+                {tile.wormholes.map((wh, wIdx) => {
+                  const wX = tile.center.x - 38 + wIdx * 20;
+                  const wY = tile.center.y - 18;
                   return (
-                    <g key={`wh-${wh}-${wIdx}`}>
-                      <circle cx={wX} cy={wY} r="8" fill="#08111d" stroke={color} strokeWidth="2" />
+                    <g key={`wh-${wh.kind}-${wIdx}`}>
+                      <circle cx={wX} cy={wY} r="8" fill="#08111d" stroke={wh.color} strokeWidth="2" />
                       <text
                         x={wX}
                         y={wY + 3.5}
                         textAnchor="middle"
-                        fill={color}
+                        fill={wh.color}
                         fontSize="9"
                         fontWeight="bold"
                         pointerEvents="none"
                       >
-                        {symbol}
+                        {wh.symbol}
                       </text>
                     </g>
                   );
                 })}
 
                 {/* Planets Representation */}
-                {planetsToDisplay.map((p, pIdx) => {
-                  const pCount = planetsToDisplay.length;
-                  const pX = x + (pCount === 1 ? 0 : (pIdx - (pCount - 1) / 2) * 36);
-                  const pY = y + 16;
-                  const ownerColor = getPlayerColor(p.controlled_by, seatingOrder);
-                  const isControlled = Boolean(p.controlled_by);
+                {tile.planets.map((p, pIdx) => {
+                  const pCount = tile.planets.length;
+                  const pX = tile.center.x + (pCount === 1 ? 0 : (pIdx - (pCount - 1) / 2) * 36);
+                  const pY = tile.center.y + 16;
+                  const isControlled = Boolean(p.controlledBy);
 
                   return (
-                    <g key={p.id}>
+                    <g
+                      key={p.id}
+                      data-testid={`planet-${p.id}`}
+                      data-target-candidate={p.isCandidateTarget ? 'true' : undefined}
+                      onClick={(e) => {
+                        if (p.isCandidateTarget) {
+                          e.stopPropagation();
+                          onSelectTarget?.(sysId, p.id);
+                        }
+                      }}
+                      style={{ cursor: p.isCandidateTarget ? 'pointer' : 'inherit' }}
+                    >
                       <circle
                         cx={pX}
                         cy={pY}
                         r="14"
-                        fill={isControlled ? ownerColor : '#334155'}
-                        stroke={p.exhausted ? '#ef4444' : isControlled ? '#f8fafc' : '#64748b'}
-                        strokeWidth="2"
+                        fill={isControlled ? p.controllerColor : '#334155'}
+                        stroke={p.isCandidateTarget ? '#38bdf8' : p.exhausted ? '#ef4444' : isControlled ? '#f8fafc' : '#64748b'}
+                        strokeWidth={p.isCandidateTarget ? 3 : 2}
                       />
                       {/* Planet Abbreviation */}
                       <text
@@ -411,11 +362,11 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
                 })}
 
                 {/* Units Badge */}
-                {totalUnits > 0 && (
+                {tile.totalUnits > 0 && (
                   <g>
                     <rect
-                      x={x - 26}
-                      y={y + 36}
+                      x={tile.center.x - 26}
+                      y={tile.center.y + 36}
                       width="52"
                       height="16"
                       rx="4"
@@ -424,27 +375,27 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
                       strokeWidth="1"
                     />
                     <text
-                      x={x}
-                      y={y + 48}
+                      x={tile.center.x}
+                      y={tile.center.y + 48}
                       textAnchor="middle"
                       fill="#e2e8f0"
                       fontSize="9"
                       fontWeight="bold"
                       pointerEvents="none"
                     >
-                      {totalUnits} units
+                      {tile.totalUnits} units
                     </text>
                   </g>
                 )}
 
                 {/* Command Tokens */}
-                {commandTokens.map((owner, cIdx) => (
+                {tile.commandTokens.map((ct, cIdx) => (
                   <circle
                     key={`cmd-${cIdx}`}
-                    cx={x - 42 + cIdx * 12}
-                    cy={y + 56}
+                    cx={tile.center.x - 42 + cIdx * 12}
+                    cy={tile.center.y + 56}
                     r="4"
-                    fill={getPlayerColor(owner, seatingOrder)}
+                    fill={ct.color}
                     stroke="#f8fafc"
                     strokeWidth="1"
                   />
@@ -455,8 +406,21 @@ export const Board: React.FC<BoardProps> = ({ board, seatingOrder }) => {
         </g>
       </svg>
 
+      {/* Selected System Inspector */}
+      {presentation.selectedSystem && (
+        <SystemInspector
+          system={presentation.selectedSystem}
+          onClose={() => setSelectedSystemId(null)}
+          onSelectAction={() => {
+            if (onSelectTarget && presentation.selectedSystem) {
+              onSelectTarget(presentation.selectedSystem.systemId);
+            }
+          }}
+        />
+      )}
+
       {/* Hover Info Tooltip */}
-      {hoveredTile && (
+      {hoveredTile && !presentation.selectedSystem && (
         <div
           data-testid="system-tooltip"
           className="board-tooltip panel"

@@ -325,3 +325,23 @@ select:focus-visible,
   outline: 2px solid var(--color-accent) !important;
   outline-offset: 2px;
 }
+
+@keyframes target-pulse {
+  0% {
+    stroke-opacity: 0.35;
+    stroke-width: 1.5px;
+  }
+  50% {
+    stroke-opacity: 1;
+    stroke-width: 3px;
+  }
+  100% {
+    stroke-opacity: 0.35;
+    stroke-width: 1.5px;
+  }
+}
+
+.target-pulse-ring {
+  animation: target-pulse 2s ease-in-out infinite;
+}
+

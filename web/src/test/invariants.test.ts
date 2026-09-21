@@ -308,4 +308,50 @@ describe('Frontend Invariants & Property-based Checks', () => {
       expect(e.event.kind).toBeTruthy();
     }
   });
+
+  it('enforces that board interaction and targeting derive from structured projection data, never option-id regexes or seat-name tables', async () => {
+    const {
+      getPlayerColor,
+      deriveActorTargetHighlights,
+      PLAYER_PALETTE,
+      NEUTRAL_COLOR,
+    } = await import('../presentation/boardPresentation.ts');
+
+    // Invariant 1: Seat names can be arbitrary non-seat strings and map deterministically to index palette
+    const seatingOrder = ['alpha-user', 'bravo-user', 'seat99'];
+    expect(getPlayerColor('alpha-user', seatingOrder)).toBe(PLAYER_PALETTE[0]);
+    expect(getPlayerColor('bravo-user', seatingOrder)).toBe(PLAYER_PALETTE[1]);
+    expect(getPlayerColor('seat99', seatingOrder)).toBe(PLAYER_PALETTE[2]);
+    expect(getPlayerColor(null, seatingOrder)).toBe(NEUTRAL_COLOR);
+
+    // Invariant 2: Target highlighting maps from structured payload/context without regexes on option IDs
+    const opaqueChoice: PendingChoiceDto = {
+      nonce: 'nonce_abc',
+      actor: 'alpha-user',
+      prompt: 'Select target',
+      options: [
+        {
+          // Opaque random option IDs that do NOT follow any naming convention
+          id: 'x79fk2_custom_action',
+          kind: 'tactical_move',
+          label: 'Deploy to system 18',
+          payload: { system: '18', to: '18', planet: 'mecatol_rex' },
+        },
+      ],
+      context: {
+        version: 1,
+        actor: 'alpha-user',
+        subtype: 'movement',
+        target: { System: '18' },
+      },
+    };
+
+    const highlights = deriveActorTargetHighlights(opaqueChoice, 'alpha-user');
+    expect(highlights.hasActiveTargets).toBe(true);
+    expect(highlights.targetableSystemIds.has('18')).toBe(true);
+    expect(highlights.targetablePlanetIds.has('mecatol_rex')).toBe(true);
+    expect(highlights.systemOptionMap.get('18')).toEqual(['x79fk2_custom_action']);
+    expect(highlights.planetOptionMap.get('mecatol_rex')).toEqual(['x79fk2_custom_action']);
+  });
 });
+

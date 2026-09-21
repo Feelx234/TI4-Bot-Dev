@@ -23,19 +23,38 @@ export type RejectionReason =
   | { reason: 'unknown_option'; option_id: string }
   | { reason: 'validation_failed'; message: string };
 
+export type DecisionTargetDto =
+  | { System: string }
+  | { Planet: { system: string; planet: string } }
+  | { Unit: { system: string; unit: string } }
+  | { Player: string };
+
 export interface ChoiceOptionDto {
   id: string;
+  kind?: string;
   label: string;
   description?: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface DecisionContextDto {
-  kind: string;
+  version?: number;
+  actor?: string;
+  source?: Record<string, unknown>;
   subtype: string;
+  phase?: string;
+  round?: number;
+  optional?: boolean;
+  target?: DecisionTargetDto | null;
+  outstanding?: OutstandingConstraintDto[];
+  kind?: string;
   details?: Record<string, unknown>;
 }
 
 export interface OutstandingConstraintDto {
+  kind?: string;
+  amount?: number;
+  paid?: number;
   min_selection?: number;
   max_selection?: number;
 }
