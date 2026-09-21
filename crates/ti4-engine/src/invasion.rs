@@ -1013,6 +1013,7 @@ fn ground_hit(
     state
         .system_mut(system)
         .remove_from_planet(planet, std::slice::from_ref(&doomed));
+    crate::faction_techs::note_destroyed(state, &doomed);
     Some(doomed)
 }
 
@@ -1122,6 +1123,7 @@ fn absorb_ground(
         state
             .system_mut(system)
             .remove_from_planet(planet, std::slice::from_ref(&doomed));
+        crate::faction_techs::note_destroyed(state, &doomed);
     }
     Ok(())
 }

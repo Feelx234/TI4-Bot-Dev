@@ -437,6 +437,12 @@ pub struct Player {
     /// This seat may not retreat during the combat round numbered here (Intercept).
     #[serde(default)]
     pub retreat_barred_round: Option<u32>,
+    /// Spec Ops II destroyed and not yet rolled for ("after this unit is destroyed, roll 1 die").
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub spec_ops_destroyed: u32,
+    /// Spec Ops II waiting on the card for the start of this seat's next turn.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub spec_ops_card: u32,
     /// Evelyn `DeLouis` and Viscount Unlenn: the combat round in which one of this player's
     /// units rolls an extra die.
     pub extra_die_round: Option<u32>,
@@ -599,6 +605,8 @@ impl PartialEq for Player {
             && self.waylay_barrage_round == other.waylay_barrage_round
             && self.cancel_hits_round == other.cancel_hits_round
             && self.retreat_barred_round == other.retreat_barred_round
+            && self.spec_ops_destroyed == other.spec_ops_destroyed
+            && self.spec_ops_card == other.spec_ops_card
             && self.extra_die_round == other.extra_die_round
             && self.extra_die_unit == other.extra_die_unit
             && self.munitions_round == other.munitions_round
@@ -675,6 +683,8 @@ impl Player {
             waylay_barrage_round: None,
             cancel_hits_round: None,
             retreat_barred_round: None,
+            spec_ops_destroyed: 0,
+            spec_ops_card: 0,
             extra_die_round: None,
             extra_die_unit: None,
             munitions_round: None,
@@ -2612,4 +2622,13 @@ mod tests {
             serde_json::to_string(&g).unwrap()
         );
     }
+}
+
+/// Serde: leave a zero counter out, so a save that never used it is byte-for-byte what it was.
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if signature"
+)]
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
 }

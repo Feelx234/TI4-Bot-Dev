@@ -165,6 +165,93 @@ pub fn genesis(
     placed
 }
 
+/// Spec Ops II (Sol): "After this unit is destroyed, roll 1 die. If the result is 5 or greater,
+/// place the unit on this card." Called wherever a ground force is destroyed; the die is rolled
+/// by [`roll_spec_ops`] on the engine's next step, where the game's dice are in hand.
+pub fn note_destroyed(state: &mut GameState, unit: &ti4_model::units::Unit) {
+    if unit.type_id.as_str() != "sol_infantry2" {
+        return;
+    }
+    if let Some(seat) = state.player_mut(&unit.owner) {
+        seat.spec_ops_destroyed += 1;
+    }
+}
+
+/// What a Spec Ops II survival roll needs.
+pub const SPEC_OPS_SURVIVES_ON: u32 = 5;
+
+/// Roll for every Spec Ops II destroyed since the last step. Returns (owner, survived) per die.
+pub fn roll_spec_ops(
+    state: &mut GameState,
+    dice: &mut crate::dice::Dice,
+    rng: &mut crate::rng::GameRng,
+) -> Vec<(PlayerId, bool)> {
+    let mut rolled = Vec::new();
+    let pending: Vec<(PlayerId, u32)> = state
+        .players
+        .iter()
+        .filter(|seat| seat.spec_ops_destroyed > 0)
+        .map(|seat| (seat.id.clone(), seat.spec_ops_destroyed))
+        .collect();
+    for (owner, count) in pending {
+        let roll = dice.roll_by(
+            rng,
+            usize::try_from(count).unwrap_or(0),
+            "spec ops II",
+            Some(SPEC_OPS_SURVIVES_ON),
+            &owner,
+        );
+        let survived = u32::try_from(roll.hits()).unwrap_or(0);
+        if let Some(seat) = state.player_mut(&owner) {
+            seat.spec_ops_destroyed = 0;
+            seat.spec_ops_card += survived;
+        }
+        for face in &roll.faces {
+            rolled.push((owner.clone(), *face >= SPEC_OPS_SURVIVES_ON));
+        }
+    }
+    rolled
+}
+
+/// "At the start of your next turn, place each unit that is on this card on a planet you control
+/// in your home system." On the first such planet; with none controlled they wait on the card.
+/// Returns how many were placed.
+pub fn return_spec_ops(state: &mut GameState, player: &PlayerId) -> u32 {
+    let Some(seat) = state.player(player) else {
+        return 0;
+    };
+    let waiting = seat.spec_ops_card;
+    if waiting == 0 {
+        return 0;
+    }
+    let Some(home) = seat.home_system.clone() else {
+        return 0;
+    };
+    let Some(planet) = state
+        .controlled_planets(player)
+        .into_iter()
+        .find(|(system, _)| **system == home)
+        .map(|(_, planet)| planet.clone())
+    else {
+        return 0;
+    };
+    for _ in 0..waiting {
+        state
+            .system_mut(&home)
+            .planet_units
+            .entry(planet.clone())
+            .or_default()
+            .push(ti4_model::units::Unit::new(
+                ti4_model::id::UnitTypeId::new("sol_infantry2"),
+                player.clone(),
+            ));
+    }
+    if let Some(seat) = state.player_mut(player) {
+        seat.spec_ops_card = 0;
+    }
+    waiting
+}
+
 #[cfg(test)]
 mod tests {
     use ti4_model::content_types::POK;
@@ -266,5 +353,43 @@ mod tests {
             vec!["sol_infantry".to_owned()],
             "Sol builds Spec Ops"
         );
+    }
+
+    #[test]
+    fn spec_ops_two_survives_on_five_and_comes_home_next_turn() {
+        let mut state = game(&["a"]);
+        let sol = PlayerId::new("a");
+        let unit = ti4_model::units::Unit::new(
+            ti4_model::id::UnitTypeId::new("sol_infantry2"),
+            sol.clone(),
+        );
+        note_destroyed(&mut state, &unit);
+        note_destroyed(&mut state, &unit);
+        // A plain infantry is not Spec Ops II.
+        note_destroyed(
+            &mut state,
+            &ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("infantry"), sol.clone()),
+        );
+        let mut dice = crate::dice::Dice::from_faces([5, 4]);
+        let mut rng = crate::rng::GameRng::new(1);
+        let rolled = roll_spec_ops(&mut state, &mut dice, &mut rng);
+        assert_eq!(rolled, vec![(sol.clone(), true), (sol.clone(), false)]);
+        let seat = state.player(&sol).unwrap();
+        assert_eq!((seat.spec_ops_destroyed, seat.spec_ops_card), (0, 1));
+
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.player_mut(&sol).unwrap().home_system = Some(system.clone());
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), sol.clone());
+        assert_eq!(return_spec_ops(&mut state, &sol), 1);
+        assert_eq!(
+            state
+                .system_state(&system)
+                .on_planet_of(&planet, &sol)
+                .len(),
+            1
+        );
+        assert_eq!(state.player(&sol).unwrap().spec_ops_card, 0);
     }
 }

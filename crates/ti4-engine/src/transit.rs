@@ -497,6 +497,7 @@ pub fn apply_move(
                     system.remove_from_planet(planet, std::slice::from_ref(&carried.unit));
                 }
             }
+            crate::faction_techs::note_destroyed(state, &carried.unit);
         }
         MoveOutcome::LostToGravityRift { cargo }
     }

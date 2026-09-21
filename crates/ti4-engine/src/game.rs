@@ -971,6 +971,13 @@ impl<'a> Game<'a> {
         if let Some(galaxy) = self.galaxy.as_mut() {
             crate::laws::apply_to_galaxy(&self.state, galaxy);
         }
+        // Spec Ops II destroyed during the last step roll to survive now, where the dice are.
+        for (owner, survived) in
+            crate::faction_techs::roll_spec_ops(&mut self.state, &mut self.dice, &mut self.rng)
+        {
+            let outcome = if survived { "SURVIVED" } else { "LOST" };
+            self.emit(&format!("SPEC_OPS_{outcome}:{owner}"));
+        }
 
         if self.state.finished {
             if let Err(error) = crate::diplomacy::settle_game_end(&mut self.state) {
@@ -1033,6 +1040,10 @@ impl<'a> Game<'a> {
             if crate::promissory::turn_started(&mut self.state, self.content, self.sources, &active)
             {
                 self.emit("MILITARY_SUPPORT_USED");
+            }
+            let returned = crate::faction_techs::return_spec_ops(&mut self.state, &active);
+            if returned > 0 {
+                self.emit(&format!("SPEC_OPS_RETURNED:{active}:{returned}"));
             }
             self.prepared_turn_seq = Some(self.state.turn_seq);
             // "At the start of another player's turn" — this is that moment, typed so a
