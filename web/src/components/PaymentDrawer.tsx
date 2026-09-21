@@ -134,18 +134,14 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
     // 1. Planets to exhaust
     for (const planetId of selectedPlanetIds) {
       intents.push({
-        kind: 'payment',
         predicate: (opt) => opt.id === planetId,
-        description: `Exhaust ${planetId}`,
       });
     }
 
     // 2. Trade goods to spend
     for (let i = 0; i < tradeGoodsToSpend; i++) {
       intents.push({
-        kind: 'payment',
         predicate: (opt) => opt.id === 'trade_good',
-        description: 'Spend trade good',
       });
     }
 

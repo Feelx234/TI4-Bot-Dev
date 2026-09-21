@@ -28,14 +28,10 @@ describe('usePipelineRunner', () => {
 
     const intents: SemanticIntent[] = [
       {
-        kind: 'payment',
         predicate: (opt) => opt.id === 'exhaust|jord',
-        description: 'Exhaust Jord',
       },
       {
-        kind: 'payment',
         predicate: (opt) => opt.id === 'exhaust|mecatol',
-        description: 'Exhaust Mecatol',
       },
     ];
 
@@ -79,9 +75,7 @@ describe('usePipelineRunner', () => {
 
     const intents: SemanticIntent[] = [
       {
-        kind: 'payment',
         predicate: (opt) => opt.id === 'nonexistent',
-        description: 'Missing option',
       },
     ];
 
@@ -108,9 +102,7 @@ describe('usePipelineRunner', () => {
 
     const intents: SemanticIntent[] = [
       {
-        kind: 'payment',
         predicate: (opt) => opt.id === 'opt_1',
-        description: 'Option 1',
       },
     ];
 
@@ -138,7 +130,7 @@ describe('usePipelineRunner', () => {
 
     act(() => {
       result.current.executePipeline([
-        { kind: 'payment', predicate: (o) => o.id === 'opt1', description: 'test' },
+        { predicate: (o) => o.id === 'opt1' },
       ]);
     });
 

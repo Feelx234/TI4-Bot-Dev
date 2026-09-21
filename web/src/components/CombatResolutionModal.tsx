@@ -129,7 +129,6 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
       const count = stagedCasualties[g.unitType] ?? 0;
       for (let i = 0; i < count; i++) {
         intents.push({
-          kind: 'casualty',
           predicate: (opt) => {
             const p = getCombatPayload(opt);
             if (p.unit && p.unit.toLowerCase() === g.unitType.toLowerCase()) return true;
@@ -137,7 +136,6 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
             const parts = opt.id.toLowerCase().split('|');
             return parts.includes(g.unitType.toLowerCase());
           },
-          description: `Destroy ${g.unitType}`,
         });
       }
     }

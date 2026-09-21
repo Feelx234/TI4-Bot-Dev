@@ -192,9 +192,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
 
     if (isMultiSelect) {
       const intents: SemanticIntent[] = selectedOptionIds.map((optId) => ({
-        kind: 'selection',
         predicate: (o) => o.id === optId,
-        description: `Select option ${optId}`,
       }));
       executePipeline(intents);
     } else {

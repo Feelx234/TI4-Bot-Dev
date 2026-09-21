@@ -153,12 +153,10 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       const count = stagedMoves[key] ?? 0;
       for (let i = 0; i < count; i++) {
         intents.push({
-          kind: 'movement',
           predicate: (opt) => {
             const p = getMovementPayload(opt);
             return p.origin === g.originSystemId && p.unit === g.unitType;
           },
-          description: `Move ${g.unitType} from #${g.originSystemId}`,
         });
       }
     }
@@ -166,9 +164,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     // Append done_moving to close the movement step
     if (doneMovingOption) {
       intents.push({
-        kind: 'movement',
         predicate: (opt) => opt.id === 'done_moving' || opt.kind === 'decline',
-        description: 'Finish movement',
       });
     }
 

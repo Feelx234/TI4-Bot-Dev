@@ -2,10 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { PendingChoiceDto, ChoiceOptionDto } from '../protocol/types.ts';
 
 export interface SemanticIntent {
-  /** Identifies the intent type for logging/tracing. */
-  kind: 'movement' | 'casualty' | 'payment' | 'selection';
   predicate: (option: ChoiceOptionDto) => boolean;
-  description: string;
 }
 
 export function usePipelineRunner(

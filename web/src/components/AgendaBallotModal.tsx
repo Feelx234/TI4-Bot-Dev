@@ -99,16 +99,12 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
     if (stagedPlanets.length === 0 || isPipelineRunning || isSubmittingDirect) return;
 
     const intents: SemanticIntent[] = stagedPlanets.map((planetId) => ({
-      kind: 'payment',
       predicate: (opt) => opt.id === planetId,
-      description: `Exhaust ${planetId}`,
     }));
 
     // After exhausting staged planets, finish with decline (end of planet exhaustion)
     intents.push({
-      kind: 'payment',
       predicate: (opt) => opt.id === 'decline' || opt.kind === 'decline',
-      description: 'Finish Voting',
     });
 
     executePipeline(intents);
