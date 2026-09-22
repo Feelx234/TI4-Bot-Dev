@@ -137,8 +137,18 @@ fn play(
         .iter()
         .map(|id| json!({"id":id,"revealed_round":game.state.round,"available_round":game.state.round,"source":"initial"}))
         .collect();
+    // Every Support for the Throne that changes hands at the table, with the deal that moved it:
+    // the latest revision seen for each deal, and the deal whose terms were applied last.
+    let mut supports = Vec::new();
+    let mut revisions: BTreeMap<u64, (PlayerId, PlayerId, ti4_model::diplomacy::DealRevision)> =
+        BTreeMap::new();
+    let mut parties: BTreeMap<u64, (PlayerId, PlayerId)> = BTreeMap::new();
+    let mut last_applied: Option<u64> = None;
+    let faction = |p: &PlayerId| assignments[p].to_string();
     while !game.state.finished && game.state.round < target && steps < 400_000 {
         let round = game.state.round;
+        let journal_len = game.state.diplomacy.journal.len();
+        let holders_before = game.state.support_holders.clone();
         let phase = game.state.phase;
         let old_revealed = game.state.revealed_objectives.clone();
         let old = game
@@ -153,6 +163,53 @@ fn play(
             return Err(format!("{seed}/{rotation}/{seat}: {e:?}"));
         }
         steps += 1;
+        for entry in &game.state.diplomacy.journal[journal_len..] {
+            use ti4_model::diplomacy::DiplomacyEvent as E;
+            match &entry.event {
+                E::Offered {
+                    deal_id,
+                    proposer,
+                    recipient,
+                    revision,
+                    ..
+                } => {
+                    parties.insert(deal_id.0, (proposer.clone(), recipient.clone()));
+                    revisions.insert(
+                        deal_id.0,
+                        (proposer.clone(), recipient.clone(), revision.clone()),
+                    );
+                }
+                E::Countered { deal_id, revision } => {
+                    if let Some((a, b)) = parties.get(&deal_id.0).cloned() {
+                        revisions.insert(deal_id.0, (a, b, revision.clone()));
+                    }
+                }
+                E::ImmediateApplied { deal_id, .. } => last_applied = Some(deal_id.0),
+                _ => {}
+            }
+        }
+        if game.state.support_holders != holders_before {
+            for (owner, holder) in &game.state.support_holders {
+                if holders_before.get(owner) != Some(holder) {
+                    let deal = last_applied.and_then(|id| revisions.get(&id)).map(|(a, b, r)| {
+                        let side = |terms: &[ti4_model::diplomacy::DealTerm]| {
+                            terms
+                                .iter()
+                                .map(ti4_engine::diplomacy::builder::describe)
+                                .collect::<Vec<_>>()
+                        };
+                        json!({"proposer":faction(a),"recipient":faction(b),"revision":r.number,
+                            "proposer_gives":side(&r.proposer_terms),"recipient_gives":side(&r.recipient_terms)})
+                    });
+                    supports.push(json!({"round":round,"event":"given","owner":faction(owner),"holder":faction(holder),"deal":deal}));
+                }
+            }
+            for (owner, holder) in &holders_before {
+                if !game.state.support_holders.contains_key(owner) {
+                    supports.push(json!({"round":round,"event":"returned","owner":faction(owner),"holder":faction(holder)}));
+                }
+            }
+        }
         if capture {
             for id in game
                 .state
@@ -196,7 +253,8 @@ fn play(
     }
     let l = log.borrow();
     Ok(
-        json!({"seed":seed,"rotation":rotation,"seat":seat,"faction":assignments[me],"temperature":temperature,"initial":initial,"vp":game.state.player(me).unwrap().victory_points,"secret_hand":game.state.player(me).unwrap().secret_objectives,"reveals":reveals,"awards":awards,"ledger":ledger,"choices":l.choices,"hashes":[format!("{:x}",l.hash.clone().finalize()),format!("{:x}",Sha256::digest(serde_json::to_vec(&game.events).unwrap())),format!("{:x}",Sha256::digest(serde_json::to_vec(&game.state).unwrap()))]}),
+        json!({"seed":seed,"rotation":rotation,"seat":seat,"faction":assignments[me],"supports":supports,
+            "table_vp":players.iter().map(|p|(faction(p),game.state.player(p).map_or(0,|x|x.victory_points))).collect::<BTreeMap<_,_>>(),"temperature":temperature,"initial":initial,"vp":game.state.player(me).unwrap().victory_points,"secret_hand":game.state.player(me).unwrap().secret_objectives,"reveals":reveals,"awards":awards,"ledger":ledger,"choices":l.choices,"hashes":[format!("{:x}",l.hash.clone().finalize()),format!("{:x}",Sha256::digest(serde_json::to_vec(&game.events).unwrap())),format!("{:x}",Sha256::digest(serde_json::to_vec(&game.state).unwrap()))]}),
     )
 }
 fn main() {
@@ -205,7 +263,14 @@ fn main() {
     let opponent =
         arg("--opponent").unwrap_or("out/checkpoints/stage2-mlp-shaped/checkpoint-473312".into());
     let c = ti4_mlp::bundle::read(std::path::Path::new(&bundle)).unwrap();
-    let o = ti4_mlp::bundle::read(std::path::Path::new(&opponent)).unwrap();
+    let o = ti4_mlp::bundle::read(std::path::Path::new(
+        if std::env::args().any(|a| a == "--self-play") {
+            &bundle
+        } else {
+            &opponent
+        },
+    ))
+    .unwrap();
     let pool = Arc::new(
         ti4_sim::MapPool::from_reader(std::io::Cursor::new(
             ti4_sim::artifacts::read_and_verify_pool_role(
@@ -232,8 +297,14 @@ fn main() {
     eprintln!(
         "vp_sources candidate={bundle} opponent={opponent} temperature={temperature} seeds={seeds} seed_base={base} threads={threads}"
     );
+    // --self-play: the candidate is also every opponent, so each seed and rotation is one game.
+    let seats = if std::env::args().any(|a| a == "--self-play") {
+        1
+    } else {
+        6
+    };
     let jobs: Vec<_> = (base..base + seeds)
-        .flat_map(|s| (0..6).flat_map(move |r| (0..6).map(move |p| (s, r, p))))
+        .flat_map(|s| (0..6).flat_map(move |r| (0..seats).map(move |p| (s, r, p))))
         .collect();
     let chunks: Vec<_> = jobs
         .chunks(jobs.len().div_ceil(threads))
