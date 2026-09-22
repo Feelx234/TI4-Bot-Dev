@@ -1,4 +1,5 @@
 use ti4_model::id::PlayerId;
+use ti4_model::view::{HIDDEN, view_for};
 use ti4_server::fixtures::{create_sample_game, create_sample_pending_choice};
 use ti4_server::projection::{project_initial_snapshot, project_state_update};
 use ti4_server::protocol::server::ServerMessage;
@@ -201,6 +202,48 @@ fn state_update_preserves_identical_redaction_guarantees() {
     assert!(!json.contains("destroy_their_greatest_ship"));
     assert!(!json.contains("opt_carrier"));
     assert!(!json.contains("\"pending_choice\""));
+}
+
+#[test]
+fn player_view_uses_the_model_redaction_result_including_search_warrant() {
+    let mut game = create_sample_game();
+    game.laws.insert("warrant".to_owned(), "seat_a".to_owned());
+    let viewer = PlayerId::new("seat_b");
+    let expected = view_for(&game, &viewer);
+
+    let snapshot =
+        project_initial_snapshot("test_game", 1, &game, &ViewerRole::Player(viewer), None);
+    let expected_a = expected.player(&PlayerId::new("seat_a")).unwrap();
+    let projected_a = snapshot
+        .view
+        .players
+        .iter()
+        .find(|player| player.id == PlayerId::new("seat_a"))
+        .unwrap();
+
+    assert!(
+        expected_a
+            .action_cards
+            .iter()
+            .all(|card| card.as_str() == HIDDEN)
+    );
+    assert!(projected_a.held_action_cards.is_empty());
+    assert_eq!(
+        projected_a.held_secret_objectives, expected_a.secret_objectives,
+        "Search Warrant's engine-owned exception must reach the server projection"
+    );
+}
+
+#[test]
+fn spectator_excludes_hidden_markers_from_held_card_lists() {
+    let game = create_sample_game();
+    let snapshot = project_initial_snapshot("test_game", 1, &game, &ViewerRole::Spectator, None);
+
+    for player in snapshot.view.players {
+        assert!(player.held_action_cards.is_empty(), "{}", player.id);
+        assert!(player.held_secret_objectives.is_empty(), "{}", player.id);
+        assert!(player.action_cards_count > 0 || player.secret_objectives_count > 0);
+    }
 }
 
 #[test]

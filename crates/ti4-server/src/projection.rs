@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use ti4_engine::choice::Choice;
 use ti4_model::id::PlanetId;
 use ti4_model::state::{GameState, Player};
+use ti4_model::view::{HIDDEN, redact_player, view_for};
 
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::choice::PendingChoiceDto;
@@ -14,33 +15,9 @@ use crate::protocol::view::{
     TableView,
 };
 
-/// Projects one player's state for the given viewer role.
-///
-/// If `viewer` does not match `player.id`, all action cards and unrevealed secret objectives
-/// are strictly redacted (empty lists). Public hand counts remain accurate.
+/// Projects one player record that has already passed through the model's redaction boundary.
 #[must_use]
-pub fn project_player_view(
-    player: &Player,
-    viewer: &ViewerRole,
-    laws: &BTreeMap<String, String>,
-) -> PlayerView {
-    let is_own_seat = viewer.is_actor(&player.id);
-    let secrets_revealed_by_law = laws
-        .get("warrant")
-        .is_some_and(|owner| owner == &player.id.to_string());
-
-    let held_action_cards = if is_own_seat {
-        player.action_cards.clone()
-    } else {
-        Vec::new()
-    };
-
-    let held_secret_objectives = if is_own_seat || secrets_revealed_by_law {
-        player.secret_objectives.clone()
-    } else {
-        Vec::new()
-    };
-
+pub fn project_player_view(player: &Player) -> PlayerView {
     PlayerView {
         id: player.id.clone(),
         faction: player.faction.clone(),
@@ -59,8 +36,18 @@ pub fn project_player_view(
         exhausted_relics: player.exhausted_relics.clone(),
         action_cards_count: player.action_cards.len(),
         secret_objectives_count: player.secret_objectives.len(),
-        held_action_cards,
-        held_secret_objectives,
+        held_action_cards: player
+            .action_cards
+            .iter()
+            .filter(|card| card.as_str() != HIDDEN)
+            .cloned()
+            .collect(),
+        held_secret_objectives: player
+            .secret_objectives
+            .iter()
+            .filter(|objective| objective.as_str() != HIDDEN)
+            .cloned()
+            .collect(),
         scored_secret_objectives: player.plot_objectives.iter().cloned().collect(),
         leaders: player.leaders.clone(),
     }
@@ -158,22 +145,28 @@ pub fn project_game_view_with_map(
     viewer: &ViewerRole,
     map_tiles: &[BoardTileView],
 ) -> GameView {
-    let players = state
-        .players
-        .iter()
-        .map(|p| project_player_view(p, viewer, &state.laws))
-        .collect();
+    let redacted = match viewer {
+        ViewerRole::Player(seat) => view_for(state, seat),
+        ViewerRole::Spectator => {
+            let mut spectator = state.clone();
+            for player in &mut spectator.players {
+                *player = redact_player(player);
+            }
+            spectator
+        }
+    };
+    let players = redacted.players.iter().map(project_player_view).collect();
 
     GameView {
-        round: state.round,
-        phase: state.phase,
-        speaker: state.speaker.clone(),
-        seating_order: state.seating_order.clone(),
-        active_player: state.active.clone(),
-        finished: state.finished,
+        round: redacted.round,
+        phase: redacted.phase,
+        speaker: redacted.speaker.clone(),
+        seating_order: redacted.seating_order.clone(),
+        active_player: redacted.active.clone(),
+        finished: redacted.finished,
         players,
-        board: project_board_view_with_map(state, map_tiles),
-        table: project_table_view(state),
+        board: project_board_view_with_map(&redacted, map_tiles),
+        table: project_table_view(&redacted),
     }
 }
 
