@@ -23,6 +23,9 @@ pub const CANCEL_ID: &str = "diplomacy|cancel";
 const MAX_AMOUNT: u8 = 10;
 /// Largest amount a promise to pay later may name.
 const MAX_LATER: u8 = 5;
+/// Item operations (add or remove) one revision may take. Without a bound, adding and removing
+/// can cycle forever: a self-play game stalled at the engine's step cap doing exactly that.
+pub const MAX_BUILD_STEPS: u8 = 8;
 
 /// What the contact knew when it opened, which the window cannot recompute without the map.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +149,9 @@ pub struct Draft {
     pub asking: bool,
     pub reviewing: bool,
     pub pending: Option<Pending>,
+    /// Item operations taken so far on this revision; see [`MAX_BUILD_STEPS`].
+    #[serde(default)]
+    pub steps: u8,
 }
 
 impl Draft {
@@ -159,6 +165,7 @@ impl Draft {
             asking: false,
             reviewing: false,
             pending: None,
+            steps: 0,
         }
     }
 
@@ -177,6 +184,12 @@ impl Draft {
         } else {
             &mut self.give
         }
+    }
+
+    /// Whether this revision may still add or remove items.
+    #[must_use]
+    pub const fn can_edit(&self) -> bool {
+        self.steps < MAX_BUILD_STEPS
     }
 
     #[must_use]
@@ -265,6 +278,9 @@ pub fn item_options(
     let verb = if draft.asking { "ask for" } else { "give" };
     let round = state.round;
     let mut out = Vec::new();
+    if !draft.can_edit() {
+        return out;
+    }
     let full = terms.len() >= ti4_model::diplomacy::MAX_TERMS_PER_SIDE;
 
     if !full && scope.physical {
@@ -483,6 +499,15 @@ pub fn amount_options(state: &GameState, draft: &Draft) -> Vec<ChoiceOption> {
 
 /// Apply one item choice to the draft. Returns `false` for an id that is not an item.
 pub fn apply_item(state: &GameState, draft: &mut Draft, id: &str) -> bool {
+    let applied = apply_item_inner(state, draft, id);
+    // Choosing an amount finishes the add that picked the item; it is not another step.
+    if applied && !id.starts_with("diplomacy|amount|") {
+        draft.steps = draft.steps.saturating_add(1);
+    }
+    applied
+}
+
+fn apply_item_inner(state: &GameState, draft: &mut Draft, id: &str) -> bool {
     let round = state.round;
     let Some(rest) = id.strip_prefix("diplomacy|") else {
         return false;

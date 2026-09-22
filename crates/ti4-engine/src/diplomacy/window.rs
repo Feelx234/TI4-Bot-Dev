@@ -171,11 +171,13 @@ impl DiplomacyWindow {
                     "Propose these terms",
                 ));
             }
-            options.push(ChoiceOption::labelled(
-                EDIT_ID,
-                REVIEW_KIND,
-                "Edit the terms",
-            ));
+            if draft.can_edit() {
+                options.push(ChoiceOption::labelled(
+                    EDIT_ID,
+                    REVIEW_KIND,
+                    "Edit the terms",
+                ));
+            }
             options.push(ChoiceOption::labelled(
                 CANCEL_ID,
                 REVIEW_KIND,
@@ -863,6 +865,33 @@ mod tests {
         assert_eq!(window.responses, 0, "an abandoned counter is not a counter");
         answer(&mut window, &mut state, ACCEPT_ID);
         assert_eq!(window.stage, DiplomacyStage::Done);
+    }
+
+    /// Adding and removing cannot cycle forever: after MAX_BUILD_STEPS operations only "done" is
+    /// left, and review no longer offers "edit".
+    #[test]
+    fn a_revision_has_a_bounded_number_of_edits() {
+        let mut state = table(9);
+        let mut window =
+            DiplomacyWindow::open(&mut state, pid("a"), pid("b"), scope(true), vec![]).unwrap();
+        for _ in 0..crate::diplomacy::builder::MAX_BUILD_STEPS / 2 {
+            answer(&mut window, &mut state, "diplomacy|now|tg");
+            answer(&mut window, &mut state, "diplomacy|amount|1");
+            answer(&mut window, &mut state, "diplomacy|remove|0");
+        }
+        // Only "done" (and, the draft being empty again, "make no offer").
+        assert_eq!(
+            ids(&window, &state),
+            [DONE_ID.to_owned(), CANCEL_ID.to_owned()]
+        );
+        answer(&mut window, &mut state, DONE_ID);
+        assert_eq!(
+            ids(&window, &state),
+            [DONE_ID.to_owned()],
+            "asking is closed too"
+        );
+        answer(&mut window, &mut state, DONE_ID);
+        assert!(!ids(&window, &state).contains(&EDIT_ID.to_owned()));
     }
 
     #[test]
