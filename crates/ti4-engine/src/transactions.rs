@@ -281,6 +281,21 @@ fn may_transact(
         || partners(state, content, galaxy, partner).contains(proposer)
 }
 
+/// The key a relic fragment is held under: its trait upper-cased, as exploration stores it
+/// (`CULTURAL`), with the diplomacy asset's `unknown` meaning the frontier deck's `FRONTIER`.
+///
+/// Diplomacy transfers name fragments in lower case and the legacy window in the stored case, and
+/// comparing them exactly made every diplomacy deal with a fragment "cannot pay what they offered".
+#[must_use]
+pub fn fragment_key(trait_name: &str) -> String {
+    let upper = trait_name.to_ascii_uppercase();
+    if upper == "UNKNOWN" {
+        "FRONTIER".to_owned()
+    } else {
+        upper
+    }
+}
+
 /// Whether a player holds what they offered.
 #[must_use]
 pub fn can_pay(
@@ -309,7 +324,7 @@ pub fn can_pay(
     }
     let mut held = seat.relic_fragments.clone();
     for trait_name in &terms.fragments {
-        let entry = held.entry(trait_name.clone()).or_insert(0);
+        let entry = held.entry(fragment_key(trait_name)).or_insert(0);
         if *entry <= 0 {
             return false;
         }
@@ -433,7 +448,7 @@ fn take(state: &mut GameState, player: &PlayerId, terms: &Terms) {
     seat.trade_goods -= terms.trade_goods;
     seat.commodities -= terms.commodities;
     for trait_name in &terms.fragments {
-        if let Some(held) = seat.relic_fragments.get_mut(trait_name) {
+        if let Some(held) = seat.relic_fragments.get_mut(&fragment_key(trait_name)) {
             *held -= 1;
         }
     }
@@ -460,7 +475,10 @@ fn give(state: &mut GameState, content: &ContentStore, player: &PlayerId, terms:
     // else, which is what makes a deal worth making.
     seat.trade_goods += terms.trade_goods + terms.commodities;
     for trait_name in &terms.fragments {
-        *seat.relic_fragments.entry(trait_name.clone()).or_insert(0) += 1;
+        *seat
+            .relic_fragments
+            .entry(fragment_key(trait_name))
+            .or_insert(0) += 1;
     }
     if let Some(note) = terms.promissory.clone() {
         // Support is worth a victory point the moment it arrives, which is the whole reason the
@@ -1804,6 +1822,36 @@ mod tests {
             Err(OfferError::CannotPay(a())),
             "a holds nothing, so cannot give two whatever b is sending"
         );
+    }
+
+    /// Diplomacy names fragments in lower case (`cultural`, `unknown`); they are held upper case
+    /// (`CULTURAL`, and `FRONTIER` for an unknown fragment). The two must meet.
+    #[test]
+    fn diplomacy_fragment_names_match_the_held_keys() {
+        let hub = plain_hub();
+        let mut state = game(&["a", "b"]);
+        let centre = SystemId::new(hub.centre.clone());
+        put(&mut state, &centre, "cruiser", &a(), 1);
+        put(&mut state, &centre, "cruiser", &b(), 1);
+        crate::exploration::gain_fragment(&mut state, &a(), "CULTURAL");
+        crate::exploration::gain_fragment(&mut state, &a(), "FRONTIER");
+        let offer = Offer {
+            proposer: a(),
+            partner: b(),
+            given: Terms {
+                fragments: vec!["cultural".to_owned(), "unknown".to_owned()],
+                ..Terms::default()
+            },
+            received: Terms::default(),
+        };
+        assert_eq!(
+            resolve(&mut state, ContentStore::embedded(), &hub.galaxy, &offer),
+            Ok(())
+        );
+        let b_holds = &state.player(&b()).unwrap().relic_fragments;
+        assert_eq!(b_holds.get("CULTURAL"), Some(&1));
+        assert_eq!(b_holds.get("FRONTIER"), Some(&1));
+        assert!(state.player(&a()).unwrap().relic_fragments.is_empty());
     }
 
     #[test]

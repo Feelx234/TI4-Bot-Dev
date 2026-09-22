@@ -119,9 +119,9 @@ impl Counted {
             Self::Commodities => seat.commodities,
             fragment => seat
                 .relic_fragments
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case(fragment.id()))
-                .map_or(0, |(_, count)| *count),
+                .get(&crate::transactions::fragment_key(fragment.id()))
+                .copied()
+                .unwrap_or(0),
         };
         u8::try_from(raw.clamp(0, i32::from(u8::MAX))).unwrap_or(0)
     }
@@ -306,7 +306,15 @@ pub fn item_options(
         }
         // Action cards change hands only with Hacan at the table (Arbiters), and only the
         // builder's own: the partner's hand is not the builder's to see.
+        // One action card per side: a transaction carries at most one card of each kind.
+        let card_on_side = has(terms, |term| {
+            matches!(
+                term,
+                DealTerm::ImmediateTransfer(TransferAsset::ActionCard(_))
+            )
+        });
         if !draft.asking
+            && !card_on_side
             && (crate::faction_abilities::trades_action_cards(state, content, giver)
                 || crate::faction_abilities::trades_action_cards(state, content, receiver))
             && let Some(seat) = state.player(giver)
