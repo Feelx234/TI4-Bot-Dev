@@ -1995,6 +1995,17 @@ fn main() {
             )
         }
         .unwrap_or_else(|error| refuse(&format!("update: {error}")));
+        // Every update uploads a batch of a different size, and libtorch keeps freed blocks
+        // reserved; without a release the reserve outgrew the card and spilled into shared system
+        // memory, where the optimise step ran 5-8x slower (2026-09-22). The update's tensors are
+        // gone by now, so this frees only what nothing uses.
+        let gpu_memory = if matches!(actor.device(), ti4_tensor::Device::Cuda(_)) {
+            let held = ti4_tensor::cuda_cache::memory(0);
+            ti4_tensor::cuda_cache::release_cached();
+            held.zip(ti4_tensor::cuda_cache::memory(0))
+        } else {
+            None
+        };
         let optimise_time = optimised.elapsed();
         let phases = ti4_mlp::perf::take_phases();
 
@@ -2007,6 +2018,16 @@ fn main() {
             optimise_time,
             rollout_time + optimise_time
         );
+        if let Some((before, after)) = gpu_memory {
+            #[expect(clippy::cast_precision_loss, reason = "bytes shown in GB")]
+            let gb = |bytes: i64| bytes as f64 / f64::from(1_u32 << 30);
+            println!(
+                "              gpu reserved {:.2} GB -> {:.2} GB after release  allocated {:.2} GB",
+                gb(before.reserved),
+                gb(after.reserved),
+                gb(after.allocated)
+            );
+        }
         println!(
             "              actor loss {:>9.5}  critic {:>9.5}  |log r| {:>7.5}  clipped {:>6.2}%",
             last.actor_loss,

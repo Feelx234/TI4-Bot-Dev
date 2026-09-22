@@ -26,6 +26,8 @@
 //! `.cargo/config.toml` points `LIBTORCH` at the pinned copy relative to the repository, so the pin
 //! travels with the checkout rather than depending on a shell export.
 
+pub mod cuda_cache;
+
 use thiserror::Error;
 
 pub use tch::{Device, Kind, Tensor};
