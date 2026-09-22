@@ -1,6 +1,6 @@
 # Trade arena: measurement and draft value sheet (2026-09-22)
 
-Status: **draft for operator review.** Nothing here is implemented.
+Status: **values decided by the operator (2026-09-22), section 4.** Nothing here is implemented yet.
 
 Idea (operator, 2026-09-22): diplomacy slows full games and the policy trades badly. Pretrain the
 diplomacy head in an arena where seats conduct one negotiation and are scored by heuristic values,
@@ -39,9 +39,9 @@ games running in parallel, so compare rows, not absolute seconds.
 4. **Train:** every diplomacy decision each seat made in the episode gets that seat's score as its
    return. Nothing else in the game is played.
 
-**Version 1 covers immediate transfers only.** Promises (future payment, do-not-activate,
-do-not-attack, votes, attack, replenish, leader use) and secret objectives are not offered in the
-arena: judging them needs the future. They stay in the full game.
+**Promises are in the arena, priced to start biased against them** (operator): receiving one is
+worth 0, giving one costs 0.1. That covers future payment, do-not-activate, do-not-attack, votes,
+attack, replenish and leader use. Secret objectives are not offered in v1.
 
 ## 3. Scoring
 
@@ -55,17 +55,15 @@ own_i   = sum V(items i receives) - sum C(items i gives)
 score_i = own_i - alpha * own_j
 ```
 
-`alpha` makes the score relative to the table. Two choices:
-
-- **alpha = 1/5 (proposed):** a partner gain lifts the mean of my five opponents by 1/5 of it. This
-  is the principled reading of "my VP minus the table's".
-- **alpha = 1:** head-to-head. Stricter; almost no trade survives it unless it is clearly one-sided.
+**alpha = 1** (operator: one on one; what I gain and give, and what the partner gains and gives,
+all count). So `score_i = own_i - own_j`: a trade scores well for me only if it helps me more than
+it helps my partner.
 
 A trade is good for both only when the seats value the items differently. That is what the
 position-dependent values below are for: commodities are worth little to their owner and a full TG
 to the receiver, a fragment completes one seat's set and not the other's, and so on.
 
-**Conversion:** 1 VP = **6 TG** (proposed; a parameter).
+**Conversion:** 1 VP = **5 TG**, the price of the public objective that spends 5 trade goods (operator).
 
 ### Components
 
@@ -73,12 +71,12 @@ to the receiver, a fragment completes one seat's set and not the other's, and so
 |---|---|---|---|
 | Trade good | 1 | 1 | Fungible. |
 | Commodity | 1 (it becomes a TG on receipt) | 0.25 | The owner cannot spend commodities; the cost is only the chance to trade them elsewhere. |
-| Relic fragment, same type as 2 already held (completes a set) | 3 | - | A relic is valued at 6 TG (1 VP-equivalent), paid out over a set of 3. |
-| Relic fragment, 1 of that type held | 2 | - | |
+| Relic fragment, same type as 2 already held (completes a set) | 2.5 | - | A relic is valued at 5 TG (1 VP-equivalent), paid out over a set of 3. |
+| Relic fragment, 1 of that type held | 1.5 | - | |
 | Relic fragment, none of that type held | 1 | - | Unknown fragments count toward any type. |
 | Relic fragment (giver's cost) | - | the value it has to the giver by the same three rows | |
-| Action card (Hacan in the deal only) | 1.5 | 1.5 | Flat. The card's actual worth is not modelled in v1. |
-| **Support for the Throne** | **6** (1 VP) | **0** own, but the receiver's +6 enters the giver's score through alpha | This is the case the full game got wrong: giving it away is not free. |
+| Action card (Hacan in the deal only) | 1 | 1 | Flat base (operator). The card's actual worth is not modelled in v1. |
+| **Support for the Throne** | **4.5** | **0** own, but the receiver's +4.5 enters the giver's score through alpha | Below a full VP (5) because it can be lost back and has a drawback (operator). Giving it away is not free: under alpha = 1 it scores -4.5 for the giver before anything paid back. |
 | Trade Agreement | owner's commodity value x P(owner replenishes before round 4 ends) | the same commodities at 0.25 each | One-shot: the note returns after it fires. |
 | Ceasefire | 1 if the receiver has units adjacent to the owner's, else 0.25 | 0 | Defensive, and position-bound. |
 | Political Secret | 1 x P(an agenda phase before the game ends) | 0 | In 4-round games this is usually ~0. |
@@ -90,16 +88,15 @@ to the receiver, a fragment completes one seat's set and not the other's, and so
 | Research Agreement (Jol-Nar) | 4 x P(Jol-Nar researches a tech the receiver lacks before the end) | 0 | A free technology. |
 | Political Favor (Xxcha) | 1 x P(an agenda phase) | 0 | |
 | Another player's note you hold, passed on | its V to the new holder | its V to you | The note's owner is unaffected. |
+| Any promise (future payment, do-not-activate, do-not-attack, vote, attack, replenish, leader use) | **0** | **0.1** | Starts the policy biased against promises (operator). |
 
 The P(...) terms come from the snapshot: rounds left, and simple position facts (adjacency, the
 owner's commodity cap, whether agendas are live). No learned model is used for scoring.
 
-## 4. Decisions for the operator
+## 4. Operator decisions (2026-09-22)
 
-1. **alpha:** 1/5 (table-relative, proposed) or 1 (head-to-head)?
-2. **1 VP = 6 TG:** acceptable, or another rate?
-3. **Scope:** immediate transfers only for v1, promises later?
-4. **Full games meanwhile:** keep diplomacy on (slow, trains the Support exploit further),
-   or turn it off for full-game PPO until the arena-trained head exists?
-5. **The full-game reward:** separately from the arena, should the full-game reward charge a seat
-   for VP it hands to others (the same alpha), so PPO cannot undo what the arena teaches?
+1. **alpha = 1**, one on one: both seats' gains and costs count.
+2. **1 VP = 5 TG.** Support for the Throne 4.5 (losable, has a drawback). Action cards 1 TG base.
+3. **Promises are in scope**, valued 0 to receive and 0.1 to give, to start biased against them.
+4. **Full games keep diplomacy on.**
+5. **The full-game reward does not change.** PPO is allowed to undo what the arena teaches.
