@@ -1276,6 +1276,29 @@ fn main() {
             parsed
         },
     );
+    // How many games an update plays: `--seeds-per-update` seeds, each at `--rotations` rotations.
+    // The default is §6.3's 16 x 6. Rotations exist so that, against a frozen opponent, each
+    // faction is the learner once per seed; in self-play every seat trains in every game, so one
+    // rotation per seed buys a fresh map and seating for each game instead (operator, 2026-09-22).
+    let seeds_per_update: u64 = argument("--seeds-per-update").map_or(SEEDS_PER_UPDATE, |value| {
+        value
+            .parse()
+            .ok()
+            .filter(|seeds| *seeds > 0)
+            .unwrap_or_else(|| refuse("--seeds-per-update expects a positive integer"))
+    });
+    let rotations: usize = argument("--rotations").map_or(FACTIONS.len(), |value| {
+        value
+            .parse()
+            .ok()
+            .filter(|rotations| (1..=FACTIONS.len()).contains(rotations))
+            .unwrap_or_else(|| refuse(&format!("--rotations expects 1..={}", FACTIONS.len())))
+    });
+    if rotations != FACTIONS.len() && argument("--opponent").is_some() {
+        refuse(
+            "--rotations below the faction count leaves factions without a learner game against --opponent",
+        );
+    }
     let seed_base: u64 = argument("--seed-base").map_or(SEED_BASE, |value| {
         value
             .parse()
@@ -1299,10 +1322,10 @@ fn main() {
                     .unwrap_or_else(|_| refuse(&format!("{path}: {line:?} is not a u64")))
             })
             .collect();
-        let want = updates * SEEDS_PER_UPDATE as usize;
+        let want = updates * seeds_per_update as usize;
         if seeds.len() != want {
             refuse(&format!(
-                "{path}: {} seeds, expected updates({updates}) * SEEDS_PER_UPDATE({SEEDS_PER_UPDATE}) = {want}",
+                "{path}: {} seeds, expected updates({updates}) * seeds per update({seeds_per_update}) = {want}",
                 seeds.len()
             ));
         }
@@ -1440,7 +1463,7 @@ fn main() {
             "  learner     one rotating seat per game; only its decisions enter PPO, benchmark at temperature {OPPONENT_TEMPERATURE}"
         );
     }
-    println!("  seeds       {seed_base}.. ({SEEDS_PER_UPDATE} per update)");
+    println!("  seeds       {seed_base}.. ({seeds_per_update} per update)");
     println!("  critic mode {critic_mode:?}");
     println!(
         "  trunk       width {} | residual blocks {}",
@@ -1529,10 +1552,7 @@ fn main() {
             .collect::<Vec<_>>()
             .join("  ")
     );
-    println!(
-        "  update      {SEEDS_PER_UPDATE} seeds x {} rotations\n",
-        FACTIONS.len()
-    );
+    println!("  update      {seeds_per_update} seeds x {rotations} rotations\n",);
 
     let players: Vec<PlayerId> = (0..FACTIONS.len())
         .map(|index| PlayerId::new(format!("seat{index}")))
@@ -1615,17 +1635,17 @@ fn main() {
         // of one per core.
         let update_seeds: Vec<u64> = curriculum_seeds.as_ref().map_or_else(
             || {
-                let base = seed_base + SEEDS_PER_UPDATE * update as u64;
-                (base..base + SEEDS_PER_UPDATE).collect()
+                let base = seed_base + seeds_per_update * update as u64;
+                (base..base + seeds_per_update).collect()
             },
             |all| {
-                let start = update * SEEDS_PER_UPDATE as usize;
-                all[start..start + SEEDS_PER_UPDATE as usize].to_vec()
+                let start = update * seeds_per_update as usize;
+                all[start..start + seeds_per_update as usize].to_vec()
             },
         );
         let jobs: Vec<(u64, usize)> = update_seeds
             .into_iter()
-            .flat_map(|seed| (0..FACTIONS.len()).map(move |rotation| (seed, rotation)))
+            .flat_map(|seed| (0..rotations).map(move |rotation| (seed, rotation)))
             .collect();
         let workers = rayon::current_num_threads().max(1).min(jobs.len());
         let locals: Vec<(WorkerInference, Option<ti4_mlp::Actor>)> = match &rollout_backend {
