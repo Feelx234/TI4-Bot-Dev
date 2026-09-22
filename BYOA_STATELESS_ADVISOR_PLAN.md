@@ -60,6 +60,9 @@ This plan specifies the implementation of the **stateless "Bring Your Own Adviso
          │
          ▼
 [BYOA-05: Web Client AI Advisor UI]
+          │
+          ▼
+[BYOA-06: Optional Public Protocol Extraction]
 ```
 
 ---
@@ -176,32 +179,90 @@ Implementation completed and Linux-verified 2026-09-22. Added the standalone loo
 #### Objective
 Implement a lightweight, standalone bot runner that connects to `ti4-server` as a normal player over WebSocket, proving end-to-end symmetry between humans and bots.
 
+`ti4-bot-agent` is a separate workspace crate, not a binary in `ti4-advisor`. It is an ordinary
+WebSocket and HTTP client and must not link `ti4-mlp`, `ti4-policy`, `ti4-tensor`, or libtorch.
+It may initially depend on `ti4-server` only for the versioned public wire DTOs and
+`PROTOCOL_VERSION`; BYOA-06 describes the optional removal of that implementation dependency.
+
 #### Technical Details
 1. **Standalone CLI Binary**:
-   - Runs as an independent process:
-     ```bash
-     cargo run -p ti4-advisor --bin bot_agent -- \
-       --server ws://localhost:8080 \
-       --game game_123 \
-       --seat p2 \
-       --token <seat_token> \
-       --advisor http://localhost:8081
-     ```
+    - Runs as an independent process:
+      ```bash
+      cargo run -p ti4-bot-agent -- \
+        --server ws://localhost:8080 \
+        --game game_123 \
+        --seat p2 \
+        --token <seat_token> \
+        --advisor http://127.0.0.1:8081
+      ```
+    - `--server`, `--game`, `--seat`, `--token`, and `--advisor` are required. The advisor URL
+      is a local deployment choice, not a server-provided capability.
+    - `--temperature <positive-finite-f64>` defaults to `0.25`. The default selection mode is
+      deterministic argmax. Stochastic selection is enabled only with `--sample-seed <u64>` and
+      uses a seeded `ChaCha` RNG; it never uses wall-clock entropy.
+    - Dependencies are limited to protocol DTOs, Tokio/WebSocket transport, HTTP/JSON, and the
+      optional seeded sampler. The agent holds no game state beyond the currently received message.
 2. **Event Loop**:
-   - Connects to `ws://localhost:8080/ws/games/:game_id`.
-   - Sends `ClientMessage::Subscribe { game_id, seat_token }`.
-   - Listens for `ServerMessage::PendingChoice`.
-    - Reads the redacted state and `GalaxyLayout` attached to the pending-choice message.
-    - Posts `(state, galaxy_layout, choice)` to the stateless advisor.
-   - Samples option according to advisor probabilities (or picks argmax).
-   - Sends `ClientMessage::SubmitChoice { nonce, expected_version, option_id }`.
-3. **Zero Rules Engine Coupling**:
-   - The bot runner itself does not need `libtorch` if it delegates evaluation to the advisor service over HTTP.
+    - Connects to `ws://localhost:8080/ws/games/:game_id`.
+    - Sends `ClientMessage::Subscribe { game_id, seat_token }`.
+    - Extracts a pending choice from every independently evaluable actor message:
+      `ServerMessage::InitialSnapshot.pending_choice`, `ServerMessage::StateUpdate.pending_choice`,
+      and `ServerMessage::PendingChoice`. Reconnection therefore never relies on a separate
+      pending-choice broadcast or a client-side state cache.
+    - Before evaluation, verifies the protocol version and game ID, that `choice.player` matches
+      `--seat`, and that the choice has non-empty, unique option IDs.
+    - Posts the exact received `(state, galaxy_layout, player, choice, temperature)` tuple to the
+      stateless advisor. The agent does not reconstruct state, synthesize a choice, or retain a
+      previous snapshot.
+    - Refuses an advisor response unless it has one finite logit and finite non-negative probability
+      for each offered ID, has no duplicate or unknown IDs, and has a positive finite total
+      probability. Argmax breaks equal scores by the choice's original stable option order.
+    - Sends `ClientMessage::SubmitChoice { nonce, expected_version, option_id }` only after the
+      selected ID is proven to be offered by that exact received `Choice`.
+3. **Failure, Reconnect, and Submission Semantics**:
+    - HTTP evaluation and WebSocket reads/writes have bounded timeouts. Advisor refusal, malformed
+      server data, unsupported protocol versions, and exhausted reconnect attempts exit non-zero
+      with a diagnostic; the agent never substitutes a locally guessed action.
+    - On `ActionRejected`, discard the evaluated choice and wait for a newly delivered pending
+      choice. Never retry a rejected nonce/version or submit a result produced for an earlier
+      snapshot.
+    - On a transport disconnect, reconnect with bounded exponential backoff controlled by
+      `--max-reconnects`, then resubscribe using the same seat token. Never resend a cached
+      submission after reconnect; act only from the new initial snapshot or a later message.
+    - Exit successfully on `GameOver`.
+4. **Zero Rules Engine Coupling**:
+    - The bot runner does not link libtorch because it delegates evaluation to the advisor service
+      over HTTP. It uses engine `Choice` only as a wire value and never invokes rules, projection,
+      or legality code locally.
+
+#### Status
+Implemented 2026-09-22. `ti4-bot-agent` is a standalone workspace crate and CLI with no direct
+ML, policy, tensor, or libtorch dependency. It validates advisor output before submitting a legal
+option, defaults to stable-order argmax, supports reproducible seeded sampling, and reconnects only
+to act from a newly received snapshot or pending-choice message. The server protocol re-exports
+`Choice` so the agent treats it as a wire value rather than importing engine APIs directly.
+Verification: `cargo fmt --all --check`, `cargo test -p ti4-bot-agent` (6 passed), and
+`cargo test -p ti4-server` (50 passed). Independent review remains required before package closure.
 
 #### Tests to Add
-- An automated WebSocket match with one scripted seat and two bot-agent seats completes multiple rounds without server errors.
-- The agent submits only option IDs offered by the received engine `Choice`, with the matching nonce and game version.
-- Disconnect and reconnect coverage proves a bot can resume from one independently evaluable pending-choice message.
+- Unit coverage proves stable-order argmax selection, reproducible seeded sampling, and rejection
+  of malformed advisor outputs (unknown IDs, duplicates, non-finite values, incomplete choices,
+  and invalid probability totals).
+- A mock-advisor WebSocket integration test proves each submission uses only an option ID offered
+  by the received engine `Choice`, with that exact nonce and game version.
+- Disconnect and reconnect coverage proves a bot resumes from `InitialSnapshot.pending_choice`
+  without any retained state or cached submission.
+- A bounded automated match with one scripted seat and two bot-agent seats, backed by a stub
+  advisor, advances a fixed number of decisions or rounds without server errors or hung tasks.
+- A negative end-to-end test proves an advisor response containing an unknown option ID results in
+  no submission.
+
+#### Non-Goals
+- Loading a checkpoint, linking libtorch, or offering in-process policy evaluation.
+- Introducing server-only authentication or a bot-specific WebSocket message. Seat tokens and the
+  shared client protocol remain the sole authority model.
+- Claiming a full-game completion test when the scripted scenario cannot deterministically reach
+  its declared round/decision bound.
 
 ---
 
@@ -231,6 +292,39 @@ Add an "AI Advisor" toggle and visualization to the React web client in `web/`, 
 
 ---
 
+### Work Package BYOA-06: Optional Public Protocol Extraction
+
+#### Objective
+Extract the versioned online-client wire DTOs and `GalaxyLayout` from `ti4-server` into a small
+public `ti4-protocol` crate, so that the server, advisor, bot agent, and generated web bindings all
+depend on the same contract rather than clients depending on the server implementation crate.
+
+#### Preconditions
+- BYOA-01 through BYOA-05 are complete and their protocol compatibility tests are green.
+- This is optional cleanup, not a prerequisite for deploying the bot agent. Do not start it merely
+  to rename imports or reorganize modules.
+
+#### Technical Details
+1. Move only wire-contract types: `ClientMessage`, `ServerMessage`, their envelopes/status/error
+   DTOs, protocol version/bounds constants, `GameView` wire types, and `GalaxyLayout`/placement
+   DTOs. Keep session workers, HTTP routes, storage, and projection construction in `ti4-server`.
+2. Preserve serde tags, field names, defaults, bounds, stable ordering, and protocol version exactly.
+   This is a compatibility-preserving schema move, not a protocol redesign.
+3. Update `ti4-server`, `ti4-advisor`, and `ti4-bot-agent` to import the shared crate. The advisor
+   must no longer depend on `ti4-server` solely to deserialize `GalaxyLayout`.
+
+#### Tests to Add
+- Existing server protocol round-trip, size-bound, lifecycle, advisor layout, bot-agent, and web
+  contract tests pass without fixture changes.
+- Cross-crate serialization fixtures prove byte-for-byte JSON equivalence before and after the move.
+- Dependency metadata confirms `ti4-bot-agent` and `ti4-advisor` do not depend on `ti4-server`.
+
+#### Non-Goals
+- Adding messages, fields, protocol versions, authentication modes, or behavior changes.
+- Moving server runtime/session implementation into the protocol crate.
+
+---
+
 ## 4. Verification & Testing Matrix
 
 | Package | Test Type | Acceptance Gate |
@@ -240,6 +334,7 @@ Add an "AI Advisor" toggle and visualization to the React web client in `web/`, 
 | **BYOA-03** | Service Integration | Unit/E2E test verifies `POST /evaluate` on standard positions returns finite probabilities summing to $1.0$ and a finite raw critic value within a bounded hang-detection timeout. |
 | **BYOA-04** | E2E Multiplayer | Automated match test: 1 human player (scripted/mock) + 2 headless bot agents play through multiple game rounds over WebSocket without server errors. |
 | **BYOA-05** | Frontend Vitest | Vitest component tests verify option badges render when advisor data is present, and degrade cleanly when advisor is disabled. |
+| **BYOA-06** | Optional Wire Compatibility | Existing JSON fixtures and cross-crate serialization remain byte-for-byte compatible while clients cease depending on `ti4-server`. |
 
 ---
 

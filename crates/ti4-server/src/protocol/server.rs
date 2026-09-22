@@ -8,7 +8,7 @@ use super::error::ErrorKind;
 use super::status::{PublicTurnStatus, RejectionReason, ViewerRole};
 use super::view::GameView;
 use crate::map::GalaxyLayout;
-use ti4_engine::choice::Choice;
+pub use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::state::GameState;
 use ti4_model::state::Phase;
 

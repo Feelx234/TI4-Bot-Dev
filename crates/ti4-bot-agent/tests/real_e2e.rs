@@ -1,0 +1,296 @@
+//! Opt-in full BYOA integration test requiring the pinned local libtorch runtime.
+
+#![cfg(feature = "real-e2e")]
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures_util::{SinkExt, StreamExt};
+use ti4_bot_agent::{BotConfig, run};
+use ti4_model::id::PlayerId;
+use ti4_server::create_app;
+use ti4_server::protocol::{ClientMessage, ServerMessage, parse_server_message};
+use ti4_server::session::GameRegistry;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message;
+
+const CHECKPOINT: &str = "examples/reviewer/checkpoint-473312";
+const TARGET_DECISIONS: usize = 12;
+const TEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires LIBTORCH, LD_LIBRARY_PATH, and the pinned checkpoint runtime"]
+async fn real_server_advisor_and_two_bots_advance_a_bounded_game_prefix() {
+    ti4_tensor::configure_deterministic(20_260_821).expect("configure tensor backend");
+    let advisor = ti4_advisor::Advisor::load(std::path::Path::new(CHECKPOINT))
+        .expect("load pinned advisor checkpoint");
+    let advisor_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind advisor");
+    let advisor_address = advisor_listener.local_addr().expect("advisor address");
+    let advisor_task = tokio::spawn(async move {
+        axum::serve(advisor_listener, advisor.router())
+            .await
+            .expect("serve advisor");
+    });
+
+    let registry = Arc::new(GameRegistry::new());
+    let server_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind server");
+    let server_address = server_listener.local_addr().expect("server address");
+    let server_registry = registry.clone();
+    let server_task = tokio::spawn(async move {
+        axum::serve(server_listener, create_app(server_registry))
+            .await
+            .expect("serve server");
+    });
+
+    let result = tokio::time::timeout(
+        TEST_TIMEOUT,
+        exercise_game_prefix(
+            format!("http://{server_address}"),
+            format!("ws://{server_address}"),
+            format!("http://{advisor_address}"),
+            registry,
+        ),
+    )
+    .await;
+    advisor_task.abort();
+    server_task.abort();
+    result
+        .expect("bounded E2E test deadline")
+        .expect("real BYOA game prefix");
+}
+
+async fn exercise_game_prefix(
+    http_base: String,
+    websocket_base: String,
+    advisor_base: String,
+    registry: Arc<GameRegistry>,
+) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let created = client
+        .post(format!("{http_base}/api/games"))
+        .json(&serde_json::json!({ "players": ["p1", "p2", "p3"], "seed": 4_242 }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    let game_id = required_string(&created, "game_id")?;
+    let p1_token = required_string(&created, "creator_token")?;
+    let p2_token = claim_seat(&client, &http_base, &game_id, "p2").await?;
+    let p3_token = claim_seat(&client, &http_base, &game_id, "p3").await?;
+    for token in [&p1_token, &p2_token, &p3_token] {
+        client
+            .post(format!("{http_base}/api/games/{game_id}/lobby/ready"))
+            .header("x-ti4-seat-token", token)
+            .json(&serde_json::json!({ "ready": true }))
+            .send()
+            .await
+            .map_err(|error| error.to_string())?
+            .error_for_status()
+            .map_err(|error| error.to_string())?;
+    }
+    client
+        .post(format!("{http_base}/api/games/{game_id}/lobby/start"))
+        .header("x-ti4-seat-token", &p1_token)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?;
+
+    let mut p2 = BotConfig::new(
+        websocket_base.clone(),
+        game_id.clone(),
+        PlayerId::new("p2"),
+        p2_token,
+        advisor_base.clone(),
+    );
+    p2.timeout = Duration::from_secs(5);
+    p2.max_reconnects = 1;
+    let mut p3 = BotConfig::new(
+        websocket_base.clone(),
+        game_id.clone(),
+        PlayerId::new("p3"),
+        p3_token,
+        advisor_base,
+    );
+    p3.timeout = Duration::from_secs(5);
+    p3.max_reconnects = 1;
+    let p2_task = tokio::spawn(run(p2));
+    let p3_task = tokio::spawn(run(p3));
+    let scripted_task = tokio::spawn(scripted_first_option(
+        websocket_base,
+        game_id.clone(),
+        p1_token,
+    ));
+
+    let session = registry
+        .get_game(&game_id)
+        .ok_or_else(|| "server did not start the requested game".to_owned())?;
+    let outcome = 'decisions: loop {
+        let decisions = session.decision_log();
+        if decisions.len() >= TARGET_DECISIONS {
+            if session.error().is_some() {
+                break 'decisions Err(format!("server session failed: {:?}", session.error()));
+            }
+            for seat in ["p2", "p3"] {
+                if !decisions
+                    .iter()
+                    .any(|decision| decision.player.as_str() == seat)
+                {
+                    break 'decisions Err(format!("bot seat {seat} did not make a recorded decision"));
+                }
+            }
+            break 'decisions Ok(());
+        }
+        if session.error().is_some() {
+            break 'decisions Err(format!("server session failed: {:?}", session.error()));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    p2_task.abort();
+    p3_task.abort();
+    scripted_task.abort();
+    outcome
+}
+
+async fn claim_seat(
+    client: &reqwest::Client,
+    http_base: &str,
+    game_id: &str,
+    seat: &str,
+) -> Result<String, String> {
+    let response = client
+        .post(format!("{http_base}/api/games/{game_id}/lobby/claim"))
+        .json(&serde_json::json!({ "seat": seat }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| error.to_string())?;
+    required_string(&response, "credential")
+}
+
+async fn scripted_first_option(
+    websocket_base: String,
+    game_id: String,
+    token: String,
+) -> Result<(), String> {
+    let (mut socket, _) = connect_async(format!("{websocket_base}/ws/games/{game_id}"))
+        .await
+        .map_err(|error| error.to_string())?;
+    send_client(
+        &mut socket,
+        ClientMessage::Subscribe {
+            protocol_version: ti4_server::protocol::PROTOCOL_VERSION,
+            game_id: game_id.clone(),
+            seat_token: Some(token),
+        },
+    )
+    .await?;
+    while let Some(message) = socket.next().await {
+        let message = message.map_err(|error| error.to_string())?;
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let message = parse_server_message(&text).map_err(|error| error.to_string())?;
+        match message {
+            ServerMessage::InitialSnapshot(snapshot) => {
+                if let Some(pending) = snapshot.pending_choice {
+                    submit_first(
+                        &mut socket,
+                        &game_id,
+                        pending.nonce,
+                        snapshot.game_version,
+                        pending.choice.options,
+                    )
+                    .await?;
+                }
+            }
+            ServerMessage::StateUpdate(update) => {
+                if let Some(pending) = update.pending_choice {
+                    submit_first(
+                        &mut socket,
+                        &game_id,
+                        pending.nonce,
+                        update.game_version,
+                        pending.choice.options,
+                    )
+                    .await?;
+                }
+            }
+            ServerMessage::PendingChoice(pending) => {
+                submit_first(
+                    &mut socket,
+                    &game_id,
+                    pending.nonce,
+                    pending.game_version,
+                    pending.choice.options,
+                )
+                .await?;
+            }
+            ServerMessage::GameOver(_) => return Ok(()),
+            ServerMessage::Error(error) => return Err(error.message),
+            _ => {}
+        }
+    }
+    Err("scripted seat disconnected".to_owned())
+}
+
+fn required_string(value: &serde_json::Value, key: &str) -> Result<String, String> {
+    value[key]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("response omitted {key}"))
+}
+
+async fn submit_first<S>(
+    socket: &mut S,
+    game_id: &str,
+    nonce: String,
+    game_version: u64,
+    options: Vec<ti4_server::protocol::server::ChoiceOption>,
+) -> Result<(), String>
+where
+    S: SinkExt<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    let option_id = options
+        .first()
+        .ok_or_else(|| "scripted seat received no options".to_owned())?
+        .id
+        .clone();
+    send_client(
+        socket,
+        ClientMessage::SubmitChoice {
+            protocol_version: ti4_server::protocol::PROTOCOL_VERSION,
+            game_id: game_id.to_owned(),
+            nonce,
+            expected_version: game_version,
+            option_id,
+        },
+    )
+    .await
+}
+
+async fn send_client<S>(socket: &mut S, message: ClientMessage) -> Result<(), String>
+where
+    S: SinkExt<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    let text = serde_json::to_string(&message).map_err(|error| error.to_string())?;
+    socket
+        .send(Message::Text(text.into()))
+        .await
+        .map_err(|error| error.to_string())
+}
