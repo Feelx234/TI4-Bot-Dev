@@ -142,6 +142,8 @@ const VALUE_FLAGS: &[&str] = &[
     "--rounds",
     "--secret-weight",
     "--seed-base",
+    "--seeds-per-update",
+    "--rotations",
     "--stage",
     "--strategy-diversity-weight",
     "--styx-bonus",
