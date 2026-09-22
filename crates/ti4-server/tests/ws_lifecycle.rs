@@ -317,23 +317,6 @@ async fn websocket_full_lifecycle_and_rejections() {
         ViewerRole::Player(ti4_model::id::PlayerId::new("p1"))
     );
 
-    // A connection is bound to its first authorized viewer and cannot collect another seat feed.
-    let second_subscribe = ClientMessage::Subscribe {
-        protocol_version: PROTOCOL_VERSION,
-        game_id: game_id.clone(),
-        seat_token: Some(p2_token),
-    };
-    ws_stream
-        .send(Message::Text(
-            serde_json::to_string(&second_subscribe).unwrap().into(),
-        ))
-        .await
-        .expect("send second subscribe");
-    assert_eq!(
-        wait_for_protocol_error(&mut ws_stream).await,
-        ti4_server::protocol::error::ErrorKind::MalformedMessage
-    );
-
     // Receive pending choice if one is pending, or read it from initial snapshot
     let (nonce, expected_version, option_id) = if let Some(choice) = initial_snapshot.pending_choice
     {
@@ -359,6 +342,23 @@ async fn websocket_full_lifecycle_and_rejections() {
             other => panic!("Expected PendingChoice, got {other:?}"),
         }
     };
+
+    // A connection is bound to its first authorized viewer and cannot collect another seat feed.
+    let second_subscribe = ClientMessage::Subscribe {
+        protocol_version: PROTOCOL_VERSION,
+        game_id: game_id.clone(),
+        seat_token: Some(p2_token),
+    };
+    ws_stream
+        .send(Message::Text(
+            serde_json::to_string(&second_subscribe).unwrap().into(),
+        ))
+        .await
+        .expect("send second subscribe");
+    assert_eq!(
+        wait_for_protocol_error(&mut ws_stream).await,
+        ti4_server::protocol::error::ErrorKind::MalformedMessage
+    );
 
     // 3. The protocol game ID is bound to the WebSocket path.
     let wrong_game_msg = ClientMessage::SubmitChoice {

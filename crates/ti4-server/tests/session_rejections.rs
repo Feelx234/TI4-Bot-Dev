@@ -125,9 +125,10 @@ fn wrong_seat_stale_nonce_and_unknown_option_preserve_state_and_log() {
             dup_res,
             Err(RejectionReason::StaleNonce
                 | RejectionReason::StaleVersion { .. }
-                | RejectionReason::NoPendingChoice)
+                | RejectionReason::NoPendingChoice
+                | RejectionReason::UnauthorizedSeat { .. })
         ),
-        "Duplicate submission must be rejected"
+        "Duplicate submission must be rejected: got {dup_res:?}"
     );
 
     session.stop();

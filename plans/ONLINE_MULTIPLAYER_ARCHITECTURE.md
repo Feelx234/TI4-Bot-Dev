@@ -103,6 +103,22 @@ The protocol needs, at minimum:
   no actor-only outstanding constraints, and no legal options belonging to the actor.
 - Snapshot-size and message-size bounds tests.
 
+**Status: COMPLETED (PROTOCOL & REDACTED PROJECTIONS)**
+- **Wire Protocol DTOs (`crates/ti4-server/src/protocol/`)**:
+  - Implemented versioned JSON protocol (`client.rs`, `server.rs`, `choice.rs`, `status.rs`, `view.rs`, `error.rs`).
+  - Strict serde configuration (`deny_unknown_fields`) enforces schema conformance.
+- **Redacted State & Event Projection (`crates/ti4-server/src/projection.rs`)**:
+  - `project_for_viewer` generates role-specific snapshots (`Player` vs `Spectator`).
+  - Strictly redacts opponent/spectator private cards (secret objectives, action cards, promissory notes).
+  - Outstanding constraints and pending choice options are isolated exclusively to the deciding actor.
+- **Golden Protocol Fixtures (`crates/ti4-server/src/fixtures.rs`)**:
+  - Fixtures for actor, opponent, spectator, stale submission, and terminal game.
+- **Verification**:
+  - Protocol roundtrip tests (`tests/protocol_roundtrip.rs`): 11/11 passing.
+  - Projection redaction tests (`tests/projection_redaction.rs`): 5/5 passing.
+  - Fixture verification tests (`tests/fixtures_verification.rs`): 6/6 passing.
+  - Size bounds tests (`tests/size_bounds.rs`): 4/4 passing.
+
 ### 2. Build an in-memory authoritative session vertical slice
 
 Implement a `RemoteHumanDecider` in `ti4-server`. It receives the engine-authenticated `Choice` and
@@ -137,6 +153,18 @@ state machine.
 - A disconnect test proves an unanswered game remains pending rather than choosing a default option.
 - Deterministic replay test: identical seed and accepted option-id sequence produce identical
   decision and event hashes.
+
+**Status: COMPLETED (AUTHORITATIVE SESSION VERTICAL SLICE)**
+- **Session Architecture (`crates/ti4-server/src/session/`)**:
+  - `RemoteHumanDecider` coordinates blocking choices with thread-safe pending choice registry and response channels.
+  - `GameSession` runs an authoritative `ti4_engine::Game` on a dedicated session worker thread.
+  - `GameRegistry` manages active sessions and thread-safe routing.
+  - Supports hybrid human and bot seats via `SeatController::Human` and `SeatController::BotFirstOption`.
+- **Verification**:
+  - Scripted 6-round multi-stage game with secondary strategy follows (`tests/session_e2e_game.rs`): 1/1 passing.
+  - Rejections preserve state and decision log length (`tests/session_rejections.rs`): 1/1 passing.
+  - Client disconnect preserves pending decision without defaulting (`tests/session_disconnect.rs`): 1/1 passing.
+  - Deterministic replay produces bit-identical hashes and event logs (`tests/session_deterministic_replay.rs`): 1/1 passing.
 
 ### 3. Add HTTP, WebSocket, and a minimal browser client
 
@@ -173,16 +201,17 @@ accessible and inspectable.
 - Manual responsive visual checks at desktop and narrow mobile widths.
 
 **Status: COMPLETED**
-- **Step 3A (Server Transport)**:
+- **Step 3A (Server Transport & Lobby Lifecycle)**:
   - Added HTTP routes (`GET /health`, `GET /api/games`, `POST /api/games`, `GET /api/games/:game_id/snapshot`).
-  - Added WebSocket protocol handler (`GET /ws/games/:game_id`) with 128-msg outbound queue, backpressure handling, and clean unsubscription.
-  - Integration tests in `crates/ti4-server/tests/ws_lifecycle.rs` passing (3/3).
-  - Standalone binary `crates/ti4-server/src/bin/server.rs` running with default demo game pre-seeded.
+  - Added pre-game lobby lifecycle endpoints (`POST /api/games/:game_id/lobby/ready`, `POST /api/games/:game_id/lobby/claim`, `POST /api/games/:game_id/lobby/start`) with unguessable capability tokens and seat lease renewal.
+  - Added WebSocket protocol handler (`GET /ws/games/:game_id`) with 128-msg outbound queue, backpressure handling, viewer role isolation, and clean unsubscription.
+  - Integration tests passing in `crates/ti4-server/tests/ws_lifecycle.rs` (4/4) and `crates/ti4-server/tests/lobby_lifecycle.rs` (5/5).
+  - Standalone binary `crates/ti4-server/src/bin/server.rs` running with default demo game pre-seeded and crash recovery.
 - **Step 3B (Browser Client)**:
   - React 19 + Vite + TypeScript application in `web/`.
   - SVG hex map board (`Board.tsx`) with planet status, unit counts, highlights, and tooltips.
   - DOM components for player sheets, turn status bar, accessible modal dialogs (`PendingChoiceModal.tsx`), event log drawer, and game lobby.
-  - Conformance and invariant tests in Vitest (`src/protocol/fixtures.test.ts`, `src/components/*.test.tsx`, `src/test/invariants.test.ts`) passing (17/17).
+  - Conformance and invariant tests in Vitest passing.
   - Multi-seat Playwright test (`e2e/multiplayer_invariants.spec.ts`) passing with 2 human seats and 1 spectator: verifying zero console/page errors, live strategy card draft sync, strict DOM privacy redaction, DOM actionability, fuzzing loops, and disconnect/reconnection.
 - **No changes made to `crates/ti4-engine` or any other crate**.
 
@@ -313,6 +342,23 @@ choice and seat-bound observation it is entitled to see; it does not gain a priv
 - Redaction regression tests for every new screen and protocol message.
 - AI timeout/failure tests confirm a crash or incomplete inference never becomes an automatic legal
   choice or a false successful game completion.
+
+**Status: COMPLETED (GAMEPLAY UI WORKFLOWS & FRONTEND EXPERIENCE)**
+- **Completed Work Packages (`plans/GAMEPLAY_UI_COMPLETION_PLAN.md` UI-01 through UI-08)**:
+  - **UI-01 (Choice Renderer Model & Classifier)**: `deriveChoiceRendererModel` (`web/src/presentation/choiceModel.ts`) with typed payload decoders (payment, movement, trade) eliminating raw string parsing.
+  - **UI-02 (Bounded Multi-Selection & Search)**: Accessible bounded checkbox cards (`min_selection` to `max_selection`), count badge, and option search filter (`web/src/components/PendingChoiceModal.tsx`).
+  - **UI-03 (Economy & Payment Drawer)**: Modeless payment drawer (`web/src/components/PaymentDrawer.tsx`) with planet card toggles, trade good stepper, live debt/credit tally, and pipelined execution.
+  - **UI-04a (System Activation & Vector Overlays)**: Board-first spatial interaction (`web/src/components/Board.tsx`) with active system reticles, legal candidate pulsing, and animated green movement vectors.
+  - **UI-04b (Tactical Fleet Rally & Semantic Pipeline Runner)**: Docked fleet rally tray (`web/src/components/TacticalMovementOverlay.tsx`) and `usePipelineRunner.ts` executing atomic intent predicates without engine batching.
+  - **UI-05 (Combat Resolution Arena)**: Multi-stage space/ground combat arena (`web/src/components/CombatResolutionModal.tsx`) with authoritative dice roll feed, sequential sustain damage vs reaction pause vs casualty assignment, and grouped unit steppers.
+  - **UI-06a (Bilateral Trade Desk)**: Structured deal catalog modal (`web/src/components/TradeDeskModal.tsx`, `tradeDecoder.ts`) with tabs for commodity swaps (`cc{n}`), goods exchanges, promissory notes, and mutual support.
+  - **UI-06b (Agenda Council Ballot Desk)**: Council desk (`web/src/components/AgendaBallotModal.tsx`) with live vote tallies, multi-planet influence basket, and Speaker tiebreaker gavel.
+  - **UI-07 (Reaction Status Bar & Production Builder)**: Floating non-blocking pill (`web/src/components/ReactionStatusBar.tsx`) for fast passing (`Spacebar`), and production cart drawer (`web/src/components/ProductionBuilderDrawer.tsx`) tracking space dock capacity.
+  - **UI-08 (GameShell Integration & Layouts)**: Unified top-level dispatcher (`web/src/components/WorkflowShell.tsx`, `GameShell.tsx`) with accessible design primitives (`web/src/primitives/`) and responsive overlays.
+- **Verification**:
+  - Web unit, component, and invariant test suite (`npm test`): **25 test files / 153 tests passing (100%)**.
+  - Multi-seat browser integration test with Playwright (`e2e/multiplayer_invariants.spec.ts`): passing across human and spectator seats.
+  - Rust server bot deciders (`SeatController::BotFirstOption`) operational in `ti4-server`. Full neural policy integration (`ti4-policy` / `ti4-mlp`) remains deferred to future milestones.
 
 ### 7. Optional: make the engine decision boundary non-blocking
 
