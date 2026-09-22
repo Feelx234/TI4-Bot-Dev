@@ -863,3 +863,22 @@ fn exploration_draws_are_listed_for_the_round() {
         lines[0]
     );
 }
+
+/// The replayer states each seat's remaining negotiations (2 per action, 6 per round).
+#[test]
+fn a_seat_shows_its_negotiation_budget() {
+    let session = started_session();
+    let mut frame = session.frames.last().expect("a frame").clone();
+    let seat = frame.state.players[0].id.clone();
+    assert_eq!(
+        view::negotiation_budget(&frame, &seat),
+        "negotiations left: 2 of 2 this action, 6 of 6 this round"
+    );
+    frame.state.note_negotiation(&seat);
+    frame.state.negotiations_this_round.insert(seat.clone(), 6);
+    assert_eq!(
+        view::negotiation_budget(&frame, &seat),
+        "negotiations left: 0 of 2 this action, 0 of 6 this round",
+        "the round's limit caps the action's"
+    );
+}

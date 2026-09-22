@@ -121,6 +121,11 @@ fn play(
             Ok(bots)
         },
     )?;
+    // --diplomacy: structured diplomacy on, as the trainer enables it.
+    if std::env::args().any(|a| a == "--diplomacy") {
+        game.state.diplomacy =
+            ti4_model::DiplomacyState::for_players(&game.state.seating_order, true);
+    }
     let initial = game.state.player(me).unwrap().victory_points;
     let target = game.state.round + 4;
     let mut steps = 0;

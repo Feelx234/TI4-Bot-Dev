@@ -586,6 +586,10 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
                         }
                     }
                     item_section(ui, "●", "Planets", controlled_planets, color);
+                    ui.label(
+                        egui::RichText::new(crate::view::negotiation_budget(frame, &player.id))
+                            .color(crate::view::PANEL_TEXT),
+                    );
                     let totals = crate::view::planet_totals(session, frame, &player.id, content);
                     for line in crate::view::planet_totals_lines(&totals) {
                         ui.label(egui::RichText::new(line).color(crate::view::PANEL_TEXT));

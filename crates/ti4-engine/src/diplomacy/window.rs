@@ -31,6 +31,8 @@ pub const SIGNAL_KIND: &str = "diplomacy_signal";
 const SIGNAL_PREFIX: &str = "diplomacy|signal|";
 /// Counter-offers allowed in one negotiation (operator decision, 2026-09-22).
 pub const MAX_COUNTERS: u8 = ti4_model::diplomacy::MAX_COUNTERS;
+/// Steps of the build budget one "edit" spends: at most two edits per revision.
+pub const EDIT_COST: u8 = crate::diplomacy::builder::MAX_BUILD_STEPS / 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -353,6 +355,9 @@ impl Window for DiplomacyWindow {
                     EDIT_ID => {
                         draft.reviewing = false;
                         draft.asking = false;
+                        // Going back to edit spends the budget too: a near-greedy seat otherwise
+                        // cycles done -> done -> review -> edit without end (seen in the replayer).
+                        draft.steps = draft.steps.saturating_add(EDIT_COST);
                     }
                     CANCEL_ID => {
                         self.draft = None;
@@ -908,6 +913,28 @@ mod tests {
         );
         answer(&mut window, &mut state, DONE_ID);
         assert!(!ids(&window, &state).contains(&EDIT_ID.to_owned()));
+    }
+
+    /// "Edit" from review is a step: done, done, edit cannot go round forever.
+    #[test]
+    fn review_and_edit_cannot_cycle_forever() {
+        let mut state = table(3);
+        let mut window =
+            DiplomacyWindow::open(&mut state, pid("a"), pid("b"), scope(false), vec![]).unwrap();
+        answer(&mut window, &mut state, "diplomacy|later|tg");
+        answer(&mut window, &mut state, "diplomacy|amount|1");
+        let mut edits = 0;
+        loop {
+            answer(&mut window, &mut state, DONE_ID);
+            answer(&mut window, &mut state, DONE_ID);
+            if !ids(&window, &state).contains(&EDIT_ID.to_owned()) {
+                break;
+            }
+            answer(&mut window, &mut state, EDIT_ID);
+            edits += 1;
+            assert!(edits < 20, "edit never ran out");
+        }
+        assert_eq!(edits, 2, "at most two edits per revision");
     }
 
     #[test]

@@ -225,6 +225,23 @@ pub fn exploration_lines(
         .collect()
 }
 
+/// A seat's negotiation budget: `negotiations left: 1 of 2 this action, 4 of 6 this round`.
+#[must_use]
+pub fn negotiation_budget(frame: &ReviewFrame, player: &PlayerId) -> String {
+    use ti4_model::state::{MAX_NEGOTIATIONS_PER_ACTION, MAX_NEGOTIATIONS_PER_ROUND};
+    let used =
+        |tally: &std::collections::BTreeMap<PlayerId, u8>| tally.get(player).copied().unwrap_or(0);
+    let action =
+        MAX_NEGOTIATIONS_PER_ACTION.saturating_sub(used(&frame.state.negotiations_this_action));
+    let round =
+        MAX_NEGOTIATIONS_PER_ROUND.saturating_sub(used(&frame.state.negotiations_this_round));
+    format!(
+        "negotiations left: {} of {MAX_NEGOTIATIONS_PER_ACTION} this action, {} of {MAX_NEGOTIATIONS_PER_ROUND} this round",
+        action.min(round),
+        round
+    )
+}
+
 /// What a seat's planets add up to: ready and total resources and influence, and how many of them
 /// carry each trait and tech specialty.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
