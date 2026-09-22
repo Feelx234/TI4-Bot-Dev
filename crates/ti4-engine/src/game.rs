@@ -113,6 +113,9 @@ pub enum RunError {
 }
 
 /// The action id that opens a tactical action.
+/// OP-08: carry on with a tactical action after a pause to negotiate.
+pub const CONTINUE_ACTION_ID: &str = "continue_action";
+pub const CONTINUE_ACTION_KIND: &str = "continue_action";
 /// OP-08: the explicit end of an action-phase turn.
 pub const END_TURN_ID: &str = "end_turn";
 pub const END_TURN_KIND: &str = "end_turn";
@@ -125,6 +128,11 @@ pub const TACTICAL_ACTION_ID: &str = "tactical";
 /// rolled, not chosen — and both must land before combat.
 enum Aftermath {
     Fighting(Box<crate::combat::CombatWindow>),
+    /// OP-08: the active player may negotiate before the next step (invasion when `invade`,
+    /// else production). Entered only when a contact is possible.
+    Negotiating {
+        invade: bool,
+    },
     Invading(Box<crate::invasion::InvasionWindow>),
     Producing(Box<crate::production::ProductionWindow>),
     Done,
@@ -306,6 +314,46 @@ impl AftermathWindow {
     /// # Errors
     /// [`IllegalChoice`] if a decider answers a discount or reaction prompt with something not
     /// offered.
+    /// Open the step after combat (or after a negotiation pause): invasion when the active
+    /// player holds the space, else production.
+    fn next_step(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        invade: bool,
+    ) -> Result<Aftermath, IllegalChoice> {
+        let holds = invade;
+        Ok(if holds {
+            // Two cards read "at the start of an invasion", so the window opens
+            // before the invasion does rather than after it has resolved.
+            let mut payload = BTreeMap::new();
+            payload.insert(
+                "player".to_owned(),
+                serde_json::Value::String(self.player.to_string()),
+            );
+            payload.insert(
+                "system".to_owned(),
+                serde_json::Value::String(self.system.to_string()),
+            );
+            let _ = ctx.emit(state, "INVASION_BEGAN", payload);
+            Aftermath::Invading(Box::new(crate::invasion::InvasionWindow::new_with_notes(
+                state,
+                ctx.content,
+                ctx.sources,
+                ctx.dice,
+                ctx.rng,
+                &self.player,
+                &self.system,
+                self.notes_at_tactical_start.clone(),
+            )))
+        } else {
+            // No invasion: straight to production, and the production window opens
+            // before the step makes its first choice (see `enter_production`).
+            let window = self.enter_production(state, ctx)?;
+            Aftermath::Producing(Box::new(window))
+        })
+    }
+
     fn enter_production(
         &self,
         state: &mut GameState,
@@ -516,37 +564,14 @@ impl AftermathWindow {
                         )
                         .map_err(crate::combat::CombatError::from)?;
                     }
-                    self.stage = if holds {
-                        // Two cards read "at the start of an invasion", so the window opens
-                        // before the invasion does rather than after it has resolved.
-                        let mut payload = BTreeMap::new();
-                        payload.insert(
-                            "player".to_owned(),
-                            serde_json::Value::String(self.player.to_string()),
-                        );
-                        payload.insert(
-                            "system".to_owned(),
-                            serde_json::Value::String(self.system.to_string()),
-                        );
-                        let _ = ctx.emit(state, "INVASION_BEGAN", payload);
-                        Aftermath::Invading(Box::new(
-                            crate::invasion::InvasionWindow::new_with_notes(
-                                state,
-                                ctx.content,
-                                ctx.sources,
-                                ctx.dice,
-                                ctx.rng,
-                                &self.player,
-                                &self.system,
-                                self.notes_at_tactical_start.clone(),
-                            ),
-                        ))
-                    } else {
-                        // No invasion: straight to production, and the production window opens
-                        // before the step makes its first choice (see `enter_production`).
-                        let window = self.enter_production(state, ctx)?;
-                        Aftermath::Producing(Box::new(window))
-                    };
+                    self.stage =
+                        if crate::diplomacy::candidates::available_contacts(state, &self.player)
+                            .is_empty()
+                        {
+                            self.next_step(state, ctx, holds)?
+                        } else {
+                            Aftermath::Negotiating { invade: holds }
+                        };
                 }
                 Aftermath::Invading(window) => {
                     if let Some((occurrence, combat)) = window.take_scoring_occurrence() {
@@ -582,11 +607,17 @@ impl AftermathWindow {
                         return Ok(());
                     }
                     self.log.push("INVASION_RESOLVED".to_owned());
-                    // The production window opens before the step makes its first choice, so a
-                    // reaction (War Machine) can change this step rather than one that has
-                    // already spent its budget.
-                    let window = self.enter_production(state, ctx)?;
-                    self.stage = Aftermath::Producing(Box::new(window));
+                    if crate::diplomacy::candidates::available_contacts(state, &self.player)
+                        .is_empty()
+                    {
+                        // The production window opens before the step makes its first choice, so
+                        // a reaction (War Machine) can change this step rather than one that has
+                        // already spent its budget.
+                        let window = self.enter_production(state, ctx)?;
+                        self.stage = Aftermath::Producing(Box::new(window));
+                    } else {
+                        self.stage = Aftermath::Negotiating { invade: false };
+                    }
                 }
                 Aftermath::Producing(window) => {
                     if window
@@ -602,7 +633,7 @@ impl AftermathWindow {
                     self.stage = Aftermath::Done;
                     return Ok(());
                 }
-                Aftermath::Done => return Ok(()),
+                Aftermath::Negotiating { .. } | Aftermath::Done => return Ok(()),
             }
         }
     }
@@ -617,6 +648,35 @@ impl Window for AftermathWindow {
     ) -> Option<Choice> {
         match &self.stage {
             Aftermath::Fighting(window) => window.pending_choice(state, content, sources),
+            Aftermath::Negotiating { invade } => {
+                let mut options = vec![ChoiceOption::labelled(
+                    CONTINUE_ACTION_ID,
+                    CONTINUE_ACTION_KIND,
+                    if *invade {
+                        "continue to the invasion"
+                    } else {
+                        "continue to production"
+                    },
+                )];
+                options.extend(crate::diplomacy::candidates::available_contacts(
+                    state,
+                    &self.player,
+                ));
+                Some(
+                    Choice::new(
+                        self.player.clone(),
+                        "negotiate, or continue the action",
+                        options,
+                    )
+                    .contextualized(DecisionContext::new(
+                        self.player.clone(),
+                        DecisionSource::Rule("tactical action".to_owned()),
+                        "mid_action_pause",
+                        state.phase,
+                        state.round,
+                    )),
+                )
+            }
             Aftermath::Invading(window) => window.pending_choice(state, content, sources),
             Aftermath::Producing(window) => window.pending_choice(state, content, sources),
             Aftermath::Done => None,
@@ -631,6 +691,11 @@ impl Window for AftermathWindow {
     ) -> Result<(), IllegalChoice> {
         match &mut self.stage {
             Aftermath::Fighting(window) => window.resolve(state, ctx, answer)?,
+            Aftermath::Negotiating { invade } => {
+                // Contacts are opened by the game driver; only "continue" reaches here.
+                let invade = *invade;
+                self.stage = self.next_step(state, ctx, invade)?;
+            }
             Aftermath::Invading(window) => window.resolve(state, ctx, answer)?,
             Aftermath::Producing(window) => window.resolve(state, ctx, answer)?,
             Aftermath::Done => {}
@@ -1380,6 +1445,7 @@ impl<'a> Game<'a> {
                     // closed again when it finishes.
                     if !self.is_free_option(&answer) {
                         self.turn_closing = None;
+                        self.state.negotiations_this_action.clear();
                     }
                 }
                 if answer.id == "pass" {
@@ -1604,6 +1670,7 @@ impl<'a> Game<'a> {
                 }
                 if let Some(partner) = crate::transactions::opens_with(&self.state, &answer) {
                     self.settle_extreme_duress(&active, false)?;
+                    self.state.note_negotiation(&active);
                     self.trade = Some(crate::transactions::TradeWindow::open(
                         &mut self.state,
                         &active,
@@ -1861,6 +1928,15 @@ impl<'a> Game<'a> {
                     ),
                     None => choice,
                 };
+                // OP-08: the active player may negotiate before or between moves. Only offered
+                // when a contact is possible, so a table without diplomacy sees the same choice.
+                let mut choice = choice;
+                choice
+                    .options
+                    .extend(crate::diplomacy::candidates::available_contacts(
+                        &self.state,
+                        &window.player,
+                    ));
                 Some(choice)
             }
             TacticalStage::Loading { window, .. } => window.pending_choice(),
@@ -2099,6 +2175,10 @@ impl<'a> Game<'a> {
         crate::faction_abilities::strategy_resolved(&mut context, player, &name);
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one arm per tactical stage, read as a table"
+    )]
     fn apply_tactical(
         &mut self,
         mut window: TacticalWindow,
@@ -2251,6 +2331,18 @@ impl<'a> Game<'a> {
                 );
                 window.stage = TacticalStage::Moving;
                 self.tactical = Some(window);
+                Ok(self.result(true, None))
+            }
+            TacticalStage::Moving
+                if crate::diplomacy::candidates::contact_seat_index(&answer.id).is_some() =>
+            {
+                // A contact opened mid-movement: the tactical action waits (the diplomacy window
+                // is asked first) and resumes at the same movement choice.
+                let partner = crate::diplomacy::candidates::contact_target(&self.state, &answer)
+                    .ok_or_else(|| GameError::UnsupportedAction(answer.id.clone()))?;
+                let player = window.player.clone();
+                self.tactical = Some(window);
+                self.open_contact(&player, partner)?;
                 Ok(self.result(true, None))
             }
             TacticalStage::Moving => match read_move(choice, answer)? {
@@ -2627,6 +2719,22 @@ impl<'a> Game<'a> {
             Ok(answer) => answer,
             Err(error) => return self.result(false, Some(error.into())),
         };
+        if crate::diplomacy::candidates::contact_seat_index(&answer.id).is_some() {
+            // OP-08: a contact in the pause between steps. The aftermath waits (the diplomacy
+            // window is asked first) and asks again once the contact is over.
+            let Some(window) = self.aftermath.as_ref() else {
+                unreachable!("an aftermath is open");
+            };
+            let player = window.player.clone();
+            let Some(partner) = crate::diplomacy::candidates::contact_target(&self.state, &answer)
+            else {
+                return self.result(false, Some(GameError::UnsupportedAction(answer.id)));
+            };
+            if let Err(error) = self.open_contact(&player, partner) {
+                return self.result(false, Some(error));
+            }
+            return self.result(true, None);
+        }
         let Some(mut window) = self.aftermath.take() else {
             unreachable!("an aftermath is open");
         };
@@ -2757,6 +2865,7 @@ impl<'a> Game<'a> {
                 "diplomatic contact with {partner} needs a map"
             )));
         };
+        self.state.note_negotiation(actor);
         let agenda_phase = self.state.phase == Phase::Agenda;
         let trading = (agenda_phase
             || crate::transactions::partners(&self.state, self.content, &galaxy, actor)
@@ -3407,6 +3516,8 @@ impl<'a> Game<'a> {
                         if !seats.is_empty() {
                             seats.rotate_left(1);
                         }
+                        // Each agenda's talks count as one action for the negotiation limit.
+                        self.state.negotiations_this_action.clear();
                         self.agenda_talks = Some(AgendaTalks {
                             alias,
                             choices,
@@ -4327,6 +4438,8 @@ impl<'a> Game<'a> {
         }
         let ended = self.state.active.clone();
         self.actions_this_turn = 0;
+        // A new turn is a new action for the negotiation limit.
+        self.state.negotiations_this_action.clear();
         // A Black Market marker outlives no turn: the negotiation it unlocked is closed by
         // the time the turn ends, and the marker is cleared here too so a flag no window
         // consumed can never leak into another player's table.
@@ -5118,6 +5231,89 @@ mod tests {
             Some(&b),
             "then the turn moved on"
         );
+    }
+
+    /// OP-08 part 2: with diplomacy on, the active player may open a contact between moves; the
+    /// tactical action waits for it and resumes at the same movement choice.
+    #[test]
+    fn a_contact_can_be_opened_in_the_middle_of_movement() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        state.diplomacy = ti4_model::DiplomacyState::for_players(&state.seating_order, true);
+        let contact = "component|diplomacy|seat|1".to_owned();
+        let script: Vec<String> = vec![
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            contact.clone(),
+            crate::diplomacy::builder::CANCEL_ID.to_owned(),
+            "done_moving".to_owned(),
+        ];
+        let table = Table::with_default(Box::new(Scripted::new(script)));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        let mut offered_mid_move = false;
+        for _ in 0..20 {
+            if let Some(choice) = game.legal_options()
+                && choice.ids().contains(&"done_moving")
+                && choice.ids().contains(&contact.as_str())
+            {
+                offered_mid_move = true;
+            }
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.state.active.as_ref() == Some(&PlayerId::new("b")) {
+                break;
+            }
+        }
+        assert!(
+            offered_mid_move,
+            "the contact sat beside the movement choices"
+        );
+        assert!(
+            game.events
+                .iter()
+                .any(|event| event == "TACTICAL_ACTION_COMPLETE"),
+            "the action resumed and finished; log {:?}",
+            game.events
+        );
+    }
+
+    /// OP-08 part 2: after movement (and any combat) the action pauses before its next step when
+    /// a contact is possible; "continue" resumes it, and the turn then closes as usual.
+    #[test]
+    fn the_action_pauses_to_negotiate_before_its_next_step() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        state.diplomacy = ti4_model::DiplomacyState::for_players(&state.seating_order, true);
+        let script: Vec<String> = vec![
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            "done_moving".to_owned(),
+            CONTINUE_ACTION_ID.to_owned(),
+            END_TURN_ID.to_owned(),
+        ];
+        let table = Table::with_default(Box::new(Scripted::new(script)));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        let mut paused = false;
+        for _ in 0..20 {
+            if let Some(choice) = game.legal_options()
+                && choice.ids().contains(&CONTINUE_ACTION_ID)
+            {
+                paused = true;
+                assert!(
+                    choice.ids().contains(&"component|diplomacy|seat|1"),
+                    "the pause offers the contact: {:?}",
+                    choice.ids()
+                );
+            }
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.state.active.as_ref() == Some(&PlayerId::new("b")) {
+                break;
+            }
+        }
+        assert!(paused, "the action paused to negotiate");
+        assert!(
+            game.events
+                .iter()
+                .any(|event| event == "TACTICAL_ACTION_COMPLETE")
+        );
+        assert_eq!(game.state.active.as_ref(), Some(&PlayerId::new("b")));
     }
 
     /// OP-08 without anything left to do: the turn ends by itself, as before.

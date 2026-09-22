@@ -693,7 +693,7 @@ pub fn available_actions(
     galaxy: &Galaxy,
     player: &PlayerId,
 ) -> Vec<crate::choice::ChoiceOption> {
-    if state.diplomacy.enabled {
+    if state.diplomacy.enabled || !state.may_initiate_negotiation(player) {
         return Vec::new();
     }
     let already = state.transacted_with(player);

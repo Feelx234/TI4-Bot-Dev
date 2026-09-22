@@ -1157,6 +1157,12 @@ pub struct GameState {
     /// Cleared when a round begins, because the card counts *this* round's deals.
     #[serde(default)]
     pub transactions_this_round: Vec<(PlayerId, PlayerId)>,
+    /// Negotiations (diplomatic contacts and transactions) each player has initiated during the
+    /// current action, and during the current round (operator limits, 2026-09-22).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub negotiations_this_action: BTreeMap<PlayerId, u8>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub negotiations_this_round: BTreeMap<PlayerId, u8>,
     /// Increments whenever an action-phase turn actually passes to a player. It does *not*
     /// increment between Fleet Logistics' first and second actions, because those are
     /// explicitly the same turn.
@@ -1550,6 +1556,8 @@ impl GameState {
             activation_seq: 0,
             agenda_seq: 0,
             transactions_this_round: Vec::new(),
+            negotiations_this_action: BTreeMap::new(),
+            negotiations_this_round: BTreeMap::new(),
             turn_seq: 0,
             feat_occurrence_seq: 0,
             scored_feat_occurrences: BTreeSet::new(),
@@ -1749,6 +1757,34 @@ impl GameState {
     }
 
     // -- transactions (LRR 94) ----------------------------------------------------
+
+    /// Whether `player` may initiate another negotiation (a contact or a transaction): at most
+    /// [`MAX_NEGOTIATIONS_PER_ACTION`] per action and [`MAX_NEGOTIATIONS_PER_ROUND`] per round.
+    #[must_use]
+    pub fn may_initiate_negotiation(&self, player: &PlayerId) -> bool {
+        self.negotiations_this_action
+            .get(player)
+            .copied()
+            .unwrap_or(0)
+            < MAX_NEGOTIATIONS_PER_ACTION
+            && self
+                .negotiations_this_round
+                .get(player)
+                .copied()
+                .unwrap_or(0)
+                < MAX_NEGOTIATIONS_PER_ROUND
+    }
+
+    /// Count one negotiation `player` initiated.
+    pub fn note_negotiation(&mut self, player: &PlayerId) {
+        for tally in [
+            &mut self.negotiations_this_action,
+            &mut self.negotiations_this_round,
+        ] {
+            let count = tally.entry(player.clone()).or_default();
+            *count = count.saturating_add(1);
+        }
+    }
 
     #[must_use]
     pub fn transacted_with(&self, player: &PlayerId) -> BTreeSet<PlayerId> {
@@ -2655,3 +2691,8 @@ pub struct ExplorationRecord {
     /// `fragment`, `attached:<attachment>`, `resolved`, `unresolved` (no handler) or `discarded`.
     pub outcome: String,
 }
+
+/// Negotiations one player may initiate during one action (operator limit, 2026-09-22).
+pub const MAX_NEGOTIATIONS_PER_ACTION: u8 = 2;
+/// Negotiations one player may initiate during one game round (operator limit, 2026-09-22).
+pub const MAX_NEGOTIATIONS_PER_ROUND: u8 = 6;

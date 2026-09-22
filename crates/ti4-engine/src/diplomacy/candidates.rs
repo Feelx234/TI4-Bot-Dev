@@ -21,7 +21,7 @@ const PAYMENT_PREFIX: &str = "component|diplomacy-payment|";
 
 #[must_use]
 pub fn available_contacts(state: &GameState, actor: &PlayerId) -> Vec<crate::ChoiceOption> {
-    if !state.diplomacy.enabled {
+    if !state.diplomacy.enabled || !state.may_initiate_negotiation(actor) {
         return Vec::new();
     }
     let used = state.diplomacy.initiations_this_turn.get(actor);
@@ -1459,6 +1459,29 @@ mod tests {
             .filter_map(|option| contact_target(&state, option))
             .collect();
         assert_eq!(from_b, vec![pid("a"), pid("c")]);
+    }
+
+    /// Operator limits (2026-09-22): 2 negotiations initiated per action, 6 per round.
+    #[test]
+    fn negotiations_are_limited_per_action_and_per_round() {
+        let (mut state, _) = fixture();
+        let a = pid("a");
+        assert!(!available_contacts(&state, &a).is_empty());
+        state.note_negotiation(&a);
+        state.note_negotiation(&a);
+        assert!(available_contacts(&state, &a).is_empty(), "two this action");
+        for _ in 0..2 {
+            state.negotiations_this_action.clear();
+            assert!(!available_contacts(&state, &a).is_empty(), "a new action");
+            state.note_negotiation(&a);
+            state.note_negotiation(&a);
+        }
+        state.negotiations_this_action.clear();
+        assert!(available_contacts(&state, &a).is_empty(), "six this round");
+        assert!(
+            !available_contacts(&state, &pid("b")).is_empty(),
+            "the limits are per player"
+        );
     }
 
     #[test]

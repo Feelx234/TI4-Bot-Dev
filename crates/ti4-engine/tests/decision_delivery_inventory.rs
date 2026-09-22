@@ -498,6 +498,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("game.rs::step"),
     },
     Producer {
+        // OP-08: the aftermath's pause before invasion or production: continue, or a contact.
+        module: "game.rs",
+        function: "pending_choice",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath"),
+    },
+    Producer {
         // OP-08: end the turn, or do what does not take an action (and Fleet Logistics' second).
         module: "game.rs",
         function: "closing_options",
