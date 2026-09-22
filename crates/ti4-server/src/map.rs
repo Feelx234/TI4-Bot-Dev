@@ -1,14 +1,130 @@
 //! Map generation and static board tile extraction.
 
+use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_content::galaxy::{self, Galaxy};
 use ti4_engine::seating::{self, SeatingError};
 use ti4_engine::setup::start_game_seeded;
-use ti4_model::content_types::{FULL, POK};
+use ti4_model::content_types::{FULL, POK, SourceSet};
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::GameState;
 
 use crate::protocol::view::{BoardTileView, PlanetMetaView};
+
+/// Stable, reconstructible galaxy geometry for stateless consumers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GalaxyLayout {
+    pub version: u16,
+    pub active_sources: Vec<String>,
+    pub placements: Vec<GalaxyPlacement>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub off_map_system_ids: Vec<String>,
+}
+
+/// One main-map system placement in axial coordinates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GalaxyPlacement {
+    pub system_id: String,
+    pub q: i32,
+    pub r: i32,
+}
+
+impl GalaxyLayout {
+    #[must_use]
+    pub fn from_galaxy(galaxy: &Galaxy, active_sources: SourceSet) -> Self {
+        let mut placements: Vec<_> = galaxy
+            .system_ids()
+            .into_iter()
+            .filter_map(|system_id| {
+                galaxy.coord_of(system_id).map(|hex| GalaxyPlacement {
+                    system_id: system_id.to_owned(),
+                    q: hex.q,
+                    r: hex.r,
+                })
+            })
+            .collect();
+        placements.sort_by_key(|placement| (placement.q, placement.r, placement.system_id.clone()));
+        Self {
+            version: 1,
+            active_sources: active_source_names(active_sources),
+            placements,
+            off_map_system_ids: galaxy
+                .off_map_system_ids()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        }
+    }
+}
+
+fn active_source_names(sources: SourceSet) -> Vec<String> {
+    [
+        (ti4_model::content_types::Source::Base, "base"),
+        (ti4_model::content_types::Source::Pok, "pok"),
+        (ti4_model::content_types::Source::Codex1, "codex1"),
+        (ti4_model::content_types::Source::Codex2, "codex2"),
+        (ti4_model::content_types::Source::Codex3, "codex3"),
+        (ti4_model::content_types::Source::Codex4, "codex4"),
+        (
+            ti4_model::content_types::Source::ThundersEdge,
+            "thunders_edge",
+        ),
+    ]
+    .into_iter()
+    .filter(|(source, _)| sources.contains(*source))
+    .map(|(_, name)| name.to_owned())
+    .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_model::hex::Hex;
+
+    #[test]
+    fn galaxy_layout_round_trip_preserves_static_topology() {
+        let content = ContentStore::embedded();
+        let mut galaxy = Galaxy::placed(
+            content,
+            &[
+                ("18", Hex::new(0, 0)),
+                ("39", Hex::new(2, 0)),
+                ("26", Hex::new(-2, 0)),
+            ],
+            POK,
+        )
+        .expect("source systems");
+        galaxy
+            .place_off_map(content, "82b", POK)
+            .expect("nexus system");
+
+        let layout = GalaxyLayout::from_galaxy(&galaxy, POK);
+        let placements: Vec<_> = layout
+            .placements
+            .iter()
+            .map(|placement| {
+                (
+                    placement.system_id.as_str(),
+                    Hex::new(placement.q, placement.r),
+                )
+            })
+            .collect();
+        let mut rebuilt = Galaxy::placed(content, &placements, POK).expect("layout placements");
+        for system_id in &layout.off_map_system_ids {
+            rebuilt
+                .place_off_map(content, system_id, POK)
+                .expect("layout off-map system");
+        }
+
+        assert_eq!(layout.version, 1);
+        assert_eq!(layout.active_sources, active_source_names(POK));
+        assert_eq!(rebuilt.coord_of("39"), galaxy.coord_of("39"));
+        assert_eq!(rebuilt.adjacent("39"), galaxy.adjacent("39"));
+        assert!(rebuilt.are_adjacent("82b", "39"));
+    }
+}
 
 /// Extracts static geometry and metadata for all tiles in a galaxy.
 #[must_use]

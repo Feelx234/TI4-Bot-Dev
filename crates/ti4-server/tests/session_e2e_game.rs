@@ -44,7 +44,7 @@ fn scripted_end_to_end_game_handles_draft_action_and_nested_secondary_choice() {
 
     // 1. Step: p1 drafts Leadership strategy card
     let choice_p1_strat = wait_for_choice(&client_1).expect("p1 should be offered strategy cards");
-    assert_eq!(choice_p1_strat.actor, p1);
+    assert_eq!(choice_p1_strat.player, p1);
     let leadership_opt = choice_p1_strat
         .options
         .iter()
@@ -57,7 +57,7 @@ fn scripted_end_to_end_game_handles_draft_action_and_nested_secondary_choice() {
 
     // 2. Step: p2 drafts Diplomacy strategy card
     let choice_p2_strat = wait_for_choice(&client_2).expect("p2 should be offered strategy cards");
-    assert_eq!(choice_p2_strat.actor, p2);
+    assert_eq!(choice_p2_strat.player, p2);
     let diplomacy_opt = choice_p2_strat
         .options
         .iter()

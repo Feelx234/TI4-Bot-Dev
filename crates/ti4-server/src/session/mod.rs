@@ -80,6 +80,7 @@ pub struct SessionConfig {
     pub seat_tokens: BTreeMap<PlayerId, String>,
     pub galaxy: Option<ti4_content::galaxy::Galaxy>,
     pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
+    pub galaxy_layout: crate::map::GalaxyLayout,
     pub seed: Option<u64>,
     pub player_ids: Vec<PlayerId>,
     pub store: Option<Arc<crate::storage::FileGameStore>>,
@@ -97,6 +98,12 @@ impl SessionConfig {
             seat_tokens: BTreeMap::new(),
             galaxy: None,
             map_tiles: Vec::new(),
+            galaxy_layout: crate::map::GalaxyLayout {
+                version: 1,
+                active_sources: Vec::new(),
+                placements: Vec::new(),
+                off_map_system_ids: Vec::new(),
+            },
             seed: None,
             player_ids: Vec::new(),
             store: None,
@@ -122,6 +129,10 @@ impl SessionConfig {
     ) -> Self {
         self.galaxy = Some(galaxy);
         self.map_tiles = map_tiles;
+        self.galaxy_layout = crate::map::GalaxyLayout::from_galaxy(
+            self.galaxy.as_ref().expect("galaxy just assigned"),
+            ti4_model::content_types::POK,
+        );
         self
     }
 
@@ -326,6 +337,7 @@ impl GameSession {
             viewer,
             pending,
             &lock.map_tiles,
+            &lock.galaxy_layout,
             &lock.event_log,
         )
     }

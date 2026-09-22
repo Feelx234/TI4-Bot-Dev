@@ -57,15 +57,18 @@ fn test_crash_recovery_persists_and_resumes_cleanly() {
     } else {
         loop {
             match client1.recv().expect("recv") {
-                ServerMessage::PendingChoice(choice_msg) if choice_msg.choice.actor == p1 => {
-                    break choice_msg.choice;
+                ServerMessage::PendingChoice(choice_msg) if choice_msg.choice.player == p1 => {
+                    break ti4_server::protocol::PendingChoiceEnvelope {
+                        nonce: choice_msg.nonce,
+                        choice: choice_msg.choice,
+                    };
                 }
                 _ => {}
             }
         }
     };
 
-    let chosen_1 = &pending_1.options[0].id;
+    let chosen_1 = &pending_1.choice.options[0].id;
     let (p1_seat, p1_nonce, p1_version) = session
         .current_pending_decision()
         .expect("pending decision for p1");
@@ -91,14 +94,17 @@ fn test_crash_recovery_persists_and_resumes_cleanly() {
     } else {
         loop {
             match client2.recv().expect("recv") {
-                ServerMessage::PendingChoice(choice_msg) if choice_msg.choice.actor == p2 => {
-                    break choice_msg.choice;
+                ServerMessage::PendingChoice(choice_msg) if choice_msg.choice.player == p2 => {
+                    break ti4_server::protocol::PendingChoiceEnvelope {
+                        nonce: choice_msg.nonce,
+                        choice: choice_msg.choice,
+                    };
                 }
                 _ => {}
             }
         }
     };
-    let chosen_2 = &p2_choice.options[0].id;
+    let chosen_2 = &p2_choice.choice.options[0].id;
 
     let (p2_seat, p2_nonce, p2_version) = session
         .current_pending_decision()
@@ -192,8 +198,8 @@ fn test_crash_recovery_persists_and_resumes_cleanly() {
     let pending_choice = rec_snapshot
         .pending_choice
         .expect("snapshot pending choice");
-    assert_eq!(pending_choice.actor, rec_pending_seat);
-    let next_option = &pending_choice.options[0].id;
+    assert_eq!(pending_choice.choice.player, rec_pending_seat);
+    let next_option = &pending_choice.choice.options[0].id;
 
     // Submit next choice on recovered session
     let accepted = recovered_session
@@ -346,6 +352,7 @@ fn durable_event_failure_stops_the_session() {
         .get_snapshot(&ViewerRole::Player(seat.clone()))
         .pending_choice
         .expect("pending choice")
+        .choice
         .options[0]
         .id
         .clone();

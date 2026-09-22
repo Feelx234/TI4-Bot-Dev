@@ -43,13 +43,13 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
     let pending_1 = loop {
         match client1.recv().expect("recv") {
             ServerMessage::Event(e) => continuous_events.push(e.entry),
-            ServerMessage::PendingChoice(choice_msg) => break choice_msg.choice,
+            ServerMessage::PendingChoice(choice_msg) => break choice_msg,
             _ => {}
         }
     };
 
-    assert_eq!(pending_1.actor, p1);
-    let chosen_1 = &pending_1.options[0].id;
+    assert_eq!(pending_1.choice.player, p1);
+    let chosen_1 = &pending_1.choice.options[0].id;
 
     // P1 submits choice
     let accepted_1 = session
@@ -62,7 +62,7 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
         match client1.recv().expect("recv") {
             ServerMessage::Event(e) => continuous_events.push(e.entry),
             ServerMessage::PendingChoice(choice_msg) => {
-                if choice_msg.choice.actor == p1 {
+                if choice_msg.choice.player == p1 {
                     break Some(choice_msg.choice);
                 }
             }
@@ -83,7 +83,7 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
     let client2 = MockClient::connect(session.clone(), ViewerRole::Player(p2.clone()));
     let snap2 = client2.snapshot();
     let p2_choice = snap2.pending_choice.expect("p2 pending choice in snapshot");
-    let chosen_2 = &p2_choice.options[0].id;
+    let chosen_2 = &p2_choice.choice.options[0].id;
 
     let accepted_2 = session
         .submit_choice(&p2, &p2_nonce, p2_version, chosen_2)
@@ -261,7 +261,11 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     ));
 
     // 3. Submit an action and verify snapshot updates event log
-    let p1_opt = snapshot.pending_choice.expect("p1 pending choice").options[0]
+    let p1_opt = snapshot
+        .pending_choice
+        .expect("p1 pending choice")
+        .choice
+        .options[0]
         .id
         .clone();
     session

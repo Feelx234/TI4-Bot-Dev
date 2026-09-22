@@ -4,14 +4,24 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use ti4_model::id::PlayerId;
 
-use super::choice::PendingChoiceDto;
 use super::error::ErrorKind;
 use super::status::{PublicTurnStatus, RejectionReason, ViewerRole};
 use super::view::GameView;
+use crate::map::GalaxyLayout;
+use ti4_engine::choice::Choice;
+use ti4_model::state::GameState;
 use ti4_model::state::Phase;
 
-/// Initial per-viewer snapshot sent upon subscription or reconnection.
+/// Server submission metadata around the engine's wire-serialized choice.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PendingChoiceEnvelope {
+    pub nonce: String,
+    pub choice: Choice,
+}
+
+/// Initial per-viewer snapshot sent upon subscription or reconnection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InitialSnapshotMsg {
     pub protocol_version: u16,
@@ -19,8 +29,10 @@ pub struct InitialSnapshotMsg {
     pub game_version: u64,
     pub viewer: ViewerRole,
     pub view: GameView,
+    pub state: GameState,
+    pub galaxy_layout: GalaxyLayout,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_choice: Option<PendingChoiceDto>,
+    pub pending_choice: Option<PendingChoiceEnvelope>,
     pub turn_status: PublicTurnStatus,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<GameEvent>,
@@ -88,7 +100,7 @@ pub struct GameEventMsg {
 }
 
 /// Versioned state update or replacement snapshot after state transition.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StateUpdateMsg {
     pub protocol_version: u16,
@@ -96,19 +108,24 @@ pub struct StateUpdateMsg {
     pub game_version: u64,
     pub viewer: ViewerRole,
     pub view: GameView,
+    pub state: GameState,
+    pub galaxy_layout: GalaxyLayout,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_choice: Option<PendingChoiceDto>,
+    pub pending_choice: Option<PendingChoiceEnvelope>,
     pub turn_status: PublicTurnStatus,
 }
 
 /// Pending choice sent only to the acting seat.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PendingChoiceMsg {
     pub protocol_version: u16,
     pub game_id: String,
     pub game_version: u64,
-    pub choice: PendingChoiceDto,
+    pub nonce: String,
+    pub choice: Choice,
+    pub state: GameState,
+    pub galaxy_layout: GalaxyLayout,
 }
 
 /// Public turn status update.
@@ -170,7 +187,7 @@ pub struct PongMsg {
 }
 
 /// Messages emitted from server to client.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ServerMessage {
     InitialSnapshot(InitialSnapshotMsg),

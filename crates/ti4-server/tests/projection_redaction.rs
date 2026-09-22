@@ -274,6 +274,12 @@ fn event_history_is_projected_to_its_explicit_audience() {
         &ViewerRole::Player(PlayerId::new("seat_a")),
         Some((&choice, "nonce_123")),
         &[],
+        &ti4_server::map::GalaxyLayout {
+            version: 1,
+            active_sources: Vec::new(),
+            placements: Vec::new(),
+            off_map_system_ids: Vec::new(),
+        },
         &events,
     );
     let opponent = ti4_server::projection::project_initial_snapshot_with_map(
@@ -283,6 +289,12 @@ fn event_history_is_projected_to_its_explicit_audience() {
         &ViewerRole::Player(PlayerId::new("seat_b")),
         Some((&choice, "nonce_123")),
         &[],
+        &ti4_server::map::GalaxyLayout {
+            version: 1,
+            active_sources: Vec::new(),
+            placements: Vec::new(),
+            off_map_system_ids: Vec::new(),
+        },
         &events,
     );
 

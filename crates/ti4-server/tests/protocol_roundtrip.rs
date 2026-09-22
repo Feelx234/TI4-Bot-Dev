@@ -1,10 +1,6 @@
 use std::collections::BTreeMap;
-use ti4_engine::decision_context::{ConstraintKind, DecisionSource};
+use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::id::PlayerId;
-use ti4_model::state::Phase;
-use ti4_server::protocol::choice::{
-    ChoiceOptionDto, DecisionContextDto, OutstandingConstraintDto, PendingChoiceDto,
-};
 use ti4_server::protocol::client::ClientMessage;
 use ti4_server::protocol::error::{ErrorKind, ProtocolError};
 use ti4_server::protocol::server::{
@@ -118,43 +114,32 @@ fn server_game_over_round_trips() {
 
 #[test]
 fn server_pending_choice_round_trips() {
+    let state = ti4_engine::setup::start_game(
+        ti4_content::ContentStore::embedded(),
+        &[PlayerId::new("player_1")],
+        ti4_model::content_types::POK,
+        None,
+    )
+    .expect("state");
     let msg = ServerMessage::PendingChoice(PendingChoiceMsg {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_abc".to_owned(),
         game_version: 14,
-        choice: PendingChoiceDto {
-            nonce: "nonce_abc".to_owned(),
-            actor: PlayerId::new("player_1"),
-            prompt: "Select strategy card".to_owned(),
-            options: vec![
-                ChoiceOptionDto {
-                    id: "leadership".to_owned(),
-                    kind: "pick_strategy_card".to_owned(),
-                    label: "1 - Leadership".to_owned(),
-                    payload: BTreeMap::new(),
-                },
-                ChoiceOptionDto {
-                    id: "diplomacy".to_owned(),
-                    kind: "pick_strategy_card".to_owned(),
-                    label: "2 - Diplomacy".to_owned(),
-                    payload: BTreeMap::new(),
-                },
+        nonce: "nonce_abc".to_owned(),
+        choice: Choice::new(
+            PlayerId::new("player_1"),
+            "Select strategy card",
+            vec![
+                ChoiceOption::labelled("leadership", "pick_strategy_card", "1 - Leadership"),
+                ChoiceOption::labelled("diplomacy", "pick_strategy_card", "2 - Diplomacy"),
             ],
-            context: Some(DecisionContextDto {
-                version: 1,
-                actor: PlayerId::new("player_1"),
-                source: DecisionSource::Rule("83.2".to_owned()),
-                subtype: "pick_strategy_card".to_owned(),
-                phase: Phase::Strategy,
-                round: 1,
-                optional: false,
-                target: None,
-                outstanding: vec![OutstandingConstraintDto {
-                    kind: ConstraintKind::CommandTokens,
-                    amount: 3,
-                    paid: 0,
-                }],
-            }),
+        ),
+        state,
+        galaxy_layout: ti4_server::map::GalaxyLayout {
+            version: 1,
+            active_sources: vec!["base".to_owned()],
+            placements: Vec::new(),
+            off_map_system_ids: Vec::new(),
         },
     });
     let json = serde_json::to_string(&msg).expect("serialize");

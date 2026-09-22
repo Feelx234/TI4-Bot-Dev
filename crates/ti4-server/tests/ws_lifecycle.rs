@@ -323,7 +323,7 @@ async fn websocket_full_lifecycle_and_rejections() {
         (
             choice.nonce,
             initial_snapshot.game_version,
-            choice.options[0].id.clone(),
+            choice.choice.options[0].id.clone(),
         )
     } else {
         // Wait for choice broadcast
@@ -334,11 +334,9 @@ async fn websocket_full_lifecycle_and_rejections() {
             .expect("ws ok");
         let msg: ServerMessage = serde_json::from_str(&reply.to_text().unwrap()).unwrap();
         match msg {
-            ServerMessage::PendingChoice(p) => (
-                p.choice.nonce,
-                p.game_version,
-                p.choice.options[0].id.clone(),
-            ),
+            ServerMessage::PendingChoice(p) => {
+                (p.nonce, p.game_version, p.choice.options[0].id.clone())
+            }
             other => panic!("Expected PendingChoice, got {other:?}"),
         }
     };

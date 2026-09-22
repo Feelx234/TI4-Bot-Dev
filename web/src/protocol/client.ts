@@ -64,6 +64,17 @@ function rejectionMessage(message: Extract<ServerMessage, { type: 'action_reject
   }
 }
 
+function pendingChoice(envelope: import('./types.ts').PendingChoiceEnvelope): PendingChoiceDto {
+  if (!envelope.choice) return envelope as unknown as PendingChoiceDto;
+  return {
+    nonce: envelope.nonce,
+    actor: envelope.choice.player,
+    prompt: envelope.choice.prompt,
+    options: envelope.choice.options,
+    context: envelope.choice.context,
+  };
+}
+
 /** Applies only validated, non-stale protocol messages to the client projection. */
 export function reduceServerMessage(state: GameSessionState, message: ServerMessage): GameSessionState {
   if (isStaleServerMessage(message, state.gameVersion)) return state;
@@ -76,14 +87,18 @@ export function reduceServerMessage(state: GameSessionState, message: ServerMess
         snapshot: message,
         gameVersion: message.game_version,
         turnStatus: message.turn_status,
-        pendingChoice: message.pending_choice ?? null,
+        pendingChoice: message.pending_choice ? pendingChoice(message.pending_choice) : null,
         events: message.type === 'initial_snapshot' ? serverEventLog(message.events) : state.events,
       };
     case 'event':
       if (state.events.some((entry) => entry.id === message.entry.id)) return state;
       return { ...state, events: serverEventLog([...state.events, message.entry]) };
     case 'pending_choice':
-      return { ...state, gameVersion: message.game_version, pendingChoice: message.choice };
+      return {
+        ...state,
+        gameVersion: message.game_version,
+        pendingChoice: pendingChoice({ nonce: message.nonce, choice: message.choice }),
+      };
     case 'turn_status':
       return { ...state, gameVersion: message.game_version, turnStatus: message.status };
     case 'action_accepted':

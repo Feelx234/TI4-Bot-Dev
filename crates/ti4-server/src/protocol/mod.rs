@@ -1,19 +1,17 @@
 //! Wire protocol data transfer objects and message definitions.
 
-pub mod choice;
 pub mod client;
 pub mod error;
 pub mod server;
 pub mod status;
 pub mod view;
 
-pub use choice::{ChoiceOptionDto, DecisionContextDto, OutstandingConstraintDto, PendingChoiceDto};
 pub use client::ClientMessage;
 pub use error::{ErrorKind, ProtocolError};
 pub use server::{
     ActionAcceptedMsg, ActionRejectedMsg, EventVisibility, GameEvent, GameEventKind, GameEventMsg,
-    GameOverMsg, InitialSnapshotMsg, PendingChoiceMsg, PongMsg, ProtocolErrorMsg, ServerMessage,
-    StateUpdateMsg, TurnStatusMsg,
+    GameOverMsg, InitialSnapshotMsg, PendingChoiceEnvelope, PendingChoiceMsg, PongMsg,
+    ProtocolErrorMsg, ServerMessage, StateUpdateMsg, TurnStatusMsg,
 };
 pub use status::{PublicTurnStatus, RejectionReason, ViewerRole};
 pub use view::{

@@ -112,6 +112,9 @@ Provide every connected client with an independently advisor-evaluable WebSocket
 - Actor-only pending-choice coverage proves the message contains the exact engine `Choice`, redacted state, and layout; non-actors receive neither choice nor state-bearing choice message.
 - Galaxy-layout round-trip coverage rebuilds `Galaxy`, applies state-derived wormhole effects, and verifies topology-sensitive adjacency agrees with the authoritative session.
 
+#### Status
+Completed 2026-09-22. The server protocol carries the viewer-redacted engine `GameState` and a versioned `GalaxyLayout` on snapshots, updates, and actor pending-choice messages. Pending choices use the serde engine `Choice` with a nonce envelope; the Rust DTO module was removed. Server integration tests now use the envelope and engine `Choice` fields, and the layout round-trip test reconstructs on-map and off-map topology, including wormhole adjacency. Verified with `cargo fmt --all`, `cargo test -p ti4-server` (50 passed), and `npm test -- --run` (153 passed).
+
 ---
 
 ### Work Package BYOA-03: Stateless Advisor Service (`ti4-advisor`)

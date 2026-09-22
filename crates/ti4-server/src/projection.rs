@@ -6,9 +6,11 @@ use ti4_model::id::PlanetId;
 use ti4_model::state::{GameState, Player};
 use ti4_model::view::{HIDDEN, redact_player, view_for};
 
+use crate::map::GalaxyLayout;
 use crate::protocol::PROTOCOL_VERSION;
-use crate::protocol::choice::PendingChoiceDto;
-use crate::protocol::server::{GameEvent, InitialSnapshotMsg, StateUpdateMsg};
+use crate::protocol::server::{
+    GameEvent, InitialSnapshotMsg, PendingChoiceEnvelope, StateUpdateMsg,
+};
 use crate::protocol::status::{PublicTurnStatus, ViewerRole};
 use crate::protocol::view::{
     BoardTileView, BoardView, GameView, PlacedUnitView, PlanetView, PlayerView, SystemView,
@@ -145,16 +147,7 @@ pub fn project_game_view_with_map(
     viewer: &ViewerRole,
     map_tiles: &[BoardTileView],
 ) -> GameView {
-    let redacted = match viewer {
-        ViewerRole::Player(seat) => view_for(state, seat),
-        ViewerRole::Spectator => {
-            let mut spectator = state.clone();
-            for player in &mut spectator.players {
-                *player = redact_player(player);
-            }
-            spectator
-        }
-    };
+    let redacted = redacted_state(state, viewer);
     let players = redacted.players.iter().map(project_player_view).collect();
 
     GameView {
@@ -167,6 +160,21 @@ pub fn project_game_view_with_map(
         players,
         board: project_board_view_with_map(&redacted, map_tiles),
         table: project_table_view(&redacted),
+    }
+}
+
+/// Applies the model's authoritative redaction for a protocol viewer.
+#[must_use]
+pub fn redacted_state(state: &GameState, viewer: &ViewerRole) -> GameState {
+    match viewer {
+        ViewerRole::Player(seat) => view_for(state, seat),
+        ViewerRole::Spectator => {
+            let mut spectator = state.clone();
+            for player in &mut spectator.players {
+                *player = redact_player(player);
+            }
+            spectator
+        }
     }
 }
 
@@ -217,11 +225,14 @@ pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -
 pub fn project_pending_choice(
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
-) -> Option<PendingChoiceDto> {
+) -> Option<PendingChoiceEnvelope> {
     pending_choice.and_then(|(choice, nonce)| {
         viewer
             .is_actor(&choice.player)
-            .then(|| PendingChoiceDto::from_choice(choice, nonce.to_owned(), true))
+            .then(|| PendingChoiceEnvelope {
+                nonce: nonce.to_owned(),
+                choice: choice.clone(),
+            })
     })
 }
 
@@ -234,6 +245,7 @@ pub fn project_initial_snapshot_with_map(
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
     map_tiles: &[BoardTileView],
+    galaxy_layout: &GalaxyLayout,
     events: &[GameEvent],
 ) -> InitialSnapshotMsg {
     InitialSnapshotMsg {
@@ -242,6 +254,8 @@ pub fn project_initial_snapshot_with_map(
         game_version,
         viewer: viewer.clone(),
         view: project_game_view_with_map(state, viewer, map_tiles),
+        state: redacted_state(state, viewer),
+        galaxy_layout: galaxy_layout.clone(),
         pending_choice: project_pending_choice(viewer, pending_choice),
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
         events: events
@@ -268,6 +282,12 @@ pub fn project_initial_snapshot(
         viewer,
         pending_choice,
         &[],
+        &GalaxyLayout {
+            version: 1,
+            active_sources: Vec::new(),
+            placements: Vec::new(),
+            off_map_system_ids: Vec::new(),
+        },
         &[],
     )
 }
@@ -281,6 +301,7 @@ pub fn project_state_update_with_map(
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
     map_tiles: &[BoardTileView],
+    galaxy_layout: &GalaxyLayout,
 ) -> StateUpdateMsg {
     StateUpdateMsg {
         protocol_version: PROTOCOL_VERSION,
@@ -288,6 +309,8 @@ pub fn project_state_update_with_map(
         game_version,
         viewer: viewer.clone(),
         view: project_game_view_with_map(state, viewer, map_tiles),
+        state: redacted_state(state, viewer),
+        galaxy_layout: galaxy_layout.clone(),
         pending_choice: project_pending_choice(viewer, pending_choice),
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
     }
@@ -302,5 +325,18 @@ pub fn project_state_update(
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
 ) -> StateUpdateMsg {
-    project_state_update_with_map(game_id, game_version, state, viewer, pending_choice, &[])
+    project_state_update_with_map(
+        game_id,
+        game_version,
+        state,
+        viewer,
+        pending_choice,
+        &[],
+        &GalaxyLayout {
+            version: 1,
+            active_sources: Vec::new(),
+            placements: Vec::new(),
+            off_map_system_ids: Vec::new(),
+        },
+    )
 }

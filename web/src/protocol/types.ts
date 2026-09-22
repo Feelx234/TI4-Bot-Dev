@@ -100,6 +100,31 @@ export interface PendingChoiceDto {
   context?: DecisionContextDto;
 }
 
+/** Serde shape of `ti4_engine::choice::Choice` on the wire. */
+export interface EngineChoice {
+  player: string;
+  prompt: string;
+  options: ChoiceOptionDto[];
+  context?: DecisionContextDto;
+}
+
+/** Opaque submission capability kept outside the engine choice contract. */
+export interface PendingChoiceEnvelope {
+  nonce: string;
+  choice: EngineChoice;
+}
+
+/** Versioned, reconstructible static galaxy geometry. */
+export interface GalaxyLayout {
+  version: number;
+  active_sources: string[];
+  placements: Array<{ system_id: string; q: number; r: number }>;
+  off_map_system_ids?: string[];
+}
+
+/** Engine `GameState` is intentionally passed through without a presentation projection. */
+export type GameState = Record<string, unknown>;
+
 export interface PlanetView {
   planet_id: string;
   controlled_by?: string | null;
@@ -229,7 +254,9 @@ export interface InitialSnapshotMsg {
   game_version: number;
   viewer: ViewerRole;
   view: GameView;
-  pending_choice?: PendingChoiceDto | null;
+  state: GameState;
+  galaxy_layout: GalaxyLayout;
+  pending_choice?: PendingChoiceEnvelope | null;
   turn_status: PublicTurnStatus;
   events?: GameEvent[];
 }
@@ -241,7 +268,9 @@ export interface StateUpdateMsg {
   game_version: number;
   viewer: ViewerRole;
   view: GameView;
-  pending_choice?: PendingChoiceDto | null;
+  state: GameState;
+  galaxy_layout: GalaxyLayout;
+  pending_choice?: PendingChoiceEnvelope | null;
   turn_status: PublicTurnStatus;
 }
 
@@ -250,7 +279,10 @@ export interface PendingChoiceMsg {
   protocol_version: number;
   game_id: string;
   game_version: number;
-  choice: PendingChoiceDto;
+  nonce: string;
+  choice: EngineChoice;
+  state: GameState;
+  galaxy_layout: GalaxyLayout;
 }
 
 export interface TurnStatusMsg {

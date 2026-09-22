@@ -56,7 +56,7 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
       if (!isNonNegativeInteger(value.game_version) || !isRecord(value.view) || !isRecord(value.viewer) || !isRecord(value.turn_status)) fail('invalid snapshot');
       return value as unknown as ServerMessage;
     case 'pending_choice':
-      if (!isNonNegativeInteger(value.game_version) || !isRecord(value.choice)) fail('invalid pending choice');
+      if (!isNonNegativeInteger(value.game_version) || typeof value.nonce !== 'string' || !isRecord(value.choice) || !isRecord(value.state) || !isRecord(value.galaxy_layout)) fail('invalid pending choice');
       return value as unknown as ServerMessage;
     case 'turn_status':
       if (!isNonNegativeInteger(value.game_version) || !isRecord(value.status)) fail('invalid turn status');

@@ -16,7 +16,6 @@ use ti4_model::state::GameState;
 
 use crate::projection::project_turn_status;
 use crate::protocol::PROTOCOL_VERSION;
-use crate::protocol::choice::PendingChoiceDto;
 use crate::protocol::server::{
     EventVisibility, GameEvent, GameEventKind, GameOverMsg, PendingChoiceMsg, ServerMessage,
     TurnStatusMsg,
@@ -78,6 +77,7 @@ pub struct SessionShared {
     pub stopped: bool,
     pub error: Option<String>,
     pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
+    pub galaxy_layout: crate::map::GalaxyLayout,
     pub event_log: Vec<GameEvent>,
     pub event_counter: u64,
     pub store: Option<Arc<FileGameStore>>,
@@ -106,6 +106,12 @@ impl SessionShared {
             stopped: false,
             error: None,
             map_tiles: Vec::new(),
+            galaxy_layout: crate::map::GalaxyLayout {
+                version: 1,
+                active_sources: Vec::new(),
+                placements: Vec::new(),
+                off_map_system_ids: Vec::new(),
+            },
             store: None,
             snapshot_decision_count: 0,
         }
@@ -162,15 +168,19 @@ impl SessionShared {
         let status = project_turn_status(&self.latest_state, Some(choice));
         let game_id = self.game_id.clone();
         let game_version = self.game_version;
+        let state = self.latest_state.clone();
+        let galaxy_layout = self.galaxy_layout.clone();
 
         self.publish(|viewer| {
             if viewer.is_actor(&choice.player) {
-                let choice_dto = PendingChoiceDto::from_choice(choice, nonce.to_owned(), true);
                 ServerMessage::PendingChoice(PendingChoiceMsg {
                     protocol_version: PROTOCOL_VERSION,
                     game_id: game_id.clone(),
                     game_version,
-                    choice: choice_dto,
+                    nonce: nonce.to_owned(),
+                    choice: choice.clone(),
+                    state: crate::projection::redacted_state(&state, viewer),
+                    galaxy_layout: galaxy_layout.clone(),
                 })
             } else {
                 ServerMessage::TurnStatus(TurnStatusMsg {
@@ -194,6 +204,7 @@ impl SessionShared {
         let version = self.game_version;
         let state = self.latest_state.clone();
         let map_tiles = self.map_tiles.clone();
+        let galaxy_layout = self.galaxy_layout.clone();
         self.publish(|viewer| {
             let update = crate::projection::project_state_update_with_map(
                 &game_id,
@@ -204,6 +215,7 @@ impl SessionShared {
                     .as_ref()
                     .map(|(choice, nonce)| (choice, nonce.as_str())),
                 &map_tiles,
+                &galaxy_layout,
             );
             ServerMessage::StateUpdate(update)
         });
@@ -326,6 +338,9 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     initial_shared.seats.clone_from(&config.seats);
     initial_shared.seed = config.seed;
     initial_shared.map_tiles.clone_from(&config.map_tiles);
+    initial_shared
+        .galaxy_layout
+        .clone_from(&config.galaxy_layout);
     initial_shared.store.clone_from(&config.store);
 
     if !config.prior_events.is_empty() {

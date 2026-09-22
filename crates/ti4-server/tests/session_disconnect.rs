@@ -23,17 +23,16 @@ fn disconnected_client_leaves_decision_pending_without_defaulting() {
         let client = MockClient::connect(session.clone(), ViewerRole::Player(seat_a.clone()));
 
         // Receive pending choice
-        let mut choice = None;
+        let mut pending = None;
         for _ in 0..50 {
             if let Ok(ServerMessage::PendingChoice(msg)) = client.try_recv() {
-                choice = Some(msg.choice);
+                pending = Some((msg.nonce, msg.choice));
                 break;
             }
             thread::sleep(Duration::from_millis(10));
         }
 
-        let choice = choice.expect("choice should be received");
-        let n = choice.nonce.clone();
+        let (n, choice) = pending.expect("choice should be received");
         let opt = choice.options[0].id.clone();
         let v = session
             .current_pending_decision()

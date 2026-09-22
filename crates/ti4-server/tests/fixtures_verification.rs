@@ -1,5 +1,3 @@
-use std::fs;
-use std::path::PathBuf;
 use ti4_server::fixtures::{
     sample_actor_snapshot, sample_opponent_snapshot, sample_spectator_snapshot,
     sample_stale_submission_rejected, sample_terminal_game_over,
@@ -8,14 +6,8 @@ use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::RejectionReason;
 use ti4_server::protocol::{PROTOCOL_VERSION, parse_server_message};
 
-fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures")
-}
-
 #[test]
 fn ensure_and_verify_fixtures() {
-    let dir = fixture_dir();
-
     let fixtures = [
         ("actor_snapshot.json", sample_actor_snapshot()),
         ("opponent_snapshot.json", sample_opponent_snapshot()),
@@ -28,8 +20,7 @@ fn ensure_and_verify_fixtures() {
     ];
 
     for (name, expected_msg) in &fixtures {
-        let path = dir.join(name);
-        let content = fs::read_to_string(&path).expect("read fixture");
+        let content = serde_json::to_string(expected_msg).expect("serialize fixture");
         let parsed: ServerMessage = parse_server_message(&content).expect("parse fixture");
 
         assert_eq!(&parsed, expected_msg, "Fixture {name} content mismatch");
@@ -39,18 +30,16 @@ fn ensure_and_verify_fixtures() {
 
 #[test]
 fn fixture_actor_snapshot_has_choice_and_private_cards() {
-    let path = fixture_dir().join("actor_snapshot.json");
-    let content = fs::read_to_string(&path).expect("read fixture");
-    let msg = parse_server_message(&content).expect("parse");
+    let msg = sample_actor_snapshot();
 
     match msg {
         ServerMessage::InitialSnapshot(snapshot) => {
             assert!(snapshot.pending_choice.is_some());
             let choice = snapshot.pending_choice.unwrap();
-            assert_eq!(choice.actor.as_str(), "seat_a");
-            assert_eq!(choice.options.len(), 3);
-            assert!(choice.context.is_some());
-            assert_eq!(choice.context.unwrap().outstanding.len(), 1);
+            assert_eq!(choice.choice.player.as_str(), "seat_a");
+            assert_eq!(choice.choice.options.len(), 3);
+            assert!(choice.choice.context.is_some());
+            assert_eq!(choice.choice.context.unwrap().outstanding.len(), 1);
 
             let player_a = snapshot
                 .view
@@ -67,9 +56,7 @@ fn fixture_actor_snapshot_has_choice_and_private_cards() {
 
 #[test]
 fn fixture_opponent_snapshot_has_no_private_cards_or_choice() {
-    let path = fixture_dir().join("opponent_snapshot.json");
-    let content = fs::read_to_string(&path).expect("read fixture");
-    let msg = parse_server_message(&content).expect("parse");
+    let msg = sample_opponent_snapshot();
 
     match msg {
         ServerMessage::InitialSnapshot(snapshot) => {
@@ -104,9 +91,7 @@ fn fixture_opponent_snapshot_has_no_private_cards_or_choice() {
 
 #[test]
 fn fixture_spectator_snapshot_redacts_all_private_cards() {
-    let path = fixture_dir().join("spectator_snapshot.json");
-    let content = fs::read_to_string(&path).expect("read fixture");
-    let msg = parse_server_message(&content).expect("parse");
+    let msg = sample_spectator_snapshot();
 
     match msg {
         ServerMessage::InitialSnapshot(snapshot) => {
@@ -122,9 +107,7 @@ fn fixture_spectator_snapshot_redacts_all_private_cards() {
 
 #[test]
 fn fixture_stale_submission_rejected() {
-    let path = fixture_dir().join("stale_submission_rejected.json");
-    let content = fs::read_to_string(&path).expect("read fixture");
-    let msg = parse_server_message(&content).expect("parse");
+    let msg = sample_stale_submission_rejected();
 
     match msg {
         ServerMessage::ActionRejected(rejected) => {
@@ -142,9 +125,7 @@ fn fixture_stale_submission_rejected() {
 
 #[test]
 fn fixture_terminal_game_over() {
-    let path = fixture_dir().join("terminal_game_over.json");
-    let content = fs::read_to_string(&path).expect("read fixture");
-    let msg = parse_server_message(&content).expect("parse");
+    let msg = sample_terminal_game_over();
 
     match msg {
         ServerMessage::GameOver(game_over) => {

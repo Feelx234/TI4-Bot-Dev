@@ -25,17 +25,16 @@ fn wrong_seat_stale_nonce_and_unknown_option_preserve_state_and_log() {
     let client_b = MockClient::connect(session.clone(), ViewerRole::Player(seat_b.clone()));
 
     // Wait for the first choice for seat_a to arrive
-    let mut choice_opt = None;
+    let mut pending_opt = None;
     for _ in 0..50 {
         if let Ok(ServerMessage::PendingChoice(msg)) = client_a.try_recv() {
-            choice_opt = Some(msg.choice);
+            pending_opt = Some((msg.nonce, msg.choice));
             break;
         }
         thread::sleep(Duration::from_millis(10));
     }
 
-    let choice = choice_opt.expect("seat_a should receive pending choice");
-    let nonce = choice.nonce.clone();
+    let (nonce, choice) = pending_opt.expect("seat_a should receive pending choice");
     let (pending_seat, pending_nonce, version) = session
         .current_pending_decision()
         .expect("active pending decision");
