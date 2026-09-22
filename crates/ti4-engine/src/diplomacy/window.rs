@@ -415,10 +415,14 @@ impl Window for DiplomacyWindow {
                 let id = self
                     .deal_id
                     .ok_or_else(|| failed(&choice.player, "negotiation has no deal"))?;
-                if offered.id == ACCEPT_ID {
-                    apply_acceptance(state, ctx, id, &choice.player)?;
+                // A deal that cannot settle when accepted (its transfers no longer legal) is void,
+                // like a decline: settlement checks everything before anything moves, so nothing
+                // has changed, and one bad deal must not end a game.
+                let accepted = offered.id == ACCEPT_ID
+                    && apply_acceptance(state, ctx, id, &choice.player).is_ok();
+                if accepted {
                     self.stage = DiplomacyStage::Done;
-                } else if offered.id == DECLINE_ID {
+                } else if offered.id == DECLINE_ID || offered.id == ACCEPT_ID {
                     let deal = state
                         .diplomacy
                         .active_deals

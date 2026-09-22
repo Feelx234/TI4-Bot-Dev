@@ -986,10 +986,12 @@ impl<'a> Game<'a> {
         if let Some((window, _)) = &self.voting {
             return window.pending_choice(&self.state, self.content, self.sources);
         }
-        if let Some(window) = &self.aftermath {
+        // An open contact comes first: one opened at the aftermath's negotiation pause must finish
+        // before the action moves on, or its deal is settled against a board that has changed.
+        if let Some(window) = &self.diplomacy {
             return window.pending_choice(&self.state, self.content, self.sources);
         }
-        if let Some(window) = &self.diplomacy {
+        if let Some(window) = &self.aftermath {
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if self.agenda_talks.is_some() {
@@ -1083,11 +1085,12 @@ impl<'a> Game<'a> {
         if self.voting.is_some() {
             return self.step_vote();
         }
-        if self.aftermath.is_some() {
-            return self.step_aftermath();
-        }
+        // Same precedence as `legal_options`: an open contact before the aftermath it paused.
         if self.diplomacy.is_some() {
             return self.step_diplomacy();
+        }
+        if self.aftermath.is_some() {
+            return self.step_aftermath();
         }
         if self.agenda_talks.is_some() {
             return self.step_agenda_talks();
@@ -5285,8 +5288,9 @@ mod tests {
             TACTICAL_ACTION_ID.to_owned(),
             ids[0].to_string(),
             "done_moving".to_owned(),
+            "component|diplomacy|seat|1".to_owned(),
+            crate::diplomacy::builder::CANCEL_ID.to_owned(),
             CONTINUE_ACTION_ID.to_owned(),
-            END_TURN_ID.to_owned(),
         ];
         let table = Table::with_default(Box::new(Scripted::new(script)));
         let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
@@ -5294,6 +5298,7 @@ mod tests {
         for _ in 0..20 {
             if let Some(choice) = game.legal_options()
                 && choice.ids().contains(&CONTINUE_ACTION_ID)
+                && !paused
             {
                 paused = true;
                 assert!(
