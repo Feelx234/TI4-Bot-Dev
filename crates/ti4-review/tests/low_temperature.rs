@@ -123,3 +123,54 @@ fn greedy_loop_probe() {
         eprintln!("{count:5}  {line}");
     }
 }
+
+/// Diagnostic: near-greedy, the option a seat takes must be the one its trace ranks first. A
+/// diplomacy decision traced on the wrong head showed "Decline p=1.0" beside an accept.
+#[test]
+#[ignore = "diagnostic; set TI4_LOW_TEMPERATURE_CHECKPOINT to an MLP bundle"]
+fn traced_choices_match_the_greedy_option() {
+    let root = workspace_root();
+    let checkpoint = std::env::var_os("TI4_LOW_TEMPERATURE_CHECKPOINT").map_or_else(
+        || root.join("examples/reviewer/checkpoint-473312/slots.json"),
+        PathBuf::from,
+    );
+    let config = SimulationConfig {
+        checkpoint,
+        map_pool: root.join("examples/reviewer/full_np8_12_holdout.json"),
+        seed: 12,
+        rotation: 0,
+        table: ProfileTable::Learner,
+        temperature: 0.01,
+        diplomacy: true,
+    };
+    let mut review = LiveReview::start(&config).expect("the table starts");
+    review.advance(ti4_review::AdvanceUnit::Step, 1500);
+    let (mut checked, mut diplomacy, mut mismatched) = (0, 0, Vec::new());
+    for frame in &review.session.frames {
+        for decision in &frame.decisions {
+            let Some(best) = decision
+                .options
+                .iter()
+                .filter_map(|option| option.probability.map(|p| (p, option.id.clone())))
+                .max_by(|a, b| a.0.total_cmp(&b.0))
+            else {
+                continue;
+            };
+            if best.0 < 0.999 || decision.path.contains("plan") {
+                continue; // no clear greedy choice, or a fleet plan answered
+            }
+            checked += 1;
+            if decision.resolved_head == "diplomacy" {
+                diplomacy += 1;
+            }
+            if decision.chosen.as_deref() != Some(best.1.as_str()) {
+                mismatched.push(format!(
+                    "{} [{}]: chose {:?}, trace ranks {} first ({:.3})",
+                    decision.prompt, decision.resolved_head, decision.chosen, best.1, best.0
+                ));
+            }
+        }
+    }
+    eprintln!("{checked} clear decisions checked, {diplomacy} on the diplomacy head");
+    assert!(mismatched.is_empty(), "{mismatched:#?}");
+}

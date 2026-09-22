@@ -635,7 +635,11 @@ impl Decider for MlpTraceBot {
                 values: vector.values().map(|value| *value as f32).collect(),
             })
             .collect();
-        let head = Actor::resolve_head(decision_head(choice));
+        // The head this actor's own layout carries, exactly as `MlpBot` resolves it. The static
+        // `Actor::resolve_head` knows only the original fourteen and folded every diplomacy
+        // decision to `other`, so the trace (and a manual seat's buttons) showed the wrong head's
+        // numbers: a decline at p=1.0 beside a bot that accepted.
+        let head = self.actor.resolve_layout_head(decision_head(choice));
         let scores = self.actor.logits(&sparse, head, self.row).ok();
         let probabilities = self
             .actor
