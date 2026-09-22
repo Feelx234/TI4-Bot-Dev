@@ -1114,6 +1114,8 @@ pub struct Adam {
     inner: crate::distill::Adam,
     mode: CriticMode,
     settings: Settings,
+    /// Per-parameter gradient masks; see [`Adam::restrict`].
+    masks: Option<Vec<Tensor>>,
 }
 
 impl Adam {
@@ -1156,6 +1158,7 @@ impl Adam {
             inner: crate::distill::Adam::new(optimizer_settings, &parameters),
             mode,
             settings,
+            masks: None,
         })
     }
 
@@ -1172,7 +1175,38 @@ impl Adam {
     /// If the actor's parameters cannot be gathered for this critic mode.
     pub fn step(&mut self, actor: &Actor) -> Result<(), String> {
         let mut parameters = parameters(actor, self.mode)?;
+        if let Some(masks) = &self.masks {
+            if masks.len() != parameters.len() {
+                return Err(format!(
+                    "{} gradient masks for {} parameters",
+                    masks.len(),
+                    parameters.len()
+                ));
+            }
+            for (parameter, mask) in parameters.iter().zip(masks) {
+                let gradient = parameter.grad();
+                if gradient.defined() {
+                    let mut gradient = gradient;
+                    let _ = gradient.g_mul_(mask);
+                }
+            }
+        }
         self.inner.step(&mut parameters, 1.0)
+    }
+
+    /// Train only where `masks` is one: each gradient is multiplied by its mask before every step.
+    ///
+    /// With weight decay at zero, a parameter whose gradient is masked out never moves: its Adam
+    /// moments stay zero. Refused otherwise, because decay would still shrink the frozen weights.
+    ///
+    /// # Errors
+    /// If this optimiser was opened with weight decay.
+    pub fn restrict(&mut self, masks: Vec<Tensor>) -> Result<(), String> {
+        if self.settings.weight_decay != 0.0 {
+            return Err("a restricted optimiser needs weight decay 0".to_owned());
+        }
+        self.masks = Some(masks);
+        Ok(())
     }
 
     /// Clear the gradients on every parameter this optimiser owns.

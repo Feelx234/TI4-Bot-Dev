@@ -7,6 +7,9 @@
 //! played by the policy on both sides, then scored with `ti4_training::trade_arena`: each seat's
 //! diplomacy decisions in it get that seat's score as their return. Nothing else is trained.
 //!
+//! Only the diplomacy head's readout and the input rows of the deal-value facts train
+//! (`Adam::restrict`): the first run trained everything and wrecked the rest of the game.
+//!
 //! Two bots share one actor per seat: a plain one plays the vehicle game, a recording one answers
 //! the negotiation, so only arena decisions are ever recorded. The critic is untouched (PPO runs in
 //! batch-mean mode); checkpoints keep the bundle's own value head.
@@ -15,7 +18,7 @@
 //! cargo run --release -p ti4-mlp --example trade_arena -- --bundle <dir> --out <dir> \
 //!     [--updates 200] [--games-per-update 24] [--temperature 1.0] [--learning-rate 1e-4] \
 //!     [--checkpoint-every 25] [--seed-base 1263000000] [--force 0.5] [--partner-bias 0.5] \
-//!     [--device cuda] [--no-checkpoint]
+//!     [--entropy 0.01] [--device cuda] [--no-checkpoint]
 //! ```
 
 use rand::{Rng, SeedableRng};
@@ -524,13 +527,37 @@ fn main() {
     );
     let content = ContentStore::embedded();
 
+    let entropy: f64 = parsed("--entropy", 0.01);
+    // Weight decay 0: the optimiser is restricted below, and decay would still move frozen weights.
     let settings = ti4_mlp::ppo::Settings {
         learning_rate,
+        entropy,
+        weight_decay: 0.0,
         ..ti4_mlp::ppo::Settings::default()
     };
     actor = actor.to_device(device);
     let mut optimizer = ti4_mlp::ppo::Adam::new(&mut actor, CriticMode::BatchMean, settings)
         .unwrap_or_else(|error| refuse(&format!("opening Adam: {error}")));
+    // Only the diplomacy head's readout and the deal-value fact rows train. Those rows appear only
+    // on diplomacy options and that head scores only diplomacy decisions, so nothing else the policy
+    // does can change (the first arena run trained the whole network and broke the rest of the game).
+    let rows: Vec<i64> = ti4_policy::deal_value::FACT_NAMES
+        .iter()
+        .map(|name| {
+            if !vocabulary.is_assigned(name) {
+                refuse(&format!(
+                    "the bundle's vocabulary does not place {name}; migrate it first"
+                ));
+            }
+            i64::try_from(vocabulary.column_of(name)).unwrap_or_default()
+        })
+        .collect();
+    let head = actor
+        .layout_head_index("diplomacy")
+        .unwrap_or_else(|error| refuse(&format!("diplomacy head: {error}")));
+    optimizer
+        .restrict(actor.head_and_rows_masks(i64::try_from(head).unwrap_or_default(), &rows))
+        .unwrap_or_else(|error| refuse(&error));
 
     println!("trade arena");
     println!("  bundle      {bundle_path}");
@@ -544,7 +571,10 @@ fn main() {
     println!(
         "  play        {games} games per update | temperature {temperature} | force {force} | partner bias {partner_bias}"
     );
-    println!("  seeds       {seed_base}.. | learning rate {learning_rate} | critic untouched\n");
+    println!(
+        "  training    diplomacy readout + deal-value rows only | entropy {entropy} | learning rate {learning_rate}"
+    );
+    println!("  seeds       {seed_base}.. | critic untouched\n");
 
     let workers = rayon::current_num_threads().max(1);
     for update in 0..updates {
