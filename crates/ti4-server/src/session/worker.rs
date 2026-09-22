@@ -68,6 +68,9 @@ pub struct SessionShared {
     pub pending_decision: Option<PendingDecision>,
     pub seat_inboxes: BTreeMap<PlayerId, mpsc::Sender<ChoiceSubmission>>,
     pub seat_tokens: BTreeMap<PlayerId, String>,
+    pub player_ids: Vec<PlayerId>,
+    pub seats: BTreeMap<PlayerId, SeatController>,
+    pub seed: Option<u64>,
     pub subscribers: BTreeMap<u64, Subscriber>,
     pub next_subscriber_id: u64,
     pub decision_log: Vec<DecisionRecord>,
@@ -91,6 +94,9 @@ impl SessionShared {
             pending_decision: None,
             seat_inboxes: BTreeMap::new(),
             seat_tokens: BTreeMap::new(),
+            player_ids: Vec::new(),
+            seats: BTreeMap::new(),
+            seed: None,
             subscribers: BTreeMap::new(),
             next_subscriber_id: 0,
             decision_log: Vec::new(),
@@ -316,6 +322,9 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
 
     let mut initial_shared = SessionShared::new(config.game_id.clone(), config.state.clone());
     initial_shared.seat_tokens.clone_from(&config.seat_tokens);
+    initial_shared.player_ids.clone_from(&config.player_ids);
+    initial_shared.seats.clone_from(&config.seats);
+    initial_shared.seed = config.seed;
     initial_shared.map_tiles.clone_from(&config.map_tiles);
     initial_shared.store.clone_from(&config.store);
 

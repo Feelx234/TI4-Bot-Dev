@@ -9,6 +9,39 @@ export type ViewerRole =
   | { role: 'player'; seat: string; seatToken?: string }
   | { role: 'spectator' };
 
+export type LobbyController = 'human' | 'bot';
+export type LobbyPhase = 'lobby' | 'running';
+
+export interface LobbyRosterEntry {
+  seat: string;
+  controller: LobbyController;
+  ready: boolean;
+  available: boolean;
+}
+
+export interface LobbyViewer {
+  role: 'player';
+  seat: string;
+}
+
+export interface LobbyDto {
+  game_id: string;
+  phase: LobbyPhase;
+  lobby_version: number;
+  host_seat: string;
+  roster: LobbyRosterEntry[];
+  viewer?: LobbyViewer;
+  can_start: boolean;
+}
+
+export interface CreateGameResponse {
+  game_id: string;
+  creator_token: string;
+  lobby: LobbyDto;
+}
+
+export interface ClaimSeatResponse { credential: string; lobby: LobbyDto; }
+
 export type PublicTurnStatus =
   | { kind: 'active_turn'; player: string; phase: string; round: number }
   | { kind: 'waiting_for_decision'; seat: string; phase: string; round: number; stage: string }

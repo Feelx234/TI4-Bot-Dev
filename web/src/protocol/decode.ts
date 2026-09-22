@@ -1,4 +1,4 @@
-import { InitialSnapshotMsg, PROTOCOL_VERSION, ServerMessage } from './types.ts';
+import { ClaimSeatResponse, CreateGameResponse, InitialSnapshotMsg, LobbyDto, PROTOCOL_VERSION, ServerMessage } from './types.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -10,6 +10,36 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function fail(message: string): never {
   throw new Error(`Invalid server message: ${message}`);
+}
+
+function isSeat(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 64;
+}
+
+export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
+  if (!isRecord(value) || value.game_id !== expectedGameId) fail('invalid lobby game id');
+  if (value.phase !== 'lobby' && value.phase !== 'running') fail('invalid lobby phase');
+  if (!isNonNegativeInteger(value.lobby_version) || !isSeat(value.host_seat) || typeof value.can_start !== 'boolean') fail('invalid lobby metadata');
+  if (!Array.isArray(value.roster) || value.roster.length < 2 || value.roster.length > 8) fail('invalid lobby roster');
+  const seats = new Set<string>();
+  for (const entry of value.roster) {
+    if (!isRecord(entry) || !isSeat(entry.seat) || (entry.controller !== 'human' && entry.controller !== 'bot') || typeof entry.ready !== 'boolean' || typeof entry.available !== 'boolean' || seats.has(entry.seat)) fail('invalid lobby roster entry');
+    seats.add(entry.seat);
+  }
+  if (!seats.has(value.host_seat)) fail('unknown lobby host');
+  if (value.viewer !== undefined && value.viewer !== null && (!isRecord(value.viewer) || value.viewer.role !== 'player' || !isSeat(value.viewer.seat) || !seats.has(value.viewer.seat))) fail('invalid lobby viewer');
+  return { ...value, viewer: value.viewer ?? undefined } as unknown as LobbyDto;
+}
+
+export function decodeCreateGameResponse(value: unknown): CreateGameResponse {
+  if (!isRecord(value) || !isSeat(value.game_id) || typeof value.creator_token !== 'string' || value.creator_token.length === 0) fail('invalid game creation response');
+  const lobby = decodeLobby(value.lobby, value.game_id);
+  return { game_id: value.game_id, creator_token: value.creator_token, lobby };
+}
+
+export function decodeClaimSeatResponse(value: unknown, expectedGameId: string): ClaimSeatResponse {
+  if (!isRecord(value) || typeof value.credential !== 'string' || value.credential.length === 0) fail('invalid seat claim response');
+  return { credential: value.credential, lobby: decodeLobby(value.lobby, expectedGameId) };
 }
 
 /** Validates the protocol envelope before React consumes any network payload. */

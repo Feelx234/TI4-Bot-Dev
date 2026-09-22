@@ -72,6 +72,9 @@ npx playwright test
 
 # Headed run (visible browser windows):
 npx playwright test --headed
+
+# Server startup diagnostics:
+DEBUG=pw:webserver npx playwright test --reporter=line
 ```
 
 ---

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GameSessionClient, GameSessionState, reduceServerMessage } from './client.ts';
-import { decodeServerMessage } from './decode.ts';
+import { decodeLobby, decodeServerMessage } from './decode.ts';
 import { InitialSnapshotMsg, PROTOCOL_VERSION } from './types.ts';
 
 const snapshot: InitialSnapshotMsg = {
@@ -63,6 +63,18 @@ describe('GameSessionClient reducer', () => {
   });
 });
 
+describe('lobby decoding', () => {
+  it('normalizes the Rust optional spectator viewer from null to absent', () => {
+    const lobby = decodeLobby({
+      game_id: 'game_12345', phase: 'running', lobby_version: 1, host_seat: 'seat_a',
+      roster: [{ seat: 'seat_a', controller: 'human', ready: true, available: false }, { seat: 'seat_b', controller: 'bot', ready: true, available: false }],
+      viewer: null, can_start: false,
+    }, 'game_12345');
+
+    expect(lobby.viewer).toBeUndefined();
+  });
+});
+
 class FakeWebSocket {
   static CONNECTING = 0;
   static OPEN = 1;
@@ -99,6 +111,7 @@ describe('GameSessionClient ingress lifecycle', () => {
     client.stop();
 
     expect(client.getState().snapshot?.type).toBe('initial_snapshot');
+    expect(client.getState().lastError).toBeNull();
     expect(FakeWebSocket.latest?.readyState).toBe(3);
   });
 });

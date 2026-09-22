@@ -26,7 +26,7 @@ pub async fn ws_handler(
     if let Some(session) = registry.get_game(&game_id) {
         ws.max_frame_size(MAX_CLIENT_MESSAGE_BYTES)
             .max_message_size(MAX_CLIENT_MESSAGE_BYTES)
-            .on_upgrade(move |socket| handle_socket(socket, game_id, session))
+            .on_upgrade(move |socket| handle_socket(socket, game_id, session, registry))
             .into_response()
     } else {
         (StatusCode::NOT_FOUND, format!("Game '{game_id}' not found")).into_response()
@@ -39,7 +39,12 @@ const OUTBOUND_QUEUE_CAPACITY: usize = 128;
 pub const MAX_CLIENT_MESSAGE_BYTES: usize = 4 * 1024;
 
 #[allow(clippy::too_many_lines)]
-async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSession>) {
+async fn handle_socket(
+    socket: WebSocket,
+    game_id: String,
+    session: Arc<GameSession>,
+    registry: Arc<GameRegistry>,
+) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     // Bounded outbound channel for messages destined for this client
@@ -62,6 +67,7 @@ async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSess
     });
 
     let mut current_role: Option<ViewerRole> = None;
+    let mut current_token: Option<String> = None;
 
     // Inbound processing loop
     while let Some(msg_result) = ws_receiver.next().await {
@@ -135,6 +141,11 @@ async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSess
 
         match client_msg {
             ClientMessage::Ping { sequence, .. } => {
+                if let Some(token) = &current_token {
+                    if registry.authenticate_and_renew(&game_id, token).is_err() {
+                        break;
+                    }
+                }
                 let _ = outbound_tx
                     .send(ServerMessage::Pong(PongMsg {
                         protocol_version: PROTOCOL_VERSION,
@@ -171,8 +182,9 @@ async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSess
                 }
                 let role = match seat_token {
                     Some(token) => {
-                        if let Some(role) = session.viewer_for_seat_token(&token) {
-                            role
+                        if let Ok(seat) = registry.authenticate_and_renew(&game_id, &token) {
+                            current_token = Some(token);
+                            ViewerRole::Player(seat)
                         } else {
                             let _ = outbound_tx
                                 .send(ServerMessage::Error(ProtocolErrorMsg {
@@ -227,6 +239,24 @@ async fn handle_socket(socket: WebSocket, game_id: String, session: Arc<GameSess
                 }
                 match &current_role {
                     Some(ViewerRole::Player(acting_seat)) => {
+                        if current_token
+                            .as_deref()
+                            .and_then(|token| registry.authenticate_and_renew(&game_id, token).ok())
+                            .as_ref()
+                            != Some(acting_seat)
+                        {
+                            let _ = outbound_tx
+                                .send(ServerMessage::ActionRejected(ActionRejectedMsg {
+                                    protocol_version: PROTOCOL_VERSION,
+                                    game_id: game_id.clone(),
+                                    game_version: expected_version,
+                                    reason: RejectionReason::UnauthorizedSeat {
+                                        seat: Some(acting_seat.clone()),
+                                    },
+                                }))
+                                .await;
+                            continue;
+                        }
                         let res = session.submit_choice(
                             acting_seat,
                             &nonce,

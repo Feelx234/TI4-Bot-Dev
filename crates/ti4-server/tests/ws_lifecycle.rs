@@ -98,6 +98,70 @@ where
     panic!("Stream ended without StateUpdate");
 }
 
+async fn ready_and_start(client: &reqwest::Client, addr: &str, game_id: &str, tokens: &[&str]) {
+    for token in tokens {
+        let response = client
+            .post(format!("http://{addr}/api/games/{game_id}/lobby/ready"))
+            .header("x-ti4-seat-token", *token)
+            .json(&serde_json::json!({ "ready": true }))
+            .send()
+            .await
+            .expect("ready seat");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+    let response = client
+        .post(format!("http://{addr}/api/games/{game_id}/lobby/start"))
+        .header("x-ti4-seat-token", tokens[0])
+        .send()
+        .await
+        .expect("start lobby");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+}
+
+async fn create_game(
+    client: &reqwest::Client,
+    addr: &str,
+    players: &[&str],
+    bot_seats: &[&str],
+    seed: u64,
+) -> (String, String) {
+    let response = client
+        .post(format!("http://{addr}/api/games"))
+        .json(&serde_json::json!({ "players": players, "bot_seats": bot_seats, "seed": seed }))
+        .send()
+        .await
+        .expect("create game");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let created: serde_json::Value = response.json().await.expect("created game body");
+    (
+        created["game_id"]
+            .as_str()
+            .expect("generated game ID")
+            .to_owned(),
+        created["creator_token"]
+            .as_str()
+            .expect("creator credential")
+            .to_owned(),
+    )
+}
+
+async fn claim_seat(client: &reqwest::Client, addr: &str, game_id: &str, seat: &str) -> String {
+    let response = client
+        .post(format!("http://{addr}/api/games/{game_id}/lobby/claim"))
+        .json(&serde_json::json!({ "seat": seat }))
+        .send()
+        .await
+        .expect("claim seat");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    response
+        .json::<serde_json::Value>()
+        .await
+        .expect("claim response")["credential"]
+        .as_str()
+        .expect("claimed credential")
+        .to_owned()
+}
+
 #[tokio::test]
 async fn http_health_and_games_crud() {
     let (addr, _) = spawn_test_server().await;
@@ -115,27 +179,12 @@ async fn http_health_and_games_crud() {
     assert_eq!(body["protocol_version"], PROTOCOL_VERSION);
 
     // 2. POST /api/games -> create a game
-    let create_body = serde_json::json!({
-        "game_id": "game_http_crud",
-        "players": ["p1", "p2", "p3"],
-        "seed": 42,
-        "bot_seats": ["p3"]
-    });
-    let res = client
-        .post(format!("http://{addr}/api/games"))
-        .json(&create_body)
-        .send()
-        .await
-        .expect("post games");
-    assert_eq!(res.status(), reqwest::StatusCode::OK);
-    let created: serde_json::Value = res.json().await.expect("parse created game");
-    let p1_token = created["seat_tokens"]["p1"]
-        .as_str()
-        .expect("p1 seat capability");
+    let (game_id, p1_token) = create_game(&client, &addr, &["p1", "p2", "p3"], &["p3"], 42).await;
+    let p2_token = claim_seat(&client, &addr, &game_id, "p2").await;
 
     let res = client
         .post(format!("http://{addr}/api/games"))
-        .json(&serde_json::json!({ "game_id": "../escaped", "players": ["p1", "p2", "p3"] }))
+        .json(&serde_json::json!({ "players": ["p2", "p1", "p3"] }))
         .send()
         .await
         .expect("post invalid game id");
@@ -144,7 +193,10 @@ async fn http_health_and_games_crud() {
     let res = client
         .post(format!("http://{addr}/api/games"))
         .header("content-type", "application/json")
-        .body(format!("{{\"game_id\":\"{}\"}}", "x".repeat(9 * 1024)))
+        .body(format!(
+            "{{\"players\":[\"p1\",\"p2\"],\"padding\":\"{}\"}}",
+            "x".repeat(9 * 1024)
+        ))
         .send()
         .await
         .expect("post oversized request");
@@ -158,22 +210,24 @@ async fn http_health_and_games_crud() {
         .expect("get games");
     assert_eq!(res.status(), reqwest::StatusCode::OK);
     let games: Vec<serde_json::Value> = res.json().await.expect("parse games list");
-    assert!(games.iter().any(|g| g["game_id"] == "game_http_crud"));
+    assert!(games.iter().any(|g| g["game_id"] == game_id));
+    ready_and_start(&client, &addr, &game_id, &[&p1_token, &p2_token]).await;
 
     // 4. GET /api/games/game_http_crud/snapshot with an unguessable seat capability.
     let res = client
-        .get(format!("http://{addr}/api/games/game_http_crud/snapshot"))
-        .header("x-ti4-seat-token", p1_token)
+        .get(format!("http://{addr}/api/games/{game_id}/snapshot"))
+        .header("x-ti4-seat-token", &p1_token)
         .send()
         .await
         .expect("get snapshot p1");
     assert_eq!(res.status(), reqwest::StatusCode::OK);
     let snapshot: serde_json::Value = res.json().await.expect("parse snapshot");
-    assert_eq!(snapshot["game_id"], "game_http_crud");
+    assert_eq!(snapshot["type"], "initial_snapshot");
+    assert_eq!(snapshot["game_id"], game_id);
     assert_eq!(snapshot["viewer"]["role"], "player");
 
     let res = client
-        .get(format!("http://{addr}/api/games/game_http_crud/snapshot"))
+        .get(format!("http://{addr}/api/games/{game_id}/snapshot"))
         .header("x-ti4-seat-token", "p1")
         .send()
         .await
@@ -182,12 +236,13 @@ async fn http_health_and_games_crud() {
 
     // 5. GET /api/games/game_http_crud/snapshot (spectator)
     let res = client
-        .get(format!("http://{addr}/api/games/game_http_crud/snapshot"))
+        .get(format!("http://{addr}/api/games/{game_id}/snapshot"))
         .send()
         .await
         .expect("get snapshot spectator");
     assert_eq!(res.status(), reqwest::StatusCode::OK);
     let snapshot: serde_json::Value = res.json().await.expect("parse spectator snapshot");
+    assert_eq!(snapshot["type"], "initial_snapshot");
     assert_eq!(snapshot["viewer"]["role"], "spectator");
 }
 
@@ -197,30 +252,12 @@ async fn websocket_full_lifecycle_and_rejections() {
     let client = reqwest::Client::new();
 
     // Create a game first
-    let create_body = serde_json::json!({
-        "game_id": "game_ws_test",
-        "players": ["p1", "p2", "p3"],
-        "seed": 100,
-        "bot_seats": ["p3"]
-    });
-    let res = client
-        .post(format!("http://{addr}/api/games"))
-        .json(&create_body)
-        .send()
-        .await
-        .expect("post games");
-    let created: serde_json::Value = res.json().await.expect("parse created game");
-    let p1_token = created["seat_tokens"]["p1"]
-        .as_str()
-        .expect("p1 seat capability")
-        .to_owned();
-    let p2_token = created["seat_tokens"]["p2"]
-        .as_str()
-        .expect("p2 seat capability")
-        .to_owned();
+    let (game_id, p1_token) = create_game(&client, &addr, &["p1", "p2", "p3"], &["p3"], 100).await;
+    let p2_token = claim_seat(&client, &addr, &game_id, "p2").await;
+    ready_and_start(&client, &addr, &game_id, &[&p1_token, &p2_token]).await;
 
     // Connect WebSocket
-    let ws_url = format!("ws://{addr}/ws/games/game_ws_test");
+    let ws_url = format!("ws://{addr}/ws/games/{game_id}");
     let (mut ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
         .await
         .expect("connect ws");
@@ -254,7 +291,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     // 2. Subscribe as Player p1
     let sub_msg = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
-        game_id: "game_ws_test".to_owned(),
+        game_id: game_id.clone(),
         seat_token: Some(p1_token),
     };
     ws_stream
@@ -283,7 +320,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     // A connection is bound to its first authorized viewer and cannot collect another seat feed.
     let second_subscribe = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
-        game_id: "game_ws_test".to_owned(),
+        game_id: game_id.clone(),
         seat_token: Some(p2_token),
     };
     ws_stream
@@ -345,7 +382,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     // 4. Stale nonce rejection over WS
     let bad_nonce_msg = ClientMessage::SubmitChoice {
         protocol_version: PROTOCOL_VERSION,
-        game_id: "game_ws_test".to_owned(),
+        game_id: game_id.clone(),
         nonce: "bad_nonce_123".to_owned(),
         expected_version,
         option_id: option_id.clone(),
@@ -363,7 +400,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     // 5. Stale version rejection over WS
     let bad_ver_msg = ClientMessage::SubmitChoice {
         protocol_version: PROTOCOL_VERSION,
-        game_id: "game_ws_test".to_owned(),
+        game_id: game_id.clone(),
         nonce: nonce.clone(),
         expected_version: expected_version + 999,
         option_id: option_id.clone(),
@@ -387,7 +424,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     // 6. Valid submission over WS
     let valid_msg = ClientMessage::SubmitChoice {
         protocol_version: PROTOCOL_VERSION,
-        game_id: "game_ws_test".to_owned(),
+        game_id: game_id.clone(),
         nonce,
         expected_version,
         option_id,
@@ -400,11 +437,11 @@ async fn websocket_full_lifecycle_and_rejections() {
         .expect("send valid choice");
 
     let accepted = wait_for_accepted(&mut ws_stream).await;
-    assert_eq!(accepted.game_id, "game_ws_test");
+    assert_eq!(accepted.game_id, game_id);
 
     // Following action acceptance, server emits state update
     let update = wait_for_state_update(&mut ws_stream).await;
-    assert_eq!(update.game_id, "game_ws_test");
+    assert_eq!(update.game_id, game_id);
     assert!(update.game_version > expected_version);
 }
 
@@ -413,33 +450,19 @@ async fn spectator_role_isolation_and_reconnection() {
     let (addr, _) = spawn_test_server().await;
     let client = reqwest::Client::new();
 
-    let create_body = serde_json::json!({
-        "game_id": "game_spectator_test",
-        "players": ["p1", "p2", "p3"],
-        "seed": 200,
-        "bot_seats": ["p2", "p3"]
-    });
-    let res = client
-        .post(format!("http://{addr}/api/games"))
-        .json(&create_body)
-        .send()
-        .await
-        .expect("post games");
-    let created: serde_json::Value = res.json().await.expect("parse created game");
-    let p1_token = created["seat_tokens"]["p1"]
-        .as_str()
-        .expect("p1 seat capability")
-        .to_owned();
+    let (game_id, p1_token) =
+        create_game(&client, &addr, &["p1", "p2", "p3"], &["p2", "p3"], 200).await;
+    ready_and_start(&client, &addr, &game_id, &[&p1_token]).await;
 
     // 1. Connect Spectator
-    let ws_url = format!("ws://{addr}/ws/games/game_spectator_test");
+    let ws_url = format!("ws://{addr}/ws/games/{game_id}");
     let (mut spec_stream, _) = tokio_tungstenite::connect_async(&ws_url)
         .await
         .expect("connect spectator");
 
     let sub_spec = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
-        game_id: "game_spectator_test".to_owned(),
+        game_id: game_id.clone(),
         seat_token: None, // Spectator
     };
     spec_stream
@@ -479,7 +502,7 @@ async fn spectator_role_isolation_and_reconnection() {
     // 2. Spectator submitting a choice is rejected as UnauthorizedSeat
     let illegal_choice = ClientMessage::SubmitChoice {
         protocol_version: PROTOCOL_VERSION,
-        game_id: "game_spectator_test".to_owned(),
+        game_id: game_id.clone(),
         nonce: "some_nonce".to_owned(),
         expected_version: spec_snapshot.game_version,
         option_id: "any_opt".to_owned(),
@@ -504,7 +527,7 @@ async fn spectator_role_isolation_and_reconnection() {
 
     let sub_reconnect = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
-        game_id: "game_spectator_test".to_owned(),
+        game_id: game_id.clone(),
         seat_token: Some(p1_token),
     };
     reconnected_stream
@@ -535,16 +558,12 @@ async fn spectator_role_isolation_and_reconnection() {
 async fn websocket_rejects_oversized_messages_before_deserialization() {
     let (addr, _) = spawn_test_server().await;
     let client = reqwest::Client::new();
-    let res = client
-        .post(format!("http://{addr}/api/games"))
-        .json(&serde_json::json!({ "game_id": "game_size_test", "players": ["p1", "p2", "p3"] }))
-        .send()
-        .await
-        .expect("create game");
-    assert_eq!(res.status(), reqwest::StatusCode::OK);
+    let (game_id, p1_token) =
+        create_game(&client, &addr, &["p1", "p2", "p3"], &["p2", "p3"], 1).await;
+    ready_and_start(&client, &addr, &game_id, &[&p1_token]).await;
 
     let (mut stream, _) =
-        tokio_tungstenite::connect_async(format!("ws://{addr}/ws/games/game_size_test"))
+        tokio_tungstenite::connect_async(format!("ws://{addr}/ws/games/{game_id}"))
             .await
             .expect("connect ws");
     stream

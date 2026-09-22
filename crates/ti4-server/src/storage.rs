@@ -93,6 +93,36 @@ pub struct GameInitRecord {
     pub map_tiles: Vec<BoardTileView>,
 }
 
+/// Persisted lifecycle state for a game that has not yet entered the engine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersistedLobbyPhase {
+    Lobby,
+    Running,
+}
+
+/// Persisted configuration for one lobby seat.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedLobbySeat {
+    pub controller: SeatController,
+    pub ready: bool,
+    pub seat_token: Option<String>,
+    #[serde(default)]
+    pub lease_expires_at_ms: Option<u64>,
+}
+
+/// Durable pre-game metadata. Engine state is intentionally absent until start succeeds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LobbyRecord {
+    pub game_id: String,
+    pub phase: PersistedLobbyPhase,
+    pub host_seat: PlayerId,
+    pub player_ids: Vec<PlayerId>,
+    pub seats: BTreeMap<PlayerId, PersistedLobbySeat>,
+    pub seed: u64,
+    pub lobby_version: u64,
+}
+
 /// Durable file-based game storage manager.
 #[derive(Debug, Clone)]
 pub struct FileGameStore {
@@ -128,6 +158,27 @@ impl FileGameStore {
         let path = dir.join("init.json");
         atomic_write_json(&path, record)?;
         Ok(())
+    }
+
+    /// Saves lobby metadata atomically before a game session exists.
+    pub fn save_lobby(&self, record: &LobbyRecord) -> Result<(), StorageError> {
+        let dir = self.game_dir(&record.game_id)?;
+        fs::create_dir_all(&dir)?;
+        atomic_write_json(&dir.join("lobby.json"), record)?;
+        Ok(())
+    }
+
+    /// Loads durable lobby metadata when present.
+    pub fn load_lobby(&self, game_id: &str) -> Result<Option<LobbyRecord>, StorageError> {
+        let path = self.game_dir(game_id)?.join("lobby.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let record: LobbyRecord = read_json_file(&path, MAX_INIT_BYTES)?;
+        if record.game_id != game_id {
+            return Err(StorageError::IdentityMismatch { field: "game_id" });
+        }
+        Ok(Some(record))
     }
 
     /// Appends an accepted decision record to `decisions.jsonl` with fsync.
@@ -242,6 +293,22 @@ impl FileGameStore {
                     if let Some(s) = name.to_str() {
                         games.push(s.to_owned());
                     }
+                }
+            }
+        }
+        games.sort();
+        Ok(games)
+    }
+
+    /// Lists lobby IDs, including lobbies that have subsequently started.
+    pub fn list_saved_lobbies(&self) -> Result<Vec<String>, StorageError> {
+        let mut games = Vec::new();
+        for entry in fs::read_dir(&self.base_dir)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() && entry.path().join("lobby.json").exists() {
+                let name = entry.file_name();
+                if let Some(s) = name.to_str() {
+                    games.push(s.to_owned());
                 }
             }
         }

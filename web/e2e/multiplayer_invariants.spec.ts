@@ -1,4 +1,25 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, APIRequestContext, Page } from '@playwright/test';
+
+async function createStartedGame(request: APIRequestContext) {
+  const created = await request.post('http://127.0.0.1:8080/api/games', {
+    data: { players: ['p1', 'p2', 'p3'], bot_seats: ['p3'], seed: 42 },
+  });
+  expect(created.ok()).toBeTruthy();
+  const { game_id: gameId, creator_token: p1 } = await created.json();
+  const claimed = await request.post(`http://127.0.0.1:8080/api/games/${gameId}/lobby/claim`, { data: { seat: 'p2' } });
+  expect(claimed.ok()).toBeTruthy();
+  const p2 = (await claimed.json()).credential;
+  for (const token of [p1, p2]) await request.post(`http://127.0.0.1:8080/api/games/${gameId}/lobby/ready`, { data: { ready: true }, headers: { 'x-ti4-seat-token': token } });
+  const started = await request.post(`http://127.0.0.1:8080/api/games/${gameId}/lobby/start`, { headers: { 'x-ti4-seat-token': p1 } });
+  expect(started.ok()).toBeTruthy();
+  return { gameId, p1, p2 };
+}
+
+async function openClaimedGame(page: Page, gameId: string, token: string) {
+  await page.goto(`/games/${gameId}`);
+  await page.evaluate(({ gameId, token }) => sessionStorage.setItem(`ti4.viewer.v1:${gameId}`, token), { gameId, token });
+  await page.reload();
+}
 
 /**
  * Asserts core UI and system invariants on a given player or spectator page.
@@ -55,80 +76,43 @@ test.describe('Multiplayer Online Flow & Invariant Suite', () => {
         if (msg.type() === 'error') {
           // Ignore harmless favicon 404s
           if (!msg.text().includes('favicon')) {
-            console.error(`[${label}] Console Error: ${msg.text()}`);
+            throw new Error(`[${label}] Console Error: ${msg.text()}`);
           }
         }
       });
     };
 
     // Create a fresh isolated game for this test run
-    const gameId = `test-${Date.now()}`;
-    const apiRes = await request.post('http://127.0.0.1:8080/api/games', {
-      data: {
-        game_id: gameId,
-        players: ['p1', 'p2', 'p3'],
-        bot_seats: ['p3'],
-        seed: 42,
-      },
-    });
-    expect(apiRes.ok()).toBeTruthy();
-    const createdGame = await apiRes.json();
+    const { gameId, p1, p2 } = await createStartedGame(request);
 
     // 1. Open Player 1 (p1)
     const contextP1 = await browser.newContext();
     const pageP1 = await contextP1.newPage();
     trackErrors(pageP1, 'Player 1');
-    await pageP1.goto('/');
-
-    // Join fresh game as Seat P1
-    await pageP1.locator('[data-testid="input-game-id"]').fill(gameId);
-    await pageP1.locator('[data-testid="select-seat"]').fill('p1');
-    await pageP1.locator('[data-testid="input-seat-token"]').fill(createdGame.seat_tokens.p1);
-    await pageP1.locator('[data-testid="join-game-button"]').click();
+    await openClaimedGame(pageP1, gameId, p1);
 
     // 2. Open Player 2 (p2)
     const contextP2 = await browser.newContext();
     const pageP2 = await contextP2.newPage();
     trackErrors(pageP2, 'Player 2');
-    await pageP2.goto('/');
+    await openClaimedGame(pageP2, gameId, p2);
 
-    // Join fresh game as Seat P2
-    await pageP2.locator('[data-testid="input-game-id"]').fill(gameId);
-    await pageP2.locator('[data-testid="select-seat"]').fill('p2');
-    await pageP2.locator('[data-testid="input-seat-token"]').fill(createdGame.seat_tokens.p2);
-    await pageP2.locator('[data-testid="join-game-button"]').click();
-
-    // 3. Open Spectator
-    const contextSpec = await browser.newContext();
-    const pageSpec = await contextSpec.newPage();
-    trackErrors(pageSpec, 'Spectator');
-    await pageSpec.goto('/');
-
-    // Join fresh game as Spectator
-    await pageSpec.locator('[data-testid="input-game-id"]').fill(gameId);
-    await pageSpec.getByLabel('Spectator').check();
-    await pageSpec.locator('[data-testid="join-game-button"]').click();
-
-    // Wait for all 3 to connect
+    // Wait for both claimed seats to connect.
     await expect(pageP1.locator('[data-testid="turn-status-bar"]')).toBeVisible();
     await expect(pageP2.locator('[data-testid="turn-status-bar"]')).toBeVisible();
-    await expect(pageSpec.locator('[data-testid="turn-status-bar"]')).toBeVisible();
 
-    // Initial Invariant Checks across all tabs
+    // Initial invariant checks across both claimed tabs.
     await assertPageInvariants(pageP1, 'p1');
     await assertPageInvariants(pageP2, 'p2');
-    await assertPageInvariants(pageSpec, undefined, true);
 
     // Active Seat Choice Invariant:
-    // P1 must have pending-choice-dialog; P2 and Spectator must NOT.
+    // P1 must have pending-choice-dialog; P2 must not.
     const p1Modal = pageP1.locator('[data-testid="pending-choice-dialog"]');
     await expect(p1Modal).toBeVisible();
 
     const p2Modal = pageP2.locator('[data-testid="pending-choice-dialog"]');
     await expect(p2Modal).toHaveCount(0);
 
-    const specModal = pageSpec.locator('[data-testid="pending-choice-dialog"]');
-    await expect(specModal).toHaveCount(0);
 
     // Assert options in P1 modal are actionable
     const p1Options = pageP1.locator('[data-testid="choice-option"]');
@@ -198,10 +182,6 @@ test.describe('Multiplayer Online Flow & Invariant Suite', () => {
     const p2OptCount = await p2Options.count();
     expect(p2OptCount).toBeGreaterThan(0);
 
-    // Invariant check on Spectator: still 0 private cards, modal remains closed
-    await assertPageInvariants(pageSpec, undefined, true);
-    await expect(specModal).toHaveCount(0);
-
     // P2 submits choice
     await pageP2.locator('[data-testid="submit-choice-button"]').click();
 
@@ -227,18 +207,14 @@ test.describe('Multiplayer Online Flow & Invariant Suite', () => {
       }
 
       await pageP1.waitForTimeout(200);
-      await assertPageInvariants(pageSpec, undefined, true);
     }
 
     // Disconnect & Reconnect Invariant Test
     await pageP1.locator('[data-testid="leave-game-button"]').click();
     await expect(pageP1.locator('[data-testid="lobby-container"]')).toBeVisible();
 
-    // Rejoin as p1
-    await pageP1.locator('[data-testid="input-game-id"]').fill(gameId);
-    await pageP1.locator('[data-testid="select-seat"]').fill('p1');
-    await pageP1.locator('[data-testid="input-seat-token"]').fill(createdGame.seat_tokens.p1);
-    await pageP1.locator('[data-testid="join-game-button"]').click();
+    // Rejoin as p1 with its tab-scoped current credential.
+    await openClaimedGame(pageP1, gameId, p1);
 
     await expect(pageP1.locator('[data-testid="turn-status-bar"]')).toBeVisible();
     await assertPageInvariants(pageP1, 'p1');

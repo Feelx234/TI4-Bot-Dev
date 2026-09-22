@@ -169,7 +169,6 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     let create_res = client
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
-            "game_id": "game_http_snapshot_test",
             "players": ["p1", "p2", "p3"],
             "seed": 12345
         }))
@@ -178,13 +177,50 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
         .expect("create game request");
     assert_eq!(create_res.status(), reqwest::StatusCode::OK);
 
-    let session = registry
-        .get_game("game_http_snapshot_test")
-        .expect("session exists");
-    let p1_token = session
-        .seat_tokens()
-        .remove(&PlayerId::new("p1"))
-        .expect("p1 seat capability");
+    let created: serde_json::Value = create_res.json().await.expect("parse created lobby");
+    let game_id = created["game_id"].as_str().expect("generated game ID");
+    let p1_token = created["creator_token"]
+        .as_str()
+        .expect("p1 capability")
+        .to_owned();
+    let mut credentials = vec![p1_token.clone()];
+    for seat in ["p2", "p3"] {
+        let claimed = client
+            .post(format!("{base_url}/api/games/{game_id}/lobby/claim"))
+            .json(&serde_json::json!({ "seat": seat }))
+            .send()
+            .await
+            .expect("claim player");
+        assert_eq!(claimed.status(), reqwest::StatusCode::OK);
+        credentials.push(
+            claimed
+                .json::<serde_json::Value>()
+                .await
+                .expect("claim response")["credential"]
+                .as_str()
+                .expect("claimed credential")
+                .to_owned(),
+        );
+    }
+    for token in &credentials {
+        let ready = client
+            .post(format!("{base_url}/api/games/{game_id}/lobby/ready"))
+            .header("x-ti4-seat-token", token)
+            .json(&serde_json::json!({ "ready": true }))
+            .send()
+            .await
+            .expect("ready player");
+        assert_eq!(ready.status(), reqwest::StatusCode::OK);
+    }
+    let started = client
+        .post(format!("{base_url}/api/games/{game_id}/lobby/start"))
+        .header("x-ti4-seat-token", &p1_token)
+        .send()
+        .await
+        .expect("start lobby");
+    assert_eq!(started.status(), reqwest::StatusCode::OK);
+
+    let session = registry.get_game(game_id).expect("session exists");
 
     // 2. Wait for initial pending decision to be raised by worker thread
     let mut decision = session.current_pending_decision();
@@ -199,18 +235,22 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     assert_eq!(p1_seat, PlayerId::new("p1"));
 
     let snap_res = client
-        .get(format!(
-            "{base_url}/api/games/game_http_snapshot_test/snapshot"
-        ))
+        .get(format!("{base_url}/api/games/{game_id}/snapshot"))
         .header("x-ti4-seat-token", &p1_token)
         .send()
         .await
         .expect("fetch snapshot");
     assert_eq!(snap_res.status(), reqwest::StatusCode::OK);
 
-    let snapshot: ti4_server::protocol::server::InitialSnapshotMsg =
-        snap_res.json().await.expect("deserialize snapshot");
-    assert_eq!(snapshot.game_id, "game_http_snapshot_test");
+    let snapshot = match snap_res
+        .json::<ti4_server::protocol::server::ServerMessage>()
+        .await
+        .expect("deserialize snapshot")
+    {
+        ti4_server::protocol::server::ServerMessage::InitialSnapshot(snapshot) => snapshot,
+        message => panic!("expected initial snapshot, got {message:?}"),
+    };
+    assert_eq!(snapshot.game_id, game_id);
     assert!(
         !snapshot.events.is_empty(),
         "Expected initial events in snapshot"
@@ -240,19 +280,21 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
 
     // 4. Reconnecting client fetches snapshot via HTTP
     let reconnect_res = client
-        .get(format!(
-            "{base_url}/api/games/game_http_snapshot_test/snapshot"
-        ))
+        .get(format!("{base_url}/api/games/{game_id}/snapshot"))
         .header("x-ti4-seat-token", &p1_token)
         .send()
         .await
         .expect("fetch reconnect snapshot");
     assert_eq!(reconnect_res.status(), reqwest::StatusCode::OK);
 
-    let reconnect_snap: ti4_server::protocol::server::InitialSnapshotMsg = reconnect_res
-        .json()
+    let reconnect_snap = match reconnect_res
+        .json::<ti4_server::protocol::server::ServerMessage>()
         .await
-        .expect("deserialize reconnect snapshot");
+        .expect("deserialize reconnect snapshot")
+    {
+        ti4_server::protocol::server::ServerMessage::InitialSnapshot(snapshot) => snapshot,
+        message => panic!("expected initial snapshot, got {message:?}"),
+    };
 
     assert!(reconnect_snap.events.iter().any(|e| matches!(
         e.event,

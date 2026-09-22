@@ -1,121 +1,47 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useLayoutEffect, useState } from 'react';
 import { ViewerRole } from './protocol/types.ts';
 import { useGameSession } from './hooks/useGameSession.ts';
+import { useLobbySession } from './hooks/useLobbySession.ts';
 import { Board } from './components/Board.tsx';
 import { TurnStatusBar } from './components/TurnStatusBar.tsx';
 import { PlayerSheet } from './components/PlayerSheet.tsx';
-import { Lobby } from './components/Lobby.tsx';
+import { CreateLobby, LobbyStatus } from './components/Lobby.tsx';
 import { GameShell } from './components/GameShell.tsx';
+import { usePresence } from './hooks/usePresence.ts';
+
+const storageKey = (gameId: string) => `ti4.viewer.v1:${gameId}`;
+const pathGameId = () => /^\/games\/([^/]+)$/.exec(window.location.pathname)?.[1] ? decodeURIComponent(/^\/games\/([^/]+)$/.exec(window.location.pathname)![1]) : null;
 
 export const App: React.FC = () => {
-  const [activeGameId, setActiveGameId] = useState<string | null>(null);
-  const [viewerRole, setViewerRole] = useState<ViewerRole>({ role: 'player', seat: 'p1' });
-
-  if (!activeGameId) {
-    return (
-      <Lobby
-        onJoin={(gameId, role) => {
-          setActiveGameId(gameId);
-          setViewerRole(role);
-        }}
-      />
-    );
-  }
-
-  return (
-    <GameViewContainer
-      gameId={activeGameId}
-      viewer={viewerRole}
-      onLeave={() => setActiveGameId(null)}
-    />
-  );
+  const [gameId, setGameId] = useState(pathGameId);
+  const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState(() => gameId ? sessionStorage.getItem(storageKey(gameId)) ?? undefined : undefined);
+  const navigate = (id: string | null, nextToken?: string) => { if (id) { if (nextToken) sessionStorage.setItem(storageKey(id), nextToken); history.pushState({}, '', `/games/${encodeURIComponent(id)}`); } else history.pushState({}, '', '/'); setGameId(id); setToken(nextToken); };
+  useLayoutEffect(() => {
+    const receive = () => { const id = pathGameId(); setGameId(id); setToken(id ? sessionStorage.getItem(storageKey(id)) ?? undefined : undefined); };
+    window.addEventListener('popstate', receive);
+    return () => window.removeEventListener('popstate', receive);
+  }, []);
+  if (!gameId) return <><CreateLobby onError={setError} onCreated={(created) => navigate(created.game_id, created.creator_token)} />{error && <div className="session-error" role="alert">{error}</div>}</>;
+  return <GameRoute gameId={gameId} token={token} onError={setError} onCredentialInvalid={() => { sessionStorage.removeItem(storageKey(gameId)); setToken(undefined); }} onForget={() => { sessionStorage.removeItem(storageKey(gameId)); navigate(null); }} />;
 };
 
-interface GameViewContainerProps {
-  gameId: string;
-  viewer: ViewerRole;
-  onLeave: () => void;
-}
+const GameRoute: React.FC<{ gameId: string; token?: string; onError: (error: string | null) => void; onCredentialInvalid: () => void; onForget: () => void }> = ({ gameId, token, onError, onCredentialInvalid, onForget }) => {
+  const { lobby, error, loading, invalidCredential, setReady, start, claim } = useLobbySession({ gameId, seatToken: token });
+  usePresence(gameId, token, onCredentialInvalid);
+  useEffect(() => onError(error), [error, onError]);
+  useEffect(() => { if (invalidCredential) onCredentialInvalid(); }, [invalidCredential, onCredentialInvalid]);
+  if (!lobby) return <main className="lobby-page"><div className="panel lobby-panel">{loading ? 'Loading lobby...' : 'Unable to load lobby.'}</div></main>;
+  const viewer: ViewerRole = lobby.viewer ? { role: 'player', seat: lobby.viewer.seat, seatToken: token } : { role: 'spectator' };
+  const claimSeat = async (seat: string) => { const credential = await claim(seat); if (credential) { sessionStorage.setItem(storageKey(gameId), credential); window.location.reload(); } };
+  return <>{error && <div className="session-error" role="alert">{error}</div>}{lobby.phase === 'running' && lobby.viewer ? <GameViewContainer gameId={gameId} viewer={viewer} onLeave={onForget} /> : <LobbyStatus lobby={lobby} onReady={(ready) => void setReady(ready)} onStart={() => void start()} onForget={onForget} onClaim={(seat) => void claimSeat(seat)} />}</>;
+};
 
-const GameViewContainer: React.FC<GameViewContainerProps> = ({ gameId, viewer, onLeave }) => {
-  const {
-    status,
-    gameVersion,
-    snapshot,
-    pendingChoice,
-    turnStatus,
-    lastError,
-    events,
-    submitChoice,
-  } = useGameSession({ gameId, viewer });
-
+const GameViewContainer: React.FC<{ gameId: string; viewer: ViewerRole; onLeave: () => void }> = ({ gameId, viewer, onLeave }) => {
+  const { status, gameVersion, snapshot, pendingChoice, turnStatus, lastError, events, submitChoice } = useGameSession({ gameId, viewer });
   const userSeat = viewer.role === 'player' ? viewer.seat : undefined;
-  const [selectedOptionId, setSelectedOptionId] = useState<string | undefined>();
-  const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSelectedOptionId(undefined);
-  }, [pendingChoice?.nonce]);
-
-  const handleSelectTarget = (systemId: string, planetId?: string) => {
-    if (pendingChoice && userSeat && pendingChoice.actor === userSeat) {
-      const match = pendingChoice.options.find((opt) => {
-        const payload = opt.payload;
-        if (planetId && payload?.planet === planetId) return true;
-        if (payload?.system !== undefined && String(payload.system) === systemId) return true;
-        if (payload?.to !== undefined && String(payload.to) === systemId) return true;
-        if (opt.kind === 'activate' && String(payload?.system || opt.id) === systemId) return true;
-        return false;
-      });
-      if (match) {
-        setSelectedOptionId(match.id);
-      }
-    }
-  };
-
-  return (
-    <GameShell
-      header={(
-        <div className="game-header">
-          <TurnStatusBar
-            status={turnStatus}
-            view={snapshot?.view ?? null}
-            gameVersion={gameVersion}
-            connectionStatus={status}
-            userSeat={userSeat}
-          />
-          <button
-            data-testid="leave-game-button"
-            onClick={onLeave}
-            className="button button--secondary game-header__exit"
-          >
-            Exit Game
-          </button>
-        </div>
-      )}
-      board={snapshot ? (
-        <Board
-          board={snapshot.view.board}
-          seatingOrder={snapshot.view.seating_order}
-          players={snapshot.view.players}
-          pendingChoice={pendingChoice}
-          viewerSeat={userSeat}
-          selectedSystemId={selectedSystemId}
-          onSelectSystem={setSelectedSystemId}
-          onSelectTarget={handleSelectTarget}
-        />
-      ) : (
-        <div className="game-loading">Loading game state...</div>
-      )}
-      playerSheet={snapshot ? <PlayerSheet players={snapshot.view.players} userSeat={userSeat} /> : null}
-      events={events}
-      choice={pendingChoice}
-      viewerSeat={userSeat}
-      players={snapshot?.view?.players}
-      onSubmitChoice={submitChoice}
-      lastError={lastError}
-      selectedOptionId={selectedOptionId}
-      onSelectOption={setSelectedOptionId}
-    />
-  );
+  const [selectedOptionId, setSelectedOptionId] = useState<string>(); const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
+  useEffect(() => setSelectedOptionId(undefined), [pendingChoice?.nonce]);
+  const handleSelectTarget = (systemId: string, planetId?: string) => { if (!pendingChoice || pendingChoice.actor !== userSeat) return; const match = pendingChoice.options.find((option) => planetId ? option.payload?.planet === planetId : String(option.payload?.system ?? option.payload?.to ?? option.id) === systemId); if (match) setSelectedOptionId(match.id); };
+  return <GameShell header={<div className="game-header"><TurnStatusBar status={turnStatus} view={snapshot?.view ?? null} gameVersion={gameVersion} connectionStatus={status} userSeat={userSeat} /><button data-testid="leave-game-button" onClick={onLeave} className="button button--secondary game-header__exit">Exit Game</button></div>} board={snapshot ? <Board board={snapshot.view.board} seatingOrder={snapshot.view.seating_order} players={snapshot.view.players} pendingChoice={pendingChoice} viewerSeat={userSeat} selectedSystemId={selectedSystemId} onSelectSystem={setSelectedSystemId} onSelectTarget={handleSelectTarget} /> : <div className="game-loading">Loading game state...</div>} playerSheet={snapshot ? <PlayerSheet players={snapshot.view.players} userSeat={userSeat} /> : null} events={events} choice={pendingChoice} viewerSeat={userSeat} players={snapshot?.view.players} onSubmitChoice={submitChoice} lastError={lastError} selectedOptionId={selectedOptionId} onSelectOption={setSelectedOptionId} />;
 };

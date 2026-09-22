@@ -27,8 +27,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let lease_ms = std::env::var("TI4_SEAT_LEASE_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_millis)
+        .unwrap_or(Duration::from_secs(30))
+        .clamp(Duration::from_secs(1), Duration::from_secs(300));
     let store = Arc::new(ti4_server::storage::FileGameStore::new(&data_dir)?);
-    let registry = Arc::new(GameRegistry::new().with_store(store));
+    let registry = Arc::new(
+        GameRegistry::new()
+            .with_store(store)
+            .with_lease_duration(lease_ms),
+    );
 
     // Recover existing saved games from disk
     match registry.recover_all_games() {

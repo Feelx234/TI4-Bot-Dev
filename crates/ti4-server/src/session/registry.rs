@@ -1,38 +1,153 @@
-//! In-memory registry for active game sessions.
+//! Registry for pre-game lobbies and active game sessions.
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
+use ti4_content::ContentStore;
 use ti4_model::id::PlayerId;
 
-use crate::session::{GameSession, SessionConfig};
+use crate::session::{GameSession, SeatController, SessionConfig};
+use crate::storage::{
+    GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat, StorageError,
+};
 
-/// Summary of an active or completed game session.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+/// Summary of an active, completed, or unstarted game.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GameSummary {
     pub game_id: String,
     pub is_finished: bool,
     pub pending_seat: Option<PlayerId>,
 }
 
-/// Thread-safe in-memory registry of active game sessions.
+/// Lifecycle phase exposed by the lobby API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LobbyPhase {
+    Lobby,
+    Running,
+}
+
+/// Server-owned lobby configuration.
+#[derive(Debug, Clone)]
+pub struct LobbyState {
+    pub game_id: String,
+    pub phase: LobbyPhase,
+    pub host_seat: PlayerId,
+    pub player_ids: Vec<PlayerId>,
+    pub seats: BTreeMap<PlayerId, LobbySeat>,
+    pub seed: u64,
+    pub lobby_version: u64,
+}
+
+/// Lobby state for a configured seat. This type is never serialized directly.
+#[derive(Debug, Clone)]
+pub struct LobbySeat {
+    pub controller: SeatController,
+    pub ready: bool,
+    pub seat_token: Option<String>,
+    pub lease_expires_at_ms: Option<u64>,
+}
+
+/// Input used to create a durable pre-game lobby.
+#[derive(Debug, Clone)]
+pub struct LobbyConfig {
+    pub game_id: String,
+    pub host_seat: PlayerId,
+    pub player_ids: Vec<PlayerId>,
+    pub seats: BTreeMap<PlayerId, SeatController>,
+    pub seed: u64,
+}
+
+/// Result returned only at creation time, when handoff capabilities are allowed.
+#[derive(Debug, Clone)]
+pub struct CreatedLobby {
+    pub lobby: LobbyState,
+    pub creator_token: String,
+    /// Internal creation result; HTTP deliberately returns only `creator_token`.
+    pub seat_tokens: BTreeMap<PlayerId, String>,
+}
+
+/// Snapshot of a lobby and the caller authenticated by a capability, if any.
+#[derive(Debug, Clone)]
+pub struct LobbyStatus {
+    pub lobby: LobbyState,
+    pub viewer: Option<PlayerId>,
+}
+
+/// A deterministic lifecycle or authorization failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LobbyError {
+    NotFound,
+    NotInLobby,
+    AlreadyRunning,
+    InvalidCapability,
+    HumanSeatRequired,
+    HostRequired,
+    HumansNotReady,
+    SeatUnavailable,
+    Map(String),
+    Storage(String),
+}
+
+impl LobbyError {
+    #[must_use]
+    pub fn message(&self) -> String {
+        match self {
+            Self::NotFound => "Game not found".to_owned(),
+            Self::NotInLobby => "Game has no lobby".to_owned(),
+            Self::AlreadyRunning => "Game has already started".to_owned(),
+            Self::InvalidCapability => "Invalid seat capability".to_owned(),
+            Self::HumanSeatRequired => "Only human seats may update readiness".to_owned(),
+            Self::HostRequired => "Only the lobby host may start the game".to_owned(),
+            Self::HumansNotReady => "Every human seat must be ready before starting".to_owned(),
+            Self::SeatUnavailable => "Seat is unavailable".to_owned(),
+            Self::Map(error) => format!("Failed to start game with map: {error}"),
+            Self::Storage(error) => format!("Failed to persist lobby lifecycle: {error}"),
+        }
+    }
+}
+
 #[derive(Default)]
+struct RegistryState {
+    sessions: BTreeMap<String, Arc<GameSession>>,
+    lobbies: BTreeMap<String, LobbyState>,
+}
+
+/// Thread-safe registry that serializes each lobby's transition into an active session.
 pub struct GameRegistry {
-    sessions: RwLock<BTreeMap<String, Arc<GameSession>>>,
+    state: Mutex<RegistryState>,
     store: Option<Arc<crate::storage::FileGameStore>>,
+    lease_duration: Duration,
+}
+
+impl Default for GameRegistry {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(RegistryState::default()),
+            store: None,
+            lease_duration: Duration::from_secs(30),
+        }
+    }
 }
 
 impl GameRegistry {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            sessions: RwLock::new(BTreeMap::new()),
-            store: None,
-        }
+        Self::default()
     }
 
     #[must_use]
     pub fn with_store(mut self, store: Arc<crate::storage::FileGameStore>) -> Self {
         self.store = Some(store);
+        self
+    }
+
+    #[must_use]
+    pub fn with_lease_duration(mut self, lease_duration: Duration) -> Self {
+        self.lease_duration =
+            lease_duration.clamp(Duration::from_secs(1), Duration::from_secs(300));
         self
     }
 
@@ -42,121 +157,588 @@ impl GameRegistry {
         self.store.clone()
     }
 
-    /// Recovers all saved games found in the storage directory into the registry.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StorageError`] on filesystem or recovery failure.
-    pub fn recover_all_games(&self) -> Result<Vec<String>, crate::storage::StorageError> {
+    /// Recovers both unstarted lobbies and started sessions from durable storage.
+    pub fn recover_all_games(&self) -> Result<Vec<String>, StorageError> {
         let Some(store) = &self.store else {
             return Ok(Vec::new());
         };
-
-        let saved = store.list_saved_games()?;
+        let game_ids: BTreeSet<_> = store.list_saved_games()?.into_iter().collect();
+        let lobby_ids = store.list_saved_lobbies()?;
+        let mut state = self.state.lock().expect("registry lock");
         let mut recovered = Vec::new();
 
-        for game_id in saved {
-            {
-                let read_lock = self.sessions.read().expect("registry read lock");
-                if read_lock.contains_key(&game_id) {
-                    continue;
-                }
+        for game_id in lobby_ids {
+            if state.lobbies.contains_key(&game_id) || state.sessions.contains_key(&game_id) {
+                continue;
             }
-
-            let session = Arc::new(store.recover_session(&game_id)?);
-            let mut write_lock = self.sessions.write().expect("registry write lock");
-            write_lock.insert(game_id.clone(), session);
+            let record = store.load_lobby(&game_id)?.expect("listed lobby exists");
+            let mut lobby = lobby_from_record(record);
+            if game_ids.contains(&game_id) {
+                lobby.phase = LobbyPhase::Running;
+                state
+                    .sessions
+                    .insert(game_id.clone(), Arc::new(store.recover_session(&game_id)?));
+            } else {
+                // A crash between marking the lobby running and writing init.json remains a lobby.
+                lobby.phase = LobbyPhase::Lobby;
+            }
+            state.lobbies.insert(game_id.clone(), lobby);
             recovered.push(game_id);
         }
 
+        for game_id in game_ids {
+            if state.sessions.contains_key(&game_id) {
+                continue;
+            }
+            let session = Arc::new(store.recover_session(&game_id)?);
+            let init = store.load_init(&game_id)?;
+            state
+                .lobbies
+                .insert(game_id.clone(), legacy_running_lobby(&init));
+            state.sessions.insert(game_id.clone(), session);
+            recovered.push(game_id);
+        }
+        recovered.sort();
         Ok(recovered)
     }
 
-    /// Creates and starts a new game session.
-    ///
-    /// If storage is configured, atomically writes `init.json` before starting.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if a game with the same ID already exists or storage write fails.
-    pub fn create_game(&self, mut config: SessionConfig) -> Result<Arc<GameSession>, String> {
+    /// Creates a pre-game lobby and persists it before returning capabilities.
+    pub fn create_lobby(&self, config: LobbyConfig) -> Result<CreatedLobby, String> {
         crate::storage::validate_game_id(&config.game_id).map_err(|error| error.to_string())?;
-        let mut lock = self.sessions.write().expect("registry write lock");
-        if lock.contains_key(&config.game_id) {
+        let mut state = self.state.lock().expect("registry lock");
+        if state.sessions.contains_key(&config.game_id)
+            || state.lobbies.contains_key(&config.game_id)
+        {
             return Err(format!("Game session '{}' already exists", config.game_id));
         }
 
-        if config.store.is_none() {
-            config.store.clone_from(&self.store);
+        let mut seats = BTreeMap::new();
+        let creator_token = new_token();
+        let lease_expires_at_ms = Some(self.lease_expiry_ms());
+        for player_id in &config.player_ids {
+            let controller = config
+                .seats
+                .get(player_id)
+                .expect("validated lobby seat")
+                .clone();
+            let seat_token = (player_id == &config.host_seat).then(|| creator_token.clone());
+            seats.insert(
+                player_id.clone(),
+                LobbySeat {
+                    controller,
+                    ready: false,
+                    seat_token,
+                    lease_expires_at_ms: if player_id == &config.host_seat {
+                        lease_expires_at_ms
+                    } else {
+                        None
+                    },
+                },
+            );
+        }
+        let lobby = LobbyState {
+            game_id: config.game_id.clone(),
+            phase: LobbyPhase::Lobby,
+            host_seat: config.host_seat.clone(),
+            player_ids: config.player_ids,
+            seats,
+            seed: config.seed,
+            lobby_version: 1,
+        };
+        if let Some(store) = &self.store {
+            store
+                .save_lobby(&lobby_to_record(&lobby))
+                .map_err(|error| format!("Failed to save lobby: {error}"))?;
+        }
+        state.lobbies.insert(lobby.game_id.clone(), lobby.clone());
+        Ok(CreatedLobby {
+            lobby,
+            creator_token: creator_token.clone(),
+            seat_tokens: BTreeMap::from([(config.host_seat, creator_token)]),
+        })
+    }
+
+    /// Returns public lobby state and authenticates an optional capability.
+    pub fn lobby_status(
+        &self,
+        game_id: &str,
+        token: Option<&str>,
+    ) -> Result<LobbyStatus, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state.lobbies.get_mut(game_id).ok_or(LobbyError::NotFound)?;
+        self.expire_claims(lobby)?;
+        let viewer = match token {
+            Some(token) => lobby
+                .seats
+                .iter()
+                .find_map(|(seat, lobby_seat)| {
+                    (lobby_seat.seat_token.as_deref() == Some(token)).then(|| seat.clone())
+                })
+                .ok_or(LobbyError::InvalidCapability)?,
+            None => {
+                return Ok(LobbyStatus {
+                    lobby: lobby.clone(),
+                    viewer: None,
+                });
+            }
+        };
+        Ok(LobbyStatus {
+            lobby: lobby.clone(),
+            viewer: Some(viewer),
+        })
+    }
+
+    /// Atomically claims an available human seat and returns its new bearer credential.
+    pub fn claim_seat(
+        &self,
+        game_id: &str,
+        requested_seat: &str,
+    ) -> Result<(LobbyStatus, String), LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state.lobbies.get_mut(game_id).ok_or(LobbyError::NotFound)?;
+        self.expire_claims(lobby)?;
+        let seat_id = PlayerId::new(requested_seat);
+        let seat = lobby
+            .seats
+            .get(&seat_id)
+            .ok_or(LobbyError::SeatUnavailable)?;
+        if seat.controller != SeatController::Human || seat.seat_token.is_some() {
+            return Err(LobbyError::SeatUnavailable);
+        }
+        let token = new_token();
+        let mut updated = lobby.clone();
+        let claimed = updated.seats.get_mut(&seat_id).expect("validated seat");
+        claimed.seat_token = Some(token.clone());
+        claimed.lease_expires_at_ms = Some(self.lease_expiry_ms());
+        claimed.ready = false;
+        updated.lobby_version += 1;
+        self.save_lobby(&updated)?;
+        *lobby = updated.clone();
+        Ok((
+            LobbyStatus {
+                lobby: updated,
+                viewer: Some(seat_id),
+            },
+            token,
+        ))
+    }
+
+    /// Authenticates and renews a current claim. All HTTP and WebSocket authorization enters here.
+    pub fn authenticate_and_renew(
+        &self,
+        game_id: &str,
+        token: &str,
+    ) -> Result<PlayerId, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state.lobbies.get_mut(game_id).ok_or(LobbyError::NotFound)?;
+        self.expire_claims(lobby)?;
+        let viewer = authenticated_seat(lobby, token)?;
+        let mut updated = lobby.clone();
+        updated
+            .seats
+            .get_mut(&viewer)
+            .expect("authenticated seat")
+            .lease_expires_at_ms = Some(self.lease_expiry_ms());
+        self.save_lobby(&updated)?;
+        *lobby = updated;
+        Ok(viewer)
+    }
+
+    /// Updates only the authenticated human seat's readiness while still in the lobby.
+    pub fn set_ready(
+        &self,
+        game_id: &str,
+        token: &str,
+        ready: bool,
+    ) -> Result<LobbyStatus, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state.lobbies.get_mut(game_id).ok_or(LobbyError::NotFound)?;
+        self.expire_claims(lobby)?;
+        if lobby.phase != LobbyPhase::Lobby {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        let viewer = authenticated_seat(lobby, token)?;
+        let seat = lobby.seats.get(&viewer).expect("authenticated seat exists");
+        if seat.controller != SeatController::Human {
+            return Err(LobbyError::HumanSeatRequired);
+        }
+        if seat.ready != ready {
+            let mut updated = lobby.clone();
+            updated
+                .seats
+                .get_mut(&viewer)
+                .expect("authenticated seat exists")
+                .ready = ready;
+            updated.lobby_version += 1;
+            self.save_lobby(&updated)?;
+            *lobby = updated;
+        }
+        Ok(LobbyStatus {
+            lobby: lobby.clone(),
+            viewer: Some(viewer),
+        })
+    }
+
+    /// Starts exactly one game after the authenticated host has all human seats ready.
+    pub fn start_lobby(&self, game_id: &str, token: &str) -> Result<Arc<GameSession>, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state.lobbies.get_mut(game_id).ok_or(LobbyError::NotFound)?;
+        self.expire_claims(lobby)?;
+        if lobby.phase != LobbyPhase::Lobby {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        let viewer = authenticated_seat(lobby, token)?;
+        if viewer != lobby.host_seat {
+            return Err(LobbyError::HostRequired);
+        }
+        if lobby
+            .seats
+            .values()
+            .any(|seat| seat.controller == SeatController::Human && !seat.ready)
+        {
+            return Err(LobbyError::HumansNotReady);
         }
 
-        if let Some(store) = &config.store {
-            if config.player_ids.is_empty() {
-                return Err("durable sessions require an explicit player order".to_owned());
+        let content = ContentStore::embedded();
+        let (initial_state, galaxy) =
+            crate::map::create_game_with_map(content, &lobby.player_ids, lobby.seed)
+                .map_err(|error| LobbyError::Map(error.to_string()))?;
+        let map_tiles = crate::map::build_board_tiles(content, &galaxy);
+        let mut config = SessionConfig::new(&lobby.game_id, initial_state.clone())
+            .with_seed(lobby.seed)
+            .with_player_ids(lobby.player_ids.clone())
+            .with_galaxy(galaxy, map_tiles);
+        config.seats = lobby
+            .seats
+            .iter()
+            .map(|(seat, lobby_seat)| (seat.clone(), lobby_seat.controller.clone()))
+            .collect();
+        config.seat_tokens = lobby
+            .seats
+            .iter()
+            .filter_map(|(seat, lobby_seat)| {
+                lobby_seat
+                    .seat_token
+                    .as_ref()
+                    .map(|token| (seat.clone(), token.clone()))
+            })
+            .collect();
+        config.store.clone_from(&self.store);
+
+        // Record Running before init; recovery treats a Running record without init as Lobby.
+        lobby.phase = LobbyPhase::Running;
+        lobby.lobby_version += 1;
+        if let Some(store) = &self.store {
+            if let Err(error) = store.save_lobby(&lobby_to_record(lobby)) {
+                lobby.phase = LobbyPhase::Lobby;
+                lobby.lobby_version -= 1;
+                return Err(LobbyError::Storage(error.to_string()));
             }
-            let init_record = crate::storage::GameInitRecord {
+            let init = GameInitRecord {
                 game_id: config.game_id.clone(),
                 seed: config.seed,
                 player_ids: config.player_ids.clone(),
-                initial_state: config.state.clone(),
+                initial_state,
                 seats: config.seats.clone(),
                 seat_tokens: config.seat_tokens.clone(),
                 map_tiles: config.map_tiles.clone(),
             };
-            store
-                .save_init(&init_record)
-                .map_err(|e| format!("Failed to save initial game configuration: {e}"))?;
+            if let Err(error) = store.save_init(&init) {
+                lobby.phase = LobbyPhase::Lobby;
+                lobby.lobby_version -= 1;
+                let _ = store.save_lobby(&lobby_to_record(lobby));
+                return Err(LobbyError::Storage(error.to_string()));
+            }
         }
-
         let session = Arc::new(GameSession::start(config));
-        lock.insert(session.id().to_owned(), session.clone());
+        state.sessions.insert(game_id.to_owned(), session.clone());
         Ok(session)
     }
 
-    /// Registers a recovered game session into the registry.
-    ///
-    /// # Errors
-    ///
-    /// Returns error if a game with the same ID already exists.
-    pub fn register_recovered(&self, session: Arc<GameSession>) -> Result<(), String> {
-        let mut lock = self.sessions.write().expect("registry write lock");
-        if lock.contains_key(session.id()) {
-            return Err(format!("Game session '{}' already exists", session.id()));
+    fn lease_expiry_ms(&self) -> u64 {
+        now_ms().saturating_add(
+            self.lease_duration
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        )
+    }
+
+    fn save_lobby(&self, lobby: &LobbyState) -> Result<(), LobbyError> {
+        if let Some(store) = &self.store {
+            store
+                .save_lobby(&lobby_to_record(lobby))
+                .map_err(|error| LobbyError::Storage(error.to_string()))?;
         }
-        lock.insert(session.id().to_owned(), session);
         Ok(())
     }
 
-    /// Looks up an active game session by ID.
+    fn expire_claims(&self, lobby: &mut LobbyState) -> Result<(), LobbyError> {
+        let now = now_ms();
+        let mut updated = lobby.clone();
+        let mut changed = false;
+        for seat in updated.seats.values_mut() {
+            if seat.controller == SeatController::Human
+                && seat.lease_expires_at_ms.is_some_and(|expiry| expiry <= now)
+            {
+                seat.seat_token = None;
+                seat.lease_expires_at_ms = None;
+                seat.ready = false;
+                changed = true;
+            }
+        }
+        if changed {
+            updated.lobby_version += 1;
+            self.save_lobby(&updated)?;
+            *lobby = updated;
+        }
+        Ok(())
+    }
+
+    /// Creates and starts a legacy active session. New HTTP games use [`Self::create_lobby`].
+    pub fn create_game(&self, mut config: SessionConfig) -> Result<Arc<GameSession>, String> {
+        crate::storage::validate_game_id(&config.game_id).map_err(|error| error.to_string())?;
+        let mut state = self.state.lock().expect("registry lock");
+        if state.sessions.contains_key(&config.game_id)
+            || state.lobbies.contains_key(&config.game_id)
+        {
+            return Err(format!("Game session '{}' already exists", config.game_id));
+        }
+        if config.store.is_none() {
+            config.store.clone_from(&self.store);
+        }
+        if let Some(store) = &config.store {
+            if config.player_ids.is_empty() {
+                return Err("durable sessions require an explicit player order".to_owned());
+            }
+            store
+                .save_init(&GameInitRecord {
+                    game_id: config.game_id.clone(),
+                    seed: config.seed,
+                    player_ids: config.player_ids.clone(),
+                    initial_state: config.state.clone(),
+                    seats: config.seats.clone(),
+                    seat_tokens: config.seat_tokens.clone(),
+                    map_tiles: config.map_tiles.clone(),
+                })
+                .map_err(|error| format!("Failed to save initial game configuration: {error}"))?;
+        }
+        let lobby = running_lobby_from_session_config(&config);
+        let session = Arc::new(GameSession::start(config));
+        state.lobbies.insert(lobby.game_id.clone(), lobby);
+        state
+            .sessions
+            .insert(session.id().to_owned(), session.clone());
+        Ok(session)
+    }
+
+    pub fn register_recovered(&self, session: Arc<GameSession>) -> Result<(), String> {
+        let mut state = self.state.lock().expect("registry lock");
+        if state.sessions.contains_key(session.id()) || state.lobbies.contains_key(session.id()) {
+            return Err(format!("Game session '{}' already exists", session.id()));
+        }
+        let lobby = running_lobby_from_session(&session);
+        state.lobbies.insert(lobby.game_id.clone(), lobby);
+        state.sessions.insert(session.id().to_owned(), session);
+        Ok(())
+    }
+
     #[must_use]
     pub fn get_game(&self, game_id: &str) -> Option<Arc<GameSession>> {
-        let lock = self.sessions.read().expect("registry read lock");
-        lock.get(game_id).cloned()
+        self.state
+            .lock()
+            .expect("registry lock")
+            .sessions
+            .get(game_id)
+            .cloned()
     }
 
-    /// Returns summaries for all registered game sessions.
+    #[must_use]
+    pub fn contains_game(&self, game_id: &str) -> bool {
+        let state = self.state.lock().expect("registry lock");
+        state.sessions.contains_key(game_id) || state.lobbies.contains_key(game_id)
+    }
+
     #[must_use]
     pub fn list_games(&self) -> Vec<GameSummary> {
-        let lock = self.sessions.read().expect("registry read lock");
-        lock.values()
-            .map(|s| {
-                let pending_seat = s.current_pending_decision().map(|(seat, _, _)| seat);
-                GameSummary {
-                    game_id: s.id().to_owned(),
-                    is_finished: s.is_finished(),
-                    pending_seat,
-                }
+        let state = self.state.lock().expect("registry lock");
+        let mut games: Vec<_> = state
+            .sessions
+            .values()
+            .map(|session| GameSummary {
+                game_id: session.id().to_owned(),
+                is_finished: session.is_finished(),
+                pending_seat: session.current_pending_decision().map(|(seat, _, _)| seat),
             })
-            .collect()
+            .collect();
+        games.extend(
+            state
+                .lobbies
+                .values()
+                .filter(|lobby| lobby.phase == LobbyPhase::Lobby)
+                .map(|lobby| GameSummary {
+                    game_id: lobby.game_id.clone(),
+                    is_finished: false,
+                    pending_seat: None,
+                }),
+        );
+        games.sort_by(|left, right| left.game_id.cmp(&right.game_id));
+        games
     }
 
-    /// Removes and stops a game session from the registry.
     pub fn remove_game(&self, game_id: &str) -> Option<Arc<GameSession>> {
-        let mut lock = self.sessions.write().expect("registry write lock");
-        let session = lock.remove(game_id);
-        if let Some(ref s) = session {
-            s.stop();
+        let mut state = self.state.lock().expect("registry lock");
+        state.lobbies.remove(game_id);
+        let session = state.sessions.remove(game_id);
+        if let Some(session) = &session {
+            session.stop();
         }
         session
     }
+}
+
+fn running_lobby_from_session_config(config: &SessionConfig) -> LobbyState {
+    let host_seat = config
+        .player_ids
+        .first()
+        .cloned()
+        .unwrap_or_else(|| PlayerId::new("host"));
+    LobbyState {
+        game_id: config.game_id.clone(),
+        phase: LobbyPhase::Running,
+        host_seat,
+        player_ids: config.player_ids.clone(),
+        seed: config.seed.unwrap_or_default(),
+        lobby_version: 1,
+        seats: config
+            .seats
+            .iter()
+            .map(|(seat, controller)| {
+                (
+                    seat.clone(),
+                    LobbySeat {
+                        controller: controller.clone(),
+                        ready: true,
+                        seat_token: config.seat_tokens.get(seat).cloned(),
+                        lease_expires_at_ms: None,
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
+fn running_lobby_from_session(session: &GameSession) -> LobbyState {
+    let (player_ids, seats, seat_tokens, seed) = session.lobby_details();
+    running_lobby_from_session_config(&SessionConfig {
+        game_id: session.id().to_owned(),
+        state: session.current_state(),
+        seats,
+        seat_tokens,
+        galaxy: None,
+        map_tiles: Vec::new(),
+        seed,
+        player_ids,
+        store: None,
+        prior_decisions: Vec::new(),
+        prior_events: Vec::new(),
+    })
+}
+
+fn authenticated_seat(lobby: &LobbyState, token: &str) -> Result<PlayerId, LobbyError> {
+    lobby
+        .seats
+        .iter()
+        .find_map(|(seat, lobby_seat)| {
+            (lobby_seat.seat_token.as_deref() == Some(token)).then(|| seat.clone())
+        })
+        .ok_or(LobbyError::InvalidCapability)
+}
+
+fn lobby_to_record(lobby: &LobbyState) -> LobbyRecord {
+    LobbyRecord {
+        game_id: lobby.game_id.clone(),
+        phase: match lobby.phase {
+            LobbyPhase::Lobby => PersistedLobbyPhase::Lobby,
+            LobbyPhase::Running => PersistedLobbyPhase::Running,
+        },
+        host_seat: lobby.host_seat.clone(),
+        player_ids: lobby.player_ids.clone(),
+        seed: lobby.seed,
+        lobby_version: lobby.lobby_version,
+        seats: lobby
+            .seats
+            .iter()
+            .map(|(seat, lobby_seat)| {
+                (
+                    seat.clone(),
+                    PersistedLobbySeat {
+                        controller: lobby_seat.controller.clone(),
+                        ready: lobby_seat.ready,
+                        seat_token: lobby_seat.seat_token.clone(),
+                        lease_expires_at_ms: lobby_seat.lease_expires_at_ms,
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
+fn lobby_from_record(record: LobbyRecord) -> LobbyState {
+    LobbyState {
+        game_id: record.game_id,
+        phase: match record.phase {
+            PersistedLobbyPhase::Lobby => LobbyPhase::Lobby,
+            PersistedLobbyPhase::Running => LobbyPhase::Running,
+        },
+        host_seat: record.host_seat,
+        player_ids: record.player_ids,
+        seed: record.seed,
+        lobby_version: record.lobby_version,
+        seats: record
+            .seats
+            .into_iter()
+            .map(|(seat, lobby_seat)| {
+                (
+                    seat,
+                    LobbySeat {
+                        controller: lobby_seat.controller,
+                        ready: lobby_seat.ready,
+                        // Pre-lease records have no proof of a live claim, so do not resurrect credentials.
+                        seat_token: lobby_seat.lease_expires_at_ms.and(lobby_seat.seat_token),
+                        lease_expires_at_ms: lobby_seat.lease_expires_at_ms,
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
+fn new_token() -> String {
+    format!("{:032x}", rand::random::<u128>())
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
+fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
+    running_lobby_from_session_config(&SessionConfig {
+        game_id: init.game_id.clone(),
+        state: init.initial_state.clone(),
+        seed: init.seed,
+        galaxy: None,
+        map_tiles: init.map_tiles.clone(),
+        seats: init.seats.clone(),
+        seat_tokens: init.seat_tokens.clone(),
+        store: None,
+        player_ids: init.player_ids.clone(),
+        prior_decisions: Vec::new(),
+        prior_events: Vec::new(),
+    })
 }

@@ -172,6 +172,18 @@ body, html, #root {
   box-shadow: var(--shadow-panel);
 }
 
+.lobby-page { height: 100vh; padding: 24px; display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; }
+.lobby-panel { width: min(100%, 560px); padding: 28px; display: flex; flex-direction: column; gap: 16px; }
+.lobby-panel--join { margin: 0 auto 24px; }
+.lobby-panel h1, .lobby-panel h2 { margin: 0; color: var(--color-accent); }
+.lobby-form { display: flex; flex-direction: column; gap: 14px; }
+.lobby-roster { margin: 0; padding: 12px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); }
+.lobby-roster__slot, .lobby-list__item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+.lobby-roster__slot .input { width: 140px; padding: 6px 8px; }
+.lobby-list { border-top: 1px solid var(--color-border-strong); border-bottom: 1px solid var(--color-border-strong); }
+.lobby-list__item span { color: var(--color-text-muted); font-size: 13px; }
+.session-error { position: fixed; z-index: var(--layer-dialog); right: 16px; bottom: 16px; left: 16px; padding: 12px 16px; border: 1px solid var(--color-danger); border-radius: var(--radius-sm); background: #450a0a; color: #fecaca; box-shadow: var(--shadow-panel); }
+
 .card {
   background: var(--color-surface);
   border: 1px solid var(--color-border-strong);
@@ -301,7 +313,7 @@ body, html, #root {
     bottom: 12px;
     display: flex;
     gap: 8px;
-    z-index: var(--layer-board-chrome);
+    z-index: var(--layer-header);
   }
 
   .app-shell__overlays {

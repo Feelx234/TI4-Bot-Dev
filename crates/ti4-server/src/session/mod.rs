@@ -345,6 +345,25 @@ impl GameSession {
         self.shared.lock().expect("shared lock").seat_tokens.clone()
     }
 
+    /// Returns immutable lifecycle metadata needed to represent a running session as a lobby.
+    #[must_use]
+    pub fn lobby_details(
+        &self,
+    ) -> (
+        Vec<PlayerId>,
+        BTreeMap<PlayerId, SeatController>,
+        BTreeMap<PlayerId, String>,
+        Option<u64>,
+    ) {
+        let lock = self.shared.lock().expect("shared lock");
+        (
+            lock.player_ids.clone(),
+            lock.seats.clone(),
+            lock.seat_tokens.clone(),
+            lock.seed,
+        )
+    }
+
     /// Returns static board tiles for the game session.
     #[must_use]
     pub fn map_tiles(&self) -> Vec<crate::protocol::view::BoardTileView> {
