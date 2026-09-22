@@ -58,6 +58,10 @@ pub struct DiplomacyWindow {
     pub deal_id: Option<DealId>,
     /// Counters made so far.
     pub responses: u8,
+    /// A counter was started and abandoned. It is not a counter made, but the choice to counter
+    /// is spent: otherwise "counter, walk away, counter" could run forever.
+    #[serde(default)]
+    pub counter_abandoned: bool,
 }
 
 impl DiplomacyWindow {
@@ -86,6 +90,7 @@ impl DiplomacyWindow {
             current: None,
             deal_id: None,
             responses: 0,
+            counter_abandoned: false,
         })
     }
 
@@ -135,7 +140,7 @@ impl DiplomacyWindow {
             accept,
             ChoiceOption::labelled(DECLINE_ID, RESPONSE_KIND, "Decline"),
         ];
-        if self.responses < MAX_COUNTERS && self.current.is_some() {
+        if self.responses < MAX_COUNTERS && self.current.is_some() && !self.counter_abandoned {
             options.push(ChoiceOption::labelled(
                 COUNTER_ID,
                 COUNTER_KIND,
@@ -351,6 +356,9 @@ impl Window for DiplomacyWindow {
                     }
                     CANCEL_ID => {
                         self.draft = None;
+                        if self.current.is_some() {
+                            self.counter_abandoned = true;
+                        }
                         // Walking away from a counter leaves the offer on the table to answer.
                         self.stage = if self.current.is_some() {
                             DiplomacyStage::Responding
@@ -863,6 +871,10 @@ mod tests {
         answer(&mut window, &mut state, CANCEL_ID);
         assert_eq!(window.stage, DiplomacyStage::Responding);
         assert_eq!(window.responses, 0, "an abandoned counter is not a counter");
+        assert!(
+            !ids(&window, &state).contains(&COUNTER_ID.to_owned()),
+            "but the chance to counter is spent, or counter-and-walk-away never ends"
+        );
         answer(&mut window, &mut state, ACCEPT_ID);
         assert_eq!(window.stage, DiplomacyStage::Done);
     }
