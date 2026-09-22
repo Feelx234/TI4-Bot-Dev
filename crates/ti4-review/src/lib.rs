@@ -623,6 +623,16 @@ impl Decider for MlpTraceBot {
             }
             None => vectors,
         };
+        // Deal values, exactly as `MlpBot` adds them for a bundle that places the names.
+        let vectors = if self
+            .vocabulary
+            .is_assigned(ti4_policy::deal_value::FACT_SCORE)
+        {
+            let facts = ti4_policy::deal_value::deal_facts(seen.observed(), choice);
+            ti4_policy::battle::append_facts(vectors, &facts)
+        } else {
+            vectors
+        };
         let sparse: Vec<SparseOption> = vectors
             .iter()
             .map(|vector| SparseOption {

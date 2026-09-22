@@ -499,7 +499,13 @@ pub fn amount_options(state: &GameState, draft: &Draft) -> Vec<ChoiceOption> {
 
 /// Apply one item choice to the draft. Returns `false` for an id that is not an item.
 pub fn apply_item(state: &GameState, draft: &mut Draft, id: &str) -> bool {
-    let applied = apply_item_inner(state, draft, id);
+    apply_item_at(state.round, draft, id)
+}
+
+/// [`apply_item`] given only the round, which is all an item needs from the position: a policy
+/// previewing what each option would leave the draft as has no game state to pass.
+pub fn apply_item_at(round: u32, draft: &mut Draft, id: &str) -> bool {
+    let applied = apply_item_inner(round, draft, id);
     // Choosing an amount finishes the add that picked the item; it is not another step.
     if applied && !id.starts_with("diplomacy|amount|") {
         draft.steps = draft.steps.saturating_add(1);
@@ -507,8 +513,7 @@ pub fn apply_item(state: &GameState, draft: &mut Draft, id: &str) -> bool {
     applied
 }
 
-fn apply_item_inner(state: &GameState, draft: &mut Draft, id: &str) -> bool {
-    let round = state.round;
+fn apply_item_inner(round: u32, draft: &mut Draft, id: &str) -> bool {
     let Some(rest) = id.strip_prefix("diplomacy|") else {
         return false;
     };

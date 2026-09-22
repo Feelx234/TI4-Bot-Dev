@@ -815,6 +815,17 @@ impl MlpBot {
             }
             None => vectors,
         };
+        // Deal values on diplomacy options, for a bundle whose vocabulary places them (migrated
+        // with the names appended); any other bundle sees exactly the vectors it always did.
+        let vectors = if self
+            .vocabulary
+            .is_assigned(ti4_policy::deal_value::FACT_SCORE)
+        {
+            let facts = ti4_policy::deal_value::deal_facts(seen.observed(), choice);
+            ti4_policy::battle::append_facts(vectors, &facts)
+        } else {
+            vectors
+        };
         lap.mark(crate::perf::Stage::Features);
         let options: Vec<SparseOption> = vectors
             .iter()
