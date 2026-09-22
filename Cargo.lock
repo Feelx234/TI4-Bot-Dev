@@ -4162,6 +4162,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-advisor"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "serde",
+ "serde_json",
+ "ti4-content",
+ "ti4-engine",
+ "ti4-mlp",
+ "ti4-model",
+ "ti4-policy",
+ "ti4-server",
+ "ti4-tensor",
+ "tokio",
+]
+
+[[package]]
 name = "ti4-bridge"
 version = "0.1.0"
 dependencies = [

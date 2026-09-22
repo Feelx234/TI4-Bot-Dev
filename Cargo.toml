@@ -14,6 +14,7 @@ members = [
     "crates/ti4-mlp",
     "crates/ti4-review",
     "crates/ti4-server",
+    "crates/ti4-advisor",
     "crates/xtask",
 ]
 
@@ -37,6 +38,7 @@ ti4-tensor = { path = "crates/ti4-tensor" }
 ti4-mlp = { path = "crates/ti4-mlp" }
 ti4-review = { path = "crates/ti4-review" }
 ti4-server = { path = "crates/ti4-server" }
+ti4-advisor = { path = "crates/ti4-advisor" }
 xtask = { path = "crates/xtask" }
 
 # External

@@ -160,6 +160,9 @@ Build a standalone, stateless HTTP/IPC service crate `crates/ti4-advisor` that l
 4. **Startup & Configuration**:
    - CLI flags: `--checkpoint <DIR>` (default: `examples/reviewer/checkpoint-473312`), `--port <PORT>` (default: `8081`).
 
+#### Status
+Implementation completed and Linux-verified 2026-09-22. Added the standalone loopback-only `ti4-advisor` crate with a preloaded, validated bundle and `POST /evaluate`; it validates bounded requests, reconstructs `Galaxy` from the versioned layout, applies state-derived wormhole effects, and returns logits, normalized probabilities, and the raw critic value. Layout/source validation tests were added. `cargo fmt --all`, `cargo metadata --no-deps --format-version 1`, `git diff --check`, and `cargo test -p ti4-server` (50 passed) succeed. The Linux CPU libtorch 2.9.1 archive is pinned by `plans/artifacts/libtorch-2.9.1-cpu-linux.manifest.json`; with `LIBTORCH=out/libtorch-2.9.1-cpu-linux`, `LIBTORCH_BYPASS_VERSION_CHECK=1`, and its `lib/` directory on `LD_LIBRARY_PATH`, `cargo test -p ti4-advisor` passes (5 passed). The missing Windows `XNNPACK.lib` installation remains unverified.
+
 #### Tests to Add
 - `POST /evaluate` returns one finite logit and probability per supplied engine option; probabilities sum to one and the raw critic value is finite.
 - Invalid state, choice, galaxy-layout, source-set, and checkpoint compatibility inputs return bounded client errors without panicking.
