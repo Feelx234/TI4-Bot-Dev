@@ -6,7 +6,7 @@
     # Throne notes the near-greedy frozen policy handed over. Against itself that checkpoint scored
     # 2.96 table VP, not 6.2. This run drops --opponent: every seat plays with the current weights
     # and every seat's decisions train (~245k decisions, ~48 s per update), so giving a Support note
-    # away costs the giver. 600 updates (~8 h), about 3x the frozen run's training data.
+    # away costs the giver. 200 updates (~2.7 h; operator, 2026-09-22).
     #
     # Everything else is the frozen-opponent run's config, which copied the reward flags of
     # out/ppo-activation-armB-waste1-resume3224-20260920 unchanged.
@@ -28,7 +28,7 @@
         'learning-rate'  = '1e-4'
         'movement-entropy' = 0.05
         'entropy-final'  = 0.25
-        'updates'        = 600
+        'updates'        = 200
         'report-every'   = '1:1,25:250,100'
         'seed-base'      = 1262000000
         'device'         = 'cuda'
