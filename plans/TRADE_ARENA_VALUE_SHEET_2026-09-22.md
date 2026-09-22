@@ -55,12 +55,13 @@ own_i   = sum V(items i receives) - sum C(items i gives)
 score_i = own_i - alpha * own_j
 ```
 
-**alpha = 0.5** (operator). What I gain and give count in full; what my partner gains and gives
-counts at half: `score_i = own_i - 0.5 * own_j`.
+**alpha = 0.75** (operator, "for now"; 0.5 was set first). What I gain and give count in full;
+what my partner gains and gives counts at three quarters: `score_i = own_i - 0.75 * own_j`.
 
 alpha = 1 was considered first and rejected: it makes every trade exactly zero-sum
 (`score_j = -score_i` for any items), so no deal can be good for both and the arena would learn never
-to trade. At 0.5 a deal is good for both when each gains more than half of what the other gains --
+to trade. Below 1 a deal can be good for both: at 0.75, when each gains more than three quarters of what the
+other gains --
 the six-player reality, where two partners both gain on the other four.
 
 A trade is good for both only when the seats value the items differently. That is what the
@@ -80,7 +81,7 @@ to the receiver, a fragment completes one seat's set and not the other's, and so
 | Relic fragment, none of that type held | 1 | - | Unknown fragments count toward any type. |
 | Relic fragment (giver's cost) | - | the value it has to the giver by the same three rows | |
 | Action card (Hacan in the deal only) | 1 | 1 | Flat base (operator). The card's actual worth is not modelled in v1. |
-| **Support for the Throne** | **4.5** | **0** own, but the receiver's +4.5 enters the giver's score through alpha | Below a full VP (5) because it can be lost back and has a drawback (operator). Giving it away is not free: under alpha = 0.5 it scores -2.25 for the giver before anything paid back. |
+| **Support for the Throne** | **4.5** | **0** own, but the receiver's +4.5 enters the giver's score through alpha | Below a full VP (5) because it can be lost back and has a drawback (operator). Giving it away is not free: under alpha = 0.75 it scores -3.375 for the giver before anything paid back. |
 | Trade Agreement | owner's commodity value x P(owner replenishes before round 4 ends) | the same commodities at 0.25 each | One-shot: the note returns after it fires. |
 | Ceasefire | 1 if the receiver has units adjacent to the owner's, else 0.25 | 0 | Defensive, and position-bound. |
 | Political Secret | 1 x P(an agenda phase before the game ends) | 0 | In 4-round games this is usually ~0. |
@@ -99,7 +100,7 @@ owner's commodity cap, whether agendas are live). No learned model is used for s
 
 ## 4. Operator decisions (2026-09-22)
 
-1. **alpha = 0.5**: my gains and costs in full, my partner's at half. (alpha = 1 was chosen first, then dropped because it makes every trade zero-sum.)
+1. **alpha = 0.75** for now: my gains and costs in full, my partner's at three quarters. (alpha = 1 was chosen first and dropped because it makes every trade zero-sum; 0.5 was set, then 0.75.)
 2. **1 VP = 5 TG.** Support for the Throne 4.5 (losable, has a drawback). Action cards 1 TG base.
 3. **Promises are in scope**, valued 0 to receive and 0.1 to give, to start biased against them.
 4. **Full games keep diplomacy on.**
