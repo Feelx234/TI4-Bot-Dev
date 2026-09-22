@@ -736,6 +736,11 @@ pub fn players_sheet(ui: &mut egui::Ui, source: &Sheets<'_>, frame: &ReviewFrame
                                 )
                             }),
                     );
+                    // A seat's own Support is not in `promissory_notes`: the engine tracks it only
+                    // by its absence from `support_holders`, so an unlent one is still in hand.
+                    if !frame.state.support_holders.contains_key(&player.id) {
+                        promissory.push("Support for the Throne".to_owned());
+                    }
                     promissory.sort();
                     promissory.dedup();
                     item_section(ui, "✉", "Promissory notes", promissory, color);
