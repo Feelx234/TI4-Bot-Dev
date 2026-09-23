@@ -142,6 +142,16 @@ fn play(
             ti4_model::DiplomacyState::for_players(&game.state.seating_order, true);
     }
     let initial = game.state.player(me).unwrap().victory_points;
+    // Technologies each seat starts with, so the table can report how many were researched.
+    let starting_tech: BTreeMap<String, usize> = players
+        .iter()
+        .map(|p| {
+            (
+                assignments[p].to_string(),
+                game.state.player(p).map_or(0, |x| x.technologies.len()),
+            )
+        })
+        .collect();
     let game_started = std::time::Instant::now();
     let target = game.state.round + 4;
     let mut steps = 0;
@@ -270,7 +280,7 @@ fn play(
     let l = log.borrow();
     Ok(
         json!({"seed":seed,"rotation":rotation,"seat":seat,"faction":assignments[me],"supports":supports,"seconds":game_started.elapsed().as_secs_f64(),"heads":l.heads,
-            "table_vp":players.iter().map(|p|(faction(p),game.state.player(p).map_or(0,|x|x.victory_points))).collect::<BTreeMap<_,_>>(),"temperature":temperature,"initial":initial,"vp":game.state.player(me).unwrap().victory_points,"secret_hand":game.state.player(me).unwrap().secret_objectives,"reveals":reveals,"awards":awards,"ledger":ledger,"choices":l.choices,"hashes":[format!("{:x}",l.hash.clone().finalize()),format!("{:x}",Sha256::digest(serde_json::to_vec(&game.events).unwrap())),format!("{:x}",Sha256::digest(serde_json::to_vec(&game.state).unwrap()))]}),
+            "tech_researched":players.iter().map(|p|(faction(p),game.state.player(p).map_or(0,|x|x.technologies.len()).saturating_sub(starting_tech[&faction(p)]))).collect::<BTreeMap<_,_>>(),"table_vp":players.iter().map(|p|(faction(p),game.state.player(p).map_or(0,|x|x.victory_points))).collect::<BTreeMap<_,_>>(),"temperature":temperature,"initial":initial,"vp":game.state.player(me).unwrap().victory_points,"secret_hand":game.state.player(me).unwrap().secret_objectives,"reveals":reveals,"awards":awards,"ledger":ledger,"choices":l.choices,"hashes":[format!("{:x}",l.hash.clone().finalize()),format!("{:x}",Sha256::digest(serde_json::to_vec(&game.events).unwrap())),format!("{:x}",Sha256::digest(serde_json::to_vec(&game.state).unwrap()))]}),
     )
 }
 fn main() {
