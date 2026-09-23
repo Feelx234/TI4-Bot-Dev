@@ -1,14 +1,14 @@
 import { useEffect } from 'react';
 
-/** Renews the server-side claim without putting a bearer credential in the URL. */
+/** Reports ephemeral presence; it does not renew the player session. */
 export function usePresence(gameId: string, credential: string | undefined, onInvalid: () => void): void {
   useEffect(() => {
     if (!credential) return;
     let stopped = false;
     const renew = async () => {
-      if (stopped || document.visibilityState === 'hidden') return;
+      if (stopped) return;
       const response = await fetch(`/api/games/${encodeURIComponent(gameId)}/lobby/heartbeat`, {
-        method: 'POST', headers: { 'x-ti4-seat-token': credential },
+        method: 'POST', headers: { 'x-ti4-player-session': credential },
       }).catch(() => undefined);
       if (!stopped && response?.status === 403) onInvalid();
     };

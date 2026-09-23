@@ -34,7 +34,6 @@ export function useGameSession({
   viewer,
   serverUrl,
 }: UseGameSessionOptions): UseGameSessionReturn {
-  const viewerKey = viewer.role === 'player' ? `player:${viewer.seat}` : 'spectator';
   const [client] = useState(() => new GameSessionClient({ gameId, viewer, serverUrl }));
   const [state, setState] = useState<GameSessionState>(() => client.getState());
 
@@ -45,7 +44,7 @@ export function useGameSession({
       unsubscribe();
       client.stop();
     };
-  }, [client, viewerKey]);
+  }, [client]);
 
   const submitChoice = useCallback((optionId: string) => client.submitChoice(optionId), [client]);
 

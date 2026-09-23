@@ -3,44 +3,39 @@
  * Exactly mirrors Rust structs from `crates/ti4-server/src/protocol/`.
  */
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export type ViewerRole =
-  | { role: 'player'; seat: string; seatToken?: string }
+  | { role: 'player'; seat: string; playerSession?: string }
   | { role: 'spectator' };
 
-export type LobbyController = 'human' | 'bot';
 export type LobbyPhase = 'lobby' | 'running';
 
-export interface LobbyRosterEntry {
-  seat: string;
-  controller: LobbyController;
+export interface LobbySlot {
+  slot_id: string;
+  position: number;
+  occupant: string | null;
   ready: boolean;
-  available: boolean;
-}
-
-export interface LobbyViewer {
-  role: 'player';
-  seat: string;
+  connected: boolean;
+  can_take_over: boolean;
 }
 
 export interface LobbyDto {
   game_id: string;
   phase: LobbyPhase;
   lobby_version: number;
-  host_seat: string;
-  roster: LobbyRosterEntry[];
-  viewer?: LobbyViewer;
-  can_start: boolean;
+  host_player_id: string;
+  slots: LobbySlot[];
 }
 
 export interface CreateGameResponse {
   game_id: string;
-  creator_token: string;
+  player_session: string;
+  player: { id: string };
   lobby: LobbyDto;
 }
 
-export interface ClaimSeatResponse { credential: string; lobby: LobbyDto; }
+export interface JoinResponse { player_session?: string; player: { id: string }; lobby: LobbyDto; }
 
 export type PublicTurnStatus =
   | { kind: 'active_turn'; player: string; phase: string; round: number }
@@ -348,7 +343,7 @@ export type ClientMessage =
       type: 'subscribe';
       protocol_version: number;
       game_id: string;
-      seat_token?: string;
+      player_session?: string;
     }
   | {
       type: 'submit_choice';

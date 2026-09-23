@@ -4,8 +4,8 @@
 
 PIL-01 model/persistence implementation was committed as `e0f234d` on
 2026-09-23. PIL-02 was committed as `cf4a01f`; PIL-03 as `37c8823`.
-PIL-04 was committed as `83957c3`. PIL-05 is implemented in the working
-tree. Package progress and verification results are tracked here, without
+PIL-04 was committed as `83957c3`; PIL-05 as `bd8f2c1`. PIL-06 is implemented
+in the working tree, pending independent review. Package progress and verification results are tracked here, without
 separate evidence artifacts.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
@@ -532,6 +532,72 @@ do not claim an intermediate package is a deployable release.
 - **Gate:** Browser tests cover new join, watch without admission, remote-
   computer takeover with no stored credential, old-token invalidation, host
   reorder, readiness, and protocol-version handling (acceptance 4–9, 11).
+- **Progress (2026-09-23):** Browser creation now sends `player_count` and
+  stores the returned private `player_session` only in per-game tab-scoped
+  `sessionStorage`. A public lobby GET does not join; an authenticated
+  `/lobby/join` reconnect obtains the server-authenticated `PlayerId` (the
+  public lobby deliberately has no viewer field). A credential-free client
+  can Join the next open slot, Watch as spectator, or explicitly select a
+  public `can_take_over` player; a 409 race is shown as an error. Revoked
+  credentials are removed after failed reconnect/heartbeat. The lobby shows
+  stable player labels, position numbers, readiness and presence; host-only
+  controls submit a complete slot-ID permutation including empty slots.
+  Game HTTP snapshots and WS subscribe use `x-ti4-player-session` and v3
+  `player_session`; player sockets send application pings every 10 seconds
+  and reconnect on transport loss with the same in-memory credential. A
+  snapshot with a different server-authenticated viewer is refused. HTTP
+  lobby heartbeats continue at 10 seconds, including while running.
+- **Verification:** `npm run build` (content check, TypeScript and Vite)
+  and `npm test` (25 files, 159 tests) pass; browser unit tests exercise
+  create, admission vs spectator reads, fresh-computer takeover, old-token
+  refusal, host reorder payload, readiness, v3 subscribe/pings/reconnect,
+  viewer identity mismatch and v2 rejection. `git diff --check` passes.
+  Full Clippy was not run as requested (blocked by `ti4-model`). No
+  independent review was performed. The existing v2 golden fixtures are
+  identified as legacy and rejected at protocol ingress; regenerating the
+  server fixtures and the remaining old Playwright manual-claim flows remain
+  PIL-08 integration work. At this point no v3 browser/server E2E had run;
+  the focused lifecycle run below was added in the UI follow-up.
+- **Create-response correction (2026-09-23):** A real create response was
+  rejected by the browser because its old shared string validator capped
+  *all* identifiers and credentials at 64 characters. The server-generated
+  `player_` ID is 71 characters and the `session_` credential is 72. The
+  decoder now uses separate bounds for game/slot IDs (64) and player IDs/
+  player sessions (128, matching the WebSocket session bound). A regression
+  test decodes the full-length generated shapes on both create and join and
+  rejects an oversized credential. Build and all 159 web tests pass after
+  this fix; the host's already-created lobby can be reached with its private
+  credential only if the original response was stored (the previously
+  rejected response was not stored by the browser).
+- **Lobby UI and leave follow-up (2026-09-23):** Removed the visible game ID
+  and raw `PlayerId` strings from the lobby and rejoin controls. `Player N`
+  is derived from the fixed `slot_N` label, which moves with its occupant;
+  the current position is shown separately. Copy Game URL copies the current
+  browser origin and path, without a credential or query string. Non-host
+  lobby participants now see **Leave lobby**, which calls the authenticated
+  `/lobby/leave` transition and forgets the tab credential only after a
+  successful response; server storage failures leave the credential and
+  player in place. The server forbids host leave (no host succession), so
+  the misleading Forget button is not shown to the host. Running-game Exit
+  Game remains a local exit, not a mid-game roster change.
+- **Actual browser/server gate:** Replaced the old manual-claim
+  `lobby_lifecycle.spec.ts` with a real Chromium create → spectator watch →
+  join → leave → verify slot opens → rejoin → ready → start → reload flow.
+  `cargo build -p ti4-server --bin server` passed; the focused Playwright
+  test passed (1/1, 5.5 s) against isolated local ports 38080/33000 because
+  8080/3000 were already in use (those processes were not touched). Default
+  ports remain unchanged; the test runner accepts optional port overrides.
+  `npm run build`, `npm test` (25 files, 161 tests), and `git diff --check`
+  passed. This is a focused E2E flow, not a claim that the remaining legacy
+  Playwright suites or the full PIL-08 gate pass. No independent review or
+  full Clippy run was performed.
+- **Next/PIL-07 and PIL-08:** Bot agents should retain the join-issued
+  credential and server-authenticated identity; do not infer it from lobby
+  position. PIL-08 should replace legacy v2 browser fixtures and manual-seat
+  Playwright workflows with real create/join/watch/takeover/reorder/start
+  flows against the current server, including a running spectator snapshot,
+  credential revocation and idle-period heartbeat coverage. Review the
+  browser/server boundary before treating this as deployable.
 
 ### PIL-07 — Bot-agent flows
 

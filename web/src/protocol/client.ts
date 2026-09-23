@@ -121,6 +121,9 @@ export class GameSessionClient {
   private stopped = false;
   private submittedNonce: string | null = null;
   private submissionResolve: (() => void) | null = null;
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
+  private retry: ReturnType<typeof setTimeout> | null = null;
+  private pingSequence = 0;
 
   constructor(private readonly options: GameSessionClientOptions) {}
 
@@ -142,6 +145,7 @@ export class GameSessionClient {
 
   stop(): void {
     this.stopped = true;
+    this.clearTimers();
     this.detachSocket();
     this.resolveSubmission();
   }
@@ -188,14 +192,17 @@ export class GameSessionClient {
     this.socket = socket;
     socket.onopen = () => {
       if (this.stopped || this.socket !== socket) return;
-      const seatToken = this.options.viewer.role === 'player' ? this.options.viewer.seatToken : undefined;
+      const playerSession = this.options.viewer.role === 'player' ? this.options.viewer.playerSession : undefined;
       const message: ClientMessage = {
         type: 'subscribe',
         protocol_version: PROTOCOL_VERSION,
         game_id: this.options.gameId,
-        seat_token: seatToken,
+        player_session: playerSession,
       };
       socket.send(JSON.stringify(message));
+      if (playerSession) this.heartbeat = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'ping', protocol_version: PROTOCOL_VERSION, sequence: ++this.pingSequence } satisfies ClientMessage));
+      }, 10_000);
       this.setState({ ...this.state, status: 'connected', lastError: null });
     };
     socket.onmessage = (event) => this.ingestWebSocket(event.data);
@@ -205,7 +212,13 @@ export class GameSessionClient {
       }
     };
     socket.onclose = () => {
-      if (!this.stopped && this.socket === socket) this.setState({ ...this.state, status: 'disconnected' });
+      if (!this.stopped && this.socket === socket) {
+        this.clearTimers();
+        this.socket = null;
+        this.resolveSubmission();
+        this.setState({ ...this.state, status: 'disconnected', pendingChoice: null, snapshot: null });
+        this.retry = setTimeout(() => { if (!this.stopped) { void this.loadSnapshot(); this.openSocket(); } }, 2_000);
+      }
     };
   }
 
@@ -222,6 +235,14 @@ export class GameSessionClient {
   }
 
   private apply(message: ServerMessage): void {
+    if (message.type === 'initial_snapshot' || message.type === 'state_update') {
+      const expected = this.options.viewer;
+      if (message.viewer.role !== expected.role || (expected.role === 'player' && (message.viewer.role !== 'player' || message.viewer.seat !== expected.seat))) {
+        this.setState({ ...initialState, status: 'error', lastError: 'Server viewer identity does not match this session' });
+        this.stop();
+        return;
+      }
+    }
     const previousChoice = this.state.pendingChoice;
     this.setState(reduceServerMessage(this.state, message));
     if (
@@ -250,6 +271,13 @@ export class GameSessionClient {
     if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) socket.close();
   }
 
+  private clearTimers(): void {
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    if (this.retry) clearTimeout(this.retry);
+    this.heartbeat = null;
+    this.retry = null;
+  }
+
   private setState(next: GameSessionState): void {
     this.state = next;
     this.listeners.forEach((listener) => listener());
@@ -271,8 +299,8 @@ export class GameSessionClient {
   }
 
   private snapshotHeaders(): HeadersInit {
-    return this.options.viewer.role === 'player' && this.options.viewer.seatToken
-      ? { 'x-ti4-seat-token': this.options.viewer.seatToken }
+    return this.options.viewer.role === 'player' && this.options.viewer.playerSession
+      ? { 'x-ti4-player-session': this.options.viewer.playerSession }
       : {};
   }
 }

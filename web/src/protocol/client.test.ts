@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameSessionClient, GameSessionState, reduceServerMessage } from './client.ts';
-import { decodeLobby, decodeServerMessage } from './decode.ts';
+import { decodeCreateGameResponse, decodeJoinResponse, decodeLobby, decodeServerMessage } from './decode.ts';
 import { InitialSnapshotMsg, PROTOCOL_VERSION } from './types.ts';
 
 const snapshot: InitialSnapshotMsg = {
@@ -9,6 +9,8 @@ const snapshot: InitialSnapshotMsg = {
   game_id: 'game_12345',
   game_version: 4,
   viewer: { role: 'spectator' },
+  state: {},
+  galaxy_layout: { version: 1, active_sources: [], placements: [] },
   view: {
     round: 1,
     phase: 'strategy',
@@ -64,14 +66,26 @@ describe('GameSessionClient reducer', () => {
 });
 
 describe('lobby decoding', () => {
-  it('normalizes the Rust optional spectator viewer from null to absent', () => {
-    const lobby = decodeLobby({
-      game_id: 'game_12345', phase: 'running', lobby_version: 1, host_seat: 'seat_a',
-      roster: [{ seat: 'seat_a', controller: 'human', ready: true, available: false }, { seat: 'seat_b', controller: 'bot', ready: true, available: false }],
-      viewer: null, can_start: false,
-    }, 'game_12345');
+  it('accepts the actual server-generated 256-bit player ID and session credential on create and join', () => {
+    const playerId = `player_${'a'.repeat(64)}`;
+    const playerSession = `session_${'b'.repeat(64)}`;
+    const lobby = { game_id: 'game_12345', phase: 'lobby', lobby_version: 1, host_player_id: playerId,
+      slots: [{ slot_id: 'slot_1', position: 1, occupant: playerId, ready: false, connected: false, can_take_over: false },
+        { slot_id: 'slot_2', position: 2, occupant: null, ready: false, connected: false, can_take_over: false }] };
+    const created = decodeCreateGameResponse({ game_id: 'game_12345', player_session: playerSession, player: { id: playerId }, lobby });
+    expect(created.player_session).toBe(playerSession);
+    expect(created.player.id).toBe(playerId);
+    expect(decodeJoinResponse({ player_session: playerSession, player: { id: playerId }, lobby }, 'game_12345').player_session).toBe(playerSession);
+    expect(() => decodeCreateGameResponse({ ...created, player_session: 'x'.repeat(129) })).toThrow(/invalid game creation response/);
+  });
 
-    expect(lobby.viewer).toBeUndefined();
+  it('decodes public slots without a credential or viewer identity', () => {
+    const lobby = decodeLobby({
+      game_id: 'game_12345', phase: 'running', lobby_version: 1, host_player_id: 'player_a',
+      slots: [{ slot_id: 'slot_1', position: 1, occupant: 'player_a', ready: true, connected: false, can_take_over: true }, { slot_id: 'slot_2', position: 2, occupant: 'player_b', ready: true, connected: true, can_take_over: false }],
+    }, 'game_12345');
+    expect(lobby.slots[0].occupant).toBe('player_a');
+    expect(JSON.stringify(lobby)).not.toContain('player_session');
   });
 });
 
@@ -114,4 +128,35 @@ describe('GameSessionClient ingress lifecycle', () => {
     expect(client.getState().lastError).toBeNull();
     expect(FakeWebSocket.latest?.readyState).toBe(3);
   });
+
+  it('subscribes as the authenticated player, pings every ten seconds, and resumes after disconnect', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...snapshot, viewer: { role: 'player', seat: 'player_a' } }) }));
+    const client = new GameSessionClient({ gameId: 'game_12345', viewer: { role: 'player', seat: 'player_a', playerSession: 'private' } });
+    client.start();
+    const socket = FakeWebSocket.latest!;
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen?.();
+    expect(JSON.parse(socket.sent[0])).toMatchObject({ type: 'subscribe', protocol_version: 3, player_session: 'private' });
+    vi.advanceTimersByTime(10_000);
+    expect(JSON.parse(socket.sent[1])).toMatchObject({ type: 'ping', sequence: 1 });
+    socket.onclose?.();
+    vi.advanceTimersByTime(2_000);
+    expect(FakeWebSocket.latest).not.toBe(socket);
+    client.stop();
+    vi.useRealTimers();
+  });
+
+  it('does not render a snapshot authenticated for a different player', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...snapshot, viewer: { role: 'player', seat: 'player_b' } }) }));
+    const client = new GameSessionClient({ gameId: 'game_12345', viewer: { role: 'player', seat: 'player_a', playerSession: 'private' } });
+    client.start();
+    await vi.waitFor(() => expect(client.getState().lastError).toMatch(/viewer identity/));
+    expect(client.getState().snapshot).toBeNull();
+    client.stop();
+  });
 });
+
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });

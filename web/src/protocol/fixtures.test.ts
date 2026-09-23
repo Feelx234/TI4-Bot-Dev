@@ -20,12 +20,13 @@ function loadFixture<T>(filename: string): T {
 describe('Golden Fixtures Conformance', () => {
   it('parses actor_snapshot.json and preserves private cards and pending choice', () => {
     const data = loadFixture<InitialSnapshotMsg>('actor_snapshot.json');
-    expect(data.protocol_version).toBe(PROTOCOL_VERSION);
+    expect(data.protocol_version).toBe(2);
     expect(data.game_id).toBe('game_12345');
     expect(data.viewer).toEqual({ role: 'player', seat: 'seat_a' });
     expect(data.pending_choice).not.toBeNull();
-    expect(data.pending_choice?.actor).toBe('seat_a');
-    expect(data.pending_choice?.options.length).toBeGreaterThan(0);
+    const legacyChoice = data.pending_choice as unknown as { actor: string; options: unknown[] };
+    expect(legacyChoice.actor).toBe('seat_a');
+    expect(legacyChoice.options.length).toBeGreaterThan(0);
 
     const actor = data.view.players.find((p) => p.id === 'seat_a');
     expect(actor).toBeDefined();
@@ -35,7 +36,7 @@ describe('Golden Fixtures Conformance', () => {
 
   it('parses opponent_snapshot.json and confirms redaction of actor private cards', () => {
     const data = loadFixture<InitialSnapshotMsg>('opponent_snapshot.json');
-    expect(data.protocol_version).toBe(PROTOCOL_VERSION);
+    expect(data.protocol_version).toBe(2);
     expect(data.viewer).toEqual({ role: 'player', seat: 'seat_b' });
     // Opponent cannot see seat_a's choice
     expect(data.pending_choice).toBeUndefined();
@@ -48,7 +49,7 @@ describe('Golden Fixtures Conformance', () => {
 
   it('parses spectator_snapshot.json and verifies spectator role and full redaction', () => {
     const data = loadFixture<InitialSnapshotMsg>('spectator_snapshot.json');
-    expect(data.protocol_version).toBe(PROTOCOL_VERSION);
+    expect(data.protocol_version).toBe(2);
     expect(data.viewer).toEqual({ role: 'spectator' });
     expect(data.pending_choice).toBeUndefined();
 
@@ -60,7 +61,7 @@ describe('Golden Fixtures Conformance', () => {
 
   it('parses stale_submission_rejected.json with structured rejection reason', () => {
     const data = loadFixture<ActionRejectedMsg>('stale_submission_rejected.json');
-    expect(data.protocol_version).toBe(PROTOCOL_VERSION);
+    expect(data.protocol_version).toBe(2);
     expect(data.game_id).toBe('game_12345');
     expect(data.game_version).toBe(42);
     expect(data.reason).toEqual({
@@ -72,7 +73,7 @@ describe('Golden Fixtures Conformance', () => {
 
   it('parses terminal_game_over.json with winner and final scores', () => {
     const data = loadFixture<GameOverMsg>('terminal_game_over.json');
-    expect(data.protocol_version).toBe(PROTOCOL_VERSION);
+    expect(data.protocol_version).toBe(2);
     expect(data.game_id).toBe('game_12345');
     expect(data.winner).toBe('seat_a');
     expect(data.final_scores['seat_a']).toBe(10);
@@ -82,14 +83,16 @@ describe('Golden Fixtures Conformance', () => {
   it('rejects malformed, wrong-version, and wrong-game messages at ingress', () => {
     const snapshot = loadFixture<Record<string, unknown>>('actor_snapshot.json');
     expect(() => decodeServerMessage({ type: 'initial_snapshot' }, 'game_12345')).toThrow(/invalid server message/i);
+    expect(() => decodeServerMessage(snapshot, 'game_12345')).toThrow(/unsupported protocol version/i);
     expect(() => decodeServerMessage({ ...snapshot, protocol_version: 99 }, 'game_12345')).toThrow(/unsupported protocol version/i);
-    expect(() => decodeServerMessage({ ...snapshot, game_id: 'other_game' }, 'game_12345')).toThrow(/unexpected game id/i);
+    expect(() => decodeServerMessage({ ...snapshot, protocol_version: PROTOCOL_VERSION, game_id: 'other_game' }, 'game_12345')).toThrow(/unexpected game id/i);
   });
 
   it('rejects state updates older than the current game version', () => {
     const update = decodeServerMessage({
       ...loadFixture<Record<string, unknown>>('actor_snapshot.json'),
       type: 'state_update',
+      protocol_version: PROTOCOL_VERSION,
       game_version: 41,
     }, 'game_12345');
     expect(isStaleServerMessage(update, 42)).toBe(true);

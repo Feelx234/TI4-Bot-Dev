@@ -1,27 +1,88 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App } from './App.tsx';
 
-const lobby = (gameId: string, viewer?: { role: 'player'; seat: string }) => ({ game_id: gameId, phase: 'lobby', lobby_version: 1, host_seat: 'p1', roster: [{ seat: 'p1', controller: 'human', ready: false, available: !viewer }, { seat: 'p2', controller: 'human', ready: false, available: !viewer }], viewer, can_start: false });
-
+const lobby = (phase: 'lobby' | 'running' = 'lobby', canTakeOver = false) => ({ game_id: 'game-1', phase, lobby_version: 1, host_player_id: 'player_a', slots: [
+  { slot_id: 'slot_1', position: 1, occupant: 'player_a', ready: false, connected: false, can_take_over: canTakeOver },
+  { slot_id: 'slot_2', position: 2, occupant: null, ready: false, connected: false, can_take_over: false },
+] });
 afterEach(() => { cleanup(); sessionStorage.clear(); history.replaceState({}, '', '/'); vi.unstubAllGlobals(); });
 
 describe('App lobby routing', () => {
-  it('shows a mandatory chooser for a direct URL without a credential', async () => {
+  it('reads without admission, then joins and retains the credential in tab storage only', async () => {
     history.replaceState({}, '', '/games/game-1');
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => lobby('game-1') }));
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve({ ok: true, json: async () => url.endsWith('/join') ? { player_session: 'private', player: { id: 'player_b' }, lobby: { ...lobby(), slots: [lobby().slots[0], { ...lobby().slots[1], occupant: 'player_b' }] } } : lobby() }));
+    vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    await waitFor(() => expect(screen.getByText('Choose an available seat')).toBeInTheDocument());
-    expect(sessionStorage.getItem('ti4.viewer.v1:game-1')).toBeNull();
+    await waitFor(() => expect(screen.getByText('Join game')).toBeInTheDocument());
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/join'))).toHaveLength(0);
+    fireEvent.click(screen.getByText('Join game'));
+    await waitFor(() => expect(sessionStorage.getItem('ti4.player-session:game-1')).toBe('private'));
+    expect(JSON.parse(fetchMock.mock.calls.find(([url]) => String(url).endsWith('/join'))![1].body)).toEqual({ kind: 'new' });
     expect(window.location.pathname).toBe('/games/game-1');
   });
 
-  it('restores a direct game URL using its tab credential and displays server identity', async () => {
-    sessionStorage.setItem('ti4.viewer.v1:game-2', 'capability-p2'); history.replaceState({}, '', '/games/game-2');
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => lobby('game-2', { role: 'player', seat: 'p2' }) }); vi.stubGlobal('fetch', fetchMock);
+  it('explicitly takes over an eligible disconnected player on a fresh computer', async () => {
+    history.replaceState({}, '', '/games/game-1');
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve({ ok: true, json: async () => url.endsWith('/join') ? { player_session: 'replacement', player: { id: 'player_a' }, lobby: lobby() } : lobby('lobby', true) }));
+    vi.stubGlobal('fetch', fetchMock);
     render(<App />);
-    await waitFor(() => expect(screen.getByTestId('ready-button')).toBeInTheDocument());
-    expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'x-ti4-seat-token': 'capability-p2' });
-    expect(screen.queryByTestId('start-game-button')).toBeNull();
+    fireEvent.click(await screen.findByText(/Rejoin as Player 1/));
+    await waitFor(() => expect(sessionStorage.getItem('ti4.player-session:game-1')).toBe('replacement'));
+    expect(JSON.parse(fetchMock.mock.calls.find(([url]) => String(url).endsWith('/join'))![1].body)).toEqual({ kind: 'takeover', player_id: 'player_a' });
+  });
+
+  it('reconnects with its stored credential and sends a complete slot permutation as host', async () => {
+    sessionStorage.setItem('ti4.player-session:game-1', 'private');
+    history.replaceState({}, '', '/games/game-1');
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve({ ok: true, json: async () => url.endsWith('/join') ? { player_session: null, player: { id: 'player_a' }, lobby: lobby() } : lobby() }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    fireEvent.click(await screen.findByLabelText('Move position 2 up'));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/reorder'))).toBe(true));
+    const reorder = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/reorder'))![1];
+    expect(reorder.headers['x-ti4-player-session']).toBe('private');
+    expect(JSON.parse(reorder.body)).toEqual({ slot_ids: ['slot_2', 'slot_1'] });
+  });
+
+  it('drops a revoked credential and exposes read-only spectator actions', async () => {
+    sessionStorage.setItem('ti4.player-session:game-1', 'old');
+    history.replaceState({}, '', '/games/game-1');
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(url.endsWith('/join') ? { ok: false, status: 403 } : { ok: true, json: async () => lobby() }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    await waitFor(() => expect(sessionStorage.getItem('ti4.player-session:game-1')).toBeNull());
+    expect(await screen.findByText('Watch')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/games/game-1');
+  });
+
+  it('leaves an unstarted lobby on the server before forgetting the guest credential', async () => {
+    sessionStorage.setItem('ti4.player-session:game-1', 'guest-session');
+    history.replaceState({}, '', '/games/game-1');
+    const guestLobby = { ...lobby(), slots: [lobby().slots[0], { ...lobby().slots[1], occupant: 'player_b' }] };
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve({ ok: true,
+      json: async () => url.endsWith('/join') ? { player_session: null, player: { id: 'player_b' }, lobby: guestLobby } : url.endsWith('/leave') ? lobby() : guestLobby }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    fireEvent.click(await screen.findByText('Leave lobby'));
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(sessionStorage.getItem('ti4.player-session:game-1')).toBeNull();
+    const leaveCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/leave'))!;
+    expect(leaveCall[1]).toMatchObject({ method: 'POST', headers: { 'x-ti4-player-session': 'guest-session' } });
+  });
+
+  it('retains the guest credential and shows an error if leaving fails', async () => {
+    sessionStorage.setItem('ti4.player-session:game-1', 'guest-session');
+    history.replaceState({}, '', '/games/game-1');
+    const guestLobby = { ...lobby(), slots: [lobby().slots[0], { ...lobby().slots[1], occupant: 'player_b' }] };
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(url.endsWith('/leave')
+      ? { ok: false, status: 500, text: async () => 'Storage error' }
+      : { ok: true, json: async () => url.endsWith('/join') ? { player_session: null, player: { id: 'player_b' }, lobby: guestLobby } : guestLobby }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<App />);
+    fireEvent.click(await screen.findByText('Leave lobby'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Leave lobby failed (500)');
+    expect(sessionStorage.getItem('ti4.player-session:game-1')).toBe('guest-session');
+    expect(window.location.pathname).toBe('/games/game-1');
   });
 });

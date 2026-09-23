@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { ViewerRole } from './protocol/types.ts';
 import { useGameSession } from './hooks/useGameSession.ts';
 import { useLobbySession } from './hooks/useLobbySession.ts';
@@ -9,7 +9,7 @@ import { CreateLobby, LobbyStatus } from './components/Lobby.tsx';
 import { GameShell } from './components/GameShell.tsx';
 import { usePresence } from './hooks/usePresence.ts';
 
-const storageKey = (gameId: string) => `ti4.viewer.v1:${gameId}`;
+const storageKey = (gameId: string) => `ti4.player-session:${gameId}`;
 const pathGameId = () => /^\/games\/([^/]+)$/.exec(window.location.pathname)?.[1] ? decodeURIComponent(/^\/games\/([^/]+)$/.exec(window.location.pathname)![1]) : null;
 
 export const App: React.FC = () => {
@@ -22,19 +22,21 @@ export const App: React.FC = () => {
     window.addEventListener('popstate', receive);
     return () => window.removeEventListener('popstate', receive);
   }, []);
-  if (!gameId) return <><CreateLobby onError={setError} onCreated={(created) => navigate(created.game_id, created.creator_token)} />{error && <div className="session-error" role="alert">{error}</div>}</>;
-  return <GameRoute gameId={gameId} token={token} onError={setError} onCredentialInvalid={() => { sessionStorage.removeItem(storageKey(gameId)); setToken(undefined); }} onForget={() => { sessionStorage.removeItem(storageKey(gameId)); navigate(null); }} />;
+  if (!gameId) return <><CreateLobby onError={setError} onCreated={(created) => navigate(created.game_id, created.player_session)} />{error && <div className="session-error" role="alert">{error}</div>}</>;
+  return <GameRoute key={gameId} gameId={gameId} token={token} onCredential={(credential) => { sessionStorage.setItem(storageKey(gameId), credential); setToken(credential); }} onCredentialInvalid={() => { sessionStorage.removeItem(storageKey(gameId)); setToken(undefined); }} onForget={() => { sessionStorage.removeItem(storageKey(gameId)); navigate(null); }} />;
 };
 
-const GameRoute: React.FC<{ gameId: string; token?: string; onError: (error: string | null) => void; onCredentialInvalid: () => void; onForget: () => void }> = ({ gameId, token, onError, onCredentialInvalid, onForget }) => {
-  const { lobby, error, loading, invalidCredential, setReady, start, claim } = useLobbySession({ gameId, seatToken: token });
-  usePresence(gameId, token, onCredentialInvalid);
-  useEffect(() => onError(error), [error, onError]);
+const GameRoute: React.FC<{ gameId: string; token?: string; onCredential: (credential: string) => void; onCredentialInvalid: () => void; onForget: () => void }> = ({ gameId, token, onCredential, onCredentialInvalid, onForget }) => {
+  const { lobby, playerId, error, loading, invalidCredential, setReady, start, reorder, join, leave } = useLobbySession(gameId, token);
+  const [watching, setWatching] = useState(false);
+  const invalidate = useCallback(() => onCredentialInvalid(), [onCredentialInvalid]);
+  usePresence(gameId, token, invalidate);
   useEffect(() => { if (invalidCredential) onCredentialInvalid(); }, [invalidCredential, onCredentialInvalid]);
   if (!lobby) return <main className="lobby-page"><div className="panel lobby-panel">{loading ? 'Loading lobby...' : 'Unable to load lobby.'}</div></main>;
-  const viewer: ViewerRole = lobby.viewer ? { role: 'player', seat: lobby.viewer.seat, seatToken: token } : { role: 'spectator' };
-  const claimSeat = async (seat: string) => { const credential = await claim(seat); if (credential) { sessionStorage.setItem(storageKey(gameId), credential); window.location.reload(); } };
-  return <>{error && <div className="session-error" role="alert">{error}</div>}{lobby.phase === 'running' && lobby.viewer ? <GameViewContainer gameId={gameId} viewer={viewer} onLeave={onForget} /> : <LobbyStatus lobby={lobby} onReady={(ready) => void setReady(ready)} onStart={() => void start()} onForget={onForget} onClaim={(seat) => void claimSeat(seat)} />}</>;
+  const viewer: ViewerRole = token && playerId ? { role: 'player', seat: playerId, playerSession: token } : { role: 'spectator' };
+  const enter = async (id?: string) => { const credential = await join(id); if (credential) { setWatching(false); onCredential(credential); } };
+  const leaveLobby = async () => { if (await leave()) onForget(); };
+  return <>{error && <div className="session-error" role="alert">{error}</div>}{lobby.phase === 'running' && (playerId || watching) ? <GameViewContainer key={`${gameId}:${token ?? 'watch'}`} gameId={gameId} viewer={viewer} onLeave={onForget} /> : <LobbyStatus lobby={lobby} playerId={playerId} watching={watching} onReady={(ready) => void setReady(ready)} onStart={() => void start()} onLeave={() => void leaveLobby()} onJoin={() => void enter()} onTakeover={(id) => void enter(id)} onReorder={(ids) => void reorder(ids)} onWatch={() => setWatching(true)} />}</>;
 };
 
 const GameViewContainer: React.FC<{ gameId: string; viewer: ViewerRole; onLeave: () => void }> = ({ gameId, viewer, onLeave }) => {

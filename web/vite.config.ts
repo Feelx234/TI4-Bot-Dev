@@ -7,9 +7,9 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 3000,
     proxy: {
-      '/api': 'http://127.0.0.1:8080',
+      '/api': `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? '8080'}`,
       '/ws': {
-        target: 'ws://127.0.0.1:8080',
+        target: `ws://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? '8080'}`,
         ws: true,
       },
     },
