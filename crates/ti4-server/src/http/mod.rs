@@ -53,8 +53,12 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
         )
         .route("/api/games/{game_id}/lobby", get(games::get_lobby))
         .route(
-            "/api/games/{game_id}/lobby/claim",
-            axum::routing::post(games::claim_seat),
+            "/api/games/{game_id}/lobby/join",
+            axum::routing::post(games::join_lobby),
+        )
+        .route(
+            "/api/games/{game_id}/lobby/leave",
+            axum::routing::post(games::leave_lobby),
         )
         .route(
             "/api/games/{game_id}/lobby/heartbeat",

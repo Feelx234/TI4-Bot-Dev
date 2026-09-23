@@ -14,8 +14,8 @@ use crate::storage::{
 };
 
 use crate::storage::{
-    LobbySlotId, PLAYER_RECORD_VERSION, PlayerLobbyMember, PlayerLobbyRecord, PlayerLobbySlot,
-    PlayerSession, generate_player_id,
+    LobbySlotId, PLAYER_RECORD_VERSION, PlayerGameInitRecord, PlayerLobbyMember, PlayerLobbyRecord,
+    PlayerLobbySlot, PlayerSession, PlayerSessionsRecord, generate_player_id,
 };
 
 /// Public projection; deliberately cannot serialize the private persistence record.
@@ -201,6 +201,7 @@ pub enum LobbyError {
     HostRequired,
     HumansNotReady,
     SeatUnavailable,
+    TakeoverUnavailable,
     Map(String),
     Storage(String),
 }
@@ -217,6 +218,7 @@ impl LobbyError {
             Self::HostRequired => "Only the lobby host may start the game".to_owned(),
             Self::HumansNotReady => "Every human seat must be ready before starting".to_owned(),
             Self::SeatUnavailable => "Seat is unavailable".to_owned(),
+            Self::TakeoverUnavailable => "Takeover is not available yet".to_owned(),
             Self::Map(error) => format!("Failed to start game with map: {error}"),
             Self::Storage(error) => format!("Failed to persist lobby lifecycle: {error}"),
         }
@@ -227,6 +229,7 @@ impl LobbyError {
 struct RegistryState {
     sessions: BTreeMap<String, Arc<GameSession>>,
     lobbies: BTreeMap<String, LobbyState>,
+    player_lobbies: BTreeMap<String, PlayerLobbyRecord>,
 }
 
 /// Thread-safe registry that serializes each lobby's transition into an active session.
@@ -282,7 +285,53 @@ impl GameRegistry {
         let mut recovered = Vec::new();
 
         for game_id in lobby_ids {
-            if state.lobbies.contains_key(&game_id) || state.sessions.contains_key(&game_id) {
+            if state.lobbies.contains_key(&game_id)
+                || state.sessions.contains_key(&game_id)
+                || state.player_lobbies.contains_key(&game_id)
+            {
+                continue;
+            }
+            // A v2 lobby is a private record; never deserialize it as a v1 seat lobby.
+            let path = store.game_dir(&game_id)?.join("lobby.json");
+            if std::fs::metadata(&path)?.len() > 64 * 1024 {
+                return Err(StorageError::Oversized {
+                    path,
+                    limit: 64 * 1024,
+                });
+            }
+            let marker: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+            if marker
+                .get("payload")
+                .and_then(|v| v.get("schema_version"))
+                .is_some()
+            {
+                let mut record = store
+                    .load_player_lobby(&game_id)?
+                    .expect("listed lobby exists");
+                if game_ids.contains(&game_id) {
+                    let init = store.load_player_init(&game_id)?;
+                    let credentials = store.load_player_sessions(&game_id)?;
+                    if init.player_ids
+                        != record
+                            .slots
+                            .iter()
+                            .filter_map(|slot| slot.occupant.clone())
+                            .collect::<Vec<_>>()
+                        || credentials.sessions.len() != record.players.len()
+                        || credentials.sessions.keys().ne(record.players.keys())
+                    {
+                        return Err(StorageError::InvalidPlayerRecord("started roster"));
+                    }
+                    state.sessions.insert(
+                        game_id.clone(),
+                        Arc::new(store.recover_player_session(&game_id)?),
+                    );
+                    record.phase = PersistedLobbyPhase::Running;
+                } else {
+                    record.phase = PersistedLobbyPhase::Lobby;
+                }
+                state.player_lobbies.insert(game_id.clone(), record);
+                recovered.push(game_id);
                 continue;
             }
             let record = store.load_lobby(&game_id)?.expect("listed lobby exists");
@@ -314,6 +363,250 @@ impl GameRegistry {
         }
         recovered.sort();
         Ok(recovered)
+    }
+
+    /// Creates the private v2 lobby before delivering its first credential.
+    pub fn create_player_lobby(
+        &self,
+        game_id: String,
+        count: usize,
+        seed: u64,
+    ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        if state.lobbies.contains_key(&game_id)
+            || state.player_lobbies.contains_key(&game_id)
+            || state.sessions.contains_key(&game_id)
+            || self
+                .store
+                .as_ref()
+                .is_some_and(|store| store.game_dir(&game_id).is_ok_and(|dir| dir.exists()))
+        {
+            return Err(LobbyError::SeatUnavailable);
+        }
+        let (record, player, credential) = PlayerLobbyRecord::create(game_id.clone(), count, seed)
+            .map_err(|error| LobbyError::Storage(error.to_string()))?;
+        self.save_player_lobby(&record)?;
+        let view = record.public_view();
+        state.player_lobbies.insert(game_id, record);
+        Ok((view, player, credential))
+    }
+
+    fn save_player_lobby(&self, record: &PlayerLobbyRecord) -> Result<(), LobbyError> {
+        if let Some(store) = &self.store {
+            store
+                .save_player_lobby(record)
+                .map_err(|e| LobbyError::Storage(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Read-only spectator projection; an invalid supplied credential fails closed.
+    pub fn player_lobby_status(
+        &self,
+        game_id: &str,
+        credential: Option<&str>,
+    ) -> Result<(PlayerLobbyView, Option<PlayerId>), LobbyError> {
+        let state = self.state.lock().expect("registry lock");
+        let record = state
+            .player_lobbies
+            .get(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        let viewer = credential
+            .map(|value| authenticate_player(record, value))
+            .transpose()?;
+        Ok((record.public_view(), viewer))
+    }
+
+    /// Serializes first-open admission and credential-bearing reconnects.
+    pub fn join_player_lobby(
+        &self,
+        game_id: &str,
+        credential: Option<&str>,
+    ) -> Result<(PlayerLobbyView, PlayerId, Option<PlayerSession>), LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if let Some(credential) = credential {
+            let player = authenticate_player(lobby, credential)?;
+            return Ok((lobby.public_view(), player, None));
+        }
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        let slot = lobby
+            .slots
+            .iter()
+            .position(|slot| slot.occupant.is_none())
+            .ok_or(LobbyError::SeatUnavailable)?;
+        let mut updated = lobby.clone();
+        let player = generate_player_id(&updated.players);
+        let session = loop {
+            let candidate = PlayerSession::generate();
+            if updated
+                .players
+                .values()
+                .all(|member| member.session != candidate)
+            {
+                break candidate;
+            }
+        };
+        updated.slots[slot].occupant = Some(player.clone());
+        updated.players.insert(
+            player.clone(),
+            PlayerLobbyMember {
+                ready: false,
+                session: session.clone(),
+            },
+        );
+        updated.lobby_version += 1;
+        self.save_player_lobby(&updated)?;
+        *lobby = updated;
+        Ok((lobby.public_view(), player, Some(session)))
+    }
+
+    /// A leaving player retires their identity and credential, never the host's.
+    pub fn leave_player_lobby(
+        &self,
+        game_id: &str,
+        credential: &str,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        let player = authenticate_player(lobby, credential)?;
+        if player == lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let mut updated = lobby.clone();
+        updated.players.remove(&player);
+        updated
+            .slots
+            .iter_mut()
+            .find(|slot| slot.occupant.as_ref() == Some(&player))
+            .expect("validated occupant")
+            .occupant = None;
+        updated.lobby_version += 1;
+        self.save_player_lobby(&updated)?;
+        *lobby = updated;
+        Ok(lobby.public_view())
+    }
+
+    pub fn set_player_ready(
+        &self,
+        game_id: &str,
+        credential: &str,
+        ready: bool,
+    ) -> Result<(PlayerLobbyView, PlayerId), LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        let player = authenticate_player(lobby, credential)?;
+        if lobby.players[&player].ready != ready {
+            let mut updated = lobby.clone();
+            updated
+                .players
+                .get_mut(&player)
+                .expect("authenticated player")
+                .ready = ready;
+            updated.lobby_version += 1;
+            self.save_player_lobby(&updated)?;
+            *lobby = updated;
+        }
+        Ok((lobby.public_view(), player))
+    }
+
+    pub fn start_player_lobby(
+        &self,
+        game_id: &str,
+        credential: &str,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        if authenticate_player(lobby, credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        if lobby.slots.iter().any(|slot| slot.occupant.is_none())
+            || lobby.players.values().any(|member| !member.ready)
+        {
+            return Err(LobbyError::HumansNotReady);
+        }
+        let players: Vec<_> = lobby
+            .slots
+            .iter()
+            .map(|slot| slot.occupant.clone().expect("full lobby"))
+            .collect();
+        let content = ContentStore::embedded();
+        let (initial_state, galaxy) =
+            crate::map::create_game_with_map(content, &players, lobby.seed)
+                .map_err(|e| LobbyError::Map(e.to_string()))?;
+        let map_tiles = crate::map::build_board_tiles(content, &galaxy);
+        let mut config = SessionConfig::new(game_id, initial_state.clone())
+            .with_seed(lobby.seed)
+            .with_player_ids(players.clone())
+            .with_galaxy(galaxy, map_tiles.clone());
+        config.seats = players
+            .iter()
+            .map(|p| (p.clone(), SeatController::Human))
+            .collect();
+        config.seat_tokens = lobby
+            .players
+            .iter()
+            .map(|(p, m)| (p.clone(), m.session.as_str().to_owned()))
+            .collect();
+        config.store.clone_from(&self.store);
+        let mut running = lobby.clone();
+        running.phase = PersistedLobbyPhase::Running;
+        running.lobby_version += 1;
+        if let Some(store) = &self.store {
+            store
+                .save_player_sessions(&PlayerSessionsRecord {
+                    schema_version: PLAYER_RECORD_VERSION,
+                    game_id: game_id.to_owned(),
+                    sessions: lobby
+                        .players
+                        .iter()
+                        .map(|(p, m)| (p.clone(), m.session.clone()))
+                        .collect(),
+                })
+                .map_err(|e| LobbyError::Storage(e.to_string()))?;
+            self.save_player_lobby(&running)?;
+            if let Err(e) = store.save_player_init(&PlayerGameInitRecord {
+                schema_version: PLAYER_RECORD_VERSION,
+                game_id: game_id.to_owned(),
+                seed: lobby.seed,
+                player_ids: players,
+                initial_state,
+                map_tiles,
+            }) {
+                // No valid init: recovery treats the lobby as unstarted.
+                let _ = self.save_player_lobby(lobby);
+                return Err(LobbyError::Storage(e.to_string()));
+            }
+        }
+        *lobby = running;
+        let view = lobby.public_view();
+        state
+            .sessions
+            .insert(game_id.to_owned(), Arc::new(GameSession::start(config)));
+        Ok(view)
     }
 
     /// Creates a pre-game lobby and persists it before returning capabilities.
@@ -444,6 +737,11 @@ impl GameRegistry {
         token: &str,
     ) -> Result<PlayerId, LobbyError> {
         let mut state = self.state.lock().expect("registry lock");
+        if let Some(lobby) = state.player_lobbies.get(game_id) {
+            // Until PIL-03 replaces the WebSocket field, the WS authentication
+            // boundary still calls this method. Never renew or expire v2 credentials.
+            return authenticate_player(lobby, token);
+        }
         let lobby = state.lobbies.get_mut(game_id).ok_or(LobbyError::NotFound)?;
         self.expire_claims(lobby)?;
         let viewer = authenticated_seat(lobby, token)?;
@@ -670,7 +968,9 @@ impl GameRegistry {
     #[must_use]
     pub fn contains_game(&self, game_id: &str) -> bool {
         let state = self.state.lock().expect("registry lock");
-        state.sessions.contains_key(game_id) || state.lobbies.contains_key(game_id)
+        state.sessions.contains_key(game_id)
+            || state.lobbies.contains_key(game_id)
+            || state.player_lobbies.contains_key(game_id)
     }
 
     #[must_use]
@@ -696,6 +996,17 @@ impl GameRegistry {
                     pending_seat: None,
                 }),
         );
+        games.extend(
+            state
+                .player_lobbies
+                .values()
+                .filter(|lobby| matches!(lobby.phase, PersistedLobbyPhase::Lobby))
+                .map(|lobby| GameSummary {
+                    game_id: lobby.game_id.clone(),
+                    is_finished: false,
+                    pending_seat: None,
+                }),
+        );
         games.sort_by(|left, right| left.game_id.cmp(&right.game_id));
         games
     }
@@ -703,12 +1014,24 @@ impl GameRegistry {
     pub fn remove_game(&self, game_id: &str) -> Option<Arc<GameSession>> {
         let mut state = self.state.lock().expect("registry lock");
         state.lobbies.remove(game_id);
+        state.player_lobbies.remove(game_id);
         let session = state.sessions.remove(game_id);
         if let Some(session) = &session {
             session.stop();
         }
         session
     }
+}
+
+fn authenticate_player(
+    lobby: &PlayerLobbyRecord,
+    credential: &str,
+) -> Result<PlayerId, LobbyError> {
+    lobby
+        .players
+        .iter()
+        .find_map(|(id, member)| (member.session.as_str() == credential).then(|| id.clone()))
+        .ok_or(LobbyError::InvalidCapability)
 }
 
 fn running_lobby_from_session_config(config: &SessionConfig) -> LobbyState {

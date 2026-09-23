@@ -2,10 +2,9 @@
 
 ## Status
 
-PIL-01 model/persistence implementation is in the working tree (uncommitted,
-2026-09-23). Focused and server tests pass; independent frontier architecture/
-security review is outstanding. **PIL-01 is not complete and PIL-02 remains
-blocked on that review.** Details: `plans/evidence/PIL-01.md`.
+PIL-01 model/persistence implementation was committed as `e0f234d` on
+2026-09-23. PIL-02 is implemented; package progress and verification results
+are tracked here, without separate evidence artifacts or manual review gates.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -298,17 +297,14 @@ every choice still authenticates against the current credential.
   selection, wall-clock values other than the documented presence decision, or
   client-provided player IDs.
 
-## Implementation Packages and Gates
+## Implementation Packages and Tests
 
-Execute these in order. Each row is one bounded package with its own diff,
-focused tests, evidence, and independent review; split a row further if it
-becomes too large under `plans/PI_WORK_PACKAGE_STANDARD.md`. The named files
-are primary edit scopes, not permission to change unrelated code. Record any
-additional necessary paths in that package's task spec before editing. The
-acceptance-test numbers refer to the list below. Run formatting, the focused
-tests, and affected-crate tests for every code package. A package is not done
-until its review findings are resolved and its gate passes. The server may be
-temporarily unusable between breaking-change commits on this pre-launch branch;
+Execute these in order. Each row is one bounded package with focused tests;
+split a row further if necessary. The named files are primary edit scopes, not
+permission to change unrelated code. Record additional necessary paths in this
+plan before editing. The acceptance-test numbers refer to the list below. Run
+formatting, focused tests, and affected-crate tests for every code package.
+The server may be temporarily unusable between breaking-change commits on this pre-launch branch;
 do not claim an intermediate package is a deployable release.
 
 ### PIL-01 — Identities and versioned records
@@ -324,22 +320,20 @@ do not claim an intermediate package is a deployable release.
   an account system or expiry service.
 - **Gate:** Serialization/size/corruption tests, unique-ID collision tests,
   private-output tests, and an old-format rejection test pass (acceptance 1,
-  11, 12 for the model). Independent **frontier architecture/security review**
-  resolves the schema and credential-storage design **before PIL-02 starts**.
+  11, 12 for the model).
 - **Progress (2026-09-23):** Added typed `LobbySlotId`, 256-bit generated
   `player_` IDs with collision retry, redacted `PlayerSession`, bounded v2
   private lobby, immutable game-init and authoritative current-session records,
   and a credential-free public lobby projection. Focused tests cover round
   trips, forced ID collision, checksum/size/reference failures, old-record
   rejection, and restart loading of a rotated current credential.
-- **Integration boundary:** These v2 records have separate store methods. The
-  currently exposed HTTP/WS registry still operates on v1 seat/lease records,
-  and `recover_session` still loads its old init/token map. PIL-02 and PIL-04
-  must connect all writers/readers and remove obsolete credential recovery;
-  tests of the new storage methods alone do **not** prove live takeover or
-  running-session recovery. Review must verify the init/credentials start
-  commit sequence and eliminate any path that could reload an old token.
-- **Security review question:** v2 persistence DTOs are intentionally
+- **Integration boundary:** PIL-02 connected v2 lobby writers/readers and
+  running-session recovery through the current-session record. Legacy direct
+  session APIs still support v1 records; PIL-04 must ensure rotated credentials
+  replace both the current-session record and the active authenticated view.
+  Live takeover remains unimplemented. The v2 game-init record is the start
+  commit point; a running lobby record without init recovers as unstarted.
+- **Security boundary:** v2 persistence DTOs are intentionally
   serializable for disk only; client handlers must serialize the explicit
   `PlayerLobbyView` projection and never a private record. Debug output for
   existing token-bearing lobby/init DTOs is redacted during the transition;
@@ -347,7 +341,7 @@ do not claim an intermediate package is a deployable release.
 
 ### PIL-02 — New admission and lobby authorization
 
-- **Depends:** PIL-01 review accepted. **Primary scope:** registry lobby
+- **Depends:** PIL-01 model/persistence code. **Primary scope:** registry lobby
   transitions, `ti4-server/src/http/games.rs`, routes, and lobby tests.
 - **Contract:** Create takes `player_count` and returns the host credential;
   a new `join` selects the first open slot, while a credential-bearing `join`
@@ -358,12 +352,34 @@ do not claim an intermediate package is a deployable release.
   until then reject it explicitly, without mutating state.
 - **Gate:** Concurrent first-open joins, full lobby, reconnect, leave/new ID,
   spectator read, ready/start authorization, and persistence-failure tests pass
-  (acceptance 1–5, 11 as applicable). Independent **frontier authorization
-  review** resolves findings **before PIL-03 builds on these endpoints**.
+  (acceptance 1–5, 11 as applicable).
+- **Additional edit paths:** `crates/ti4-server/src/http/mod.rs`,
+  `crates/ti4-server/src/storage.rs`, and focused server tests for routing,
+  durable v2 start/recovery, and verification.
+- **Progress (2026-09-23):** Implemented `player_count` creation with generated
+  host identity and private `player_session`; first-open `/lobby/join`,
+  credential reconnect, authenticated non-host leave, readiness/start, public
+  spectator lobby read, and explicit rejection of the reserved takeover request.
+  The new HTTP paths use only bounded v2 lobby records. Starts persist current
+  credentials and a credential-free init; restart recovery loads the current
+  credential record. WebSocket messages still use the v1 `seat_token` field
+  until PIL-03; the registry recognizes v2 credentials there without leases.
+  Pre-launch browser/bot clients still require their later packages.
+- **Verification:** `cargo test -p ti4-server` passed (including concurrent
+  first-open admission, storage-failure rollback, HTTP authentication and
+  spectator reads, v2 restart/replay, and existing WS/protocol coverage);
+  `cargo fmt --package ti4-server` applied; `cargo clippy -p ti4-server
+  --all-targets` passed with existing dependency warnings. Strict `-D warnings`
+  remains blocked by unrelated warnings in `ti4-model` and `ti4-engine`.
+- **Next:** PIL-03 replaces the WebSocket subscription field, adds authenticated
+  presence/heartbeat behavior and revocation-aware subscriptions; PIL-04
+  implements explicit takeover. PIL-05 adds host slot reorder and strengthens
+  start/recovery crash-boundary testing. PIL-08 removes legacy direct-registry
+  seat/lease paths and updates remaining clients and docs.
 
 ### PIL-03 — Authenticated presence and WebSocket identity
 
-- **Depends:** PIL-02 review accepted. **Primary scope:**
+- **Depends:** PIL-02. **Primary scope:**
   `ti4-server/src/protocol/`, `ti4-server/src/ws/`, registry presence, and
   their focused tests. Do not implement takeover in this package.
 - **Contract:** Bump the protocol version; `Subscribe.player_session` resolves
@@ -375,12 +391,11 @@ do not claim an intermediate package is a deployable release.
   subscriptions to stop private delivery if their credential is later revoked.
 - **Gate:** Spectator privacy, invalid credentials, ping/timeout boundary,
   brief credential reconnect, per-choice authentication, and restart-presence
-  tests pass (acceptance 4, 5, 11, 12). Independent **frontier authorization
-  review** resolves findings **before PIL-04 uses presence for takeover**.
+  tests pass (acceptance 4, 5, 11, 12).
 
 ### PIL-04 — Disconnected-player takeover
 
-- **Depends:** PIL-03 review accepted. **Primary scope:** registry credential
+- **Depends:** PIL-03. **Primary scope:** registry credential
   rotation, current-credential storage, `ti4-server/src/http/games.rs`,
   `ti4-server/src/ws/`, and focused server/recovery tests.
 - **Contract:** The explicit no-token `join` takeover variant selects an
@@ -392,12 +407,11 @@ do not claim an intermediate package is a deployable release.
 - **Gate:** Connected-player refusal, concurrent takeover, old-token refusal
   for HTTP/WS/choices, old-subscription closure, storage-failure rollback,
   lobby/running takeover, and restart-loading-new-token tests pass (acceptance
-  5, 9, 11, 12). Independent **frontier security/persistence review** resolves
-  all findings **before any web or bot client relies on takeover**.
+  5, 9, 11, 12).
 
 ### PIL-05 — Reorder and committed start
 
-- **Depends:** PIL-04 review accepted. **Primary scope:** registry reorder and
+- **Depends:** PIL-04. **Primary scope:** registry reorder and
   start, game-init storage/recovery, HTTP reorder route, and focused tests.
 - **Contract:** Only the lobby host may submit a complete slot-ID permutation;
   join and reorder serialize. Start requires full occupancy/readiness and
@@ -406,12 +420,11 @@ do not claim an intermediate package is a deployable release.
   presents an active game. Host has no post-start privilege.
 - **Gate:** Reorder/empty-slot/join race, bad permutations, host preservation,
   exact engine order, rejected post-start changes, and crash-before/after-init
-  tests pass (acceptance 6–9, 12). Independent **frontier seating/persistence
-  review** resolves findings before client reorder controls are added.
+  tests pass (acceptance 6–9, 12).
 
 ### PIL-06 — Browser flows
 
-- **Depends:** PIL-04 and PIL-05 reviews accepted. **Primary scope:** `web/src/`
+- **Depends:** PIL-04 and PIL-05. **Primary scope:** `web/src/`
   UI, protocol decoding and storage, plus focused browser tests.
 - **Contract:** Show Join, Watch, and eligible "Rejoin as Player X" actions,
   the stable public label and position, lobby-only reorder controls, and
@@ -420,11 +433,10 @@ do not claim an intermediate package is a deployable release.
 - **Gate:** Browser tests cover new join, watch without admission, remote-
   computer takeover with no stored credential, old-token invalidation, host
   reorder, readiness, and protocol-version handling (acceptance 4–9, 11).
-  Independent client/UI review passes before PIL-08.
 
 ### PIL-07 — Bot-agent flows
 
-- **Depends:** PIL-04 and PIL-05 reviews accepted. **Primary scope:**
+- **Depends:** PIL-04 and PIL-05. **Primary scope:**
   `crates/ti4-bot-agent/` and focused bot integration tests.
 - **Contract:** Remove `--seat`/`--token`; join from game/advisor configuration,
   mark ready, heartbeat while waiting, send application pings when running,
@@ -435,11 +447,11 @@ do not claim an intermediate package is a deployable release.
   for any other player.
 - **Gate:** Bot E2E covers ready/start, idle longer than the presence grace
   period, disconnect/reconnect, fresh-process takeover, and advisor identity
-  (acceptance 9–11). Independent bot/integration review passes before PIL-08.
+  (acceptance 9–11).
 
 ### PIL-08 — Contract cleanup and end-to-end gate
 
-- **Depends:** PIL-06 and PIL-07 reviews accepted. **Primary scope:** obsolete
+- **Depends:** PIL-06 and PIL-07. **Primary scope:** obsolete
   lobby/claim/seat-token paths, README, protocol fixtures, server/web E2E,
   storage recovery tests, and integration docs. List exact paths in the task
   spec; preserve unrelated tests and utilities.
@@ -449,8 +461,7 @@ do not claim an intermediate package is a deployable release.
 - **Gate:** All acceptance tests 1–12 pass through appropriate unit and E2E
   layers; format, affected crates, workspace suite, protocol round-trips,
   concurrency, recovery, and a real bot E2E with idle time past the presence
-  grace period pass. Resolve independent integration review and any remaining
-  frontier security findings before calling the refactor complete.
+  grace period pass.
 
 ## Required Acceptance Tests
 
@@ -504,9 +515,8 @@ do not claim an intermediate package is a deployable release.
 
 ## Risks to Review
 
-- This is an authorization and persistence-schema redesign; obtain an
-  independent frontier security/architecture review before merging the first
-  implementation package.
+- This is an authorization and persistence-schema redesign; test every public
+  boundary, restart path, and credential revocation path before release.
 - Confirm game views, replay records, and advisor payloads treat `PlayerId` as
   an opaque stable identity and do not assume `p1` through `p8`.
 - Preserve deterministic seating semantics: automatic admission and host

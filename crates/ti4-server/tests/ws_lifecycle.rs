@@ -99,10 +99,31 @@ where
 }
 
 async fn ready_and_start(client: &reqwest::Client, addr: &str, game_id: &str, tokens: &[&str]) {
-    for token in tokens {
+    let lobby: serde_json::Value = client
+        .get(format!("http://{addr}/api/games/{game_id}/lobby"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let mut all_tokens: Vec<String> = tokens.iter().map(|value| (*value).to_owned()).collect();
+    for _ in all_tokens.len()..lobby["slots"].as_array().unwrap().len() {
+        let joined: serde_json::Value = client
+            .post(format!("http://{addr}/api/games/{game_id}/lobby/join"))
+            .json(&serde_json::json!({"kind":"new"}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        all_tokens.push(joined["player_session"].as_str().unwrap().to_owned());
+    }
+    for token in &all_tokens {
         let response = client
             .post(format!("http://{addr}/api/games/{game_id}/lobby/ready"))
-            .header("x-ti4-seat-token", *token)
+            .header("x-ti4-player-session", token)
             .json(&serde_json::json!({ "ready": true }))
             .send()
             .await
@@ -111,7 +132,7 @@ async fn ready_and_start(client: &reqwest::Client, addr: &str, game_id: &str, to
     }
     let response = client
         .post(format!("http://{addr}/api/games/{game_id}/lobby/start"))
-        .header("x-ti4-seat-token", tokens[0])
+        .header("x-ti4-player-session", tokens[0])
         .send()
         .await
         .expect("start lobby");
@@ -122,12 +143,12 @@ async fn create_game(
     client: &reqwest::Client,
     addr: &str,
     players: &[&str],
-    bot_seats: &[&str],
+    _bot_seats: &[&str],
     seed: u64,
 ) -> (String, String) {
     let response = client
         .post(format!("http://{addr}/api/games"))
-        .json(&serde_json::json!({ "players": players, "bot_seats": bot_seats, "seed": seed }))
+        .json(&serde_json::json!({ "player_count": players.len(), "seed": seed }))
         .send()
         .await
         .expect("create game");
@@ -138,17 +159,17 @@ async fn create_game(
             .as_str()
             .expect("generated game ID")
             .to_owned(),
-        created["creator_token"]
+        created["player_session"]
             .as_str()
             .expect("creator credential")
             .to_owned(),
     )
 }
 
-async fn claim_seat(client: &reqwest::Client, addr: &str, game_id: &str, seat: &str) -> String {
+async fn claim_seat(client: &reqwest::Client, addr: &str, game_id: &str, _seat: &str) -> String {
     let response = client
-        .post(format!("http://{addr}/api/games/{game_id}/lobby/claim"))
-        .json(&serde_json::json!({ "seat": seat }))
+        .post(format!("http://{addr}/api/games/{game_id}/lobby/join"))
+        .json(&serde_json::json!({ "kind": "new" }))
         .send()
         .await
         .expect("claim seat");
@@ -156,7 +177,7 @@ async fn claim_seat(client: &reqwest::Client, addr: &str, game_id: &str, seat: &
     response
         .json::<serde_json::Value>()
         .await
-        .expect("claim response")["credential"]
+        .expect("claim response")["player_session"]
         .as_str()
         .expect("claimed credential")
         .to_owned()
@@ -188,7 +209,7 @@ async fn http_health_and_games_crud() {
         .send()
         .await
         .expect("post invalid game id");
-    assert_eq!(res.status(), reqwest::StatusCode::BAD_REQUEST);
+    assert_eq!(res.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
 
     let res = client
         .post(format!("http://{addr}/api/games"))
@@ -216,7 +237,7 @@ async fn http_health_and_games_crud() {
     // 4. GET /api/games/game_http_crud/snapshot with an unguessable seat capability.
     let res = client
         .get(format!("http://{addr}/api/games/{game_id}/snapshot"))
-        .header("x-ti4-seat-token", &p1_token)
+        .header("x-ti4-player-session", &p1_token)
         .send()
         .await
         .expect("get snapshot p1");
@@ -228,7 +249,7 @@ async fn http_health_and_games_crud() {
 
     let res = client
         .get(format!("http://{addr}/api/games/{game_id}/snapshot"))
-        .header("x-ti4-seat-token", "p1")
+        .header("x-ti4-player-session", "p1")
         .send()
         .await
         .expect("get snapshot with forged capability");
@@ -248,7 +269,7 @@ async fn http_health_and_games_crud() {
 
 #[tokio::test]
 async fn websocket_full_lifecycle_and_rejections() {
-    let (addr, _) = spawn_test_server().await;
+    let (addr, registry) = spawn_test_server().await;
     let client = reqwest::Client::new();
 
     // Create a game first
@@ -292,7 +313,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     let sub_msg = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
-        seat_token: Some(p1_token),
+        seat_token: Some(p1_token.clone()),
     };
     ws_stream
         .send(Message::Text(
@@ -314,7 +335,11 @@ async fn websocket_full_lifecycle_and_rejections() {
     };
     assert_eq!(
         initial_snapshot.viewer,
-        ViewerRole::Player(ti4_model::id::PlayerId::new("p1"))
+        ViewerRole::Player(
+            registry
+                .authenticate_and_renew(&game_id, &p1_token)
+                .unwrap()
+        )
     );
 
     // Receive pending choice if one is pending, or read it from initial snapshot
@@ -445,7 +470,7 @@ async fn websocket_full_lifecycle_and_rejections() {
 
 #[tokio::test]
 async fn spectator_role_isolation_and_reconnection() {
-    let (addr, _) = spawn_test_server().await;
+    let (addr, registry) = spawn_test_server().await;
     let client = reqwest::Client::new();
 
     let (game_id, p1_token) =
@@ -526,7 +551,7 @@ async fn spectator_role_isolation_and_reconnection() {
     let sub_reconnect = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
-        seat_token: Some(p1_token),
+        seat_token: Some(p1_token.clone()),
     };
     reconnected_stream
         .send(Message::Text(
@@ -545,7 +570,11 @@ async fn spectator_role_isolation_and_reconnection() {
         ServerMessage::InitialSnapshot(s) => {
             assert_eq!(
                 s.viewer,
-                ViewerRole::Player(ti4_model::id::PlayerId::new("p1"))
+                ViewerRole::Player(
+                    registry
+                        .authenticate_and_renew(&game_id, &p1_token)
+                        .unwrap()
+                )
             );
         }
         other => panic!("Expected InitialSnapshot, got {other:?}"),

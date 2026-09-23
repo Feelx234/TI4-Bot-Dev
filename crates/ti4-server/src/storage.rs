@@ -617,6 +617,49 @@ impl FileGameStore {
     /// Returns [`StorageError`] if recovery fails.
     pub fn recover_session(self: &Arc<Self>, game_id: &str) -> Result<GameSession, StorageError> {
         let init_record = self.load_init(game_id)?;
+        self.recover_from_init(game_id, init_record)
+    }
+
+    /// Recover v2 using only the current-session record as credential authority.
+    pub fn recover_player_session(
+        self: &Arc<Self>,
+        game_id: &str,
+    ) -> Result<GameSession, StorageError> {
+        let init = self.load_player_init(game_id)?;
+        let sessions = self.load_player_sessions(game_id)?;
+        if init.player_ids.len() != sessions.sessions.len()
+            || init
+                .player_ids
+                .iter()
+                .any(|id| !sessions.sessions.contains_key(id))
+        {
+            return Err(StorageError::InvalidPlayerRecord("started sessions"));
+        }
+        let record = GameInitRecord {
+            game_id: init.game_id,
+            seed: Some(init.seed),
+            player_ids: init.player_ids.clone(),
+            initial_state: init.initial_state,
+            seats: init
+                .player_ids
+                .iter()
+                .map(|id| (id.clone(), SeatController::Human))
+                .collect(),
+            seat_tokens: sessions
+                .sessions
+                .into_iter()
+                .map(|(id, session)| (id, session.as_str().to_owned()))
+                .collect(),
+            map_tiles: init.map_tiles,
+        };
+        self.recover_from_init(game_id, record)
+    }
+
+    fn recover_from_init(
+        self: &Arc<Self>,
+        game_id: &str,
+        init_record: GameInitRecord,
+    ) -> Result<GameSession, StorageError> {
         let decisions = self.load_decisions(game_id)?;
         let events = self.load_events(game_id)?;
 

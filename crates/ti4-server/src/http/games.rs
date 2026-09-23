@@ -11,65 +11,53 @@ use ti4_model::id::PlayerId;
 
 use crate::protocol::server::ServerMessage;
 use crate::protocol::status::ViewerRole;
-use crate::session::registry::{GameSummary, LobbyConfig, LobbyError, LobbyPhase, LobbyStatus};
-use crate::session::{GameRegistry, SeatController};
+use crate::session::GameRegistry;
+use crate::session::registry::{GameSummary, LobbyError, PlayerLobbyView};
 
 const MAX_PLAYERS: usize = 8;
-const MAX_PLAYER_ID_BYTES: usize = 64;
 
 /// Request to create a new game session.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateGameRequest {
-    #[serde(default)]
-    pub players: Vec<String>,
+    pub player_count: usize,
     pub seed: Option<u64>,
-    #[serde(default)]
-    pub bot_seats: Vec<String>,
 }
 
 /// Response after creating a game.
 #[derive(Debug, Serialize)]
 pub struct CreateGameResponse {
     pub game_id: String,
-    pub creator_token: String,
-    pub lobby: LobbyResponse,
+    /// Private to the creating client; never included in a public lobby view.
+    pub player_session: String,
+    pub player: PlayerIdentity,
+    pub lobby: PlayerLobbyView,
 }
 
-/// Public state of the pre-game lobby or the resulting running session.
 #[derive(Debug, Serialize)]
-pub struct LobbyResponse {
-    pub game_id: String,
-    pub phase: LobbyPhase,
-    pub lobby_version: u64,
-    pub host_seat: String,
-    pub roster: Vec<LobbySeatResponse>,
-    pub viewer: Option<crate::protocol::status::ViewerRole>,
-    pub can_start: bool,
-}
-
-/// Public roster entry. Capabilities are deliberately not represented here.
-#[derive(Debug, Serialize)]
-pub struct LobbySeatResponse {
-    pub seat: String,
-    pub controller: &'static str,
-    pub ready: bool,
-    pub available: bool,
+pub struct PlayerIdentity {
+    pub id: PlayerId,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReadyRequest {
     pub ready: bool,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ClaimRequest {
-    pub seat: String,
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum JoinRequest {
+    New,
+    Takeover { player_id: PlayerId },
 }
 
 #[derive(Debug, Serialize)]
-pub struct ClaimResponse {
-    pub credential: String,
-    pub lobby: LobbyResponse,
+pub struct JoinResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub player_session: Option<String>,
+    pub player: PlayerIdentity,
+    pub lobby: PlayerLobbyView,
 }
 
 /// Handler for `GET /api/games`.
@@ -82,55 +70,10 @@ pub async fn create_game(
     State(registry): State<Arc<GameRegistry>>,
     Json(payload): Json<CreateGameRequest>,
 ) -> Result<Json<CreateGameResponse>, (StatusCode, String)> {
-    let player_names = if payload.players.is_empty() {
-        vec!["p1".to_owned(), "p2".to_owned(), "p3".to_owned()]
-    } else {
-        payload.players
-    };
-
-    if !(2..=MAX_PLAYERS).contains(&player_names.len())
-        || player_names
-            .iter()
-            .any(|player| player.is_empty() || player.len() > MAX_PLAYER_ID_BYTES)
-        || player_names
-            .iter()
-            .collect::<std::collections::BTreeSet<_>>()
-            .len()
-            != player_names.len()
-    {
+    if !(2..=MAX_PLAYERS).contains(&payload.player_count) {
         return Err((
             StatusCode::BAD_REQUEST,
-            "players must contain 2-8 unique, non-empty 64-byte IDs".to_owned(),
-        ));
-    }
-    if payload.bot_seats.iter().any(|seat| {
-        seat.is_empty()
-            || seat.len() > MAX_PLAYER_ID_BYTES
-            || !player_names.iter().any(|player| player == seat)
-    }) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "bot_seats must name configured players using bounded IDs".to_owned(),
-        ));
-    }
-    if payload
-        .bot_seats
-        .iter()
-        .collect::<std::collections::BTreeSet<_>>()
-        .len()
-        != payload.bot_seats.len()
-    {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "bot_seats must not contain duplicates".to_owned(),
-        ));
-    }
-    if player_names.first().is_none_or(|seat| seat != "p1")
-        || payload.bot_seats.iter().any(|seat| seat == "p1")
-    {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "p1 must be the first configured human creator seat".to_owned(),
+            "player_count must be 2-8".to_owned(),
         ));
     }
 
@@ -141,71 +84,52 @@ pub async fn create_game(
         }
     };
 
-    let player_ids: Vec<PlayerId> = player_names.iter().map(PlayerId::new).collect();
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
-    let seats = player_ids
-        .iter()
-        .map(|player_id| {
-            let controller = if payload
-                .bot_seats
-                .iter()
-                .any(|seat| seat == player_id.as_str())
-            {
-                SeatController::BotFirstOption
-            } else {
-                SeatController::Human
-            };
-            (player_id.clone(), controller)
-        })
-        .collect();
-    let created = registry
-        .create_lobby(LobbyConfig {
-            game_id: game_id.clone(),
-            host_seat: PlayerId::new("p1"),
-            player_ids,
-            seats,
-            seed,
-        })
-        .map_err(|e| (StatusCode::CONFLICT, e))?;
-    let creator_token = created.creator_token;
-    let lobby = lobby_response(&created.lobby, Some(PlayerId::new("p1")));
+    let (lobby, player, session) = registry
+        .create_player_lobby(game_id.clone(), payload.player_count, seed)
+        .map_err(lobby_error)?;
 
     Ok(Json(CreateGameResponse {
         game_id,
-        creator_token,
+        player_session: session.as_str().to_owned(),
+        player: PlayerIdentity { id: player },
         lobby,
     }))
 }
 
-/// Handler for `POST /api/games/{game_id}/lobby/claim`.
-pub async fn claim_seat(
+/// One entry point for new admissions, credential reconnects and (later) takeover.
+pub async fn join_lobby(
     Path(game_id): Path<String>,
+    headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
-    Json(payload): Json<ClaimRequest>,
-) -> Result<Json<ClaimResponse>, (StatusCode, String)> {
-    let (status, credential) = registry
-        .claim_seat(&game_id, &payload.seat)
+    Json(payload): Json<JoinRequest>,
+) -> Result<Json<JoinResponse>, (StatusCode, String)> {
+    if matches!(payload, JoinRequest::Takeover { .. }) {
+        return Err(lobby_error(LobbyError::TakeoverUnavailable));
+    }
+    let (lobby, player, session) = registry
+        .join_player_lobby(&game_id, player_session(&headers)?)
         .map_err(lobby_error)?;
-    Ok(Json(ClaimResponse {
-        credential,
-        lobby: lobby_status_response(status),
+    Ok(Json(JoinResponse {
+        player_session: session.map(|value| value.as_str().to_owned()),
+        player: PlayerIdentity { id: player },
+        lobby,
     }))
 }
 
-/// Handler for authenticated lease renewal.
+/// Authenticated lobby heartbeat; presence tracking is added in PIL-03.
 pub async fn heartbeat(
     Path(game_id): Path<String>,
     headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
-) -> Result<Json<LobbyResponse>, (StatusCode, String)> {
-    let token = seat_token(&headers).ok_or_else(|| lobby_error(LobbyError::InvalidCapability))?;
-    registry
-        .authenticate_and_renew(&game_id, token)
-        .map_err(lobby_error)?;
-    let status = registry
-        .lobby_status(&game_id, Some(token))
-        .map_err(lobby_error)?;
-    Ok(Json(lobby_status_response(status)))
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    Ok(Json(
+        registry
+            .player_lobby_status(&game_id, Some(token))
+            .map_err(lobby_error)?
+            .0,
+    ))
 }
 
 /// Handler for `GET /api/games/{game_id}/lobby`.
@@ -213,11 +137,26 @@ pub async fn get_lobby(
     Path(game_id): Path<String>,
     headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
-) -> Result<Json<LobbyResponse>, (StatusCode, String)> {
-    let status = registry
-        .lobby_status(&game_id, seat_token(&headers))
-        .map_err(lobby_error)?;
-    Ok(Json(lobby_status_response(status)))
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    Ok(Json(
+        registry
+            .player_lobby_status(&game_id, player_session(&headers)?)
+            .map_err(lobby_error)?
+            .0,
+    ))
+}
+
+/// Retire an authenticated, non-host lobby participant.
+pub async fn leave_lobby(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    Ok(Json(
+        registry
+            .leave_player_lobby(&game_id, require_player_session(&headers)?)
+            .map_err(lobby_error)?,
+    ))
 }
 
 /// Handler for `POST /api/games/{game_id}/lobby/ready`.
@@ -226,12 +165,13 @@ pub async fn set_ready(
     headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
     Json(payload): Json<ReadyRequest>,
-) -> Result<Json<LobbyResponse>, (StatusCode, String)> {
-    let token = seat_token(&headers).ok_or_else(|| lobby_error(LobbyError::InvalidCapability))?;
-    let status = registry
-        .set_ready(&game_id, token, payload.ready)
-        .map_err(lobby_error)?;
-    Ok(Json(lobby_status_response(status)))
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    Ok(Json(
+        registry
+            .set_player_ready(&game_id, require_player_session(&headers)?, payload.ready)
+            .map_err(lobby_error)?
+            .0,
+    ))
 }
 
 /// Handler for `POST /api/games/{game_id}/lobby/start`.
@@ -239,22 +179,31 @@ pub async fn start_lobby(
     Path(game_id): Path<String>,
     headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
-) -> Result<Json<LobbyResponse>, (StatusCode, String)> {
-    let token = seat_token(&headers).ok_or_else(|| lobby_error(LobbyError::InvalidCapability))?;
-    registry.start_lobby(&game_id, token).map_err(lobby_error)?;
-    let status = registry
-        .lobby_status(&game_id, Some(token))
-        .map_err(lobby_error)?;
-    Ok(Json(lobby_status_response(status)))
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    Ok(Json(
+        registry
+            .start_player_lobby(&game_id, require_player_session(&headers)?)
+            .map_err(lobby_error)?,
+    ))
 }
 
-fn seat_token(headers: &HeaderMap) -> Option<&str> {
+fn player_session(headers: &HeaderMap) -> Result<Option<&str>, (StatusCode, String)> {
     headers
-        .get("x-ti4-seat-token")
-        .and_then(|token| token.to_str().ok())
+        .get("x-ti4-player-session")
+        .map(|header| {
+            header
+                .to_str()
+                .map_err(|_| lobby_error(LobbyError::InvalidCapability))
+        })
+        .transpose()
+}
+
+fn require_player_session(headers: &HeaderMap) -> Result<&str, (StatusCode, String)> {
+    player_session(headers)?.ok_or_else(|| lobby_error(LobbyError::InvalidCapability))
 }
 
 fn lobby_error(error: LobbyError) -> (StatusCode, String) {
+    let message = error.message();
     let status = match error {
         LobbyError::NotFound => StatusCode::NOT_FOUND,
         LobbyError::InvalidCapability
@@ -263,49 +212,11 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
         LobbyError::HumansNotReady
         | LobbyError::AlreadyRunning
         | LobbyError::NotInLobby
-        | LobbyError::SeatUnavailable => StatusCode::CONFLICT,
+        | LobbyError::SeatUnavailable
+        | LobbyError::TakeoverUnavailable => StatusCode::CONFLICT,
         LobbyError::Map(_) | LobbyError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
-    (status, error.message())
-}
-
-fn lobby_status_response(status: LobbyStatus) -> LobbyResponse {
-    lobby_response(&status.lobby, status.viewer)
-}
-
-fn lobby_response(
-    lobby: &crate::session::registry::LobbyState,
-    viewer: Option<PlayerId>,
-) -> LobbyResponse {
-    let can_start = viewer.as_ref() == Some(&lobby.host_seat)
-        && lobby.phase == LobbyPhase::Lobby
-        && lobby
-            .seats
-            .values()
-            .all(|seat| seat.controller != SeatController::Human || seat.ready);
-    LobbyResponse {
-        game_id: lobby.game_id.clone(),
-        phase: lobby.phase,
-        lobby_version: lobby.lobby_version,
-        host_seat: lobby.host_seat.to_string(),
-        roster: lobby
-            .seats
-            .iter()
-            .map(|(seat, lobby_seat)| LobbySeatResponse {
-                seat: seat.to_string(),
-                controller: if lobby_seat.controller == SeatController::Human {
-                    "human"
-                } else {
-                    "bot"
-                },
-                ready: lobby_seat.controller != SeatController::Human || lobby_seat.ready,
-                available: lobby_seat.controller == SeatController::Human
-                    && lobby_seat.seat_token.is_none(),
-            })
-            .collect(),
-        viewer: viewer.map(ViewerRole::Player),
-        can_start,
-    }
+    (status, message)
 }
 
 /// Handler for `GET /api/games/{game_id}/map`.
@@ -330,19 +241,20 @@ pub async fn get_snapshot(
         .get_game(&game_id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Game '{game_id}' not found")))?;
 
-    let viewer = match headers.get("x-ti4-seat-token") {
+    let viewer = match headers.get("x-ti4-player-session") {
         Some(token) => ViewerRole::Player(
             registry
-                .authenticate_and_renew(
+                .player_lobby_status(
                     &game_id,
-                    token.to_str().map_err(|_| {
-                        (
-                            StatusCode::BAD_REQUEST,
-                            "Invalid seat capability".to_owned(),
-                        )
-                    })?,
+                    Some(
+                        token
+                            .to_str()
+                            .map_err(|_| lobby_error(LobbyError::InvalidCapability))?,
+                    ),
                 )
-                .map_err(lobby_error)?,
+                .map_err(lobby_error)?
+                .1
+                .expect("authenticated player"),
         ),
         None => ViewerRole::Spectator,
     };

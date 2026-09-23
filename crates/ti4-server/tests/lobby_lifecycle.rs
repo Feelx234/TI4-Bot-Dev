@@ -26,8 +26,7 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
     let created = client
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
-            "players": ["p1", "p2", "bot"],
-            "bot_seats": ["bot"],
+            "player_count": 2,
             "seed": 42
         }))
         .send()
@@ -36,24 +35,27 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
     assert_eq!(created.status(), reqwest::StatusCode::OK);
     let created: serde_json::Value = created.json().await.expect("created lobby body");
     let game_id = created["game_id"].as_str().expect("generated game ID");
-    let p1 = created["creator_token"]
+    let p1 = created["player_session"]
         .as_str()
         .expect("p1 token")
         .to_owned();
     let p2 = client
-        .post(format!("{base_url}/api/games/{game_id}/lobby/claim"))
-        .json(&serde_json::json!({ "seat": "p2" }))
+        .post(format!("{base_url}/api/games/{game_id}/lobby/join"))
+        .json(&serde_json::json!({ "kind": "new" }))
         .send()
         .await
         .expect("claim p2")
         .json::<serde_json::Value>()
         .await
-        .expect("claimed p2 body")["credential"]
+        .expect("claimed p2 body")["player_session"]
         .as_str()
         .expect("p2 token")
         .to_owned();
-    assert_eq!(created["lobby"]["roster"][0]["seat"], "bot");
-    assert_eq!(created["lobby"]["roster"][0]["ready"], true);
+    assert_eq!(
+        created["lobby"]["slots"][0]["occupant"],
+        created["player"]["id"]
+    );
+    assert_eq!(created["lobby"]["slots"][0]["ready"], false);
     assert!(!created["lobby"].to_string().contains(&p1));
 
     let snapshot = client
@@ -65,14 +67,14 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
 
     let early_start = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/start"))
-        .header("x-ti4-seat-token", &p1)
+        .header("x-ti4-player-session", &p1)
         .send()
         .await
         .expect("early start");
     assert_eq!(early_start.status(), reqwest::StatusCode::CONFLICT);
     let non_host_start = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/start"))
-        .header("x-ti4-seat-token", &p2)
+        .header("x-ti4-player-session", &p2)
         .send()
         .await
         .expect("non-host start");
@@ -81,7 +83,7 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
     for token in [&p1, &p2] {
         let ready = client
             .post(format!("{base_url}/api/games/{game_id}/lobby/ready"))
-            .header("x-ti4-seat-token", token)
+            .header("x-ti4-player-session", token)
             .json(&serde_json::json!({ "ready": true }))
             .send()
             .await
@@ -90,7 +92,7 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
     }
     let started = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/start"))
-        .header("x-ti4-seat-token", &p1)
+        .header("x-ti4-player-session", &p1)
         .send()
         .await
         .expect("host start");
@@ -105,7 +107,7 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
 
     let mutation_after_start = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/ready"))
-        .header("x-ti4-seat-token", &p1)
+        .header("x-ti4-player-session", &p1)
         .json(&serde_json::json!({ "ready": false }))
         .send()
         .await
@@ -113,7 +115,7 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
     assert_eq!(mutation_after_start.status(), reqwest::StatusCode::CONFLICT);
     let snapshot = client
         .get(format!("{base_url}/api/games/{game_id}/snapshot"))
-        .header("x-ti4-seat-token", &p1)
+        .header("x-ti4-player-session", &p1)
         .send()
         .await
         .expect("started snapshot");
@@ -126,27 +128,9 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
     let client = reqwest::Client::new();
 
     for payload in [
-        serde_json::json!({
-            "players": ["p2", "p1"]
-        }),
-        serde_json::json!({
-            "players": ["p1", "bot"],
-            "bot_seats": ["p1"]
-        }),
-        serde_json::json!({
-            "players": ["p1", "p1"]
-        }),
-        serde_json::json!({
-            "players": ["p1", "bot"],
-            "bot_seats": ["bot", "bot"]
-        }),
-        serde_json::json!({
-            "players": ["p1", "p2"],
-            "bot_seats": ["bot"]
-        }),
-        serde_json::json!({
-            "players": ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"]
-        }),
+        serde_json::json!({"player_count": 0}),
+        serde_json::json!({"player_count": 1}),
+        serde_json::json!({"player_count": 9}),
     ] {
         let response = client
             .post(format!("{base_url}/api/games"))
@@ -160,12 +144,18 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
             "{payload}"
         );
     }
+    let invalid = client
+        .post(format!("{base_url}/api/games"))
+        .json(&serde_json::json!({"player_count": 2, "bot_seats": ["p1"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
 
     let created = client
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
-            "players": ["p1", "p2", "bot"],
-            "bot_seats": ["bot"],
+            "player_count": 2,
             "seed": 19
         }))
         .send()
@@ -174,30 +164,30 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
     assert_eq!(created.status(), reqwest::StatusCode::OK);
     let created: serde_json::Value = created.json().await.expect("created lobby");
     let game_id = created["game_id"].as_str().expect("generated game ID");
-    let p1 = created["creator_token"].as_str().expect("p1 token");
+    let p1 = created["player_session"].as_str().expect("p1 token");
     let p2 = client
-        .post(format!("{base_url}/api/games/{game_id}/lobby/claim"))
-        .json(&serde_json::json!({ "seat": "p2" }))
+        .post(format!("{base_url}/api/games/{game_id}/lobby/join"))
+        .json(&serde_json::json!({ "kind": "new" }))
         .send()
         .await
         .expect("claim p2")
         .json::<serde_json::Value>()
         .await
-        .expect("claimed p2 body")["credential"]
+        .expect("claimed p2 body")["player_session"]
         .as_str()
         .expect("p2 token")
         .to_owned();
     let other = client
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
-            "players": ["p1", "p2"]
+            "player_count": 2
         }))
         .send()
         .await
         .expect("create other lobby");
     assert_eq!(other.status(), reqwest::StatusCode::OK);
     let other: serde_json::Value = other.json().await.expect("other lobby body");
-    let other_token = other["creator_token"].as_str().expect("other token");
+    let other_token = other["player_session"].as_str().expect("other token");
 
     let public = client
         .get(format!("{base_url}/api/games/{game_id}/lobby"))
@@ -207,8 +197,7 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
         .json::<serde_json::Value>()
         .await
         .expect("parse public lobby");
-    assert_eq!(public["viewer"], serde_json::Value::Null);
-    assert_eq!(public["roster"][0]["seat"], "bot");
+    assert_eq!(public["slots"][0]["occupant"], created["player"]["id"]);
     assert!(!public.to_string().contains(p1));
     assert!(!public.to_string().contains(&p2));
 
@@ -217,14 +206,14 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
             .post(format!("{base_url}/api/games/{game_id}/lobby/ready"))
             .json(&serde_json::json!({ "ready": true }));
         if let Some(token) = token {
-            request = request.header("x-ti4-seat-token", token);
+            request = request.header("x-ti4-player-session", token);
         }
         let response = request.send().await.expect("reject invalid readiness");
         assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
 
         let mut request = client.post(format!("{base_url}/api/games/{game_id}/lobby/start"));
         if let Some(token) = token {
-            request = request.header("x-ti4-seat-token", token);
+            request = request.header("x-ti4-player-session", token);
         }
         let response = request.send().await.expect("reject invalid start");
         assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
@@ -239,8 +228,8 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
         .await
         .expect("parse unchanged lobby");
     assert_eq!(unchanged["lobby_version"], 2);
-    assert!(!unchanged["roster"][1]["ready"].as_bool().expect("p1 ready"));
-    assert!(!unchanged["roster"][2]["ready"].as_bool().expect("p2 ready"));
+    assert!(!unchanged["slots"][0]["ready"].as_bool().expect("p1 ready"));
+    assert!(!unchanged["slots"][1]["ready"].as_bool().expect("p2 ready"));
 }
 
 #[test]

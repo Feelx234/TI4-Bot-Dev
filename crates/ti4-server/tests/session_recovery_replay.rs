@@ -169,7 +169,7 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     let create_res = client
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
-            "players": ["p1", "p2", "p3"],
+            "player_count": 3,
             "seed": 12345
         }))
         .send()
@@ -179,15 +179,16 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
 
     let created: serde_json::Value = create_res.json().await.expect("parse created lobby");
     let game_id = created["game_id"].as_str().expect("generated game ID");
-    let p1_token = created["creator_token"]
+    let p1_id = PlayerId::new(created["player"]["id"].as_str().unwrap());
+    let p1_token = created["player_session"]
         .as_str()
         .expect("p1 capability")
         .to_owned();
     let mut credentials = vec![p1_token.clone()];
-    for seat in ["p2", "p3"] {
+    for _ in 0..2 {
         let claimed = client
-            .post(format!("{base_url}/api/games/{game_id}/lobby/claim"))
-            .json(&serde_json::json!({ "seat": seat }))
+            .post(format!("{base_url}/api/games/{game_id}/lobby/join"))
+            .json(&serde_json::json!({ "kind": "new" }))
             .send()
             .await
             .expect("claim player");
@@ -196,7 +197,7 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
             claimed
                 .json::<serde_json::Value>()
                 .await
-                .expect("claim response")["credential"]
+                .expect("claim response")["player_session"]
                 .as_str()
                 .expect("claimed credential")
                 .to_owned(),
@@ -205,7 +206,7 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     for token in &credentials {
         let ready = client
             .post(format!("{base_url}/api/games/{game_id}/lobby/ready"))
-            .header("x-ti4-seat-token", token)
+            .header("x-ti4-player-session", token)
             .json(&serde_json::json!({ "ready": true }))
             .send()
             .await
@@ -214,7 +215,7 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     }
     let started = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/start"))
-        .header("x-ti4-seat-token", &p1_token)
+        .header("x-ti4-player-session", &p1_token)
         .send()
         .await
         .expect("start lobby");
@@ -232,11 +233,11 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
         decision = session.current_pending_decision();
     }
     let (p1_seat, p1_nonce, p1_ver) = decision.expect("p1 pending choice");
-    assert_eq!(p1_seat, PlayerId::new("p1"));
+    assert_eq!(p1_seat, p1_id);
 
     let snap_res = client
         .get(format!("{base_url}/api/games/{game_id}/snapshot"))
-        .header("x-ti4-seat-token", &p1_token)
+        .header("x-ti4-player-session", &p1_token)
         .send()
         .await
         .expect("fetch snapshot");
@@ -285,7 +286,7 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     // 4. Reconnecting client fetches snapshot via HTTP
     let reconnect_res = client
         .get(format!("{base_url}/api/games/{game_id}/snapshot"))
-        .header("x-ti4-seat-token", &p1_token)
+        .header("x-ti4-player-session", &p1_token)
         .send()
         .await
         .expect("fetch reconnect snapshot");
