@@ -6,6 +6,183 @@ use ti4_server::session::registry::LobbyError;
 use ti4_server::storage::FileGameStore;
 
 #[test]
+fn takeover_requires_absence_rotates_once_and_preserves_lobby_identity() {
+    let registry = Arc::new(GameRegistry::new().with_presence_grace(Duration::from_millis(40)));
+    let (_, host, host_token) = registry
+        .create_player_lobby("takeover".into(), 2, 9)
+        .unwrap();
+    let (_, other, old) = registry.join_player_lobby("takeover", None).unwrap();
+    let old = old.unwrap();
+    registry
+        .set_player_ready("takeover", old.as_str(), true)
+        .unwrap();
+    let (_, connection) = registry.connect_player("takeover", old.as_str()).unwrap();
+    assert!(matches!(
+        registry.take_over_player("takeover", &other),
+        Err(LobbyError::TakeoverUnavailable)
+    ));
+    registry.disconnect_player("takeover", &other, connection);
+    std::thread::sleep(Duration::from_millis(55));
+    let barrier = Arc::new(Barrier::new(3));
+    let attempts: Vec<_> = (0..2)
+        .map(|_| {
+            let registry = registry.clone();
+            let barrier = barrier.clone();
+            let other = other.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                registry.take_over_player("takeover", &other)
+            })
+        })
+        .collect();
+    barrier.wait();
+    let outcomes: Vec<_> = attempts.into_iter().map(|t| t.join().unwrap()).collect();
+    assert_eq!(outcomes.iter().filter(|r| r.is_ok()).count(), 1);
+    assert!(
+        outcomes
+            .iter()
+            .any(|r| matches!(r, Err(LobbyError::TakeoverUnavailable)))
+    );
+    let (view, new) = outcomes.into_iter().find_map(Result::ok).unwrap();
+    assert_eq!(view.slots[0].occupant.as_ref(), Some(&host));
+    assert_eq!(view.slots[1].occupant.as_ref(), Some(&other));
+    assert!(view.slots[1].ready);
+    assert_eq!(view.host_player_id, host);
+    assert_ne!(new, old);
+    assert!(matches!(
+        registry.player_heartbeat("takeover", old.as_str()),
+        Err(LobbyError::InvalidCapability)
+    ));
+    assert!(matches!(
+        registry.ping_player("takeover", new.as_str(), connection),
+        Err(LobbyError::InvalidCapability)
+    ));
+    registry.disconnect_player("takeover", &other, connection);
+    assert!(!registry.player_disconnected("takeover", &other));
+    assert_eq!(
+        registry
+            .join_player_lobby("takeover", Some(new.as_str()))
+            .unwrap()
+            .1,
+        other
+    );
+    assert_eq!(
+        registry
+            .join_player_lobby("takeover", Some(host_token.as_str()))
+            .unwrap()
+            .1,
+        host
+    );
+}
+
+#[test]
+fn takeover_persistence_failure_preserves_old_credential_and_restart_recovers_new_one() {
+    let dir = std::env::temp_dir().join(format!("ti4_pil04_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&dir).unwrap());
+    let registry = GameRegistry::new()
+        .with_store(store.clone())
+        .with_presence_grace(Duration::from_millis(20));
+    let (_, host, old) = registry
+        .create_player_lobby("rotate".into(), 2, 42)
+        .unwrap();
+    let (_, _, second) = registry.join_player_lobby("rotate", None).unwrap();
+    let second = second.unwrap();
+    std::thread::sleep(Duration::from_millis(30));
+    let obstruction = store.game_dir("rotate").unwrap().join("lobby.tmp");
+    std::fs::create_dir(&obstruction).unwrap();
+    assert!(matches!(
+        registry.take_over_player("rotate", &host),
+        Err(LobbyError::Storage(_))
+    ));
+    assert_eq!(
+        registry
+            .authenticate_player_session("rotate", old.as_str())
+            .unwrap(),
+        host
+    );
+    std::fs::remove_dir(&obstruction).unwrap();
+    let (_, new) = registry.take_over_player("rotate", &host).unwrap();
+    let recovered = GameRegistry::new()
+        .with_store(store.clone())
+        .with_presence_grace(Duration::from_millis(20));
+    recovered.recover_all_games().unwrap();
+    assert!(matches!(
+        recovered.authenticate_player_session("rotate", old.as_str()),
+        Err(LobbyError::InvalidCapability)
+    ));
+    assert_eq!(
+        recovered
+            .authenticate_player_session("rotate", new.as_str())
+            .unwrap(),
+        host
+    );
+    assert!(!recovered.player_disconnected("rotate", &host));
+    registry
+        .set_player_ready("rotate", new.as_str(), true)
+        .unwrap();
+    registry
+        .set_player_ready("rotate", second.as_str(), true)
+        .unwrap();
+    registry.start_player_lobby("rotate", new.as_str()).unwrap();
+    std::thread::sleep(Duration::from_millis(30));
+    let obstruction = store
+        .game_dir("rotate")
+        .unwrap()
+        .join("player_sessions.tmp");
+    std::fs::create_dir(&obstruction).unwrap();
+    assert!(matches!(
+        registry.take_over_player("rotate", &host),
+        Err(LobbyError::Storage(_))
+    ));
+    assert_eq!(
+        registry
+            .authenticate_player_session("rotate", new.as_str())
+            .unwrap(),
+        host
+    );
+    std::fs::remove_dir(&obstruction).unwrap();
+    let (_, latest) = registry.take_over_player("rotate", &host).unwrap();
+    assert_eq!(
+        registry
+            .get_game("rotate")
+            .unwrap()
+            .viewer_for_seat_token(latest.as_str()),
+        Some(ti4_server::protocol::status::ViewerRole::Player(
+            host.clone()
+        ))
+    );
+    assert!(
+        registry
+            .get_game("rotate")
+            .unwrap()
+            .viewer_for_seat_token(new.as_str())
+            .is_none()
+    );
+    let post_start = GameRegistry::new().with_store(store.clone());
+    post_start.recover_all_games().unwrap();
+    assert!(matches!(
+        post_start.authenticate_player_session("rotate", new.as_str()),
+        Err(LobbyError::InvalidCapability)
+    ));
+    assert_eq!(
+        post_start
+            .authenticate_player_session("rotate", latest.as_str())
+            .unwrap(),
+        host
+    );
+    assert_eq!(
+        post_start
+            .get_game("rotate")
+            .unwrap()
+            .viewer_for_seat_token(latest.as_str()),
+        Some(ti4_server::protocol::status::ViewerRole::Player(host))
+    );
+    post_start.remove_game("rotate");
+    registry.remove_game("rotate");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn concurrent_joins_resume_and_leave_preserve_stable_identities() {
     let registry = Arc::new(GameRegistry::new());
     let (initial, host, credential) = registry
@@ -303,8 +480,8 @@ fn restart_drops_presence_but_preserves_credentials() {
 
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
-async fn http_create_join_spectate_and_takeover_placeholder() {
-    let registry = Arc::new(GameRegistry::new());
+async fn http_create_join_spectate_and_takeover() {
+    let registry = Arc::new(GameRegistry::new().with_presence_grace(Duration::from_millis(30)));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let server =
@@ -396,6 +573,66 @@ async fn http_create_join_spectate_and_takeover_placeholder() {
     assert_eq!(after["lobby_version"], 2);
     assert!(!after.to_string().contains(credential));
     let other_token = joined["player_session"].as_str().unwrap();
+    std::thread::sleep(Duration::from_millis(45));
+    let eligible: serde_json::Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+    assert_eq!(eligible["slots"][1]["can_take_over"], true);
+    assert_eq!(
+        client
+            .post(format!("{url}/join"))
+            .header("x-ti4-player-session", other_token)
+            .json(&serde_json::json!({"kind":"takeover", "player_id":joined["player"]["id"]}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    let taken: serde_json::Value = client
+        .post(format!("{url}/join"))
+        .json(&serde_json::json!({"kind":"takeover", "player_id":joined["player"]["id"]}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let new_token = taken["player_session"].as_str().unwrap();
+    assert_eq!(taken["player"]["id"], joined["player"]["id"]);
+    assert_eq!(
+        taken["lobby"]["slots"][1]["ready"],
+        joined["lobby"]["slots"][1]["ready"]
+    );
+    assert!(!taken["lobby"].to_string().contains(new_token));
+    assert_eq!(
+        client
+            .get(&url)
+            .header("x-ti4-player-session", other_token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        client
+            .post(format!("{url}/heartbeat"))
+            .header("x-ti4-player-session", other_token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        client
+            .post(format!("{url}/join"))
+            .json(&serde_json::json!({"kind":"takeover", "player_id":joined["player"]["id"]}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::CONFLICT
+    );
     assert_eq!(
         client
             .get(&url)
@@ -419,7 +656,7 @@ async fn http_create_join_spectate_and_takeover_placeholder() {
     assert_eq!(
         client
             .post(format!("{url}/leave"))
-            .header("x-ti4-player-session", other_token)
+            .header("x-ti4-player-session", new_token)
             .send()
             .await
             .unwrap()

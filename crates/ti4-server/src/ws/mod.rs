@@ -287,14 +287,7 @@ async fn handle_socket(
                 }
                 match &current_role {
                     Some(ViewerRole::Player(acting_seat)) => {
-                        if current_token
-                            .as_deref()
-                            .and_then(|token| {
-                                registry.authenticate_player_session(&game_id, token).ok()
-                            })
-                            .as_ref()
-                            != Some(acting_seat)
-                        {
+                        let Some(token) = current_token.as_deref() else {
                             let _ = outbound_tx
                                 .send(ServerMessage::ActionRejected(ActionRejectedMsg {
                                     protocol_version: PROTOCOL_VERSION,
@@ -306,9 +299,12 @@ async fn handle_socket(
                                 }))
                                 .await;
                             continue;
-                        }
-                        let res = session.submit_choice(
+                        };
+                        let res = registry.submit_player_choice(
+                            &game_id,
+                            token,
                             acting_seat,
+                            &session,
                             &nonce,
                             expected_version,
                             &option_id,

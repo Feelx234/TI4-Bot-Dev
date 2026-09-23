@@ -732,3 +732,100 @@ async fn application_ping_refreshes_presence_but_control_ping_and_spectators_do_
     assert!(registry.authenticate_player_session(&game, &token).is_ok());
     server.abort();
 }
+
+#[tokio::test]
+async fn running_takeover_closes_old_subscription_and_refuses_old_choices() {
+    let registry = Arc::new(GameRegistry::new().with_presence_grace(Duration::from_millis(40)));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(axum::serve(listener, create_app(registry.clone())).into_future());
+    let client = reqwest::Client::new();
+    let (game, old) = create_game(&client, &addr.to_string(), &["a", "b"], &[], 42).await;
+    let joined = claim_seat(&client, &addr.to_string(), &game, "b").await;
+    ready_and_start(&client, &addr.to_string(), &game, &[&old, &joined]).await;
+    let host = registry.authenticate_player_session(&game, &old).unwrap();
+    let url = format!("ws://{addr}/ws/games/{game}");
+    let (mut socket, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    socket
+        .send(Message::Text(
+            serde_json::to_string(&ClientMessage::Subscribe {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game.clone(),
+                player_session: Some(old.clone()),
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let first: ServerMessage =
+        serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    assert!(matches!(first, ServerMessage::InitialSnapshot(_)));
+    assert!(matches!(
+        registry.take_over_player(&game, &host),
+        Err(ti4_server::session::registry::LobbyError::TakeoverUnavailable)
+    ));
+    tokio::time::sleep(Duration::from_millis(55)).await;
+    let response: serde_json::Value = client
+        .post(format!("http://{addr}/api/games/{game}/lobby/join"))
+        .json(&serde_json::json!({"kind":"takeover", "player_id":host}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let replacement = response["player_session"].as_str().unwrap();
+    assert_eq!(response["player"]["id"], host.as_str());
+    assert_eq!(
+        client
+            .get(format!("http://{addr}/api/games/{game}/snapshot"))
+            .header("x-ti4-player-session", &old)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::FORBIDDEN
+    );
+    assert!(matches!(
+        registry.authenticate_player_session(&game, &old),
+        Err(ti4_server::session::registry::LobbyError::InvalidCapability)
+    ));
+    assert!(matches!(
+        registry.submit_player_choice(
+            &game,
+            &old,
+            &host,
+            &registry.get_game(&game).unwrap(),
+            "bad",
+            0,
+            "bad"
+        ),
+        Err(RejectionReason::UnauthorizedSeat { .. })
+    ));
+    // A previously connected socket must stop rather than deliver any further
+    // private snapshots, pending choices, or updates after revocation.
+    let closed = tokio::time::timeout(Duration::from_secs(2), socket.next())
+        .await
+        .unwrap();
+    assert!(!matches!(closed, Some(Ok(Message::Text(_)))));
+    let (mut resumed, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    resumed
+        .send(Message::Text(
+            serde_json::to_string(&ClientMessage::Subscribe {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game.clone(),
+                player_session: Some(replacement.to_owned()),
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let snapshot: ServerMessage =
+        serde_json::from_str(resumed.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    assert!(
+        matches!(snapshot, ServerMessage::InitialSnapshot(s) if s.viewer == ViewerRole::Player(host))
+    );
+    server.abort();
+}

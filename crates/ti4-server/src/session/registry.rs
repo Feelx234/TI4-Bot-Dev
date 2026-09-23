@@ -8,6 +8,8 @@ use serde::Serialize;
 use ti4_content::ContentStore;
 use ti4_model::id::PlayerId;
 
+use crate::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg};
+use crate::protocol::status::{RejectionReason, ViewerRole};
 use crate::session::{GameSession, SeatController, SessionConfig};
 use crate::storage::{
     GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat, StorageError,
@@ -206,6 +208,7 @@ pub enum LobbyError {
     HumansNotReady,
     SeatUnavailable,
     TakeoverUnavailable,
+    InvalidPlayerId,
     Map(String),
     Storage(String),
 }
@@ -223,6 +226,7 @@ impl LobbyError {
             Self::HumansNotReady => "Every human seat must be ready before starting".to_owned(),
             Self::SeatUnavailable => "Seat is unavailable".to_owned(),
             Self::TakeoverUnavailable => "Takeover is not available yet".to_owned(),
+            Self::InvalidPlayerId => "Invalid player ID".to_owned(),
             Self::Map(error) => format!("Failed to start game with map: {error}"),
             Self::Storage(error) => format!("Failed to persist lobby lifecycle: {error}"),
         }
@@ -513,6 +517,15 @@ impl GameRegistry {
                     {
                         return Err(StorageError::InvalidPlayerRecord("started roster"));
                     }
+                    // The session record is authoritative after start; the lobby file
+                    // may predate a successful running-game credential rotation.
+                    for (id, session) in credentials.sessions {
+                        record
+                            .players
+                            .get_mut(&id)
+                            .expect("validated roster")
+                            .session = session;
+                    }
                     state.sessions.insert(
                         game_id.clone(),
                         Arc::new(store.recover_player_session(&game_id)?),
@@ -670,6 +683,134 @@ impl GameRegistry {
             player,
             Some(session),
         ))
+    }
+
+    /// Replace an existing disconnected player's credential under the registry lock.
+    /// The running session record is the sole durable credential authority after start.
+    pub fn take_over_player(
+        &self,
+        game_id: &str,
+        player: &PlayerId,
+    ) -> Result<(PlayerLobbyView, PlayerSession), LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !lobby.players.contains_key(player) {
+            return Err(LobbyError::InvalidPlayerId);
+        }
+        if !self.disconnected_since(&state, game_id, player) {
+            return Err(LobbyError::TakeoverUnavailable);
+        }
+        let mut updated = lobby.clone();
+        let replacement = loop {
+            let candidate = PlayerSession::generate();
+            if updated
+                .players
+                .values()
+                .all(|member| member.session != candidate)
+            {
+                break candidate;
+            }
+        };
+        updated
+            .players
+            .get_mut(player)
+            .expect("validated player")
+            .session = replacement.clone();
+        updated.lobby_version += 1;
+        if matches!(updated.phase, PersistedLobbyPhase::Running) {
+            if !state.sessions.contains_key(game_id) {
+                return Err(LobbyError::NotFound);
+            }
+            if let Some(store) = &self.store {
+                store
+                    .save_player_sessions(&PlayerSessionsRecord {
+                        schema_version: PLAYER_RECORD_VERSION,
+                        game_id: game_id.to_owned(),
+                        sessions: updated
+                            .players
+                            .iter()
+                            .map(|(id, member)| (id.clone(), member.session.clone()))
+                            .collect(),
+                    })
+                    .map_err(|e| LobbyError::Storage(e.to_string()))?;
+            }
+        } else {
+            self.save_player_lobby(&updated)?;
+        }
+        if let Some(session) = state.sessions.get(game_id) {
+            session.replace_player_session(player, replacement.as_str());
+        }
+        state.player_lobbies.insert(game_id.to_owned(), updated);
+        // Discard all old connection IDs and heartbeat timestamps. The new holder
+        // receives a fresh absence grace even before its first connection.
+        state.presence.insert(
+            (game_id.to_owned(), player.clone()),
+            PlayerPresence::default(),
+        );
+        Ok((
+            self.player_view(&state, &state.player_lobbies[game_id]),
+            replacement,
+        ))
+    }
+
+    /// Serialize the full choice submission with takeover so a choice authorized
+    /// before rotation cannot be committed after it.
+    pub fn submit_player_choice(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        nonce: &str,
+        version: u64,
+        option: &str,
+    ) -> Result<ActionAcceptedMsg, RejectionReason> {
+        let state = self.state.lock().expect("registry lock");
+        let authenticated = if let Some(lobby) = state.player_lobbies.get(game_id) {
+            authenticate_player(lobby, credential).ok()
+        } else {
+            state
+                .lobbies
+                .get(game_id)
+                .and_then(|lobby| authenticated_seat(lobby, credential).ok())
+        };
+        if authenticated.as_ref() != Some(player) {
+            return Err(RejectionReason::UnauthorizedSeat {
+                seat: Some(player.clone()),
+            });
+        }
+        // The worker reply is awaited here; takeover cannot commit midway
+        // through an already-authorized choice.
+        session.submit_choice(player, nonce, version, option)
+    }
+
+    /// Bind a private HTTP snapshot to the current credential under the same
+    /// lock used to commit a takeover.
+    pub fn player_snapshot(
+        &self,
+        game_id: &str,
+        credential: Option<&str>,
+        session: &GameSession,
+    ) -> Result<InitialSnapshotMsg, LobbyError> {
+        let state = self.state.lock().expect("registry lock");
+        let role = match credential {
+            Some(token) => {
+                let player = if let Some(lobby) = state.player_lobbies.get(game_id) {
+                    authenticate_player(lobby, token)?
+                } else {
+                    authenticated_seat(
+                        state.lobbies.get(game_id).ok_or(LobbyError::NotFound)?,
+                        token,
+                    )?
+                };
+                ViewerRole::Player(player)
+            }
+            None => ViewerRole::Spectator,
+        };
+        Ok(session.get_snapshot(&role))
     }
 
     /// A leaving player retires their identity and credential, never the host's.

@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use ti4_model::id::PlayerId;
 
 use crate::protocol::server::ServerMessage;
-use crate::protocol::status::ViewerRole;
 use crate::session::GameRegistry;
 use crate::session::registry::{GameSummary, LobbyError, PlayerLobbyView};
 
@@ -97,19 +96,28 @@ pub async fn create_game(
     }))
 }
 
-/// One entry point for new admissions, credential reconnects and (later) takeover.
+/// One entry point for new admissions, credential reconnects and takeover.
 pub async fn join_lobby(
     Path(game_id): Path<String>,
     headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
     Json(payload): Json<JoinRequest>,
 ) -> Result<Json<JoinResponse>, (StatusCode, String)> {
-    if matches!(payload, JoinRequest::Takeover { .. }) {
-        return Err(lobby_error(LobbyError::TakeoverUnavailable));
-    }
-    let (lobby, player, session) = registry
-        .join_player_lobby(&game_id, player_session(&headers)?)
-        .map_err(lobby_error)?;
+    let supplied = player_session(&headers)?;
+    let (lobby, player, session) = match (payload, supplied) {
+        (JoinRequest::New, token) => registry
+            .join_player_lobby(&game_id, token)
+            .map_err(lobby_error)?,
+        (JoinRequest::Takeover { player_id }, None) => {
+            let (lobby, session) = registry
+                .take_over_player(&game_id, &player_id)
+                .map_err(lobby_error)?;
+            (lobby, player_id, Some(session))
+        }
+        (JoinRequest::Takeover { .. }, Some(_)) => {
+            return Err(lobby_error(LobbyError::InvalidCapability));
+        }
+    };
     Ok(Json(JoinResponse {
         player_session: session.map(|value| value.as_str().to_owned()),
         player: PlayerIdentity { id: player },
@@ -213,6 +221,7 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
         | LobbyError::NotInLobby
         | LobbyError::SeatUnavailable
         | LobbyError::TakeoverUnavailable => StatusCode::CONFLICT,
+        LobbyError::InvalidPlayerId => StatusCode::BAD_REQUEST,
         LobbyError::Map(_) | LobbyError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, message)
@@ -240,25 +249,9 @@ pub async fn get_snapshot(
         .get_game(&game_id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Game '{game_id}' not found")))?;
 
-    let viewer = match headers.get("x-ti4-player-session") {
-        Some(token) => ViewerRole::Player(
-            registry
-                .player_lobby_status(
-                    &game_id,
-                    Some(
-                        token
-                            .to_str()
-                            .map_err(|_| lobby_error(LobbyError::InvalidCapability))?,
-                    ),
-                )
-                .map_err(lobby_error)?
-                .1
-                .expect("authenticated player"),
-        ),
-        None => ViewerRole::Spectator,
-    };
-
     Ok(Json(ServerMessage::InitialSnapshot(
-        session.get_snapshot(&viewer),
+        registry
+            .player_snapshot(&game_id, player_session(&headers)?, &session)
+            .map_err(lobby_error)?,
     )))
 }

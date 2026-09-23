@@ -357,6 +357,15 @@ impl GameSession {
         self.shared.lock().expect("shared lock").seat_tokens.clone()
     }
 
+    /// Synchronize the running session's internal credential view after durable rotation.
+    pub(crate) fn replace_player_session(&self, player: &PlayerId, credential: &str) {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .seat_tokens
+            .insert(player.clone(), credential.to_owned());
+    }
+
     /// Returns immutable lifecycle metadata needed to represent a running session as a lobby.
     #[must_use]
     pub fn lobby_details(

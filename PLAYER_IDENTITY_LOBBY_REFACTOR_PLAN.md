@@ -3,9 +3,9 @@
 ## Status
 
 PIL-01 model/persistence implementation was committed as `e0f234d` on
-2026-09-23. PIL-02 was committed as `cf4a01f`. PIL-03 is implemented in the
-working tree; package progress and verification results are tracked here,
-without separate evidence artifacts or manual review gates.
+2026-09-23. PIL-02 was committed as `cf4a01f`; PIL-03 as `37c8823`.
+PIL-04 is implemented in the working tree. Package progress and verification
+results are tracked here, without separate evidence artifacts.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -446,6 +446,35 @@ do not claim an intermediate package is a deployable release.
   for HTTP/WS/choices, old-subscription closure, storage-failure rollback,
   lobby/running takeover, and restart-loading-new-token tests pass (acceptance
   5, 9, 11, 12).
+- **Additional edit paths:** `crates/ti4-server/src/session/mod.rs` (keep the
+  active session's internal credential map current),
+  `crates/ti4-server/tests/player_lobby_admission.rs`, and
+  `crates/ti4-server/tests/ws_lifecycle.rs`.
+- **Progress (2026-09-23):** The no-credential typed takeover request now
+  rotates only an existing disconnected player, under the registry lock after
+  rechecking the 30-second absence/grace rule. A new credential is persisted
+  before delivery; lobby takeovers atomically replace the lobby record, while
+  running takeovers atomically replace the authoritative current-session record.
+  In-memory lobby and active session authentication then switch to the new
+  credential; old presence connection IDs are discarded and the recipient gets
+  a fresh connection grace reservation. Recovery overlays the running lobby's
+  possibly stale credential copies with the authoritative session record.
+  HTTP snapshots and WS choice submissions serialize authentication with
+  takeover; old WebSocket connections stop on revoked-credential checks.
+  Concurrent requests produce one winner, without changing player identity,
+  position, readiness or host. No old credential appears in public responses.
+- **Verification:** `cargo test -p ti4-server --test player_lobby_admission
+  --test ws_lifecycle` passed (8 + 6 tests); `cargo fmt --package ti4-server`
+  applied and `cargo test -p ti4-server` passed (all unit, integration and doc
+  tests). Full Clippy was not run, as requested (blocked by `ti4-model`).
+  No independent review was performed; do not treat PIL-04 as independently
+  reviewed or deployable on its own.
+- **Next/PIL-05:** Implement the complete slot-ID reorder with exact
+  permutation validation and host authorization under the same registry lock;
+  verify first-open admission after reorder, immutable started order, and
+  crash-before/after-init recovery with running credential rotations retained.
+  PIL-06/PIL-07 should use the new explicit takeover request only when the
+  public `can_take_over` hint is true and handle conflict if presence changes.
 
 ### PIL-05 — Reorder and committed start
 
