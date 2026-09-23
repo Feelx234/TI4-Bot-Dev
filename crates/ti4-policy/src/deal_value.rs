@@ -2,11 +2,14 @@
 //!
 //! `plans/TRADE_ARENA_VALUE_SHEET_2026-09-22.md`, with the operator's values. Every item has a value
 //! to the seat that receives it and a cost to the seat that gives it, in trade goods, judged from the
-//! position. A seat's score is its own net gain minus [`ALPHA`] times its partner's:
+//! position. A seat's score is its own net gain minus a share of its partner's, and that share
+//! shrinks as the seat's own gain grows (operator, 2026-09-23: "the higher the own gain the more
+//! acceptable somebody else's gain is"):
 //!
 //! ```text
 //! own_i   = sum V(items i receives) - sum C(items i gives)
-//! score_i = own_i - ALPHA * own_j
+//! alpha_i = ALPHA / (1 + own_i / ALPHA_EASE)   if own_i > 0, else ALPHA
+//! score_i = own_i - alpha_i * own_j
 //! ```
 //!
 //! Like the battle predictor, this is a fixed component the policy reads rather than something it
@@ -26,8 +29,21 @@ use ti4_engine::choice::{Choice, Observed};
 use ti4_engine::diplomacy::builder::Draft;
 use ti4_model::{DealTerm, GameState, PlayerId, TransferAsset};
 
-/// How much of the partner's net gain counts against a seat (operator, 2026-09-22: 0.75 for now).
+/// How much of the partner's net gain counts against a seat that gains nothing itself
+/// (operator, 2026-09-22: 0.75 for now).
 pub const ALPHA: f64 = 0.75;
+/// The own gain, in trade goods, at which the partner's share has halved.
+pub const ALPHA_EASE: f64 = 3.0;
+
+/// The share of the partner's net gain that counts against a seat with this own net gain.
+#[must_use]
+pub fn alpha_for(own: f64) -> f64 {
+    if own > 0.0 {
+        ALPHA / (1.0 + own / ALPHA_EASE)
+    } else {
+        ALPHA
+    }
+}
 /// Trade goods per victory point: the public objective that spends 5 trade goods.
 pub const TRADE_GOODS_PER_VP: f64 = 5.0;
 /// Support for the Throne: below a full point because it can be lost back and has a drawback.
@@ -164,8 +180,8 @@ pub fn score(
 /// Both sides' scores from what each received and gave.
 #[must_use]
 pub fn combine(proposer: SideValue, recipient: SideValue) -> DealScore {
-    let proposer_score = proposer.net() - ALPHA * recipient.net();
-    let recipient_score = recipient.net() - ALPHA * proposer.net();
+    let proposer_score = proposer.net() - alpha_for(proposer.net()) * recipient.net();
+    let recipient_score = recipient.net() - alpha_for(recipient.net()) * proposer.net();
     DealScore {
         proposer,
         recipient,
@@ -477,6 +493,19 @@ mod tests {
         );
         assert!(score.proposer_score > 0.0, "{score:?}");
         assert!(score.recipient_score > 0.0, "{score:?}");
+    }
+
+    #[test]
+    fn an_even_swap_scores_better_than_a_fixed_share_would() {
+        // Three commodities each way: each side receives 3 and gives up 0.75.
+        let side = SideValue {
+            received: 3.0,
+            given: 0.75,
+        };
+        let score = combine(side.clone(), side);
+        let fixed = 2.25 - ALPHA * 2.25;
+        assert!(score.proposer_score > fixed, "{score:?}");
+        assert!((score.proposer_score - (2.25 - 0.75 / 1.75 * 2.25)).abs() < 1e-12);
     }
 
     #[test]

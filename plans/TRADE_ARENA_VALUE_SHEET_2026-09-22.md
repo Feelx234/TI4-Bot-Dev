@@ -55,18 +55,20 @@ own_i   = sum V(items i receives) - sum C(items i gives)
 score_i = own_i - alpha * own_j
 ```
 
-**alpha = 0.75** (operator, "for now"; 0.5 was set first). What I gain and give count in full;
-what my partner gains and gives counts at three quarters: `score_i = own_i - 0.75 * own_j`.
+**alpha shrinks with own gain** (operator, 2026-09-23, "the higher the own gain the more acceptable
+somebody else's gain is"; option B of two offered):
 
-alpha = 1 was considered first and rejected: it makes every trade exactly zero-sum
-(`score_j = -score_i` for any items), so no deal can be good for both and the arena would learn never
-to trade. Below 1 a deal can be good for both: at 0.75, when each gains more than three quarters of what the
-other gains --
-the six-player reality, where two partners both gain on the other four.
+```text
+alpha_i = 0.75 / (1 + own_i / 3)   if own_i > 0, else 0.75
+score_i = own_i - alpha_i * own_j
+```
 
-A trade is good for both only when the seats value the items differently. That is what the
-position-dependent values below are for: commodities are worth little to their owner and a full TG
-to the receiver, a fragment completes one seat's set and not the other's, and so on.
+A seat that gains nothing counts 0.75 of its partner's gain against itself, as before; one that gains
+3 TG counts half of that. Gifts stay clearly negative for the giver; even swaps score higher (three
+commodities each way: +1.29 each instead of +0.56; Supports swapped: +3.15 each instead of +1.13).
+
+History: alpha = 1 made every trade exactly zero-sum and was dropped; 0.5 was set, then 0.75 fixed,
+then this.
 
 **Conversion:** 1 VP = **5 TG**, the price of the public objective that spends 5 trade goods (operator).
 

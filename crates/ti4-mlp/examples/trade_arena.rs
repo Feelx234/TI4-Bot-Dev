@@ -607,8 +607,9 @@ fn main() {
     println!("trade arena");
     println!("  bundle      {bundle_path}");
     println!(
-        "  scoring     alpha {} | 1 VP = {} TG | support {} | returns in VP (TG / {})",
+        "  scoring     alpha {} / (1 + own / {}) | 1 VP = {} TG | support {} | returns in VP (TG / {})",
         trade_arena::ALPHA,
+        ti4_policy::deal_value::ALPHA_EASE,
         trade_arena::TRADE_GOODS_PER_VP,
         trade_arena::SUPPORT_VALUE,
         trade_arena::TRADE_GOODS_PER_VP
