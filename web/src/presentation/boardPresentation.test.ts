@@ -67,6 +67,28 @@ describe('boardPresentation Presentation Model', () => {
   });
 
   describe('Hex Geometry & Tile Visuals', () => {
+    it('lays fracture and nexus tiles below the actual galaxy without overlaps', () => {
+      const board = { systems: {}, map_tiles: [
+        { system_id: '18', label: 'Center', q: 0, r: 0 },
+        { system_id: 'top', label: 'South', q: 0, r: 4 },
+        { system_id: 'f0', label: 'Fracture A', q: 0, r: 0, special_area: 'fracture' },
+        { system_id: 'f1', label: 'Fracture B', q: 1, r: 0, special_area: 'fracture' },
+        { system_id: 'n', label: 'Nexus', q: 0, r: 0, special_area: 'nexus' },
+      ] };
+      const model = buildBoardPresentationModel(board, []);
+      const tiles = model.tiles;
+      const south = tiles.find((tile) => tile.systemId === 'top')!;
+      const f0 = tiles.find((tile) => tile.systemId === 'f0')!;
+      const f1 = tiles.find((tile) => tile.systemId === 'f1')!;
+      const nexus = tiles.find((tile) => tile.systemId === 'n')!;
+      expect(f0.center.y - south.center.y).toBeGreaterThan(140);
+      expect(f1.center.x - f0.center.x).toBeGreaterThan(140);
+      expect(f0.center.x - nexus.center.x).toBeGreaterThan(140);
+      const [left, top, width, height] = model.viewBox.split(' ').map(Number);
+      expect(left).toBeLessThan(nexus.center.x - 70);
+      expect(top + height).toBeGreaterThan(f0.center.y + 70);
+      expect(left + width).toBeGreaterThan(f1.center.x + 70);
+    });
     it('computes center and hexagon points for normal axial coordinates', () => {
       const geo = deriveHexGeometry(0, 0);
       expect(geo.center).toEqual({ x: 0, y: 0 });
@@ -74,14 +96,6 @@ describe('boardPresentation Presentation Model', () => {
 
       const geoOffset = deriveHexGeometry(1, 0);
       expect(geoOffset.center).toEqual({ x: 150, y: 0 });
-    });
-
-    it('positions special areas outside standard hex plane', () => {
-      const nexusGeo = deriveHexGeometry(0, 0, 'nexus');
-      expect(nexusGeo.center).toEqual({ x: -500, y: 420 });
-
-      const fractureGeo = deriveHexGeometry(4, 0, 'fracture');
-      expect(fractureGeo.center).toEqual({ x: 130, y: 420 });
     });
 
     it('derives anomaly and wormhole styling from structured attributes', () => {

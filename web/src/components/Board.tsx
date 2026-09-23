@@ -20,8 +20,9 @@ export interface BoardProps {
   pendingChoice?: PendingChoiceDto | null;
   viewerSeat?: string | null;
   selectedSystemId?: string | null;
-  onSelectSystem?: (systemId: string) => void;
+  onSelectSystem?: (systemId: string | null) => void;
   onSelectTarget?: (systemId: string, planetId?: string) => void;
+  onSelectOptionId?: (optionId: string) => void;
 }
 
 export const Board: React.FC<BoardProps> = ({
@@ -33,15 +34,16 @@ export const Board: React.FC<BoardProps> = ({
   selectedSystemId: controlledSelectedSystemId,
   onSelectSystem,
   onSelectTarget,
+  onSelectOptionId,
 }) => {
   const display = usePlayerIdentity();
   const [uncontrolledSelectedSystemId, setUncontrolledSelectedSystemId] = useState<string | null>(null);
-  const selectedSystemId = controlledSelectedSystemId ?? uncontrolledSelectedSystemId;
+  const selectedSystemId = controlledSelectedSystemId === undefined ? uncontrolledSelectedSystemId : controlledSelectedSystemId;
   const setSelectedSystemId = (id: string | null) => {
     if (controlledSelectedSystemId === undefined) {
       setUncontrolledSelectedSystemId(id);
     }
-    onSelectSystem?.(id || '');
+    onSelectSystem?.(id);
   };
 
   const [hoveredTile, setHoveredTile] = useState<{
@@ -96,14 +98,7 @@ export const Board: React.FC<BoardProps> = ({
     if (tile.isCandidateTarget) {
       onSelectTarget?.(tile.systemId);
     }
-    setSelectedSystemId(selectedSystemId === tile.systemId ? null : tile.systemId);
-  };
-
-  const handleTileKeyDown = (e: React.KeyboardEvent, tile: TilePresentation) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleTileClick(tile);
-    }
+    setSelectedSystemId(tile.systemId);
   };
 
   return (
@@ -173,7 +168,8 @@ export const Board: React.FC<BoardProps> = ({
       </div>
 
       <svg
-        viewBox="-600 -500 1200 1000"
+        viewBox={presentation.viewBox}
+        onClick={(e) => { if (e.target === e.currentTarget) setSelectedSystemId(null); }}
         style={{ width: '100%', height: '100%', display: 'block', cursor: isPanning ? 'grabbing' : 'grab' }}
         data-testid="ti4-board-svg"
       >
@@ -202,7 +198,8 @@ export const Board: React.FC<BoardProps> = ({
           </marker>
         </defs>
 
-        <g transform={`translate(${viewTransform.x}, ${viewTransform.y}) scale(${viewTransform.scale})`}>
+        <g transform={`translate(${viewTransform.x}, ${viewTransform.y}) scale(${viewTransform.scale})`}
+          onClick={(e) => { if (e.target === e.currentTarget) setSelectedSystemId(null); }}>
           {presentation.tiles.map((tile, idx) => {
             const sysId = tile.systemId;
             const isSelected = selectedSystemId === sysId;
@@ -220,11 +217,9 @@ export const Board: React.FC<BoardProps> = ({
                 data-target-candidate={tile.isCandidateTarget ? 'true' : undefined}
                 data-context-subject={tile.isContextSubject ? 'true' : undefined}
                 data-system-selected={isSelected ? 'true' : undefined}
-                isInteractive={tile.isCandidateTarget}
-                label={tile.isCandidateTarget ? `Target system ${tile.label} #${sysId}` : ''}
+                isInteractive
+                label={`${tile.isCandidateTarget ? 'Target' : 'Inspect'} system ${tile.label} #${sysId}`}
                 onActivate={() => handleTileClick(tile)}
-                onClick={() => handleTileClick(tile)}
-                onKeyDown={(e) => handleTileKeyDown(e, tile)}
                 onMouseEnter={() => {
                   setHoveredTile({
                     systemId: sysId,
@@ -243,7 +238,7 @@ export const Board: React.FC<BoardProps> = ({
                 }}
                 onMouseLeave={() => setHoveredTile(null)}
                 style={{
-                  cursor: tile.isCandidateTarget ? 'pointer' : 'default',
+                  cursor: 'pointer',
                   outline: 'none',
                 }}
               >
@@ -394,12 +389,15 @@ export const Board: React.FC<BoardProps> = ({
                       onActivate={() => {
                         if (p.isCandidateTarget) {
                           onSelectTarget?.(sysId, p.id);
+                          setSelectedSystemId(sysId);
                         }
                       }}
+                      onKeyDown={(e) => { if (p.isCandidateTarget && (e.key === 'Enter' || e.key === ' ')) e.stopPropagation(); }}
                       onClick={(e) => {
                         if (p.isCandidateTarget) {
                           e.stopPropagation();
                           onSelectTarget?.(sysId, p.id);
+                          setSelectedSystemId(sysId);
                         }
                       }}
                       style={{ cursor: p.isCandidateTarget ? 'pointer' : 'inherit' }}
@@ -529,11 +527,7 @@ export const Board: React.FC<BoardProps> = ({
         <SystemInspector
           system={presentation.selectedSystem}
           onClose={() => setSelectedSystemId(null)}
-          onSelectAction={() => {
-            if (onSelectTarget && presentation.selectedSystem) {
-              onSelectTarget(presentation.selectedSystem.systemId);
-            }
-          }}
+          onSelectAction={onSelectOptionId}
         />
       )}
 

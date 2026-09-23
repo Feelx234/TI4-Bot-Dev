@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { PlayerSheet } from './PlayerSheet.tsx';
+import { CardDetails } from './CardDetails.tsx';
 import { PlayerView } from '../protocol/types.ts';
 
 const mockPlayers: PlayerView[] = [
@@ -51,27 +52,27 @@ const mockPlayers: PlayerView[] = [
 ];
 
 describe('PlayerSheet Component & Human Readable Metadata', () => {
-  it('resolves raw IDs to human-readable names and descriptions with tooltips', () => {
-    render(<PlayerSheet players={mockPlayers} userSeat="p1" />);
+  it('resolves cards to accessible click targets for a reusable detail panel', () => {
+    const onInspectCard = vi.fn();
+    render(<PlayerSheet players={mockPlayers} userSeat="p1" onInspectCard={onInspectCard} />);
 
     // Strategy cards pok1leadership and pok6warfare mapped to readable names
     const scLeadership = screen.getByTestId('strategy-card-badge-pok1leadership');
     expect(scLeadership).toHaveTextContent('1. Leadership');
-    expect(scLeadership).toHaveAttribute('title');
-    expect(scLeadership.getAttribute('title')).toContain('Gain 3 command tokens');
+    fireEvent.click(scLeadership);
+    expect(onInspectCard).toHaveBeenCalledWith({ kind: 'strategy', id: 'pok1leadership' });
 
     const scWarfare = screen.getByTestId('strategy-card-badge-pok6warfare');
     expect(scWarfare).toHaveTextContent('6. Warfare');
-    expect(scWarfare).toHaveAttribute('title');
+    expect(scWarfare).toHaveAttribute('type', 'button');
 
     // Secret objective "faa" mapped to Forge an Alliance with description and points
     const soFaa = screen.getByTestId('secret-objective-item-faa');
     expect(soFaa).toHaveTextContent('Forge an Alliance');
     expect(soFaa).toHaveTextContent('Control 4 cultural planets.');
     expect(soFaa).toHaveTextContent('1 VP');
-    expect(soFaa).toHaveAttribute('title');
-    expect(soFaa.getAttribute('title')).toContain('Forge an Alliance');
-    expect(soFaa.getAttribute('title')).toContain('Control 4 cultural planets.');
+    fireEvent.click(soFaa.querySelector('button')!);
+    expect(onInspectCard).toHaveBeenCalledWith({ kind: 'secretObjective', id: 'faa' });
 
     // Action card direct_hit mapped to Direct Hit
     const acDirectHit = screen.getByTestId('action-card-item-direct_hit');
@@ -106,23 +107,15 @@ describe('PlayerSheet Component & Human Readable Metadata', () => {
     expect(screen.getAllByText(/Action Cards:/i)).toHaveLength(2);
   });
 
-  it('renders accessible tooltip with role="tooltip" and aria-describedby when badge is focused', () => {
-    vi.useFakeTimers();
-    render(<PlayerSheet players={mockPlayers} userSeat="p1" />);
-
-    const badge = screen.getByTestId('strategy-card-badge-pok1leadership');
-    expect(badge).not.toHaveAttribute('aria-describedby');
-
-    fireEvent.focus(badge);
-    act(() => {
-      vi.advanceTimersByTime(120);
-    });
-
-    const tooltip = screen.getByRole('tooltip');
-    expect(tooltip).toBeInTheDocument();
-    expect(badge).toHaveAttribute('aria-describedby', tooltip.id);
-    expect(tooltip).toHaveTextContent(/Gain 3 command tokens/);
-
-    vi.useRealTimers();
+  it('opens public objectives and only the owner’s private cards', () => {
+    const onInspectCard = vi.fn();
+    render(<PlayerSheet players={mockPlayers} userSeat="p1" revealedObjectives={['corner']} onInspectCard={onInspectCard} />);
+    fireEvent.click(screen.getByTestId('public-objective-corner'));
+    expect(onInspectCard).toHaveBeenCalledWith({ kind: 'publicObjective', id: 'corner' });
+    fireEvent.click(screen.getByTestId('action-card-item-direct_hit').querySelector('button')!);
+    expect(onInspectCard).toHaveBeenCalledWith({ kind: 'action', id: 'direct_hit' });
+    expect(screen.queryByTestId('action-card-item-nonexistent')).not.toBeInTheDocument();
+    render(<CardDetails subject={{ kind: 'strategy', id: 'pok1leadership' }} onClose={vi.fn()} />);
+    expect(screen.getByTestId('detail-panel')).toHaveTextContent('Gain 3 command tokens');
   });
 });

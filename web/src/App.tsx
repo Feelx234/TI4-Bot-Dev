@@ -10,6 +10,8 @@ import { GameShell } from './components/GameShell.tsx';
 import { usePresence } from './hooks/usePresence.ts';
 import { PlayerIdentityProvider } from './presentation/PlayerIdentity.tsx';
 import { participantText } from './presentation/participantText.ts';
+import { CardDetails, CardSubject } from './components/CardDetails.tsx';
+import { classifyChoiceWorkflow } from './presentation/choiceModel.ts';
 
 const storageKey = (gameId: string) => `ti4.player-session:${gameId}`;
 const pathGameId = () => /^\/games\/([^/]+)$/.exec(window.location.pathname)?.[1] ? decodeURIComponent(/^\/games\/([^/]+)$/.exec(window.location.pathname)![1]) : null;
@@ -44,8 +46,51 @@ const GameRoute: React.FC<{ gameId: string; token?: string; onCredential: (crede
 const GameViewContainer: React.FC<{ gameId: string; lobby: import('./protocol/types.ts').LobbyDto; viewer: ViewerRole; onLeave: () => void }> = ({ gameId, lobby, viewer, onLeave }) => {
   const { status, gameVersion, snapshot, pendingChoice, turnStatus, lastError, events, submitChoice } = useGameSession({ gameId, viewer });
   const userSeat = viewer.role === 'player' ? viewer.seat : undefined;
-  const [selectedOptionId, setSelectedOptionId] = useState<string>(); const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
-  useEffect(() => setSelectedOptionId(undefined), [pendingChoice?.nonce]);
-  const handleSelectTarget = (systemId: string, planetId?: string) => { if (!pendingChoice || pendingChoice.actor !== userSeat) return; const match = pendingChoice.options.find((option) => planetId ? option.payload?.planet === planetId : String(option.payload?.system ?? option.payload?.to ?? option.id) === systemId); if (match) setSelectedOptionId(match.id); };
-  return <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}><GameShell header={<div className="game-header"><TurnStatusBar status={turnStatus} view={snapshot?.view ?? null} gameVersion={gameVersion} connectionStatus={status} userSeat={userSeat} /><button data-testid="leave-game-button" onClick={onLeave} className="button button--secondary game-header__exit">Exit Game</button></div>} board={snapshot ? <Board board={snapshot.view.board} seatingOrder={snapshot.view.seating_order} players={snapshot.view.players} pendingChoice={pendingChoice} viewerSeat={userSeat} selectedSystemId={selectedSystemId} onSelectSystem={setSelectedSystemId} onSelectTarget={handleSelectTarget} /> : <div className="game-loading">Loading game state...</div>} playerSheet={snapshot ? <PlayerSheet players={snapshot.view.players} userSeat={userSeat} /> : null} events={events} choice={pendingChoice} viewerSeat={userSeat} players={snapshot?.view.players} onSubmitChoice={submitChoice} lastError={lastError} selectedOptionId={selectedOptionId} onSelectOption={setSelectedOptionId} /></PlayerIdentityProvider>;
+   const [selectedOptionId, setSelectedOptionId] = useState<string>(); const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
+   const [cardSubject, setCardSubject] = useState<CardSubject | null>(null);
+   useEffect(() => setSelectedOptionId(undefined), [pendingChoice?.nonce]);
+   const cardIsVisible = cardSubject && snapshot && (
+     cardSubject.kind === 'publicObjective'
+       ? snapshot.view.table.revealed_objectives.includes(cardSubject.id)
+       : cardSubject.kind === 'strategy'
+         ? snapshot.view.players.some((player) => player.strategy_cards.includes(cardSubject.id))
+         : cardSubject.kind === 'action'
+           ? snapshot.view.players.some((player) => player.id === userSeat && player.held_action_cards?.includes(cardSubject.id))
+           : snapshot.view.players.some((player) => player.scored_secret_objectives?.includes(cardSubject.id)
+             || (player.id === userSeat && player.held_secret_objectives?.includes(cardSubject.id)))
+   );
+   const handleSelectTarget = (systemId: string, planetId?: string) => {
+     if (!pendingChoice || pendingChoice.actor !== userSeat) return;
+     const match = pendingChoice.options.find((option) => planetId
+       ? option.payload?.planet === planetId
+       : String(option.payload?.system ?? option.payload?.to ?? option.id) === systemId);
+     if (!match) return;
+     if (classifyChoiceWorkflow(pendingChoice) === 'system_activation') void submitChoice(match.id).catch(() => {});
+     else setSelectedOptionId(match.id);
+   };
+   return <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
+     <GameShell
+       header={<div className="game-header">
+         <TurnStatusBar status={turnStatus} view={snapshot?.view ?? null} gameVersion={gameVersion} connectionStatus={status} userSeat={userSeat} />
+         <button data-testid="leave-game-button" onClick={onLeave} className="button button--secondary game-header__exit">Exit Game</button>
+       </div>}
+       board={snapshot ? <Board board={snapshot.view.board} seatingOrder={snapshot.view.seating_order}
+         players={snapshot.view.players} pendingChoice={pendingChoice} viewerSeat={userSeat}
+         selectedSystemId={selectedSystemId}
+         onSelectSystem={(id) => { setSelectedSystemId(id); setCardSubject(null); }}
+         onSelectOptionId={(id) => {
+           if (classifyChoiceWorkflow(pendingChoice) === 'system_activation') void submitChoice(id).catch(() => {});
+           else setSelectedOptionId(id);
+         }}
+         onSelectTarget={handleSelectTarget} /> : <div className="game-loading">Loading game state...</div>}
+       boardView={snapshot?.view.board}
+       playerSheet={snapshot ? <PlayerSheet players={snapshot.view.players} userSeat={userSeat}
+         revealedObjectives={snapshot.view.table.revealed_objectives}
+         onInspectCard={(subject) => { setSelectedSystemId(null); setCardSubject(subject); }} /> : null}
+       detail={cardSubject && cardIsVisible && <CardDetails subject={cardSubject} onClose={() => setCardSubject(null)} />}
+       events={events} choice={pendingChoice} viewerSeat={userSeat} players={snapshot?.view.players}
+       onSubmitChoice={submitChoice} lastError={lastError} selectedOptionId={selectedOptionId}
+       onSelectOption={setSelectedOptionId}
+     />
+   </PlayerIdentityProvider>;
 };

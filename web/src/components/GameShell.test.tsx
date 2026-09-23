@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChoiceRendererDispatcher, GameShell } from './GameShell.tsx';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { deriveChoiceRendererModel } from '../presentation/choiceModel.ts';
@@ -27,6 +27,37 @@ function renderShell(pendingChoice: PendingChoiceDto | null = null) {
 }
 
 describe('GameShell', () => {
+  it('resumes staged production after payment on a fresh legal nonce', async () => {
+    const produce = (nonce: string): PendingChoiceDto => ({ actor: 'p1', nonce, prompt: 'produce in 18',
+      context: { subtype: 'produce_unit', target: { System: '18' }, outstanding: [{ amount: 3, paid: 0 }] },
+      options: [{ id: 'build|fighter|1', kind: 'produce', label: 'Fighter', payload: { unit: 'fighter', production_spent: 1, cost: 1, available_resources: 3 } },
+        { id: 'done_producing', kind: 'decline', label: 'Done' }] });
+    const payment: PendingChoiceDto = { actor: 'p1', nonce: 'pay-2', prompt: 'Pay 1',
+      context: { subtype: 'pay_resources' }, options: [{ id: 'trade_good', kind: 'pay', label: 'Trade good' }] };
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const view = (choice: PendingChoiceDto) => <GameShell header={<div>Header</div>} board={<div>Board</div>}
+      playerSheet={<div>Players</div>} events={[]} choice={choice} viewerSeat="p1" onSubmitChoice={onSubmit} />;
+    const { rerender } = render(view(produce('produce-1')));
+    fireEvent.click(screen.getByTestId('produce-unit-btn-build|fighter|1'));
+    fireEvent.click(screen.getByTestId('produce-unit-btn-build|fighter|1'));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm builds' }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledWith('build|fighter|1');
+    rerender(view(payment));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    rerender(view(produce('produce-3')));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    expect(onSubmit).toHaveBeenNthCalledWith(2, 'build|fighter|1');
+  });
+  it('shows activation guidance without rendering a system-ID decision modal', () => {
+    const activation: PendingChoiceDto = { actor: 'p1', nonce: 'activation', prompt: 'Activate a system',
+      context: { subtype: 'activate_system' }, options: [{ id: '18', kind: 'activate', label: '18', payload: { system: '18' } }] };
+    render(<ChoiceRendererDispatcher choice={activation} viewerSeat="p1" onSubmit={vi.fn()}
+      isMinimized={false} onMinimizedChange={vi.fn()} />);
+    expect(screen.getByTestId('activation-map-prompt')).toHaveTextContent('Select a highlighted system on the map.');
+    expect(screen.queryByTestId('pending-choice-dialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('18')).not.toBeInTheDocument();
+  });
   it('presents dynamic choice text and errors from the latest roster without changing submissions', () => {
     const a = `player_${'a'.repeat(64)}`;
     const b = `player_${'b'.repeat(64)}`;

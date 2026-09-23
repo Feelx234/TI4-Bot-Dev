@@ -111,6 +111,7 @@ export interface TargetHighlightModel {
 
 export interface BoardPresentationModel {
   tiles: TilePresentation[];
+  viewBox: string;
   ownershipMap: Map<string, PlayerOwnershipStyle>;
   selectedSystem: SelectedSystemDetails | null;
   targets: TargetHighlightModel;
@@ -179,19 +180,10 @@ export function getInnerPoints(cx: number, cy: number, radius = 64): string {
  */
 export function deriveHexGeometry(
   q: number,
-  r: number,
-  specialArea?: string | null
+  r: number
 ): { center: { x: number; y: number }; points: string; innerPoints: string } {
-  let x = 150 * (q + r / 2);
-  let y = 130 * r;
-
-  if (specialArea === 'fracture') {
-    x = (q - 3) * 130;
-    y = 420;
-  } else if (specialArea === 'nexus') {
-    x = -500;
-    y = 420;
-  }
+  const x = 150 * (q + r / 2);
+  const y = 130 * r;
 
   return {
     center: { x, y },
@@ -505,10 +497,23 @@ export function buildBoardPresentationModel(
           };
         });
 
+  const regularCenters = rawTiles.filter((t) => !t.special_area).map((t) => deriveHexGeometry(t.q, t.r).center);
+  const maxY = regularCenters.length ? Math.max(...regularCenters.map((p) => p.y)) : 0;
+  const minX = regularCenters.length ? Math.min(...regularCenters.map((p) => p.x)) : 0;
+  const fractureTiles = rawTiles.filter((t) => t.special_area === 'fracture');
+  const fractureStartX = -((fractureTiles.length - 1) / 2) * 150;
+  const offMapY = maxY + 190; // 2 hex radii plus a clear gap from the bottom galaxy row
+
   const tiles: TilePresentation[] = rawTiles.map((tile) => {
     const sysId = tile.system_id;
     const dynamicSystem = systemsMap[sysId];
-    const { center, points, innerPoints } = deriveHexGeometry(tile.q, tile.r, tile.special_area);
+    const geometry = deriveHexGeometry(tile.q, tile.r);
+    const offset = tile.special_area === 'fracture'
+      ? { x: fractureStartX + fractureTiles.indexOf(tile) * 150, y: offMapY }
+      : tile.special_area === 'nexus' ? { x: fractureTiles.length ? fractureStartX - 180 : minX - 180, y: offMapY } : geometry.center;
+    const { center, points, innerPoints } = tile.special_area
+      ? { center: offset, points: getHexPoints(offset.x, offset.y), innerPoints: getInnerPoints(offset.x, offset.y) }
+      : geometry;
 
     const anomalyVisual = deriveAnomalyVisual(tile.anomalies);
     let fillColor = sysId === '18' ? '#1e1b4b' : anomalyVisual ? anomalyVisual.color : tile.hyperlane ? '#1e1b4b' : '#0f172a';
@@ -675,8 +680,16 @@ export function buildBoardPresentationModel(
 
   targets.movementVectors = movementVectors;
 
+  const xs = tiles.map((tile) => tile.center.x);
+  const ys = tiles.map((tile) => tile.center.y);
+  const left = xs.length ? Math.min(...xs) - 100 : -600;
+  const top = ys.length ? Math.min(...ys) - 100 : -500;
+  const width = xs.length ? Math.max(...xs) - left + 100 : 1200;
+  const height = ys.length ? Math.max(...ys) - top + 100 : 1000;
+
   return {
     tiles,
+    viewBox: `${left} ${top} ${width} ${height}`,
     ownershipMap,
     selectedSystem,
     targets,

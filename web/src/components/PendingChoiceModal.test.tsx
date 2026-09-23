@@ -18,6 +18,14 @@ const mockChoice: PendingChoiceDto = {
 };
 
 describe('PendingChoiceModal Component', () => {
+  it('shows the printed primary and secondary text for strategy draft cards', () => {
+    const draft: PendingChoiceDto = { ...mockChoice, context: { subtype: 'draft_strategy_card' },
+      options: [{ id: 'pok1leadership', kind: 'strategy_card', label: '1. Leadership' }] };
+    render(<PendingChoiceModal choice={draft} onSubmit={vi.fn()} />);
+    expect(screen.getByTestId('choice-option')).toHaveClass('strategy-draft-card');
+    expect(screen.getByText(/Gain 3 command tokens/)).toBeInTheDocument();
+    expect(screen.getByText('Secondary')).toBeInTheDocument();
+  });
   it('does not render when choice is null', () => {
     const { container } = render(
       <PendingChoiceModal choice={null} onSubmit={vi.fn()} />

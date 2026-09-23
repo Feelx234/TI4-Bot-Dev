@@ -4,6 +4,7 @@ import { Dialog, Tooltip } from '../primitives/index.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { useParticipantText, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
+import { findStrategyCardMeta } from '../protocol/contentCatalog.ts';
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -108,6 +109,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     const q = searchQuery.toLowerCase();
     return opt.label.toLowerCase().includes(q) || (opt.description?.toLowerCase().includes(q) ?? false);
   });
+  const strategyDraft = choice.context?.subtype === 'draft_strategy_card';
 
   const handleToggleOption = (id: string) => {
     if (isMultiSelect) {
@@ -235,7 +237,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           style={{
             border: '1px solid #38bdf8',
             padding: 24,
-            maxWidth: 560,
+          maxWidth: strategyDraft ? 860 : 560,
             width: '90%',
             display: 'flex',
             flexDirection: 'column',
@@ -341,7 +343,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           )}
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
+            <div className={strategyDraft ? 'strategy-draft-grid' : undefined} style={{ display: strategyDraft ? 'grid' : 'flex', flexDirection: strategyDraft ? undefined : 'column', gap: 8, maxHeight: strategyDraft ? 'min(60vh, 560px)' : 280, overflowY: 'auto' }}>
               {filteredOptions.length === 0 ? (
                 <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
                   No matching options found.
@@ -351,7 +353,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                   const isChecked = isMultiSelect
                     ? selectedOptionIds.includes(opt.id)
                     : selectedOptionId === opt.id;
-                  const isMaxReached = isMultiSelect && selectedOptionIds.length >= maxSelection && !isChecked;
+                   const isMaxReached = isMultiSelect && selectedOptionIds.length >= maxSelection && !isChecked;
+                   const card = strategyDraft ? findStrategyCardMeta(opt.id) : null;
 
                   return (
                     <label
@@ -359,7 +362,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                       data-testid="choice-option"
                       data-option-id={opt.id}
                       data-actionable={!isMaxReached}
-                      className={`card${isChecked ? ' card--selected' : ''}`}
+                       className={`${strategyDraft ? 'strategy-draft-card ' : ''}card${isChecked ? ' card--selected' : ''}`}
                       style={{
                         display: 'flex',
                         alignItems: 'flex-start',
@@ -382,9 +385,13 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         aria-checked={isChecked}
                       />
                       <div>
-                        <div style={{ fontWeight: 600, color: isChecked ? '#38bdf8' : '#e2e8f0' }}>
-                          {opt.label}
-                        </div>
+                         <div style={{ fontWeight: 600, color: isChecked ? '#38bdf8' : '#e2e8f0' }}>
+                           {card ? `${card.initiative}. ${card.name}` : opt.label}
+                         </div>
+                         {card && <div className="strategy-draft-card__text">
+                           <strong>Primary</strong><p>{card.primaryText || opt.description || 'No printed text available.'}</p>
+                           <strong>Secondary</strong><p>{card.secondaryText || 'No printed text available.'}</p>
+                         </div>}
                         {opt.description && (
                           <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2, whiteSpace: 'pre-line' }}>
                             {opt.description}

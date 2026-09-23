@@ -33,13 +33,13 @@ const lobby: LobbyDto = {
   })),
 };
 
-async function openMockedGame(page: Page) {
+async function openMockedGame(page: Page, snapshot = initial) {
   // Register both routes before navigation: the HTTP load and socket subscribe can race.
   await page.route(`**/api/games/${gameId}/lobby/join`, (route) => route.fulfill({ json: {
     player_session: session, player: { id: seat }, lobby,
   } }));
   await page.route(`**/api/games/${gameId}/lobby/heartbeat`, (route) => route.fulfill({ json: {} }));
-  await page.route(`**/api/games/${gameId}/snapshot`, (route) => route.fulfill({ json: initial }));
+  await page.route(`**/api/games/${gameId}/snapshot`, (route) => route.fulfill({ json: snapshot }));
 
   let connected!: (connection: { socket: WebSocketRoute; subscribe: ClientMessage }) => void;
   const socketReady = new Promise<{ socket: WebSocketRoute; subscribe: ClientMessage }>((resolve) => { connected = resolve; });
@@ -47,7 +47,7 @@ async function openMockedGame(page: Page) {
     socket.onMessage((data) => {
       const message = JSON.parse(String(data)) as ClientMessage;
       if (message.type === 'subscribe') {
-        socket.send(JSON.stringify(initial));
+        socket.send(JSON.stringify(snapshot));
         connected({ socket, subscribe: message });
       }
     });
@@ -57,6 +57,95 @@ async function openMockedGame(page: Page) {
   await page.goto(`/games/${gameId}`);
   return socketReady;
 }
+
+test('activation is selected on the map without opening the system-ID modal', async ({ page }) => {
+  const activation: typeof initial = { ...initial,
+    view: { ...initial.view, board: { systems: {}, map_tiles: [
+      { system_id: '18', label: 'Mecatol Rex', q: 0, r: 0 },
+      { system_id: '34', label: 'Abyz', q: 1, r: 0 },
+    ] } },
+    pending_choice: { nonce: 'activate-7', choice: { player: seat, prompt: 'Activate a system',
+      context: { subtype: 'activate_system' }, options: [
+        { id: 'activate|18', kind: 'activate', label: '18', payload: { system: '18' } },
+      ] } },
+  };
+  const { socket } = await openMockedGame(page, activation);
+  const submissions: ClientMessage[] = [];
+  socket.onMessage((data) => {
+    const message = JSON.parse(String(data)) as ClientMessage;
+    if (message.type === 'submit_choice') submissions.push(message);
+  });
+  await expect(page.getByTestId('activation-map-prompt')).toBeVisible();
+  await expect(page.getByTestId('pending-choice-dialog')).toHaveCount(0);
+  await page.getByTestId('system-hex-18').click();
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0]).toMatchObject({ option_id: 'activate|18', nonce: 'activate-7' });
+  await expect(page.getByTestId('system-inspector')).toBeVisible();
+  await page.getByTestId('event-log-toggle').click();
+  const inspector = await page.getByTestId('system-inspector').boundingBox();
+  const eventLog = await page.locator('#event-log-drawer').boundingBox();
+  expect(inspector).not.toBeNull();
+  expect(eventLog).not.toBeNull();
+  expect(inspector!.y + inspector!.height).toBeLessThanOrEqual(eventLog!.y);
+  await page.getByTestId('close-inspector-button').click();
+  await expect(page.getByTestId('system-inspector')).toHaveCount(0);
+});
+
+test('production builder accepts a real pointer click on a unit', async ({ page }) => {
+  const production: typeof initial = { ...initial,
+    pending_choice: { nonce: 'produce-7', choice: { player: seat, prompt: 'produce in 18 (3 left)',
+      context: { subtype: 'produce_unit', target: { System: '18' },
+        outstanding: [{ kind: 'production_capacity', amount: 3, paid: 0 }] },
+      options: [
+        { id: 'build|carrier|1', kind: 'produce', label: 'produce 1x carrier for 3', payload: { unit: 'carrier', count: 1, cost: 3, available_resources: 5 } },
+        { id: 'done_producing', kind: 'decline', label: 'produce nothing further' },
+      ] } },
+  };
+  const { socket } = await openMockedGame(page, production);
+  const submissions: ClientMessage[] = [];
+  socket.onMessage((data) => {
+    const message = JSON.parse(String(data)) as ClientMessage;
+    if (message.type === 'submit_choice') submissions.push(message);
+  });
+  await expect(page.getByTestId('production-builder-drawer')).toBeVisible();
+  await expect(page.getByTestId('production-resources-counter')).toHaveText('0 / 5 Resources (5 Left)');
+  await expect(page.getByText('1x carrier for 3')).toBeVisible();
+  await expect(page.getByText('produce 1x carrier for 3')).toHaveCount(0);
+  await page.getByTestId('produce-unit-btn-build|carrier|1').click({ timeout: 3_000 });
+  await expect(page.getByTestId('produce-count-build|carrier|1')).toHaveText('1');
+  await expect(page.getByTestId('production-capacity-counter')).toHaveText('1 / 3 Units (2 Left)');
+  await expect(page.getByTestId('production-resources-counter')).toHaveText('3 / 5 Resources (2 Left)');
+  await expect(page.getByTestId('produce-unit-btn-build|carrier|1')).toBeDisabled();
+  expect(submissions).toHaveLength(0);
+  await page.getByRole('button', { name: 'Confirm builds' }).click();
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0]).toMatchObject({ option_id: 'build|carrier|1', nonce: 'produce-7' });
+});
+
+test('production unit list scrolls within a compact drawer and reset clears only the draft', async ({ page }) => {
+  const production: typeof initial = { ...initial, pending_choice: { nonce: 'produce-scroll',
+    choice: { player: seat, prompt: 'produce in 18', context: { subtype: 'produce_unit', target: { System: '18' },
+      outstanding: [{ kind: 'production_capacity', amount: 5, paid: 0 }] },
+    options: [...Array.from({ length: 18 }, (_, i) => ({ id: `build|unit${i}|1`, kind: 'produce',
+      label: `Unit ${i}`, payload: { unit: `unit${i}`, production_spent: 1, cost: 1, available_resources: 12 } })),
+      { id: 'done_producing', kind: 'decline', label: 'Done' }] } } };
+  const { socket } = await openMockedGame(page, production);
+  const submissions: ClientMessage[] = [];
+  socket.onMessage((data) => {
+    const message = JSON.parse(String(data)) as ClientMessage;
+    if (message.type === 'submit_choice') submissions.push(message);
+  });
+  const drawer = page.getByTestId('production-builder-drawer');
+  const list = page.getByTestId('production-options-grid');
+  await expect(drawer).toBeVisible();
+  expect((await drawer.boundingBox())!.height).toBeLessThan(650);
+  expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await page.getByTestId('produce-unit-btn-build|unit17|1').click();
+  await expect(page.getByTestId('produce-count-build|unit17|1')).toHaveText('1');
+  await page.getByRole('button', { name: 'Reset selection' }).click();
+  await expect(page.getByTestId('produce-count-build|unit17|1')).toHaveText('0');
+  expect(submissions).toHaveLength(0);
+});
 
 test('rejected movement submission stays actionable and retries with a fresh server nonce', async ({ page }) => {
   const { socket, subscribe } = await openMockedGame(page);

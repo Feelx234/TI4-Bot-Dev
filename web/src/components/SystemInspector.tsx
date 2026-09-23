@@ -1,6 +1,6 @@
 import React from 'react';
 import { SelectedSystemDetails } from '../presentation/boardPresentation.ts';
-import { Drawer } from '../primitives/index.ts';
+import { DetailPanel } from './DetailPanel.tsx';
 import { SeatBadge, useParticipantText, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface SystemInspectorProps {
@@ -19,36 +19,8 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
   if (!system) return null;
 
   return (
-    <Drawer
-      open={true}
-      onClose={onClose}
-      modal={false}
-      position="right"
-      ariaLabel={`System ${system.systemId} details`}
-      data-testid="system-inspector"
-      className="system-inspector panel"
-      style={{
-        position: 'absolute',
-        top: 16,
-        right: 16,
-        bottom: 'auto',
-        width: 320,
-        maxHeight: 'calc(100% - 32px)',
-        overflowY: 'auto',
-        zIndex: 'var(--layer-drawer)',
-        background: 'rgba(15, 23, 42, 0.95)',
-        backdropFilter: 'blur(8px)',
-        border: '1px solid #38bdf8',
-        borderRadius: 8,
-        padding: 16,
-        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        color: '#f8fafc',
-        fontSize: 13,
-      }}
-    >
+    <DetailPanel title={`System ${system.label} #${system.systemId}`} onClose={onClose}
+      testId="system-inspector" closeTestId="close-inspector-button">
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
@@ -79,16 +51,6 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
             </span>
           )}
         </div>
-        <button
-          type="button"
-          data-testid="close-inspector-button"
-          onClick={onClose}
-          className="button button--secondary button--icon"
-          aria-label="Close inspector"
-          style={{ padding: '2px 8px', fontSize: 14, minWidth: 28, height: 28 }}
-        >
-          ✕
-        </button>
       </div>
 
       {/* Anomalies & Wormholes */}
@@ -310,6 +272,6 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
           </div>
         </div>
       )}
-    </Drawer>
+    </DetailPanel>
   );
 };

@@ -4,17 +4,19 @@ import {
   getStrategyCardMeta,
   getSecretObjectiveMeta,
   getActionCardMeta,
+  getPublicObjectiveMeta,
 } from '../protocol/contentCatalog.ts';
-
-import { Tooltip } from '../primitives/index.ts';
+import { CardSubject } from './CardDetails.tsx';
 import { SeatBadge, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface PlayerSheetProps {
   players: PlayerView[];
   userSeat?: string;
+  revealedObjectives?: string[];
+  onInspectCard?: (subject: CardSubject) => void;
 }
 
-export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) => {
+export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat, revealedObjectives = [], onInspectCard }) => {
   const display = usePlayerIdentity();
   return (
     <aside
@@ -34,6 +36,17 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
       <h2 style={{ fontSize: 16, fontWeight: 'bold', margin: 0, color: '#94a3b8' }}>
         Players
       </h2>
+
+      {revealedObjectives.length > 0 && <section aria-label="Revealed public objectives" className="card" style={{ padding: 12 }}>
+        <h3 style={{ margin: '0 0 8px', fontSize: 13 }}>Revealed Public Objectives</h3>
+        {revealedObjectives.map((id) => {
+          const meta = getPublicObjectiveMeta(id);
+          return <button type="button" key={id} className="button button--secondary detail-trigger"
+            data-testid={`public-objective-${id}`} onClick={() => onInspectCard?.({ kind: 'publicObjective', id })}>
+            {meta.name} · {meta.points} VP
+          </button>;
+        })}
+      </section>}
 
       {players.map((player) => {
         const isSelf = userSeat === player.id;
@@ -82,7 +95,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
               <div>Tokens: <strong>{player.tactic_tokens}/{player.fleet_tokens}/{player.strategic_tokens}</strong></div>
             </div>
 
-            {/* Strategy Cards (Human Readable with Accessible Tooltips) */}
+            {/* Public strategy cards */}
             {player.strategy_cards.length > 0 && (
               <div style={{ fontSize: 12 }}>
                 <div style={{ color: '#94a3b8', marginBottom: 4, fontWeight: 500 }}>
@@ -91,15 +104,10 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {player.strategy_cards.map((scId) => {
                     const meta = getStrategyCardMeta(scId);
-                    const tooltipText = `${meta.name} (Initiative ${meta.initiative})\n\nPrimary:\n${meta.primaryText}\n\nSecondary:\n${meta.secondaryText}`;
-
                     return (
-                      <Tooltip key={scId} content={tooltipText} delayMs={100}>
-                        <span
-                          tabIndex={0}
+                        <button type="button" key={scId} onClick={() => onInspectCard?.({ kind: 'strategy', id: scId })}
                           data-testid={`strategy-card-badge-${scId}`}
                           data-card-id={scId}
-                          title={tooltipText}
                           style={{
                             background: '#090d16',
                             border: '1px solid #38bdf8',
@@ -108,13 +116,12 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                             fontSize: 12,
                             fontWeight: 600,
                             color: '#38bdf8',
-                            cursor: 'help',
+                            cursor: 'pointer',
                             display: 'inline-block',
                           }}
                         >
                           {meta.initiative > 0 ? `${meta.initiative}. ` : ''}{meta.name}
-                        </span>
-                      </Tooltip>
+                        </button>
                     );
                   })}
                 </div>
@@ -126,6 +133,16 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
               <span>Action Cards: <strong>{player.action_cards_count}</strong></span>
               <span>Secret Obj: <strong>{player.secret_objectives_count}</strong></span>
             </div>
+
+            {player.scored_secret_objectives && player.scored_secret_objectives.length > 0 &&
+              <div style={{ display: 'grid', gap: 4 }}>
+                <span className="text-muted">Scored Secret Objectives:</span>
+                {player.scored_secret_objectives.map((id) => <button type="button" key={id}
+                  className="button button--secondary detail-trigger" data-testid={`scored-objective-${id}`}
+                  onClick={() => onInspectCard?.({ kind: 'secretObjective', id })}>
+                  {getSecretObjectiveMeta(id).name}
+                </button>)}
+              </div>}
 
             {/* Private Information (Visible only to this player's seat) */}
             {isSelf && (
@@ -153,27 +170,24 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                     <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {player.held_action_cards.map((cardId) => {
                         const meta = getActionCardMeta(cardId);
-                        const tooltipText = `${meta.name} (${meta.phase ?? 'Action'})\n\n${meta.description}`;
 
                         return (
                           <li
                             key={cardId}
-                            tabIndex={0}
                             data-private-card="true"
                             data-private-card-owner={identity.position ? `position-${identity.position}` : 'participant'}
                             data-action-card-id={cardId}
                             data-testid={`action-card-item-${cardId}`}
-                            title={tooltipText}
                             className="card"
                             style={{
                               border: '1px solid #475569',
                               padding: '6px 10px',
-                              cursor: 'help',
+                               cursor: 'pointer',
                               position: 'relative',
                             }}
                           >
-                            <Tooltip content={tooltipText} delayMs={100} wrapperStyle={{ width: '100%' }}>
-                              <div style={{ width: '100%' }}>
+                             <button type="button" className="detail-trigger" onClick={() => onInspectCard?.({ kind: 'action', id: cardId })}>
+                               <div style={{ width: '100%' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                   <strong style={{ color: '#e2e8f0', fontSize: 12 }}>{meta.name}</strong>
                                   {meta.phase && (
@@ -186,7 +200,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                                   {meta.description}
                                 </div>
                               </div>
-                            </Tooltip>
+                             </button>
                           </li>
                         );
                       })}
@@ -205,26 +219,23 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                     <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {player.held_secret_objectives.map((objId) => {
                         const meta = getSecretObjectiveMeta(objId);
-                        const tooltipText = `${meta.name} (${meta.phase} Phase, ${meta.points} VP)\n\nRequirement: ${meta.description}`;
 
                         return (
                           <li
                             key={objId}
-                            tabIndex={0}
                             data-private-card="true"
                             data-private-card-owner={identity.position ? `position-${identity.position}` : 'participant'}
                             data-secret-obj-id={objId}
                             data-testid={`secret-objective-item-${objId}`}
-                            title={tooltipText}
                             className="card"
                             style={{
                               border: '1px solid #fbbf24',
                               padding: '6px 10px',
-                              cursor: 'help',
+                               cursor: 'pointer',
                               position: 'relative',
                             }}
                           >
-                            <Tooltip content={tooltipText} delayMs={100} wrapperStyle={{ width: '100%' }}>
+                             <button type="button" className="detail-trigger" onClick={() => onInspectCard?.({ kind: 'secretObjective', id: objId })}>
                               <div style={{ width: '100%' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                   <strong style={{ color: '#fbbf24', fontSize: 12 }}>{meta.name}</strong>
@@ -236,7 +247,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                                   {meta.description}
                                 </div>
                               </div>
-                            </Tooltip>
+                             </button>
                           </li>
                         );
                       })}

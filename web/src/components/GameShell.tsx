@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { GameLogEntry } from '../hooks/useGameSession.ts';
-import { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
+import { BoardView, PendingChoiceDto, PlayerView } from '../protocol/types.ts';
 import { EventLog } from './EventLog.tsx';
 import { PendingChoiceModal } from './PendingChoiceModal.tsx';
 import { PaymentDrawer } from './PaymentDrawer.tsx';
@@ -10,6 +10,7 @@ import { TradeDeskModal } from './TradeDeskModal.tsx';
 import { AgendaBallotModal } from './AgendaBallotModal.tsx';
 import { ReactionStatusBar } from './ReactionStatusBar.tsx';
 import { ProductionBuilderDrawer } from './ProductionBuilderDrawer.tsx';
+import { CargoLoadingTray } from './CargoLoadingTray.tsx';
 import { deriveChoiceRendererModel, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { overlayStack } from '../primitives/index.ts';
 import { useParticipantText } from '../presentation/PlayerIdentity.tsx';
@@ -18,6 +19,7 @@ export interface GameShellProps {
   header: React.ReactNode;
   board: React.ReactNode;
   playerSheet: React.ReactNode;
+  detail?: React.ReactNode;
   events: GameLogEntry[];
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
@@ -26,6 +28,10 @@ export interface GameShellProps {
   onSelectOption?: (optionId: string) => void;
   viewerSeat?: string | null;
   players?: Record<string, PlayerView> | PlayerView[];
+  boardView?: BoardView;
+  productionQueue?: readonly string[];
+  productionError?: string | null;
+  onQueueProduction?: (units: string[]) => void;
 }
 
 export interface ChoiceRendererDispatcherProps {
@@ -39,6 +45,10 @@ export interface ChoiceRendererDispatcherProps {
   isMinimized: boolean;
   onMinimizedChange: (minimized: boolean) => void;
   players?: Record<string, PlayerView>;
+  boardView?: BoardView;
+  productionQueue?: readonly string[];
+  productionError?: string | null;
+  onQueueProduction?: (units: string[]) => void;
 }
 
 type WorkflowRenderer = (props: Omit<ChoiceRendererDispatcherProps, 'model'> & {
@@ -58,6 +68,10 @@ const workflowRenderers = new Map<ChoiceRendererModel['workflow'], WorkflowRende
       player={players?.[choice.actor] ?? null} onSubmit={onSubmit} isOpen={!isMinimized}
       onClose={() => onMinimizedChange(true)} lastError={lastError} />
   )],
+  ['tactical_cargo', ({ choice, boardView, onSubmit, isMinimized, onMinimizedChange, lastError }) => (
+    <CargoLoadingTray choice={choice} board={boardView} onSubmit={onSubmit} isOpen={!isMinimized}
+      onClose={() => onMinimizedChange(true)} lastError={lastError} />
+  )],
   ['combat_sustain', renderCombat],
   ['combat_casualty', renderCombat],
   ['combat_retreat', renderCombat],
@@ -69,12 +83,12 @@ const workflowRenderers = new Map<ChoiceRendererModel['workflow'], WorkflowRende
     <ReactionStatusBar choice={choice} model={model} viewerSeat={viewerSeat} onSubmit={onSubmit}
       isOpen={!isMinimized} onClose={() => onMinimizedChange(true)} lastError={lastError} />
   )],
-  ['production', ({ choice, model, viewerSeat, onSubmit, isMinimized, onMinimizedChange, lastError }) => (
+  ['production', ({ choice, model, viewerSeat, onSubmit, isMinimized, onMinimizedChange, lastError, productionQueue, productionError, onQueueProduction }) => (
     <ProductionBuilderDrawer choice={choice} model={model} viewerSeat={viewerSeat} onSubmit={onSubmit}
-      isOpen={!isMinimized} onClose={() => onMinimizedChange(true)} lastError={lastError} />
+      isOpen={!isMinimized} onClose={() => onMinimizedChange(true)} lastError={productionError || lastError}
+      queuedUnits={productionQueue} onQueueProduction={onQueueProduction} />
   )],
   ['generic_selection', renderGeneric],
-  ['system_activation', renderGeneric],
   ['objective_scoring', renderGeneric],
 ]);
 
@@ -110,6 +124,10 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   isMinimized,
   onMinimizedChange,
   players,
+  boardView,
+  productionQueue,
+  productionError,
+  onQueueProduction,
 }) => {
   const present = useParticipantText();
   const derivedModel = useMemo(() => {
@@ -126,12 +144,16 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
 
   const model = propModel ?? derivedModel;
   const workflow = model?.workflow ?? 'generic_selection';
+  if (workflow === 'system_activation') return <div className="activation-banner panel" data-testid="activation-map-prompt">
+    <strong>{visibleChoice.prompt}</strong><span>Select a highlighted system on the map.</span>
+    {lastError && <span role="alert">{present(lastError)}</span>}
+  </div>;
   const renderer = workflowRenderers.get(workflow) ?? workflowRenderers.get('generic_selection')!;
 
   return (
     <>
       {/* Minimized Decision Pill for dedicated drawers/modals */}
-      {isMinimized && workflow !== 'generic_selection' && workflow !== 'system_activation' && (
+      {isMinimized && workflow !== 'generic_selection' && (
         <div
           className="choice-banner choice-minimized-pill"
           data-testid="choice-minimized-pill"
@@ -149,7 +171,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       )}
 
        {renderer({ choice: visibleChoice, model, viewerSeat, onSubmit, lastError: lastError ? present(lastError) : lastError, selectedOptionId, onSelectOption,
-         isMinimized, onMinimizedChange, players })}
+           isMinimized, onMinimizedChange, players, boardView, productionQueue, productionError, onQueueProduction })}
     </>
   );
 };
@@ -158,6 +180,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   header,
   board,
   playerSheet,
+  detail,
   events,
   choice,
   onSubmitChoice,
@@ -166,9 +189,53 @@ export const GameShell: React.FC<GameShellProps> = ({
   onSelectOption,
   viewerSeat,
   players,
+  boardView,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<'events' | 'players' | null>(null);
   const [isChoiceMinimized, setIsChoiceMinimized] = useState(false);
+  const [productionQueue, setProductionQueue] = useState<{ actor: string; system: string; units: string[] } | null>(null);
+  const [productionError, setProductionError] = useState<string | null>(null);
+  const submittedNonce = useRef<string | null>(null);
+  const productionSubmitting = useRef(false);
+
+  // A build may open payment and placement decisions before the next production offer.
+  // Keep the queue above the workflow renderer and resume only on a fresh legal offer.
+  useEffect(() => {
+    if (!productionQueue?.units.length || !choice || productionSubmitting.current || choice.nonce === submittedNonce.current) return;
+    if (choice.context?.subtype !== 'produce_unit') {
+      if (choice.context?.subtype !== 'pay_resources' && choice.context?.subtype !== 'place_unit') {
+        setProductionError('Production ended; remaining staged builds were not submitted.');
+        setProductionQueue(null);
+      }
+      return;
+    }
+    const system = choice.context.target && 'System' in choice.context.target ? choice.context.target.System : '';
+    if (choice.actor !== productionQueue.actor || system !== productionQueue.system) {
+      setProductionError('Production changed; remaining staged builds were not submitted.');
+      setProductionQueue(null);
+      return;
+    }
+    const unit = productionQueue.units[0];
+    const option = choice.options.find((candidate) => candidate.kind !== 'decline' &&
+      (candidate.payload?.unit === unit || candidate.id === unit));
+    if (!option) {
+      setProductionError(`${unit} is no longer available; remaining staged builds were not submitted.`);
+      setProductionQueue(null);
+      return;
+    }
+    submittedNonce.current = choice.nonce;
+    productionSubmitting.current = true;
+    void onSubmitChoice(option.id).then(() => {
+      productionSubmitting.current = false;
+      setProductionQueue((current) => current && current.actor === choice.actor && current.system === system
+        ? { ...current, units: current.units.slice(1) } : current);
+    }).catch((error: unknown) => {
+      productionSubmitting.current = false;
+      setProductionError(error instanceof Error ? error.message : String(error));
+      setProductionQueue(null);
+      submittedNonce.current = null;
+    });
+  }, [choice, productionQueue, onSubmitChoice]);
 
   const playersMap = React.useMemo<Record<string, PlayerView>>(() => {
     if (!players) return {};
@@ -206,6 +273,8 @@ export const GameShell: React.FC<GameShellProps> = ({
           {playerSheet}
         </aside>
       </div>
+
+      {detail}
 
       <div className="app-shell__mobile-actions" aria-label="Game panels">
         <button
@@ -247,12 +316,22 @@ export const GameShell: React.FC<GameShellProps> = ({
           choice={choice}
           viewerSeat={viewerSeat}
           players={playersMap}
+          boardView={boardView}
           onSubmit={onSubmitChoice}
           lastError={lastError}
           selectedOptionId={selectedOptionId}
           onSelectOption={onSelectOption}
           isMinimized={isChoiceMinimized}
           onMinimizedChange={setIsChoiceMinimized}
+          productionQueue={productionQueue?.units}
+          productionError={productionError}
+          onQueueProduction={(units) => {
+            if (!choice || productionQueue?.units.length) return;
+            const system = choice.context?.target && 'System' in choice.context.target ? choice.context.target.System : '';
+            setProductionError(null);
+            submittedNonce.current = null;
+            setProductionQueue({ actor: choice.actor, system, units });
+          }}
         />
       </div>
     </div>

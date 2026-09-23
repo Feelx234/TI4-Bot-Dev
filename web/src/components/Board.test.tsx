@@ -68,14 +68,14 @@ describe('Board Component', () => {
     expect(screen.getByText('2 units')).toBeInTheDocument();
   });
 
-  it('keeps non-interactive systems out of the keyboard tab order', () => {
+  it('makes every system keyboard-inspectable', () => {
     render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} />);
 
     const hex18 = screen.getByTestId('system-hex-18');
     const hex34 = screen.getByTestId('system-hex-34');
-    expect(hex18).not.toHaveAttribute('role');
-    expect(hex18).not.toHaveAttribute('tabindex');
-    expect(hex34).not.toHaveAttribute('role');
+    expect(hex18).toHaveAttribute('role', 'button');
+    expect(hex18).toHaveAttribute('tabindex', '0');
+    expect(hex34).toHaveAttribute('aria-label', 'Inspect system #34 #34');
   });
 
   it('assigns colors by projected seating order, not seat name', () => {
@@ -198,7 +198,8 @@ describe('Board Component', () => {
 
     const hex18 = screen.getByTestId('system-hex-18');
     expect(hex18).not.toHaveAttribute('data-target-candidate');
-    expect(hex18).not.toHaveAttribute('role');
+    expect(hex18).toHaveAttribute('aria-label', 'Inspect system Mecatol Rex #18');
+    expect(screen.queryByTestId('activation-target-reticle')).not.toBeInTheDocument();
   });
 
   it('displays SystemInspector when a system is selected', () => {
@@ -206,6 +207,22 @@ describe('Board Component', () => {
 
     expect(screen.getByTestId('system-inspector')).toBeInTheDocument();
     expect(screen.getByTestId('inspector-system-title')).toHaveTextContent('Mecatol Rex');
+  });
+
+  it('pins inspection on click and closes via its close button or empty map', () => {
+    const onSelectSystem = vi.fn();
+    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} onSelectSystem={onSelectSystem} />);
+    fireEvent.click(screen.getByTestId('system-hex-18'));
+    expect(screen.getByTestId('system-inspector')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('system-hex-34'));
+    expect(screen.getByTestId('inspector-system-title')).toHaveTextContent('#34');
+    fireEvent.click(screen.getByTestId('close-inspector-button'));
+    expect(screen.queryByTestId('system-inspector')).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByTestId('system-hex-18'), { key: 'Enter' });
+    expect(screen.getByTestId('system-inspector')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('ti4-board-svg'));
+    expect(screen.queryByTestId('system-inspector')).not.toBeInTheDocument();
+    expect(onSelectSystem).toHaveBeenCalledWith(null);
   });
 
   it('assigns accessible button semantics and keyboard activation to candidate target planets', () => {
@@ -276,6 +293,19 @@ describe('Board Component', () => {
     );
 
     expect(screen.getByTestId('activation-target-reticle')).toBeInTheDocument();
+  });
+
+  it('uses the exact legal option ID when an inspector action is clicked', () => {
+    const onSelectOptionId = vi.fn();
+    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} selectedSystemId="18"
+      viewerSeat="p1" onSelectOptionId={onSelectOptionId} pendingChoice={{
+        nonce: 'n', actor: 'p1', prompt: 'choose', options: [
+          { id: 'first', label: 'First', payload: { system: '18' } },
+          { id: 'second', label: 'Second', payload: { system: '18' } },
+        ],
+      }} />);
+    fireEvent.click(screen.getByTestId('inspector-action-second'));
+    expect(onSelectOptionId).toHaveBeenCalledWith('second');
   });
 
   it('renders animated movement vector lines and badges between origin and destination', () => {
