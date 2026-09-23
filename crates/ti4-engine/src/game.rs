@@ -2871,8 +2871,13 @@ impl<'a> Game<'a> {
         self.state.note_negotiation(actor);
         let agenda_phase = self.state.phase == Phase::Agenda;
         let trading = (agenda_phase
-            || crate::transactions::partners(&self.state, self.content, &galaxy, actor)
-                .contains(&partner))
+            || crate::transactions::may_transact(
+                &self.state,
+                self.content,
+                &galaxy,
+                actor,
+                &partner,
+            ))
             && !self.state.transacted_with(actor).contains(&partner);
         if trading {
             // Extreme Duress binds a player's next action; the agenda phase has none.
@@ -5233,6 +5238,35 @@ mod tests {
             game.state.active.as_ref(),
             Some(&b),
             "then the turn moved on"
+        );
+    }
+
+    /// Guild Ships is Hacan's, and it works both ways: a seat that is not Hacan's neighbour and
+    /// contacts Hacan may still trade physical items, notes included. Reported 2026-09-23: Xxcha's
+    /// first-round contact with Hacan offered no promissory notes, because opening a contact asked
+    /// only whether the *active* seat could reach its partner.
+    #[test]
+    fn contacting_a_distant_hacan_offers_promissory_notes() {
+        let (mut state, galaxy, _) = tactical_fixture();
+        let (xxcha, hacan) = (PlayerId::new("a"), PlayerId::new("b"));
+        state.player_mut(&xxcha).unwrap().faction = ti4_model::id::FactionId::new("xxcha");
+        state.player_mut(&hacan).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        state.diplomacy = ti4_model::DiplomacyState::for_players(&state.seating_order, true);
+        assert!(
+            !crate::transactions::are_neighbours(&state, &galaxy, &xxcha, &hacan),
+            "the two are not neighbours, so only Guild Ships can make this a transaction"
+        );
+        let script: Vec<String> = vec!["component|diplomacy|seat|1".to_owned()];
+        let table = Table::with_default(Box::new(Scripted::new(script)));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        assert_eq!(game.step().error, None, "log: {:?}", game.events);
+        let choice = game
+            .legal_options()
+            .expect("the contact asks what to offer");
+        assert!(
+            choice.ids().contains(&"diplomacy|note|support:xxcha"),
+            "Xxcha may offer its Support to a distant Hacan: {:?}",
+            choice.ids()
         );
     }
 

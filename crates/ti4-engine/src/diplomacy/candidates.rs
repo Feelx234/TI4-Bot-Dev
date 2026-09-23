@@ -538,10 +538,15 @@ fn is_null_swap(revision: &DealRevision) -> bool {
 /// under exactly the legality and pricing the transaction window uses. Only partners who have not
 /// transacted this turn trade, and only legal shapes are kept, in the legacy offer order.
 fn trade_bundles(ctx: &CandidateContext<'_>) -> Vec<CandidateBundle> {
-    let partners = crate::transactions::partners(ctx.state, ctx.content, ctx.galaxy, ctx.proposer);
     // During the agenda phase every other seat is a transaction partner (94).
-    let partner =
-        ctx.state.phase == ti4_model::state::Phase::Agenda || partners.contains(ctx.recipient);
+    let partner = ctx.state.phase == ti4_model::state::Phase::Agenda
+        || crate::transactions::may_transact(
+            ctx.state,
+            ctx.content,
+            ctx.galaxy,
+            ctx.proposer,
+            ctx.recipient,
+        );
     if !partner
         || ctx
             .state

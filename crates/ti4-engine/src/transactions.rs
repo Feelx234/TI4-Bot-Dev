@@ -265,11 +265,11 @@ pub fn partners(
 /// past adjacency - Guild Ships for Hacan, the Trade Convoys note for whoever holds it.
 ///
 /// Both directions count. The ability belongs to whoever holds it, and a negotiation has two parties,
-/// so a far Hacan being dealt with is that Hacan negotiating too. Generation uses `partners` of the
-/// proposer, so this is never looser than what gets offered to a seat - it only stops legality from
-/// refusing a reach the offer already made.
+/// so a far Hacan being dealt with is that Hacan negotiating too: Xxcha, not Hacan's neighbour, may
+/// still trade notes and goods with Hacan. Offering and legality both ask this, so what a contact
+/// offers and what settlement accepts are the same question.
 #[must_use]
-fn may_transact(
+pub fn may_transact(
     state: &GameState,
     content: &ContentStore,
     galaxy: &Galaxy,
@@ -715,8 +715,11 @@ pub fn available_actions(
         return Vec::new();
     }
     let already = state.transacted_with(player);
-    partners(state, content, galaxy, player)
-        .into_iter()
+    state
+        .seating_order
+        .iter()
+        .filter(|other| *other != player && may_transact(state, content, galaxy, player, other))
+        .cloned()
         .filter(|other| !already.contains(other))
         .map(|other| {
             let name = faction_name(state, &other);
