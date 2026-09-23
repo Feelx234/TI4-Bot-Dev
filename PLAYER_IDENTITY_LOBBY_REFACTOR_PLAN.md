@@ -4,9 +4,12 @@
 
 PIL-01 model/persistence implementation was committed as `e0f234d` on
 2026-09-23. PIL-02 was committed as `cf4a01f`; PIL-03 as `37c8823`.
-PIL-04 was committed as `83957c3`; PIL-05 as `bd8f2c1`. PIL-06 is implemented
-in the working tree, pending independent review. Package progress and verification results are tracked here, without
-separate evidence artifacts.
+PIL-04 was committed as `83957c3`; PIL-05 as `bd8f2c1`; the PIL-06 browser
+follow-up was committed as `749bf44`, pending independent review. Package
+progress and verification results are tracked here, without separate evidence
+artifacts.
+PIL-09–PIL-16 are planned follow-ups after the PIL-08 end-to-end gate; none is
+marked implemented by its presence in this plan.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -628,6 +631,171 @@ do not claim an intermediate package is a deployable release.
   concurrency, recovery, and a real bot E2E with idle time past the presence
   grace period pass.
 
+### PIL-09 — Persisted participant nicknames
+
+- **Depends:** PIL-08. **Primary scope:** `crates/ti4-server/src/storage.rs`,
+  `crates/ti4-server/src/session/registry.rs`, `crates/ti4-server/src/http/games.rs`,
+  and focused server/recovery tests. Record any additional edit paths before use.
+- **Contract:** Require a nickname when creating a host, admitting a new player,
+  or explicitly taking over a disconnected player. A credential reconnect uses
+  the already stored nickname and cannot rename its player. Nicknames belong to
+  `PlayerId`, not to slot IDs or positions; reorder and start preserve them.
+  Takeover may choose a new nickname, including during a running game, without
+  changing identity, position, readiness, or host status. Duplicate nicknames
+  are allowed: a name does not authenticate or uniquely identify anyone.
+- **Validation:** Define a single bounded, nonempty, trimmed Unicode nickname
+  contract at the server boundary; reject control/format characters and
+  overlong inputs rather than silently truncating or rewriting names. Browser
+  validation mirrors this contract; React renders names as text, never HTML.
+  Keep nickname fields out of authentication names and credentials out of
+  nickname/public fields. The public roster includes each occupied player's
+  nickname and position; running-game clients must be able to obtain the
+  current nickname roster after restart and takeover.
+- **Persistence:** Version changed records and reject incompatible records
+  clearly as appropriate for this pre-launch branch. In particular, running
+  takeover already writes an authoritative current-session record while its
+  lobby record may contain stale data: define and test one authoritative
+  recovery path for the *current nickname* as well. Persist the new nickname
+  before returning a successful admission/takeover; a failed write leaves the
+  previous nickname and credential intact. Never use a display name as an
+  authorization or game-rule key.
+- **Gate:** Focused storage, HTTP, concurrency, and recovery tests for creation,
+  new join, reconnect without rename, duplicated names, reordered slots,
+  lobby/running takeover rename, restart and failed-write rollback pass
+  (acceptance 13–14). Run formatting and affected-crate tests. This package
+  changes the nickname contract, not the engine's `PlayerId`-based protocol.
+
+### PIL-10 — Bot nickname on admission
+
+- **Depends:** PIL-09. **Primary scope:** `crates/ti4-bot-agent/` and focused
+  bot tests; list additional necessary paths before editing.
+- **Contract:** A bot supplies an explicit configurable nickname for new join
+  and explicit takeover, using the same bounded server contract as a human.
+  Reconnect keeps the existing nickname. A bot still acts only as the
+  server-authenticated `PlayerId`; a nickname is display data, not an advisor
+  identity or a way to select a takeover target.
+- **Gate:** Bot join/reconnect/takeover tests assert sent nickname, displayed
+  roster name and unchanged acting identity (acceptance 13–14). Run formatting
+  and affected-crate tests.
+
+### PIL-11 — Browser nickname entry and retention
+
+- **Depends:** PIL-09. **Primary scope:** `web/src/components/Lobby.tsx`,
+  `web/src/App.tsx`, `web/src/hooks/useLobbySession.ts`, protocol DTO/decoder
+  files and focused browser tests. Record additional necessary paths first.
+- **Contract:** Offer a nickname field before creating a lobby, joining a new
+  position, or explicitly taking over a disconnected player. Prefill it from
+  `localStorage` and save the chosen local preference; keep credentials in the
+  existing per-game `sessionStorage`. A successful reconnect shows the server's
+  stored nickname, even if the local preference differs. There is no in-lobby
+  edit or rename action; takeover can send a different nickname. Display
+  nickname together with position on rejoin choices, since names may repeat.
+  No nickname or credential goes into a URL.
+- **Gate:** Browser tests cover create, new join, watch without nickname-based
+  admission, local preference reuse, duplicate names, reconnect without
+  mutation, fresh-computer takeover rename and invalid input (acceptance
+  13–15). Run build and affected browser tests.
+
+### PIL-12 — Colorblind-safe physical seat identity
+
+- **Depends:** PIL-11. **Primary scope:** `web/src/presentation/boardPresentation.ts`,
+  lobby/board/player UI components, seat-identity presentation helpers,
+  `web/src/index.css` and focused tests. Split this row if the diff exceeds
+  the atomic package limits; record additional paths before editing.
+- **Contract:** Map the *current physical position* (1–8), not `PlayerId`,
+  nickname, faction, or creation slot ID, to the eight Okabe–Ito colors:
+  orange `#E69F00`, sky blue `#56B4E9`, bluish green `#009E73`, yellow
+  `#F0E442`, blue `#0072B2`, vermilion `#D55E00`, reddish purple `#CC79A7`,
+  black `#000000`. Give each position a distinct minimal inline SVG symbol
+  with a text/accessible seat label. Ensure contrast on the dark UI (especially
+  black) through outlines or badge backgrounds. An occupant moving in the
+  lobby takes on the destination position's color/symbol; the started seating
+  order freezes that mapping. Keep ownership colors consistent across lobby,
+  player sheet, board, map details and legends without relying on color alone.
+- **Gate:** Tests cover all eight position mappings, distinct icons, reorder,
+  started-game consistency, empty positions, and visible/accessible non-color
+  labels (acceptance 16). Run build and affected browser tests.
+
+### PIL-13 — ID-free running-game presentation
+
+- **Depends:** PIL-11 and PIL-12. **Primary scope:** `web/src/App.tsx`,
+  `web/src/components/`, `web/src/presentation/` and focused tests. Split into
+  smaller component clusters if needed and keep one shared display resolver;
+  name exact edit paths in each child package before implementation.
+- **Contract:** Resolve each `PlayerId` to the *current server-provided*
+  nickname plus seat context at the presentation boundary. Replace raw IDs in
+  visible and accessible lobby, player-sheet, board/inspector ownership,
+  turn/speaker/winner status, event log, spectator notices, trade and choice
+  workflows, tooltips and errors. For duplicate nicknames, add the physical
+  position and seat symbol wherever the referent would otherwise be ambiguous.
+  Internal identity comparisons, React keys, protocol DTOs, choice IDs and
+  submissions remain ID-based; no raw player ID is rendered in UI text,
+  accessible names, titles or player-identity DOM attributes. Refresh displayed
+  names after takeover, including in a running game. Handle a missing mapping
+  with a neutral position/participant label, never a raw ID.
+- **Gate:** Rendered-text and accessibility tests cover player/spectator views,
+  duplicate names, reorder, takeover rename and all named surfaces. Audit
+  player-identity interpolation sites and test that no raw player ID appears
+  in the rendered UI (acceptance 17). Run build and affected browser tests.
+
+### PIL-14 — Dynamic prompt and error presentation boundary
+
+- **Depends:** PIL-13. **Primary scope:** server-to-web choice/status/error
+  presentation contracts and `web/src/protocol/`, `web/src/presentation/`,
+  affected choice components, and focused server/browser tests. Name exact
+  files before implementation; split server and browser changes if necessary.
+- **Contract:** Audit server-supplied choice prompts, option labels and
+  descriptions, status/error text and dynamically constructed UI copy for
+  embedded player IDs. Provide a typed participant reference or a reviewed,
+  boundary-aware display conversion for references within text; never blindly
+  replace arbitrary substrings, game content IDs, stable option IDs or private
+  data. Unknown player references must display a neutral label rather than
+  leaking an ID. Keep the original machine values for submissions and
+  deterministic replay. After a running takeover, displayed references use
+  the current nickname without rewriting historical protocol/game records.
+- **Gate:** Tests with realistic prompts, option labels, errors, duplicate
+  nicknames, ID substrings and takeover show zero raw player IDs in rendered
+  or accessible text and unchanged submitted IDs (acceptance 17–18). Run
+  formatting, build and affected crate/browser tests.
+
+### PIL-15 — Lobby interaction and accessibility polish
+
+- **Depends:** PIL-11 and PIL-12. **Primary scope:** `web/src/components/Lobby.tsx`,
+  `web/src/hooks/useLobbySession.ts`, `web/src/index.css`, and focused tests.
+- **Contract:** Use the same styled button system for create, copy, join,
+  watch, rejoin, reorder, ready, start and leave. Give actions coherent focus,
+  hover, disabled and in-flight states; block duplicate submissions and
+  conflicting controls while a request is pending, and surface an actionable
+  response on failure. Never show readiness controls before authenticated
+  join. Show Start only to the host, disabled with a readable reason until all
+  positions are filled and ready. Clearly distinguish Ready and Not ready
+  using text and different shape/weight/treatment, not identical color or
+  color alone. Distinguish Connected and Disconnected using text plus symbols
+  and contrasting colorblind-safe styling; presence remains advisory and
+  takeover eligibility is still validated by the server. Preserve keyboard
+  operation, readable small-screen layout, and explicit labels for reorder
+  controls.
+- **Gate:** State-matrix tests cover unjoined watcher, joined player, host,
+  running game, pending actions, failed actions, disabled controls and keyboard
+  labels. Visual and accessibility inspection checks readiness/presence without
+  color (acceptance 19). Run build and affected browser tests.
+
+### PIL-16 — Nickname and lobby UI end-to-end gate
+
+- **Depends:** PIL-09–PIL-15. **Primary scope:** server/web E2E, browser tests,
+  protocol fixtures and integration documentation. List exact paths first.
+- **Contract:** Verify the complete create → watch → join → reorder → ready →
+  start → reconnect → takeover sequence, including duplicate nicknames, a
+  different nickname on takeover, an idle presence interval and server restart.
+  Audit actual rendered and accessible UI for raw player IDs, seat symbol/color
+  consistency and clear enabled/disabled states in lobby and running views.
+  Do not rebaseline fixtures just to conceal a failure.
+- **Gate:** Acceptance 13–19 pass at appropriate unit, browser and real
+  browser/server E2E layers. Run formatting, affected-crate/browser suites,
+  workspace tests and the relevant PIL-08 recovery/privacy gates. Record
+  exact results, source versions and independent review findings before
+  claiming completion.
+
 ## Required Acceptance Tests
 
 1. Creating a three-slot game assigns the creator exactly one stable player
@@ -662,13 +830,44 @@ do not claim an intermediate package is a deployable release.
 11. Credentials never occur in public lobby responses, spectator snapshots,
      broadcast messages, URLs, structured logs, or debug output covered by tests.
 12. A server restart preserves player credentials and running-game recovery;
-     a crash before a complete game-init record does not misreport an active
-     game. Presence reconstructs as disconnected without expiring credentials.
+    a crash before a complete game-init record does not misreport an active
+    game. Presence reconstructs as disconnected without expiring credentials.
+13. Host creation, new join and explicit takeover supply validated nicknames;
+    duplicate names are accepted. Reconnect cannot rename a player. The
+    publicly displayed name belongs to the stable player identity through
+    reorder and start, never to the creation slot or its occupant's position.
+14. A running or lobby takeover may replace the nickname while retaining the
+    player identity, seat and authorization. Restart loads the new name and
+    credential; a failed write changes neither. A bot sends a nickname but
+    still acts only as its server-authenticated `PlayerId`.
+15. The browser retains a nickname preference in `localStorage`, sends it
+    on creation/new join/takeover, never sends it to rename on reconnect, and
+    keeps the private session in `sessionStorage`. A stored preference does
+    not override a server-bound nickname; no name or credential is in a URL.
+16. Positions 1–8 use the pinned Okabe–Ito colors and eight distinct SVG
+    symbols, with readable labels and contrast on the dark theme. Reorder
+    changes the occupant's position styling; started games keep fixed seating
+    order. Neither nickname nor player ID determines the seat styling.
+17. No raw `PlayerId` appears in visible or accessible Web UI text or
+    player-identity attributes in the lobby or running game, including board,
+    inspector, status, events, spectator notices, choices and errors. Duplicate
+    names remain distinguishable by seat context. Internal protocol and choice
+    submissions still use stable IDs.
+18. Dynamic server-supplied prompts, option descriptions, labels and errors
+    that refer to participants display current nicknames/seat context without
+    changing stable machine identifiers, rewriting historical game records,
+    replacing unrelated substrings or leaking unknown IDs.
+19. Unjoined viewers have no Ready control; only joined players can toggle
+    readiness and only the host can start or reorder. Controls consistently
+    show disabled/in-flight/error states and usable keyboard labels. Ready vs
+    Not ready and Connected vs Disconnected remain distinguishable without
+    reliance on color, at desktop and narrow widths.
 
 ## Non-Goals
 
 - User accounts, passwords, third-party identity providers, or cross-game
-  identity persistence.
+  identity persistence. A browser's local nickname preference is convenience
+  text, not cross-game identity or proof of ownership.
 - Allowing a client to pick a position.
 - Mid-game roster or seating-order changes.
 - Automatic replacement of disconnected players after game start.
