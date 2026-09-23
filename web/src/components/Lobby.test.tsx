@@ -48,6 +48,7 @@ describe('lobby UI', () => {
     expect(props.onJoin).toHaveBeenCalledWith('');
     expect(props.onTakeover).toHaveBeenCalledWith('player_b', 'Replacement');
     expect(screen.getByText(/Position 3: Open/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Position 3').querySelector('svg')).toBeInTheDocument();
     expect(screen.getByText(/Position 1: Same name \(Host\)/)).toBeInTheDocument();
     expect(screen.getByTestId('lobby-container').textContent).not.toContain('player_a');
     expect(screen.getByTestId('lobby-container').textContent).not.toContain('player_b');
@@ -72,5 +73,6 @@ describe('lobby UI', () => {
     rerender(<LobbyStatus lobby={moved} playerId="player_b" {...props} />);
     expect(screen.getByText(/Position 1: Same name/)).toBeInTheDocument();
     expect(screen.getByText(/Position 2: Same name \(Host\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Position 1: Same name/).closest('.lobby-list__item')).toHaveStyle({ borderLeftColor: 'rgb(230, 159, 0)' });
   });
 });

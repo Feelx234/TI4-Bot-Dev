@@ -7,6 +7,7 @@ import {
 } from '../protocol/contentCatalog.ts';
 
 import { Tooltip } from '../primitives/index.ts';
+import { SeatBadge, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface PlayerSheetProps {
   players: PlayerView[];
@@ -14,6 +15,7 @@ export interface PlayerSheetProps {
 }
 
 export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) => {
+  const display = usePlayerIdentity();
   return (
     <aside
       data-testid="player-sheet-panel"
@@ -35,30 +37,32 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
 
       {players.map((player) => {
         const isSelf = userSeat === player.id;
+        const identity = display(player.id);
 
         return (
           <div
             key={player.id}
-            data-testid={`player-card-${player.id}`}
+            data-testid="player-card"
             data-is-self={isSelf ? 'true' : 'false'}
             className={`card${isSelf ? ' card--selected' : ''}`}
             style={{
               padding: 14,
+              borderLeft: `4px solid ${identity.color}`,
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
             }}
           >
-            {/* Header: ID + Faction + VP */}
+            {/* Header: current name + physical position + faction + VP */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <strong style={{ fontSize: 15, color: isSelf ? '#38bdf8' : '#e2e8f0' }}>
-                  {player.id} {isSelf && '(You)'}
+                <strong style={{ fontSize: 15, color: '#f8fafc' }}>
+                  {identity.position && <SeatBadge position={identity.position} />} {identity.label} {isSelf && '(You)'}
                 </strong>
                 <div style={{ fontSize: 12, color: '#94a3b8' }}>{player.faction}</div>
               </div>
               <div
-                data-testid={`player-vp-${player.id}`}
+                data-testid="player-vp"
                 style={{
                   background: '#fbbf24',
                   color: '#0f172a',
@@ -156,7 +160,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                             key={cardId}
                             tabIndex={0}
                             data-private-card="true"
-                            data-private-card-owner={player.id}
+                            data-private-card-owner={identity.position ? `position-${identity.position}` : 'participant'}
                             data-action-card-id={cardId}
                             data-testid={`action-card-item-${cardId}`}
                             title={tooltipText}
@@ -208,7 +212,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({ players, userSeat }) =
                             key={objId}
                             tabIndex={0}
                             data-private-card="true"
-                            data-private-card-owner={player.id}
+                            data-private-card-owner={identity.position ? `position-${identity.position}` : 'participant'}
                             data-secret-obj-id={objId}
                             data-testid={`secret-objective-item-${objId}`}
                             title={tooltipText}

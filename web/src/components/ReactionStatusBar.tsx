@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
+import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface ReactionStatusBarProps {
   choice: PendingChoiceDto | null;
@@ -22,6 +23,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   lastError,
   autoPassTimeoutSeconds,
 }) => {
+  const display = usePlayerIdentity();
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(
@@ -153,7 +155,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
           data-testid="spectator-reaction-notice"
           className="reaction-status-bar__spectator"
         >
-          Waiting for seat {choice.actor}...
+           Waiting for {display(choice.actor).label}...
         </div>
       ) : (
         /* Action Buttons */

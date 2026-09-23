@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { CreateGameResponse, LobbyDto, LobbySlot } from '../protocol/types.ts';
 import { decodeCreateGameResponse } from '../protocol/decode.ts';
 import { preferredNickname, rememberNickname, validNickname } from '../protocol/nickname.ts';
+import { SeatBadge } from '../presentation/PlayerIdentity.tsx';
+import { seatStyle } from '../presentation/playerDisplay.ts';
 
 export const CreateLobby: React.FC<{ onCreated: (created: CreateGameResponse) => void; onError: (message: string) => void }> = ({ onCreated, onError }) => {
   const [count, setCount] = useState(3);
@@ -60,8 +62,8 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({ lobby, playerId, onRea
     onReorder(slots);
   };
   return <main data-testid="lobby-container" className="lobby-page"><section className="panel lobby-panel"><h1>{lobby.phase === 'running' ? 'Game in progress' : 'Game lobby'}</h1><button className="button button--outline" onClick={() => void copyUrl()}>Copy game URL</button>
-    <div className="lobby-list">{lobby.slots.map((slot, index) => <div className="lobby-list__item" key={slot.slot_id}>
-      <strong>Position {slot.position}: {slot.occupant ? playerLabel(slot) : 'Open'}{slot.occupant === lobby.host_player_id ? ' (Host)' : ''}</strong>
+    <div className="lobby-list">{lobby.slots.map((slot, index) => <div className="lobby-list__item" key={slot.slot_id} style={{ borderLeft: `3px solid ${seatStyle(slot.position).color}`, paddingLeft: 8 }}>
+      <strong><SeatBadge position={slot.position} /> Position {slot.position}: {slot.occupant ? playerLabel(slot) : 'Open'}{slot.occupant === lobby.host_player_id ? ' (Host)' : ''}</strong>
       <span>{slot.occupant ? `${slot.ready ? 'Ready' : 'Not ready'} · ${slot.connected ? 'Connected' : 'Disconnected'}` : 'Available'}</span>
       {isHost && lobby.phase === 'lobby' && <span><button aria-label={`Move position ${slot.position} up`} disabled={index === 0} onClick={() => move(index, -1)}>↑</button><button aria-label={`Move position ${slot.position} down`} disabled={index === lobby.slots.length - 1} onClick={() => move(index, 1)}>↓</button></span>}
     </div>)}</div>

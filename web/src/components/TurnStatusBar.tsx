@@ -1,6 +1,7 @@
 import React from 'react';
 import { PublicTurnStatus, GameView } from '../protocol/types.ts';
 import { ConnectionStatus } from '../hooks/useGameSession.ts';
+import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface TurnStatusBarProps {
   status: PublicTurnStatus | null;
@@ -17,21 +18,22 @@ export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
   connectionStatus,
   userSeat,
 }) => {
+  const display = usePlayerIdentity();
   const getStatusText = () => {
     if (!status) return 'Initializing game...';
     switch (status.kind) {
       case 'active_turn':
-        return `Active Turn: ${status.player} (Round ${status.round}, ${status.phase})`;
+        return `Active Turn: ${display(status.player).label} (Round ${status.round}, ${status.phase})`;
       case 'waiting_for_decision': {
         const isYou = userSeat && status.seat === userSeat;
         return isYou
           ? `YOUR TURN: Awaiting your choice (${status.stage})`
-          : `Waiting for ${status.seat} (${status.stage})`;
+          : `Waiting for ${display(status.seat).label} (${status.stage})`;
       }
       case 'phase_transition':
         return `Phase Transition: ${status.phase} (Round ${status.round})`;
       case 'game_over':
-        return `Game Over! Winner: ${status.winner ?? 'Draw'}`;
+        return `Game Over! Winner: ${status.winner ? display(status.winner).label : 'Draw'}`;
     }
   };
 
@@ -94,7 +96,7 @@ export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
             <span>•</span>
             <span style={{ textTransform: 'capitalize' }}>{view.phase} Phase</span>
             <span>•</span>
-            <span>Speaker: <strong style={{ color: '#e2e8f0' }}>{view.speaker}</strong></span>
+            <span>Speaker: <strong style={{ color: display(view.speaker).color }}>{display(view.speaker).label}</strong></span>
           </div>
         )}
       </div>

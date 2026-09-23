@@ -15,8 +15,9 @@ PIL-08 on 2026-09-23 with the explicitly recorded exceptions below; its full
 workspace and independent-review gates have **not** passed. PIL-09–PIL-16 may
 proceed under this operator exception; none is marked implemented by its
 presence in this plan. PIL-09 server implementation was committed as `98e9fba`;
-independent review is outstanding. PIL-10 and PIL-11 implementations are in
-the current worktree, with independent review outstanding.
+independent review is outstanding. PIL-10 and PIL-11 were committed as
+`fe7eb8d`. PIL-12 and PIL-13 browser changes are in the current worktree;
+independent review and real-browser integration remain outstanding.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -908,6 +909,13 @@ do not claim an intermediate package is a deployable release.
   lobby/board/player UI components, seat-identity presentation helpers,
   `web/src/index.css` and focused tests. Split this row if the diff exceeds
   the atomic package limits; record additional paths before editing.
+- **Execution scope (2026-09-23):** P1; writable paths:
+  `web/src/presentation/{boardPresentation,boardPresentation.test,playerDisplay,playerDisplay.test}.ts`,
+  `web/src/presentation/PlayerIdentity.tsx`,
+  `web/src/presentation/PlayerIdentity.test.tsx`,
+  `web/src/components/{Lobby,Lobby.test,Board,Board.test,PlayerSheet,PlayerSheet.test,SystemInspector,SystemInspector.test}.tsx`,
+  `web/src/index.css`, and this plan. No external references/downloads or
+  external-state changes; bounded local browser tests only. Full Clippy excluded.
 - **Contract:** Map the *current physical position* (1–8), not `PlayerId`,
   nickname, faction, or creation slot ID, to the eight Okabe–Ito colors:
   orange `#E69F00`, sky blue `#56B4E9`, bluish green `#009E73`, yellow
@@ -921,6 +929,21 @@ do not claim an intermediate package is a deployable release.
 - **Gate:** Tests cover all eight position mappings, distinct icons, reorder,
   started-game consistency, empty positions, and visible/accessible non-color
   labels (acceptance 16). Run build and affected browser tests.
+- **Progress (2026-09-23, uncommitted):** Pinned the eight Okabe–Ito colors
+  and distinct SVG symbols to physical position (never ID, nickname, faction,
+  or slot ID). Added outlined, numbered accessible badges including a
+  white-outlined black position 8, used on occupied and open lobby slots,
+  board legend, player sheet and system inspector. Board planet controllers
+  and command tokens have position symbols alongside the ownership colors;
+  board/inspector/player-sheet colors all use the same seat order. Lobby
+  reorder immediately changes an occupant's position styling, while the
+  started board uses the frozen `seating_order`.
+- **Verification:** `npm run build`, `npm test -- --silent` (27 files,
+  183 tests), and `git diff --check` passed. Focused tests pin all eight
+  colors/symbols, black-badge contrast, open-slot badge, reorder color,
+  board-owner mapping, and started-game board/legend/sheet consistency.
+  Browser visual inspection and independent review remain outstanding;
+  PIL-16 owns real-browser visual/a11y integration. No full Clippy run.
 
 ### PIL-13 — ID-free running-game presentation
 
@@ -928,6 +951,15 @@ do not claim an intermediate package is a deployable release.
   `web/src/components/`, `web/src/presentation/` and focused tests. Split into
   smaller component clusters if needed and keep one shared display resolver;
   name exact edit paths in each child package before implementation.
+- **Execution scope (2026-09-23):** P1; writable paths:
+  `web/src/{App,App.test}.tsx`, `web/src/presentation/{playerDisplay,playerDisplay.test}.ts`,
+  `web/src/presentation/PlayerIdentity.tsx`,
+  `web/src/presentation/PlayerIdentity.test.tsx`,
+  `web/src/components/{GameShell,EventLog,TurnStatusBar,Board,SystemInspector,PlayerSheet,PendingChoiceModal,PaymentDrawer,TacticalMovementOverlay,CombatResolutionModal,TradeDeskModal,AgendaBallotModal,ReactionStatusBar,ProductionBuilderDrawer}.tsx`
+  and their focused tests, plus this plan. No external references/downloads or
+  external-state changes; bounded browser tests only. Full Clippy excluded.
+  Dynamic free-form server prompt/option/error conversion remains PIL-14;
+  explicit typed participant fields are resolved here.
 - **Contract:** Resolve each `PlayerId` to the *current server-provided*
   nickname plus seat context at the presentation boundary. Replace raw IDs in
   visible and accessible lobby, player-sheet, board/inspector ownership,
@@ -943,6 +975,32 @@ do not claim an intermediate package is a deployable release.
   duplicate names, reorder, takeover rename and all named surfaces. Audit
   player-identity interpolation sites and test that no raw player ID appears
   in the rendered UI (acceptance 17). Run build and affected browser tests.
+- **Progress (2026-09-23, uncommitted):** A single `playerDisplay` resolver
+  combines the current server lobby roster with the started seating order;
+  duplicate nicknames gain both position and symbol, missing identities get
+  a neutral label. `GameRoute` passes its periodically refreshed public
+  lobby (including during running games and spectator views) into the running
+  presentation context. Typed participant fields now resolve in player sheet,
+  board hover/inspector, legend, turn/speaker/winner status, event log, trade
+  partner and decision actor headers/notices. Player-identity test IDs and
+  private-card owner attributes no longer expose raw IDs. Identity comparisons,
+  React keys, target IDs and choice submissions remain stable ID-based.
+- **Verification:** `npm run build`, `npm test -- --silent` (27 files,
+  183 tests), and `git diff --check` passed. Render tests cover duplicate
+  names, spectator-facing board/status/events, rename propagation without
+  changing the underlying game event, unknown-ID fallback, trade target
+  display with unchanged submitted option ID, and absence of raw IDs in the
+  composed running-view markup. No independent review or real-browser E2E
+  was performed. No full Clippy run.
+- **Further plan:** PIL-14 must handle *free-form server-supplied* prompts,
+  option labels/descriptions and error messages (including the existing trade
+  answer prompt that can contain a raw player ID). They are still passed
+  through unchanged here: a typed reference can be safely resolved, while
+  blindly replacing text risks changing game content or machine IDs. PIL-16
+  must test the live polling/refresh path for player and spectator during a
+  running takeover, all workflow labels and accessibility, and visually check
+  badge/board contrast at narrow widths. PIL-08's workspace/review exceptions
+  remain open.
 
 ### PIL-14 — Dynamic prompt and error presentation boundary
 

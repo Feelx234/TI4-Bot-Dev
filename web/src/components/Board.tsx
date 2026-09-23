@@ -8,6 +8,8 @@ import {
 } from '../presentation/boardPresentation.ts';
 import { SystemInspector } from './SystemInspector.tsx';
 import { Tooltip, SvgButton } from '../primitives/index.ts';
+import { SeatBadge, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
+import { seatStyle } from '../presentation/playerDisplay.ts';
 
 export { getPlayerColor, PLAYER_PALETTE };
 
@@ -32,6 +34,7 @@ export const Board: React.FC<BoardProps> = ({
   onSelectSystem,
   onSelectTarget,
 }) => {
+  const display = usePlayerIdentity();
   const [uncontrolledSelectedSystemId, setUncontrolledSelectedSystemId] = useState<string | null>(null);
   const selectedSystemId = controlledSelectedSystemId ?? uncontrolledSelectedSystemId;
   const setSelectedSystemId = (id: string | null) => {
@@ -161,6 +164,12 @@ export const Board: React.FC<BoardProps> = ({
             ⟲
           </button>
         </Tooltip>
+      </div>
+
+      <div className="board-seat-legend" aria-label="Player positions">
+        {seatingOrder.map((id, index) => <span key={id} style={{ borderColor: seatStyle(index + 1).color }}>
+          <SeatBadge position={index + 1} /> {display(id).label}
+        </span>)}
       </div>
 
       <svg
@@ -403,6 +412,9 @@ export const Board: React.FC<BoardProps> = ({
                         stroke={p.isCandidateTarget ? '#38bdf8' : p.exhausted ? '#ef4444' : isControlled ? '#f8fafc' : '#64748b'}
                         strokeWidth={p.isCandidateTarget ? 3 : 2}
                       />
+                      {p.controlledBy && <text x={pX + 12} y={pY - 11} textAnchor="middle" fill="#fff" stroke="#0b1220" strokeWidth="0.6" paintOrder="stroke" fontSize="12" pointerEvents="none">
+                        {display(p.controlledBy).symbol}
+                      </text>}
                       {/* Planet Abbreviation */}
                       <text
                         x={pX}
@@ -462,15 +474,11 @@ export const Board: React.FC<BoardProps> = ({
 
                 {/* Command Tokens */}
                 {tile.commandTokens.map((ct, cIdx) => (
-                  <circle
-                    key={`cmd-${cIdx}`}
-                    cx={tile.center.x - 42 + cIdx * 12}
-                    cy={tile.center.y + 56}
-                    r="4"
-                    fill={ct.color}
-                    stroke="#f8fafc"
-                    strokeWidth="1"
-                  />
+                  <g key={`cmd-${cIdx}`}>
+                    <title>{display(ct.owner).label} command token</title>
+                    <circle cx={tile.center.x - 42 + cIdx * 12} cy={tile.center.y + 56} r="6" fill={ct.color} stroke="#f8fafc" strokeWidth="1" />
+                    <text x={tile.center.x - 42 + cIdx * 12} y={tile.center.y + 59} textAnchor="middle" fill={display(ct.owner).position === 8 ? '#fff' : '#0b1220'} fontSize="8" pointerEvents="none">{display(ct.owner).symbol}</text>
+                  </g>
                 ))}
               </SvgButton>
             );
@@ -564,7 +572,7 @@ export const Board: React.FC<BoardProps> = ({
                 <div key={i} style={{ marginLeft: 6, fontSize: 12 }}>
                   • {p.label}
                   {p.resources !== undefined && ` (${p.resources} Res / ${p.influence} Inf)`}
-                  {p.owner && <span style={{ color: getPlayerColor(p.owner, seatingOrder) }}> [{p.owner}]</span>}
+                  {p.owner && <span style={{ color: getPlayerColor(p.owner, seatingOrder) }}> [{display(p.owner).position && <SeatBadge position={display(p.owner).position!} />} {display(p.owner).label}]</span>}
                 </div>
               ))
             ) : (

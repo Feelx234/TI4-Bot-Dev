@@ -4,6 +4,7 @@ import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts
 import { Dialog } from '../primitives/index.ts';
 import { getAgendaPlanetVotes, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { WorkflowShell } from './WorkflowShell.tsx';
+import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface AgendaBallotModalProps {
   choice: PendingChoiceDto | null;
@@ -24,6 +25,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
   onClose,
   lastError,
 }) => {
+  const display = usePlayerIdentity();
   const subtype = model?.workflow
     ? (model.workflow === 'agenda_vote_planets' ? 'vote_exhaust_planet'
       : model.workflow === 'agenda_vote_outcome' ? 'cast_vote'
@@ -120,7 +122,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
           <div className="workflow-inline" >
             <div>
               <div className="workflow-inline" >
-                Imperial Council Ballot • Seat: {choice.actor}
+                 Imperial Council Ballot • {display(choice.actor).label}
               </div>
               <Dialog.Title
                 as="h2"
@@ -155,7 +157,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
             viewerSeat={viewerSeat}
             onSubmit={onSubmit}
             lastError={lastError}
-            spectatorNotice={`Observing council voting in progress for seat ${choice.actor}...`}
+             spectatorNotice={`Observing council voting in progress for ${display(choice.actor).label}...`}
             spectatorNoticeTestId="spectator-agenda-notice"
             errorTestId="agenda-error-banner"
           >

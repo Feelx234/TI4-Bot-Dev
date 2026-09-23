@@ -3,6 +3,7 @@ import { PendingChoiceDto } from '../protocol/types.ts';
 import { Dialog, Tooltip } from '../primitives/index.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
+import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -29,6 +30,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   selectedOptionIds: controlledSelectedOptionIds,
   onSelectOptions,
 }) => {
+  const display = usePlayerIdentity();
   const [uncontrolledSelectedOptionId, setUncontrolledSelectedOptionId] = useState<string>('');
   const [uncontrolledSelectedOptionIds, setUncontrolledSelectedOptionIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -148,7 +150,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
             }}
           />
           <span style={{ fontSize: 13, fontWeight: 'bold', color: '#38bdf8' }}>
-            Decision Required ({choice.actor}):
+             Decision Required ({display(choice.actor).label}):
           </span>
           <span
             style={{
@@ -242,7 +244,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 'bold', color: '#38bdf8', textTransform: 'uppercase' }}>
-                Decision Required • Seat: {choice.actor}
+                 Decision Required • {display(choice.actor).label}
               </div>
               <Dialog.Title
                 as="h2"

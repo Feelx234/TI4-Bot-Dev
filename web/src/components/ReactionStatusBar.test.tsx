@@ -144,7 +144,7 @@ describe('ReactionStatusBar', () => {
       />
     );
 
-    expect(screen.getByTestId('spectator-reaction-notice')).toHaveTextContent('Waiting for seat seat_2...');
+    expect(screen.getByTestId('spectator-reaction-notice')).toHaveTextContent('Waiting for Unknown participant...');
   });
 
   it('displays error badge when lastError is provided', () => {

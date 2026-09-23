@@ -79,8 +79,8 @@ describe('Board Component', () => {
   });
 
   it('assigns colors by projected seating order, not seat name', () => {
-    expect(getPlayerColor('unusual-seat', ['unusual-seat', 'another-seat'])).toBe('#ef4444');
-    expect(getPlayerColor('another-seat', ['unusual-seat', 'another-seat'])).toBe('#38bdf8');
+    expect(getPlayerColor('unusual-seat', ['unusual-seat', 'another-seat'])).toBe('#E69F00');
+    expect(getPlayerColor('another-seat', ['unusual-seat', 'another-seat'])).toBe('#56B4E9');
     expect(getPlayerColor('absent-seat', ['unusual-seat'])).toBe('#94a3b8');
   });
 
@@ -306,7 +306,6 @@ describe('Board Component', () => {
     const vectorLine = screen.getByTestId('movement-vector-line');
     expect(vectorLine).toBeInTheDocument();
     expect(vectorLine).toHaveAttribute('marker-end', 'url(#vector-arrow)');
-    expect(screen.getByText('2')).toBeInTheDocument(); // 2 units available to move
+    expect(vectorLine.parentElement?.querySelector('text')).toHaveTextContent('2'); // 2 units available to move
   });
 });
-

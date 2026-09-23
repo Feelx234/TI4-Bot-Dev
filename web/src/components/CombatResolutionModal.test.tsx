@@ -233,7 +233,7 @@ describe('CombatResolutionModal', () => {
     );
 
     expect(screen.getByTestId('spectator-combat-notice')).toHaveTextContent(
-      'Observing combat resolution in progress for seat seat_2...'
+      'Observing combat resolution in progress for Unknown participant...'
     );
   });
 

@@ -196,7 +196,7 @@ describe('AgendaBallotModal', () => {
     );
 
     expect(screen.getByTestId('spectator-agenda-notice')).toHaveTextContent(
-      'Observing council voting in progress for seat seat_2...'
+      'Observing council voting in progress for Unknown participant...'
     );
   });
 

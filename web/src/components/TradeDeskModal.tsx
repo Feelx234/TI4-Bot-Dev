@@ -4,6 +4,7 @@ import { decodeTradeOption, DecodedTradeOffer, TradeCategory } from '../presenta
 import { Dialog } from '../primitives/index.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { WorkflowShell } from './WorkflowShell.tsx';
+import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface TradeDeskModalProps {
   choice: PendingChoiceDto | null;
@@ -32,6 +33,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
   onClose,
   lastError,
 }) => {
+  const display = usePlayerIdentity();
   const subtype = choice?.context?.subtype ?? '';
   const isAnswering = subtype === 'answer_transaction'
     || (model?.workflow === 'transaction_answer');
@@ -39,7 +41,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
   const partnerSeat = (model?.selectionMode.mode === 'transaction' ? model.selectionMode.partnerSeat : null)
     ?? (choice?.context?.target && 'Player' in choice.context.target
       ? choice.context.target.Player
-      : 'Unknown Partner');
+       : null);
 
   const [activeTab, setActiveTab] = useState<TradeCategory>('commodity_swap');
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
@@ -108,8 +110,8 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                 className="workflow-inline"
               >
                 {isAnswering
-                  ? `Inbound Trade Offer from Seat ${partnerSeat}`
-                  : `Trade Desk: You (${choice.actor}) ↔ ${partnerSeat}`}
+                   ? `Inbound Trade Offer from ${display(partnerSeat).label}`
+                   : `Trade Desk: You (${display(choice.actor).label}) ↔ ${display(partnerSeat).label}`}
               </Dialog.Title>
             </div>
 
@@ -131,7 +133,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
             viewerSeat={viewerSeat}
             onSubmit={onSubmit}
             lastError={lastError}
-            spectatorNotice={`Observing bilateral trade negotiations between ${choice.actor} and ${partnerSeat}...`}
+             spectatorNotice={`Observing bilateral trade negotiations between ${display(choice.actor).label} and ${display(partnerSeat).label}...`}
             spectatorNoticeTestId="spectator-trade-notice"
             errorTestId="trade-error-banner"
           >

@@ -4,6 +4,7 @@ import { getCombatPayload, ChoiceRendererModel } from '../presentation/choiceMod
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { Dialog } from '../primitives/index.ts';
 import { WorkflowShell } from './WorkflowShell.tsx';
+import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface CombatResolutionModalProps {
   choice: PendingChoiceDto | null;
@@ -32,6 +33,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
   lastError,
   recentDiceRolls = [],
 }) => {
+  const display = usePlayerIdentity();
   // Staged casualties: unitType -> count
   const [stagedCasualties, setStagedCasualties] = useState<Record<string, number>>({});
 
@@ -159,7 +161,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
           <div className="workflow-inline" >
             <div>
               <div className="workflow-inline" >
-                Space Combat Arena • Seat: {choice.actor}
+                 Space Combat Arena • {display(choice.actor).label}
               </div>
               <Dialog.Title
                 as="h2"
@@ -217,7 +219,7 @@ export const CombatResolutionModal: React.FC<CombatResolutionModalProps> = ({
             viewerSeat={viewerSeat}
             onSubmit={onSubmit}
             lastError={lastError}
-            spectatorNotice={`Observing combat resolution in progress for seat ${choice.actor}...`}
+             spectatorNotice={`Observing combat resolution in progress for ${display(choice.actor).label}...`}
             spectatorNoticeTestId="spectator-combat-notice"
             errorTestId="combat-error-banner"
           >

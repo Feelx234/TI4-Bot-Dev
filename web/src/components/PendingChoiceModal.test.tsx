@@ -125,7 +125,7 @@ describe('PendingChoiceModal Component', () => {
     // Full dialog is hidden, non-blocking floating banner is visible
     expect(screen.queryByTestId('pending-choice-dialog')).toBeNull();
     expect(screen.getByTestId('minimized-choice-banner')).toBeInTheDocument();
-    expect(screen.getByText('Decision Required (p1):')).toBeInTheDocument();
+    expect(screen.getByText('Decision Required (Unknown participant):')).toBeInTheDocument();
 
     // Click resume button to restore dialog
     const resumeBtn = screen.getByTestId('resume-choice-button');

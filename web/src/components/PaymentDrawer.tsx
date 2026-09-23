@@ -4,6 +4,7 @@ import { getPaymentPayload, ChoiceRendererModel } from '../presentation/choiceMo
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { Drawer } from '../primitives/index.ts';
 import { WorkflowShell } from './WorkflowShell.tsx';
+import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface PaymentDrawerProps {
   choice: PendingChoiceDto | null;
@@ -34,6 +35,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   onClose,
   lastError,
 }) => {
+  const display = usePlayerIdentity();
   const [selectedPlanetIds, setSelectedPlanetIds] = useState<string[]>([]);
   const [tradeGoodsToSpend, setTradeGoodsToSpend] = useState<number>(0);
 
@@ -164,7 +166,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       <div className="choice-workflow-header">
         <div>
           <div className="choice-workflow-eyebrow">
-            Economy Settlement • Seat {choice.actor}
+             Economy Settlement • {display(choice.actor).label}
           </div>
           <h3
             data-testid="payment-drawer-title"
@@ -191,7 +193,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
         viewerSeat={viewerSeat}
         onSubmit={onSubmit}
         lastError={lastError}
-        spectatorNotice={`Observing payment in progress for seat ${choice.actor}...`}
+         spectatorNotice={`Observing payment in progress for ${display(choice.actor).label}...`}
         spectatorNoticeTestId="spectator-payment-notice"
         errorTestId="payment-error-banner"
       >

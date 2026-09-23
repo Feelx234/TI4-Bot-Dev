@@ -1,6 +1,7 @@
 import React from 'react';
 import { SelectedSystemDetails } from '../presentation/boardPresentation.ts';
 import { Drawer } from '../primitives/index.ts';
+import { SeatBadge, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface SystemInspectorProps {
   system: SelectedSystemDetails | null;
@@ -13,6 +14,7 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
   onClose,
   onSelectAction,
 }) => {
+  const display = usePlayerIdentity();
   if (!system) return null;
 
   return (
@@ -166,8 +168,8 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
                   <span>
                     Control:{' '}
                     {p.controlledBy ? (
-                      <span style={{ color: p.controllerColor, fontWeight: 600 }}>
-                        {p.controlledBy} {p.exhausted ? '(Exhausted)' : '(Ready)'}
+                       <span style={{ color: '#f8fafc', borderLeft: `3px solid ${p.controllerColor}`, paddingLeft: 3, fontWeight: 600 }}>
+                        {display(p.controlledBy).position && <SeatBadge position={display(p.controlledBy).position!} />} {display(p.controlledBy).label} {p.exhausted ? '(Exhausted)' : '(Ready)'}
                       </span>
                     ) : (
                       <span style={{ color: '#64748b' }}>Uncontrolled</span>
@@ -215,7 +217,7 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
                     color: u.damaged ? '#fca5a5' : '#e2e8f0',
                   }}
                 >
-                  {u.unitType} {u.damaged && '(Damaged)'} [{u.owner}]
+                   {u.unitType} {u.damaged && '(Damaged)'} [{display(u.owner).position && <SeatBadge position={display(u.owner).position!} />} {display(u.owner).label}]
                 </span>
               ))}
             </div>
@@ -242,7 +244,7 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
                     color: u.damaged ? '#fca5a5' : '#e2e8f0',
                   }}
                 >
-                  {u.unitType} {u.damaged && '(Damaged)'} [{u.owner}]
+                   {u.unitType} {u.damaged && '(Damaged)'} [{display(u.owner).position && <SeatBadge position={display(u.owner).position!} />} {display(u.owner).label}]
                 </span>
               ))}
             </div>
@@ -272,8 +274,8 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
                   color: '#e2e8f0',
                 }}
               >
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: ct.color }} />
-                {ct.owner}
+                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: ct.color, outline: '1px solid #f8fafc' }} />
+                 {display(ct.owner).position && <SeatBadge position={display(ct.owner).position!} />} {display(ct.owner).label}
               </span>
             ))}
           </div>

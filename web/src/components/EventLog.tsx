@@ -1,5 +1,6 @@
 import React from 'react';
 import { GameLogEntry } from '../hooks/useGameSession.ts';
+import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface EventLogProps {
   events: GameLogEntry[];
@@ -7,16 +8,16 @@ export interface EventLogProps {
   onToggle: () => void;
 }
 
-function eventPresentation(event: GameLogEntry['event']): { color: string; text: string } {
+function eventPresentation(event: GameLogEntry['event'], label: (id: string) => string): { color: string; text: string } {
   switch (event.kind) {
     case 'decision_resolved':
       return { color: '#38bdf8', text: 'Decision resolved' };
     case 'game_initialized':
-      return { color: '#e2e8f0', text: `Game initialized: round ${event.round}, ${event.phase} phase, speaker ${event.speaker}` };
+      return { color: '#e2e8f0', text: `Game initialized: round ${event.round}, ${event.phase} phase, speaker ${label(event.speaker)}` };
     case 'phase_transition':
       return { color: '#c084fc', text: `Phase transition: round ${event.round}, ${event.phase} phase` };
     case 'game_finished':
-      return { color: '#34d399', text: event.winner ? `Game finished: ${event.winner} wins` : 'Game finished: draw' };
+      return { color: '#34d399', text: event.winner ? `Game finished: ${label(event.winner)} wins` : 'Game finished: draw' };
     default:
       return assertNever(event);
   }
@@ -38,6 +39,7 @@ function getVisibilityLabel(visibility: GameLogEntry): string | null {
 }
 
 export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle }) => {
+  const display = usePlayerIdentity();
   return (
     <div
       data-testid="event-log-container"
@@ -100,7 +102,7 @@ export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle }) 
             <div style={{ color: '#64748b' }}>No events recorded yet.</div>
           ) : (
             events.map((ev, i) => {
-              const presentation = eventPresentation(ev.event);
+              const presentation = eventPresentation(ev.event, (id) => display(id).label);
               const visibility = getVisibilityLabel(ev);
               return (
                 <div

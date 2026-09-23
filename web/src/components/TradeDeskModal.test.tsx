@@ -35,7 +35,7 @@ describe('TradeDeskModal', () => {
       />
     );
 
-    expect(screen.getByTestId('trade-desk-title')).toHaveTextContent('Trade Desk: You (seat_1) ↔ seat_2');
+    expect(screen.getByTestId('trade-desk-title')).toHaveTextContent('Trade Desk: You (Unknown participant) ↔ Unknown participant');
     expect(screen.getByTestId('trade-tab-commodity_swap')).toBeInTheDocument();
     expect(screen.getByTestId('trade-tab-goods_exchange')).toBeInTheDocument();
     expect(screen.getByTestId('trade-tab-promissory')).toBeInTheDocument();
@@ -134,7 +134,7 @@ describe('TradeDeskModal', () => {
       />
     );
 
-    expect(screen.getByTestId('trade-desk-title')).toHaveTextContent('Inbound Trade Offer from Seat seat_1');
+    expect(screen.getByTestId('trade-desk-title')).toHaveTextContent('Inbound Trade Offer from Unknown participant');
     expect(screen.getByText(/seat_1 offers 2 commodities/i)).toBeInTheDocument();
 
     const acceptBtn = screen.getByTestId('answer-opt-accept');
@@ -177,7 +177,7 @@ describe('TradeDeskModal', () => {
     );
 
     expect(screen.getByTestId('spectator-trade-notice')).toHaveTextContent(
-      'Observing bilateral trade negotiations between seat_2 and seat_3...'
+      'Observing bilateral trade negotiations between Unknown participant and Unknown participant...'
     );
   });
 

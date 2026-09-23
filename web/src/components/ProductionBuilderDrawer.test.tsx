@@ -115,7 +115,7 @@ describe('ProductionBuilderDrawer', () => {
     );
 
     expect(screen.getByTestId('spectator-production-notice')).toHaveTextContent(
-      'Observing unit production in progress for seat seat_2...'
+      'Observing unit production in progress for Unknown participant...'
     );
   });
 

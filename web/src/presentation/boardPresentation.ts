@@ -5,20 +5,12 @@ import {
   PlayerView,
   PendingChoiceDto,
 } from '../protocol/types.ts';
+import { SEAT_COLORS } from './playerDisplay.ts';
 
 /** The four closed tech-specialty colours in TI4. */
 export type TechSpecialty = 'biotic' | 'propulsion' | 'cybernetic' | 'warfare';
 
-export const PLAYER_PALETTE: readonly string[] = [
-  '#ef4444', // Red
-  '#38bdf8', // Sky blue
-  '#facc15', // Yellow
-  '#4ade80', // Green
-  '#c084fc', // Purple
-  '#fb923c', // Orange
-  '#e879f9', // Pink
-  '#2dd4bf', // Teal
-];
+export const PLAYER_PALETTE: readonly string[] = SEAT_COLORS;
 
 export const NEUTRAL_COLOR = '#64748b';
 export const UNASSIGNED_COLOR = '#94a3b8';
@@ -131,7 +123,7 @@ export interface BoardPresentationModel {
 export function getPlayerColor(owner: string | null | undefined, seatingOrder: readonly string[]): string {
   if (!owner) return NEUTRAL_COLOR;
   const seatIndex = seatingOrder.indexOf(owner);
-  return seatIndex === -1 ? UNASSIGNED_COLOR : PLAYER_PALETTE[seatIndex % PLAYER_PALETTE.length];
+  return seatIndex < 0 || seatIndex >= PLAYER_PALETTE.length ? UNASSIGNED_COLOR : PLAYER_PALETTE[seatIndex];
 }
 
 /**
@@ -150,7 +142,7 @@ export function deriveOwnershipPalette(
   }
 
   seatingOrder.forEach((seat, index) => {
-    const color = PLAYER_PALETTE[index % PLAYER_PALETTE.length];
+    const color = PLAYER_PALETTE[index] ?? UNASSIGNED_COLOR;
     const player = playerMap.get(seat);
     map.set(seat, {
       color,

@@ -50,15 +50,16 @@ describe('SystemInspector Component', () => {
     // Planet
     expect(screen.getByTestId('inspector-planet-mecatol_rex')).toBeInTheDocument();
     expect(screen.getByText('1 Res / 6 Inf')).toBeInTheDocument();
-    expect(screen.getAllByText(/seat_a/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Unknown participant/).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('system-inspector').textContent).not.toContain('seat_a');
     expect(screen.getByText('Attachments: custodians')).toBeInTheDocument();
 
     // Units
-    expect(screen.getByTestId('inspector-space-unit')).toHaveTextContent('dreadnought (Damaged) [seat_a]');
-    expect(screen.getByTestId('inspector-ground-unit')).toHaveTextContent('infantry [seat_a]');
+    expect(screen.getByTestId('inspector-space-unit')).toHaveTextContent('dreadnought (Damaged) [ Unknown participant]');
+    expect(screen.getByTestId('inspector-ground-unit')).toHaveTextContent('infantry [ Unknown participant]');
 
     // Command Token
-    expect(screen.getByTestId('inspector-command-token')).toHaveTextContent('seat_a');
+    expect(screen.getByTestId('inspector-command-token')).toHaveTextContent('Unknown participant');
 
     // Close button
     fireEvent.click(screen.getByTestId('close-inspector-button'));

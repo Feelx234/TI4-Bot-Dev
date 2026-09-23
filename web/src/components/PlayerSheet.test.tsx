@@ -86,11 +86,11 @@ describe('PlayerSheet Component & Human Readable Metadata', () => {
     expect(screen.getByTestId('secret-objective-item-faa')).toBeInTheDocument();
     expect(screen.getByTestId('action-card-item-direct_hit')).toBeInTheDocument();
 
-    const privateCards = screen.getAllByTestId(/player-card-/);
+    const privateCards = screen.getAllByTestId('player-card');
     expect(privateCards).toHaveLength(2);
 
     // Invariant: p2 must not have private-hand-section
-    const p2Card = screen.getByTestId('player-card-p2');
+    const p2Card = privateCards[1];
     expect(p2Card.querySelector('[data-testid="private-hand-section"]')).toBeNull();
   });
 

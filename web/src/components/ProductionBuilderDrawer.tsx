@@ -3,6 +3,7 @@ import { PendingChoiceDto } from '../protocol/types.ts';
 import { Dialog } from '../primitives/index.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { WorkflowShell } from './WorkflowShell.tsx';
+import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface ProductionBuilderDrawerProps {
   choice: PendingChoiceDto | null;
@@ -23,6 +24,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   onClose,
   lastError,
 }) => {
+  const display = usePlayerIdentity();
   const subtype = choice?.context?.subtype ?? '';
   const isPlaceUnit = subtype === 'place_unit';
   const isProduceUnit = subtype === 'produce_unit' || !isPlaceUnit;
@@ -85,7 +87,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
           viewerSeat={viewerSeat}
           onSubmit={onSubmit}
           lastError={lastError}
-          spectatorNotice={`Observing unit production in progress for seat ${choice.actor}...`}
+           spectatorNotice={`Observing unit production in progress for ${display(choice.actor).label}...`}
           spectatorNoticeTestId="spectator-production-notice"
           errorTestId="production-error-banner"
         >
