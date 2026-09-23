@@ -76,6 +76,10 @@ pub struct Position<'a> {
     pub factions: BTreeMap<PlayerId, String>,
     /// Faceup relic fragments by trait key (`CULTURAL`, …, `FRONTIER`).
     pub fragments: BTreeMap<PlayerId, BTreeMap<String, i32>>,
+    /// Trade goods and commodities, both faceup.
+    pub goods: BTreeMap<PlayerId, (i32, i32)>,
+    /// Seats whose Support for the Throne sits in someone else's play area (faceup).
+    pub support_lent: std::collections::BTreeSet<PlayerId>,
 }
 
 impl<'a> Position<'a> {
@@ -95,6 +99,12 @@ impl<'a> Position<'a> {
                 .iter()
                 .map(|seat| (seat.id.clone(), seat.relic_fragments.clone()))
                 .collect(),
+            goods: state
+                .players
+                .iter()
+                .map(|seat| (seat.id.clone(), (seat.trade_goods, seat.commodities)))
+                .collect(),
+            support_lent: state.support_holders.keys().cloned().collect(),
         }
     }
 
@@ -102,10 +112,12 @@ impl<'a> Position<'a> {
     pub fn of_view(observed: &Observed<'a>) -> Self {
         let mut factions = BTreeMap::new();
         let mut fragments = BTreeMap::new();
+        let mut goods = BTreeMap::new();
         for player in observed.players() {
             if let Some(seat) = observed.seat(player) {
                 factions.insert(player.clone(), seat.faction.as_str().to_owned());
                 fragments.insert(player.clone(), seat.relic_fragments.clone());
+                goods.insert(player.clone(), (seat.trade_goods, seat.commodities));
             }
         }
         Self {
@@ -114,6 +126,8 @@ impl<'a> Position<'a> {
             custodians_removed: observed.custodians_removed(),
             factions,
             fragments,
+            goods,
+            support_lent: observed.support_holders().keys().cloned().collect(),
         }
     }
 
@@ -368,13 +382,20 @@ pub fn deal_facts(observed: &Observed<'_>, choice: &Choice) -> Vec<Vec<(&'static
                 };
                 preview(&draft, &option.id, position.round)
                     .map(|after| {
-                        facts(
+                        let mut facts = facts(
                             &position,
                             &after.builder,
                             &after.other,
                             &after.give,
                             &after.take,
-                        )
+                        );
+                        // On a builder option the score is what the build can still become.
+                        let reachable = in_points(best_reachable(&position, &after));
+                        if let Some(score) = facts.iter_mut().find(|(name, _)| *name == FACT_SCORE)
+                        {
+                            score.1 = reachable;
+                        }
+                        facts
                     })
                     .unwrap_or_default()
             })
@@ -449,6 +470,64 @@ fn preview(draft: &Draft, id: &str, round: u32) -> Option<Draft> {
         ti4_engine::diplomacy::builder::apply_item_at(round, &mut after, "diplomacy|amount|1");
     }
     Some(after)
+}
+
+/// What a builder scores when no deal it can still make is acceptable: below any worth proposing.
+pub const UNREACHABLE: f64 = -1.0;
+/// Largest count of one counted item a planned ask considers.
+pub const MOST_ASKED: i32 = 3;
+
+/// Single items the partner could be asked for, from what is public: faceup trade goods,
+/// commodities and fragments (up to [`MOST_ASKED`] of one), and its own Support while unlent.
+#[must_use]
+pub fn public_asks(position: &Position<'_>, partner: &PlayerId) -> Vec<DealTerm> {
+    let mut out = Vec::new();
+    let (goods, commodities) = position.goods.get(partner).copied().unwrap_or_default();
+    let fragments = position.fragments.get(partner).cloned().unwrap_or_default();
+    let mut counted = |held: i32, make: fn(u8) -> TransferAsset| {
+        for n in 1..=held.min(MOST_ASKED) {
+            out.push(DealTerm::ImmediateTransfer(make(
+                u8::try_from(n).unwrap_or(1),
+            )));
+        }
+    };
+    let fragment = |key: &str| fragments.get(key).copied().unwrap_or(0);
+    counted(goods, TransferAsset::TradeGoods);
+    counted(commodities, TransferAsset::Commodities);
+    counted(fragment("CULTURAL"), TransferAsset::CulturalFragments);
+    counted(fragment("HAZARDOUS"), TransferAsset::HazardousFragments);
+    counted(fragment("INDUSTRIAL"), TransferAsset::IndustrialFragments);
+    counted(fragment("FRONTIER"), TransferAsset::UnknownFragments);
+    if !position.support_lent.contains(partner)
+        && let Some(faction) = position.factions.get(partner)
+    {
+        out.push(DealTerm::ImmediateTransfer(TransferAsset::PromissoryNote(
+            ti4_engine::promissory::support(faction),
+        )));
+    }
+    out
+}
+
+/// The builder's best score, in trade goods, over the deals this draft can still become: as it
+/// stands, or with one public item asked for while nothing is asked yet and review has not begun.
+/// Only deals the partner scores above zero count; with none, [`UNREACHABLE`].
+#[must_use]
+pub fn best_reachable(position: &Position<'_>, draft: &Draft) -> f64 {
+    let mut candidates: Vec<Vec<DealTerm>> = vec![draft.take.clone()];
+    if !draft.reviewing && draft.take.is_empty() {
+        candidates.extend(
+            public_asks(position, &draft.other)
+                .into_iter()
+                .map(|term| vec![term]),
+        );
+    }
+    candidates
+        .iter()
+        .filter(|take| !(draft.give.is_empty() && take.is_empty()))
+        .map(|take| score(position, &draft.builder, &draft.other, &draft.give, take))
+        .filter(|valued| valued.recipient_score > 0.0)
+        .map(|valued| valued.proposer_score)
+        .fold(UNREACHABLE, f64::max)
 }
 
 /// The deciding seat's facts for a deal where it gives `give` and receives `take`.
@@ -530,7 +609,26 @@ mod tests {
                 .map(|(seat, faction)| (PlayerId::new(seat), faction.to_owned()))
                 .collect(),
             fragments: BTreeMap::new(),
+            goods: [("a", (2, 0)), ("b", (5, 3))]
+                .into_iter()
+                .map(|(seat, goods)| (PlayerId::new(seat), goods))
+                .collect(),
+            support_lent: std::collections::BTreeSet::new(),
         }
+    }
+
+    #[test]
+    fn half_a_swap_reads_as_the_swap_it_can_become() {
+        let content = ContentStore::embedded();
+        let position = position(content);
+        let draft = Draft::new(PlayerId::new("a"), PlayerId::new("b"));
+        // Offering one's own Support alone is a gift, but asking for the partner's makes a swap.
+        let after = preview(&draft, "diplomacy|note|support:hacan", position.round).expect("item");
+        assert!(best_reachable(&position, &after) > 0.0);
+        // Once reviewing nothing more can be asked: the gift alone is on nobody's terms.
+        let mut reviewing = after;
+        reviewing.reviewing = true;
+        assert!((best_reachable(&position, &reviewing) - UNREACHABLE).abs() < 1e-12);
     }
 
     #[test]
