@@ -1,0 +1,497 @@
+# Player Identity and Lobby Admission Refactor
+
+## Status
+
+Proposed breaking-change plan. The current game is not live, so no compatibility
+adapter, legacy endpoint, or persisted-data migration is required. Existing saved
+unstarted lobbies and active sessions may be rejected by the new server version.
+This is a hobby project for a small, trusted group (probably four simultaneous
+players). Prefer straightforward recovery and understandable behavior over account
+systems or elaborate lease/transaction machinery. Breaking API and storage changes
+are acceptable before launch. A person must be able to resume their player from a
+different computer after a client crash, even if the original credential is lost.
+
+## Objective
+
+Make humans and remote bot agents enter a game through the same automatic
+admission flow. A client supplies a game ID, the server assigns the next open
+lobby position for a new participant, and the server issues a private resumable
+player-session credential. Clients must not choose a position or receive a session
+credential as a command line or URL parameter. Someone without a credential may
+also take over an *existing disconnected player* from a different computer;
+that operation does not create a new participant or change their position.
+
+The host may reorder players while the game is a lobby. Starting the game
+atomically freezes the roster and its order. Reordering a player never changes
+that player's identity or session credential.
+
+## Decisions
+
+### Identity, session, and position are distinct
+
+Use three separate concepts:
+
+| Concept | Meaning | Lifetime | Authority |
+|---|---|---|---|
+| `PlayerId` | Stable game participant identity. It is created on first player admission. | Lobby through game completion | Server generated |
+| Player-session credential | Opaque, high-entropy bearer credential that resumes one `PlayerId`. | Until replacement on takeover or game deletion | Server generated and private to the client |
+| Lobby slot / seat position | A physical ordered position in the lobby, optionally occupied by a `PlayerId`. | Mutable only during lobby | Host reorders; server assigns first open position |
+
+`PlayerId` is not a position such as `p1`. It is retained when its holder moves
+from one position to another. The engine's seating order is an ordered
+`Vec<PlayerId>` derived once from the occupied lobby slots when the game starts.
+
+Connection presence is a fourth, **ephemeral** concept. A heartbeat tracks whether
+a player is currently connected; it never expires a credential, frees a slot, or
+changes a `PlayerId`. After a server restart, presence starts as disconnected,
+while persisted credentials remain valid.
+
+Keep the word "seat" for game-rule and UI concepts that depend on physical
+position. Do not use it in authentication names or credential storage.
+
+### Admission and spectator behavior
+
+`POST /api/games/{game_id}/lobby/join` is the one player entry endpoint.
+It has no requested-position input. A new client omits the optional
+`x-ti4-player-session` header and requests a new participant; a reconnect
+supplies its existing credential. A client that lost its credential requests
+takeover of an explicitly selected, disconnected `PlayerId` instead. Make
+new admission and takeover distinct typed request variants so an empty slot
+cannot accidentally be interpreted as an existing player.
+
+- A new player admission is permitted only during `Lobby` phase.
+- Under the registry lock, the server selects the first empty slot in current
+  lobby order, creates a `PlayerId` and player session credential, fills that
+  slot, sets readiness false, persists the whole updated lobby, and returns the
+  result. It returns a conflict when all slots are occupied.
+- A reconnect supplies the private player-session credential, receives the same
+  `PlayerId`, and never consumes another slot. A valid credential works even if
+  the player is currently shown as disconnected.
+- A client without a credential may explicitly take over a disconnected player
+  in either `Lobby` or `Running`. The server atomically replaces that player's
+  credential, preserves their `PlayerId`, position, readiness and host status,
+  and invalidates the previous credential. Takeover never uses an empty slot.
+  If the player is connected, reject the request; if two takeovers race, only
+  one succeeds. Reserve the player as present for a short connection grace
+  period when takeover succeeds, so a second request cannot rotate the new
+  credential before its recipient can connect. A lost client with the old
+  credential must not retain access to private updates or choices after
+  replacement.
+- A spectator makes an explicit spectator request or uses an unauthenticated
+  read-only route. Spectators never invoke admission and never occupy a slot.
+- After `Running`, new admission and all seating mutations are rejected. An
+  existing authenticated player may reconnect; an unauthenticated client may
+  spectate or explicitly take over a disconnected existing player.
+
+Anyone with the game link can take over a disconnected player. This is an
+intentional trust tradeoff for the small group, not proof of the person's
+identity. Do not add accounts, recovery codes, or host approval. Show a
+"Rejoin as Player X" option only after presence has been absent for a short,
+documented grace period (for example, heartbeat every 10 seconds and takeover
+after 30 seconds without one). A lost connection does not itself rotate the
+credential; normal reconnect with the old credential should work immediately.
+Track presence per authenticated player and connection, and prevent an old
+connection from continuing to receive private data after takeover. Presence
+may be reconstructed as disconnected after a server restart; apply the same
+grace period before offering takeover.
+
+The game ID is an invitation locator, not an action credential. The private
+player-session credential is still required after assignment for reconnects,
+readiness, host actions, and choice submission. The explicit disconnected-player
+takeover is the one exception that issues a replacement credential to someone
+who has only the game link. Credentials must never appear in a URL, lobby
+roster, logs, public snapshot, or error response.
+
+### Host and seating controls
+
+Creating a game creates its slot count, assigns the creator to the first slot,
+and records that player's `PlayerId` as `host_player_id`. The create response
+delivers its private session credential directly to the creating client, which
+stores it just as it stores a later join credential.
+
+Add one host-authorized lobby-only reorder operation. It accepts a complete
+permutation of the existing slot IDs or occupied player IDs, validates it
+exactly, updates the ordered slots and lobby version atomically, then persists.
+It cannot add, remove, duplicate, or replace participants. The host remains the
+host even if moved to another position.
+
+The UI should show a stable player display label and position number, not imply
+that `PlayerId` is a position. A host moves players and open slots; a joining
+player is always placed in the first currently open slot.
+
+Use a complete permutation of **slot IDs** for reorder. Each slot moves with
+its current occupant (or emptiness); this represents moves of open positions
+without guessing which player ID stands for an empty slot. Host authority is
+limited to lobby reorder and start. After start, the host has no special
+capability. An abandoned unstarted lobby may simply be discarded;
+there is no automatic host succession or credential-expiry cleanup.
+
+### Bot-agent lifecycle
+
+`ti4-bot-agent` accepts `--game` and its advisor configuration, but no `--seat`
+or `--token`.
+
+1. It calls lobby join before the game has started.
+2. It retains the returned private credential in process memory and marks
+   itself ready, just like a human participant.
+3. It sends authenticated presence heartbeats while waiting to start. These
+   report presence; they do not renew or extend a credential.
+4. It connects after the game begins, authenticates using that retained
+   credential, and obtains its `PlayerId` from the authenticated server reply.
+5. It sends application-level protocol `Ping` messages at a bounded interval
+   matching the presence interval, processes `Pong`, and resumes with the same
+   credential after a transport disconnect. If its process crashes and loses
+   the credential, an operator may start a new bot process and explicitly
+   choose its disconnected player from the public rejoin list. The agent must
+   not automatically take over a disconnected person, even when only one is
+   listed; selection is interactive, not a `--seat` argument.
+
+The bot must pass the server-authenticated `PlayerId` to the advisor and reject
+a pending choice for any other player. It must never infer identity from seating
+position or accept a player identity supplied by command line configuration.
+
+## Target Data Model
+
+Replace the current lobby model in `crates/ti4-server/src/session/registry.rs`:
+
+```rust
+struct LobbyState {
+    game_id: String,
+    phase: LobbyPhase,
+    host_player_id: PlayerId,
+    slots: Vec<LobbySlot>,
+    players: BTreeMap<PlayerId, LobbyPlayer>,
+    seed: u64,
+    lobby_version: u64,
+}
+
+struct LobbySlot {
+    slot_id: LobbySlotId,
+    occupant: Option<PlayerId>,
+}
+
+struct LobbyPlayer {
+    ready: bool,
+    session: PlayerSession,
+}
+
+struct PlayerSession {
+    credential: String,
+}
+```
+
+Use dedicated typed IDs for `LobbySlotId` if they cross a public or persistence
+boundary. Preserve deterministic order with `Vec` for slots and `BTreeMap` for
+player-keyed data. Generate `PlayerId` and credentials with cryptographically
+strong random values, validate their bounds at all protocol boundaries, and
+ensure generated player IDs cannot collide with an existing lobby participant.
+
+At `start_lobby`, require every slot to be occupied and every player ready.
+Derive exactly one ordered `Vec<PlayerId>` from `slots`; persist it in the game
+initialization record and pass it to `create_game_with_map`. The running
+`GameSession` owns that order and never exposes any mutation path.
+
+For an active game, session credentials map to `PlayerId`, not a slot. Existing
+`seat_tokens: BTreeMap<PlayerId, String>` becomes a player-session credential
+map or a dedicated session-authentication service keyed by `PlayerId`. Naming
+must consistently use `player_session` or `resume_token`, never `seat_token`.
+Store credentials durably so an ordinary server restart does not lock out
+players. Do not serialize credentials into public views or include them in
+`Debug` output. A takeover must persist the replacement before returning it,
+and revoke the old credential in both lobby and running-session authentication;
+recovery must load the replacement rather than an older game-init credential.
+For running games, keep the current credentials in a small atomically replaced
+per-game record separate from the immutable game-init record, or use an equally
+simple single authoritative record. Do not write a replacement only to memory
+or only to the original init file while another recovery path loads stale data.
+No credential expiry timestamp or expiry sweep is needed.
+
+## HTTP and WebSocket Contract
+
+Replace the following lobby API behavior:
+
+| Current | Replacement |
+|---|---|
+| `players: ["p1", "p2", ...]` at creation | A bounded `player_count` that creates ordered empty slots |
+| `POST /lobby/claim` with `{ "seat": "p2" }` | `POST /lobby/join` with no chosen position; server assigns the next open slot |
+| `creator_token` | Private `player_session` for the host player |
+| `credential` from claim | Private `player_session` from join |
+| `x-ti4-seat-token` | `x-ti4-player-session` for authenticated player operations |
+| Public roster's `seat`, `available`, and controller assignment | Ordered slots with position, occupancy, public player label, and coarse connected/disconnected presence |
+| `bot_seats` selecting server-side `BotFirstOption` | Remove from the public create flow; remote bots join exactly like humans |
+
+Define typed request and response DTOs, use strict Serde decoding, and document
+the credential fields as private. Never put a session credential inside a
+broadcast `LobbyResponse` or serializable `LobbyState`.
+For no-token join, distinguish `{ "kind": "new" }` from
+`{ "kind": "takeover", "player_id": "player_..." }`; the latter is allowed
+only for an existing disconnected participant and never accepts a position.
+The public roster lists eligible disconnected players so the UI can offer an
+explicit rejoin modal. The server still validates eligibility at submission.
+
+Suggested responses:
+
+```json
+// POST /api/games/{game_id}/lobby/join
+{
+  "player_session": "opaque-private-bearer-credential",
+  "player": { "id": "player_..." },
+  "lobby": { "game_id": "...", "phase": "lobby", "slots": [] }
+}
+
+// explicit spectator lobby read
+{
+  "game_id": "...",
+  "phase": "lobby",
+  "slots": []
+}
+```
+
+For the running WebSocket protocol, replace `Subscribe.seat_token` with an
+optional `player_session` credential. With a valid credential the server derives
+`ViewerRole::Player(PlayerId)`; without one it derives `ViewerRole::Spectator`.
+The server sends the authenticated viewer identity in `InitialSnapshotMsg` and
+`StateUpdateMsg`, as it already does. The credential is never echoed by a server
+message.
+
+Application `Ping` updates authenticated presence. Raw WebSocket control pings
+remain transport-only and do not affect presence. Invalid or revoked
+credentials must fail closed without changing lobby/game state. Browser and bot
+clients send authenticated presence heartbeats in the lobby and application
+`Ping` during the game. A takeover revokes the old credential and terminates
+or downgrades its old subscription before it can receive more private updates;
+every choice still authenticates against the current credential.
+
+## Persistence and Failure Rules
+
+- Version the lobby and game-init schemas rather than attempting implicit
+  deserialization of the current seat-token records. Bump the WebSocket
+  protocol version with the renamed subscription field; old clients need not
+  remain compatible.
+- This breaking change may reject old persisted records with a clear schema
+  error. Do not reinterpret a prior `p1` identity as a movable player without a
+  reviewed migration.
+- Persist creation, join, takeover, reorder, readiness, and the game-init
+  record before returning credentials or start success. Individual file writes
+  should remain atomic; there is no requirement for a multi-file transaction
+  to protect an unstarted lobby. Treat a valid game-init record as the start
+  commit point on recovery; if it is absent, recover as an unstarted lobby
+  or discard it. Do not report a started game as recoverable without a valid
+  game-init record. Once running, preserve the existing careful decision-log
+  and replay recovery behavior.
+- On storage failure, do not leak a newly generated credential and leave the
+  in-memory lobby or running authentication unchanged. A failed takeover
+  leaves the old credential usable. No presence observation alone changes
+  roster, readiness, seating order, or credentials.
+- If an occupied lobby slot is explicitly vacated before start, retire that
+  `PlayerId` and revoke its credential; a later new join gets a new identity.
+  Provide an authenticated leave operation for non-host players in the lobby;
+  a host who abandons their lobby can discard that unstarted game. Never
+  vacate a slot or replace a player automatically after start.
+- Every authorization check resolves credential -> `PlayerId`; it must not
+  depend on B-tree iteration order, slot iteration outside explicit first-open
+  selection, wall-clock values other than the documented presence decision, or
+  client-provided player IDs.
+
+## Implementation Packages and Gates
+
+Execute these in order. Each row is one bounded package with its own diff,
+focused tests, evidence, and independent review; split a row further if it
+becomes too large under `plans/PI_WORK_PACKAGE_STANDARD.md`. The named files
+are primary edit scopes, not permission to change unrelated code. Record any
+additional necessary paths in that package's task spec before editing. The
+acceptance-test numbers refer to the list below. Run formatting, the focused
+tests, and affected-crate tests for every code package. A package is not done
+until its review findings are resolved and its gate passes. The server may be
+temporarily unusable between breaking-change commits on this pre-launch branch;
+do not claim an intermediate package is a deployable release.
+
+### PIL-01 — Identities and versioned records
+
+- **Depends:** None. **Primary scope:** `ti4-model` ID definitions (only if a
+  new typed slot ID is needed), `ti4-server/src/session/registry.rs`,
+  `ti4-server/src/storage.rs`, and their focused tests.
+- **Contract:** Define ordered slot IDs, stable generated player IDs, private
+  player-session credentials, and bounded versioned lobby/game-init records.
+  Loading an old record gives a clear schema error. Public serialization and
+  `Debug` do not reveal credentials. Define where current running credentials
+  live so recovery cannot reload an obsolete value after takeover; do not add
+  an account system or expiry service.
+- **Gate:** Serialization/size/corruption tests, unique-ID collision tests,
+  private-output tests, and an old-format rejection test pass (acceptance 1,
+  11, 12 for the model). Independent **frontier architecture/security review**
+  resolves the schema and credential-storage design **before PIL-02 starts**.
+
+### PIL-02 — New admission and lobby authorization
+
+- **Depends:** PIL-01 review accepted. **Primary scope:** registry lobby
+  transitions, `ti4-server/src/http/games.rs`, routes, and lobby tests.
+- **Contract:** Create takes `player_count` and returns the host credential;
+  a new `join` selects the first open slot, while a credential-bearing `join`
+  resumes the same player. Authenticated non-host leave retires that identity;
+  readiness/start authorization resolves credential to `PlayerId`. Public
+  spectator reads do not join. Remove public `bot_seats` and `p1` creator
+  assumptions here. Reserve the typed `takeover` join variant for PIL-04;
+  until then reject it explicitly, without mutating state.
+- **Gate:** Concurrent first-open joins, full lobby, reconnect, leave/new ID,
+  spectator read, ready/start authorization, and persistence-failure tests pass
+  (acceptance 1–5, 11 as applicable). Independent **frontier authorization
+  review** resolves findings **before PIL-03 builds on these endpoints**.
+
+### PIL-03 — Authenticated presence and WebSocket identity
+
+- **Depends:** PIL-02 review accepted. **Primary scope:**
+  `ti4-server/src/protocol/`, `ti4-server/src/ws/`, registry presence, and
+  their focused tests. Do not implement takeover in this package.
+- **Contract:** Bump the protocol version; `Subscribe.player_session` resolves
+  the actor, missing credentials mean spectator, and choice submission checks
+  current authentication. HTTP lobby heartbeats and application `Ping` update
+  ephemeral presence, never credential validity. A documented short grace
+  period controls the disconnected display; restart begins with no presence.
+  Raw WebSocket control pings do not mark a player present. Provide a way for
+  subscriptions to stop private delivery if their credential is later revoked.
+- **Gate:** Spectator privacy, invalid credentials, ping/timeout boundary,
+  brief credential reconnect, per-choice authentication, and restart-presence
+  tests pass (acceptance 4, 5, 11, 12). Independent **frontier authorization
+  review** resolves findings **before PIL-04 uses presence for takeover**.
+
+### PIL-04 — Disconnected-player takeover
+
+- **Depends:** PIL-03 review accepted. **Primary scope:** registry credential
+  rotation, current-credential storage, `ti4-server/src/http/games.rs`,
+  `ti4-server/src/ws/`, and focused server/recovery tests.
+- **Contract:** The explicit no-token `join` takeover variant selects an
+  existing disconnected `PlayerId` in lobby or running game, rotates and
+  durably saves its credential before returning it, preserves identity and
+  seating, and prevents old live subscriptions from seeing more private data.
+  The recipient gets a brief connection grace reservation; a connected player
+  cannot be taken over. No host approval, code, or expiry is added.
+- **Gate:** Connected-player refusal, concurrent takeover, old-token refusal
+  for HTTP/WS/choices, old-subscription closure, storage-failure rollback,
+  lobby/running takeover, and restart-loading-new-token tests pass (acceptance
+  5, 9, 11, 12). Independent **frontier security/persistence review** resolves
+  all findings **before any web or bot client relies on takeover**.
+
+### PIL-05 — Reorder and committed start
+
+- **Depends:** PIL-04 review accepted. **Primary scope:** registry reorder and
+  start, game-init storage/recovery, HTTP reorder route, and focused tests.
+- **Contract:** Only the lobby host may submit a complete slot-ID permutation;
+  join and reorder serialize. Start requires full occupancy/readiness and
+  derives exactly one ordered player vector for the engine. A valid init record
+  is the start recovery commit point; a partial pre-start transition never
+  presents an active game. Host has no post-start privilege.
+- **Gate:** Reorder/empty-slot/join race, bad permutations, host preservation,
+  exact engine order, rejected post-start changes, and crash-before/after-init
+  tests pass (acceptance 6–9, 12). Independent **frontier seating/persistence
+  review** resolves findings before client reorder controls are added.
+
+### PIL-06 — Browser flows
+
+- **Depends:** PIL-04 and PIL-05 reviews accepted. **Primary scope:** `web/src/`
+  UI, protocol decoding and storage, plus focused browser tests.
+- **Contract:** Show Join, Watch, and eligible "Rejoin as Player X" actions,
+  the stable public label and position, lobby-only reorder controls, and
+  heartbeat/ping presence. Store credentials in tab-scoped storage, never
+  navigation state or URLs; use the authenticated `PlayerId` after reconnect.
+- **Gate:** Browser tests cover new join, watch without admission, remote-
+  computer takeover with no stored credential, old-token invalidation, host
+  reorder, readiness, and protocol-version handling (acceptance 4–9, 11).
+  Independent client/UI review passes before PIL-08.
+
+### PIL-07 — Bot-agent flows
+
+- **Depends:** PIL-04 and PIL-05 reviews accepted. **Primary scope:**
+  `crates/ti4-bot-agent/` and focused bot integration tests.
+- **Contract:** Remove `--seat`/`--token`; join from game/advisor configuration,
+  mark ready, heartbeat while waiting, send application pings when running,
+  and reconnect with the existing credential. A fresh process without that
+  credential can offer an interactive selection of eligible disconnected
+  players for explicit takeover; it never selects one automatically. Only an
+  authenticated server-reported `PlayerId` goes to the advisor; reject choices
+  for any other player.
+- **Gate:** Bot E2E covers ready/start, idle longer than the presence grace
+  period, disconnect/reconnect, fresh-process takeover, and advisor identity
+  (acceptance 9–11). Independent bot/integration review passes before PIL-08.
+
+### PIL-08 — Contract cleanup and end-to-end gate
+
+- **Depends:** PIL-06 and PIL-07 reviews accepted. **Primary scope:** obsolete
+  lobby/claim/seat-token paths, README, protocol fixtures, server/web E2E,
+  storage recovery tests, and integration docs. List exact paths in the task
+  spec; preserve unrelated tests and utilities.
+- **Contract:** Remove obsolete public claim, manual-seat, and `seat_token`
+  contracts across server and clients; test the actual new HTTP/WS flow. Old
+  persisted formats may fail clearly. Do not weaken running-game recovery.
+- **Gate:** All acceptance tests 1–12 pass through appropriate unit and E2E
+  layers; format, affected crates, workspace suite, protocol round-trips,
+  concurrency, recovery, and a real bot E2E with idle time past the presence
+  grace period pass. Resolve independent integration review and any remaining
+  frontier security findings before calling the refactor complete.
+
+## Required Acceptance Tests
+
+1. Creating a three-slot game assigns the creator exactly one stable player
+   identity and host session; the returned public lobby contains no credential.
+2. Two concurrent new joins receive distinct players and the first two open
+   slots in server order; exactly one join wins each slot.
+3. A full lobby rejects new player admission without state change.
+4. A spectator read or spectator WebSocket subscription never creates a player,
+   reports authenticated presence, or changes lobby version.
+5. A reconnect using a valid session returns the same `PlayerId` and does not
+   consume an open slot; an invalid session is rejected without mutation.
+   A brief disconnect does not invalidate that credential. When a non-host
+   explicitly leaves before start, their old credential cannot reconnect and
+   the next new join receives a different `PlayerId`.
+6. Host reorder preserves each player's credential, readiness, and host status;
+   the next join uses the first open slot in the new order.
+7. Only the host can reorder; malformed, duplicated, missing, or unknown slot
+   permutations are atomic rejections.
+8. Start rejects incomplete or unready lobbies and, once successful, freezes
+   the exact final player order used by the engine.
+9. After start, new admissions and reorders fail; valid existing sessions
+   reconnect and can act as their original player identity. An unauthenticated
+   client may take over a disconnected player after the grace period and gets
+   the **same** `PlayerId`; a connected player cannot be taken over. Exactly
+   one concurrent takeover succeeds. Old credentials and old live subscriptions
+   lose access immediately, including after a server restart.
+10. A bot started with only game/advisor configuration joins, survives an idle
+     interval exceeding the presence grace period through authenticated
+     heartbeats/pings, marks itself ready, reconnects as the same player, and
+     sends advisor requests only for its authenticated player. A new process
+     without the lost credential can take over its disconnected player.
+11. Credentials never occur in public lobby responses, spectator snapshots,
+     broadcast messages, URLs, structured logs, or debug output covered by tests.
+12. A server restart preserves player credentials and running-game recovery;
+     a crash before a complete game-init record does not misreport an active
+     game. Presence reconstructs as disconnected without expiring credentials.
+
+## Non-Goals
+
+- User accounts, passwords, third-party identity providers, or cross-game
+  identity persistence.
+- Allowing a client to pick a position.
+- Mid-game roster or seating-order changes.
+- Automatic replacement of disconnected players after game start.
+- Account-backed identity verification: anyone with the game link can explicitly
+  take over a disconnected player's identity. No recovery codes, timed session
+  expiry, automatic slot release, or host approval for takeover.
+- Compatibility with the existing manual claim API, `p1`/`p2` identity scheme,
+  old saved lobby records, CLI parameters, or WebSocket field names.
+
+## Risks to Review
+
+- This is an authorization and persistence-schema redesign; obtain an
+  independent frontier security/architecture review before merging the first
+  implementation package.
+- Confirm game views, replay records, and advisor payloads treat `PlayerId` as
+  an opaque stable identity and do not assume `p1` through `p8`.
+- Preserve deterministic seating semantics: automatic admission and host
+  reorder must be serialized and the final ordered player vector must be the
+  only ordering passed to engine setup.
+- Presence is a convenience signal, not proof of identity. Test grace-period
+  edges, server-restart presence, concurrent takeovers, and revocation of old
+  subscriptions; the game link must be treated as an invitation to a trusted
+  group.
+- Ensure private credentials cannot be copied into debug derives, error text,
+  test snapshots intended for public views, or browser navigation state.
