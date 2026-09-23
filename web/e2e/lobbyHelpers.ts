@@ -3,13 +3,13 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test';
 const backend = `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? '8080'}`;
 
 export async function createStartedGame(request: APIRequestContext, playerCount: number, seed: number) {
-  const created = await request.post(`${backend}/api/games`, { data: { player_count: playerCount, seed } });
+  const created = await request.post(`${backend}/api/games`, { data: { player_count: playerCount, seed, nickname: 'E2E Host' } });
   expect(created.ok()).toBeTruthy();
   const host = await created.json();
   const gameId: string = host.game_id;
   const players: { id: string; session: string }[] = [{ id: host.player.id, session: host.player_session }];
   for (let i = 1; i < playerCount; i++) {
-    const joined = await request.post(`${backend}/api/games/${gameId}/lobby/join`, { data: { kind: 'new' } });
+    const joined = await request.post(`${backend}/api/games/${gameId}/lobby/join`, { data: { kind: 'new', nickname: `E2E Player ${i + 1}` } });
     expect(joined.ok()).toBeTruthy();
     const result = await joined.json();
     players.push({ id: result.player.id, session: result.player_session });

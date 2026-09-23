@@ -102,7 +102,7 @@ export function reduceServerMessage(state: GameSessionState, message: ServerMess
     case 'turn_status':
       return { ...state, gameVersion: message.game_version, turnStatus: message.status };
     case 'action_accepted':
-      return { ...state, pendingChoice: null, lastError: null };
+      return { ...state, lastError: null };
     case 'action_rejected':
       return { ...state, lastError: rejectionMessage(message) };
     case 'error':
@@ -119,8 +119,15 @@ export class GameSessionClient {
   private readonly listeners = new Set<Listener>();
   private socket: WebSocket | null = null;
   private stopped = false;
-  private submittedNonce: string | null = null;
-  private submissionResolve: (() => void) | null = null;
+  private submission: {
+    nonce: string;
+    optionId: string;
+    version: number;
+    accepted: boolean;
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private pingSequence = 0;
@@ -147,20 +154,25 @@ export class GameSessionClient {
     this.stopped = true;
     this.clearTimers();
     this.detachSocket();
-    this.resolveSubmission();
+    this.rejectSubmission('Submission stopped');
   }
 
   async submitChoice(optionId: string): Promise<void> {
     const { pendingChoice, gameVersion } = this.state;
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      this.setState({ ...this.state, lastError: 'Cannot submit choice: not connected to server' });
-      return;
+      const message = 'Cannot submit choice: not connected to server';
+      this.setState({ ...this.state, lastError: message });
+      throw new Error(message);
     }
     if (!pendingChoice) {
-      this.setState({ ...this.state, lastError: 'No decision currently pending' });
-      return;
+      const message = 'No decision currently pending';
+      this.setState({ ...this.state, lastError: message });
+      throw new Error(message);
     }
-    if (this.submittedNonce === pendingChoice.nonce) return;
+    if (this.submission) {
+      if (this.submission.nonce === pendingChoice.nonce && this.submission.optionId === optionId) return this.submission.promise;
+      throw new Error('Another choice submission is still pending');
+    }
 
     const message: ClientMessage = {
       type: 'submit_choice',
@@ -170,11 +182,16 @@ export class GameSessionClient {
       expected_version: gameVersion,
       option_id: optionId,
     };
-    this.submittedNonce = pendingChoice.nonce;
-    return new Promise((resolve) => {
-      this.submissionResolve = resolve;
-      this.socket?.send(JSON.stringify(message));
-    });
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+    this.submission = { nonce: pendingChoice.nonce, optionId, version: gameVersion, accepted: false, promise, resolve, reject };
+    try {
+      this.socket.send(JSON.stringify(message));
+    } catch (error) {
+      this.rejectSubmission(`Could not send choice: ${String(error)}`);
+    }
+    return promise;
   }
 
   private async loadSnapshot(): Promise<void> {
@@ -215,7 +232,7 @@ export class GameSessionClient {
       if (!this.stopped && this.socket === socket) {
         this.clearTimers();
         this.socket = null;
-        this.resolveSubmission();
+        this.rejectSubmission('Submission disconnected before confirmation');
         this.setState({ ...this.state, status: 'disconnected', pendingChoice: null, snapshot: null });
         this.retry = setTimeout(() => { if (!this.stopped) { void this.loadSnapshot(); this.openSocket(); } }, 2_000);
       }
@@ -230,7 +247,11 @@ export class GameSessionClient {
     try {
       this.apply(decodeServerMessage(typeof value === 'string' ? JSON.parse(value) : value, this.options.gameId));
     } catch (error) {
-      if (!this.stopped) this.setState({ ...this.state, lastError: `Invalid server message: ${String(error)}` });
+      if (!this.stopped) {
+        const message = `Invalid server message: ${String(error)}`;
+        this.setState({ ...this.state, lastError: message });
+        this.rejectSubmission(message);
+      }
     }
   }
 
@@ -243,21 +264,32 @@ export class GameSessionClient {
         return;
       }
     }
-    const previousChoice = this.state.pendingChoice;
+    // A state update may precede its acknowledgement on the broadcast channel.
+    // Do not discard a late acknowledgement just because its version is older.
+    if (message.type === 'action_accepted' && this.submission &&
+      message.option_id === this.submission.optionId && message.game_version >= this.submission.version) {
+      this.submission.accepted = true;
+    }
+    if (message.type === 'action_rejected' && this.submission) {
+      const reason = rejectionMessage(message);
+      this.setState({ ...this.state, lastError: reason });
+      this.rejectSubmission(reason);
+      return;
+    }
     this.setState(reduceServerMessage(this.state, message));
-    if (
-      message.type === 'action_accepted' ||
-      message.type === 'action_rejected' ||
-      (this.submittedNonce !== null && previousChoice?.nonce === this.submittedNonce && this.state.pendingChoice?.nonce !== this.submittedNonce)
-    ) {
-      this.resolveSubmission();
+    const submission = this.submission;
+    if (submission?.accepted && this.state.gameVersion > submission.version &&
+      this.state.snapshot?.game_version === this.state.gameVersion &&
+      this.state.pendingChoice?.nonce !== submission.nonce) {
+      this.submission = null;
+      submission.resolve();
     }
   }
 
-  private resolveSubmission(): void {
-    this.submittedNonce = null;
-    this.submissionResolve?.();
-    this.submissionResolve = null;
+  private rejectSubmission(reason: string): void {
+    const submission = this.submission;
+    this.submission = null;
+    submission?.reject(new Error(reason));
   }
 
   private detachSocket(): void {

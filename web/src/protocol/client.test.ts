@@ -115,6 +115,105 @@ class FakeWebSocket {
 }
 
 describe('GameSessionClient ingress lifecycle', () => {
+  async function connectedPlayer() {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      ...snapshot, viewer: { role: 'player', seat: 'player_a' },
+      pending_choice: { nonce: 'nonce-4', choice: { player: 'player_a', prompt: 'Choose', options: [{ id: 'opt-4', label: 'Choose' }] } },
+    }) }));
+    const client = new GameSessionClient({ gameId: 'game_12345', viewer: { role: 'player', seat: 'player_a', playerSession: 'private' } });
+    client.start();
+    const socket = FakeWebSocket.latest!;
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.onopen?.();
+    await vi.waitFor(() => expect(client.getState().pendingChoice?.nonce).toBe('nonce-4'));
+    const send = (message: object) => socket.onmessage?.({ data: JSON.stringify({ protocol_version: PROTOCOL_VERSION, game_id: 'game_12345', ...message }) } as MessageEvent);
+    return { client, socket, send };
+  }
+
+  it.each([{ reason: 'stale_nonce' }, { reason: 'stale_version', expected: 4, current: 5 }])(
+    'rejects a refused submission ($reason) and allows retry', async (reason) => {
+      const { client, socket, send } = await connectedPlayer();
+      const submitted = client.submitChoice('opt-4');
+      const refused = expect(submitted).rejects.toThrow(/Rejected:/);
+      expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ type: 'submit_choice', option_id: 'opt-4', nonce: 'nonce-4', expected_version: 4 });
+      send({ type: 'action_rejected', game_version: 4, reason });
+      await refused;
+      expect(client.getState().lastError).toMatch(/Rejected:/);
+      const retried = client.submitChoice('opt-4');
+      expect(socket.sent.filter((message) => JSON.parse(message).type === 'submit_choice')).toHaveLength(2);
+      const stopped = expect(retried).rejects.toThrow(/disconnected|stopped/i);
+      client.stop();
+      await stopped;
+    },
+  );
+
+  it.each(['ack-first', 'update-first'])('waits for acceptance and a newer authoritative state (%s)', async (order) => {
+    const { client, send } = await connectedPlayer();
+    const submitted = client.submitChoice('opt-4');
+    let settled = false;
+    void submitted.then(() => { settled = true; });
+    const accepted = () => send({ type: 'action_accepted', game_version: 4, option_id: 'opt-4' });
+    const update = () => send({ ...snapshot, type: 'state_update', game_version: 5,
+      viewer: { role: 'player', seat: 'player_a' },
+      pending_choice: { nonce: 'nonce-5', choice: { player: 'player_a', prompt: 'Next', options: [{ id: 'opt-5', label: 'Next' }] } },
+    });
+    if (order === 'ack-first') accepted(); else update();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    if (order === 'ack-first') update(); else accepted();
+    await submitted;
+    expect(client.getState().pendingChoice?.nonce).toBe('nonce-5');
+    client.stop();
+  });
+
+  it('rejects an in-flight submission on disconnect and permits a fresh submission after reconnect', async () => {
+    const { client, socket } = await connectedPlayer();
+    vi.useFakeTimers();
+    const submitted = client.submitChoice('opt-4');
+    const failed = expect(submitted).rejects.toThrow(/disconnected/i);
+    socket.onclose?.();
+    await failed;
+    await expect(client.submitChoice('opt-4')).rejects.toThrow(/not connected/i);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const reconnected = FakeWebSocket.latest!;
+    expect(reconnected).not.toBe(socket);
+    reconnected.readyState = FakeWebSocket.OPEN;
+    reconnected.onopen?.();
+    reconnected.onmessage?.({ data: JSON.stringify({ ...snapshot, viewer: { role: 'player', seat: 'player_a' },
+      pending_choice: { nonce: 'nonce-4', choice: { player: 'player_a', prompt: 'Choose', options: [{ id: 'opt-4', label: 'Choose' }] } },
+    }) } as MessageEvent);
+    const retried = client.submitChoice('opt-4');
+    expect(JSON.parse(reconnected.sent.at(-1)!)).toMatchObject({ type: 'submit_choice', nonce: 'nonce-4' });
+    reconnected.onmessage?.({ data: JSON.stringify({ type: 'action_accepted', protocol_version: PROTOCOL_VERSION,
+      game_id: 'game_12345', game_version: 4, option_id: 'opt-4' }) } as MessageEvent);
+    reconnected.onmessage?.({ data: JSON.stringify({ ...snapshot, type: 'state_update', game_version: 5,
+      viewer: { role: 'player', seat: 'player_a' }, pending_choice: null }) } as MessageEvent);
+    await retried;
+    client.stop();
+  });
+
+  it('does not accept a different option or an unchanged choice as progress', async () => {
+    const { client, send } = await connectedPlayer();
+    const submitted = client.submitChoice('opt-4');
+    let settled = false;
+    void submitted.then(() => { settled = true; }, () => { settled = true; });
+    send({ type: 'action_accepted', game_version: 4, option_id: 'other' });
+    send({ ...snapshot, type: 'state_update', game_version: 5, viewer: { role: 'player', seat: 'player_a' },
+      pending_choice: { nonce: 'nonce-4', choice: { player: 'player_a', prompt: 'Choose', options: [{ id: 'opt-4', label: 'Choose' }] } },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    send({ type: 'action_accepted', game_version: 4, option_id: 'opt-4' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    const failed = expect(submitted).rejects.toThrow(/Rejected: Stale decision nonce/);
+    send({ type: 'action_rejected', game_version: 4, reason: { reason: 'stale_nonce' } });
+    await failed;
+    expect(client.getState().lastError).toBe('Rejected: Stale decision nonce');
+    client.stop();
+  });
+
   it('routes the HTTP snapshot through the same validated reducer and closes its socket on stop', async () => {
     vi.stubGlobal('WebSocket', FakeWebSocket);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot }));

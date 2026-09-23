@@ -38,8 +38,9 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   // Map of `${originSystemId}:${unitType}` -> count to move
   const [stagedMoves, setStagedMoves] = useState<Record<string, number>>({});
   const [isDirectSubmitting, setIsDirectSubmitting] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
+  const { executePipeline, isRunning: isPipelineRunning, lastError: pipelineError } = usePipelineRunner(choice, onSubmit);
 
   const doneMovingOption = useMemo(() => {
     return (
@@ -91,6 +92,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   useEffect(() => {
     setStagedMoves({});
     setIsDirectSubmitting(false);
+    setLocalError(null);
   }, [choice?.nonce]);
 
   const fleetTokens = player?.fleet_tokens ?? 3;
@@ -131,19 +133,28 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     });
   };
 
-  const handleCommitMoves = async () => {
-    if (totalUnitsStaged === 0) {
-      // Nothing staged, just finish movement
-      if (doneMovingOption) {
-        setIsDirectSubmitting(true);
-        try {
-          await onSubmit(doneMovingOption.id);
-        } finally {
-          setIsDirectSubmitting(false);
-        }
-      }
+  const submitFinish = async () => {
+    setLocalError(null);
+    if (!doneMovingOption) {
+      setLocalError('Cannot finish movement: no finish option was offered.');
       return;
     }
+    setIsDirectSubmitting(true);
+    try {
+      await onSubmit(doneMovingOption.id);
+    } catch (error) {
+      setLocalError(`Could not finish movement: ${String(error)}`);
+    } finally {
+      setIsDirectSubmitting(false);
+    }
+  };
+
+  const handleCommitMoves = async () => {
+    if (totalUnitsStaged === 0) {
+      await submitFinish();
+      return;
+    }
+    setLocalError(null);
 
     // Build semantic intent queue
     const intents: SemanticIntent[] = [];
@@ -162,11 +173,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     }
 
     // Append done_moving to close the movement step
-    if (doneMovingOption) {
-      intents.push({
-        predicate: (opt) => opt.id === 'done_moving' || opt.kind === 'decline',
-      });
+    if (!doneMovingOption) {
+      setLocalError('Cannot finish movement: no finish option was offered.');
+      return;
     }
+    intents.push({ predicate: (opt) => opt.id === doneMovingOption.id });
 
     executePipeline(intents);
   };
@@ -292,13 +303,13 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
         )}
       </div>
 
-      {lastError && (
+      {(localError || pipelineError || lastError) && (
         <div
           data-testid="movement-error-banner"
           role="alert"
           className="workflow-error"
         >
-          {lastError}
+          {localError || pipelineError || lastError}
         </div>
       )}
 
@@ -308,7 +319,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
           <button
             type="button"
             data-testid="finish-movement-btn"
-            onClick={() => onSubmit(doneMovingOption.id)}
+            onClick={submitFinish}
             disabled={isPipelineRunning || isDirectSubmitting}
             className="button button--secondary workflow-button--wide"
           >

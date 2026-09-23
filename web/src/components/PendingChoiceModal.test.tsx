@@ -78,6 +78,17 @@ describe('PendingChoiceModal Component', () => {
     expect(submitButton).not.toBeDisabled();
   });
 
+  it('shows a refused submission and restores the submit button for retry', async () => {
+    const onSubmit = vi.fn().mockRejectedValueOnce(new Error('Rejected: Stale decision nonce')).mockResolvedValueOnce(undefined);
+    render(<PendingChoiceModal choice={mockChoice} onSubmit={onSubmit} />);
+    await act(async () => { fireEvent.click(screen.getByTestId('submit-choice-button')); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Rejected: Stale decision nonce');
+    expect(screen.getByTestId('submit-choice-button')).toBeEnabled();
+    await act(async () => { fireEvent.click(screen.getByTestId('submit-choice-button')); });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('moves focus into the dialog and minimizes on Escape', () => {
     render(<PendingChoiceModal choice={mockChoice} onSubmit={vi.fn()} />);
     const dialog = screen.getByTestId('pending-choice-dialog');

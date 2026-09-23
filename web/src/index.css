@@ -479,7 +479,7 @@ select:focus-visible,
 .production-drawer__unit { display: flex; align-items: center; justify-content: center; padding: 14px 10px; background: var(--color-surface-raised); border: 1px solid var(--color-border-strong); }
 .production-drawer__done { width: 100%; padding: 12px 16px; background: var(--color-success); }
 
-.fleet-rally-tray { --workflow-accent: var(--color-accent); position: absolute; right: 16px; bottom: 16px; left: 16px; z-index: var(--layer-modal); max-width: 720px; margin: 0 auto; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; background: rgba(15, 23, 42, .95); backdrop-filter: blur(10px); border-color: var(--color-accent); }
+.fleet-rally-tray { --workflow-accent: var(--color-accent); position: absolute; right: 16px; bottom: 16px; left: 16px; z-index: var(--layer-modal); pointer-events: auto; max-width: 720px; margin: 0 auto; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; background: rgba(15, 23, 42, .95); backdrop-filter: blur(10px); border-color: var(--color-accent); }
 .fleet-rally-tray__gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .fleet-rally-tray__list { display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto; }
 .fleet-rally-tray__status[data-alert="true"] { color: var(--color-danger); }

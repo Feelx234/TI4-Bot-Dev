@@ -34,15 +34,19 @@ export const WorkflowShell: React.FC<WorkflowShellProps> = ({
   children,
 }) => {
   const [isDirectSubmitting, setIsDirectSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const isActor = !viewerSeat || choice.actor === viewerSeat;
   const declineOption = useDeclineOption(choice, model);
-  useNonceReset(choice.nonce, () => setIsDirectSubmitting(false));
+  useNonceReset(choice.nonce, () => { setIsDirectSubmitting(false); setSubmissionError(null); });
 
   const submitDirect = async (optionId: string) => {
     if (isDirectSubmitting) return;
+    setSubmissionError(null);
     setIsDirectSubmitting(true);
     try {
       await onSubmit(optionId);
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsDirectSubmitting(false);
     }
@@ -56,9 +60,9 @@ export const WorkflowShell: React.FC<WorkflowShellProps> = ({
         </div>
       )}
       {children({ isActor, isDirectSubmitting, declineOption, submitDirect })}
-      {lastError && (
+      {(lastError || submissionError) && (
         <div data-testid={errorTestId} role="alert">
-          {lastError}
+          {lastError || submissionError}
         </div>
       )}
     </>

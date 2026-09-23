@@ -337,7 +337,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
           <button
             type="button"
             data-testid="decline-payment-btn"
-            onClick={() => onSubmit(declineOption.id)}
+             onClick={() => { void submitDirect(declineOption.id); }}
             disabled={isPipelineRunning || isDirectSubmitting}
             className="button button--secondary"
           >

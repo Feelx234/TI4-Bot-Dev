@@ -33,11 +33,14 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const [uncontrolledSelectedOptionIds, setUncontrolledSelectedOptionIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [uncontrolledIsMinimized, setUncontrolledIsMinimized] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const priorFocusRef = useRef<HTMLElement | null>(null);
 
-  const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
+  useEffect(() => { setSubmissionError(null); }, [choice?.nonce]);
+
+  const { executePipeline, isRunning: isPipelineRunning, lastError: pipelineError } = usePipelineRunner(choice, onSubmit);
 
   const isMinimized = controlledIsMinimized ?? uncontrolledIsMinimized;
   const setIsMinimized = (next: boolean) => {
@@ -189,6 +192,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSelectionValid || isSubmitting || isPipelineRunning) return;
+    setSubmissionError(null);
 
     if (isMultiSelect) {
       const intents: SemanticIntent[] = selectedOptionIds.map((optId) => ({
@@ -199,6 +203,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
       setIsSubmitting(true);
       try {
         await onSubmit(selectedOptionId);
+      } catch (error) {
+        setSubmissionError(error instanceof Error ? error.message : String(error));
       } finally {
         setIsSubmitting(false);
       }
@@ -314,7 +320,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           )}
 
           {/* Error banner if rejected */}
-          {lastError && (
+          {(lastError || submissionError || pipelineError) && (
             <div
               data-testid="choice-error-banner"
               role="alert"
@@ -327,7 +333,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                 fontSize: 13,
               }}
             >
-              {lastError}
+              {lastError || submissionError || pipelineError}
             </div>
           )}
 

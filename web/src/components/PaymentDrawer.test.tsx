@@ -196,7 +196,7 @@ describe('PaymentDrawer Component', () => {
     expect(screen.getByText(/\+3 Resources/)).toBeInTheDocument();
   });
 
-  it('calls onSubmit with decline option when cancel is clicked', () => {
+  it('calls onSubmit with decline option when cancel is clicked', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(
       <PaymentDrawer
@@ -210,7 +210,7 @@ describe('PaymentDrawer Component', () => {
 
     const declineBtn = screen.getByTestId('decline-payment-btn');
     expect(declineBtn).toHaveTextContent('Cancel Payment');
-    fireEvent.click(declineBtn);
+    await act(async () => { fireEvent.click(declineBtn); });
     expect(onSubmit).toHaveBeenCalledWith('decline');
   });
 });

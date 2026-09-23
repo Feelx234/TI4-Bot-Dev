@@ -61,7 +61,7 @@ describe('usePipelineRunner', () => {
     expect(result.current.queueLength).toBe(0);
   });
 
-  it('stops cleanly and resets isRunning if an intent cannot be matched', async () => {
+  it('reports an unmatched intent and resets isRunning for retry', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 
     const choice: PendingChoiceDto = {
@@ -86,6 +86,31 @@ describe('usePipelineRunner', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(result.current.isRunning).toBe(false);
     expect(result.current.queueLength).toBe(0);
+    expect(result.current.lastError).toMatch(/no longer available/i);
+  });
+
+  it('does not dispatch the next intent before a newer choice is available', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const choice: PendingChoiceDto = { actor: 'p1', nonce: 'n1', prompt: 'Choose', options: [{ id: 'opt1', label: 'First' }, { id: 'opt2', label: 'Second' }] };
+    const { result, rerender } = renderHook(({ pending }) => usePipelineRunner(pending, onSubmit), { initialProps: { pending: choice } });
+    await act(async () => { result.current.executePipeline([{ predicate: (o) => o.id === 'opt1' }, { predicate: (o) => o.id === 'opt2' }]); });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    await act(async () => { rerender({ pending: choice }); });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    await act(async () => { rerender({ pending: { ...choice, nonce: 'n2' } }); });
+    expect(onSubmit).toHaveBeenNthCalledWith(2, 'opt2');
+  });
+
+  it('reports an interrupted multi-step queue without sending an unrelated option', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const choice: PendingChoiceDto = { actor: 'p1', nonce: 'n1', prompt: 'Choose', options: [{ id: 'opt1', label: 'First' }] };
+    const { result, rerender } = renderHook(({ pending }) => usePipelineRunner(pending, onSubmit), { initialProps: { pending: choice } });
+    await act(async () => { result.current.executePipeline([{ predicate: (o) => o.id === 'opt1' }, { predicate: (o) => o.id === 'opt2' }]); });
+    await act(async () => { rerender({ pending: { ...choice, nonce: 'n2', options: [{ id: 'unexpected', label: 'Other' }] } }); });
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith('opt1');
+    expect(result.current.isRunning).toBe(false);
+    expect(result.current.queueLength).toBe(0);
+    expect(result.current.lastError).toMatch(/no longer available/i);
   });
 
   it('resets isRunning and captures error if submitChoice rejects', async () => {

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { TacticalMovementOverlay } from './TacticalMovementOverlay.tsx';
 import { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
+import { deriveChoiceRendererModel } from '../presentation/choiceModel.ts';
 
 const mockMoveChoice: PendingChoiceDto = {
   prompt: 'movement',
@@ -60,6 +61,60 @@ const mockPlayer: PlayerView = {
 };
 
 describe('TacticalMovementOverlay Component', () => {
+  it('offers and submits the engine decline-only movement choice', async () => {
+    const choice: PendingChoiceDto = {
+      actor: 'p1', nonce: '0123456789abcdef', prompt: 'movement',
+      context: { subtype: 'movement_step', target: { System: '18' } },
+      options: [{ id: 'done_moving', kind: 'decline', label: 'finish movement' }],
+    };
+    const model = deriveChoiceRendererModel(choice, 'p1');
+    expect(model?.workflow).toBe('tactical_movement');
+    expect(model?.declineOption?.id).toBe('done_moving');
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<TacticalMovementOverlay choice={choice} model={model} player={mockPlayer}
+      onSubmit={onSubmit} isOpen onClose={vi.fn()} />);
+    expect(screen.getByText('No ships eligible to move into the active system.')).toBeVisible();
+    expect(screen.getByTestId('fleet-supply-gauge')).toHaveTextContent('0 / 3 Ships');
+    expect(screen.getByTestId('cargo-capacity-gauge')).toHaveTextContent('0 / 0 Loaded');
+    const done = screen.getByTestId('commit-moves-btn');
+    expect(done).toBeEnabled();
+    expect(done).toHaveTextContent('Done Moving');
+    fireEvent.click(done);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith('done_moving'));
+  });
+
+  it('reports an unresolvable finish action instead of submitting an arbitrary sole option', async () => {
+    const choice: PendingChoiceDto = {
+      actor: 'p1', nonce: '0123456789abcdef', prompt: 'movement',
+      context: { subtype: 'movement_step', target: { System: '18' } },
+      options: [{ id: 'unknown', kind: 'mystery', label: 'unrecognized action' }],
+    };
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<TacticalMovementOverlay choice={choice} model={deriveChoiceRendererModel(choice, 'p1')}
+      player={mockPlayer} onSubmit={onSubmit} isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('commit-moves-btn'));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/finish movement/i);
+  });
+
+  it('reports a rejected direct submission and permits a retry', async () => {
+    const choice: PendingChoiceDto = {
+      actor: 'p1', nonce: '0123456789abcdef', prompt: 'movement',
+      context: { subtype: 'movement_step', target: { System: '18' } },
+      options: [{ id: 'done_moving', kind: 'decline', label: 'finish movement' }],
+    };
+    const onSubmit = vi.fn().mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValueOnce(undefined);
+    render(<TacticalMovementOverlay choice={choice} model={deriveChoiceRendererModel(choice, 'p1')}
+      player={mockPlayer} onSubmit={onSubmit} isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('commit-moves-btn'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('connection lost');
+    await waitFor(() => expect(screen.getByTestId('commit-moves-btn')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('commit-moves-btn'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('does not render when isOpen is false or choice is null', () => {
     const { container: c1 } = render(
       <TacticalMovementOverlay
@@ -135,7 +190,7 @@ describe('TacticalMovementOverlay Component', () => {
     expect(screen.getByTestId('commit-moves-btn')).toHaveTextContent('Commit Moves (2)');
   });
 
-  it('submits done_moving when finish movement button is clicked', () => {
+  it('submits done_moving when finish movement button is clicked', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(
       <TacticalMovementOverlay
@@ -149,7 +204,7 @@ describe('TacticalMovementOverlay Component', () => {
     );
 
     const finishBtn = screen.getByTestId('finish-movement-btn');
-    fireEvent.click(finishBtn);
+    await act(async () => { fireEvent.click(finishBtn); });
     expect(onSubmit).toHaveBeenCalledWith('done_moving');
   });
 

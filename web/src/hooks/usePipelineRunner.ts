@@ -12,7 +12,9 @@ export function usePipelineRunner(
   const [activeQueue, setActiveQueue] = useState<SemanticIntent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [lastSubmittedNonce, setLastSubmittedNonce] = useState<string | null>(null);
   const isSubmittingRef = useRef(false);
+  const runRef = useRef(0);
   // Keep a stable ref to submitChoice so the effect never lists it as a
   // dependency. This prevents the effect from firing mid-run whenever the
   // parent re-creates onSubmit on every render.
@@ -28,15 +30,26 @@ export function usePipelineRunner(
       return;
     }
 
-    if (!pendingChoice || isSubmittingRef.current) return;
+    if (isSubmittingRef.current) return;
+    if (!pendingChoice) {
+      setIsRunning(false);
+      setActiveQueue([]);
+      setLastError('Decision pipeline interrupted: no pending choice is available.');
+      return;
+    }
+    if (pendingChoice.nonce === lastSubmittedNonce) return;
 
     const nextIntent = activeQueue[0];
     const matchingOption = pendingChoice.options.find(nextIntent.predicate);
 
     if (matchingOption) {
       isSubmittingRef.current = true;
+      const run = runRef.current;
+      const nonce = pendingChoice.nonce;
       submitRef.current(matchingOption.id)
         .then(() => {
+          if (run !== runRef.current) return;
+          setLastSubmittedNonce(nonce);
           setActiveQueue((prev) => {
             const next = prev.slice(1);
             if (next.length === 0) {
@@ -46,6 +59,7 @@ export function usePipelineRunner(
           });
         })
         .catch((err) => {
+          if (run !== runRef.current) return;
           setIsRunning(false);
           setActiveQueue([]);
           setLastError(err instanceof Error ? err.message : String(err));
@@ -54,24 +68,28 @@ export function usePipelineRunner(
           isSubmittingRef.current = false;
         });
     } else {
-      // Intervening decision occurred or intent no longer available: cleanly stop pipeline
+      // Intervening decision occurred or intent no longer available.
       setIsRunning(false);
       setActiveQueue([]);
       isSubmittingRef.current = false;
+      setLastError('Decision pipeline interrupted: the next option is no longer available.');
     }
-  }, [pendingChoice?.nonce, isRunning, activeQueue]);
+  }, [pendingChoice?.nonce, isRunning, activeQueue, lastSubmittedNonce]);
 
   const executePipeline = (intents: SemanticIntent[]) => {
+    runRef.current += 1;
     if (intents.length === 0) {
       setIsRunning(false);
       return;
     }
     setActiveQueue(intents);
     setIsRunning(true);
+    setLastSubmittedNonce(null);
     setLastError(null);
   };
 
   const cancelPipeline = () => {
+    runRef.current += 1;
     setActiveQueue([]);
     setIsRunning(false);
     isSubmittingRef.current = false;
