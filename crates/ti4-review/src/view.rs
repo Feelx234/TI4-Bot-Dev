@@ -1653,6 +1653,16 @@ pub fn roll_line(
         .collect::<Vec<_>>()
         .join(" ");
     match roll.hits_on {
+        // A rift die is not a hit roll: 4+ is the ship surviving the exit (41.2).
+        Some(on) if roll.reason == "gravity rift" => format!(
+            "{who} · {} · survives on {on}+: {faces} → {}",
+            roll.reason,
+            if roll.hits() > 0 {
+                "survives"
+            } else {
+                "destroyed"
+            }
+        ),
         Some(on) => {
             let hits = roll.hits();
             format!(

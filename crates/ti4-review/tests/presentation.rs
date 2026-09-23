@@ -882,3 +882,36 @@ fn a_seat_shows_its_negotiation_budget() {
         "the round's limit caps the action's"
     );
 }
+
+/// A gravity-rift die is a survival roll, not a hit roll: 1-3 destroys the ship (41.2), so a 7
+/// must read as the ship surviving. Reported 2026-09-23 as "gravity rift · hits on 4+: 7 → 1 hit".
+#[test]
+fn a_rift_die_says_whether_the_ship_survived() {
+    let root = workspace_root();
+    let config = SimulationConfig {
+        checkpoint: root.join("examples/reviewer/checkpoint-473312/slots.json"),
+        map_pool: root.join("examples/reviewer/full_np8_12_holdout.json"),
+        seed: 4_242,
+        rotation: 1,
+        table: ProfileTable::Learner,
+        temperature: 0.5,
+        diplomacy: false,
+    };
+    let review = LiveReview::start(&config).expect("the example table starts");
+    let frame = review.session.frames.last().expect("a first frame");
+    let content = ContentStore::embedded();
+    let rift = |face: u32| ti4_engine::dice::Roll {
+        reason: "gravity rift".to_owned(),
+        faces: vec![face],
+        hits_on: Some(4),
+        rerolled: std::collections::BTreeSet::new(),
+        by: None,
+    };
+    let survived = view::roll_line(frame, &rift(7), content);
+    assert!(
+        survived.ends_with("survives on 4+: 7 → survives"),
+        "{survived}"
+    );
+    let lost = view::roll_line(frame, &rift(2), content);
+    assert!(lost.ends_with("survives on 4+: 2 → destroyed"), "{lost}");
+}

@@ -451,7 +451,20 @@ fn arena_game(
                     .map(|p| {
                         (
                             p.clone(),
-                            ti4_engine::transactions::partners(&game.state, content, galaxy, p),
+                            players
+                                .iter()
+                                .filter(|other| {
+                                    *other != p
+                                        && ti4_engine::transactions::may_transact(
+                                            &game.state,
+                                            content,
+                                            galaxy,
+                                            p,
+                                            other,
+                                        )
+                                })
+                                .cloned()
+                                .collect::<Vec<_>>(),
                         )
                     })
                     .collect();

@@ -363,7 +363,7 @@ fn plan(
     recipient: &PlayerId,
 ) -> (VecDeque<String>, Option<(Vec<DealTerm>, Vec<DealTerm>)>) {
     let physical =
-        ti4_engine::transactions::partners(state, content, galaxy, proposer).contains(recipient);
+        ti4_engine::transactions::may_transact(state, content, galaxy, proposer, recipient);
     let context = ti4_engine::diplomacy::candidates::CandidateContext {
         state,
         content,
