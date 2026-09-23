@@ -313,7 +313,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     let sub_msg = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
-        seat_token: Some(p1_token.clone()),
+        player_session: Some(p1_token.clone()),
     };
     ws_stream
         .send(Message::Text(
@@ -370,7 +370,7 @@ async fn websocket_full_lifecycle_and_rejections() {
     let second_subscribe = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
-        seat_token: Some(p2_token),
+        player_session: Some(p2_token),
     };
     ws_stream
         .send(Message::Text(
@@ -486,7 +486,7 @@ async fn spectator_role_isolation_and_reconnection() {
     let sub_spec = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
-        seat_token: None, // Spectator
+        player_session: None, // Spectator
     };
     spec_stream
         .send(Message::Text(
@@ -551,7 +551,7 @@ async fn spectator_role_isolation_and_reconnection() {
     let sub_reconnect = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
-        seat_token: Some(p1_token.clone()),
+        player_session: Some(p1_token.clone()),
     };
     reconnected_stream
         .send(Message::Text(
@@ -607,4 +607,128 @@ async fn websocket_rejects_oversized_messages_before_deserialization() {
         !matches!(result, Some(Ok(Message::Text(_)))),
         "oversized payload must not reach JSON deserialization"
     );
+}
+
+#[tokio::test]
+async fn application_ping_refreshes_presence_but_control_ping_and_spectators_do_not() {
+    let registry = Arc::new(GameRegistry::new().with_presence_grace(Duration::from_millis(80)));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(axum::serve(listener, create_app(registry.clone())).into_future());
+    let client = reqwest::Client::new();
+    let (game, token) = create_game(&client, &addr.to_string(), &["p1", "p2"], &[], 42).await;
+    ready_and_start(&client, &addr.to_string(), &game, &[&token]).await;
+    let version = registry
+        .player_lobby_status(&game, None)
+        .unwrap()
+        .0
+        .lobby_version;
+    let url = format!("ws://{addr}/ws/games/{game}");
+    let (mut spectator, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    spectator
+        .send(Message::Text(
+            serde_json::to_string(&ClientMessage::Subscribe {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game.clone(),
+                player_session: None,
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    spectator.next().await.unwrap().unwrap();
+    spectator
+        .send(Message::Text(
+            serde_json::to_string(&ClientMessage::Ping {
+                protocol_version: PROTOCOL_VERSION,
+                sequence: 1,
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    spectator.next().await.unwrap().unwrap();
+    assert!(
+        registry
+            .player_lobby_status(&game, None)
+            .unwrap()
+            .0
+            .slots
+            .iter()
+            .all(|slot| !slot.connected)
+    );
+
+    let (mut player, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    player
+        .send(Message::Text(
+            serde_json::to_string(&ClientMessage::Subscribe {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game.clone(),
+                player_session: Some(token.clone()),
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    let snapshot: ServerMessage =
+        serde_json::from_str(player.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    assert!(matches!(snapshot, ServerMessage::InitialSnapshot(_)));
+    assert!(registry.player_lobby_status(&game, None).unwrap().0.slots[0].connected);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    player.send(Message::Ping(vec![1].into())).await.unwrap();
+    assert!(!registry.player_lobby_status(&game, None).unwrap().0.slots[0].connected);
+    player
+        .send(Message::Text(
+            serde_json::to_string(&ClientMessage::Ping {
+                protocol_version: PROTOCOL_VERSION,
+                sequence: 2,
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    // Transport Pong may precede the application Pong.
+    loop {
+        if let Some(Ok(Message::Text(text))) = player.next().await {
+            if matches!(
+                serde_json::from_str::<ServerMessage>(&text),
+                Ok(ServerMessage::Pong(_))
+            ) {
+                break;
+            }
+        }
+    }
+    assert!(registry.player_lobby_status(&game, None).unwrap().0.slots[0].connected);
+    assert_eq!(
+        registry
+            .player_lobby_status(&game, None)
+            .unwrap()
+            .0
+            .lobby_version,
+        version
+    );
+
+    let (mut invalid, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    invalid
+        .send(Message::Text(
+            serde_json::to_string(&ClientMessage::Subscribe {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game.clone(),
+                player_session: Some("invalid".to_owned()),
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        wait_for_protocol_error(&mut invalid).await,
+        ti4_server::protocol::error::ErrorKind::Unauthorized
+    );
+    assert!(registry.authenticate_player_session(&game, &token).is_ok());
+    server.abort();
 }

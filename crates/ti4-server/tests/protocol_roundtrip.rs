@@ -17,7 +17,7 @@ fn client_subscribe_round_trips() {
     let msg = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_abc".to_owned(),
-        seat_token: Some("secret_token_123".to_owned()),
+        player_session: Some("secret_token_123".to_owned()),
     };
     let json = serde_json::to_string_pretty(&msg).expect("serialize");
     assert!(json.contains("\"type\": \"subscribe\""));
@@ -211,5 +211,31 @@ fn unknown_wire_fields_are_rejected() {
     assert!(matches!(
         parse_server_message(server_json_with_extra),
         Err(ProtocolError::Json(_))
+    ));
+}
+
+#[test]
+fn subscribe_accepts_only_the_v3_player_session_field() {
+    let message = serde_json::json!({"type":"subscribe", "protocol_version": PROTOCOL_VERSION,
+        "game_id":"game", "player_session":"private"});
+    assert!(matches!(
+        parse_client_message(&message.to_string()),
+        Ok(ClientMessage::Subscribe {
+            player_session: Some(_),
+            ..
+        })
+    ));
+    assert!(
+        !format!("{:?}", parse_client_message(&message.to_string()).unwrap()).contains("private")
+    );
+    let mut old = message.clone();
+    old.as_object_mut().unwrap().remove("player_session");
+    old["seat_token"] = serde_json::json!("private");
+    assert!(parse_client_message(&old.to_string()).is_err());
+    old.as_object_mut().unwrap().remove("seat_token");
+    old["protocol_version"] = serde_json::json!(2);
+    assert!(matches!(
+        parse_client_message(&old.to_string()),
+        Err(ProtocolError::UnsupportedVersion { .. })
     ));
 }

@@ -1,6 +1,7 @@
 //! WebSocket connection lifecycle and routing for live multiplayer sessions.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
@@ -49,10 +50,22 @@ async fn handle_socket(
 
     // Bounded outbound channel for messages destined for this client
     let (outbound_tx, mut outbound_rx) = mpsc::channel::<ServerMessage>(OUTBOUND_QUEUE_CAPACITY);
+    let outbound_registry = registry.clone();
+    let outbound_game = game_id.clone();
+    let outbound_credential = Arc::new(std::sync::Mutex::new(None::<String>));
+    let credential_for_pump = outbound_credential.clone();
 
     // Outbound pump task: forwards ServerMessage as JSON text to WebSocket sink
     let outbound_task = tokio::spawn(async move {
         while let Some(msg) = outbound_rx.recv().await {
+            let credential = credential_for_pump.lock().expect("credential lock").clone();
+            if credential.as_deref().is_some_and(|token| {
+                outbound_registry
+                    .authenticate_player_session(&outbound_game, token)
+                    .is_err()
+            }) {
+                break;
+            }
             match serde_json::to_string(&msg) {
                 Ok(text) => {
                     if ws_sender.send(Message::Text(text.into())).await.is_err() {
@@ -68,9 +81,20 @@ async fn handle_socket(
 
     let mut current_role: Option<ViewerRole> = None;
     let mut current_token: Option<String> = None;
+    let mut connection_id: Option<u64> = None;
+    let mut auth_check = tokio::time::interval(Duration::from_millis(250));
 
     // Inbound processing loop
-    while let Some(msg_result) = ws_receiver.next().await {
+    loop {
+        let msg_result = tokio::select! {
+            msg = ws_receiver.next() => match msg { Some(msg) => msg, None => break },
+            _ = auth_check.tick() => {
+                if current_token.as_deref().is_some_and(|token| registry.authenticate_player_session(&game_id, token).is_err()) {
+                    break;
+                }
+                continue;
+            }
+        };
         let ws_msg = match msg_result {
             Ok(msg) => msg,
             Err(err) => {
@@ -141,8 +165,8 @@ async fn handle_socket(
 
         match client_msg {
             ClientMessage::Ping { sequence, .. } => {
-                if let Some(token) = &current_token {
-                    if registry.authenticate_and_renew(&game_id, token).is_err() {
+                if let (Some(token), Some(connection)) = (&current_token, connection_id) {
+                    if registry.ping_player(&game_id, token, connection).is_err() {
                         break;
                     }
                 }
@@ -155,7 +179,7 @@ async fn handle_socket(
             }
             ClientMessage::Subscribe {
                 game_id: message_game_id,
-                seat_token,
+                player_session,
                 ..
             } => {
                 if message_game_id != game_id {
@@ -180,17 +204,20 @@ async fn handle_socket(
                         .await;
                     continue;
                 }
-                let role = match seat_token {
+                let role = match player_session {
                     Some(token) => {
-                        if let Ok(seat) = registry.authenticate_and_renew(&game_id, &token) {
+                        if let Ok((seat, connection)) = registry.connect_player(&game_id, &token) {
+                            connection_id = Some(connection);
+                            *outbound_credential.lock().expect("credential lock") =
+                                Some(token.clone());
                             current_token = Some(token);
                             ViewerRole::Player(seat)
                         } else {
                             let _ = outbound_tx
                                 .send(ServerMessage::Error(ProtocolErrorMsg {
                                     protocol_version: PROTOCOL_VERSION,
-                                    kind: ErrorKind::MalformedMessage,
-                                    message: "Invalid seat capability".to_owned(),
+                                    kind: ErrorKind::Unauthorized,
+                                    message: "Invalid player session".to_owned(),
                                 }))
                                 .await;
                             continue;
@@ -211,10 +238,31 @@ async fn handle_socket(
 
                 // Bridge session broadcast updates to tokio outbound queue
                 let tx_clone = outbound_tx.clone();
-                tokio::task::spawn_blocking(move || {
-                    while let Ok(broadcast_msg) = subscription.recv() {
-                        if tx_clone.blocking_send(broadcast_msg).is_err() {
-                            break;
+                let registry_for_updates = registry.clone();
+                let game_for_updates = game_id.clone();
+                let token_for_updates = current_token.clone();
+                tokio::spawn(async move {
+                    let mut check = tokio::time::interval(Duration::from_millis(50));
+                    loop {
+                        tokio::select! {
+                            _ = check.tick() => {},
+                            _ = tx_clone.closed() => return,
+                        }
+                        loop {
+                            match subscription.try_recv() {
+                                Ok(broadcast_msg) => {
+                                    if token_for_updates.as_deref().is_some_and(|token| {
+                                        registry_for_updates
+                                            .authenticate_player_session(&game_for_updates, token)
+                                            .is_err()
+                                    }) || tx_clone.send(broadcast_msg).await.is_err()
+                                    {
+                                        return;
+                                    }
+                                }
+                                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                                Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                            }
                         }
                     }
                 });
@@ -241,7 +289,9 @@ async fn handle_socket(
                     Some(ViewerRole::Player(acting_seat)) => {
                         if current_token
                             .as_deref()
-                            .and_then(|token| registry.authenticate_and_renew(&game_id, token).ok())
+                            .and_then(|token| {
+                                registry.authenticate_player_session(&game_id, token).ok()
+                            })
                             .as_ref()
                             != Some(acting_seat)
                         {
@@ -296,5 +346,8 @@ async fn handle_socket(
         }
     }
 
+    if let (Some(ViewerRole::Player(player)), Some(connection)) = (&current_role, connection_id) {
+        registry.disconnect_player(&game_id, player, connection);
+    }
     outbound_task.abort();
 }

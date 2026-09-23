@@ -4,12 +4,12 @@ use serde::{Deserialize, Serialize};
 
 /// Largest externally supplied protocol fields accepted by the server.
 pub const MAX_GAME_ID_BYTES: usize = 64;
-pub const MAX_SEAT_TOKEN_BYTES: usize = 128;
+pub const MAX_PLAYER_SESSION_BYTES: usize = 128;
 pub const MAX_NONCE_BYTES: usize = 128;
 pub const MAX_OPTION_ID_BYTES: usize = 1024;
 
 /// Messages submitted from a client to the authoritative server.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ClientMessage {
     /// Subscribe to live updates for a game session.
@@ -17,7 +17,7 @@ pub enum ClientMessage {
         protocol_version: u16,
         game_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        seat_token: Option<String>,
+        player_session: Option<String>,
     },
     /// Submit an engine-offered option ID for an outstanding decision.
     SubmitChoice {
@@ -32,6 +32,48 @@ pub enum ClientMessage {
         protocol_version: u16,
         sequence: u64,
     },
+}
+
+impl std::fmt::Debug for ClientMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Subscribe {
+                protocol_version,
+                game_id,
+                player_session,
+            } => f
+                .debug_struct("Subscribe")
+                .field("protocol_version", protocol_version)
+                .field("game_id", game_id)
+                .field(
+                    "player_session",
+                    &player_session.as_ref().map(|_| "[redacted]"),
+                )
+                .finish(),
+            Self::SubmitChoice {
+                protocol_version,
+                game_id,
+                nonce,
+                expected_version,
+                option_id,
+            } => f
+                .debug_struct("SubmitChoice")
+                .field("protocol_version", protocol_version)
+                .field("game_id", game_id)
+                .field("nonce", nonce)
+                .field("expected_version", expected_version)
+                .field("option_id", option_id)
+                .finish(),
+            Self::Ping {
+                protocol_version,
+                sequence,
+            } => f
+                .debug_struct("Ping")
+                .field("protocol_version", protocol_version)
+                .field("sequence", sequence)
+                .finish(),
+        }
+    }
 }
 
 impl ClientMessage {
@@ -56,12 +98,12 @@ impl ClientMessage {
         match self {
             Self::Subscribe {
                 game_id,
-                seat_token,
+                player_session,
                 ..
             } => {
                 bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
-                if let Some(token) = seat_token {
-                    bounded(token, MAX_SEAT_TOKEN_BYTES, "seat_token")?;
+                if let Some(token) = player_session {
+                    bounded(token, MAX_PLAYER_SESSION_BYTES, "player_session")?;
                 }
             }
             Self::SubmitChoice {

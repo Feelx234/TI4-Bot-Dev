@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use ti4_content::ContentStore;
@@ -34,6 +34,8 @@ pub struct PlayerSlotView {
     pub position: usize,
     pub occupant: Option<PlayerId>,
     pub ready: bool,
+    pub connected: bool,
+    pub can_take_over: bool,
 }
 
 impl PlayerLobbyRecord {
@@ -99,6 +101,8 @@ impl PlayerLobbyRecord {
                         .occupant
                         .as_ref()
                         .is_some_and(|id| self.players[id].ready),
+                    connected: false,
+                    can_take_over: false,
                 })
                 .collect(),
             lobby_version: self.lobby_version,
@@ -230,13 +234,36 @@ struct RegistryState {
     sessions: BTreeMap<String, Arc<GameSession>>,
     lobbies: BTreeMap<String, LobbyState>,
     player_lobbies: BTreeMap<String, PlayerLobbyRecord>,
+    presence: BTreeMap<(String, PlayerId), PlayerPresence>,
+    next_connection_id: u64,
 }
+
+struct PlayerPresence {
+    last_heartbeat: Option<Instant>,
+    connections: BTreeMap<u64, Instant>,
+    admitted_at: Instant,
+}
+
+impl Default for PlayerPresence {
+    fn default() -> Self {
+        Self {
+            last_heartbeat: None,
+            connections: BTreeMap::new(),
+            admitted_at: Instant::now(),
+        }
+    }
+}
+
+/// Heartbeats every 10 seconds; disconnect is displayed after 30 seconds without one.
+pub const PRESENCE_GRACE: Duration = Duration::from_secs(30);
 
 /// Thread-safe registry that serializes each lobby's transition into an active session.
 pub struct GameRegistry {
     state: Mutex<RegistryState>,
     store: Option<Arc<crate::storage::FileGameStore>>,
     lease_duration: Duration,
+    started_at: Instant,
+    presence_grace: Duration,
 }
 
 impl Default for GameRegistry {
@@ -245,6 +272,8 @@ impl Default for GameRegistry {
             state: Mutex::new(RegistryState::default()),
             store: None,
             lease_duration: Duration::from_secs(30),
+            started_at: Instant::now(),
+            presence_grace: PRESENCE_GRACE,
         }
     }
 }
@@ -266,6 +295,168 @@ impl GameRegistry {
         self.lease_duration =
             lease_duration.clamp(Duration::from_secs(1), Duration::from_secs(300));
         self
+    }
+
+    /// Override the display grace for bounded tests. Credentials never expire with presence.
+    #[must_use]
+    pub fn with_presence_grace(mut self, grace: Duration) -> Self {
+        self.presence_grace = grace;
+        self
+    }
+
+    fn player_view(&self, state: &RegistryState, record: &PlayerLobbyRecord) -> PlayerLobbyView {
+        let mut view = record.public_view();
+        for slot in &mut view.slots {
+            if let Some(player) = &slot.occupant {
+                slot.connected = state
+                    .presence
+                    .get(&(record.game_id.clone(), player.clone()))
+                    .is_some_and(|presence| {
+                        presence
+                            .last_heartbeat
+                            .is_some_and(|at| at.elapsed() < self.presence_grace)
+                            || presence
+                                .connections
+                                .values()
+                                .any(|at| at.elapsed() < self.presence_grace)
+                    });
+                slot.can_take_over =
+                    !slot.connected && self.disconnected_since(state, &record.game_id, player);
+            }
+        }
+        view
+    }
+
+    /// Whether a disconnected player has passed the takeover display grace.
+    #[must_use]
+    pub fn player_disconnected(&self, game_id: &str, player: &PlayerId) -> bool {
+        let state = self.state.lock().expect("registry lock");
+        if !state
+            .player_lobbies
+            .get(game_id)
+            .is_some_and(|l| l.players.contains_key(player))
+        {
+            return false;
+        }
+        self.disconnected_since(&state, game_id, player)
+    }
+
+    fn disconnected_since(&self, state: &RegistryState, game_id: &str, player: &PlayerId) -> bool {
+        let presence = state.presence.get(&(game_id.to_owned(), player.clone()));
+        let last = presence.and_then(|p| {
+            p.last_heartbeat
+                .into_iter()
+                .chain(p.connections.values().copied())
+                .max()
+        });
+        last.unwrap_or(presence.map_or(self.started_at, |p| p.admitted_at))
+            .elapsed()
+            >= self.presence_grace
+    }
+
+    /// Authenticates without changing credential validity or persisted state.
+    pub fn authenticate_player_session(
+        &self,
+        game_id: &str,
+        credential: &str,
+    ) -> Result<PlayerId, LobbyError> {
+        let state = self.state.lock().expect("registry lock");
+        if let Some(lobby) = state.player_lobbies.get(game_id) {
+            return authenticate_player(lobby, credential);
+        }
+        state
+            .lobbies
+            .get(game_id)
+            .and_then(|l| authenticated_seat(l, credential).ok())
+            .ok_or(LobbyError::InvalidCapability)
+    }
+
+    /// Records a credential-authenticated HTTP heartbeat without touching the lobby version.
+    pub fn player_heartbeat(
+        &self,
+        game_id: &str,
+        credential: &str,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        let player = authenticate_player(lobby, credential)?;
+        state
+            .presence
+            .entry((game_id.to_owned(), player))
+            .or_default()
+            .last_heartbeat = Some(Instant::now());
+        Ok(self.player_view(
+            &state,
+            state
+                .player_lobbies
+                .get(game_id)
+                .expect("authenticated lobby"),
+        ))
+    }
+
+    /// Register a WS connection; only application pings refresh it.
+    pub fn connect_player(
+        &self,
+        game_id: &str,
+        credential: &str,
+    ) -> Result<(PlayerId, u64), LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let player = if let Some(lobby) = state.player_lobbies.get(game_id) {
+            authenticate_player(lobby, credential)?
+        } else {
+            authenticated_seat(
+                state.lobbies.get(game_id).ok_or(LobbyError::NotFound)?,
+                credential,
+            )?
+        };
+        state.next_connection_id += 1;
+        let connection = state.next_connection_id;
+        state
+            .presence
+            .entry((game_id.to_owned(), player.clone()))
+            .or_default()
+            .connections
+            .insert(connection, Instant::now());
+        Ok((player, connection))
+    }
+
+    pub fn ping_player(
+        &self,
+        game_id: &str,
+        credential: &str,
+        connection: u64,
+    ) -> Result<(), LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let player = if let Some(lobby) = state.player_lobbies.get(game_id) {
+            authenticate_player(lobby, credential)?
+        } else {
+            authenticated_seat(
+                state.lobbies.get(game_id).ok_or(LobbyError::NotFound)?,
+                credential,
+            )?
+        };
+        let at = state
+            .presence
+            .get_mut(&(game_id.to_owned(), player))
+            .and_then(|p| p.connections.get_mut(&connection))
+            .ok_or(LobbyError::InvalidCapability)?;
+        *at = Instant::now();
+        Ok(())
+    }
+
+    pub fn disconnect_player(&self, game_id: &str, player: &PlayerId, connection: u64) {
+        let mut state = self.state.lock().expect("registry lock");
+        if let Some(presence) = state
+            .presence
+            .get_mut(&(game_id.to_owned(), player.clone()))
+        {
+            if presence.connections.remove(&connection).is_some() {
+                presence.last_heartbeat = Some(Instant::now());
+            }
+        }
     }
 
     /// Returns the optional underlying game store.
@@ -387,6 +578,9 @@ impl GameRegistry {
             .map_err(|error| LobbyError::Storage(error.to_string()))?;
         self.save_player_lobby(&record)?;
         let view = record.public_view();
+        state
+            .presence
+            .insert((game_id.clone(), player.clone()), PlayerPresence::default());
         state.player_lobbies.insert(game_id, record);
         Ok((view, player, credential))
     }
@@ -414,7 +608,7 @@ impl GameRegistry {
         let viewer = credential
             .map(|value| authenticate_player(record, value))
             .transpose()?;
-        Ok((record.public_view(), viewer))
+        Ok((self.player_view(&state, record), viewer))
     }
 
     /// Serializes first-open admission and credential-bearing reconnects.
@@ -430,7 +624,11 @@ impl GameRegistry {
             .ok_or(LobbyError::NotFound)?;
         if let Some(credential) = credential {
             let player = authenticate_player(lobby, credential)?;
-            return Ok((lobby.public_view(), player, None));
+            return Ok((
+                self.player_view(&state, &state.player_lobbies[game_id]),
+                player,
+                None,
+            ));
         }
         if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
             return Err(LobbyError::AlreadyRunning);
@@ -463,7 +661,15 @@ impl GameRegistry {
         updated.lobby_version += 1;
         self.save_player_lobby(&updated)?;
         *lobby = updated;
-        Ok((lobby.public_view(), player, Some(session)))
+        state.presence.insert(
+            (game_id.to_owned(), player.clone()),
+            PlayerPresence::default(),
+        );
+        Ok((
+            self.player_view(&state, &state.player_lobbies[game_id]),
+            player,
+            Some(session),
+        ))
     }
 
     /// A leaving player retires their identity and credential, never the host's.
@@ -495,7 +701,8 @@ impl GameRegistry {
         updated.lobby_version += 1;
         self.save_player_lobby(&updated)?;
         *lobby = updated;
-        Ok(lobby.public_view())
+        state.presence.remove(&(game_id.to_owned(), player));
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
     }
 
     pub fn set_player_ready(
@@ -524,7 +731,10 @@ impl GameRegistry {
             self.save_player_lobby(&updated)?;
             *lobby = updated;
         }
-        Ok((lobby.public_view(), player))
+        Ok((
+            self.player_view(&state, &state.player_lobbies[game_id]),
+            player,
+        ))
     }
 
     pub fn start_player_lobby(
@@ -602,7 +812,7 @@ impl GameRegistry {
             }
         }
         *lobby = running;
-        let view = lobby.public_view();
+        let view = self.player_view(&state, &state.player_lobbies[game_id]);
         state
             .sessions
             .insert(game_id.to_owned(), Arc::new(GameSession::start(config)));

@@ -117,7 +117,7 @@ pub async fn join_lobby(
     }))
 }
 
-/// Authenticated lobby heartbeat; presence tracking is added in PIL-03.
+/// Authenticated lobby heartbeat; does not renew or rotate the credential.
 pub async fn heartbeat(
     Path(game_id): Path<String>,
     headers: HeaderMap,
@@ -126,9 +126,8 @@ pub async fn heartbeat(
     let token = require_player_session(&headers)?;
     Ok(Json(
         registry
-            .player_lobby_status(&game_id, Some(token))
-            .map_err(lobby_error)?
-            .0,
+            .player_heartbeat(&game_id, token)
+            .map_err(lobby_error)?,
     ))
 }
 

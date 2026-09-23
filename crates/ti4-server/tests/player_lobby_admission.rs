@@ -1,4 +1,5 @@
 use std::sync::{Arc, Barrier};
+use std::time::Duration;
 
 use ti4_server::session::GameRegistry;
 use ti4_server::session::registry::LobbyError;
@@ -193,6 +194,110 @@ fn failed_persistence_rolls_back_admission_readiness_and_leave() {
     );
     std::fs::remove_dir(&temporary).unwrap();
     registry.join_player_lobby("failure", None).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn presence_has_a_grace_window_but_never_expires_player_sessions() {
+    let registry = GameRegistry::new().with_presence_grace(Duration::from_millis(40));
+    let (initial, host, token) = registry
+        .create_player_lobby("presence".into(), 2, 5)
+        .unwrap();
+    assert!(!initial.slots[0].connected);
+    let version = initial.lobby_version;
+    assert_eq!(
+        registry
+            .player_lobby_status("presence", None)
+            .unwrap()
+            .0
+            .lobby_version,
+        version
+    );
+    assert!(matches!(
+        registry.player_heartbeat("presence", "invalid"),
+        Err(LobbyError::InvalidCapability)
+    ));
+    assert!(
+        !registry
+            .player_lobby_status("presence", None)
+            .unwrap()
+            .0
+            .slots[0]
+            .connected
+    );
+    assert!(
+        registry
+            .player_heartbeat("presence", token.as_str())
+            .unwrap()
+            .slots[0]
+            .connected
+    );
+    assert_eq!(
+        registry
+            .player_lobby_status("presence", None)
+            .unwrap()
+            .0
+            .lobby_version,
+        version
+    );
+    let (authenticated, connection) = registry.connect_player("presence", token.as_str()).unwrap();
+    assert_eq!(authenticated, host);
+    registry.disconnect_player("presence", &host, connection);
+    assert!(!registry.player_disconnected("presence", &host));
+    std::thread::sleep(Duration::from_millis(55));
+    assert!(registry.player_disconnected("presence", &host));
+    let visible = registry.player_lobby_status("presence", None).unwrap().0;
+    assert!(!visible.slots[0].connected);
+    assert!(visible.slots[0].can_take_over);
+    assert_eq!(
+        registry
+            .authenticate_player_session("presence", token.as_str())
+            .unwrap(),
+        host
+    );
+    assert!(
+        registry
+            .player_heartbeat("presence", token.as_str())
+            .unwrap()
+            .slots[0]
+            .connected
+    );
+}
+
+#[test]
+fn restart_drops_presence_but_preserves_credentials() {
+    let dir = std::env::temp_dir().join(format!("ti4_pil03_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&dir).unwrap());
+    let original = GameRegistry::new()
+        .with_store(store.clone())
+        .with_presence_grace(Duration::from_millis(25));
+    let (_, player, token) = original
+        .create_player_lobby("restart".into(), 2, 42)
+        .unwrap();
+    original
+        .player_heartbeat("restart", token.as_str())
+        .unwrap();
+    let recovered = GameRegistry::new()
+        .with_store(store)
+        .with_presence_grace(Duration::from_millis(25));
+    recovered.recover_all_games().unwrap();
+    assert!(
+        !recovered
+            .player_lobby_status("restart", None)
+            .unwrap()
+            .0
+            .slots[0]
+            .connected
+    );
+    assert!(!recovered.player_disconnected("restart", &player));
+    std::thread::sleep(Duration::from_millis(35));
+    assert!(recovered.player_disconnected("restart", &player));
+    assert_eq!(
+        recovered
+            .authenticate_player_session("restart", token.as_str())
+            .unwrap(),
+        player
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

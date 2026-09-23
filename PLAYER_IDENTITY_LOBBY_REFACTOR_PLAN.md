@@ -3,8 +3,9 @@
 ## Status
 
 PIL-01 model/persistence implementation was committed as `e0f234d` on
-2026-09-23. PIL-02 is implemented; package progress and verification results
-are tracked here, without separate evidence artifacts or manual review gates.
+2026-09-23. PIL-02 was committed as `cf4a01f`. PIL-03 is implemented in the
+working tree; package progress and verification results are tracked here,
+without separate evidence artifacts or manual review gates.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -392,6 +393,43 @@ do not claim an intermediate package is a deployable release.
 - **Gate:** Spectator privacy, invalid credentials, ping/timeout boundary,
   brief credential reconnect, per-choice authentication, and restart-presence
   tests pass (acceptance 4, 5, 11, 12).
+- **Additional edit paths:** `crates/ti4-server/src/http/games.rs` (heartbeat),
+  and `crates/ti4-server/tests/{player_lobby_admission,protocol_roundtrip,size_bounds,ws_lifecycle}.rs`.
+- **Progress (2026-09-23):** WebSocket protocol v3 uses optional
+  `Subscribe.player_session`; the old field and protocol version are rejected.
+  The authenticated server-reported viewer is derived from the current registry
+  credential, and choice submissions reauthenticate before dispatch. Subscribe
+  registers an ephemeral per-connection presence record; application `Ping`
+  refreshes it, HTTP `/lobby/heartbeat` records an authenticated heartbeat,
+  and control pings and spectators do neither. Public slots expose `connected`
+  and `can_take_over` (a display hint, not an authorization decision). The
+  documented interval is 10-second heartbeats and a 30-second absence grace;
+  presence is not persisted, never expires credentials, and restart begins
+  disconnected with a fresh grace window. Connection close begins its grace
+  window. New admissions have their own grace window even in an old registry.
+  Subscriptions and outbound delivery check current authentication and stop
+  private updates after revocation; the idle socket also checks at most every
+  250 ms. The update forwarder is async and cancels when the outbound channel
+  closes. Debug formatting of subscribe messages redacts credentials.
+- **Verification:** `cargo fmt --package ti4-server` and `cargo test -p
+  ti4-server` passed, including protocol-v3 rejection, spectator/invalid-token
+  subscriptions, application-vs-control ping, grace expiry, credential
+  continuity, and restart presence. The first full test attempt hung in two
+  WebSocket lifecycle tests because a blocking subscription forwarder survived
+  runtime shutdown; replacing it with a cancellable async forwarder made the
+  isolated WebSocket suite and the full affected-crate suite pass. Full Clippy
+  was not run (blocked by `ti4-model`). No independent review was performed.
+- **Next/PIL-04:** Implement durable credential rotation and a short takeover
+  reservation under the same registry lock as eligibility checks; clear stale
+  presence for the replaced credential so its old connection cannot refresh
+  or reintroduce presence on disconnect. Update both lobby authentication and
+  the authoritative running-session credential record before returning the
+  replacement. Serialize choice authorization with credential rotation so a
+  previously authorized choice cannot race a takeover, and verify an already
+  connected old subscription cannot receive a private message after commit.
+  The `can_take_over` hint must be rechecked atomically on submission. PIL-06
+  and PIL-07 must send application pings every 10 seconds; PIL-08 updates
+  remaining older client/fixture protocol fields.
 
 ### PIL-04 — Disconnected-player takeover
 
