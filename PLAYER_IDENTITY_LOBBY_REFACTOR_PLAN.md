@@ -18,7 +18,8 @@ presence in this plan. PIL-09 server implementation was committed as `98e9fba`;
 independent review is outstanding. PIL-10 and PIL-11 were committed as
 `fe7eb8d`. PIL-12 and PIL-13 browser changes were committed as `85f9706`;
 PIL-14 display-boundary changes are in the current worktree. Independent review
-and real-browser integration remain outstanding.
+and real-browser integration remain outstanding. PIL-15 lobby controls are
+implemented in the worktree; visual/browser inspection remains for PIL-16.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -1065,6 +1066,11 @@ do not claim an intermediate package is a deployable release.
 
 - **Depends:** PIL-11 and PIL-12. **Primary scope:** `web/src/components/Lobby.tsx`,
   `web/src/hooks/useLobbySession.ts`, `web/src/index.css`, and focused tests.
+- **Execution scope (2026-09-23):** P1; additional writable paths:
+  `web/src/{App,components/Lobby.test}.tsx`,
+  `web/src/hooks/useLobbySession.test.tsx`, and this plan. Browser build and
+  local unit tests only; no external state, downloads or destructive actions.
+  Full Clippy excluded by operator instruction.
 - **Contract:** Use the same styled button system for create, copy, join,
   watch, rejoin, reorder, ready, start and leave. Give actions coherent focus,
   hover, disabled and in-flight states; block duplicate submissions and
@@ -1082,6 +1088,25 @@ do not claim an intermediate package is a deployable release.
   running game, pending actions, failed actions, disabled controls and keyboard
   labels. Visual and accessibility inspection checks readiness/presence without
   color (acceptance 19). Run build and affected browser tests.
+- **Progress (2026-09-23, worktree):** Create and all lobby actions now use
+  styled buttons with explicit pending/disabled states, shared hover/focus
+  behavior and readable mobile reorder targets. The mutation hook serializes
+  joins, takeovers, reorder, readiness, start and leave, ignoring conflicting
+  requests even within one render; stale polling responses cannot overwrite a
+  mutation result. Clipboard errors offer a manual-copy fallback, and mutation
+  errors remain visible for retry rather than disappearing on the next poll.
+  The host alone sees Start, with a specific open-position/unready-player
+  explanation. Readiness and presence use distinct text, symbols, weight and
+  border treatments in addition to color. Fixed an existing null-equality bug
+  where an unauthenticated spectator matched an empty slot and saw Ready.
+- **Verification:** `npm run build` and `npm test -- --silent` passed (29
+  files, 193 tests); `git diff --check` passed. Added tests for the
+  spectator/host/running state matrix, described disabled Start, keyboard
+  reorder labels, pending controls, failed clipboard, duplicate create
+  suppression, mutation serialization and retry. CSS includes 44px reorder
+  targets and wrapping at narrow widths. Real-browser visual/accessibility
+  inspection and independent review have not occurred; PIL-16 must verify
+  these controls in the running UI at desktop and narrow viewport sizes.
 
 ### PIL-16 — Nickname and lobby UI end-to-end gate
 
@@ -1092,6 +1117,10 @@ do not claim an intermediate package is a deployable release.
   different nickname on takeover, an idle presence interval and server restart.
   Audit actual rendered and accessible UI for raw player IDs, seat symbol/color
   consistency and clear enabled/disabled states in lobby and running views.
+  Inspect focus traversal, 44px mobile reorder targets, and the readiness and
+  presence badges without color; verify that failed actions can be retried
+  after an intervening lobby poll and that pending actions cannot be submitted
+  twice from a real browser.
   Do not rebaseline fixtures just to conceal a failure.
 - **Gate:** Acceptance 13–19 pass at appropriate unit, browser and real
   browser/server E2E layers. Run formatting, affected-crate/browser suites,

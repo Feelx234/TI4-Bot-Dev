@@ -29,7 +29,7 @@ export const App: React.FC = () => {
 };
 
 const GameRoute: React.FC<{ gameId: string; token?: string; onCredential: (credential: string) => void; onCredentialInvalid: () => void; onForget: () => void }> = ({ gameId, token, onCredential, onCredentialInvalid, onForget }) => {
-  const { lobby, playerId, error, loading, invalidCredential, setReady, start, reorder, join, leave } = useLobbySession(gameId, token);
+  const { lobby, playerId, error, loading, invalidCredential, pendingAction, setReady, start, reorder, join, leave } = useLobbySession(gameId, token);
   const [watching, setWatching] = useState(false);
   const invalidate = useCallback(() => onCredentialInvalid(), [onCredentialInvalid]);
   usePresence(gameId, token, invalidate);
@@ -38,7 +38,7 @@ const GameRoute: React.FC<{ gameId: string; token?: string; onCredential: (crede
   const viewer: ViewerRole = token && playerId ? { role: 'player', seat: playerId, playerSession: token } : { role: 'spectator' };
   const enter = async (nickname: string, id?: string) => { const credential = await join(nickname, id); if (credential) { setWatching(false); onCredential(credential); } };
   const leaveLobby = async () => { if (await leave()) onForget(); };
-   return <>{error && <div className="session-error" role="alert">{participantText(error, lobby, [])}</div>}{lobby.phase === 'running' && (playerId || watching) ? <GameViewContainer key={`${gameId}:${token ?? 'watch'}`} gameId={gameId} lobby={lobby} viewer={viewer} onLeave={onForget} /> : <LobbyStatus lobby={lobby} playerId={playerId} watching={watching} onReady={(ready) => void setReady(ready)} onStart={() => void start()} onLeave={() => void leaveLobby()} onJoin={(name) => void enter(name)} onTakeover={(id, name) => void enter(name, id)} onReorder={(ids) => void reorder(ids)} onWatch={() => setWatching(true)} />}</>;
+   return <>{error && <div className="session-error" role="alert">{participantText(error, lobby, [])} Check the lobby and try again.</div>}{lobby.phase === 'running' && (playerId || watching) ? <GameViewContainer key={`${gameId}:${token ?? 'watch'}`} gameId={gameId} lobby={lobby} viewer={viewer} onLeave={onForget} /> : <LobbyStatus lobby={lobby} playerId={playerId} watching={watching} pendingAction={pendingAction} onReady={(ready) => void setReady(ready)} onStart={() => void start()} onLeave={() => void leaveLobby()} onJoin={(name) => void enter(name)} onTakeover={(id, name) => void enter(name, id)} onReorder={(ids) => void reorder(ids)} onWatch={() => setWatching(true)} />}</>;
 };
 
 const GameViewContainer: React.FC<{ gameId: string; lobby: import('./protocol/types.ts').LobbyDto; viewer: ViewerRole; onLeave: () => void }> = ({ gameId, lobby, viewer, onLeave }) => {

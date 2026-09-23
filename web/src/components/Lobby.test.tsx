@@ -75,4 +75,63 @@ describe('lobby UI', () => {
     expect(screen.getByText(/Position 2: Same name \(Host\)/)).toBeInTheDocument();
     expect(screen.getByText(/Position 1: Same name/).closest('.lobby-list__item')).toHaveStyle({ borderLeftColor: 'rgb(230, 159, 0)' });
   });
+
+  it('keeps unjoined watchers and running spectators away from readiness and host controls', () => {
+    const { rerender } = render(<LobbyStatus lobby={lobby} playerId={null} watching {...props} />);
+    expect(screen.queryByTestId('ready-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('start-game-button')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Join game' })).toHaveClass('button');
+    expect(screen.getByRole('button', { name: /Rejoin as/ })).toHaveClass('button');
+    expect(screen.getByText('○ Not ready')).toHaveClass('lobby-readiness--waiting');
+    expect(screen.getByText('◇ Disconnected')).toHaveClass('lobby-presence--disconnected');
+    rerender(<LobbyStatus lobby={{ ...lobby, phase: 'running' }} playerId={null} watching {...props} />);
+    expect(screen.queryByRole('button', { name: 'Join game' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ready-button')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Move position/)).not.toBeInTheDocument();
+  });
+
+  it('explains disabled start and distinguishes readiness and presence without color', () => {
+    const { rerender } = render(<LobbyStatus lobby={lobby} playerId="player_a" {...props} />);
+    expect(screen.getByTestId('ready-button')).toHaveTextContent('Mark not ready');
+    expect(screen.getByTestId('ready-button')).toHaveClass('lobby-unready-button');
+    expect(screen.getByTestId('start-game-button')).toHaveAttribute('aria-describedby', 'start-reason');
+    expect(screen.getByText('Waiting for 1 open position to be filled.')).toBeInTheDocument();
+    expect(screen.getByText('✔ Ready')).toBeInTheDocument();
+    expect(screen.getByText('● Connected')).toBeInTheDocument();
+    const filled = { ...lobby, slots: [lobby.slots[0], lobby.slots[1], { ...lobby.slots[2], occupant: 'player_c', nickname: 'C' }] };
+    rerender(<LobbyStatus lobby={filled} playerId="player_a" {...props} />);
+    expect(screen.getByText('Waiting for 2 players to be ready.')).toBeInTheDocument();
+    rerender(<LobbyStatus lobby={{ ...filled, slots: filled.slots.map(slot => ({ ...slot, ready: true })) }} playerId="player_a" {...props} />);
+    expect(screen.getByTestId('start-game-button')).toBeEnabled();
+  });
+
+  it('locks conflicting actions during a request and leaves reorder keyboard labels readable', () => {
+    render(<LobbyStatus lobby={lobby} playerId="player_a" pendingAction="reorder" {...props} />);
+    expect(screen.getByTestId('ready-button')).toBeDisabled();
+    expect(screen.getByTestId('start-game-button')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Copy game URL' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move position 2 down' })).toBeDisabled();
+  });
+
+  it('reports clipboard failure with a usable fallback', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    render(<LobbyStatus lobby={lobby} playerId={null} {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy game URL' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Copy the address from your browser instead.'));
+  });
+
+  it('disables create controls and ignores repeated submits while the request is pending', async () => {
+    let resolve!: (value: unknown) => void;
+    const fetchMock = vi.fn().mockImplementation(() => new Promise(done => { resolve = done; }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(<CreateLobby onCreated={vi.fn()} onError={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Nickname'), { target: { value: 'Host' } });
+    fireEvent.click(screen.getByTestId('create-game-button'));
+    expect(screen.getByTestId('create-game-button')).toBeDisabled();
+    expect(screen.getByLabelText('Nickname')).toBeDisabled();
+    fireEvent.submit(screen.getByTestId('create-game-button').closest('form')!);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    resolve({ ok: false, status: 503, text: async () => 'Unavailable' });
+    await waitFor(() => expect(screen.getByTestId('create-game-button')).toBeEnabled());
+  });
 });
