@@ -56,6 +56,8 @@ pub enum StorageError {
     ChecksumMismatch,
     #[error("Snapshot state does not match replay for game '{0}'")]
     SnapshotMismatch(String),
+    #[error("Invalid player persistence record: {0}")]
+    InvalidPlayerRecord(&'static str),
 }
 
 const PERSISTENCE_FORMAT_VERSION: u16 = 1;
@@ -63,6 +65,205 @@ const MAX_INIT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_LOG_BYTES: usize = 64 * 1024 * 1024;
 const MAX_LOG_RECORD_BYTES: usize = 64 * 1024;
 const MAX_SNAPSHOT_BYTES: usize = 4 * 1024 * 1024;
+pub const PLAYER_RECORD_VERSION: u16 = 2;
+const MAX_PLAYER_LOBBY_BYTES: usize = 64 * 1024;
+const MAX_PLAYER_SESSIONS_BYTES: usize = 16 * 1024;
+const MAX_LOBBY_SLOTS: usize = 8;
+
+/// Stable identifier of a physical lobby slot; it never identifies its occupant.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LobbySlotId(pub String);
+
+/// A bearer credential. It can only be serialized into private persistence records.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PlayerSession(String);
+
+impl std::fmt::Debug for PlayerSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PlayerSession([redacted])")
+    }
+}
+
+impl PlayerSession {
+    #[must_use]
+    pub fn generate() -> Self {
+        Self(hex_random_256("session_"))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    fn validate(&self) -> Result<(), StorageError> {
+        if valid_random_id(&self.0, "session_") {
+            Ok(())
+        } else {
+            Err(StorageError::InvalidPlayerRecord("player session"))
+        }
+    }
+}
+
+/// Generate a fresh stable player identity, retrying if it collides with this lobby.
+#[must_use]
+pub fn generate_player_id(existing: &BTreeMap<PlayerId, PlayerLobbyMember>) -> PlayerId {
+    generate_player_id_with(existing, || PlayerId::new(hex_random_256("player_")))
+}
+
+fn generate_player_id_with(
+    existing: &BTreeMap<PlayerId, PlayerLobbyMember>,
+    mut candidate: impl FnMut() -> PlayerId,
+) -> PlayerId {
+    loop {
+        let id = candidate();
+        if !existing.contains_key(&id) {
+            return id;
+        }
+    }
+}
+
+fn hex_random_256(prefix: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(prefix.len() + 64);
+    out.push_str(prefix);
+    for byte in rand::random::<[u8; 32]>() {
+        write!(out, "{byte:02x}").expect("write to String");
+    }
+    out
+}
+
+fn valid_random_id(value: &str, prefix: &str) -> bool {
+    value.len() == prefix.len() + 64
+        && value.starts_with(prefix)
+        && value[prefix.len()..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlayerLobbySlot {
+    pub slot_id: LobbySlotId,
+    pub occupant: Option<PlayerId>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlayerLobbyMember {
+    pub ready: bool,
+    pub session: PlayerSession,
+}
+
+impl std::fmt::Debug for PlayerLobbyMember {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PlayerLobbyMember")
+            .field("ready", &self.ready)
+            .field("session", &self.session)
+            .finish()
+    }
+}
+
+/// Private v2 lobby record. Never return this type from a public API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlayerLobbyRecord {
+    pub schema_version: u16,
+    pub game_id: String,
+    pub phase: PersistedLobbyPhase,
+    pub host_player_id: PlayerId,
+    pub slots: Vec<PlayerLobbySlot>,
+    pub players: BTreeMap<PlayerId, PlayerLobbyMember>,
+    pub seed: u64,
+    pub lobby_version: u64,
+}
+
+impl PlayerLobbyRecord {
+    pub fn validate(&self) -> Result<(), StorageError> {
+        check_player_schema(self.schema_version)?;
+        validate_game_id(&self.game_id)?;
+        if !(1..=MAX_LOBBY_SLOTS).contains(&self.slots.len())
+            || self.players.len() > self.slots.len()
+            || !self.players.contains_key(&self.host_player_id)
+        {
+            return Err(StorageError::InvalidPlayerRecord("lobby roster"));
+        }
+        let mut slots = std::collections::BTreeSet::new();
+        let mut occupants = std::collections::BTreeSet::new();
+        let mut credentials = std::collections::BTreeSet::new();
+        for slot in &self.slots {
+            if slot.slot_id.0.len() > 32
+                || slot.slot_id.0.is_empty()
+                || !slot
+                    .slot_id
+                    .0
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                || !slots.insert(&slot.slot_id)
+            {
+                return Err(StorageError::InvalidPlayerRecord("slot IDs"));
+            }
+            if let Some(id) = &slot.occupant
+                && (!self.players.contains_key(id) || !occupants.insert(id))
+            {
+                return Err(StorageError::InvalidPlayerRecord("slot occupants"));
+            }
+        }
+        if occupants.len() != self.players.len() {
+            return Err(StorageError::InvalidPlayerRecord("unseated player"));
+        }
+        for (id, player) in &self.players {
+            if !valid_random_id(id.as_str(), "player_") {
+                return Err(StorageError::InvalidPlayerRecord("player ID"));
+            }
+            player.session.validate()?;
+            if !credentials.insert(player.session.as_str()) {
+                return Err(StorageError::InvalidPlayerRecord("duplicate session"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Immutable engine initialization: credentials live only in the current-session record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlayerGameInitRecord {
+    pub schema_version: u16,
+    pub game_id: String,
+    pub seed: u64,
+    pub player_ids: Vec<PlayerId>,
+    pub initial_state: GameState,
+    pub map_tiles: Vec<BoardTileView>,
+}
+
+/// Authoritative running-session credential mapping, atomically replaced on rotation.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlayerSessionsRecord {
+    pub schema_version: u16,
+    pub game_id: String,
+    pub sessions: BTreeMap<PlayerId, PlayerSession>,
+}
+
+impl std::fmt::Debug for PlayerSessionsRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PlayerSessionsRecord")
+            .field("schema_version", &self.schema_version)
+            .field("game_id", &self.game_id)
+            .field("sessions", &"[redacted]")
+            .finish()
+    }
+}
+
+fn check_player_schema(version: u16) -> Result<(), StorageError> {
+    if version == PLAYER_RECORD_VERSION {
+        Ok(())
+    } else {
+        Err(StorageError::UnsupportedFormat(version))
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistedEnvelope<T> {
@@ -80,7 +281,7 @@ struct SessionSnapshot {
 }
 
 /// Initial configuration record saved atomically to `init.json`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct GameInitRecord {
     pub game_id: String,
     pub seed: Option<u64>,
@@ -93,6 +294,15 @@ pub struct GameInitRecord {
     pub map_tiles: Vec<BoardTileView>,
 }
 
+impl std::fmt::Debug for GameInitRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GameInitRecord")
+            .field("game_id", &self.game_id)
+            .field("seat_tokens", &"[redacted]")
+            .finish_non_exhaustive()
+    }
+}
+
 /// Persisted lifecycle state for a game that has not yet entered the engine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -102,13 +312,23 @@ pub enum PersistedLobbyPhase {
 }
 
 /// Persisted configuration for one lobby seat.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PersistedLobbySeat {
     pub controller: SeatController,
     pub ready: bool,
     pub seat_token: Option<String>,
     #[serde(default)]
     pub lease_expires_at_ms: Option<u64>,
+}
+
+impl std::fmt::Debug for PersistedLobbySeat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PersistedLobbySeat")
+            .field("controller", &self.controller)
+            .field("ready", &self.ready)
+            .field("seat_token", &"[redacted]")
+            .finish_non_exhaustive()
+    }
 }
 
 /// Durable pre-game metadata. Engine state is intentionally absent until start succeeds.
@@ -130,6 +350,77 @@ pub struct FileGameStore {
 }
 
 impl FileGameStore {
+    /// Store the v2 lobby as a single atomic private record.
+    pub fn save_player_lobby(&self, record: &PlayerLobbyRecord) -> Result<(), StorageError> {
+        record.validate()?;
+        let dir = self.game_dir(&record.game_id)?;
+        fs::create_dir_all(&dir)?;
+        atomic_write_player_record(&dir.join("lobby.json"), record, MAX_PLAYER_LOBBY_BYTES)?;
+        Ok(())
+    }
+
+    /// Reject legacy or corrupted lobby records rather than reinterpreting seat IDs.
+    pub fn load_player_lobby(
+        &self,
+        game_id: &str,
+    ) -> Result<Option<PlayerLobbyRecord>, StorageError> {
+        let path = self.game_dir(game_id)?.join("lobby.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let record: PlayerLobbyRecord = read_player_record(&path, MAX_PLAYER_LOBBY_BYTES)?;
+        if record.game_id != game_id {
+            return Err(StorageError::IdentityMismatch { field: "game_id" });
+        }
+        record.validate()?;
+        Ok(Some(record))
+    }
+
+    /// Save immutable v2 init without any bearer credentials.
+    pub fn save_player_init(&self, record: &PlayerGameInitRecord) -> Result<(), StorageError> {
+        validate_player_init(record)?;
+        let dir = self.game_dir(&record.game_id)?;
+        fs::create_dir_all(&dir)?;
+        atomic_write_player_record(&dir.join("init.json"), record, MAX_INIT_BYTES)?;
+        Ok(())
+    }
+
+    pub fn load_player_init(&self, game_id: &str) -> Result<PlayerGameInitRecord, StorageError> {
+        let path = self.game_dir(game_id)?.join("init.json");
+        let record: PlayerGameInitRecord = read_player_record(&path, MAX_INIT_BYTES)?;
+        if record.game_id != game_id {
+            return Err(StorageError::IdentityMismatch { field: "game_id" });
+        }
+        validate_player_init(&record)?;
+        Ok(record)
+    }
+
+    /// The sole authority for current running credentials, separate from immutable init.
+    pub fn save_player_sessions(&self, record: &PlayerSessionsRecord) -> Result<(), StorageError> {
+        validate_player_sessions(record)?;
+        let dir = self.game_dir(&record.game_id)?;
+        fs::create_dir_all(&dir)?;
+        atomic_write_player_record(
+            &dir.join("player_sessions.json"),
+            record,
+            MAX_PLAYER_SESSIONS_BYTES,
+        )?;
+        Ok(())
+    }
+
+    pub fn load_player_sessions(
+        &self,
+        game_id: &str,
+    ) -> Result<PlayerSessionsRecord, StorageError> {
+        let path = self.game_dir(game_id)?.join("player_sessions.json");
+        let record: PlayerSessionsRecord = read_player_record(&path, MAX_PLAYER_SESSIONS_BYTES)?;
+        if record.game_id != game_id {
+            return Err(StorageError::IdentityMismatch { field: "game_id" });
+        }
+        validate_player_sessions(&record)?;
+        Ok(record)
+    }
+
     /// Creates a new store rooted at `base_dir`, ensuring the directory exists.
     ///
     /// # Errors
@@ -405,6 +696,74 @@ impl FileGameStore {
     }
 }
 
+fn validate_player_init(record: &PlayerGameInitRecord) -> Result<(), StorageError> {
+    check_player_schema(record.schema_version)?;
+    validate_game_id(&record.game_id)?;
+    if !(1..=MAX_LOBBY_SLOTS).contains(&record.player_ids.len())
+        || record
+            .player_ids
+            .iter()
+            .any(|id| !valid_random_id(id.as_str(), "player_"))
+        || record
+            .player_ids
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != record.player_ids.len()
+    {
+        return Err(StorageError::InvalidPlayerRecord("game player order"));
+    }
+    Ok(())
+}
+
+fn validate_player_sessions(record: &PlayerSessionsRecord) -> Result<(), StorageError> {
+    check_player_schema(record.schema_version)?;
+    validate_game_id(&record.game_id)?;
+    if !(1..=MAX_LOBBY_SLOTS).contains(&record.sessions.len()) {
+        return Err(StorageError::InvalidPlayerRecord("session count"));
+    }
+    let mut credentials = std::collections::BTreeSet::new();
+    for (id, session) in &record.sessions {
+        if !valid_random_id(id.as_str(), "player_") || !credentials.insert(session.as_str()) {
+            return Err(StorageError::InvalidPlayerRecord("session identity"));
+        }
+        session.validate()?;
+    }
+    Ok(())
+}
+
+fn read_player_record<T: Serialize + for<'de> Deserialize<'de>>(
+    path: &Path,
+    limit: usize,
+) -> Result<T, StorageError> {
+    let bytes = read_bounded(path, limit)?;
+    // Read the schema marker before decoding the payload, so old records fail clearly.
+    let envelope: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let version = envelope
+        .get("payload")
+        .and_then(|payload| payload.get("schema_version"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    check_player_schema(u16::try_from(version).unwrap_or(0))?;
+    validate_envelope(serde_json::from_slice(&bytes)?)
+}
+
+fn atomic_write_player_record<T: Serialize + Clone>(
+    path: &Path,
+    record: &T,
+    limit: usize,
+) -> Result<(), StorageError> {
+    let bytes = serde_json::to_vec_pretty(&persist(record)?)?;
+    if bytes.len() + 1 > limit {
+        return Err(StorageError::Oversized {
+            path: path.to_owned(),
+            limit,
+        });
+    }
+    atomic_write_json(path, record)?;
+    Ok(())
+}
+
 fn atomic_write_json<T: Serialize + Clone>(path: &Path, value: &T) -> std::io::Result<()> {
     let tmp_path = path.with_extension("tmp");
     let file = File::create(&tmp_path)?;
@@ -571,4 +930,214 @@ fn content_identity() -> String {
         "{:x}",
         Sha256::digest(include_bytes!("../../ti4-content/content/CHECKSUMS.sha256"))
     )
+}
+
+#[cfg(test)]
+mod player_record_tests {
+    use super::*;
+
+    fn store() -> (FileGameStore, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("ti4_pil01_{:032x}", rand::random::<u128>()));
+        (FileGameStore::new(&dir).expect("create store"), dir)
+    }
+
+    #[test]
+    fn lobby_round_trip_preserves_identity_and_hides_credentials_from_public_output() {
+        let (store, dir) = store();
+        let (lobby, host, session) = PlayerLobbyRecord::create("pil01_lobby".into(), 3, 7).unwrap();
+        store.save_player_lobby(&lobby).unwrap();
+        let loaded = store.load_player_lobby("pil01_lobby").unwrap().unwrap();
+        assert_eq!(loaded.host_player_id, host);
+        assert_eq!(loaded.slots.len(), 3);
+        assert_eq!(loaded.slots[0].occupant, Some(host));
+        assert!(loaded.slots[1].occupant.is_none());
+        assert_eq!(loaded.players[&loaded.host_player_id].session, session);
+        let public = serde_json::to_string(&loaded.public_view()).unwrap();
+        assert!(!public.contains(session.as_str()));
+        assert!(!format!("{loaded:?}").contains(session.as_str()));
+        assert!(!format!("{session:?}").contains(session.as_str()));
+        let legacy = PersistedLobbySeat {
+            controller: SeatController::Human,
+            ready: false,
+            seat_token: Some(session.as_str().to_owned()),
+            lease_expires_at_ms: None,
+        };
+        assert!(!format!("{legacy:?}").contains(session.as_str()));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn repeated_generated_ids_are_unique_and_collision_is_skipped() {
+        let mut players = BTreeMap::new();
+        for _ in 0..256 {
+            let id = generate_player_id(&players);
+            assert!(valid_random_id(id.as_str(), "player_"));
+            assert!(
+                players
+                    .insert(
+                        id,
+                        PlayerLobbyMember {
+                            ready: false,
+                            session: PlayerSession::generate(),
+                        }
+                    )
+                    .is_none()
+            );
+        }
+        let fresh = generate_player_id(&players);
+        assert!(!players.contains_key(&fresh));
+        let occupied = players.keys().next().unwrap().clone();
+        let new = PlayerId::new(hex_random_256("player_"));
+        let mut attempts = [occupied, new.clone()].into_iter();
+        assert_eq!(
+            generate_player_id_with(&players, || attempts.next().unwrap()),
+            new
+        );
+    }
+
+    #[test]
+    fn old_records_and_unknown_versions_are_rejected_before_payload_decode() {
+        let (store, dir) = store();
+        let (lobby, _, _) = PlayerLobbyRecord::create("old".into(), 2, 1).unwrap();
+        let path = store.game_dir("old").unwrap().join("lobby.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut old = serde_json::to_value(persist(&lobby).unwrap()).unwrap();
+        old["payload"]
+            .as_object_mut()
+            .unwrap()
+            .remove("schema_version");
+        fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        assert!(matches!(
+            store.load_player_lobby("old"),
+            Err(StorageError::UnsupportedFormat(0))
+        ));
+        let mut unsupported = lobby.clone();
+        unsupported.schema_version = 99;
+        atomic_write_json(&path, &unsupported).unwrap();
+        assert!(matches!(
+            store.load_player_lobby("old"),
+            Err(StorageError::UnsupportedFormat(99))
+        ));
+        let old_init = GameInitRecord {
+            game_id: "old".into(),
+            seed: None,
+            player_ids: vec![PlayerId::new("p1")],
+            initial_state: crate::fixtures::create_sample_game(),
+            seats: BTreeMap::new(),
+            seat_tokens: BTreeMap::new(),
+            map_tiles: Vec::new(),
+        };
+        store.save_init(&old_init).unwrap();
+        let mut debug_init = old_init.clone();
+        debug_init
+            .seat_tokens
+            .insert(PlayerId::new("p1"), "private-value".into());
+        assert!(!format!("{debug_init:?}").contains("private-value"));
+        assert!(matches!(
+            store.load_player_init("old"),
+            Err(StorageError::UnsupportedFormat(0))
+        ));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn bounds_checksum_and_reference_corruption_fail_closed() {
+        let (store, dir) = store();
+        let (mut lobby, _, _) = PlayerLobbyRecord::create("broken".into(), 2, 1).unwrap();
+        lobby.slots[1].occupant = lobby.slots[0].occupant.clone();
+        assert!(matches!(
+            store.save_player_lobby(&lobby),
+            Err(StorageError::InvalidPlayerRecord(_))
+        ));
+        lobby.slots[1].occupant = None;
+        let id = lobby.host_player_id.clone();
+        lobby.players.insert(
+            PlayerId::new(hex_random_256("player_")),
+            PlayerLobbyMember {
+                ready: false,
+                session: lobby.players[&id].session.clone(),
+            },
+        );
+        assert!(matches!(
+            store.save_player_lobby(&lobby),
+            Err(StorageError::InvalidPlayerRecord(_))
+        ));
+        lobby.players.retain(|player, _| player == &id);
+        store.save_player_lobby(&lobby).unwrap();
+        let path = store.game_dir("broken").unwrap().join("lobby.json");
+        let bytes = fs::read_to_string(&path)
+            .unwrap()
+            .replace("\"checksum\": \"", "\"checksum\": \"0");
+        fs::write(&path, bytes).unwrap();
+        assert!(matches!(
+            store.load_player_lobby("broken"),
+            Err(StorageError::ChecksumMismatch)
+        ));
+        fs::write(&path, vec![b' '; MAX_PLAYER_LOBBY_BYTES + 1]).unwrap();
+        assert!(matches!(
+            store.load_player_lobby("broken"),
+            Err(StorageError::Oversized { .. })
+        ));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn running_credentials_rotate_independently_of_immutable_init() {
+        let (store, dir) = store();
+        let (lobby, host, old) = PlayerLobbyRecord::create("running".into(), 1, 4).unwrap();
+        let init = PlayerGameInitRecord {
+            schema_version: PLAYER_RECORD_VERSION,
+            game_id: lobby.game_id.clone(),
+            seed: lobby.seed,
+            player_ids: vec![host.clone()],
+            initial_state: crate::fixtures::create_sample_game(),
+            map_tiles: Vec::new(),
+        };
+        store.save_player_init(&init).unwrap();
+        let mut sessions = PlayerSessionsRecord {
+            schema_version: PLAYER_RECORD_VERSION,
+            game_id: lobby.game_id,
+            sessions: BTreeMap::from([(host.clone(), old.clone())]),
+        };
+        store.save_player_sessions(&sessions).unwrap();
+        let replacement = PlayerSession::generate();
+        sessions.sessions.insert(host.clone(), replacement.clone());
+        store.save_player_sessions(&sessions).unwrap();
+        let mut duplicate = sessions.clone();
+        duplicate.sessions.insert(
+            PlayerId::new(hex_random_256("player_")),
+            replacement.clone(),
+        );
+        assert!(matches!(
+            store.save_player_sessions(&duplicate),
+            Err(StorageError::InvalidPlayerRecord(_))
+        ));
+        let restarted = FileGameStore::new(&dir).unwrap();
+        assert_eq!(
+            restarted.load_player_sessions("running").unwrap().sessions[&host],
+            replacement
+        );
+        assert_ne!(
+            restarted.load_player_sessions("running").unwrap().sessions[&host],
+            old
+        );
+        let init_file =
+            fs::read_to_string(restarted.game_dir("running").unwrap().join("init.json")).unwrap();
+        assert!(!init_file.contains(old.as_str()));
+        assert!(!init_file.contains(replacement.as_str()));
+        assert_eq!(
+            restarted.load_player_init("running").unwrap().player_ids,
+            vec![host]
+        );
+        let path = restarted
+            .game_dir("running")
+            .unwrap()
+            .join("player_sessions.json");
+        fs::write(&path, vec![b' '; MAX_PLAYER_SESSIONS_BYTES + 1]).unwrap();
+        assert!(matches!(
+            restarted.load_player_sessions("running"),
+            Err(StorageError::Oversized { .. })
+        ));
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

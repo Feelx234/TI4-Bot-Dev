@@ -2,6 +2,11 @@
 
 ## Status
 
+PIL-01 model/persistence implementation is in the working tree (uncommitted,
+2026-09-23). Focused and server tests pass; independent frontier architecture/
+security review is outstanding. **PIL-01 is not complete and PIL-02 remains
+blocked on that review.** Details: `plans/evidence/PIL-01.md`.
+
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
 unstarted lobbies and active sessions may be rejected by the new server version.
@@ -321,6 +326,24 @@ do not claim an intermediate package is a deployable release.
   private-output tests, and an old-format rejection test pass (acceptance 1,
   11, 12 for the model). Independent **frontier architecture/security review**
   resolves the schema and credential-storage design **before PIL-02 starts**.
+- **Progress (2026-09-23):** Added typed `LobbySlotId`, 256-bit generated
+  `player_` IDs with collision retry, redacted `PlayerSession`, bounded v2
+  private lobby, immutable game-init and authoritative current-session records,
+  and a credential-free public lobby projection. Focused tests cover round
+  trips, forced ID collision, checksum/size/reference failures, old-record
+  rejection, and restart loading of a rotated current credential.
+- **Integration boundary:** These v2 records have separate store methods. The
+  currently exposed HTTP/WS registry still operates on v1 seat/lease records,
+  and `recover_session` still loads its old init/token map. PIL-02 and PIL-04
+  must connect all writers/readers and remove obsolete credential recovery;
+  tests of the new storage methods alone do **not** prove live takeover or
+  running-session recovery. Review must verify the init/credentials start
+  commit sequence and eliminate any path that could reload an old token.
+- **Security review question:** v2 persistence DTOs are intentionally
+  serializable for disk only; client handlers must serialize the explicit
+  `PlayerLobbyView` projection and never a private record. Debug output for
+  existing token-bearing lobby/init DTOs is redacted during the transition;
+  their private on-disk serialization remains for existing server behavior.
 
 ### PIL-02 — New admission and lobby authorization
 

@@ -13,6 +13,99 @@ use crate::storage::{
     GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat, StorageError,
 };
 
+use crate::storage::{
+    LobbySlotId, PLAYER_RECORD_VERSION, PlayerLobbyMember, PlayerLobbyRecord, PlayerLobbySlot,
+    PlayerSession, generate_player_id,
+};
+
+/// Public projection; deliberately cannot serialize the private persistence record.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlayerLobbyView {
+    pub game_id: String,
+    pub phase: LobbyPhase,
+    pub host_player_id: PlayerId,
+    pub slots: Vec<PlayerSlotView>,
+    pub lobby_version: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PlayerSlotView {
+    pub slot_id: LobbySlotId,
+    pub position: usize,
+    pub occupant: Option<PlayerId>,
+    pub ready: bool,
+}
+
+impl PlayerLobbyRecord {
+    /// Build a lobby with the creator in the first slot, leaving the rest open.
+    pub fn create(
+        game_id: String,
+        slot_count: usize,
+        seed: u64,
+    ) -> Result<(Self, PlayerId, PlayerSession), StorageError> {
+        crate::storage::validate_game_id(&game_id)?;
+        if !(1..=8).contains(&slot_count) {
+            return Err(StorageError::InvalidPlayerRecord("slot count"));
+        }
+        let mut players = BTreeMap::new();
+        let host_player_id = generate_player_id(&players);
+        let session = PlayerSession::generate();
+        players.insert(
+            host_player_id.clone(),
+            PlayerLobbyMember {
+                ready: false,
+                session: session.clone(),
+            },
+        );
+        let slots = (0..slot_count)
+            .map(|index| PlayerLobbySlot {
+                slot_id: LobbySlotId(format!("slot_{}", index + 1)),
+                occupant: (index == 0).then(|| host_player_id.clone()),
+            })
+            .collect();
+        let lobby = Self {
+            schema_version: PLAYER_RECORD_VERSION,
+            game_id,
+            phase: PersistedLobbyPhase::Lobby,
+            host_player_id: host_player_id.clone(),
+            slots,
+            players,
+            seed,
+            lobby_version: 1,
+        };
+        lobby.validate()?;
+        Ok((lobby, host_player_id, session))
+    }
+
+    /// Only this explicit projection is suitable for public HTTP/WS output.
+    #[must_use]
+    pub fn public_view(&self) -> PlayerLobbyView {
+        PlayerLobbyView {
+            game_id: self.game_id.clone(),
+            phase: match self.phase {
+                PersistedLobbyPhase::Lobby => LobbyPhase::Lobby,
+                PersistedLobbyPhase::Running => LobbyPhase::Running,
+            },
+            host_player_id: self.host_player_id.clone(),
+            slots: self
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(index, slot)| PlayerSlotView {
+                    slot_id: slot.slot_id.clone(),
+                    position: index + 1,
+                    occupant: slot.occupant.clone(),
+                    ready: slot
+                        .occupant
+                        .as_ref()
+                        .is_some_and(|id| self.players[id].ready),
+                })
+                .collect(),
+            lobby_version: self.lobby_version,
+        }
+    }
+}
+
 /// Summary of an active, completed, or unstarted game.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GameSummary {
@@ -42,12 +135,23 @@ pub struct LobbyState {
 }
 
 /// Lobby state for a configured seat. This type is never serialized directly.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LobbySeat {
     pub controller: SeatController,
     pub ready: bool,
     pub seat_token: Option<String>,
     pub lease_expires_at_ms: Option<u64>,
+}
+
+impl std::fmt::Debug for LobbySeat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LobbySeat")
+            .field("controller", &self.controller)
+            .field("ready", &self.ready)
+            .field("seat_token", &"[redacted]")
+            .field("lease_expires_at_ms", &self.lease_expires_at_ms)
+            .finish()
+    }
 }
 
 /// Input used to create a durable pre-game lobby.
@@ -61,12 +165,22 @@ pub struct LobbyConfig {
 }
 
 /// Result returned only at creation time, when handoff capabilities are allowed.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CreatedLobby {
     pub lobby: LobbyState,
     pub creator_token: String,
     /// Internal creation result; HTTP deliberately returns only `creator_token`.
     pub seat_tokens: BTreeMap<PlayerId, String>,
+}
+
+impl std::fmt::Debug for CreatedLobby {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreatedLobby")
+            .field("lobby", &self.lobby)
+            .field("creator_token", &"[redacted]")
+            .field("seat_tokens", &"[redacted]")
+            .finish()
+    }
 }
 
 /// Snapshot of a lobby and the caller authenticated by a capability, if any.
