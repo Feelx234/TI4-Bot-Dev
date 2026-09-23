@@ -1,6 +1,6 @@
 import React from 'react';
 import { GameLogEntry } from '../hooks/useGameSession.ts';
-import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
+import { useParticipantText, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface EventLogProps {
   events: GameLogEntry[];
@@ -40,6 +40,7 @@ function getVisibilityLabel(visibility: GameLogEntry): string | null {
 
 export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle }) => {
   const display = usePlayerIdentity();
+  const present = useParticipantText();
   return (
     <div
       data-testid="event-log-container"
@@ -141,7 +142,7 @@ export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle }) 
                   )}
                   {visibility && <span style={{ color: '#f59e0b' }}>{visibility}</span>}
                   <span style={{ color: presentation.color, wordBreak: 'break-word' }}>
-                    {presentation.text}
+                     {present(presentation.text)}
                   </span>
                 </div>
               );

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { useDeclineOption, useNonceReset } from '../hooks/useWorkflowState.ts';
+import { useParticipantText } from '../presentation/PlayerIdentity.tsx';
 
 export interface WorkflowShellProps {
   choice: PendingChoiceDto;
@@ -33,6 +34,7 @@ export const WorkflowShell: React.FC<WorkflowShellProps> = ({
   errorTestId,
   children,
 }) => {
+  const present = useParticipantText();
   const [isDirectSubmitting, setIsDirectSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const isActor = !viewerSeat || choice.actor === viewerSeat;
@@ -62,7 +64,7 @@ export const WorkflowShell: React.FC<WorkflowShellProps> = ({
       {children({ isActor, isDirectSubmitting, declineOption, submitDirect })}
       {(lastError || submissionError) && (
         <div data-testid={errorTestId} role="alert">
-          {lastError || submissionError}
+           {present(lastError || submissionError || '')}
         </div>
       )}
     </>

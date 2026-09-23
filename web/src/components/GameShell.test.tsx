@@ -3,6 +3,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { ChoiceRendererDispatcher, GameShell } from './GameShell.tsx';
 import { PendingChoiceDto } from '../protocol/types.ts';
 import { deriveChoiceRendererModel } from '../presentation/choiceModel.ts';
+import { PlayerIdentityProvider } from '../presentation/PlayerIdentity.tsx';
+import type { LobbyDto } from '../protocol/types.ts';
 
 const choice: PendingChoiceDto = {
   prompt: 'Choose a strategy card',
@@ -25,6 +27,36 @@ function renderShell(pendingChoice: PendingChoiceDto | null = null) {
 }
 
 describe('GameShell', () => {
+  it('presents dynamic choice text and errors from the latest roster without changing submissions', () => {
+    const a = `player_${'a'.repeat(64)}`;
+    const b = `player_${'b'.repeat(64)}`;
+    const missing = `player_${'c'.repeat(64)}`;
+    const lobby: LobbyDto = { game_id: 'game', phase: 'running', lobby_version: 1, host_player_id: a,
+      slots: [
+        { slot_id: 'slot_1', position: 1, occupant: a, nickname: 'Sam', ready: true, connected: true, can_take_over: false },
+        { slot_id: 'slot_2', position: 2, occupant: b, nickname: 'Sam', ready: true, connected: true, can_take_over: false },
+      ],
+    };
+    const dynamic: PendingChoiceDto = { actor: a, nonce: 'dynamic', prompt: `${b} offers ${a} a deal`,
+      options: [{ id: `deal:${b}`, label: `Accept from ${b}`, description: `Notify ${missing}; content:${b} stays` }],
+    };
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const view = (roster: LobbyDto) => <PlayerIdentityProvider lobby={roster} seatingOrder={[a, b]}>
+      <ChoiceRendererDispatcher choice={dynamic} viewerSeat={a} onSubmit={onSubmit}
+        lastError={`Unable to notify ${missing}`} isMinimized={false} onMinimizedChange={vi.fn()} />
+    </PlayerIdentityProvider>;
+    const { container, rerender } = render(view(lobby));
+    expect(screen.getByTestId('choice-prompt')).toHaveTextContent('Sam (▲ Position 2) offers Sam (● Position 1) a deal');
+    expect(screen.getByTestId('choice-error-banner')).toHaveTextContent('Unable to notify Unknown participant');
+    expect(container.textContent).not.toContain(missing);
+    expect(container.textContent).toContain(`content:${b}`);
+    rerender(view({ ...lobby, slots: lobby.slots.map((slot) => slot.occupant === b ? { ...slot, nickname: 'Renamed' } : slot) }));
+    expect(screen.getByTestId('choice-prompt')).toHaveTextContent('Renamed offers Sam a deal');
+    fireEvent.click(screen.getByTestId('submit-choice-button'));
+    expect(onSubmit).toHaveBeenCalledWith(`deal:${b}`);
+    expect(dynamic.prompt).toContain(b);
+    expect(dynamic.options[0].label).toContain(b);
+  });
   it('owns player and event drawer visibility', () => {
     renderShell();
 

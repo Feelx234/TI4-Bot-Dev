@@ -1,7 +1,7 @@
 import React from 'react';
 import { SelectedSystemDetails } from '../presentation/boardPresentation.ts';
 import { Drawer } from '../primitives/index.ts';
-import { SeatBadge, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
+import { SeatBadge, useParticipantText, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface SystemInspectorProps {
   system: SelectedSystemDetails | null;
@@ -15,6 +15,7 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
   onSelectAction,
 }) => {
   const display = usePlayerIdentity();
+  const present = useParticipantText();
   if (!system) return null;
 
   return (
@@ -303,7 +304,7 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
                   borderRadius: 6,
                 }}
               >
-                {act.label}
+                 {present(act.label)}
               </button>
             ))}
           </div>

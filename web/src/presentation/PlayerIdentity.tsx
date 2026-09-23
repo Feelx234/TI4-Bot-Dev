@@ -1,6 +1,7 @@
 import React, { createContext, useContext } from 'react';
 import type { LobbyDto } from '../protocol/types.ts';
 import { playerDisplay, seatStyle } from './playerDisplay.ts';
+import { participantText } from './participantText.ts';
 
 const PlayerContext = createContext<{ lobby: LobbyDto | null; seatingOrder: readonly string[] }>({ lobby: null, seatingOrder: [] });
 
@@ -14,6 +15,12 @@ export const PlayerIdentityProvider: React.FC<{
 export function usePlayerIdentity() {
   const { lobby, seatingOrder } = useContext(PlayerContext);
   return (id: string | null | undefined) => playerDisplay(lobby, seatingOrder, id);
+}
+
+/** Presentation only: never feed this text back into protocol or choice IDs. */
+export function useParticipantText() {
+  const { lobby, seatingOrder } = useContext(PlayerContext);
+  return (text: string) => participantText(text, lobby, seatingOrder);
 }
 
 /** The visible number and shape remain readable when color cannot be perceived. */

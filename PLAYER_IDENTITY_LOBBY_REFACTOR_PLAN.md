@@ -16,8 +16,9 @@ workspace and independent-review gates have **not** passed. PIL-09–PIL-16 may
 proceed under this operator exception; none is marked implemented by its
 presence in this plan. PIL-09 server implementation was committed as `98e9fba`;
 independent review is outstanding. PIL-10 and PIL-11 were committed as
-`fe7eb8d`. PIL-12 and PIL-13 browser changes are in the current worktree;
-independent review and real-browser integration remain outstanding.
+`fe7eb8d`. PIL-12 and PIL-13 browser changes were committed as `85f9706`;
+PIL-14 display-boundary changes are in the current worktree. Independent review
+and real-browser integration remain outstanding.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -1001,6 +1002,13 @@ do not claim an intermediate package is a deployable release.
   running takeover, all workflow labels and accessibility, and visually check
   badge/board contrast at narrow widths. PIL-08's workspace/review exceptions
   remain open.
+- **PIL-13 follow-up (2026-09-23):** Reviewed running text outlets against
+  the PIL-14 boundary: game choices, server errors, event/status descriptions,
+  and board inspector actions now resolve participant prose at render time.
+  The roster continues polling during running games for both players and
+  spectators; the same original choice/event displays a renamed participant
+  after takeover. Stable option IDs and source protocol records remain intact.
+  Browser build and 187 tests pass; live-browser refresh remains PIL-16.
 
 ### PIL-14 — Dynamic prompt and error presentation boundary
 
@@ -1008,6 +1016,14 @@ do not claim an intermediate package is a deployable release.
   presentation contracts and `web/src/protocol/`, `web/src/presentation/`,
   affected choice components, and focused server/browser tests. Name exact
   files before implementation; split server and browser changes if necessary.
+- **Execution scope (2026-09-23):** P1; additional writable paths:
+  `web/src/presentation/{participantText,participantText.test}.ts`,
+  `web/src/presentation/PlayerIdentity.tsx`,
+  `web/src/components/{GameShell,PendingChoiceModal,WorkflowShell,TurnStatusBar,EventLog,SystemInspector}.tsx`,
+  `web/src/{App,App.test}.tsx` and focused component tests. Existing choice
+  components receive display-only choice data through `GameShell`; protocol
+  records and engine decisions are not edited. No network or external state;
+  bounded browser tests only. Full Clippy excluded by operator instruction.
 - **Contract:** Audit server-supplied choice prompts, option labels and
   descriptions, status/error text and dynamically constructed UI copy for
   embedded player IDs. Provide a typed participant reference or a reviewed,
@@ -1021,6 +1037,29 @@ do not claim an intermediate package is a deployable release.
   nicknames, ID substrings and takeover show zero raw player IDs in rendered
   or accessible text and unchanged submitted IDs (acceptance 17–18). Run
   formatting, build and affected crate/browser tests.
+- **Progress (2026-09-23, uncommitted):** Added a shared render-only prose
+  boundary for standalone `player_` references. It resolves known roster
+  participants through the PIL-13 display resolver, and recognizes the
+  server's 64-hex-digit generated identity shape to mask unknown references.
+  It requires token boundaries, leaving embedded substrings, composite
+  content/machine IDs and option IDs unchanged. The dispatcher renders a
+  shallow display copy of choice prompts, labels and descriptions in all
+  workflows; the underlying choice and submitted option IDs remain unchanged.
+  Minimized choice banners, board inspector actions, event/status text, lobby
+  and workflow errors use the same resolver. Duplicate names carry seat
+  context; a running takeover refreshes presentation from the current public
+  roster without rewriting historical decisions.
+- **Verification:** `npm run build`, `npm test -- --silent` (28 files, 187
+  passed), and `git diff --check` passed. New tests exercise a realistic
+  offer prompt, option label/description, error, duplicate names, unknown
+  generated ID, punctuation and substring boundaries, takeover rename, and
+  unchanged submitted machine ID. No Rust server files changed; no Rust
+  crate checks or full Clippy ran. Independent review and PIL-16 live-browser
+  acceptance remain outstanding.
+- **Further plan/PIL-16:** Exercise dynamic text across the live browser/server
+  trade answer and error paths, including a running takeover and spectator
+  refresh. Inspect actual accessible text for ID leaks and verify composite
+  content IDs remain literal without being misidentified as participants.
 
 ### PIL-15 — Lobby interaction and accessibility polish
 

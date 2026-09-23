@@ -9,6 +9,7 @@ import { CreateLobby, LobbyStatus } from './components/Lobby.tsx';
 import { GameShell } from './components/GameShell.tsx';
 import { usePresence } from './hooks/usePresence.ts';
 import { PlayerIdentityProvider } from './presentation/PlayerIdentity.tsx';
+import { participantText } from './presentation/participantText.ts';
 
 const storageKey = (gameId: string) => `ti4.player-session:${gameId}`;
 const pathGameId = () => /^\/games\/([^/]+)$/.exec(window.location.pathname)?.[1] ? decodeURIComponent(/^\/games\/([^/]+)$/.exec(window.location.pathname)![1]) : null;
@@ -37,7 +38,7 @@ const GameRoute: React.FC<{ gameId: string; token?: string; onCredential: (crede
   const viewer: ViewerRole = token && playerId ? { role: 'player', seat: playerId, playerSession: token } : { role: 'spectator' };
   const enter = async (nickname: string, id?: string) => { const credential = await join(nickname, id); if (credential) { setWatching(false); onCredential(credential); } };
   const leaveLobby = async () => { if (await leave()) onForget(); };
-  return <>{error && <div className="session-error" role="alert">{error}</div>}{lobby.phase === 'running' && (playerId || watching) ? <GameViewContainer key={`${gameId}:${token ?? 'watch'}`} gameId={gameId} lobby={lobby} viewer={viewer} onLeave={onForget} /> : <LobbyStatus lobby={lobby} playerId={playerId} watching={watching} onReady={(ready) => void setReady(ready)} onStart={() => void start()} onLeave={() => void leaveLobby()} onJoin={(name) => void enter(name)} onTakeover={(id, name) => void enter(name, id)} onReorder={(ids) => void reorder(ids)} onWatch={() => setWatching(true)} />}</>;
+   return <>{error && <div className="session-error" role="alert">{participantText(error, lobby, [])}</div>}{lobby.phase === 'running' && (playerId || watching) ? <GameViewContainer key={`${gameId}:${token ?? 'watch'}`} gameId={gameId} lobby={lobby} viewer={viewer} onLeave={onForget} /> : <LobbyStatus lobby={lobby} playerId={playerId} watching={watching} onReady={(ready) => void setReady(ready)} onStart={() => void start()} onLeave={() => void leaveLobby()} onJoin={(name) => void enter(name)} onTakeover={(id, name) => void enter(name, id)} onReorder={(ids) => void reorder(ids)} onWatch={() => setWatching(true)} />}</>;
 };
 
 const GameViewContainer: React.FC<{ gameId: string; lobby: import('./protocol/types.ts').LobbyDto; viewer: ViewerRole; onLeave: () => void }> = ({ gameId, lobby, viewer, onLeave }) => {

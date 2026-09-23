@@ -3,7 +3,7 @@ import { PendingChoiceDto } from '../protocol/types.ts';
 import { Dialog, Tooltip } from '../primitives/index.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
 import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
-import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
+import { useParticipantText, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -31,6 +31,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   onSelectOptions,
 }) => {
   const display = usePlayerIdentity();
+  const present = useParticipantText();
   const [uncontrolledSelectedOptionId, setUncontrolledSelectedOptionId] = useState<string>('');
   const [uncontrolledSelectedOptionIds, setUncontrolledSelectedOptionIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -335,7 +336,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                 fontSize: 13,
               }}
             >
-              {lastError || submissionError || pipelineError}
+               {present(lastError || submissionError || pipelineError || '')}
             </div>
           )}
 

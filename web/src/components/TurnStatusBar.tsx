@@ -1,7 +1,7 @@
 import React from 'react';
 import { PublicTurnStatus, GameView } from '../protocol/types.ts';
 import { ConnectionStatus } from '../hooks/useGameSession.ts';
-import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
+import { useParticipantText, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
 export interface TurnStatusBarProps {
   status: PublicTurnStatus | null;
@@ -19,6 +19,7 @@ export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
   userSeat,
 }) => {
   const display = usePlayerIdentity();
+  const present = useParticipantText();
   const getStatusText = () => {
     if (!status) return 'Initializing game...';
     switch (status.kind) {
@@ -123,7 +124,7 @@ export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
               : '1px solid #334155',
         }}
       >
-        {getStatusText()}
+         {present(getStatusText())}
       </div>
     </header>
   );

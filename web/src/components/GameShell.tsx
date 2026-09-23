@@ -12,6 +12,7 @@ import { ReactionStatusBar } from './ReactionStatusBar.tsx';
 import { ProductionBuilderDrawer } from './ProductionBuilderDrawer.tsx';
 import { deriveChoiceRendererModel, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { overlayStack } from '../primitives/index.ts';
+import { useParticipantText } from '../presentation/PlayerIdentity.tsx';
 
 export interface GameShellProps {
   header: React.ReactNode;
@@ -110,11 +111,18 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   onMinimizedChange,
   players,
 }) => {
+  const present = useParticipantText();
   const derivedModel = useMemo(() => {
     return choice ? deriveChoiceRendererModel(choice, viewerSeat ?? null) : null;
   }, [choice, viewerSeat]);
 
   if (!choice) return null;
+
+  // A view-only copy: IDs, payloads and the original pending choice stay intact.
+  const visibleChoice = { ...choice, prompt: present(choice.prompt), options: choice.options.map((option) => ({
+    ...option, label: present(option.label),
+    description: option.description == null ? option.description : present(option.description),
+  })) };
 
   const model = propModel ?? derivedModel;
   const workflow = model?.workflow ?? 'generic_selection';
@@ -128,7 +136,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
           className="choice-banner choice-minimized-pill"
           data-testid="choice-minimized-pill"
         >
-          <span className="choice-minimized-pill__prompt">{choice.prompt}</span>
+           <span className="choice-minimized-pill__prompt">{visibleChoice.prompt}</span>
           <button
             type="button"
             data-testid="resume-decision-btn"
@@ -140,7 +148,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
         </div>
       )}
 
-       {renderer({ choice, model, viewerSeat, onSubmit, lastError, selectedOptionId, onSelectOption,
+       {renderer({ choice: visibleChoice, model, viewerSeat, onSubmit, lastError: lastError ? present(lastError) : lastError, selectedOptionId, onSelectOption,
          isMinimized, onMinimizedChange, players })}
     </>
   );
