@@ -154,12 +154,13 @@ pub fn begin_next_round(state: &mut GameState, strategy_cards: Vec<ti4_model::id
     crate::diplomacy::decay_relationships(state);
     state.round += 1;
     state.active = None;
-    // A card still in someone's hand here was kept under Political Stability. It is not on the mat,
-    // so it is not drafted: putting every card back let a second seat take the kept one
-    // (reported 2026-09-23: two factions holding Leadership).
+    // A card kept under Political Stability is not on the mat, so it is not drafted: putting every
+    // card back let a second seat take the kept one (reported 2026-09-23: two factions holding
+    // Leadership).
     let held: std::collections::BTreeSet<ti4_model::id::StrategyCardId> = state
         .players
         .iter()
+        .filter(|player| player.stability)
         .flat_map(|player| player.strategy_cards.iter().cloned())
         .collect();
     state.unclaimed_strategy_cards = strategy_cards
