@@ -18,7 +18,7 @@
 //! cargo run --release -p ti4-mlp --example trade_arena -- --bundle <dir> --out <dir> \
 //!     [--updates 200] [--games-per-update 24] [--temperature 1.0] [--learning-rate 1e-4] \
 //!     [--checkpoint-every 25] [--seed-base 1263000000] [--force 0.5] [--partner-bias 0.5] \
-//!     [--entropy 0.01] [--device cuda] [--no-checkpoint]
+//!     [--entropy 0.01] [--rule-responder] [--device cuda] [--no-checkpoint]
 //! ```
 
 use rand::{Rng, SeedableRng};
@@ -102,6 +102,8 @@ struct ArenaSeat {
     rng: rand_chacha::ChaCha8Rng,
     force: f64,
     partner_bias: f64,
+    /// Answer offers by the value sheet instead of the policy (see [`rule_response`]).
+    rule_responder: bool,
 }
 
 enum Route {
@@ -190,6 +192,9 @@ impl Decider for ArenaSeat {
         seen: &SeatObservation<'_>,
     ) -> Result<ChoiceOption, IllegalChoice> {
         match self.route(choice) {
+            Route::Arena if self.rule_responder && is_response(choice) => {
+                Ok(rule_response(choice, seen))
+            }
             Route::Arena => self.arena.choose_seeing(choice, seen),
             Route::Contact(option) => Ok(option),
             Route::Vehicle(stripped) => self
@@ -197,6 +202,42 @@ impl Decider for ArenaSeat {
                 .choose_seeing(stripped.as_ref().unwrap_or(choice), seen),
         }
     }
+}
+
+fn is_response(choice: &Choice) -> bool {
+    choice
+        .context
+        .as_ref()
+        .is_some_and(|context| context.subtype == "diplomacy_response")
+}
+
+/// A scripted responder: accept exactly when the value sheet scores the offer on the table above
+/// zero for this seat, otherwise decline; never counter. It is not recorded, so only proposers
+/// train, against an opponent that takes any offer worth taking.
+fn rule_response(choice: &Choice, seen: &SeatObservation<'_>) -> ChoiceOption {
+    let facts = ti4_policy::deal_value::deal_facts(seen.observed(), choice);
+    let accept = choice
+        .options
+        .iter()
+        .zip(&facts)
+        .find(|(option, _)| option.id == ti4_engine::diplomacy::window::ACCEPT_ID);
+    let worth_it = accept.is_some_and(|(_, facts)| {
+        facts
+            .iter()
+            .any(|(name, value)| *name == ti4_policy::deal_value::FACT_SCORE && *value > 0.0)
+    });
+    let wanted = if worth_it {
+        ti4_engine::diplomacy::window::ACCEPT_ID
+    } else {
+        ti4_engine::diplomacy::window::DECLINE_ID
+    };
+    choice
+        .options
+        .iter()
+        .find(|option| option.id == wanted)
+        .or_else(|| choice.options.first())
+        .cloned()
+        .expect("a response offers options")
 }
 
 /// One scored negotiation, for the report.
@@ -323,6 +364,7 @@ fn arena_game(
     temperature: f64,
     force: f64,
     partner_bias: f64,
+    rule_responder: bool,
 ) -> Result<GameOut, String> {
     let players: Vec<PlayerId> = (0..6).map(|i| PlayerId::new(format!("seat{i}"))).collect();
     let factions: BTreeMap<PlayerId, FactionId> = players
@@ -384,6 +426,7 @@ fn arena_game(
                         rng: rand_chacha::ChaCha8Rng::seed_from_u64(stream ^ 0xA7E4A),
                         force,
                         partner_bias,
+                        rule_responder,
                     }),
                 );
             }
@@ -498,6 +541,8 @@ fn main() {
     let seed_base: u64 = parsed("--seed-base", 1_263_000_000);
     let force: f64 = parsed("--force", 0.5);
     let partner_bias: f64 = parsed("--partner-bias", 0.5);
+    // Offers are answered by the value sheet, so only proposers learn (operator, 2026-09-23).
+    let rule_responder = flag("--rule-responder");
     let device = match argument("--device").as_deref().unwrap_or("cuda") {
         "cuda" => ti4_tensor::Device::Cuda(0),
         "cpu" => ti4_tensor::Device::Cpu,
@@ -569,7 +614,12 @@ fn main() {
         trade_arena::TRADE_GOODS_PER_VP
     );
     println!(
-        "  play        {games} games per update | temperature {temperature} | force {force} | partner bias {partner_bias}"
+        "  play        {games} games per update | temperature {temperature} | force {force} | partner bias {partner_bias} | responder {}",
+        if rule_responder {
+            "value-sheet rule"
+        } else {
+            "policy"
+        }
     );
     println!(
         "  training    diplomacy readout + deal-value rows only | entropy {entropy} | learning rate {learning_rate}"
@@ -603,6 +653,7 @@ fn main() {
                             temperature,
                             force,
                             partner_bias,
+                            rule_responder,
                         )
                     })
                     .collect::<Vec<_>>()
