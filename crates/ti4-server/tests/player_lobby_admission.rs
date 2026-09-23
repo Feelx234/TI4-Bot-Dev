@@ -4,6 +4,363 @@ use std::time::Duration;
 use ti4_server::session::GameRegistry;
 use ti4_server::session::registry::LobbyError;
 use ti4_server::storage::FileGameStore;
+use ti4_server::storage::LobbySlotId;
+
+fn slot(id: &str) -> LobbySlotId {
+    LobbySlotId(id.to_owned())
+}
+
+#[test]
+fn reorder_moves_empty_slots_and_preserves_host_readiness_and_credentials() {
+    let registry = Arc::new(GameRegistry::new());
+    let (_, host, host_token) = registry.create_player_lobby("order".into(), 3, 77).unwrap();
+    let (_, other, other_token) = registry.join_player_lobby("order", None).unwrap();
+    let other_token = other_token.unwrap();
+    registry
+        .set_player_ready("order", other_token.as_str(), true)
+        .unwrap();
+    let before = registry.player_lobby_status("order", None).unwrap().0;
+    for invalid in [
+        vec![slot("slot_1"), slot("slot_2")],
+        vec![slot("slot_1"), slot("slot_1"), slot("slot_3")],
+        vec![slot("slot_1"), slot("slot_2"), slot("slot_99")],
+    ] {
+        assert!(matches!(
+            registry.reorder_player_lobby("order", host_token.as_str(), &invalid),
+            Err(LobbyError::InvalidSlotOrder)
+        ));
+        assert_eq!(
+            registry
+                .player_lobby_status("order", None)
+                .unwrap()
+                .0
+                .lobby_version,
+            before.lobby_version
+        );
+    }
+    assert!(matches!(
+        registry.reorder_player_lobby(
+            "order",
+            other_token.as_str(),
+            &[slot("slot_3"), slot("slot_2"), slot("slot_1")]
+        ),
+        Err(LobbyError::HostRequired)
+    ));
+    let moved = registry
+        .reorder_player_lobby(
+            "order",
+            host_token.as_str(),
+            &[slot("slot_3"), slot("slot_2"), slot("slot_1")],
+        )
+        .unwrap();
+    assert_eq!(moved.lobby_version, before.lobby_version + 1);
+    assert_eq!(moved.host_player_id, host);
+    assert_eq!(moved.slots[0].slot_id, slot("slot_3"));
+    assert!(moved.slots[0].occupant.is_none());
+    assert_eq!(moved.slots[1].occupant.as_ref(), Some(&other));
+    assert!(moved.slots[1].ready);
+    assert_eq!(moved.slots[2].occupant.as_ref(), Some(&host));
+    let (joined, third, _) = registry.join_player_lobby("order", None).unwrap();
+    assert_eq!(joined.slots[0].occupant.as_ref(), Some(&third));
+    assert_eq!(
+        registry
+            .join_player_lobby("order", Some(host_token.as_str()))
+            .unwrap()
+            .1,
+        host
+    );
+    assert_eq!(
+        registry
+            .join_player_lobby("order", Some(other_token.as_str()))
+            .unwrap()
+            .1,
+        other
+    );
+}
+
+#[test]
+fn join_and_reorder_serialize_under_registry_lock() {
+    let registry = Arc::new(GameRegistry::new());
+    let (_, _, token) = registry.create_player_lobby("race".into(), 3, 77).unwrap();
+    let barrier = Arc::new(Barrier::new(3));
+    let join = {
+        let (registry, barrier) = (registry.clone(), barrier.clone());
+        std::thread::spawn(move || {
+            barrier.wait();
+            registry.join_player_lobby("race", None).unwrap()
+        })
+    };
+    let reorder = {
+        let (registry, barrier) = (registry.clone(), barrier.clone());
+        std::thread::spawn(move || {
+            barrier.wait();
+            registry
+                .reorder_player_lobby(
+                    "race",
+                    token.as_str(),
+                    &[slot("slot_3"), slot("slot_1"), slot("slot_2")],
+                )
+                .unwrap()
+        })
+    };
+    barrier.wait();
+    let (join_view, player, _) = join.join().unwrap();
+    let reorder_view = reorder.join().unwrap();
+    let final_view = registry.player_lobby_status("race", None).unwrap().0;
+    assert_eq!(final_view.lobby_version, 3);
+    assert_eq!(
+        final_view
+            .slots
+            .iter()
+            .filter(|s| s.occupant.is_some())
+            .count(),
+        2
+    );
+    assert_eq!(
+        final_view
+            .slots
+            .iter()
+            .filter(|s| s.occupant.as_ref() == Some(&player))
+            .count(),
+        1
+    );
+    if join_view.lobby_version == 3 {
+        assert_eq!(join_view.slots[0].occupant.as_ref(), Some(&player));
+    } else {
+        assert_eq!(reorder_view.lobby_version, 3);
+        assert_eq!(final_view.slots[2].occupant.as_ref(), Some(&player));
+    }
+}
+
+#[test]
+fn start_commit_recovers_exact_order_and_current_rotated_sessions() {
+    let dir = std::env::temp_dir().join(format!("ti4_pil05_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&dir).unwrap());
+    let registry = GameRegistry::new()
+        .with_store(store.clone())
+        .with_presence_grace(Duration::from_millis(10));
+    let (_, host, token) = registry
+        .create_player_lobby("commit".into(), 2, 99)
+        .unwrap();
+    let (_, other, other_token) = registry.join_player_lobby("commit", None).unwrap();
+    let other_token = other_token.unwrap();
+    registry
+        .reorder_player_lobby("commit", token.as_str(), &[slot("slot_2"), slot("slot_1")])
+        .unwrap();
+    registry
+        .set_player_ready("commit", token.as_str(), true)
+        .unwrap();
+    assert!(matches!(
+        registry.start_player_lobby("commit", token.as_str()),
+        Err(LobbyError::HumansNotReady)
+    ));
+    registry
+        .set_player_ready("commit", other_token.as_str(), true)
+        .unwrap();
+    let obstruction = store.game_dir("commit").unwrap().join("init.tmp");
+    std::fs::create_dir(&obstruction).unwrap();
+    assert!(matches!(
+        registry.start_player_lobby("commit", token.as_str()),
+        Err(LobbyError::Storage(_))
+    ));
+    // Simulate power loss after the Running lobby file but before the init
+    // record was committed, regardless of a best-effort rollback on error.
+    let mut pre_init = store.load_player_lobby("commit").unwrap().unwrap();
+    pre_init.phase = ti4_server::storage::PersistedLobbyPhase::Running;
+    store.save_player_lobby(&pre_init).unwrap();
+    let pre_commit = GameRegistry::new().with_store(store.clone());
+    pre_commit.recover_all_games().unwrap();
+    assert!(pre_commit.get_game("commit").is_none());
+    assert_eq!(
+        pre_commit
+            .player_lobby_status("commit", None)
+            .unwrap()
+            .0
+            .phase,
+        ti4_server::session::registry::LobbyPhase::Lobby
+    );
+    std::fs::remove_dir(&obstruction).unwrap();
+    let running = registry
+        .start_player_lobby("commit", token.as_str())
+        .unwrap();
+    assert_eq!(
+        running.phase,
+        ti4_server::session::registry::LobbyPhase::Running
+    );
+    assert_eq!(
+        store.load_player_init("commit").unwrap().player_ids,
+        vec![other.clone(), host.clone()]
+    );
+    assert_eq!(
+        store
+            .load_player_init("commit")
+            .unwrap()
+            .initial_state
+            .players
+            .iter()
+            .map(|player| player.id.clone())
+            .collect::<Vec<_>>(),
+        vec![other.clone(), host.clone()]
+    );
+    assert!(matches!(
+        registry.reorder_player_lobby("commit", token.as_str(), &[slot("slot_1"), slot("slot_2")]),
+        Err(LobbyError::AlreadyRunning)
+    ));
+    assert!(matches!(
+        registry.join_player_lobby("commit", None),
+        Err(LobbyError::AlreadyRunning)
+    ));
+    std::thread::sleep(Duration::from_millis(15));
+    let (_, rotated) = registry.take_over_player("commit", &other).unwrap();
+    // Simulate the post-init crash boundary with an older lobby on disk: init
+    // commits the game and the separate current-session record commits rotation.
+    let mut stale_lobby = store.load_player_lobby("commit").unwrap().unwrap();
+    stale_lobby.phase = ti4_server::storage::PersistedLobbyPhase::Lobby;
+    store.save_player_lobby(&stale_lobby).unwrap();
+    let recovered = GameRegistry::new().with_store(store.clone());
+    recovered.recover_all_games().unwrap();
+    assert!(recovered.get_game("commit").is_some());
+    assert_eq!(
+        recovered
+            .player_lobby_status("commit", None)
+            .unwrap()
+            .0
+            .phase,
+        ti4_server::session::registry::LobbyPhase::Running
+    );
+    assert_eq!(
+        recovered
+            .authenticate_player_session("commit", rotated.as_str())
+            .unwrap(),
+        other
+    );
+    assert!(matches!(
+        recovered.authenticate_player_session("commit", other_token.as_str()),
+        Err(LobbyError::InvalidCapability)
+    ));
+    assert_eq!(
+        recovered
+            .authenticate_player_session("commit", token.as_str())
+            .unwrap(),
+        host
+    );
+    recovered.remove_game("commit");
+    pre_commit.remove_game("commit");
+    registry.remove_game("commit");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn reorder_storage_failure_leaves_lobby_unchanged() {
+    let dir =
+        std::env::temp_dir().join(format!("ti4_pil05_failure_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&dir).unwrap());
+    let registry = GameRegistry::new().with_store(store.clone());
+    let (before, _, token) = registry
+        .create_player_lobby("failure_order".into(), 2, 1)
+        .unwrap();
+    let obstruction = store.game_dir("failure_order").unwrap().join("lobby.tmp");
+    std::fs::create_dir(&obstruction).unwrap();
+    assert!(matches!(
+        registry.reorder_player_lobby(
+            "failure_order",
+            token.as_str(),
+            &[slot("slot_2"), slot("slot_1")]
+        ),
+        Err(LobbyError::Storage(_))
+    ));
+    let after = registry
+        .player_lobby_status("failure_order", None)
+        .unwrap()
+        .0;
+    assert_eq!(after.lobby_version, before.lobby_version);
+    assert_eq!(after.slots[0].slot_id, before.slots[0].slot_id);
+    assert_eq!(
+        store
+            .load_player_lobby("failure_order")
+            .unwrap()
+            .unwrap()
+            .slots[0]
+            .slot_id,
+        slot("slot_1")
+    );
+    std::fs::remove_dir(&obstruction).unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn http_reorder_requires_host_and_strict_slot_ids() {
+    let registry = Arc::new(GameRegistry::new());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server =
+        tokio::spawn(axum::serve(listener, ti4_server::create_app(registry)).into_future());
+    let client = reqwest::Client::new();
+    let base = format!("http://{addr}/api/games");
+    let created: serde_json::Value = client
+        .post(&base)
+        .json(&serde_json::json!({"player_count": 2}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let url = format!("{base}/{}/lobby", created["game_id"].as_str().unwrap());
+    let host = created["player_session"].as_str().unwrap();
+    let joined: serde_json::Value = client
+        .post(format!("{url}/join"))
+        .json(&serde_json::json!({"kind":"new"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let other = joined["player_session"].as_str().unwrap();
+    for (auth, body, status) in [
+        (
+            None,
+            serde_json::json!({"slot_ids":["slot_2","slot_1"]}),
+            reqwest::StatusCode::FORBIDDEN,
+        ),
+        (
+            Some(other),
+            serde_json::json!({"slot_ids":["slot_2","slot_1"]}),
+            reqwest::StatusCode::FORBIDDEN,
+        ),
+        (
+            Some(host),
+            serde_json::json!({"slot_ids":["slot_2","slot_2"]}),
+            reqwest::StatusCode::BAD_REQUEST,
+        ),
+        (
+            Some(host),
+            serde_json::json!({"slot_ids":["slot_2","slot_1"],"player_id":"x"}),
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let mut request = client.post(format!("{url}/reorder")).json(&body);
+        if let Some(auth) = auth {
+            request = request.header("x-ti4-player-session", auth);
+        }
+        assert_eq!(request.send().await.unwrap().status(), status);
+    }
+    let moved: serde_json::Value = client
+        .post(format!("{url}/reorder"))
+        .header("x-ti4-player-session", host)
+        .json(&serde_json::json!({"slot_ids":["slot_2","slot_1"]}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(moved["slots"][0]["occupant"], joined["player"]["id"]);
+    assert_eq!(moved["host_player_id"], created["player"]["id"]);
+    assert!(!moved.to_string().contains(host));
+    server.abort();
+}
 
 #[test]
 fn takeover_requires_absence_rotates_once_and_preserves_lobby_identity() {

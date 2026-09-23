@@ -209,6 +209,7 @@ pub enum LobbyError {
     SeatUnavailable,
     TakeoverUnavailable,
     InvalidPlayerId,
+    InvalidSlotOrder,
     Map(String),
     Storage(String),
 }
@@ -222,11 +223,12 @@ impl LobbyError {
             Self::AlreadyRunning => "Game has already started".to_owned(),
             Self::InvalidCapability => "Invalid seat capability".to_owned(),
             Self::HumanSeatRequired => "Only human seats may update readiness".to_owned(),
-            Self::HostRequired => "Only the lobby host may start the game".to_owned(),
+            Self::HostRequired => "Only the lobby host may perform this action".to_owned(),
             Self::HumansNotReady => "Every human seat must be ready before starting".to_owned(),
             Self::SeatUnavailable => "Seat is unavailable".to_owned(),
             Self::TakeoverUnavailable => "Takeover is not available yet".to_owned(),
             Self::InvalidPlayerId => "Invalid player ID".to_owned(),
+            Self::InvalidSlotOrder => "Slot order must be a complete permutation".to_owned(),
             Self::Map(error) => format!("Failed to start game with map: {error}"),
             Self::Storage(error) => format!("Failed to persist lobby lifecycle: {error}"),
         }
@@ -843,6 +845,52 @@ impl GameRegistry {
         self.save_player_lobby(&updated)?;
         *lobby = updated;
         state.presence.remove(&(game_id.to_owned(), player));
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
+    }
+
+    /// Reorder entire slots, including open ones, without changing participants.
+    /// Admission and start use the same registry lock, so the next open slot is
+    /// always selected from one complete, persisted order.
+    pub fn reorder_player_lobby(
+        &self,
+        game_id: &str,
+        credential: &str,
+        slot_ids: &[LobbySlotId],
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        if authenticate_player(lobby, credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let by_id: BTreeMap<_, _> = lobby
+            .slots
+            .iter()
+            .map(|slot| (slot.slot_id.clone(), slot.clone()))
+            .collect();
+        if slot_ids.len() != lobby.slots.len()
+            || slot_ids.iter().collect::<BTreeSet<_>>().len() != lobby.slots.len()
+            || slot_ids.iter().any(|id| !by_id.contains_key(id))
+        {
+            return Err(LobbyError::InvalidSlotOrder);
+        }
+        let mut updated = lobby.clone();
+        updated.slots = slot_ids.iter().map(|id| by_id[id].clone()).collect();
+        if updated
+            .slots
+            .iter()
+            .map(|s| &s.slot_id)
+            .ne(lobby.slots.iter().map(|s| &s.slot_id))
+        {
+            updated.lobby_version += 1;
+            self.save_player_lobby(&updated)?;
+            *lobby = updated;
+        }
         Ok(self.player_view(&state, &state.player_lobbies[game_id]))
     }
 

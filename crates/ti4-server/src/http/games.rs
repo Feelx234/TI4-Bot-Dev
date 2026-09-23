@@ -12,6 +12,7 @@ use ti4_model::id::PlayerId;
 use crate::protocol::server::ServerMessage;
 use crate::session::GameRegistry;
 use crate::session::registry::{GameSummary, LobbyError, PlayerLobbyView};
+use crate::storage::LobbySlotId;
 
 const MAX_PLAYERS: usize = 8;
 
@@ -42,6 +43,12 @@ pub struct PlayerIdentity {
 #[serde(deny_unknown_fields)]
 pub struct ReadyRequest {
     pub ready: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReorderRequest {
+    pub slot_ids: Vec<LobbySlotId>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,6 +188,24 @@ pub async fn set_ready(
     ))
 }
 
+/// Host-only complete slot-ID permutation while the game is a lobby.
+pub async fn reorder_lobby(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<ReorderRequest>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    Ok(Json(
+        registry
+            .reorder_player_lobby(
+                &game_id,
+                require_player_session(&headers)?,
+                &payload.slot_ids,
+            )
+            .map_err(lobby_error)?,
+    ))
+}
+
 /// Handler for `POST /api/games/{game_id}/lobby/start`.
 pub async fn start_lobby(
     Path(game_id): Path<String>,
@@ -221,7 +246,7 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
         | LobbyError::NotInLobby
         | LobbyError::SeatUnavailable
         | LobbyError::TakeoverUnavailable => StatusCode::CONFLICT,
-        LobbyError::InvalidPlayerId => StatusCode::BAD_REQUEST,
+        LobbyError::InvalidPlayerId | LobbyError::InvalidSlotOrder => StatusCode::BAD_REQUEST,
         LobbyError::Map(_) | LobbyError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, message)

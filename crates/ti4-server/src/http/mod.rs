@@ -69,6 +69,10 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             axum::routing::post(games::set_ready),
         )
         .route(
+            "/api/games/{game_id}/lobby/reorder",
+            axum::routing::post(games::reorder_lobby),
+        )
+        .route(
             "/api/games/{game_id}/lobby/start",
             axum::routing::post(games::start_lobby),
         )

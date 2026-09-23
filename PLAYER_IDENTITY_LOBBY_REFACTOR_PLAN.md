@@ -4,8 +4,9 @@
 
 PIL-01 model/persistence implementation was committed as `e0f234d` on
 2026-09-23. PIL-02 was committed as `cf4a01f`; PIL-03 as `37c8823`.
-PIL-04 is implemented in the working tree. Package progress and verification
-results are tracked here, without separate evidence artifacts.
+PIL-04 was committed as `83957c3`. PIL-05 is implemented in the working
+tree. Package progress and verification results are tracked here, without
+separate evidence artifacts.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -480,6 +481,12 @@ do not claim an intermediate package is a deployable release.
 
 - **Depends:** PIL-04. **Primary scope:** registry reorder and
   start, game-init storage/recovery, HTTP reorder route, and focused tests.
+- **Additional edit paths:** `crates/ti4-server/src/http/mod.rs` for the
+  reorder route and `crates/ti4-server/tests/player_lobby_admission.rs` for
+  HTTP, concurrency, and recovery-boundary coverage.
+- **Access:** P1; writable paths are the primary and additional paths above
+  plus this plan. No external reference, network download, persistent worker
+  process, or external-state change; only bounded local test storage.
 - **Contract:** Only the lobby host may submit a complete slot-ID permutation;
   join and reorder serialize. Start requires full occupancy/readiness and
   derives exactly one ordered player vector for the engine. A valid init record
@@ -488,6 +495,31 @@ do not claim an intermediate package is a deployable release.
 - **Gate:** Reorder/empty-slot/join race, bad permutations, host preservation,
   exact engine order, rejected post-start changes, and crash-before/after-init
   tests pass (acceptance 6–9, 12).
+- **Progress (2026-09-23):** Added host-authenticated `POST
+  /api/games/{game_id}/lobby/reorder` accepting strict `{ "slot_ids": [...] }`.
+  The registry validates an exact permutation, including empty slots, under
+  the same lock as join/start. A changed order increments the lobby version
+  and is saved before publication; storage failures leave memory and disk
+  unchanged. The host's identity, credential and readiness stay with the
+  occupant. Start already derives its only engine order from the final slot
+  vector, and writes current sessions and the running lobby before the
+  credential-free init commit. Recovery treats a Running lobby lacking init as
+  unstarted and treats valid init as started, even if the lobby phase is stale;
+  rotated running credentials still come from the authoritative sessions file.
+- **Verification:** `cargo fmt --package ti4-server`, focused
+  `cargo test -p ti4-server --test player_lobby_admission` (13 passed),
+  `cargo test -p ti4-server` (all unit/integration/doc tests passed), and
+  `git diff --check` passed. Focused cases cover concurrent join/reorder,
+  exact slot validation and HTTP authorization, persistence rollback, ordered
+  initialized engine players, and both sides of the init crash boundary with
+  post-start credential rotation. Full Clippy was not run as requested
+  (blocked by `ti4-model`). No independent review was performed.
+- **Next/PIL-06 and PIL-07:** Browser host controls should submit the entire
+  current `slot_id` order, including open slots, to `/lobby/reorder`; show
+  the returned positions and handle authorization/conflict responses. Bot
+  clients should use the reordered public positions for display only; their
+  authenticated `PlayerId` remains their sole acting identity. PIL-08 must
+  verify the actual browser/bot start path and full workspace gate.
 
 ### PIL-06 — Browser flows
 
