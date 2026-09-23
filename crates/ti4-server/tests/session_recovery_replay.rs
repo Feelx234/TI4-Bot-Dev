@@ -169,7 +169,7 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     let create_res = client
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
-            "player_count": 3,
+            "player_count": 3, "nickname": "Host",
             "seed": 12345
         }))
         .send()
@@ -188,7 +188,7 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
     for _ in 0..2 {
         let claimed = client
             .post(format!("{base_url}/api/games/{game_id}/lobby/join"))
-            .json(&serde_json::json!({ "kind": "new" }))
+            .json(&serde_json::json!({ "kind": "new", "nickname": "Guest" }))
             .send()
             .await
             .expect("claim player");

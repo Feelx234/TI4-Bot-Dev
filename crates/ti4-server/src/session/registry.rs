@@ -35,6 +35,7 @@ pub struct PlayerSlotView {
     pub slot_id: LobbySlotId,
     pub position: usize,
     pub occupant: Option<PlayerId>,
+    pub nickname: Option<String>,
     pub ready: bool,
     pub connected: bool,
     pub can_take_over: bool,
@@ -46,7 +47,9 @@ impl PlayerLobbyRecord {
         game_id: String,
         slot_count: usize,
         seed: u64,
+        nickname: &str,
     ) -> Result<(Self, PlayerId, PlayerSession), StorageError> {
+        crate::storage::validate_nickname(nickname)?;
         crate::storage::validate_game_id(&game_id)?;
         if !(1..=8).contains(&slot_count) {
             return Err(StorageError::InvalidPlayerRecord("slot count"));
@@ -59,6 +62,7 @@ impl PlayerLobbyRecord {
             PlayerLobbyMember {
                 ready: false,
                 session: session.clone(),
+                nickname: nickname.to_owned(),
             },
         );
         let slots = (0..slot_count)
@@ -99,6 +103,10 @@ impl PlayerLobbyRecord {
                     slot_id: slot.slot_id.clone(),
                     position: index + 1,
                     occupant: slot.occupant.clone(),
+                    nickname: slot
+                        .occupant
+                        .as_ref()
+                        .map(|id| self.players[id].nickname.clone()),
                     ready: slot
                         .occupant
                         .as_ref()
@@ -210,6 +218,7 @@ pub enum LobbyError {
     TakeoverUnavailable,
     InvalidPlayerId,
     InvalidSlotOrder,
+    InvalidNickname,
     Map(String),
     Storage(String),
 }
@@ -229,10 +238,15 @@ impl LobbyError {
             Self::TakeoverUnavailable => "Takeover is not available yet".to_owned(),
             Self::InvalidPlayerId => "Invalid player ID".to_owned(),
             Self::InvalidSlotOrder => "Slot order must be a complete permutation".to_owned(),
+            Self::InvalidNickname => "Nickname must be trimmed, nonempty Unicode text of at most 64 UTF-8 bytes without control or formatting characters".to_owned(),
             Self::Map(error) => format!("Failed to start game with map: {error}"),
             Self::Storage(error) => format!("Failed to persist lobby lifecycle: {error}"),
         }
     }
+}
+
+fn check_nickname(nickname: &str) -> Result<(), LobbyError> {
+    crate::storage::validate_nickname(nickname).map_err(|_| LobbyError::InvalidNickname)
 }
 
 #[derive(Default)]
@@ -488,7 +502,7 @@ impl GameRegistry {
             {
                 continue;
             }
-            // A v2 lobby is a private record; never deserialize it as a v1 seat lobby.
+            // A versioned player lobby is private; never deserialize it as a v1 seat lobby.
             let path = store.game_dir(&game_id)?.join("lobby.json");
             if std::fs::metadata(&path)?.len() > 64 * 1024 {
                 return Err(StorageError::Oversized {
@@ -522,11 +536,9 @@ impl GameRegistry {
                     // The session record is authoritative after start; the lobby file
                     // may predate a successful running-game credential rotation.
                     for (id, session) in credentials.sessions {
-                        record
-                            .players
-                            .get_mut(&id)
-                            .expect("validated roster")
-                            .session = session;
+                        let member = record.players.get_mut(&id).expect("validated roster");
+                        member.session = session;
+                        member.nickname = credentials.nicknames[&id].clone();
                     }
                     state.sessions.insert(
                         game_id.clone(),
@@ -577,7 +589,9 @@ impl GameRegistry {
         game_id: String,
         count: usize,
         seed: u64,
+        nickname: &str,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        check_nickname(nickname)?;
         let mut state = self.state.lock().expect("registry lock");
         if state.lobbies.contains_key(&game_id)
             || state.player_lobbies.contains_key(&game_id)
@@ -589,8 +603,9 @@ impl GameRegistry {
         {
             return Err(LobbyError::SeatUnavailable);
         }
-        let (record, player, credential) = PlayerLobbyRecord::create(game_id.clone(), count, seed)
-            .map_err(|error| LobbyError::Storage(error.to_string()))?;
+        let (record, player, credential) =
+            PlayerLobbyRecord::create(game_id.clone(), count, seed, nickname)
+                .map_err(|error| LobbyError::Storage(error.to_string()))?;
         self.save_player_lobby(&record)?;
         let view = record.public_view();
         state
@@ -631,7 +646,18 @@ impl GameRegistry {
         &self,
         game_id: &str,
         credential: Option<&str>,
+        nickname: Option<&str>,
     ) -> Result<(PlayerLobbyView, PlayerId, Option<PlayerSession>), LobbyError> {
+        if credential.is_some() && nickname.is_some() {
+            return Err(LobbyError::InvalidNickname);
+        }
+        let nickname = if credential.is_none() {
+            let name = nickname.ok_or(LobbyError::InvalidNickname)?;
+            check_nickname(name)?;
+            Some(name)
+        } else {
+            None
+        };
         let mut state = self.state.lock().expect("registry lock");
         let lobby = state
             .player_lobbies
@@ -671,6 +697,7 @@ impl GameRegistry {
             PlayerLobbyMember {
                 ready: false,
                 session: session.clone(),
+                nickname: nickname.expect("new admission has nickname").to_owned(),
             },
         );
         updated.lobby_version += 1;
@@ -693,7 +720,9 @@ impl GameRegistry {
         &self,
         game_id: &str,
         player: &PlayerId,
+        nickname: &str,
     ) -> Result<(PlayerLobbyView, PlayerSession), LobbyError> {
+        check_nickname(nickname)?;
         let mut state = self.state.lock().expect("registry lock");
         let lobby = state
             .player_lobbies
@@ -716,11 +745,9 @@ impl GameRegistry {
                 break candidate;
             }
         };
-        updated
-            .players
-            .get_mut(player)
-            .expect("validated player")
-            .session = replacement.clone();
+        let member = updated.players.get_mut(player).expect("validated player");
+        member.session = replacement.clone();
+        member.nickname = nickname.to_owned();
         updated.lobby_version += 1;
         if matches!(updated.phase, PersistedLobbyPhase::Running) {
             if !state.sessions.contains_key(game_id) {
@@ -735,6 +762,11 @@ impl GameRegistry {
                             .players
                             .iter()
                             .map(|(id, member)| (id.clone(), member.session.clone()))
+                            .collect(),
+                        nicknames: updated
+                            .players
+                            .iter()
+                            .map(|(id, member)| (id.clone(), member.nickname.clone()))
                             .collect(),
                     })
                     .map_err(|e| LobbyError::Storage(e.to_string()))?;
@@ -983,6 +1015,11 @@ impl GameRegistry {
                         .players
                         .iter()
                         .map(|(p, m)| (p.clone(), m.session.clone()))
+                        .collect(),
+                    nicknames: lobby
+                        .players
+                        .iter()
+                        .map(|(id, member)| (id.clone(), member.nickname.clone()))
                         .collect(),
                 })
                 .map_err(|e| LobbyError::Storage(e.to_string()))?;

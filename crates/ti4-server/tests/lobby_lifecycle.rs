@@ -27,7 +27,7 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
             "player_count": 2,
-            "seed": 42
+            "seed": 42, "nickname": "Host"
         }))
         .send()
         .await
@@ -41,7 +41,7 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
         .to_owned();
     let p2 = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/join"))
-        .json(&serde_json::json!({ "kind": "new" }))
+        .json(&serde_json::json!({ "kind": "new", "nickname": "Guest" }))
         .send()
         .await
         .expect("claim p2")
@@ -128,9 +128,9 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
     let client = reqwest::Client::new();
 
     for payload in [
-        serde_json::json!({"player_count": 0}),
-        serde_json::json!({"player_count": 1}),
-        serde_json::json!({"player_count": 9}),
+        serde_json::json!({"player_count": 0, "nickname":"Host"}),
+        serde_json::json!({"player_count": 1, "nickname":"Host"}),
+        serde_json::json!({"player_count": 9, "nickname":"Host"}),
     ] {
         let response = client
             .post(format!("{base_url}/api/games"))
@@ -156,7 +156,7 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
             "player_count": 2,
-            "seed": 19
+            "seed": 19, "nickname": "Host"
         }))
         .send()
         .await
@@ -167,7 +167,7 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
     let p1 = created["player_session"].as_str().expect("p1 token");
     let p2 = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/join"))
-        .json(&serde_json::json!({ "kind": "new" }))
+        .json(&serde_json::json!({ "kind": "new", "nickname": "Guest" }))
         .send()
         .await
         .expect("claim p2")
@@ -180,7 +180,7 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
     let other = client
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
-            "player_count": 2
+            "player_count": 2, "nickname": "Other"
         }))
         .send()
         .await

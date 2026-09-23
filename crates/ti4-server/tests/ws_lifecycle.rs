@@ -111,7 +111,7 @@ async fn ready_and_start(client: &reqwest::Client, addr: &str, game_id: &str, to
     for _ in all_tokens.len()..lobby["slots"].as_array().unwrap().len() {
         let joined: serde_json::Value = client
             .post(format!("http://{addr}/api/games/{game_id}/lobby/join"))
-            .json(&serde_json::json!({"kind":"new"}))
+            .json(&serde_json::json!({"kind":"new", "nickname":"Guest"}))
             .send()
             .await
             .unwrap()
@@ -148,7 +148,9 @@ async fn create_game(
 ) -> (String, String) {
     let response = client
         .post(format!("http://{addr}/api/games"))
-        .json(&serde_json::json!({ "player_count": players.len(), "seed": seed }))
+        .json(
+            &serde_json::json!({ "player_count": players.len(), "seed": seed, "nickname": "Host" }),
+        )
         .send()
         .await
         .expect("create game");
@@ -169,7 +171,7 @@ async fn create_game(
 async fn claim_seat(client: &reqwest::Client, addr: &str, game_id: &str, _seat: &str) -> String {
     let response = client
         .post(format!("http://{addr}/api/games/{game_id}/lobby/join"))
-        .json(&serde_json::json!({ "kind": "new" }))
+        .json(&serde_json::json!({ "kind": "new", "nickname": "Guest" }))
         .send()
         .await
         .expect("claim seat");
@@ -762,13 +764,13 @@ async fn running_takeover_closes_old_subscription_and_refuses_old_choices() {
         serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
     assert!(matches!(first, ServerMessage::InitialSnapshot(_)));
     assert!(matches!(
-        registry.take_over_player(&game, &host),
+        registry.take_over_player(&game, &host, "New Host"),
         Err(ti4_server::session::registry::LobbyError::TakeoverUnavailable)
     ));
     tokio::time::sleep(Duration::from_millis(55)).await;
     let response: serde_json::Value = client
         .post(format!("http://{addr}/api/games/{game}/lobby/join"))
-        .json(&serde_json::json!({"kind":"takeover", "player_id":host}))
+        .json(&serde_json::json!({"kind":"takeover", "player_id":host, "nickname":"New Host"}))
         .send()
         .await
         .unwrap()

@@ -10,11 +10,12 @@ progress and verification results are tracked here, without separate evidence
 artifacts.
 PIL-07 bot-agent changes were committed as `14a88cb`; the optional
 Linux libtorch-backed advisor E2E gate passes, pending independent review.
-PIL-08 integration changes are in the working tree. The operator accepted
+PIL-08 integration changes were committed as `4276024`. The operator accepted
 PIL-08 on 2026-09-23 with the explicitly recorded exceptions below; its full
 workspace and independent-review gates have **not** passed. PIL-09–PIL-16 may
 proceed under this operator exception; none is marked implemented by its
-presence in this plan.
+presence in this plan. PIL-09 server implementation is in the working tree;
+independent review is outstanding.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -755,6 +756,11 @@ do not claim an intermediate package is a deployable release.
 - **Depends:** PIL-08. **Primary scope:** `crates/ti4-server/src/storage.rs`,
   `crates/ti4-server/src/session/registry.rs`, `crates/ti4-server/src/http/games.rs`,
   and focused server/recovery tests. Record any additional edit paths before use.
+- **Execution scope (2026-09-23):** P1; writable paths are the three primary
+  server files, `crates/ti4-server/tests/{player_lobby_admission,lobby_lifecycle,ws_lifecycle,session_recovery_replay}.rs`, and this
+  plan. No external references/downloads or external state; bounded local test
+  storage and loopback HTTP tests only. No destructive actions. Full Clippy is
+  excluded by operator instruction (`ti4-model` blocker).
 - **Contract:** Require a nickname when creating a host, admitting a new player,
   or explicitly taking over a disconnected player. A credential reconnect uses
   the already stored nickname and cannot rename its player. Nicknames belong to
@@ -783,6 +789,38 @@ do not claim an intermediate package is a deployable release.
   lobby/running takeover rename, restart and failed-write rollback pass
   (acceptance 13–14). Run formatting and affected-crate tests. This package
   changes the nickname contract, not the engine's `PlayerId`-based protocol.
+- **Progress (2026-09-23, uncommitted):** Create requires `nickname`; new join
+  requires a nickname, credential reconnect omits it and rejects attempts to
+  rename, and explicit takeover requires a new nickname. The same validation
+  runs at the registry and storage boundaries: exact, nonempty, trimmed Unicode
+  text, at most 64 UTF-8 bytes, with control and formatting characters rejected.
+  No truncation, uniqueness check, or name-based authentication. The public
+  slot projection carries the current occupant's nickname alongside position;
+  `GET /lobby` remains available after start to running-game clients and
+  spectators. Reorder moves occupants without rebinding their names. The
+  player records now use schema v3 (v2 is explicitly refused). Running-session
+  records store both current credentials and nicknames; successful running
+  takeover writes that one authoritative file before changing live state, and
+  restart overlays both fields from it rather than trusting the stale lobby.
+  Failed lobby/running writes leave both fields unchanged. Direct registry
+  creation, joining and takeover require explicit nickname arguments too.
+- **Verification:** `cargo fmt --package ti4-server` and `cargo test -p
+  ti4-server` passed (all unit, integration and doc tests); `git diff --check`
+  passed. Focused tests exercise Unicode/bounds/format validation, duplicate
+  names, HTTP admission/reconnect refusal, name continuity across reorder,
+  running takeover with a stale lobby on disk, lobby takeover restart, and
+  rollback on obstructed lobby/current-session writes. Full Clippy was not run
+  per operator instruction. No independent review was performed. This is a
+  breaking server request/storage contract; current browser and bot creation
+  and new-join requests need their PIL-11 and PIL-10 changes before end-to-end
+  admission works again.
+- **Next:** PIL-10 must send `nickname` for bot new join/takeover and omit it on
+  reconnect; PIL-11 must mirror the 64-byte exact Unicode server validation,
+  decode the optional public slot nickname and use the server's stored name on
+  reconnect. PIL-13 should refresh its running-game roster from `GET /lobby`
+  after takeover (including spectator sessions); PIL-16 must verify this path
+  with the actual browser/bot and server. PIL-08's workspace/review exceptions
+  above remain open; they are not resolved by PIL-09 tests.
 
 ### PIL-10 — Bot nickname on admission
 

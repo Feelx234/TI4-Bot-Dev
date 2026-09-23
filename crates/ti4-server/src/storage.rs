@@ -65,7 +65,7 @@ const MAX_INIT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_LOG_BYTES: usize = 64 * 1024 * 1024;
 const MAX_LOG_RECORD_BYTES: usize = 64 * 1024;
 const MAX_SNAPSHOT_BYTES: usize = 4 * 1024 * 1024;
-pub const PLAYER_RECORD_VERSION: u16 = 2;
+pub const PLAYER_RECORD_VERSION: u16 = 3;
 const MAX_PLAYER_LOBBY_BYTES: usize = 64 * 1024;
 const MAX_PLAYER_SESSIONS_BYTES: usize = 16 * 1024;
 const MAX_LOBBY_SLOTS: usize = 8;
@@ -154,18 +154,20 @@ pub struct PlayerLobbySlot {
 pub struct PlayerLobbyMember {
     pub ready: bool,
     pub session: PlayerSession,
+    pub nickname: String,
 }
 
 impl std::fmt::Debug for PlayerLobbyMember {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PlayerLobbyMember")
             .field("ready", &self.ready)
+            .field("nickname", &self.nickname)
             .field("session", &self.session)
             .finish()
     }
 }
 
-/// Private v2 lobby record. Never return this type from a public API.
+/// Private versioned lobby record. Never return this type from a public API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayerLobbyRecord {
@@ -218,6 +220,7 @@ impl PlayerLobbyRecord {
                 return Err(StorageError::InvalidPlayerRecord("player ID"));
             }
             player.session.validate()?;
+            validate_nickname(&player.nickname)?;
             if !credentials.insert(player.session.as_str()) {
                 return Err(StorageError::InvalidPlayerRecord("duplicate session"));
             }
@@ -245,6 +248,7 @@ pub struct PlayerSessionsRecord {
     pub schema_version: u16,
     pub game_id: String,
     pub sessions: BTreeMap<PlayerId, PlayerSession>,
+    pub nicknames: BTreeMap<PlayerId, String>,
 }
 
 impl std::fmt::Debug for PlayerSessionsRecord {
@@ -253,6 +257,7 @@ impl std::fmt::Debug for PlayerSessionsRecord {
             .field("schema_version", &self.schema_version)
             .field("game_id", &self.game_id)
             .field("sessions", &"[redacted]")
+            .field("nicknames", &self.nicknames)
             .finish()
     }
 }
@@ -350,7 +355,7 @@ pub struct FileGameStore {
 }
 
 impl FileGameStore {
-    /// Store the v2 lobby as a single atomic private record.
+    /// Store the versioned lobby as a single atomic private record.
     pub fn save_player_lobby(&self, record: &PlayerLobbyRecord) -> Result<(), StorageError> {
         record.validate()?;
         let dir = self.game_dir(&record.game_id)?;
@@ -376,7 +381,7 @@ impl FileGameStore {
         Ok(Some(record))
     }
 
-    /// Save immutable v2 init without any bearer credentials.
+    /// Save immutable init without any bearer credentials.
     pub fn save_player_init(&self, record: &PlayerGameInitRecord) -> Result<(), StorageError> {
         validate_player_init(record)?;
         let dir = self.game_dir(&record.game_id)?;
@@ -620,7 +625,7 @@ impl FileGameStore {
         self.recover_from_init(game_id, init_record)
     }
 
-    /// Recover v2 using only the current-session record as credential authority.
+    /// Recover using the current-session record as credential authority.
     pub fn recover_player_session(
         self: &Arc<Self>,
         game_id: &str,
@@ -765,6 +770,12 @@ fn validate_player_sessions(record: &PlayerSessionsRecord) -> Result<(), Storage
     if !(1..=MAX_LOBBY_SLOTS).contains(&record.sessions.len()) {
         return Err(StorageError::InvalidPlayerRecord("session count"));
     }
+    if record.sessions.keys().ne(record.nicknames.keys()) {
+        return Err(StorageError::InvalidPlayerRecord("nickname roster"));
+    }
+    for nickname in record.nicknames.values() {
+        validate_nickname(nickname)?;
+    }
     let mut credentials = std::collections::BTreeSet::new();
     for (id, session) in &record.sessions {
         if !valid_random_id(id.as_str(), "player_") || !credentials.insert(session.as_str()) {
@@ -773,6 +784,29 @@ fn validate_player_sessions(record: &PlayerSessionsRecord) -> Result<(), Storage
         session.validate()?;
     }
     Ok(())
+}
+
+/// Nicknames are exact, trimmed Unicode text of at most 64 UTF-8 bytes.
+/// Reject control and formatting code points, including bidirectional overrides.
+pub fn validate_nickname(nickname: &str) -> Result<(), StorageError> {
+    let invalid = nickname.is_empty()
+        || nickname.len() > 64
+        || nickname.trim() != nickname
+        || nickname.chars().all(char::is_whitespace)
+        || nickname.chars().any(|c| {
+            c.is_control()
+                || matches!(c as u32,
+                    0x00ad | 0x0600..=0x0605 | 0x061c | 0x06dd | 0x070f | 0x0890..=0x0891
+                    | 0x08e2 | 0x180e | 0x200b..=0x200f | 0x202a..=0x202e
+                    | 0x2060..=0x206f | 0xfeff | 0xfff9..=0xfffb | 0x110bd
+                    | 0x110cd | 0x13430..=0x1343f | 0x1bca0..=0x1bca3
+                    | 0x1d173..=0x1d17a | 0xe0001 | 0xe0020..=0xe007f)
+        });
+    if invalid {
+        Err(StorageError::InvalidPlayerRecord("nickname"))
+    } else {
+        Ok(())
+    }
 }
 
 fn read_player_record<T: Serialize + for<'de> Deserialize<'de>>(
@@ -987,7 +1021,8 @@ mod player_record_tests {
     #[test]
     fn lobby_round_trip_preserves_identity_and_hides_credentials_from_public_output() {
         let (store, dir) = store();
-        let (lobby, host, session) = PlayerLobbyRecord::create("pil01_lobby".into(), 3, 7).unwrap();
+        let (lobby, host, session) =
+            PlayerLobbyRecord::create("pil01_lobby".into(), 3, 7, "Host").unwrap();
         store.save_player_lobby(&lobby).unwrap();
         let loaded = store.load_player_lobby("pil01_lobby").unwrap().unwrap();
         assert_eq!(loaded.host_player_id, host);
@@ -1022,6 +1057,7 @@ mod player_record_tests {
                         PlayerLobbyMember {
                             ready: false,
                             session: PlayerSession::generate(),
+                            nickname: "Test".into(),
                         }
                     )
                     .is_none()
@@ -1041,7 +1077,7 @@ mod player_record_tests {
     #[test]
     fn old_records_and_unknown_versions_are_rejected_before_payload_decode() {
         let (store, dir) = store();
-        let (lobby, _, _) = PlayerLobbyRecord::create("old".into(), 2, 1).unwrap();
+        let (lobby, _, _) = PlayerLobbyRecord::create("old".into(), 2, 1, "Host").unwrap();
         let path = store.game_dir("old").unwrap().join("lobby.json");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut old = serde_json::to_value(persist(&lobby).unwrap()).unwrap();
@@ -1055,6 +1091,12 @@ mod player_record_tests {
             Err(StorageError::UnsupportedFormat(0))
         ));
         let mut unsupported = lobby.clone();
+        unsupported.schema_version = 2;
+        atomic_write_json(&path, &unsupported).unwrap();
+        assert!(matches!(
+            store.load_player_lobby("old"),
+            Err(StorageError::UnsupportedFormat(2))
+        ));
         unsupported.schema_version = 99;
         atomic_write_json(&path, &unsupported).unwrap();
         assert!(matches!(
@@ -1086,7 +1128,7 @@ mod player_record_tests {
     #[test]
     fn bounds_checksum_and_reference_corruption_fail_closed() {
         let (store, dir) = store();
-        let (mut lobby, _, _) = PlayerLobbyRecord::create("broken".into(), 2, 1).unwrap();
+        let (mut lobby, _, _) = PlayerLobbyRecord::create("broken".into(), 2, 1, "Host").unwrap();
         lobby.slots[1].occupant = lobby.slots[0].occupant.clone();
         assert!(matches!(
             store.save_player_lobby(&lobby),
@@ -1099,6 +1141,7 @@ mod player_record_tests {
             PlayerLobbyMember {
                 ready: false,
                 session: lobby.players[&id].session.clone(),
+                nickname: "Test".into(),
             },
         );
         assert!(matches!(
@@ -1127,7 +1170,7 @@ mod player_record_tests {
     #[test]
     fn running_credentials_rotate_independently_of_immutable_init() {
         let (store, dir) = store();
-        let (lobby, host, old) = PlayerLobbyRecord::create("running".into(), 1, 4).unwrap();
+        let (lobby, host, old) = PlayerLobbyRecord::create("running".into(), 1, 4, "Host").unwrap();
         let init = PlayerGameInitRecord {
             schema_version: PLAYER_RECORD_VERSION,
             game_id: lobby.game_id.clone(),
@@ -1141,6 +1184,7 @@ mod player_record_tests {
             schema_version: PLAYER_RECORD_VERSION,
             game_id: lobby.game_id,
             sessions: BTreeMap::from([(host.clone(), old.clone())]),
+            nicknames: BTreeMap::from([(host.clone(), "Host".into())]),
         };
         store.save_player_sessions(&sessions).unwrap();
         let replacement = PlayerSession::generate();
@@ -1154,6 +1198,12 @@ mod player_record_tests {
         assert!(matches!(
             store.save_player_sessions(&duplicate),
             Err(StorageError::InvalidPlayerRecord(_))
+        ));
+        let mut missing_name = sessions.clone();
+        missing_name.nicknames.clear();
+        assert!(matches!(
+            store.save_player_sessions(&missing_name),
+            Err(StorageError::InvalidPlayerRecord("nickname roster"))
         ));
         let restarted = FileGameStore::new(&dir).unwrap();
         assert_eq!(
@@ -1182,5 +1232,27 @@ mod player_record_tests {
             Err(StorageError::Oversized { .. })
         ));
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn nickname_validation_is_exact_bounded_and_nonunique() {
+        for name in ["Élodie", "東京", "Same Name", "a-b_1", &"a".repeat(64)] {
+            validate_nickname(name).unwrap();
+        }
+        for name in [
+            "",
+            " ",
+            " leading",
+            "trailing ",
+            "new\nline",
+            "a\u{200d}b",
+            "a\u{202e}b",
+            &"é".repeat(33),
+        ] {
+            assert!(matches!(
+                validate_nickname(name),
+                Err(StorageError::InvalidPlayerRecord("nickname"))
+            ));
+        }
     }
 }

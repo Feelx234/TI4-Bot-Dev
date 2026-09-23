@@ -22,6 +22,7 @@ const MAX_PLAYERS: usize = 8;
 pub struct CreateGameRequest {
     pub player_count: usize,
     pub seed: Option<u64>,
+    pub nickname: String,
 }
 
 /// Response after creating a game.
@@ -54,8 +55,13 @@ pub struct ReorderRequest {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum JoinRequest {
-    New,
-    Takeover { player_id: PlayerId },
+    New {
+        nickname: Option<String>,
+    },
+    Takeover {
+        player_id: PlayerId,
+        nickname: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -92,7 +98,12 @@ pub async fn create_game(
 
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
     let (lobby, player, session) = registry
-        .create_player_lobby(game_id.clone(), payload.player_count, seed)
+        .create_player_lobby(
+            game_id.clone(),
+            payload.player_count,
+            seed,
+            &payload.nickname,
+        )
         .map_err(lobby_error)?;
 
     Ok(Json(CreateGameResponse {
@@ -112,12 +123,18 @@ pub async fn join_lobby(
 ) -> Result<Json<JoinResponse>, (StatusCode, String)> {
     let supplied = player_session(&headers)?;
     let (lobby, player, session) = match (payload, supplied) {
-        (JoinRequest::New, token) => registry
-            .join_player_lobby(&game_id, token)
+        (JoinRequest::New { nickname }, token) => registry
+            .join_player_lobby(&game_id, token, nickname.as_deref())
             .map_err(lobby_error)?,
-        (JoinRequest::Takeover { player_id }, None) => {
+        (
+            JoinRequest::Takeover {
+                player_id,
+                nickname,
+            },
+            None,
+        ) => {
             let (lobby, session) = registry
-                .take_over_player(&game_id, &player_id)
+                .take_over_player(&game_id, &player_id, &nickname)
                 .map_err(lobby_error)?;
             (lobby, player_id, Some(session))
         }
@@ -246,7 +263,9 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
         | LobbyError::NotInLobby
         | LobbyError::SeatUnavailable
         | LobbyError::TakeoverUnavailable => StatusCode::CONFLICT,
-        LobbyError::InvalidPlayerId | LobbyError::InvalidSlotOrder => StatusCode::BAD_REQUEST,
+        LobbyError::InvalidPlayerId
+        | LobbyError::InvalidSlotOrder
+        | LobbyError::InvalidNickname => StatusCode::BAD_REQUEST,
         LobbyError::Map(_) | LobbyError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, message)
