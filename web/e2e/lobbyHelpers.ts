@@ -1,6 +1,15 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import type { InitialSnapshotMsg } from '../src/protocol/types';
 
 const backend = `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? '8080'}`;
+
+export async function gameSnapshot(request: APIRequestContext, gameId: string, session: string): Promise<InitialSnapshotMsg> {
+  const response = await request.get(`${backend}/api/games/${gameId}/snapshot`, {
+    headers: { 'x-ti4-player-session': session },
+  });
+  expect(response.ok(), `snapshot for game ${gameId}: ${response.status()}`).toBe(true);
+  return response.json();
+}
 
 export async function createStartedGame(request: APIRequestContext, playerCount: number, seed: number) {
   const created = await request.post(`${backend}/api/games`, { data: { player_count: playerCount, seed, nickname: 'E2E Host' } });
