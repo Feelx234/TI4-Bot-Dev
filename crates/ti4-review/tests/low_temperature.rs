@@ -174,3 +174,99 @@ fn traced_choices_match_the_greedy_option() {
     eprintln!("{checked} clear decisions checked, {diplomacy} on the diplomacy head");
     assert!(mismatched.is_empty(), "{mismatched:#?}");
 }
+
+/// Diagnostic, 2026-09-23: command tokens, exhausted planets and Xxcha's commander across the first
+/// agenda phase of a replayer table (seed and rotation by env, checkpoint by
+/// TI4_LOW_TEMPERATURE_CHECKPOINT).
+#[test]
+#[ignore = "diagnostic; set TI4_LOW_TEMPERATURE_CHECKPOINT"]
+fn agenda_phase_probe() {
+    let root = workspace_root();
+    let checkpoint = std::env::var_os("TI4_LOW_TEMPERATURE_CHECKPOINT").map_or_else(
+        || root.join("examples/reviewer/checkpoint-473312/slots.json"),
+        PathBuf::from,
+    );
+    let seed: u64 = std::env::var("TI4_PROBE_SEED")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(411);
+    let config = SimulationConfig {
+        checkpoint,
+        map_pool: root.join("examples/reviewer/full_np8_12_holdout.json"),
+        seed,
+        rotation: 0,
+        table: ProfileTable::Learner,
+        temperature: 0.01,
+        diplomacy: true,
+    };
+    let mut review = LiveReview::start(&config).expect("the table starts");
+    let mut last: Option<(
+        ti4_model::state::Phase,
+        u32,
+        Vec<(String, i32, i32, i32)>,
+        usize,
+    )> = None;
+    let mut seen_agenda = false;
+    for _ in 0..60_000 {
+        let frame = review.step_once().clone();
+        let state = &frame.state;
+        let tokens: Vec<(String, i32, i32, i32)> = state
+            .players
+            .iter()
+            .map(|p| {
+                (
+                    p.faction.to_string(),
+                    p.tactic_tokens,
+                    p.fleet_tokens,
+                    p.strategic_tokens,
+                )
+            })
+            .collect();
+        let now = (
+            state.phase,
+            state.round,
+            tokens,
+            state.exhausted_planets.len(),
+        );
+        if state.phase == ti4_model::state::Phase::Agenda {
+            seen_agenda = true;
+        }
+        let interesting = frame.new_events.iter().any(|e| {
+            e.starts_with("AGENDA")
+                || e.starts_with("COMMAND_TOKEN")
+                || e.starts_with("STATUS")
+                || e.starts_with("ROUND")
+                || e.starts_with("VOTE")
+                || e.starts_with("LAW")
+                || e.contains("xxchacommander")
+        });
+        if seen_agenda || interesting {
+            if last.as_ref() != Some(&now) || interesting {
+                eprintln!(
+                    "#{} {:?} r{} tokens {:?} exhausted {} | {:?}",
+                    frame.index, now.0, now.1, now.2, now.3, frame.new_events
+                );
+                for d in &frame.decisions {
+                    eprintln!("     {} | {} -> {:?}", d.player, d.prompt, d.chosen);
+                }
+            }
+        }
+        last = Some(now);
+        if seen_agenda && state.phase == ti4_model::state::Phase::Action {
+            break;
+        }
+        if frame.finished {
+            break;
+        }
+    }
+    let xxcha = review.session.frames.last().and_then(|f| {
+        f.state
+            .players
+            .iter()
+            .find(|p| p.faction.as_str() == "xxcha")
+            .cloned()
+    });
+    if let Some(seat) = xxcha {
+        eprintln!("xxcha leaders {:?}", seat.leaders);
+    }
+}

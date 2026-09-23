@@ -287,7 +287,12 @@ impl VoteWindow {
         // vote on it. Dropped from the order rather than skipped later, so nothing downstream
         // has to remember they are barred. A speaker who is barred is simply gone from the
         // order — the rotation below only re-seats players who still vote.
-        order.retain(|player| !state.agenda_predictions.contains_key(player));
+        // Elder Qanoj: game effects cannot prevent Xxcha voting, so neither a rider's cost nor a
+        // Political Secret bars them.
+        order.retain(|player| {
+            !state.agenda_predictions.contains_key(player)
+                || crate::leaders::elder_qanoj(state, player)
+        });
         let votes_last = |player: &PlayerId| {
             state
                 .player(player)
@@ -400,11 +405,12 @@ impl VoteWindow {
                     return None;
                 }
                 let votes_so_far = *votes;
+                let qanoj = i64::from(crate::leaders::elder_qanoj(state, player));
                 let mut options: Vec<ChoiceOption> =
                     remaining
                         .iter()
                         .map(|planet| {
-                            let influence = influence_of(state, content, sources, planet);
+                            let influence = influence_of(state, content, sources, planet) + qanoj;
                             ChoiceOption::labelled(
                                 planet.as_str(),
                                 VOTE_PLANET_KIND,
@@ -554,7 +560,9 @@ impl VoteWindow {
                     self.stage = Stage::Outcome(index + 1);
                 } else {
                     let planet = PlanetId::new(option.id);
-                    let influence = influence_of(state, content, sources, &planet);
+                    // Elder Qanoj: each planet exhausted to vote gives one vote more.
+                    let influence = influence_of(state, content, sources, &planet)
+                        + i64::from(crate::leaders::elder_qanoj(state, &self.order[index]));
                     state.exhaust_planet(planet);
                     self.stage = Stage::Planets {
                         index,
@@ -940,6 +948,50 @@ mod tests {
         assert!(window.is_complete());
         assert_eq!(window.ballot().counts.get(FOR), Some(&expected));
         assert_eq!(window.winner(), Some(FOR));
+    }
+
+    /// Elder Qanoj (reported 2026-09-23 as not working): one vote more for each planet exhausted
+    /// to vote, and no game effect bars Xxcha from voting. It was a flat three votes, and a
+    /// Political Secret still silenced its owner.
+    #[test]
+    fn elder_qanoj_adds_a_vote_per_planet_and_cannot_be_silenced() {
+        let (mut state, players) = game(&["a"]);
+        let (first, first_influence, second, second_influence) =
+            give_two_voting_planets(&mut state, &players[0]);
+        state.player_mut(&players[0]).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new("xxchacommander"),
+            ti4_model::state::LeaderStatus::Unlocked,
+        );
+        // A Political Secret played on them.
+        state
+            .agenda_predictions
+            .insert(players[0].clone(), "none|political_secret".to_owned());
+
+        let mut window = VoteWindow::new(&state, "x", for_against());
+        window.open(&state, ContentStore::embedded(), POK);
+        let option = pick(&window, &state, FOR);
+        window
+            .resolve(&mut state, ContentStore::embedded(), POK, option)
+            .unwrap();
+        for planet in [first.as_str(), second.as_str()] {
+            let option = pick(&window, &state, planet);
+            window
+                .resolve(&mut state, ContentStore::embedded(), POK, option)
+                .unwrap();
+        }
+        // With no planet left the window records the vote itself; otherwise decline to finish.
+        if let Some(done) = window
+            .pending_choice(&state, ContentStore::embedded(), POK)
+            .and_then(|choice| choice.options.into_iter().find(ChoiceOption::is_decline))
+        {
+            window
+                .resolve(&mut state, ContentStore::embedded(), POK, done)
+                .unwrap();
+        }
+        assert_eq!(
+            window.ballot.counts.get(FOR).copied(),
+            Some(first_influence + second_influence + 2)
+        );
     }
 
     #[test]

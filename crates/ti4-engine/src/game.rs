@@ -3475,6 +3475,7 @@ impl<'a> Game<'a> {
         self.agenda_resolved = true;
         match resolve_agenda_phase(&mut self.state) {
             Ok(report) if report.agendas.is_empty() => {
+                crate::agenda::ready_after_agenda_phase(&mut self.state);
                 self.emit("AGENDA_PHASE_RESOLVED");
                 self.result(false, None)
             }
@@ -3543,6 +3544,8 @@ impl<'a> Game<'a> {
             }
         }
         self.voting = None;
+        // 8.4: both agendas are resolved, so every planet exhausted to vote readies now.
+        crate::agenda::ready_after_agenda_phase(&mut self.state);
         self.emit("AGENDA_PHASE_RESOLVED");
         self.result(false, None)
     }

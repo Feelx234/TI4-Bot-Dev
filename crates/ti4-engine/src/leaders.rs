@@ -648,7 +648,10 @@ pub fn end_of_round(state: &mut GameState) -> Vec<(PlayerId, LeaderId)> {
 #[must_use]
 pub fn modifiers() -> std::collections::BTreeMap<&'static str, &'static str> {
     [
-        ("xxchacommander", "leaders::vote_bonus, read by vote::cast"),
+        (
+            "xxchacommander",
+            "leaders::elder_qanoj, read by vote::VoteWindow",
+        ),
         ("hacancommander", "leaders::vote_bonus, read by vote::cast"),
         (
             "xxchahero",
@@ -680,11 +683,23 @@ pub fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
         .iter()
         .filter(|(_, status)| **status == LeaderStatus::Unlocked)
         .map(|(leader, _)| match leader.as_str() {
-            // Xxcha's Elder Qanoj and Hacan's Gila the Silvertongue both add votes.
-            "xxchacommander" | "hacancommander" => 3,
+            // Hacan's Gila the Silvertongue. Not yet as printed (spend trade goods, two votes
+            // each); a flat three stands in until that choice exists.
+            "hacancommander" => 3,
             _ => 0,
         })
         .sum()
+}
+
+/// Elder Qanoj, Xxcha's commander: "Each planet you exhaust to cast votes provides 1 additional
+/// vote. Game effects cannot prevent you from voting on an agenda."
+#[must_use]
+pub fn elder_qanoj(state: &GameState, player: &PlayerId) -> bool {
+    state.player(player).is_some_and(|seat| {
+        seat.leaders.iter().any(|(leader, status)| {
+            leader.as_str() == "xxchacommander" && *status == LeaderStatus::Unlocked
+        })
+    })
 }
 
 /// Whether this player's units ignore a planetary shield when bombarding.
@@ -2023,11 +2038,19 @@ mod tests {
         let mut state = game(&["a"]);
         assert_eq!(vote_bonus(&state, &player()), 0);
 
-        holding(&mut state, "xxchacommander", LeaderStatus::Locked);
+        holding(&mut state, "hacancommander", LeaderStatus::Locked);
         assert_eq!(vote_bonus(&state, &player()), 0, "locked is not unlocked");
 
-        holding(&mut state, "xxchacommander", LeaderStatus::Unlocked);
+        holding(&mut state, "hacancommander", LeaderStatus::Unlocked);
         assert_eq!(vote_bonus(&state, &player()), 3);
+
+        holding(&mut state, "xxchacommander", LeaderStatus::Unlocked);
+        assert!(elder_qanoj(&state, &player()));
+        assert_eq!(
+            vote_bonus(&state, &player()),
+            3,
+            "Elder Qanoj counts per planet, in the vote, not as a flat bonus"
+        );
     }
 
     #[test]
@@ -2046,7 +2069,7 @@ mod tests {
         let missing = unimplemented(ContentStore::embedded(), &["xxcha"]);
         assert!(
             !missing.contains(&LeaderId::new("xxchacommander")),
-            "its effect lives in vote_bonus"
+            "its effect lives in elder_qanoj"
         );
         assert!(
             !missing.contains(&LeaderId::new("xxchahero")),
