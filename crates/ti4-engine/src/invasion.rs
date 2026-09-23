@@ -406,6 +406,7 @@ fn roll_bombard_plan(
     let blitzed = state
         .player(invader)
         .is_some_and(|seat| seat.blitz_invasion.contains(&state.activation_seq));
+    let mut plasma = crate::technology::plasma_scoring(state, invader);
     for planet in planets {
         if !bombardable(state, content, sources, system, &planet, invader) {
             continue;
@@ -441,6 +442,8 @@ fn roll_bombard_plan(
             if count == 0 {
                 continue;
             }
+            // Plasma Scoring: one bombarding unit rolls a die more, once for the whole bombardment.
+            let count = count + usize::from(std::mem::take(&mut plasma));
             // Bunker: "during this invasion, apply -4 to the result of each BOMBARDMENT roll
             // against planets you control." The window that hosts these rolls is opened after
             // the driver's invasion events, so the marker is in place by the time the rolls
@@ -2768,6 +2771,17 @@ fn space_cannon_defense(
         .cloned()
         .collect();
     let mut hits = 0;
+    let mut plasma = crate::combat::plasma_picks(
+        state,
+        guns.iter().map(|unit| {
+            (
+                unit,
+                types
+                    .get(unit.type_id.as_str())
+                    .and_then(|kind| kind.space_cannon_hits_on()),
+            )
+        }),
+    );
     for unit in guns {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
@@ -2786,6 +2800,7 @@ fn space_cannon_defense(
         if count == 0 {
             continue;
         }
+        let count = count + crate::combat::take_plasma(&mut plasma, &unit.owner, value);
         let roll = ctx.dice.roll_by(
             ctx.rng,
             count,

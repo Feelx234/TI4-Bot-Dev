@@ -687,6 +687,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // I48S, the L1Z1X agent, after a system is activated: exhaust or decline.
+        module: "reactions.rs",
+        function: "l1z1x_agent",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "relics.rs",
         function: "codex",
         count: 1,
@@ -1001,6 +1008,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("production.rs", "resolve", 1),
     ("production.rs", "sling_relay", 2),
     ("reactions.rs", "instinct_training", 1),
+    ("reactions.rs", "l1z1x_agent", 1),
     ("reactions.rs", "slot", 1),
     ("relics.rs", "codex", 1),
     ("relics.rs", "crown_of_emphidia_explore", 1),

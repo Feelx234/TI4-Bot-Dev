@@ -17,6 +17,15 @@ use crate::decision_context::{DecisionContext, DecisionSource};
 /// `UNITUPGRADE` is deliberately absent.
 pub const COLOURS: [&str; 4] = ["BIOTIC", "CYBERNETIC", "PROPULSION", "WARFARE"];
 
+/// Plasma Scoring: "When 1 or more of your units use BOMBARDMENT or SPACE CANNON, 1 of those units
+/// may roll 1 additional die." Read where those dice are rolled (reported 2026-09-23 as missing).
+#[must_use]
+pub fn plasma_scoring(state: &GameState, player: &PlayerId) -> bool {
+    state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("ps")))
+}
+
 /// Technologies in the authoritative current PoK/Codex deck.
 ///
 /// The raw corpus deliberately contains original and replacement printings together.  The oracle

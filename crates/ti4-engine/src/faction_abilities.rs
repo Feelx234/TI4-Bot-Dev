@@ -751,6 +751,8 @@ pub fn ground_combat_round_ended(
     }
     let types = ti4_content::units::catalogue(content, sources);
     let mut hits = 0;
+    // Harrow is BOMBARDMENT, so Plasma Scoring gives one of these units a die more.
+    let mut plasma = crate::technology::plasma_scoring(state, player);
     for unit in state.system_state(system).units_of(player) {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
@@ -762,6 +764,7 @@ pub fn ground_combat_round_ended(
         if count == 0 {
             continue;
         }
+        let count = count + usize::from(std::mem::take(&mut plasma));
         let roll = dice.roll_by(
             rng,
             count,

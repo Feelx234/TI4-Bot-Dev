@@ -1606,6 +1606,19 @@ pub fn space_cannon_offense(
 
     let mut by_player: std::collections::BTreeMap<PlayerId, (usize, Vec<RerollEntry>)> =
         std::collections::BTreeMap::new();
+    // Plasma Scoring: one of a player's firing units rolls a die more. The player picks which; the
+    // engine gives it to the unit that hits most easily, the pick nobody would refuse.
+    let mut plasma = plasma_picks(
+        state,
+        guns.iter().map(|unit| {
+            (
+                unit,
+                types
+                    .get(unit.type_id.as_str())
+                    .and_then(|kind| kind.space_cannon_hits_on()),
+            )
+        }),
+    );
     for unit in guns {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
@@ -1628,6 +1641,7 @@ pub fn space_cannon_offense(
         if count == 0 {
             continue;
         }
+        let count = count + take_plasma(&mut plasma, &unit.owner, value);
         let roll = dice.roll_by(
             rng,
             count,
@@ -6983,5 +6997,39 @@ mod tests {
             !state.did_at_occurrence(&b, Feat::WonAgainstANoteHolder, occurrence),
             "the snapshot predates the receipt"
         );
+    }
+}
+
+/// Plasma Scoring's pick for each firing player that holds it: the best (lowest) hit value among
+/// its units about to roll. [`take_plasma`] spends it on the first unit rolling at that value.
+pub(crate) fn plasma_picks<'u>(
+    state: &GameState,
+    firing: impl Iterator<Item = (&'u Unit, Option<i64>)>,
+) -> std::collections::BTreeMap<PlayerId, i64> {
+    let mut picks: std::collections::BTreeMap<PlayerId, i64> = std::collections::BTreeMap::new();
+    for (unit, value) in firing {
+        let Some(value) = value else { continue };
+        if !crate::technology::plasma_scoring(state, &unit.owner) {
+            continue;
+        }
+        picks
+            .entry(unit.owner.clone())
+            .and_modify(|best| *best = (*best).min(value))
+            .or_insert(value);
+    }
+    picks
+}
+
+/// One extra die for this unit if it is its owner's Plasma Scoring pick, spending the pick.
+pub(crate) fn take_plasma(
+    picks: &mut std::collections::BTreeMap<PlayerId, i64>,
+    owner: &PlayerId,
+    value: i64,
+) -> usize {
+    if picks.get(owner) == Some(&value) {
+        picks.remove(owner);
+        1
+    } else {
+        0
     }
 }
