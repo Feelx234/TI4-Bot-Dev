@@ -14,7 +14,6 @@ use ti4_server::session::GameRegistry;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
-const CHECKPOINT: &str = "examples/reviewer/checkpoint-473312";
 const TARGET_DECISIONS: usize = 12;
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -22,8 +21,8 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 #[ignore = "requires LIBTORCH, LD_LIBRARY_PATH, and the pinned checkpoint runtime"]
 async fn real_server_advisor_and_two_bots_advance_a_bounded_game_prefix() {
     ti4_tensor::configure_deterministic(20_260_821).expect("configure tensor backend");
-    let advisor = ti4_advisor::Advisor::load(std::path::Path::new(CHECKPOINT))
-        .expect("load pinned advisor checkpoint");
+    let advisor =
+        ti4_advisor::Advisor::load(&checkpoint_path()).expect("load pinned advisor checkpoint");
     let advisor_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind advisor");
@@ -61,6 +60,12 @@ async fn real_server_advisor_and_two_bots_advance_a_bounded_game_prefix() {
     result
         .expect("bounded E2E test deadline")
         .expect("real BYOA game prefix");
+}
+
+fn checkpoint_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("examples/reviewer/checkpoint-473312")
 }
 
 async fn exercise_game_prefix(
@@ -123,8 +128,8 @@ async fn exercise_game_prefix(
     );
     p3.timeout = Duration::from_secs(5);
     p3.max_reconnects = 1;
-    let p2_task = tokio::spawn(run(p2));
-    let p3_task = tokio::spawn(run(p3));
+    let mut p2_task = tokio::spawn(run(p2));
+    let mut p3_task = tokio::spawn(run(p3));
     let scripted_task = tokio::spawn(scripted_first_option(
         websocket_base,
         game_id.clone(),
@@ -135,6 +140,18 @@ async fn exercise_game_prefix(
         .get_game(&game_id)
         .ok_or_else(|| "server did not start the requested game".to_owned())?;
     let outcome = 'decisions: loop {
+        if p2_task.is_finished() {
+            break 'decisions Err(format!(
+                "p2 bot exited before the decision target: {:?}",
+                (&mut p2_task).await
+            ));
+        }
+        if p3_task.is_finished() {
+            break 'decisions Err(format!(
+                "p3 bot exited before the decision target: {:?}",
+                (&mut p3_task).await
+            ));
+        }
         let decisions = session.decision_log();
         if decisions.len() >= TARGET_DECISIONS {
             if session.error().is_some() {
@@ -145,7 +162,9 @@ async fn exercise_game_prefix(
                     .iter()
                     .any(|decision| decision.player.as_str() == seat)
                 {
-                    break 'decisions Err(format!("bot seat {seat} did not make a recorded decision"));
+                    break 'decisions Err(format!(
+                        "bot seat {seat} did not make a recorded decision"
+                    ));
                 }
             }
             break 'decisions Ok(());

@@ -118,7 +118,6 @@ pub enum BotError {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AdvisorResponse {
     options: Vec<AdvisorOption>,
 }
