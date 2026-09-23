@@ -116,7 +116,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     return choice ? deriveChoiceRendererModel(choice, viewerSeat ?? null) : null;
   }, [choice, viewerSeat]);
 
-  if (!choice) return null;
+  if (!choice || (viewerSeat !== undefined && choice.actor !== viewerSeat)) return null;
 
   // A view-only copy: IDs, payloads and the original pending choice stay intact.
   const visibleChoice = { ...choice, prompt: present(choice.prompt), options: choice.options.map((option) => ({
