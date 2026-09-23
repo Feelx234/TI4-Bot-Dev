@@ -259,8 +259,10 @@ fn has(terms: &[DealTerm], wanted: impl Fn(&DealTerm) -> bool) -> bool {
     terms.iter().any(wanted)
 }
 
-/// Agents whose use can be promised to another seat, and how the engine judges that use.
-const FAVOUR_AGENTS: [&str; 2] = ["hacanagent", "l1z1xagent"];
+/// Agents whose use can be promised to another seat: each reports the seat it helped, which is how
+/// the promise is judged kept. Sol's and Letnev's agents are not here: nothing offers them yet, even
+/// to their owner (they act "at the start of a combat round", which has no leader window).
+const FAVOUR_AGENTS: [&str; 4] = ["hacanagent", "jolnaragent", "l1z1xagent", "xxchaagent"];
 
 /// Every item the side being edited could still add, as options.
 #[must_use]

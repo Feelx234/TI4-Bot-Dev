@@ -976,6 +976,31 @@ pub fn use_leader(
             }
             // All choices are settled; now the position changes, atomically.
             context.state.exhausted_planets.remove(&planet);
+            // Readying someone else's planet is a favour: a promise to use this agent for them is
+            // kept here.
+            let controller = context
+                .state
+                .players
+                .iter()
+                .map(|seat| seat.id.clone())
+                .find(|seat| {
+                    context
+                        .state
+                        .controlled_planets(seat)
+                        .iter()
+                        .any(|(_, owned)| **owned == planet)
+                });
+            if let Some(helped) = controller.filter(|helped| helped != player) {
+                crate::diplomacy::evaluate_event(
+                    context.state,
+                    &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
+                        user: player.clone(),
+                        leader: "xxchaagent".to_owned(),
+                        beneficiary: helped,
+                    },
+                )
+                .expect("validated diplomacy promises settle deterministically");
+            }
             if removal {
                 let types = ti4_content::units::catalogue(context.content, context.sources);
                 for board in context.state.board.values_mut() {

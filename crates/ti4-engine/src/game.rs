@@ -5251,6 +5251,10 @@ mod tests {
         let (xxcha, hacan) = (PlayerId::new("a"), PlayerId::new("b"));
         state.player_mut(&xxcha).unwrap().faction = ti4_model::id::FactionId::new("xxcha");
         state.player_mut(&hacan).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        state.player_mut(&xxcha).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new("xxchaagent"),
+            ti4_model::state::LeaderStatus::Readied,
+        );
         state.diplomacy = ti4_model::DiplomacyState::for_players(&state.seating_order, true);
         assert!(
             !crate::transactions::are_neighbours(&state, &galaxy, &xxcha, &hacan),
@@ -5266,6 +5270,15 @@ mod tests {
         assert!(
             choice.ids().contains(&"diplomacy|note|support:xxcha"),
             "Xxcha may offer its Support to a distant Hacan: {:?}",
+            choice.ids()
+        );
+        // A readied agent's use can be promised too.
+        assert!(
+            choice
+                .ids()
+                .iter()
+                .any(|id| id.starts_with("diplomacy|promise|") && id.contains("xxchaagent")),
+            "Xxcha may promise its agent: {:?}",
             choice.ids()
         );
     }
