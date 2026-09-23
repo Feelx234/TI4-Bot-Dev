@@ -76,7 +76,7 @@ async fn exercise_game_prefix(
     let client = reqwest::Client::new();
     let created = client
         .post(format!("{http_base}/api/games"))
-        .json(&serde_json::json!({ "player_count": 3, "seed": 4_242 }))
+        .json(&serde_json::json!({ "player_count": 3, "seed": 4_242, "nickname": "Host" }))
         .send()
         .await
         .map_err(|error| error.to_string())?
@@ -100,10 +100,16 @@ async fn exercise_game_prefix(
         websocket_base.clone(),
         game_id.clone(),
         advisor_base.clone(),
+        "Bot Two".to_owned(),
     );
     p2.timeout = Duration::from_secs(5);
     p2.max_reconnects = 1;
-    let mut p3 = BotConfig::new(websocket_base.clone(), game_id.clone(), advisor_base);
+    let mut p3 = BotConfig::new(
+        websocket_base.clone(),
+        game_id.clone(),
+        advisor_base,
+        "Bot Three".to_owned(),
+    );
     p3.timeout = Duration::from_secs(5);
     p3.max_reconnects = 1;
     let mut p2_task = tokio::spawn(run(p2));

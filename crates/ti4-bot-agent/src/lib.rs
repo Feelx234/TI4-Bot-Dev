@@ -29,6 +29,7 @@ pub struct BotConfig {
     pub server: String,
     pub game_id: String,
     pub advisor: String,
+    pub nickname: String,
     pub temperature: f64,
     pub sample_seed: Option<u64>,
     pub timeout: Duration,
@@ -38,11 +39,12 @@ pub struct BotConfig {
 impl BotConfig {
     /// Builds a configuration using the documented deterministic defaults.
     #[must_use]
-    pub fn new(server: String, game_id: String, advisor: String) -> Self {
+    pub fn new(server: String, game_id: String, advisor: String, nickname: String) -> Self {
         Self {
             server,
             game_id,
             advisor,
+            nickname,
             temperature: DEFAULT_TEMPERATURE,
             sample_seed: None,
             timeout: DEFAULT_TIMEOUT,
@@ -51,6 +53,12 @@ impl BotConfig {
     }
 
     fn validate(&self) -> Result<(), BotError> {
+        ti4_server::storage::validate_nickname(&self.nickname).map_err(|_| {
+            BotError::Configuration(
+                "invalid nickname (1–64 UTF-8 bytes, trimmed, no control or format characters)"
+                    .to_owned(),
+            )
+        })?;
         if self.server.is_empty() || !self.server.starts_with("ws://") {
             return Err(BotError::Configuration(
                 "server must be a ws:// URL".to_owned(),
@@ -148,6 +156,7 @@ struct LobbyView {
 struct LobbySlot {
     position: usize,
     occupant: Option<PlayerId>,
+    nickname: Option<String>,
     can_take_over: bool,
 }
 
@@ -193,35 +202,40 @@ async fn admit_with_selection(
         .json()
         .await
         .map_err(|e| BotError::Lobby(e.to_string()))?;
-    let payload =
-        if lobby.phase == "lobby" && lobby.slots.iter().any(|slot| slot.occupant.is_none()) {
-            serde_json::json!({"kind": "new"})
-        } else {
-            let eligible: Vec<_> = lobby
-                .slots
-                .iter()
-                .filter(|slot| slot.can_take_over)
-                .filter_map(|slot| slot.occupant.as_ref().map(|id| (slot.position, id.clone())))
-                .collect();
-            if eligible.is_empty() {
+    let payload = if lobby.phase == "lobby"
+        && lobby.slots.iter().any(|slot| slot.occupant.is_none())
+    {
+        serde_json::json!({"kind": "new", "nickname": config.nickname})
+    } else {
+        let eligible: Vec<_> = lobby
+            .slots
+            .iter()
+            .filter(|slot| slot.can_take_over)
+            .filter_map(|slot| {
+                slot.occupant
+                    .as_ref()
+                    .map(|id| (slot.position, slot.nickname.clone(), id.clone()))
+            })
+            .collect();
+        if eligible.is_empty() {
+            return Err(BotError::Lobby(
+                "no open position or eligible disconnected player".to_owned(),
+            ));
+        }
+        let selection = if let Some(selected) = selection {
+            if !eligible.iter().any(|(_, _, id)| id == &selected) {
                 return Err(BotError::Lobby(
-                    "no open position or eligible disconnected player".to_owned(),
+                    "selected player is not eligible".to_owned(),
                 ));
             }
-            let selection = if let Some(selected) = selection {
-                if !eligible.iter().any(|(_, id)| id == &selected) {
-                    return Err(BotError::Lobby(
-                        "selected player is not eligible".to_owned(),
-                    ));
-                }
-                selected
-            } else {
-                tokio::task::spawn_blocking(move || choose_takeover(&eligible))
-                    .await
-                    .map_err(|e| BotError::Lobby(e.to_string()))??
-            };
-            serde_json::json!({"kind": "takeover", "player_id": selection})
+            selected
+        } else {
+            tokio::task::spawn_blocking(move || choose_takeover(&eligible))
+                .await
+                .map_err(|e| BotError::Lobby(e.to_string()))??
         };
+        serde_json::json!({"kind": "takeover", "player_id": selection, "nickname": config.nickname})
+    };
     let reply: JoinReply = request_lobby(
         client
             .post(config.lobby_url("/join"))
@@ -246,10 +260,14 @@ async fn admit_with_selection(
     })
 }
 
-fn choose_takeover(eligible: &[(usize, PlayerId)]) -> Result<PlayerId, BotError> {
+fn choose_takeover(eligible: &[(usize, Option<String>, PlayerId)]) -> Result<PlayerId, BotError> {
     eprintln!("Eligible disconnected players (select a number to take over):");
-    for (index, (position, _)) in eligible.iter().enumerate() {
-        eprintln!("{}: position {position}", index + 1);
+    for (index, (position, nickname, _)) in eligible.iter().enumerate() {
+        eprintln!(
+            "{}: {} (position {position})",
+            index + 1,
+            nickname.as_deref().unwrap_or("Player")
+        );
     }
     let mut input = String::new();
     std::io::stdin()
@@ -258,7 +276,10 @@ fn choose_takeover(eligible: &[(usize, PlayerId)]) -> Result<PlayerId, BotError>
     select_takeover(eligible, &input)
 }
 
-fn select_takeover(eligible: &[(usize, PlayerId)], input: &str) -> Result<PlayerId, BotError> {
+fn select_takeover(
+    eligible: &[(usize, Option<String>, PlayerId)],
+    input: &str,
+) -> Result<PlayerId, BotError> {
     let index = input
         .trim()
         .parse::<usize>()
@@ -269,7 +290,7 @@ fn select_takeover(eligible: &[(usize, PlayerId)], input: &str) -> Result<Player
                 .checked_sub(1)
                 .ok_or_else(|| BotError::Lobby("invalid takeover selection".to_owned()))?,
         )
-        .map(|(_, id)| id.clone())
+        .map(|(_, _, id)| id.clone())
         .ok_or_else(|| BotError::Lobby("invalid takeover selection".to_owned()))
 }
 
@@ -277,6 +298,15 @@ async fn wait_for_start(
     config: &BotConfig,
     client: &reqwest::Client,
     admission: &Admission,
+) -> Result<(), BotError> {
+    wait_for_start_with_interval(config, client, admission, HEARTBEAT_INTERVAL).await
+}
+
+async fn wait_for_start_with_interval(
+    config: &BotConfig,
+    client: &reqwest::Client,
+    admission: &Admission,
+    heartbeat_interval: Duration,
 ) -> Result<(), BotError> {
     if admission.phase == "running" {
         return Ok(());
@@ -295,7 +325,7 @@ async fn wait_for_start(
         .await
         .map_err(|e| BotError::Lobby(e.to_string()))?;
     while lobby.phase == "lobby" {
-        tokio::time::sleep(HEARTBEAT_INTERVAL).await;
+        tokio::time::sleep(heartbeat_interval).await;
         lobby = request_lobby(
             client
                 .post(config.lobby_url("/heartbeat"))
@@ -702,8 +732,8 @@ mod tests {
     #[test]
     fn takeover_requires_a_valid_explicit_selection() {
         let choices = [
-            (1, PlayerId::new("player_one")),
-            (2, PlayerId::new("player_two")),
+            (1, Some("Same name".to_owned()), PlayerId::new("player_one")),
+            (2, Some("Same name".to_owned()), PlayerId::new("player_two")),
         ];
         assert_eq!(
             select_takeover(&choices, "2\n").unwrap(),
@@ -714,52 +744,64 @@ mod tests {
         }
     }
 
+    #[test]
+    fn bot_nickname_matches_server_validation_before_network_access() {
+        let mut config = BotConfig::new(
+            "ws://localhost:8080".to_owned(),
+            "game_1".to_owned(),
+            "http://localhost:8081".to_owned(),
+            "🪐".repeat(16),
+        );
+        assert!(config.validate().is_ok());
+        for invalid in [
+            "",
+            " bad",
+            "bad ",
+            "🪐".repeat(17).as_str(),
+            "bad\u{202e}",
+            "bad\n",
+        ] {
+            config.nickname = invalid.to_owned();
+            assert!(matches!(config.validate(), Err(BotError::Configuration(_))));
+        }
+    }
+
     #[tokio::test]
     async fn real_lobby_join_ready_and_heartbeat_survive_the_presence_grace() {
         use std::sync::Arc;
-        let registry = Arc::new(ti4_server::session::GameRegistry::new());
+        const GRACE: Duration = Duration::from_millis(500);
+        const TEST_HEARTBEAT: Duration = Duration::from_millis(100);
+        let registry =
+            Arc::new(ti4_server::session::GameRegistry::new().with_presence_grace(GRACE));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(
             axum::serve(listener, ti4_server::create_app(registry.clone())).into_future(),
         );
-        let client = reqwest::Client::new();
-        let created: serde_json::Value = client
-            .post(format!("http://{address}/api/games"))
-            .json(&serde_json::json!({"player_count": 2, "seed": 42}))
-            .send()
-            .await
-            .unwrap()
-            .error_for_status()
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        let game = created["game_id"].as_str().unwrap();
-        let host_session = created["player_session"].as_str().unwrap();
-        let mut config = BotConfig::new(
-            format!("ws://{address}"),
-            game.to_owned(),
-            "http://127.0.0.1:1".to_owned(),
-        );
-        config.timeout = Duration::from_secs(2);
-        let admitted = admit(&config, &client).await.unwrap();
-        assert_ne!(
-            admitted.player.as_str(),
-            created["player"]["id"].as_str().unwrap()
-        );
-        let bot = tokio::spawn({
-            let config = config.clone();
-            let admission = Admission {
-                player: admitted.player.clone(),
-                session: admitted.session.clone(),
-                phase: admitted.phase.clone(),
-            };
-            async move { wait_for_start(&config, &reqwest::Client::new(), &admission).await }
-        });
-        for _ in 0..4 {
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            let view: serde_json::Value = client
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            let client = reqwest::Client::new();
+            let created: serde_json::Value = client
+                .post(format!("http://{address}/api/games"))
+                .json(&serde_json::json!({"player_count": 2, "seed": 42, "nickname": "Host"}))
+                .send()
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            let game = created["game_id"].as_str().unwrap();
+            let host_session = created["player_session"].as_str().unwrap();
+            let mut config = BotConfig::new(
+                format!("ws://{address}"),
+                game.to_owned(),
+                "http://127.0.0.1:1".to_owned(),
+                "Bot α".to_owned(),
+            );
+            config.timeout = Duration::from_secs(2);
+            let admitted = admit(&config, &client).await.unwrap();
+            let roster: serde_json::Value = client
                 .get(config.lobby_url(""))
                 .send()
                 .await
@@ -767,79 +809,141 @@ mod tests {
                 .json()
                 .await
                 .unwrap();
-            let seat = view["slots"]
-                .as_array()
+            assert_eq!(roster["slots"][1]["nickname"], "Bot α");
+            assert_eq!(roster["slots"][1]["occupant"], admitted.player.as_str());
+            let reconnect: serde_json::Value = client
+                .post(config.lobby_url("/join"))
+                .header("x-ti4-player-session", &admitted.session)
+                .json(&serde_json::json!({"kind": "new"}))
+                .send()
+                .await
                 .unwrap()
-                .iter()
-                .find(|slot| slot["occupant"] == admitted.player.as_str())
+                .error_for_status()
+                .unwrap()
+                .json()
+                .await
                 .unwrap();
-            assert_eq!(seat["ready"], true);
-            assert_eq!(seat["can_take_over"], false);
-        }
-        request_lobby(
-            client
-                .post(config.lobby_url("/ready"))
-                .header("x-ti4-player-session", host_session)
-                .json(&serde_json::json!({"ready": true}))
+            assert_eq!(reconnect["player"]["id"], admitted.player.as_str());
+            assert_eq!(reconnect["lobby"]["slots"][1]["nickname"], "Bot α");
+            assert_ne!(
+                admitted.player.as_str(),
+                created["player"]["id"].as_str().unwrap()
+            );
+            let bot = tokio::spawn({
+                let config = config.clone();
+                let admission = Admission {
+                    player: admitted.player.clone(),
+                    session: admitted.session.clone(),
+                    phase: admitted.phase.clone(),
+                };
+                async move {
+                    wait_for_start_with_interval(
+                        &config,
+                        &reqwest::Client::new(),
+                        &admission,
+                        TEST_HEARTBEAT,
+                    )
+                    .await
+                }
+            });
+            for _ in 0..4 {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let view: serde_json::Value = client
+                    .get(config.lobby_url(""))
+                    .send()
+                    .await
+                    .unwrap()
+                    .json()
+                    .await
+                    .unwrap();
+                let seat = view["slots"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|slot| slot["occupant"] == admitted.player.as_str())
+                    .unwrap();
+                assert_eq!(seat["ready"], true);
+                assert_eq!(seat["can_take_over"], false);
+            }
+            request_lobby(
+                client
+                    .post(config.lobby_url("/ready"))
+                    .header("x-ti4-player-session", host_session)
+                    .json(&serde_json::json!({"ready": true}))
+                    .send()
+                    .await,
+            )
+            .await
+            .unwrap();
+            request_lobby(
+                client
+                    .post(config.lobby_url("/start"))
+                    .header("x-ti4-player-session", host_session)
+                    .send()
+                    .await,
+            )
+            .await
+            .unwrap();
+            tokio::time::timeout(Duration::from_secs(5), bot)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let (mut socket, _) = connect_async(config.websocket_url()).await.unwrap();
+            send_message(
+                &mut socket,
+                &ClientMessage::Subscribe {
+                    protocol_version: PROTOCOL_VERSION,
+                    game_id: game.to_owned(),
+                    player_session: Some(admitted.session.clone()),
+                },
+                Duration::from_secs(2),
+            )
+            .await
+            .unwrap();
+            let text = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            let ServerMessage::InitialSnapshot(snapshot) = parse_server_message(&text).unwrap()
+            else {
+                panic!("expected snapshot");
+            };
+            require_viewer(&snapshot.viewer, &admitted.player).unwrap();
+            drop(socket);
+            tokio::time::sleep(GRACE + Duration::from_millis(100)).await;
+            config.nickname = "Replacement bot".to_owned();
+            let replacement = admit_with_selection(&config, &client, Some(admitted.player.clone()))
+                .await
+                .unwrap();
+            assert_eq!(replacement.player, admitted.player);
+            assert_eq!(replacement.phase, "running");
+            assert_ne!(replacement.session, admitted.session);
+            let renamed: serde_json::Value = client
+                .get(config.lobby_url(""))
                 .send()
-                .await,
-        )
-        .await
-        .unwrap();
-        request_lobby(
-            client
-                .post(config.lobby_url("/start"))
-                .header("x-ti4-player-session", host_session)
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert_eq!(renamed["slots"][1]["nickname"], "Replacement bot");
+            assert_eq!(renamed["slots"][1]["occupant"], admitted.player.as_str());
+            let revoked = client
+                .post(config.lobby_url("/heartbeat"))
+                .header("x-ti4-player-session", admitted.session)
                 .send()
-                .await,
-        )
-        .await
-        .unwrap();
-        tokio::time::timeout(Duration::from_secs(12), bot)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        let (mut socket, _) = connect_async(config.websocket_url()).await.unwrap();
-        send_message(
-            &mut socket,
-            &ClientMessage::Subscribe {
-                protocol_version: PROTOCOL_VERSION,
-                game_id: game.to_owned(),
-                player_session: Some(admitted.session.clone()),
-            },
-            Duration::from_secs(2),
-        )
-        .await
-        .unwrap();
-        let text = socket.next().await.unwrap().unwrap().into_text().unwrap();
-        let ServerMessage::InitialSnapshot(snapshot) = parse_server_message(&text).unwrap() else {
-            panic!("expected snapshot");
-        };
-        require_viewer(&snapshot.viewer, &admitted.player).unwrap();
-        drop(socket);
-        tokio::time::sleep(Duration::from_secs(31)).await;
-        let replacement = admit_with_selection(&config, &client, Some(admitted.player.clone()))
-            .await
-            .unwrap();
-        assert_eq!(replacement.player, admitted.player);
-        assert_eq!(replacement.phase, "running");
-        assert_ne!(replacement.session, admitted.session);
-        let revoked = client
-            .post(config.lobby_url("/heartbeat"))
-            .header("x-ti4-player-session", admitted.session)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(revoked.status(), reqwest::StatusCode::FORBIDDEN);
-        let current = client
-            .post(config.lobby_url("/heartbeat"))
-            .header("x-ti4-player-session", replacement.session)
-            .send()
-            .await
-            .unwrap();
-        assert!(current.status().is_success());
+                .await
+                .unwrap();
+            assert_eq!(revoked.status(), reqwest::StatusCode::FORBIDDEN);
+            let current = client
+                .post(config.lobby_url("/heartbeat"))
+                .header("x-ti4-player-session", replacement.session)
+                .send()
+                .await
+                .unwrap();
+            assert!(current.status().is_success());
+        })
+        .await;
         server.abort();
+        result.expect("lobby heartbeat test timed out after 10 seconds");
     }
 
     fn advice(options: &[(&str, f64, f64)]) -> AdvisorResponse {
@@ -1038,6 +1142,7 @@ mod tests {
             format!("ws://{websocket_address}"),
             "game_12345".to_owned(),
             format!("http://{advisor_address}"),
+            "Bot".to_owned(),
         );
         config.timeout = Duration::from_secs(2);
         config.max_reconnects = 0;
@@ -1137,6 +1242,7 @@ mod tests {
             format!("ws://{websocket_address}"),
             "game_12345".to_owned(),
             format!("http://{advisor_address}"),
+            "Bot".to_owned(),
         );
         config.timeout = Duration::from_secs(2);
         config.max_reconnects = 1;

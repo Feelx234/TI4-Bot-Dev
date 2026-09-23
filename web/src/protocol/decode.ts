@@ -1,4 +1,5 @@
 import { JoinResponse, CreateGameResponse, InitialSnapshotMsg, LobbyDto, PROTOCOL_VERSION, ServerMessage } from './types.ts';
+import { validNickname } from './nickname.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -32,7 +33,7 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
     if (!isRecord(entry) || !isSlotId(entry.slot_id) || slots.has(entry.slot_id) || entry.position !== index + 1 ||
         (entry.occupant !== null && !isPlayerId(entry.occupant)) || typeof entry.ready !== 'boolean' ||
         typeof entry.connected !== 'boolean' || typeof entry.can_take_over !== 'boolean' ||
-        (entry.occupant === null && (entry.ready || entry.connected || entry.can_take_over)) ||
+        (entry.occupant === null ? (entry.nickname !== null || entry.ready || entry.connected || entry.can_take_over) : !validNickname(entry.nickname)) ||
         (entry.occupant !== null && players.has(entry.occupant))) fail('invalid lobby slot');
     slots.add(entry.slot_id);
     if (entry.occupant !== null) players.add(entry.occupant);
@@ -40,7 +41,7 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
   if (!players.has(value.host_player_id)) fail('unknown lobby host');
   return { game_id: value.game_id, phase: value.phase, lobby_version: value.lobby_version,
     host_player_id: value.host_player_id, slots: value.slots.map((entry: Record<string, unknown>) => ({
-      slot_id: entry.slot_id, position: entry.position, occupant: entry.occupant,
+      slot_id: entry.slot_id, position: entry.position, occupant: entry.occupant, nickname: entry.nickname,
       ready: entry.ready, connected: entry.connected, can_take_over: entry.can_take_over,
     })) } as LobbyDto;
 }

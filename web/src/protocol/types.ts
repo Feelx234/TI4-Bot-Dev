@@ -15,6 +15,7 @@ export interface LobbySlot {
   slot_id: string;
   position: number;
   occupant: string | null;
+  nickname: string | null;
   ready: boolean;
   connected: boolean;
   can_take_over: boolean;

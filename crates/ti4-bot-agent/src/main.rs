@@ -18,6 +18,7 @@ fn parse_arguments() -> Result<BotConfig, String> {
     let mut server = None;
     let mut game_id = None;
     let mut advisor = None;
+    let mut nickname = None;
     let mut temperature = None;
     let mut sample_seed = None;
     let mut timeout_seconds = None;
@@ -29,6 +30,7 @@ fn parse_arguments() -> Result<BotConfig, String> {
             "--server" => server = Some(next_value("--server", &mut arguments)?),
             "--game" => game_id = Some(next_value("--game", &mut arguments)?),
             "--advisor" => advisor = Some(next_value("--advisor", &mut arguments)?),
+            "--nickname" => nickname = Some(next_value("--nickname", &mut arguments)?),
             "--temperature" => {
                 temperature = Some(
                     next_value("--temperature", &mut arguments)?
@@ -66,6 +68,7 @@ fn parse_arguments() -> Result<BotConfig, String> {
         server.ok_or_else(|| "--server is required".to_owned())?,
         game_id.ok_or_else(|| "--game is required".to_owned())?,
         advisor.ok_or_else(|| "--advisor is required".to_owned())?,
+        nickname.ok_or_else(|| "--nickname is required".to_owned())?,
     );
     if let Some(value) = temperature {
         config.temperature = value;
@@ -94,7 +97,7 @@ fn usage(reason: &str) -> ! {
         eprintln!("{reason}");
     }
     eprintln!(
-        "usage: ti4-bot-agent --server ws://HOST:PORT --game ID --advisor http://HOST:PORT [--temperature F64] [--sample-seed U64] [--timeout-seconds U64] [--max-reconnects U32]"
+        "usage: ti4-bot-agent --server ws://HOST:PORT --game ID --advisor http://HOST:PORT --nickname NAME [--temperature F64] [--sample-seed U64] [--timeout-seconds U64] [--max-reconnects U32]"
     );
     std::process::exit(if reason.is_empty() { 0 } else { 2 });
 }

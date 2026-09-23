@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { decodeJoinResponse, decodeLobby } from '../protocol/decode.ts';
 import { LobbyDto } from '../protocol/types.ts';
+import { rememberNickname, validNickname } from '../protocol/nickname.ts';
 
 export interface LobbySessionState {
   lobby: LobbyDto | null;
@@ -11,7 +12,7 @@ export interface LobbySessionState {
   setReady: (ready: boolean) => Promise<void>;
   start: () => Promise<void>;
   reorder: (slotIds: string[]) => Promise<void>;
-  join: (playerId?: string) => Promise<string | undefined>;
+  join: (nickname: string, playerId?: string) => Promise<string | undefined>;
   leave: () => Promise<boolean>;
 }
 
@@ -60,14 +61,16 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     } catch (cause) { setError(String(cause)); }
   }, [base, gameId, playerSession]);
 
-  const join = useCallback(async (takeoverId?: string) => {
+  const join = useCallback(async (nickname: string, takeoverId?: string) => {
     try {
+      if (!validNickname(nickname)) throw new Error('Nickname must be 1–64 UTF-8 bytes, trimmed, without control or format characters.');
       const response = await fetch(`${base}/join`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(takeoverId ? { kind: 'takeover', player_id: takeoverId } : { kind: 'new' }) });
+        body: JSON.stringify(takeoverId ? { kind: 'takeover', player_id: takeoverId, nickname } : { kind: 'new', nickname }) });
       if (!response.ok) throw new Error(`Join failed (${response.status}): ${await response.text()}`);
       const joined = decodeJoinResponse(await response.json(), gameId);
       if (!joined.player_session) throw new Error('Join did not return a player session');
       setLobby(joined.lobby); setPlayerId(joined.player.id); setError(null);
+      rememberNickname(nickname);
       return joined.player_session;
     } catch (cause) { setError(String(cause)); return undefined; }
   }, [base, gameId]);

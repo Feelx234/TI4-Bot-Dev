@@ -41,7 +41,9 @@ executes it.
 
 ## Run a bot agent
 
-Start `ti4-server` and `ti4-advisor` first, then run a bot with a game ID.
+Start `ti4-server` and `ti4-advisor` first, then run a bot with a game ID and
+an explicit nickname (1–64 UTF-8 bytes, trimmed, without control or format
+characters). The nickname is public display text, not an advisor identity.
 The bot joins the first open position, marks ready, and waits for the host to
 start. If the lobby is full (or already running), it lists eligible
 disconnected players and requires an interactive selection before takeover.
@@ -52,6 +54,7 @@ explicit takeover after the presence grace period.
 cargo run -p ti4-bot-agent -- \
   --server ws://127.0.0.1:8080 \
   --game game_123 \
+  --nickname "Table bot" \
   --advisor http://127.0.0.1:8081
 ```
 

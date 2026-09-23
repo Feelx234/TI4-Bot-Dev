@@ -34,9 +34,9 @@ const GameRoute: React.FC<{ gameId: string; token?: string; onCredential: (crede
   useEffect(() => { if (invalidCredential) onCredentialInvalid(); }, [invalidCredential, onCredentialInvalid]);
   if (!lobby) return <main className="lobby-page"><div className="panel lobby-panel">{loading ? 'Loading lobby...' : 'Unable to load lobby.'}</div></main>;
   const viewer: ViewerRole = token && playerId ? { role: 'player', seat: playerId, playerSession: token } : { role: 'spectator' };
-  const enter = async (id?: string) => { const credential = await join(id); if (credential) { setWatching(false); onCredential(credential); } };
+  const enter = async (nickname: string, id?: string) => { const credential = await join(nickname, id); if (credential) { setWatching(false); onCredential(credential); } };
   const leaveLobby = async () => { if (await leave()) onForget(); };
-  return <>{error && <div className="session-error" role="alert">{error}</div>}{lobby.phase === 'running' && (playerId || watching) ? <GameViewContainer key={`${gameId}:${token ?? 'watch'}`} gameId={gameId} viewer={viewer} onLeave={onForget} /> : <LobbyStatus lobby={lobby} playerId={playerId} watching={watching} onReady={(ready) => void setReady(ready)} onStart={() => void start()} onLeave={() => void leaveLobby()} onJoin={() => void enter()} onTakeover={(id) => void enter(id)} onReorder={(ids) => void reorder(ids)} onWatch={() => setWatching(true)} />}</>;
+  return <>{error && <div className="session-error" role="alert">{error}</div>}{lobby.phase === 'running' && (playerId || watching) ? <GameViewContainer key={`${gameId}:${token ?? 'watch'}`} gameId={gameId} viewer={viewer} onLeave={onForget} /> : <LobbyStatus lobby={lobby} playerId={playerId} watching={watching} onReady={(ready) => void setReady(ready)} onStart={() => void start()} onLeave={() => void leaveLobby()} onJoin={(name) => void enter(name)} onTakeover={(id, name) => void enter(name, id)} onReorder={(ids) => void reorder(ids)} onWatch={() => setWatching(true)} />}</>;
 };
 
 const GameViewContainer: React.FC<{ gameId: string; viewer: ViewerRole; onLeave: () => void }> = ({ gameId, viewer, onLeave }) => {

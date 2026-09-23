@@ -14,8 +14,9 @@ PIL-08 integration changes were committed as `4276024`. The operator accepted
 PIL-08 on 2026-09-23 with the explicitly recorded exceptions below; its full
 workspace and independent-review gates have **not** passed. PIL-09–PIL-16 may
 proceed under this operator exception; none is marked implemented by its
-presence in this plan. PIL-09 server implementation is in the working tree;
-independent review is outstanding.
+presence in this plan. PIL-09 server implementation was committed as `98e9fba`;
+independent review is outstanding. PIL-10 and PIL-11 implementations are in
+the current worktree, with independent review outstanding.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -826,6 +827,12 @@ do not claim an intermediate package is a deployable release.
 
 - **Depends:** PIL-09. **Primary scope:** `crates/ti4-bot-agent/` and focused
   bot tests; list additional necessary paths before editing.
+- **Execution scope (2026-09-23):** P1; writable paths:
+  `crates/ti4-bot-agent/src/{lib,main}.rs`,
+  `crates/ti4-bot-agent/tests/real_e2e.rs`,
+  `crates/ti4-bot-agent/README.md`, and this plan. No external references,
+  downloads, destructive actions, or external-state changes; bounded loopback
+  server tests only. Full Clippy excluded as requested (`ti4-model` blocker).
 - **Contract:** A bot supplies an explicit configurable nickname for new join
   and explicit takeover, using the same bounded server contract as a human.
   Reconnect keeps the existing nickname. A bot still acts only as the
@@ -834,12 +841,33 @@ do not claim an intermediate package is a deployable release.
 - **Gate:** Bot join/reconnect/takeover tests assert sent nickname, displayed
   roster name and unchanged acting identity (acceptance 13–14). Run formatting
   and affected-crate tests.
+- **Progress (2026-09-23, uncommitted):** `--nickname` is required for bot
+  startup; `BotConfig` validates it with the server's exact nickname validator
+  before network access. New join and explicitly selected takeover send that
+  nickname. The interactive rejoin list shows stored nickname and position,
+  including for duplicate names. A credential reconnect omits nickname and
+  keeps the server-stored value; advisor identity still uses only the
+  authenticated `PlayerId`. The real-server bot test verifies the joined
+  public name, reconnect without rename, running takeover rename, unchanged
+  identity/position and revocation; the opt-in two-bot/advisor E2E now supplies
+  names for the host and both bots.
+- **Verification:** `cargo fmt --package ti4-bot-agent`,
+  `cargo test -p ti4-bot-agent` (10 passed), and the opt-in
+  `cargo test -p ti4-bot-agent --features real-e2e --test real_e2e -- --ignored`
+  with the pinned Linux libtorch runtime (1 passed, 42.10 s) passed. No full
+  Clippy or independent review was performed.
 
 ### PIL-11 — Browser nickname entry and retention
 
 - **Depends:** PIL-09. **Primary scope:** `web/src/components/Lobby.tsx`,
   `web/src/App.tsx`, `web/src/hooks/useLobbySession.ts`, protocol DTO/decoder
   files and focused browser tests. Record additional necessary paths first.
+- **Execution scope (2026-09-23):** P1; writable paths:
+  `web/src/{App,App.test}.tsx`, `web/src/components/{Lobby,Lobby.test}.tsx`,
+  `web/src/hooks/useLobbySession.ts`, `web/src/protocol/{types,decode,client.test}.ts`,
+  `web/src/protocol/nickname.ts`, and this plan. No external references,
+  downloads, destructive actions or external-state changes; browser tests use
+  mocked HTTP and tab/local storage. Full Clippy excluded as requested.
 - **Contract:** Offer a nickname field before creating a lobby, joining a new
   position, or explicitly taking over a disconnected player. Prefill it from
   `localStorage` and save the chosen local preference; keep credentials in the
@@ -852,6 +880,27 @@ do not claim an intermediate package is a deployable release.
   admission, local preference reuse, duplicate names, reconnect without
   mutation, fresh-computer takeover rename and invalid input (acceptance
   13–15). Run build and affected browser tests.
+- **Progress (2026-09-23, uncommitted):** Creation, new join and explicit
+  takeover require an entered nickname; successful admission stores it as a
+  cross-game `localStorage` preference, while the per-game bearer credential
+  remains in tab-scoped `sessionStorage`. Browser validation mirrors the
+  server's 64-UTF-8-byte, exact trimmed Unicode/control/format contract; the
+  decoder validates public nickname fields on occupied slots and null on open
+  slots. The lobby shows the server's current nickname with physical position
+  (including duplicate names) and offers no edit action after joining.
+  Reconnect sends only the credential and displays the current server name,
+  regardless of the local preference. Watch remains a spectator read with no
+  admission, and neither name nor credential is put in the URL.
+- **Verification:** `npm run build` and `npm test` passed (25 files, 178
+  tests). Focused `npx vitest run src/App.test.tsx
+  src/components/Lobby.test.tsx src/protocol/client.test.ts` passed (26 tests).
+  No full Clippy or independent review was performed.
+- **Further plan/PIL-16:** The existing real-browser Playwright admission
+  helpers still send pre-nickname create/join requests; update them to supply
+  nicknames and assert takeover rename, duplicate-name presentation and
+  restart recovery in PIL-16 before claiming the complete browser/server E2E
+  gate. PIL-13 still owns nickname display in running-game components; PIL-08's
+  workspace and independent-review exceptions remain open.
 
 ### PIL-12 — Colorblind-safe physical seat identity
 

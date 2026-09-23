@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameSessionClient, GameSessionState, reduceServerMessage } from './client.ts';
 import { decodeCreateGameResponse, decodeJoinResponse, decodeLobby, decodeServerMessage } from './decode.ts';
 import { InitialSnapshotMsg, PROTOCOL_VERSION } from './types.ts';
+import { validNickname } from './nickname.ts';
 
 const snapshot: InitialSnapshotMsg = {
   type: 'initial_snapshot',
@@ -66,12 +67,16 @@ describe('GameSessionClient reducer', () => {
 });
 
 describe('lobby decoding', () => {
+  it('mirrors the server byte bound and rejects whitespace, controls, and format characters', () => {
+    for (const name of ['Z', 'A'.repeat(64), '🪐'.repeat(16), 'Ana María', 'Same']) expect(validNickname(name)).toBe(true);
+    for (const name of ['', ' ', ' x', 'x ', '🪐'.repeat(17), 'x\n', 'x\u202e', 'x\u200b', 'x\u{e0001}']) expect(validNickname(name)).toBe(false);
+  });
   it('accepts the actual server-generated 256-bit player ID and session credential on create and join', () => {
     const playerId = `player_${'a'.repeat(64)}`;
     const playerSession = `session_${'b'.repeat(64)}`;
     const lobby = { game_id: 'game_12345', phase: 'lobby', lobby_version: 1, host_player_id: playerId,
-      slots: [{ slot_id: 'slot_1', position: 1, occupant: playerId, ready: false, connected: false, can_take_over: false },
-        { slot_id: 'slot_2', position: 2, occupant: null, ready: false, connected: false, can_take_over: false }] };
+      slots: [{ slot_id: 'slot_1', position: 1, occupant: playerId, nickname: 'Host', ready: false, connected: false, can_take_over: false },
+        { slot_id: 'slot_2', position: 2, occupant: null, nickname: null, ready: false, connected: false, can_take_over: false }] };
     const created = decodeCreateGameResponse({ game_id: 'game_12345', player_session: playerSession, player: { id: playerId }, lobby });
     expect(created.player_session).toBe(playerSession);
     expect(created.player.id).toBe(playerId);
@@ -82,10 +87,12 @@ describe('lobby decoding', () => {
   it('decodes public slots without a credential or viewer identity', () => {
     const lobby = decodeLobby({
       game_id: 'game_12345', phase: 'running', lobby_version: 1, host_player_id: 'player_a',
-      slots: [{ slot_id: 'slot_1', position: 1, occupant: 'player_a', ready: true, connected: false, can_take_over: true }, { slot_id: 'slot_2', position: 2, occupant: 'player_b', ready: true, connected: true, can_take_over: false }],
+       slots: [{ slot_id: 'slot_1', position: 1, occupant: 'player_a', nickname: 'Same', ready: true, connected: false, can_take_over: true }, { slot_id: 'slot_2', position: 2, occupant: 'player_b', nickname: 'Same', ready: true, connected: true, can_take_over: false }],
     }, 'game_12345');
     expect(lobby.slots[0].occupant).toBe('player_a');
+    expect(lobby.slots.map((slot) => slot.nickname)).toEqual(['Same', 'Same']);
     expect(JSON.stringify(lobby)).not.toContain('player_session');
+    expect(() => decodeLobby({ ...lobby, slots: [{ ...lobby.slots[0], nickname: 'x\u202e' }, lobby.slots[1]] }, 'game_12345')).toThrow(/invalid lobby slot/);
   });
 });
 

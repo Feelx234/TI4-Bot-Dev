@@ -1,23 +1,29 @@
 import React, { useState } from 'react';
 import { CreateGameResponse, LobbyDto, LobbySlot } from '../protocol/types.ts';
 import { decodeCreateGameResponse } from '../protocol/decode.ts';
+import { preferredNickname, rememberNickname, validNickname } from '../protocol/nickname.ts';
 
 export const CreateLobby: React.FC<{ onCreated: (created: CreateGameResponse) => void; onError: (message: string) => void }> = ({ onCreated, onError }) => {
   const [count, setCount] = useState(3);
   const [seed, setSeed] = useState('');
+  const [nickname, setNickname] = useState(preferredNickname);
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     const parsedSeed = seed === '' ? undefined : Number(seed);
     if (parsedSeed !== undefined && (!Number.isSafeInteger(parsedSeed) || parsedSeed < 0)) return onError('Seed must be a non-negative whole number.');
+    if (!validNickname(nickname)) return onError('Nickname must be 1–64 UTF-8 bytes, trimmed, without control or format characters.');
     try {
-      const response = await fetch('/api/games', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player_count: count, seed: parsedSeed }) });
+      const response = await fetch('/api/games', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ player_count: count, seed: parsedSeed, nickname }) });
       if (!response.ok) throw new Error(`Create game failed (${response.status}): ${await response.text()}`);
-      onCreated(decodeCreateGameResponse(await response.json()));
+      const created = decodeCreateGameResponse(await response.json());
+      rememberNickname(nickname);
+      onCreated(created);
     } catch (cause) { onError(String(cause)); }
   };
   return <main data-testid="lobby-container" className="lobby-page"><section className="panel lobby-panel"><h1>Twilight Imperium 4</h1><p className="text-muted">Create a table and share its game URL.</p>
     <form className="lobby-form" onSubmit={create}>
       <label className="field-label">Players<select className="input" value={count} onChange={(event) => setCount(Number(event.target.value))}>{[2, 3, 4, 5, 6, 7, 8].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+      <label className="field-label">Nickname<input className="input" value={nickname} onChange={(event) => setNickname(event.target.value)} /></label>
       <label className="field-label">Seed (advanced, optional)<input className="input" type="number" min="0" step="1" value={seed} onChange={(event) => setSeed(event.target.value)} /></label>
       <p className="text-faint">You join as host. Other players and bots join from the shared URL.</p><button data-testid="create-game-button" className="button button--success" type="submit">Create lobby</button>
     </form>
@@ -30,21 +36,20 @@ interface LobbyStatusProps {
   onReady: (ready: boolean) => void;
   onStart: () => void;
   onLeave: () => void;
-  onJoin: () => void;
-  onTakeover: (playerId: string) => void;
+  onJoin: (nickname: string) => void;
+  onTakeover: (playerId: string, nickname: string) => void;
   onReorder: (slotIds: string[]) => void;
   onWatch: () => void;
   watching?: boolean;
 }
 
-/** Slot IDs are fixed at creation and move with their occupant; their number is a
- * stable display label, distinct from the occupant's current position. */
+/** Nicknames are public display data; the position distinguishes duplicate names. */
 function playerLabel(slot: LobbySlot): string {
-  const originalNumber = /^slot_([1-8])$/.exec(slot.slot_id)?.[1];
-  return originalNumber ? `Player ${originalNumber}` : `Player at position ${slot.position}`;
+  return slot.nickname ?? `Player at position ${slot.position}`;
 }
 
 export const LobbyStatus: React.FC<LobbyStatusProps> = ({ lobby, playerId, onReady, onStart, onLeave, onJoin, onTakeover, onReorder, onWatch, watching }) => {
+  const [nickname, setNickname] = useState(preferredNickname);
   const viewer = lobby.slots.find((slot) => slot.occupant === playerId);
   const isHost = playerId !== null && playerId === lobby.host_player_id;
   const canStart = lobby.phase === 'lobby' && lobby.slots.every((slot) => slot.occupant && slot.ready);
@@ -63,8 +68,8 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({ lobby, playerId, onRea
     {viewer && lobby.phase === 'lobby' && <button data-testid="ready-button" className="button button--success" onClick={() => onReady(!viewer.ready)}>{viewer.ready ? 'Not Ready' : 'Ready'}</button>}
     {isHost && lobby.phase === 'lobby' && <button data-testid="start-game-button" className="button button--primary" disabled={!canStart} onClick={onStart}>Start game</button>}
     {lobby.phase === 'lobby' && !canStart && <p className="text-muted">Waiting for all positions to be filled and ready.</p>}
-    {!playerId && <section aria-label="Join or watch"><h2>{watching ? 'Watching as spectator' : 'Join or watch'}</h2>{lobby.phase === 'lobby' && lobby.slots.some((slot) => !slot.occupant) && <button onClick={onJoin}>Join game</button>}{!watching && <button onClick={onWatch}>Watch</button>}
-      {lobby.slots.filter((slot) => slot.occupant && slot.can_take_over).map((slot) => <button key={slot.slot_id} onClick={() => onTakeover(slot.occupant!)}>Rejoin as {playerLabel(slot)} (position {slot.position})</button>)}
+    {!playerId && <section aria-label="Join or watch"><h2>{watching ? 'Watching as spectator' : 'Join or watch'}</h2><label className="field-label">Nickname<input className="input" value={nickname} onChange={(event) => setNickname(event.target.value)} /></label>{lobby.phase === 'lobby' && lobby.slots.some((slot) => !slot.occupant) && <button onClick={() => onJoin(nickname)}>Join game</button>}{!watching && <button onClick={onWatch}>Watch</button>}
+      {lobby.slots.filter((slot) => slot.occupant && slot.can_take_over).map((slot) => <button key={slot.slot_id} onClick={() => onTakeover(slot.occupant!, nickname)}>Rejoin as {playerLabel(slot)} (position {slot.position})</button>)}
     </section>}
     {viewer && !isHost && lobby.phase === 'lobby' && <button className="button button--secondary" onClick={onLeave}>Leave lobby</button>}
   </section></main>;
