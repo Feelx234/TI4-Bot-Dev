@@ -8,6 +8,8 @@ PIL-04 was committed as `83957c3`; PIL-05 as `bd8f2c1`; the PIL-06 browser
 follow-up was committed as `749bf44`, pending independent review. Package
 progress and verification results are tracked here, without separate evidence
 artifacts.
+PIL-07 bot-agent changes are implemented in the working tree; the optional
+Linux libtorch-backed advisor E2E gate passes, pending independent review.
 PIL-09–PIL-16 are planned follow-ups after the PIL-08 end-to-end gate; none is
 marked implemented by its presence in this plan.
 
@@ -616,6 +618,45 @@ do not claim an intermediate package is a deployable release.
 - **Gate:** Bot E2E covers ready/start, idle longer than the presence grace
   period, disconnect/reconnect, fresh-process takeover, and advisor identity
   (acceptance 9–11).
+- **Additional edit path:** `crates/ti4-bot-agent/README.md` for the new CLI
+  and crash/rejoin instructions. **Access:** P1; bot source, tests, README and
+  this plan only; no external reference, network download, external-state
+  change, or destructive action. Tests bind bounded loopback HTTP/WS ports.
+- **Progress (2026-09-23):** Removed the seat and token CLI/config inputs. A
+  fresh agent reads the public lobby and requests the next open player position;
+  when none is open, it lists eligible disconnected positions and requires an
+  explicit interactive choice before sending a typed takeover request. It
+  retains the returned private session in process memory, marks ready in a
+  lobby and sends authenticated HTTP heartbeats every 10 seconds until start;
+  a takeover of a running player skips lobby readiness. The running WebSocket
+  subscribes with protocol-v3 `player_session`, verifies the server-reported
+  `PlayerId` on every snapshot/update before advising, rejects choices for
+  another player or a choice before authentication, sends application `Ping`
+  every 10 seconds, processes `Pong`, and reconnects with the same session.
+  Updated the opt-in real-advisor E2E fixture to create/join/start without
+  manual seat claims; its identity assertions use actual lobby occupants.
+- **Verification:** `cargo fmt --package ti4-bot-agent` and `cargo test -p
+  ti4-bot-agent` pass (9 unit/integration tests; real-server join/ready/heartbeat
+  stays connected past the 30-second grace, starts, then exercises a
+  fresh-process explicit running takeover after absence and old-token refusal;
+  mock WS covers ping/pong, reconnection and advisor submission). The opt-in
+  `cargo check -p ti4-bot-agent --features real-e2e --tests` passed with the
+  README's Linux `LIBTORCH=out/libtorch-2.9.1-cpu-linux`, version bypass and
+  `LD_LIBRARY_PATH` settings. `cargo test -p ti4-bot-agent --features real-e2e
+  --test real_e2e -- --ignored` with the same settings passed (1/1, 11.51 s):
+  a real server, pinned advisor, two newly admitted bots and a scripted host
+  advanced a bounded game prefix, with decisions by both generated bot IDs.
+  The initial check without the README's environment had mistakenly used the
+  Windows pin `out/libtorch-2.9.1-cpu` and failed on its absent `XNNPACK.lib`;
+  this was an environment-selection error, not a missing Linux installation.
+  Full Clippy was not run, as requested (blocked by `ti4-model`). No independent
+  review was performed.
+- **Next/PIL-08:** Include the bot CLI and private-credential boundary in the
+  integration review; extend real-server bot coverage to an idle running-game
+  ping interval and a transport reconnect if required for the full gate (the
+  current real-server idle test covers lobby heartbeats and running takeover,
+  while mock WS tests cover pings and reconnect). Complete workspace/protocol
+  fixture cleanup and the full acceptance gate.
 
 ### PIL-08 — Contract cleanup and end-to-end gate
 

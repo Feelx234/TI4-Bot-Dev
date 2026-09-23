@@ -41,15 +41,17 @@ executes it.
 
 ## Run a bot agent
 
-Start `ti4-server` and `ti4-advisor` first, then run a bot with its assigned
-seat token:
+Start `ti4-server` and `ti4-advisor` first, then run a bot with a game ID.
+The bot joins the first open position, marks ready, and waits for the host to
+start. If the lobby is full (or already running), it lists eligible
+disconnected players and requires an interactive selection before takeover.
+Its private session stays in process memory; restart after a crash requires
+explicit takeover after the presence grace period.
 
 ```bash
 cargo run -p ti4-bot-agent -- \
   --server ws://127.0.0.1:8080 \
   --game game_123 \
-  --seat p2 \
-  --token <seat-token> \
   --advisor http://127.0.0.1:8081
 ```
 

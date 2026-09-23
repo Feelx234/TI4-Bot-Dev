@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use ti4_bot_agent::{BotConfig, run};
-use ti4_model::id::PlayerId;
 use ti4_server::create_app;
 use ti4_server::protocol::{ClientMessage, ServerMessage, parse_server_message};
 use ti4_server::session::GameRegistry;
@@ -77,7 +76,7 @@ async fn exercise_game_prefix(
     let client = reqwest::Client::new();
     let created = client
         .post(format!("{http_base}/api/games"))
-        .json(&serde_json::json!({ "players": ["p1", "p2", "p3"], "seed": 4_242 }))
+        .json(&serde_json::json!({ "player_count": 3, "seed": 4_242 }))
         .send()
         .await
         .map_err(|error| error.to_string())?
@@ -87,49 +86,67 @@ async fn exercise_game_prefix(
         .await
         .map_err(|error| error.to_string())?;
     let game_id = required_string(&created, "game_id")?;
-    let p1_token = required_string(&created, "creator_token")?;
-    let p2_token = claim_seat(&client, &http_base, &game_id, "p2").await?;
-    let p3_token = claim_seat(&client, &http_base, &game_id, "p3").await?;
-    for token in [&p1_token, &p2_token, &p3_token] {
-        client
-            .post(format!("{http_base}/api/games/{game_id}/lobby/ready"))
-            .header("x-ti4-seat-token", token)
-            .json(&serde_json::json!({ "ready": true }))
-            .send()
-            .await
-            .map_err(|error| error.to_string())?
-            .error_for_status()
-            .map_err(|error| error.to_string())?;
-    }
+    let p1_token = required_string(&created, "player_session")?;
     client
-        .post(format!("{http_base}/api/games/{game_id}/lobby/start"))
-        .header("x-ti4-seat-token", &p1_token)
+        .post(format!("{http_base}/api/games/{game_id}/lobby/ready"))
+        .header("x-ti4-player-session", &p1_token)
+        .json(&serde_json::json!({ "ready": true }))
         .send()
         .await
         .map_err(|error| error.to_string())?
         .error_for_status()
         .map_err(|error| error.to_string())?;
-
     let mut p2 = BotConfig::new(
         websocket_base.clone(),
         game_id.clone(),
-        PlayerId::new("p2"),
-        p2_token,
         advisor_base.clone(),
     );
     p2.timeout = Duration::from_secs(5);
     p2.max_reconnects = 1;
-    let mut p3 = BotConfig::new(
-        websocket_base.clone(),
-        game_id.clone(),
-        PlayerId::new("p3"),
-        p3_token,
-        advisor_base,
-    );
+    let mut p3 = BotConfig::new(websocket_base.clone(), game_id.clone(), advisor_base);
     p3.timeout = Duration::from_secs(5);
     p3.max_reconnects = 1;
     let mut p2_task = tokio::spawn(run(p2));
+    // Wait until the first agent has admitted before launching the second.
+    while registry
+        .player_lobby_status(&game_id, None)
+        .map_err(|e| e.message())?
+        .0
+        .slots
+        .iter()
+        .filter(|s| s.occupant.is_some())
+        .count()
+        < 2
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     let mut p3_task = tokio::spawn(run(p3));
+    while !registry
+        .player_lobby_status(&game_id, None)
+        .map_err(|e| e.message())?
+        .0
+        .slots
+        .iter()
+        .all(|s| s.occupant.is_some() && s.ready)
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    client
+        .post(format!("{http_base}/api/games/{game_id}/lobby/start"))
+        .header("x-ti4-player-session", &p1_token)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?;
+    let players: Vec<_> = registry
+        .player_lobby_status(&game_id, None)
+        .map_err(|e| e.message())?
+        .0
+        .slots
+        .iter()
+        .filter_map(|s| s.occupant.clone())
+        .collect();
     let scripted_task = tokio::spawn(scripted_first_option(
         websocket_base,
         game_id.clone(),
@@ -157,11 +174,8 @@ async fn exercise_game_prefix(
             if session.error().is_some() {
                 break 'decisions Err(format!("server session failed: {:?}", session.error()));
             }
-            for seat in ["p2", "p3"] {
-                if !decisions
-                    .iter()
-                    .any(|decision| decision.player.as_str() == seat)
-                {
+            for seat in players.iter().skip(1) {
+                if !decisions.iter().any(|decision| &decision.player == seat) {
                     break 'decisions Err(format!(
                         "bot seat {seat} did not make a recorded decision"
                     ));
@@ -180,26 +194,6 @@ async fn exercise_game_prefix(
     outcome
 }
 
-async fn claim_seat(
-    client: &reqwest::Client,
-    http_base: &str,
-    game_id: &str,
-    seat: &str,
-) -> Result<String, String> {
-    let response = client
-        .post(format!("{http_base}/api/games/{game_id}/lobby/claim"))
-        .json(&serde_json::json!({ "seat": seat }))
-        .send()
-        .await
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| error.to_string())?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|error| error.to_string())?;
-    required_string(&response, "credential")
-}
-
 async fn scripted_first_option(
     websocket_base: String,
     game_id: String,
@@ -213,7 +207,7 @@ async fn scripted_first_option(
         ClientMessage::Subscribe {
             protocol_version: ti4_server::protocol::PROTOCOL_VERSION,
             game_id: game_id.clone(),
-            seat_token: Some(token),
+            player_session: Some(token),
         },
     )
     .await?;

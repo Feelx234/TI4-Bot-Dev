@@ -1,4 +1,4 @@
-//! Stateless WebSocket bot client backed by an external advisor service.
+//! Lobby-admitted WebSocket bot client backed by an external advisor service.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -13,6 +13,7 @@ use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 use ti4_server::map::GalaxyLayout;
 use ti4_server::protocol::server::Choice;
+use ti4_server::protocol::status::ViewerRole;
 use ti4_server::protocol::{ClientMessage, PROTOCOL_VERSION, ServerMessage, parse_server_message};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -20,14 +21,13 @@ use tokio_tungstenite::tungstenite::Message;
 const DEFAULT_TEMPERATURE: f64 = 0.25;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_MAX_RECONNECTS: u32 = 3;
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 
-/// Configuration for one independently seated bot process.
+/// Configuration for one independently admitted bot process.
 #[derive(Debug, Clone)]
 pub struct BotConfig {
     pub server: String,
     pub game_id: String,
-    pub seat: PlayerId,
-    pub seat_token: String,
     pub advisor: String,
     pub temperature: f64,
     pub sample_seed: Option<u64>,
@@ -38,18 +38,10 @@ pub struct BotConfig {
 impl BotConfig {
     /// Builds a configuration using the documented deterministic defaults.
     #[must_use]
-    pub fn new(
-        server: String,
-        game_id: String,
-        seat: PlayerId,
-        seat_token: String,
-        advisor: String,
-    ) -> Self {
+    pub fn new(server: String, game_id: String, advisor: String) -> Self {
         Self {
             server,
             game_id,
-            seat,
-            seat_token,
             advisor,
             temperature: DEFAULT_TEMPERATURE,
             sample_seed: None,
@@ -64,10 +56,14 @@ impl BotConfig {
                 "server must be a ws:// URL".to_owned(),
             ));
         }
-        if self.game_id.is_empty() || self.seat_token.is_empty() {
-            return Err(BotError::Configuration(
-                "game and token must be non-empty".to_owned(),
-            ));
+        if self.game_id.is_empty()
+            || self.game_id.len() > 64
+            || !self
+                .game_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return Err(BotError::Configuration("invalid game ID".to_owned()));
         }
         if self.advisor.is_empty() || !self.advisor.starts_with("http://") {
             return Err(BotError::Configuration(
@@ -98,6 +94,16 @@ impl BotConfig {
     fn advisor_url(&self) -> String {
         format!("{}/evaluate", self.advisor.trim_end_matches('/'))
     }
+
+    fn lobby_url(&self, suffix: &str) -> String {
+        format!(
+            "{}/api/games/{}/lobby{suffix}",
+            self.server
+                .trim_end_matches('/')
+                .replacen("ws://", "http://", 1),
+            self.game_id
+        )
+    }
 }
 
 /// A terminal bot-agent failure. Errors always leave the server state untouched.
@@ -113,6 +119,8 @@ pub enum BotError {
     Protocol(String),
     #[error("server rejected the bot protocol: {0}")]
     Server(String),
+    #[error("lobby request failed: {0}")]
+    Lobby(String),
     #[error("reconnect attempts exhausted")]
     ReconnectExhausted,
 }
@@ -130,6 +138,182 @@ struct AdvisorOption {
     logit: f64,
 }
 
+#[derive(Deserialize)]
+struct LobbyView {
+    phase: String,
+    slots: Vec<LobbySlot>,
+}
+
+#[derive(Deserialize)]
+struct LobbySlot {
+    position: usize,
+    occupant: Option<PlayerId>,
+    can_take_over: bool,
+}
+
+#[derive(Deserialize)]
+struct JoinReply {
+    player_session: Option<String>,
+    player: JoinPlayer,
+    lobby: LobbyView,
+}
+
+#[derive(Deserialize)]
+struct JoinPlayer {
+    id: PlayerId,
+}
+
+// Deliberately no Debug: a join reply carries a private bearer credential.
+struct Admission {
+    player: PlayerId,
+    session: String,
+    phase: String,
+}
+
+async fn request_lobby(
+    response: Result<reqwest::Response, reqwest::Error>,
+) -> Result<reqwest::Response, BotError> {
+    response
+        .map_err(|error| BotError::Lobby(error.to_string()))?
+        .error_for_status()
+        .map_err(|error| BotError::Lobby(error.to_string()))
+}
+
+async fn admit(config: &BotConfig, client: &reqwest::Client) -> Result<Admission, BotError> {
+    admit_with_selection(config, client, None).await
+}
+
+async fn admit_with_selection(
+    config: &BotConfig,
+    client: &reqwest::Client,
+    selection: Option<PlayerId>,
+) -> Result<Admission, BotError> {
+    let lobby: LobbyView = request_lobby(client.get(config.lobby_url("")).send().await)
+        .await?
+        .json()
+        .await
+        .map_err(|e| BotError::Lobby(e.to_string()))?;
+    let payload =
+        if lobby.phase == "lobby" && lobby.slots.iter().any(|slot| slot.occupant.is_none()) {
+            serde_json::json!({"kind": "new"})
+        } else {
+            let eligible: Vec<_> = lobby
+                .slots
+                .iter()
+                .filter(|slot| slot.can_take_over)
+                .filter_map(|slot| slot.occupant.as_ref().map(|id| (slot.position, id.clone())))
+                .collect();
+            if eligible.is_empty() {
+                return Err(BotError::Lobby(
+                    "no open position or eligible disconnected player".to_owned(),
+                ));
+            }
+            let selection = if let Some(selected) = selection {
+                if !eligible.iter().any(|(_, id)| id == &selected) {
+                    return Err(BotError::Lobby(
+                        "selected player is not eligible".to_owned(),
+                    ));
+                }
+                selected
+            } else {
+                tokio::task::spawn_blocking(move || choose_takeover(&eligible))
+                    .await
+                    .map_err(|e| BotError::Lobby(e.to_string()))??
+            };
+            serde_json::json!({"kind": "takeover", "player_id": selection})
+        };
+    let reply: JoinReply = request_lobby(
+        client
+            .post(config.lobby_url("/join"))
+            .json(&payload)
+            .send()
+            .await,
+    )
+    .await?
+    .json()
+    .await
+    .map_err(|e| BotError::Lobby(e.to_string()))?;
+    if reply.lobby.phase != "lobby" && reply.lobby.phase != "running" {
+        return Err(BotError::Protocol("unknown lobby phase".to_owned()));
+    }
+    let session = reply
+        .player_session
+        .ok_or_else(|| BotError::Protocol("join did not issue a session".to_owned()))?;
+    Ok(Admission {
+        player: reply.player.id,
+        session,
+        phase: reply.lobby.phase,
+    })
+}
+
+fn choose_takeover(eligible: &[(usize, PlayerId)]) -> Result<PlayerId, BotError> {
+    eprintln!("Eligible disconnected players (select a number to take over):");
+    for (index, (position, _)) in eligible.iter().enumerate() {
+        eprintln!("{}: position {position}", index + 1);
+    }
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| BotError::Lobby(e.to_string()))?;
+    select_takeover(eligible, &input)
+}
+
+fn select_takeover(eligible: &[(usize, PlayerId)], input: &str) -> Result<PlayerId, BotError> {
+    let index = input
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| BotError::Lobby("invalid takeover selection".to_owned()))?;
+    eligible
+        .get(
+            index
+                .checked_sub(1)
+                .ok_or_else(|| BotError::Lobby("invalid takeover selection".to_owned()))?,
+        )
+        .map(|(_, id)| id.clone())
+        .ok_or_else(|| BotError::Lobby("invalid takeover selection".to_owned()))
+}
+
+async fn wait_for_start(
+    config: &BotConfig,
+    client: &reqwest::Client,
+    admission: &Admission,
+) -> Result<(), BotError> {
+    if admission.phase == "running" {
+        return Ok(());
+    }
+    let ready = request_lobby(
+        client
+            .post(config.lobby_url("/ready"))
+            .header("x-ti4-player-session", &admission.session)
+            .json(&serde_json::json!({"ready": true}))
+            .send()
+            .await,
+    )
+    .await?;
+    let mut lobby: LobbyView = ready
+        .json()
+        .await
+        .map_err(|e| BotError::Lobby(e.to_string()))?;
+    while lobby.phase == "lobby" {
+        tokio::time::sleep(HEARTBEAT_INTERVAL).await;
+        lobby = request_lobby(
+            client
+                .post(config.lobby_url("/heartbeat"))
+                .header("x-ti4-player-session", &admission.session)
+                .send()
+                .await,
+        )
+        .await?
+        .json()
+        .await
+        .map_err(|e| BotError::Lobby(e.to_string()))?;
+    }
+    if lobby.phase != "running" {
+        return Err(BotError::Protocol("unknown lobby phase".to_owned()));
+    }
+    Ok(())
+}
+
 /// Runs until the game ends or a bounded transport/protocol failure occurs.
 ///
 /// # Errors
@@ -145,9 +329,19 @@ pub async fn run(config: BotConfig) -> Result<(), BotError> {
             BotError::Configuration(format!("cannot build advisor client: {error}"))
         })?;
     let mut sampler = config.sample_seed.map(ChaCha8Rng::seed_from_u64);
+    let admission = admit(&config, &client).await?;
+    wait_for_start(&config, &client, &admission).await?;
+    run_existing_session(&config, &client, &admission, &mut sampler).await
+}
 
+async fn run_existing_session(
+    config: &BotConfig,
+    client: &reqwest::Client,
+    admission: &Admission,
+    sampler: &mut Option<ChaCha8Rng>,
+) -> Result<(), BotError> {
     for attempt in 0..=config.max_reconnects {
-        match run_connection(&config, &client, sampler.as_mut()).await {
+        match run_connection(config, client, admission, sampler.as_mut()).await {
             Ok(ConnectionEnd::GameOver) => return Ok(()),
             Ok(ConnectionEnd::Disconnected) | Err(BotError::WebSocket(_))
                 if attempt < config.max_reconnects =>
@@ -172,6 +366,7 @@ enum ConnectionEnd {
 async fn run_connection(
     config: &BotConfig,
     client: &reqwest::Client,
+    admission: &Admission,
     mut sampler: Option<&mut ChaCha8Rng>,
 ) -> Result<ConnectionEnd, BotError> {
     let (mut stream, _) = within(config.timeout, connect_async(config.websocket_url()))
@@ -183,17 +378,26 @@ async fn run_connection(
         &ClientMessage::Subscribe {
             protocol_version: PROTOCOL_VERSION,
             game_id: config.game_id.clone(),
-            seat_token: Some(config.seat_token.clone()),
+            player_session: Some(admission.session.clone()),
         },
         config.timeout,
     )
     .await?;
 
     let mut last_submission: Option<(String, u64)> = None;
+    let mut authenticated = false;
+    let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
+    heartbeat.tick().await;
+    let mut sequence = 0;
     loop {
-        let incoming = within(config.timeout, stream.next())
-            .await
-            .map_err(BotError::WebSocket)?;
+        let incoming = tokio::select! {
+            incoming = stream.next() => incoming,
+            _ = heartbeat.tick() => {
+                sequence += 1;
+                send_message(&mut stream, &ClientMessage::Ping { protocol_version: PROTOCOL_VERSION, sequence }, config.timeout).await?;
+                continue;
+            }
+        };
         let Some(message) = incoming else {
             return Ok(ConnectionEnd::Disconnected);
         };
@@ -216,6 +420,9 @@ async fn run_connection(
         match message {
             ServerMessage::GameOver(_) => return Ok(ConnectionEnd::GameOver),
             ServerMessage::Error(error) => return Err(BotError::Server(error.message)),
+            ServerMessage::Pong(pong) if pong.sequence > sequence => {
+                return Err(BotError::Protocol("unexpected pong sequence".to_owned()));
+            }
             // A rejected nonce/version remains remembered, so only a new pending message may act.
             ServerMessage::ActionRejected(_) if last_submission.is_none() => {
                 return Err(BotError::Protocol(
@@ -223,9 +430,12 @@ async fn run_connection(
                 ));
             }
             ServerMessage::InitialSnapshot(snapshot) => {
+                require_viewer(&snapshot.viewer, &admission.player)?;
+                authenticated = true;
                 if let Some(pending) = snapshot.pending_choice {
                     submit_advice(
                         config,
+                        &admission.player,
                         client,
                         &mut stream,
                         &snapshot.state,
@@ -240,9 +450,12 @@ async fn run_connection(
                 }
             }
             ServerMessage::StateUpdate(update) => {
+                require_viewer(&update.viewer, &admission.player)?;
+                authenticated = true;
                 if let Some(pending) = update.pending_choice {
                     submit_advice(
                         config,
+                        &admission.player,
                         client,
                         &mut stream,
                         &update.state,
@@ -257,8 +470,14 @@ async fn run_connection(
                 }
             }
             ServerMessage::PendingChoice(pending) => {
+                if !authenticated {
+                    return Err(BotError::Protocol(
+                        "pending choice before authenticated snapshot".to_owned(),
+                    ));
+                }
                 submit_advice(
                     config,
+                    &admission.player,
                     client,
                     &mut stream,
                     &pending.state,
@@ -276,9 +495,19 @@ async fn run_connection(
     }
 }
 
+fn require_viewer(viewer: &ViewerRole, player: &PlayerId) -> Result<(), BotError> {
+    if viewer != &ViewerRole::Player(player.clone()) {
+        return Err(BotError::Protocol(
+            "server authenticated a different player".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn submit_advice<S>(
     config: &BotConfig,
+    player: &PlayerId,
     client: &reqwest::Client,
     stream: &mut S,
     state: &GameState,
@@ -293,9 +522,9 @@ where
     S: SinkExt<Message> + Unpin,
     S::Error: std::fmt::Display,
 {
-    if choice.player != config.seat {
+    if &choice.player != player {
         return Err(BotError::Protocol(
-            "pending choice belongs to another seat".to_owned(),
+            "pending choice belongs to another player".to_owned(),
         ));
     }
     let key = (nonce.to_owned(), game_version);
@@ -308,7 +537,7 @@ where
         .json(&serde_json::json!({
             "state": state,
             "galaxy_layout": galaxy_layout,
-            "player": &config.seat,
+            "player": player,
             "choice": choice,
             "temperature": config.temperature,
         }))
@@ -458,6 +687,161 @@ mod tests {
     use axum::{Json, Router, routing::post};
     use ti4_server::fixtures::{sample_actor_snapshot, sample_terminal_game_over};
 
+    #[test]
+    fn never_act_for_a_different_authenticated_player() {
+        assert!(require_viewer(&ViewerRole::Spectator, &PlayerId::new("player_one")).is_err());
+        assert!(
+            require_viewer(
+                &ViewerRole::Player(PlayerId::new("player_two")),
+                &PlayerId::new("player_one")
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn takeover_requires_a_valid_explicit_selection() {
+        let choices = [
+            (1, PlayerId::new("player_one")),
+            (2, PlayerId::new("player_two")),
+        ];
+        assert_eq!(
+            select_takeover(&choices, "2\n").unwrap(),
+            PlayerId::new("player_two")
+        );
+        for input in ["", "0", "3", "player_one"] {
+            assert!(select_takeover(&choices, input).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn real_lobby_join_ready_and_heartbeat_survive_the_presence_grace() {
+        use std::sync::Arc;
+        let registry = Arc::new(ti4_server::session::GameRegistry::new());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(
+            axum::serve(listener, ti4_server::create_app(registry.clone())).into_future(),
+        );
+        let client = reqwest::Client::new();
+        let created: serde_json::Value = client
+            .post(format!("http://{address}/api/games"))
+            .json(&serde_json::json!({"player_count": 2, "seed": 42}))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let game = created["game_id"].as_str().unwrap();
+        let host_session = created["player_session"].as_str().unwrap();
+        let mut config = BotConfig::new(
+            format!("ws://{address}"),
+            game.to_owned(),
+            "http://127.0.0.1:1".to_owned(),
+        );
+        config.timeout = Duration::from_secs(2);
+        let admitted = admit(&config, &client).await.unwrap();
+        assert_ne!(
+            admitted.player.as_str(),
+            created["player"]["id"].as_str().unwrap()
+        );
+        let bot = tokio::spawn({
+            let config = config.clone();
+            let admission = Admission {
+                player: admitted.player.clone(),
+                session: admitted.session.clone(),
+                phase: admitted.phase.clone(),
+            };
+            async move { wait_for_start(&config, &reqwest::Client::new(), &admission).await }
+        });
+        for _ in 0..4 {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            let view: serde_json::Value = client
+                .get(config.lobby_url(""))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            let seat = view["slots"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|slot| slot["occupant"] == admitted.player.as_str())
+                .unwrap();
+            assert_eq!(seat["ready"], true);
+            assert_eq!(seat["can_take_over"], false);
+        }
+        request_lobby(
+            client
+                .post(config.lobby_url("/ready"))
+                .header("x-ti4-player-session", host_session)
+                .json(&serde_json::json!({"ready": true}))
+                .send()
+                .await,
+        )
+        .await
+        .unwrap();
+        request_lobby(
+            client
+                .post(config.lobby_url("/start"))
+                .header("x-ti4-player-session", host_session)
+                .send()
+                .await,
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(12), bot)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let (mut socket, _) = connect_async(config.websocket_url()).await.unwrap();
+        send_message(
+            &mut socket,
+            &ClientMessage::Subscribe {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game.to_owned(),
+                player_session: Some(admitted.session.clone()),
+            },
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        let text = socket.next().await.unwrap().unwrap().into_text().unwrap();
+        let ServerMessage::InitialSnapshot(snapshot) = parse_server_message(&text).unwrap() else {
+            panic!("expected snapshot");
+        };
+        require_viewer(&snapshot.viewer, &admitted.player).unwrap();
+        drop(socket);
+        tokio::time::sleep(Duration::from_secs(31)).await;
+        let replacement = admit_with_selection(&config, &client, Some(admitted.player.clone()))
+            .await
+            .unwrap();
+        assert_eq!(replacement.player, admitted.player);
+        assert_eq!(replacement.phase, "running");
+        assert_ne!(replacement.session, admitted.session);
+        let revoked = client
+            .post(config.lobby_url("/heartbeat"))
+            .header("x-ti4-player-session", admitted.session)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(revoked.status(), reqwest::StatusCode::FORBIDDEN);
+        let current = client
+            .post(config.lobby_url("/heartbeat"))
+            .header("x-ti4-player-session", replacement.session)
+            .send()
+            .await
+            .unwrap();
+        assert!(current.status().is_success());
+        server.abort();
+    }
+
     fn advice(options: &[(&str, f64, f64)]) -> AdvisorResponse {
         AdvisorResponse {
             options: options
@@ -593,8 +977,8 @@ mod tests {
                 serde_json::from_str(subscribe.to_text().expect("text")).expect("parse subscribe");
             assert!(matches!(
                 subscribe,
-                ClientMessage::Subscribe { ref game_id, ref seat_token, .. }
-                    if game_id == "game_12345" && seat_token.as_deref() == Some("seat-token")
+                ClientMessage::Subscribe { ref game_id, ref player_session, .. }
+                    if game_id == "game_12345" && player_session.as_deref() == Some("private-session")
             ));
 
             let snapshot =
@@ -620,6 +1004,28 @@ mod tests {
                     ..
                 } if nonce == "nonce_xyz789" && option_id == "opt_infantry"
             ));
+            let ping = tokio::time::timeout(Duration::from_secs(12), socket.next())
+                .await
+                .expect("application heartbeat deadline")
+                .expect("ping message")
+                .expect("ping transport");
+            let ping: ClientMessage =
+                serde_json::from_str(ping.to_text().expect("text")).expect("parse ping");
+            assert!(matches!(
+                ping,
+                ClientMessage::Ping {
+                    protocol_version: PROTOCOL_VERSION,
+                    sequence: 1
+                }
+            ));
+            let pong = serde_json::to_string(&ServerMessage::Pong(
+                ti4_server::protocol::server::PongMsg {
+                    protocol_version: PROTOCOL_VERSION,
+                    sequence: 1,
+                },
+            ))
+            .unwrap();
+            socket.send(Message::Text(pong.into())).await.unwrap();
             let terminal =
                 serde_json::to_string(&sample_terminal_game_over()).expect("serialize terminal");
             socket
@@ -631,16 +1037,23 @@ mod tests {
         let mut config = BotConfig::new(
             format!("ws://{websocket_address}"),
             "game_12345".to_owned(),
-            PlayerId::new("seat_a"),
-            "seat-token".to_owned(),
             format!("http://{advisor_address}"),
         );
         config.timeout = Duration::from_secs(2);
         config.max_reconnects = 0;
-        tokio::time::timeout(Duration::from_secs(5), run(config))
-            .await
-            .expect("bot run should not hang")
-            .expect("bot should finish at game over");
+        let admission = Admission {
+            player: PlayerId::new("seat_a"),
+            session: "private-session".to_owned(),
+            phase: "running".to_owned(),
+        };
+        let client = reqwest::Client::new();
+        tokio::time::timeout(
+            Duration::from_secs(16),
+            run_existing_session(&config, &client, &admission, &mut None),
+        )
+        .await
+        .expect("bot run should not hang")
+        .expect("bot should finish at game over");
         websocket_task.await.expect("websocket task");
         advisor_task.abort();
     }
@@ -723,16 +1136,23 @@ mod tests {
         let mut config = BotConfig::new(
             format!("ws://{websocket_address}"),
             "game_12345".to_owned(),
-            PlayerId::new("seat_a"),
-            "seat-token".to_owned(),
             format!("http://{advisor_address}"),
         );
         config.timeout = Duration::from_secs(2);
         config.max_reconnects = 1;
-        tokio::time::timeout(Duration::from_secs(5), run(config))
-            .await
-            .expect("bot run should not hang")
-            .expect("bot should reconnect and finish");
+        let admission = Admission {
+            player: PlayerId::new("seat_a"),
+            session: "private-session".to_owned(),
+            phase: "running".to_owned(),
+        };
+        let client = reqwest::Client::new();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            run_existing_session(&config, &client, &admission, &mut None),
+        )
+        .await
+        .expect("bot run should not hang")
+        .expect("bot should reconnect and finish");
         websocket_task.await.expect("websocket task");
         advisor_task.abort();
     }

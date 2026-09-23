@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use ti4_bot_agent::{BotConfig, run};
-use ti4_model::id::PlayerId;
 
 #[tokio::main]
 async fn main() {
@@ -18,8 +17,6 @@ async fn main() {
 fn parse_arguments() -> Result<BotConfig, String> {
     let mut server = None;
     let mut game_id = None;
-    let mut seat = None;
-    let mut token = None;
     let mut advisor = None;
     let mut temperature = None;
     let mut sample_seed = None;
@@ -31,8 +28,6 @@ fn parse_arguments() -> Result<BotConfig, String> {
         match argument.as_str() {
             "--server" => server = Some(next_value("--server", &mut arguments)?),
             "--game" => game_id = Some(next_value("--game", &mut arguments)?),
-            "--seat" => seat = Some(next_value("--seat", &mut arguments)?),
-            "--token" => token = Some(next_value("--token", &mut arguments)?),
             "--advisor" => advisor = Some(next_value("--advisor", &mut arguments)?),
             "--temperature" => {
                 temperature = Some(
@@ -70,8 +65,6 @@ fn parse_arguments() -> Result<BotConfig, String> {
     let mut config = BotConfig::new(
         server.ok_or_else(|| "--server is required".to_owned())?,
         game_id.ok_or_else(|| "--game is required".to_owned())?,
-        PlayerId::new(seat.ok_or_else(|| "--seat is required".to_owned())?),
-        token.ok_or_else(|| "--token is required".to_owned())?,
         advisor.ok_or_else(|| "--advisor is required".to_owned())?,
     );
     if let Some(value) = temperature {
@@ -101,7 +94,7 @@ fn usage(reason: &str) -> ! {
         eprintln!("{reason}");
     }
     eprintln!(
-        "usage: ti4-bot-agent --server ws://HOST:PORT --game ID --seat ID --token TOKEN --advisor http://HOST:PORT [--temperature F64] [--sample-seed U64] [--timeout-seconds U64] [--max-reconnects U32]"
+        "usage: ti4-bot-agent --server ws://HOST:PORT --game ID --advisor http://HOST:PORT [--temperature F64] [--sample-seed U64] [--timeout-seconds U64] [--max-reconnects U32]"
     );
     std::process::exit(if reason.is_empty() { 0 } else { 2 });
 }
