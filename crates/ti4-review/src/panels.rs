@@ -820,6 +820,21 @@ pub fn decision_sheet(
         stat_badge(ui, "⌛", "Pending", &step.pending);
         stat_badge(ui, "⚔", "Combat round", step.combat_round);
     });
+    // The agenda under vote, whose card the vote itself never names.
+    if let Some(alias) = crate::view::current_agenda(source.frames, frame) {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            for (index, line) in crate::view::agenda_card(ContentStore::embedded(), &alias)
+                .iter()
+                .enumerate()
+            {
+                if index == 0 {
+                    ui.strong(line);
+                } else {
+                    ui.label(line);
+                }
+            }
+        });
+    }
     if !step.agenda_lines.is_empty() {
         ui.collapsing("Current timing / agenda state", |ui| {
             for line in &step.agenda_lines {

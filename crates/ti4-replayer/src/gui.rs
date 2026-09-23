@@ -1301,6 +1301,22 @@ impl Replayer {
                         view::annotate(session, pending.actor.as_str())
                     ));
                     ui.strong(view::annotate(session, &pending.prompt));
+                    // A vote names only its outcomes: show the agenda card being voted on.
+                    if let Some(alias) = view::current_agenda(frames, frame) {
+                        egui::Frame::group(ui.style()).show(ui, |ui| {
+                            for (index, line) in
+                                view::agenda_card(ContentStore::embedded(), &alias)
+                                    .iter()
+                                    .enumerate()
+                            {
+                                if index == 0 {
+                                    ui.strong(line);
+                                } else {
+                                    ui.label(line);
+                                }
+                            }
+                        });
+                    }
                     ui.small(format!(
                         "frame {} · ask {} · {} option(s), in the order the engine offered them",
                         pending.frame,

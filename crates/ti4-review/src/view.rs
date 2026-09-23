@@ -1594,6 +1594,59 @@ pub fn action_summary_in(frames: &[ReviewFrame], frame: &ReviewFrame) -> ActionS
     }
 }
 
+/// The agenda on the table at this frame: revealed and not yet resolved or discarded.
+///
+/// The vote the engine asks for names only its outcomes ("vote for which outcome"), so a reader
+/// needs the card from somewhere else; the engine's own `AGENDA_REVEALED:<alias>` event says which
+/// it is. Scans back from this frame and stops at the first sign of an agenda closing, or at a frame
+/// outside the agenda phase.
+#[must_use]
+pub fn current_agenda(frames: &[ReviewFrame], frame: &ReviewFrame) -> Option<String> {
+    if frame.phase != ti4_model::state::Phase::Agenda {
+        return None;
+    }
+    let earlier = frames
+        .iter()
+        .filter(|candidate| candidate.index < frame.index)
+        .rev();
+    for candidate in std::iter::once(frame).chain(earlier) {
+        if candidate.phase != ti4_model::state::Phase::Agenda {
+            return None;
+        }
+        for event in candidate.new_events.iter().rev() {
+            if event.starts_with("AGENDA_RESOLVED:") || event.starts_with("AGENDA_DISCARDED:") {
+                return None;
+            }
+            if let Some(alias) = event.strip_prefix("AGENDA_REVEALED:") {
+                return Some(alias.to_owned());
+            }
+        }
+    }
+    None
+}
+
+/// An agenda card as lines: name with its type and what is elected, then its text.
+#[must_use]
+pub fn agenda_card(content: &ContentStore, alias: &str) -> Vec<String> {
+    let Some(record) = content.get(ContentType::Agendas, alias) else {
+        return vec![format!("Agenda: {alias}")];
+    };
+    let field = |key: &str| record.text(key).unwrap_or_default().to_owned();
+    let mut lines = vec![format!(
+        "Agenda: {} · {} · {}",
+        record.text("name").unwrap_or(alias),
+        field("type"),
+        field("target")
+    )];
+    lines.extend(
+        ["text1", "text2"]
+            .into_iter()
+            .map(field)
+            .filter(|text| !text.is_empty()),
+    );
+    lines
+}
+
 /// The dice behind what is on screen: every roll from the start of the action this frame belongs
 /// to up to this frame, so a combat reads whole rather than one step at a time. Outside any action
 /// (setup, strategy, agenda) it is this frame's own rolls.

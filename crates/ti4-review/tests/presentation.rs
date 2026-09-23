@@ -915,3 +915,45 @@ fn a_rift_die_says_whether_the_ship_survived() {
     let lost = view::roll_line(frame, &rift(2), content);
     assert!(lost.ends_with("survives on 4+: 2 → destroyed"), "{lost}");
 }
+
+/// A vote names only its outcomes, so the agenda under vote is found from the engine's reveal event
+/// and shown as a card. Reported 2026-09-23: a human voting could not see the agenda.
+#[test]
+fn the_agenda_under_vote_is_found_and_shown() {
+    let root = workspace_root();
+    let config = SimulationConfig {
+        checkpoint: root.join("examples/reviewer/checkpoint-473312/slots.json"),
+        map_pool: root.join("examples/reviewer/full_np8_12_holdout.json"),
+        seed: 4_242,
+        rotation: 1,
+        table: ProfileTable::Learner,
+        temperature: 0.5,
+        diplomacy: false,
+    };
+    let review = LiveReview::start(&config).expect("the example table starts");
+    let base = review.session.frames.last().expect("a first frame").clone();
+    let at = |index: usize, events: &[&str]| {
+        let mut frame = base.clone();
+        frame.index = index;
+        frame.phase = ti4_model::state::Phase::Agenda;
+        frame.new_events = events.iter().map(|event| (*event).to_owned()).collect();
+        frame
+    };
+    let frames = vec![
+        at(0, &["AGENDA_REVEALED:revolution"]),
+        at(1, &[]),
+        at(2, &["AGENDA_RESOLVED:revolution:for"]),
+    ];
+    assert_eq!(
+        view::current_agenda(&frames, &frames[1]).as_deref(),
+        Some("revolution")
+    );
+    assert_eq!(view::current_agenda(&frames, &frames[2]), None, "resolved");
+    let card = view::agenda_card(ContentStore::embedded(), "revolution");
+    assert!(card[0].contains("Anti-Intellectual Revolution"), "{card:?}");
+    assert!(card.iter().any(|line| line.starts_with("For:")), "{card:?}");
+    assert!(
+        card.iter().any(|line| line.starts_with("Against:")),
+        "{card:?}"
+    );
+}
