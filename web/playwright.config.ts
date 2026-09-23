@@ -38,7 +38,6 @@ export default defineConfig({
         HOST: '127.0.0.1',
         // Never recover developer sessions while starting the bounded E2E server.
         TI4_DATA_DIR: '/tmp/ti4-playwright-games',
-        TI4_SEAT_LEASE_MS: '30000',
       },
     },
     {

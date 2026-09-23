@@ -1,26 +1,5 @@
-import { test, expect, APIRequestContext, Page } from '@playwright/test';
-
-async function createStartedGame(request: APIRequestContext, players: string[], botSeats: string[], seed: number) {
-  const created = await request.post('http://127.0.0.1:8080/api/games', { data: { players, bot_seats: botSeats, seed } });
-  expect(created.ok()).toBeTruthy();
-  const { game_id: gameId, creator_token: creatorToken } = await created.json();
-  const credentials: Record<string, string> = { p1: creatorToken };
-  for (const seat of players.filter((seat) => seat !== 'p1' && !botSeats.includes(seat))) {
-    const claimed = await request.post(`http://127.0.0.1:8080/api/games/${gameId}/lobby/claim`, { data: { seat } });
-    expect(claimed.ok()).toBeTruthy();
-    credentials[seat] = (await claimed.json()).credential;
-  }
-  for (const token of Object.values(credentials)) await request.post(`http://127.0.0.1:8080/api/games/${gameId}/lobby/ready`, { data: { ready: true }, headers: { 'x-ti4-seat-token': token } });
-  const started = await request.post(`http://127.0.0.1:8080/api/games/${gameId}/lobby/start`, { headers: { 'x-ti4-seat-token': creatorToken } });
-  expect(started.ok()).toBeTruthy();
-  return { gameId, credentials };
-}
-
-async function openClaimedGame(page: Page, gameId: string, token: string) {
-  await page.goto(`/games/${gameId}`);
-  await page.evaluate(({ gameId, token }) => sessionStorage.setItem(`ti4.viewer.v1:${gameId}`, token), { gameId, token });
-  await page.reload();
-}
+import { test, expect, Page } from '@playwright/test';
+import { createStartedGame, openPlayerGame } from './lobbyHelpers';
 
 /**
  * Helper to ensure zero console errors / unhandled browser exceptions.
@@ -41,7 +20,7 @@ test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
     browser,
     request,
   }) => {
-    const { gameId, credentials } = await createStartedGame(request, ['p1', 'p2', 'p3'], ['p2', 'p3'], 101);
+    const { gameId, players } = await createStartedGame(request, 3, 101);
 
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -49,7 +28,7 @@ test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
 
     // 1. Desktop Viewport (>= 1280px)
     await page.setViewportSize({ width: 1440, height: 900 });
-    await openClaimedGame(page, gameId, credentials.p1);
+    await openPlayerGame(page, gameId, players[0].session);
 
     await expect(page.locator('[data-testid="turn-status-bar"]')).toBeVisible();
     await expect(page.locator('[data-testid="ti4-board-svg"]')).toBeVisible();
@@ -89,12 +68,12 @@ test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
     browser,
     request,
   }) => {
-    const { gameId, credentials } = await createStartedGame(request, ['p1', 'p2', 'p3'], ['p2', 'p3'], 777);
+    const { gameId, players } = await createStartedGame(request, 3, 777);
 
     const contextP1 = await browser.newContext();
     const pageP1 = await contextP1.newPage();
     trackErrors(pageP1, 'Player 1');
-    await openClaimedGame(pageP1, gameId, credentials.p1);
+    await openPlayerGame(pageP1, gameId, players[0].session);
 
     // Verify game connected and strategy draft choice is rendered
     await expect(pageP1.locator('[data-testid="turn-status-bar"]')).toBeVisible();
@@ -117,8 +96,7 @@ test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
     await expect(submitBtn).toBeEnabled();
     await submitBtn.click();
 
-    // Turn should advance; bots take their turns automatically
-    await pageP1.waitForTimeout(1000);
+    // The next human participant receives the draft after the host's pick.
     await expect(pageP1.locator('[data-testid="turn-status-bar"]')).toBeVisible();
 
     await contextP1.close();

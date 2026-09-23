@@ -1,6 +1,6 @@
 {
   "type": "game_over",
-  "protocol_version": 2,
+  "protocol_version": 3,
   "game_id": "game_12345",
   "game_version": 156,
   "winner": "seat_a",

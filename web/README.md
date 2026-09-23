@@ -6,7 +6,7 @@ A minimal browser client and test suite for the authoritative `ti4-server` engin
 
 ## Quick Start (Interactive Play)
 
-To test the client interactively across multiple seats in your browser:
+To test the client interactively across multiple players in your browser:
 
 ### 1. Start the Rust Backend Server
 
@@ -17,10 +17,8 @@ cargo run -p ti4-server --bin server
 ```
 
 * Starts the HTTP and WebSocket authoritative server on `http://127.0.0.1:8080`.
-* Pre-seeds a default game named `demo` with 3 seats:
-  * Seat `p1`: Human player
-  * Seat `p2`: Human player
-  * Seat `p3`: Automated Bot player
+* Start on the home page to create a lobby with 2–8 positions. Share the
+  resulting game URL to invite other players or spectators.
 
 ### 2. Start the Frontend Dev Server
 
@@ -38,12 +36,15 @@ npm run dev
 ### 3. Open in Browser
 
 1. Navigate to [http://127.0.0.1:3000](http://127.0.0.1:3000).
-2. Enter Game ID: `demo`.
-3. Select Seat: `p1` and click **"Join Game"**.
-4. To test multi-player synchronization and privacy redaction, open a second browser window or tab:
-   * Navigate to [http://127.0.0.1:3000](http://127.0.0.1:3000).
-   * Enter Game ID: `demo` and select Seat `p2` (or choose `Spectator`).
-5. Notice that choices and private cards are strictly hidden from opponents and spectators. When Player 1 selects a strategy card, Player 2's screen updates live to show remaining choices.
+2. Choose the player count and create a lobby. The creator becomes its host.
+3. Copy the game URL and open it in another browser context to **Join game**
+   (next open position) or **Watch** without claiming a position. A disconnected
+   participant can be explicitly taken over from another computer after the
+   presence grace period.
+4. Players mark themselves ready; the host may reorder the lobby and start when
+   every position is occupied and ready. Session credentials stay in tab-scoped
+   storage, never in invitation URLs. Reconnect in the same tab to resume.
+5. Choices and private cards are hidden from opponents and spectators.
 
 ---
 
@@ -59,7 +60,7 @@ npm test
 
 ### End-to-End Invariant Tests (Playwright)
 
-Runs multi-seat end-to-end tests spawning 3 isolated browser contexts (Player 1, Player 2, Spectator) verifying:
+Runs real-server end-to-end tests in isolated browser contexts verifying:
 * Zero console errors / JavaScript runtime exceptions.
 * Live strategy card draft synchronization across multiple tabs.
 * Strict DOM privacy redaction (opponents/spectators never receive private card DOM nodes).
@@ -84,7 +85,8 @@ DEBUG=pw:webserver npx playwright test --reporter=line
 ```text
 web/
 ├── e2e/
-│   └── multiplayer_invariants.spec.ts  # Playwright multi-seat browser invariant suite
+│   ├── lobby_lifecycle.spec.ts       # Create, join, watch, leave, and start
+│   └── multiplayer_invariants.spec.ts # Playwright multiplayer invariant suite
 ├── src/
 │   ├── components/
 │   │   ├── Board.tsx                   # Interactive SVG galaxy board with planets & units
@@ -92,7 +94,7 @@ web/
 │   │   ├── PlayerSheet.tsx             # Player resources, VP, tokens, and private hand
 │   │   ├── PendingChoiceModal.tsx      # Accessible dialog for player decisions
 │   │   ├── EventLog.tsx                # Collapsible event log drawer
-│   │   └── Lobby.tsx                   # Game join / seat selection lobby
+│   │   └── Lobby.tsx                   # Admission, readiness and host reorder
 │   ├── hooks/
 │   │   └── useGameSession.ts           # WebSocket connection hook with state sync & heartbeat
 │   ├── protocol/

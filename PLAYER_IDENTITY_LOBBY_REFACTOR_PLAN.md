@@ -8,10 +8,13 @@ PIL-04 was committed as `83957c3`; PIL-05 as `bd8f2c1`; the PIL-06 browser
 follow-up was committed as `749bf44`, pending independent review. Package
 progress and verification results are tracked here, without separate evidence
 artifacts.
-PIL-07 bot-agent changes are implemented in the working tree; the optional
+PIL-07 bot-agent changes were committed as `14a88cb`; the optional
 Linux libtorch-backed advisor E2E gate passes, pending independent review.
-PIL-09–PIL-16 are planned follow-ups after the PIL-08 end-to-end gate; none is
-marked implemented by its presence in this plan.
+PIL-08 integration changes are in the working tree. The operator accepted
+PIL-08 on 2026-09-23 with the explicitly recorded exceptions below; its full
+workspace and independent-review gates have **not** passed. PIL-09–PIL-16 may
+proceed under this operator exception; none is marked implemented by its
+presence in this plan.
 
 Proposed breaking-change plan. The current game is not live, so no compatibility
 adapter, legacy endpoint, or persisted-data migration is required. Existing saved
@@ -671,6 +674,81 @@ do not claim an intermediate package is a deployable release.
   layers; format, affected crates, workspace suite, protocol round-trips,
   concurrency, recovery, and a real bot E2E with idle time past the presence
   grace period pass.
+- **Execution scope (2026-09-23):** P1, repository-only edits. Exact initial
+  writable paths: `PLAYER_IDENTITY_LOBBY_REFACTOR_PLAN.md`, `README.md`,
+  `web/README.md`, `web/playwright.config.ts`, `web/e2e/*.spec.ts`,
+  `web/e2e/lobbyHelpers.ts`,
+  `web/src/protocol/fixtures.test.ts`, `crates/ti4-server/fixtures/*.json`,
+  `crates/ti4-server/examples/generate_protocol_fixtures.rs`,
+  `crates/ti4-bot-agent/tests/real_e2e.rs`,
+  `crates/ti4-server/src/bin/server.rs`,
+  `crates/ti4-server/tests/{fixtures_verification,lobby_lifecycle,player_lobby_admission,ws_lifecycle}.rs`,
+  and, if removal of internal legacy APIs is feasible without weakening replay,
+  `crates/ti4-server/src/{session/registry,session/mod,session/worker,storage}.rs`
+  and their affected tests. No historical reference, download, external-state
+  change or destructive action. Local loopback E2E servers and bounded temporary
+  game data only. Existing protocol-v2 fixtures require semantic inspection before
+  regenerating with the versioned generator. Full Clippy is excluded by operator
+  instruction (`ti4-model` blocker). Record gate results and any remaining
+  legacy internal API as an explicit follow-up here rather than claiming closure.
+- **Progress (2026-09-23, uncommitted):** Removed the standalone server's
+  automatic `demo` game with fixed `p1`–`p3` seats and `BotFirstOption` and its
+  obsolete lease environment setting. Browser E2E setup now creates, joins,
+  readies and starts through the actual HTTP contract using private tab-scoped
+  player sessions; the old manual-claim/seat-token flows are gone. A new real
+  browser/server case reorders an open position, joins into the first open
+  position, verifies a running spectator has no private cards or credential,
+  keeps the host present past the 30-second absence grace, takes over the
+  disconnected guest from a fresh context, refuses the old credential and
+  reconnects with the rotated credential. The opt-in real-advisor/two-bot test
+  now keeps both bots connected through 31 idle running seconds, asserting
+  that neither can be taken over. Protocol-v3 golden fixtures were regenerated
+  from `ti4-server::fixtures` using the checked-in
+  `generate_protocol_fixtures --write` example; the semantic diff includes the
+  current nested choice, redacted private-state payload, and galaxy layout,
+  not merely a changed version number. The server test now checks checked-in
+  fixture JSON against its producer on every run, and the browser parses the
+  same checked-in fixtures. Current README files describe the admission flow.
+- **Checks:** `cargo fmt --package ti4-server --package ti4-bot-agent --check`,
+  `cargo run -p ti4-server --example generate_protocol_fixtures` (read-only
+  verification mode), `cargo test -p ti4-server` (all unit, integration and
+  doc tests), `cargo test -p ti4-bot-agent` (9 passed),
+  `cargo test -p ti4-bot-agent --features real-e2e --test real_e2e -- --ignored`
+  with the pinned Linux libtorch runtime (1 passed, 42.13 s including idle),
+  `npm test` (25 files, 161 passed), `npm run build`, and full Playwright
+  Chromium E2E (5 passed, 43.4 s on isolated 38080/33000 ports) passed.
+  `git diff --check` passed. The first full E2E attempt exposed a race in an
+  old speculative multi-click loop; that loop was replaced by an assertion
+  at the actual three-human decision boundary before the five-test pass.
+  `cargo test --workspace` was attempted twice: without `LIBTORCH` it failed
+  at the Windows-pin `XNNPACK.lib`; with the pinned Linux runtime it progressed
+  but stopped compiling `rfd 0.17.2` because neither Linux `gtk3` nor
+  `xdg-portal` backend feature is enabled. A narrower workspace run with the
+  Linux runtime and `--exclude ti4-review` compiled, then stopped at the
+  pre-existing missing `ti4-bridge/tests/golden/hexsummary_captures.json`
+  (6 failures in `hexsummary_golden`; no fixture was fabricated). No full
+  Clippy was run. No independent review was performed.
+- **Operator acceptance with exceptions (2026-09-23):** PIL-08 is **accepted
+  for progression to PIL-09** at the operator's explicit request, without
+  resolving the exceptions below. This records an acceptance decision, not a
+  claim that the original full workspace/review gate passed or that the
+  uncommitted implementation is independently reviewed. Retain the recorded
+  failures and remaining internal legacy API as open findings.
+- **Carried-forward follow-up (nonblocking for PIL-09):** Resolve the existing Linux
+  workspace `rfd` feature/build configuration or run the full suite on the
+  supported Windows host with its pinned runtime; separately restore the
+  approved bridge golden captures and report exact workspace results. Review
+  the internal legacy direct-registry `create_lobby`/
+  `claim_seat`/lease and v1 `seat_token` storage paths in
+  `ti4-server/src/{session/registry,session/mod,session/worker,storage}.rs`:
+  they remain reachable by in-repository direct-session utilities/tests, but
+  are not exposed through current HTTP/WS admission or the server binary.
+  Remove or isolate them only after preserving the direct-session replay and
+  recovery test coverage; do not misrepresent them as a live player endpoint.
+  Obtain independent security/schema review of the server/browser/bot boundary
+  and resolve any actionable findings before claiming the original PIL-08 gate
+  is fully verified. Track these exceptions while PIL-09–PIL-16 proceed; do
+  not silently turn operator acceptance into a passing workspace or review result.
 
 ### PIL-09 — Persisted participant nicknames
 

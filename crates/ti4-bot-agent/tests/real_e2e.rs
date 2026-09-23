@@ -14,7 +14,7 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 const TARGET_DECISIONS: usize = 12;
-const TEST_TIMEOUT: Duration = Duration::from_secs(30);
+const TEST_TIMEOUT: Duration = Duration::from_secs(75);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires LIBTORCH, LD_LIBRARY_PATH, and the pinned checkpoint runtime"]
@@ -188,10 +188,33 @@ async fn exercise_game_prefix(
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     };
+    let idle_result = if outcome.is_ok() {
+        // Both real agents remain subscribed through multiple application-ping intervals.
+        // Without their pings the server would offer both identities for takeover.
+        tokio::time::sleep(Duration::from_secs(31)).await;
+        let lobby = registry
+            .player_lobby_status(&game_id, None)
+            .map(|status| status.0);
+        let lobby = lobby.map_err(|error| error.message())?;
+        let mut result = Ok(());
+        for bot in players.iter().skip(1) {
+            match lobby
+                .slots
+                .iter()
+                .find(|slot| slot.occupant.as_ref() == Some(bot))
+            {
+                Some(slot) if slot.connected && !slot.can_take_over => {}
+                _ => result = Err(format!("bot {bot} lost authenticated presence while idle")),
+            }
+        }
+        result
+    } else {
+        Ok(())
+    };
     p2_task.abort();
     p3_task.abort();
     scripted_task.abort();
-    outcome
+    outcome.and(idle_result)
 }
 
 async fn scripted_first_option(

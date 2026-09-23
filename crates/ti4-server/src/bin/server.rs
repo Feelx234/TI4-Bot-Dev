@@ -2,11 +2,8 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-
-use ti4_content::ContentStore;
-use ti4_model::id::PlayerId;
 use ti4_server::http::create_app;
-use ti4_server::session::{GameRegistry, SeatController, SessionConfig};
+use ti4_server::session::GameRegistry;
 use tracing::info;
 
 #[tokio::main]
@@ -27,18 +24,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let lease_ms = std::env::var("TI4_SEAT_LEASE_MS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_millis)
-        .unwrap_or(Duration::from_secs(30))
-        .clamp(Duration::from_secs(1), Duration::from_secs(300));
     let store = Arc::new(ti4_server::storage::FileGameStore::new(&data_dir)?);
-    let registry = Arc::new(
-        GameRegistry::new()
-            .with_store(store)
-            .with_lease_duration(lease_ms),
-    );
+    let registry = Arc::new(GameRegistry::new().with_store(store));
 
     // Recover existing saved games from disk
     match registry.recover_all_games() {
@@ -55,35 +42,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Create a default demo game ("demo") if not already recovered from storage
-    if registry.get_game("demo").is_none() {
-        let p1 = PlayerId::new("p1");
-        let p2 = PlayerId::new("p2");
-        let p3 = PlayerId::new("p3");
-        let players = [p1.clone(), p2.clone(), p3.clone()];
-
-        let content = ContentStore::embedded();
-        if let Ok((state, galaxy)) = ti4_server::map::create_game_with_map(content, &players, 42) {
-            let map_tiles = ti4_server::map::build_board_tiles(content, &galaxy);
-            let config = SessionConfig::new("demo", state)
-                .with_seed(42)
-                .with_player_ids(players.to_vec())
-                .with_galaxy(galaxy, map_tiles)
-                .with_seat(p1, SeatController::Human)
-                .with_seat(p2, SeatController::Human)
-                .with_seat(p3, SeatController::BotFirstOption);
-
-            if let Ok(session) = registry.create_game(config) {
-                info!(
-                    "Created default demo game with galaxy map: '{}'",
-                    session.id()
-                );
-            }
-        }
-    } else {
-        info!("Demo game 'demo' successfully resumed from disk storage");
-    }
-
     let app = create_app(registry);
     let addr = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -97,7 +55,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "║  Health Check:  http://127.0.0.1:{port}/health{pad:<22}║",
         pad = ""
     );
-    println!("║  Default Game:  'demo' (Seats: p1 [Human], p2 [Human], p3 [Bot])║");
     println!("║  Storage Dir:   {data_dir:<48}║");
     println!("║                                                                  ║");
     println!("║  Web Client:    cd web && npm run dev                            ║");

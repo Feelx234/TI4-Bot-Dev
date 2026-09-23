@@ -1,32 +1,12 @@
-import { test, expect, APIRequestContext, Page } from '@playwright/test';
-
-async function createStartedGame(request: APIRequestContext) {
-  const created = await request.post('http://127.0.0.1:8080/api/games', {
-    data: { players: ['p1', 'p2', 'p3'], bot_seats: ['p3'], seed: 42 },
-  });
-  expect(created.ok()).toBeTruthy();
-  const { game_id: gameId, creator_token: p1 } = await created.json();
-  const claimed = await request.post(`http://127.0.0.1:8080/api/games/${gameId}/lobby/claim`, { data: { seat: 'p2' } });
-  expect(claimed.ok()).toBeTruthy();
-  const p2 = (await claimed.json()).credential;
-  for (const token of [p1, p2]) await request.post(`http://127.0.0.1:8080/api/games/${gameId}/lobby/ready`, { data: { ready: true }, headers: { 'x-ti4-seat-token': token } });
-  const started = await request.post(`http://127.0.0.1:8080/api/games/${gameId}/lobby/start`, { headers: { 'x-ti4-seat-token': p1 } });
-  expect(started.ok()).toBeTruthy();
-  return { gameId, p1, p2 };
-}
-
-async function openClaimedGame(page: Page, gameId: string, token: string) {
-  await page.goto(`/games/${gameId}`);
-  await page.evaluate(({ gameId, token }) => sessionStorage.setItem(`ti4.viewer.v1:${gameId}`, token), { gameId, token });
-  await page.reload();
-}
+import { test, expect, Page } from '@playwright/test';
+import { createStartedGame, openPlayerGame } from './lobbyHelpers';
 
 /**
  * Asserts core UI and system invariants on a given player or spectator page.
  */
 async function assertPageInvariants(
   page: Page,
-  expectedSeat?: string,
+    expectedPlayer?: string,
   isSpectator = false
 ) {
   // 1. Connection must be connected
@@ -41,10 +21,10 @@ async function assertPageInvariants(
   if (isSpectator) {
     const privateCards = page.locator('[data-private-card="true"]');
     await expect(privateCards).toHaveCount(0);
-  } else if (expectedSeat) {
+  } else if (expectedPlayer) {
     // Assert no private cards belonging to other players exist
     const foreignCards = page.locator(
-      `[data-private-card="true"]:not([data-private-card-owner="${expectedSeat}"])`
+      `[data-private-card="true"]:not([data-private-card-owner="${expectedPlayer}"])`
     );
     await expect(foreignCards).toHaveCount(0);
   }
@@ -83,27 +63,28 @@ test.describe('Multiplayer Online Flow & Invariant Suite', () => {
     };
 
     // Create a fresh isolated game for this test run
-    const { gameId, p1, p2 } = await createStartedGame(request);
+    const { gameId, players } = await createStartedGame(request, 3, 42);
+    const [p1, p2] = players;
 
     // 1. Open Player 1 (p1)
     const contextP1 = await browser.newContext();
     const pageP1 = await contextP1.newPage();
     trackErrors(pageP1, 'Player 1');
-    await openClaimedGame(pageP1, gameId, p1);
+    await openPlayerGame(pageP1, gameId, p1.session);
 
     // 2. Open Player 2 (p2)
     const contextP2 = await browser.newContext();
     const pageP2 = await contextP2.newPage();
     trackErrors(pageP2, 'Player 2');
-    await openClaimedGame(pageP2, gameId, p2);
+    await openPlayerGame(pageP2, gameId, p2.session);
 
     // Wait for both claimed seats to connect.
     await expect(pageP1.locator('[data-testid="turn-status-bar"]')).toBeVisible();
     await expect(pageP2.locator('[data-testid="turn-status-bar"]')).toBeVisible();
 
     // Initial invariant checks across both claimed tabs.
-    await assertPageInvariants(pageP1, 'p1');
-    await assertPageInvariants(pageP2, 'p2');
+    await assertPageInvariants(pageP1, p1.id);
+    await assertPageInvariants(pageP2, p2.id);
 
     // Active Seat Choice Invariant:
     // P1 must have pending-choice-dialog; P2 must not.
@@ -185,38 +166,19 @@ test.describe('Multiplayer Online Flow & Invariant Suite', () => {
     // P2 submits choice
     await pageP2.locator('[data-testid="submit-choice-button"]').click();
 
-    // Loop through actions dynamically depending on which human seat is active (P1 or P2)
-    // Note: 3-player TI4 drafts 2 strategy cards per player, then proceeds into action phase.
-    for (let cycle = 0; cycle < 5; cycle++) {
-      // Find who is active
-      const p1Active = (await pageP1.locator('[data-testid="pending-choice-dialog"]').count()) > 0;
-      const p2Active = (await pageP2.locator('[data-testid="pending-choice-dialog"]').count()) > 0;
-
-      if (p1Active) {
-        await assertPageInvariants(pageP1, 'p1');
-        const submitBtn = pageP1.locator('[data-testid="submit-choice-button"]');
-        if (await submitBtn.isVisible()) {
-          await submitBtn.click();
-        }
-      } else if (p2Active) {
-        await assertPageInvariants(pageP2, 'p2');
-        const submitBtn = pageP2.locator('[data-testid="submit-choice-button"]');
-        if (await submitBtn.isVisible()) {
-          await submitBtn.click();
-        }
-      }
-
-      await pageP1.waitForTimeout(200);
-    }
+    // The third human now has the draft. No server-side bot silently plays their turn.
+    await expect(p2Modal).toHaveCount(0);
+    await assertPageInvariants(pageP1, p1.id);
+    await assertPageInvariants(pageP2, p2.id);
 
     // Disconnect & Reconnect Invariant Test
     await pageP1.locator('[data-testid="leave-game-button"]').click();
     await expect(pageP1.locator('[data-testid="lobby-container"]')).toBeVisible();
 
     // Rejoin as p1 with its tab-scoped current credential.
-    await openClaimedGame(pageP1, gameId, p1);
+    await openPlayerGame(pageP1, gameId, p1.session);
 
     await expect(pageP1.locator('[data-testid="turn-status-bar"]')).toBeVisible();
-    await assertPageInvariants(pageP1, 'p1');
+    await assertPageInvariants(pageP1, p1.id);
   });
 });

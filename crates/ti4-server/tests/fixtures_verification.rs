@@ -20,6 +20,15 @@ fn ensure_and_verify_fixtures() {
     ];
 
     for (name, expected_msg) in &fixtures {
+        let persisted =
+            std::fs::read_to_string(format!("{}/fixtures/{name}", env!("CARGO_MANIFEST_DIR")))
+                .expect("read checked-in fixture");
+        let checked_in: serde_json::Value = serde_json::from_str(&persisted).expect("fixture JSON");
+        let generated = serde_json::to_value(expected_msg).expect("generate fixture JSON");
+        assert_eq!(
+            checked_in, generated,
+            "Fixture {name} differs from the versioned generator"
+        );
         let content = serde_json::to_string(expected_msg).expect("serialize fixture");
         let parsed: ServerMessage = parse_server_message(&content).expect("parse fixture");
 
