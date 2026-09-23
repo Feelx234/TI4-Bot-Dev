@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
 import { getPaymentPayload, ChoiceRendererModel } from '../presentation/choiceModel.ts';
 import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
-import { Drawer } from '../primitives/index.ts';
 import { WorkflowShell } from './WorkflowShell.tsx';
 import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
 
@@ -39,7 +38,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   const [selectedPlanetIds, setSelectedPlanetIds] = useState<string[]>([]);
   const [tradeGoodsToSpend, setTradeGoodsToSpend] = useState<number>(0);
 
-  const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
+  const { executePipeline, isRunning: isPipelineRunning, lastError: pipelineError } = usePipelineRunner(choice, onSubmit);
 
   const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
   const totalAmount = model?.selectionMode.mode === 'quantity'
@@ -153,15 +152,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   if (!choice) return null;
 
   return (
-    <Drawer
-      open={isOpen}
-      onClose={onClose}
-      modal={false}
-      position="right"
-      ariaLabel="Payment and Economy Drawer"
-      data-testid="payment-drawer"
-      className="payment-drawer panel"
-    >
+    isOpen && <section role="region" aria-label="Payment and Economy" data-testid="payment-drawer" className="payment-drawer panel">
       {/* Header */}
       <div className="choice-workflow-header">
         <div>
@@ -323,13 +314,12 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
         )}
       </div>
 
-      {lastError && (
+      {pipelineError && (
         <div
-          data-testid="payment-error-banner"
           role="alert"
           className="workflow-error"
         >
-          {lastError}
+          {pipelineError}
         </div>
       )}
 
@@ -359,6 +349,6 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       </div>
         </>}
       </WorkflowShell>
-    </Drawer>
+    </section>
   );
 };

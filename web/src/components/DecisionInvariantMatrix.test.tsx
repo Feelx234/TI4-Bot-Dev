@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { ChoiceRendererDispatcher } from './GameShell.tsx';
+import { ChoiceRendererDispatcher, GameShell } from './GameShell.tsx';
 import { deriveChoiceRendererModel, type ChoiceWorkflowKind } from '../presentation/choiceModel.ts';
 import type { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
 
@@ -134,5 +134,98 @@ describe('INV-03 decision invariant matrix', () => {
     expect(screen.queryByTestId('choice-minimized-pill')).not.toBeInTheDocument();
     expect(screen.queryByTestId('pending-choice-dialog')).not.toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  const modalCases: Array<{ subtype: string; options: PendingChoiceDto['options']; region: string }> = [
+    { subtype: 'activate_system', options: [{ id: '18', kind: 'activate', label: 'System 18' }], region: 'pending-choice-dialog' },
+    { subtype: 'movement_step', options: [{ id: 'done_moving', kind: 'decline', label: 'Done' }], region: 'decision-modal' },
+    { subtype: 'load_cargo', options: [{ id: 'done_loading', kind: 'decline', label: 'Done' }], region: 'decision-modal' },
+    { subtype: 'pay_resources', options: [{ id: 'trade_good', kind: 'pay', label: 'Spend TG', payload: { worth: 1 } }], region: 'decision-modal' },
+    { subtype: 'pay_influence', options: [{ id: 'exhaust|jord', kind: 'pay', label: 'Jord', payload: { worth: 2 } }], region: 'decision-modal' },
+    { subtype: 'produce_unit', options: [{ id: 'done_producing', kind: 'decline', label: 'Done' }], region: 'production-builder-drawer' },
+    { subtype: 'place_unit', options: [{ id: 'space', kind: 'place', label: 'Space' }], region: 'production-builder-drawer' },
+    { subtype: 'sustain_damage', options: [{ id: 'decline', kind: 'decline', label: 'Pass' }], region: 'combat-resolution-modal' },
+    { subtype: 'assign_casualty', options: [{ id: 'destroy|fighter', kind: 'casualty', label: 'Fighter' }], region: 'combat-resolution-modal' },
+    { subtype: 'retreat_to', options: [{ id: 'retreat|18', kind: 'retreat', label: 'System 18' }], region: 'combat-resolution-modal' },
+    { subtype: 'propose_transaction', options: [{ id: 'cc1', kind: 'offer', label: 'Swap' }], region: 'trade-desk-modal' },
+    { subtype: 'answer_transaction', options: [{ id: 'refuse', kind: 'decline', label: 'Refuse' }], region: 'trade-desk-modal' },
+    { subtype: 'cast_vote', options: [{ id: 'FOR', kind: 'outcome', label: 'For' }], region: 'agenda-ballot-modal' },
+    { subtype: 'vote_exhaust_planet', options: [{ id: 'decline', kind: 'decline', label: 'Done' }], region: 'agenda-ballot-modal' },
+    { subtype: 'play_reaction_after_ACTION_CARD_PLAYED', options: [{ id: 'decline', kind: 'decline', label: 'Pass' }], region: 'decision-modal' },
+    { subtype: 'score_objective', options: [{ id: 'objective', label: 'Score' }], region: 'pending-choice-dialog' },
+    { subtype: 'other_choice', options: [{ id: 'other', label: 'Other' }], region: 'pending-choice-dialog' },
+  ];
+
+  for (const { subtype, options, region } of modalCases) {
+    it(`${subtype}: opens as a modal, minimizes to inspect the board, and resumes`, () => {
+      const choice: PendingChoiceDto = { actor, nonce: subtype, prompt: `Decide ${subtype}`,
+        context: { subtype }, options };
+      render(<GameShell header={<div>Header</div>} board={<button type="button">Inspect board</button>}
+        playerSheet={<div>Players</div>} events={[]} choice={choice} viewerSeat={actor}
+        players={{ [actor]: player }} onSubmitChoice={vi.fn().mockResolvedValue(undefined)} />);
+      expect(screen.getByTestId(region).closest('[role="dialog"]')).not.toBeNull();
+      const minimize = screen.getByTestId(region).closest('[role="dialog"]')!.querySelector('button[aria-label^="Close"], button[aria-label^="Minimize"], [data-testid="minimize-choice-button"]')!;
+      expect(minimize).not.toBeNull();
+      fireEvent.click(minimize!);
+      const minimizedRegion = screen.queryByTestId(region);
+      if (minimizedRegion) expect(minimizedRegion).not.toBeVisible();
+      expect(screen.getByRole('button', { name: 'Inspect board' })).toBeEnabled();
+      const resume = screen.getByRole('button', { name: /resume decision|open decision/i });
+      fireEvent.click(resume);
+      expect(screen.getByTestId(region).closest('[role="dialog"]')).not.toBeNull();
+    });
+  }
+
+  it('submits a mixed resource payment once per new offered nonce and keeps the draft on minimize', async () => {
+    const pay = (nonce: string, paid: number, options: PendingChoiceDto['options']): PendingChoiceDto => ({
+      actor, nonce, prompt: 'Pay 4 resources', context: { subtype: 'pay_resources',
+        outstanding: [{ kind: 'resources', amount: 4, paid }] }, options,
+    });
+    const planet = { id: 'exhaust|arinam', kind: 'pay', label: 'Arinam', payload: { worth: 2, planet_name: 'Arinam' } };
+    const tg = { id: 'trade_good', kind: 'pay', label: 'Trade good', payload: { worth: 1 } };
+    const initial = pay('pay-first', 0, [planet, tg]);
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const view = (choice: PendingChoiceDto) => <GameShell header={<div>Header</div>}
+      board={<button type="button">Inspect board</button>} playerSheet={<div>Players</div>}
+      events={[]} choice={choice} viewerSeat={actor} players={{ [actor]: player }} onSubmitChoice={onSubmit} />;
+    const { rerender } = render(view(initial));
+    fireEvent.click(screen.getByTestId('planet-card-exhaust|arinam').querySelector('input')!);
+    fireEvent.click(screen.getByTestId('tg-increment-btn'));
+    fireEvent.click(screen.getByTestId('tg-increment-btn'));
+    fireEvent.click(screen.getByRole('button', { name: 'Minimize decision' }));
+    expect(screen.getByRole('button', { name: 'Inspect board' })).toBeEnabled();
+    fireEvent.click(screen.getByTestId('resume-decision-btn'));
+    expect(screen.getByTestId('committed-amount')).toHaveTextContent('4 Resources');
+    fireEvent.click(screen.getByTestId('confirm-payment-btn'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith(planet.id));
+    rerender(view(pay('pay-second', 2, [tg])));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+    expect(onSubmit).toHaveBeenNthCalledWith(2, tg.id);
+    rerender(view(pay('pay-third', 3, [tg])));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(3));
+    expect(onSubmit).toHaveBeenNthCalledWith(3, tg.id);
+  });
+
+  it('stops a payment draft when the next decision is an intervening reaction', async () => {
+    const payment: PendingChoiceDto = { actor, nonce: 'pay-interrupted', prompt: 'Pay 2 resources',
+      context: { subtype: 'pay_resources', outstanding: [{ kind: 'resources', amount: 2, paid: 0 }] },
+      options: [{ id: 'trade_good', kind: 'pay', label: 'Trade good', payload: { worth: 1 } }] };
+    const reaction: PendingChoiceDto = { actor, nonce: 'reaction-interrupted', prompt: 'React',
+      context: { subtype: 'play_reaction_after_ACTION_CARD_PLAYED' },
+      options: [{ id: 'decline', kind: 'decline', label: 'Pass' }] };
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const view = (choice: PendingChoiceDto) => <GameShell header={<div>Header</div>}
+      board={<div>Board</div>} playerSheet={<div>Players</div>}
+      events={[]} choice={choice} viewerSeat={actor} players={{ [actor]: player }} onSubmitChoice={onSubmit} />;
+    const { rerender } = render(view(payment));
+    fireEvent.click(screen.getByTestId('tg-increment-btn'));
+    fireEvent.click(screen.getByTestId('tg-increment-btn'));
+    fireEvent.click(screen.getByTestId('confirm-payment-btn'));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith('trade_good'));
+    rerender(view(reaction));
+    expect(screen.getByTestId('reaction-status-bar')).toBeVisible();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId('pass-reaction-btn'));
+    await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(2, 'decline'));
   });
 });

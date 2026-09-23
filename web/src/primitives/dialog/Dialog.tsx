@@ -74,6 +74,7 @@ export interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement>
   onEscape?: () => void;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   returnFocusRef?: React.RefObject<HTMLElement | null>;
+  keepMounted?: boolean;
 }
 
 export const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
@@ -87,6 +88,7 @@ export const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
       onEscape,
       initialFocusRef,
       returnFocusRef,
+      keepMounted = false,
       ...rest
     },
     forwardedRef
@@ -131,7 +133,7 @@ export const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
       returnFocusRef,
     });
 
-    if (!isOpen) return null;
+    if (!isOpen && !keepMounted) return null;
 
     const ariaDescribedBy = rest['aria-describedby'] || (hasDescription ? descriptionId : undefined);
 
@@ -145,7 +147,7 @@ export const DialogContent = forwardRef<HTMLDivElement, DialogContentProps>(
         aria-describedby={ariaDescribedBy}
         data-testid={testId}
         className={className}
-        style={style}
+        style={{ ...style, display: isOpen ? style?.display : 'none' }}
         onKeyDown={(e) => {
           rest.onKeyDown?.(e);
           if (e.key === 'Escape' && !e.defaultPrevented) {

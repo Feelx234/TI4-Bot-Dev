@@ -237,8 +237,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           style={{
             border: '1px solid #38bdf8',
             padding: 24,
-          maxWidth: strategyDraft ? 860 : 560,
-            width: '90%',
+             maxWidth: strategyDraft ? 1100 : 960,
+             width: '95%',
             display: 'flex',
             flexDirection: 'column',
             gap: 16,
@@ -343,7 +343,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           )}
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className={strategyDraft ? 'strategy-draft-grid' : undefined} style={{ display: strategyDraft ? 'grid' : 'flex', flexDirection: strategyDraft ? undefined : 'column', gap: 8, maxHeight: strategyDraft ? 'min(60vh, 560px)' : 280, overflowY: 'auto' }}>
+             <div className={strategyDraft ? 'strategy-draft-grid' : undefined} style={{ display: strategyDraft ? 'grid' : 'flex', flexDirection: strategyDraft ? undefined : 'column', gap: 8, maxHeight: 'min(60dvh, 650px)', overflowY: 'auto' }}>
               {filteredOptions.length === 0 ? (
                 <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
                   No matching options found.

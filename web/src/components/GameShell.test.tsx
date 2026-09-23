@@ -49,14 +49,14 @@ describe('GameShell', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
     expect(onSubmit).toHaveBeenNthCalledWith(2, 'build|fighter|1');
   });
-  it('shows activation guidance without rendering a system-ID decision modal', () => {
+  it('offers system activation in a minimizable decision modal', () => {
     const activation: PendingChoiceDto = { actor: 'p1', nonce: 'activation', prompt: 'Activate a system',
       context: { subtype: 'activate_system' }, options: [{ id: '18', kind: 'activate', label: '18', payload: { system: '18' } }] };
     render(<ChoiceRendererDispatcher choice={activation} viewerSeat="p1" onSubmit={vi.fn()}
       isMinimized={false} onMinimizedChange={vi.fn()} />);
-    expect(screen.getByTestId('activation-map-prompt')).toHaveTextContent('Select a highlighted system on the map.');
-    expect(screen.queryByTestId('pending-choice-dialog')).not.toBeInTheDocument();
-    expect(screen.queryByText('18')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pending-choice-dialog')).toHaveTextContent('Activate a system');
+    expect(screen.getByDisplayValue('18')).toBeChecked();
+    fireEvent.click(screen.getByTestId('minimize-choice-button'));
   });
   it('presents dynamic choice text and errors from the latest roster without changing submissions', () => {
     const a = `player_${'a'.repeat(64)}`;

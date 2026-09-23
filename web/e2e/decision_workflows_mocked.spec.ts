@@ -58,7 +58,7 @@ async function openMockedGame(page: Page, snapshot = initial) {
   return socketReady;
 }
 
-test('activation is selected on the map without opening the system-ID modal', async ({ page }) => {
+test('activation modal minimizes to allow selection on the map', async ({ page }) => {
   const activation: typeof initial = { ...initial,
     view: { ...initial.view, board: { systems: {}, map_tiles: [
       { system_id: '18', label: 'Mecatol Rex', q: 0, r: 0 },
@@ -75,8 +75,9 @@ test('activation is selected on the map without opening the system-ID modal', as
     const message = JSON.parse(String(data)) as ClientMessage;
     if (message.type === 'submit_choice') submissions.push(message);
   });
-  await expect(page.getByTestId('activation-map-prompt')).toBeVisible();
-  await expect(page.getByTestId('pending-choice-dialog')).toHaveCount(0);
+  await expect(page.getByTestId('pending-choice-dialog')).toBeVisible();
+  await page.getByTestId('minimize-choice-button').click();
+  await expect(page.getByTestId('minimized-choice-banner')).toBeVisible();
   await page.getByTestId('system-hex-18').click();
   await expect.poll(() => submissions.length).toBe(1);
   expect(submissions[0]).toMatchObject({ option_id: 'activate|18', nonce: 'activate-7' });
@@ -122,7 +123,7 @@ test('production builder accepts a real pointer click on a unit', async ({ page 
   expect(submissions[0]).toMatchObject({ option_id: 'build|carrier|1', nonce: 'produce-7' });
 });
 
-test('production unit list scrolls within a compact drawer and reset clears only the draft', async ({ page }) => {
+test('production unit grid fits within the modal and reset clears only the draft', async ({ page }) => {
   const production: typeof initial = { ...initial, pending_choice: { nonce: 'produce-scroll',
     choice: { player: seat, prompt: 'produce in 18', context: { subtype: 'produce_unit', target: { System: '18' },
       outstanding: [{ kind: 'production_capacity', amount: 5, paid: 0 }] },
@@ -138,13 +139,54 @@ test('production unit list scrolls within a compact drawer and reset clears only
   const drawer = page.getByTestId('production-builder-drawer');
   const list = page.getByTestId('production-options-grid');
   await expect(drawer).toBeVisible();
-  expect((await drawer.boundingBox())!.height).toBeLessThan(650);
-  expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  expect((await drawer.boundingBox())!.height).toBeLessThanOrEqual(720);
+  expect(await list.locator('.production-drawer__unit').count()).toBe(18);
   await page.getByTestId('produce-unit-btn-build|unit17|1').click();
   await expect(page.getByTestId('produce-count-build|unit17|1')).toHaveText('1');
   await page.getByRole('button', { name: 'Reset selection' }).click();
   await expect(page.getByTestId('produce-count-build|unit17|1')).toHaveText('0');
   expect(submissions).toHaveLength(0);
+});
+
+test('resource payment accepts real pointer clicks, retains draft on minimize, and submits an offered ID', async ({ page }) => {
+  const payment: typeof initial = { ...initial, pending_choice: { nonce: 'pay-7', choice: {
+    player: seat, prompt: 'Pay 4 resources', context: { subtype: 'pay_resources',
+      outstanding: [{ kind: 'resources', amount: 4, paid: 0 }] },
+    options: [{ id: 'exhaust|jord', kind: 'pay', label: 'Exhaust Jord',
+      payload: { worth: 4, planet_name: 'Jord' } },
+    { id: 'trade_good', kind: 'pay', label: 'Spend a trade good', payload: { worth: 1 } }],
+  } } };
+  const { socket } = await openMockedGame(page, payment);
+  const submissions: ClientMessage[] = [];
+  socket.onMessage((data) => {
+    const message = JSON.parse(String(data)) as ClientMessage;
+    if (message.type === 'submit_choice') submissions.push(message);
+  });
+  await expect(page.getByTestId('decision-modal')).toBeVisible();
+  await page.getByTestId('planet-card-exhaust|jord').click();
+  await expect(page.getByTestId('committed-amount')).toHaveText('4 Resources');
+  await page.getByRole('button', { name: 'Minimize decision' }).click();
+  await expect(page.getByTestId('resume-decision-btn')).toBeVisible();
+  await page.getByTestId('resume-decision-btn').click();
+  await expect(page.getByTestId('committed-amount')).toHaveText('4 Resources');
+  await page.getByTestId('confirm-payment-btn').click();
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0]).toMatchObject({ option_id: 'exhaust|jord', nonce: 'pay-7' });
+});
+
+test('payment controls remain reachable on a mobile viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 780 });
+  const payment: typeof initial = { ...initial, pending_choice: { nonce: 'mobile-pay', choice: {
+    player: seat, prompt: 'Pay 1 resource', context: { subtype: 'pay_resources',
+      outstanding: [{ kind: 'resources', amount: 1, paid: 0 }] },
+    options: [{ id: 'trade_good', kind: 'pay', label: 'Spend a trade good', payload: { worth: 1 } }],
+  } } };
+  await openMockedGame(page, payment);
+  const dialog = page.getByTestId('decision-modal');
+  await expect(dialog).toBeVisible();
+  expect((await dialog.boundingBox())!.width).toBe(390);
+  await page.getByTestId('tg-increment-btn').click();
+  await expect(page.getByTestId('confirm-payment-btn')).toBeEnabled();
 });
 
 test('rejected movement submission stays actionable and retries with a fresh server nonce', async ({ page }) => {

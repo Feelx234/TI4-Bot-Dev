@@ -12,7 +12,7 @@ import { ReactionStatusBar } from './ReactionStatusBar.tsx';
 import { ProductionBuilderDrawer } from './ProductionBuilderDrawer.tsx';
 import { CargoLoadingTray } from './CargoLoadingTray.tsx';
 import { deriveChoiceRendererModel, ChoiceRendererModel } from '../presentation/choiceModel.ts';
-import { overlayStack } from '../primitives/index.ts';
+import { Dialog, overlayStack } from '../primitives/index.ts';
 import { useParticipantText } from '../presentation/PlayerIdentity.tsx';
 
 export interface GameShellProps {
@@ -144,16 +144,17 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
 
   const model = propModel ?? derivedModel;
   const workflow = model?.workflow ?? 'generic_selection';
-  if (workflow === 'system_activation') return <div className="activation-banner panel" data-testid="activation-map-prompt">
-    <strong>{visibleChoice.prompt}</strong><span>Select a highlighted system on the map.</span>
-    {lastError && <span role="alert">{present(lastError)}</span>}
-  </div>;
   const renderer = workflowRenderers.get(workflow) ?? workflowRenderers.get('generic_selection')!;
+  const wrappedWorkflow = workflow === 'payment' || workflow === 'tactical_movement' ||
+    workflow === 'tactical_cargo' || workflow === 'action_card_reaction';
+  const content = renderer({ choice: visibleChoice, model, viewerSeat, onSubmit,
+    lastError: lastError ? present(lastError) : lastError, selectedOptionId, onSelectOption,
+    isMinimized, onMinimizedChange, players, boardView, productionQueue, productionError, onQueueProduction });
 
   return (
     <>
       {/* Minimized Decision Pill for dedicated drawers/modals */}
-      {isMinimized && workflow !== 'generic_selection' && (
+       {isMinimized && workflow !== 'generic_selection' && workflow !== 'objective_scoring' && workflow !== 'system_activation' && (
         <div
           className="choice-banner choice-minimized-pill"
           data-testid="choice-minimized-pill"
@@ -170,8 +171,18 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
         </div>
       )}
 
-       {renderer({ choice: visibleChoice, model, viewerSeat, onSubmit, lastError: lastError ? present(lastError) : lastError, selectedOptionId, onSelectOption,
-           isMinimized, onMinimizedChange, players, boardView, productionQueue, productionError, onQueueProduction })}
+       {wrappedWorkflow ? <Dialog.Root open={!isMinimized} onOpenChange={(open) => onMinimizedChange(!open)}>
+         <Dialog.Content keepMounted className="decision-modal choice-workflow-dialog" data-testid="decision-modal">
+           <div className="decision-modal__panel panel">
+             <div className="decision-modal__header">
+               <Dialog.Title as="h2">{visibleChoice.prompt}</Dialog.Title>
+               <button type="button" className="button button--secondary" aria-label="Minimize decision"
+                 onClick={() => onMinimizedChange(true)}>Inspect Game —</button>
+             </div>
+             {content}
+           </div>
+         </Dialog.Content>
+       </Dialog.Root> : content}
     </>
   );
 };

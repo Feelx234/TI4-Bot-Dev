@@ -93,10 +93,8 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <Dialog.Content
-        data-testid="production-builder-drawer"
-        className="production-drawer"
-      >
+      <Dialog.Content className="choice-workflow-dialog production-dialog">
+      <div data-testid="production-builder-drawer" className="production-drawer">
         {/* Header */}
         <div className="choice-workflow-header">
           <div>
@@ -244,6 +242,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
 
           </>}
         </WorkflowShell>
+      </div>
       </Dialog.Content>
     </Dialog.Root>
   );

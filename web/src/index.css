@@ -138,11 +138,24 @@ body, html, #root {
 }
 
 .choice-dialog {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: var(--layer-modal);
+  z-index: var(--layer-dialog);
   pointer-events: auto;
 }
+
+.decision-modal { position: fixed; inset: 0; z-index: var(--layer-dialog); pointer-events: auto; }
+.decision-modal__panel { width: min(960px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+.decision-modal__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.decision-modal__header h2 { margin: 0; font-size: 18px; }
+.decision-modal__header button { flex-shrink: 0; }
+.decision-modal .payment-drawer, .decision-modal .fleet-rally-tray, .decision-modal .cargo-tray, .decision-modal .reaction-status-bar {
+  position: static; inset: auto; transform: none; z-index: auto; width: 100%; max-width: none;
+  max-height: none; min-height: 0; margin: 0; box-shadow: none;
+}
+.decision-modal .payment-drawer__list, .decision-modal .fleet-rally-tray__list, .decision-modal .cargo-tray__list { max-height: min(55dvh, 500px); flex: 0 1 auto; }
+.choice-dialog__panel { max-height: calc(100dvh - 32px); overflow: auto; }
+.choice-minimized-pill { pointer-events: auto; }
 
 .board-controls {
   position: absolute;
@@ -465,8 +478,8 @@ select:focus-visible,
 }
 
 /* Choice workflows use classes so themes and narrow layouts remain CSS-owned. */
-.choice-workflow-dialog { background: rgba(3, 7, 18, .85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; }
-.choice-workflow-modal { width: 92%; max-width: 620px; padding: 24px; display: flex; flex-direction: column; gap: 16px; color: var(--color-text); }
+.choice-workflow-dialog { position: fixed; inset: 0; z-index: var(--layer-dialog); pointer-events: auto; background: rgba(3, 7, 18, .85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; }
+.choice-workflow-modal { width: min(960px, calc(100vw - 32px)); max-width: 960px; max-height: calc(100dvh - 32px); overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; color: var(--color-text); }
 .choice-workflow-header, .choice-workflow-row { display: flex; justify-content: space-between; align-items: flex-start; }
 .choice-workflow-title { margin: 4px 0 0; color: var(--color-text); font-size: 18px; font-weight: 700; }
 .choice-workflow-eyebrow { color: var(--workflow-accent, var(--color-accent)); font-size: 11px; font-weight: 700; text-transform: uppercase; }
@@ -500,7 +513,7 @@ select:focus-visible,
 .payment-drawer__footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--color-border-strong); }
 
 .agenda-dialog { --workflow-accent: #c084fc; }
-.agenda-dialog .choice-workflow-modal { max-width: 580px; border: 2px solid #a855f7; box-shadow: 0 0 32px rgba(168, 85, 247, .25); }
+.agenda-dialog .choice-workflow-modal { border: 2px solid #a855f7; box-shadow: 0 0 32px rgba(168, 85, 247, .25); }
 .agenda-dialog .workflow-inline { display: flex; flex-direction: column; gap: 12px; }
 .agenda-dialog__outcome, .agenda-dialog__planet { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; text-align: left; }
 .agenda-dialog__planet { padding: 10px 12px; }
@@ -510,7 +523,7 @@ select:focus-visible,
 .agenda-dialog__primary { background: #a855f7; }
 
 .combat-dialog { --workflow-accent: var(--color-danger); }
-.combat-dialog .choice-workflow-modal { max-width: 600px; border: 2px solid var(--color-danger); box-shadow: 0 0 32px rgba(239, 68, 68, .25); }
+.combat-dialog .choice-workflow-modal { border: 2px solid var(--color-danger); box-shadow: 0 0 32px rgba(239, 68, 68, .25); }
 .combat-dialog .workflow-inline { display: flex; flex-direction: column; gap: 12px; }
 .combat-dialog__feed { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); }
 .combat-dialog__dice { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -537,20 +550,19 @@ select:focus-visible,
 .trade-dialog__net[data-positive="false"] { color: #f87171; }
 .trade-dialog__summary { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border: 1px solid var(--color-accent); border-radius: var(--radius-sm); background: rgba(56, 189, 248, .1); font-size: 12px; }
 
-.production-drawer { --workflow-accent: #34d399; position: fixed; top: 72px; right: 12px; z-index: var(--layer-modal); pointer-events: auto; width: min(350px, calc(100vw - 24px)); max-height: min(620px, calc(100dvh - 88px)); padding: 14px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; background: rgba(15, 23, 42, .98); backdrop-filter: blur(16px); border: 2px solid var(--color-success); border-radius: var(--radius-md); box-shadow: -8px 0 32px rgba(16, 185, 129, .25); }
+.production-drawer { --workflow-accent: #34d399; width: min(960px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; background: rgba(15, 23, 42, .98); border: 2px solid var(--color-success); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
 .production-drawer .workflow-stack { min-height: 0; gap: 10px; }
 .production-drawer__meter { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; }
 .production-drawer__meter .workflow-card--row { gap: 8px; font-size: 12px; }
 .production-drawer__meter .text-success { text-align: right; }
 .production-drawer__progress { width: 100%; height: 6px; accent-color: var(--color-success); }
 .production-drawer__progress[data-full="true"] { accent-color: var(--color-warning); }
-.production-drawer__grid { display: flex; flex-direction: column; min-height: 0; max-height: min(290px, 35dvh); gap: 6px; overflow-y: auto; }
+.production-drawer__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); min-height: 0; max-height: min(55dvh, 500px); gap: 8px; overflow-y: auto; }
 .production-drawer__unit { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; background: var(--color-surface-raised); border: 1px solid var(--color-border-strong); font-size: 12px; }
 .production-drawer__unit .workflow-row { flex-shrink: 0; }
 .production-drawer__footer { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; border-top: 1px solid var(--color-border-strong); }
 .production-drawer__footer .button { flex: 1; min-width: 90px; }
 .production-drawer__done { width: 100%; padding: 12px 16px; background: var(--color-success); }
-@media (max-width: 720px) { .production-drawer { top: 56px; max-height: calc(100dvh - 128px); } }
 
 .fleet-rally-tray { --workflow-accent: var(--color-accent); position: absolute; right: 16px; bottom: 16px; left: 16px; z-index: var(--layer-modal); pointer-events: auto; max-width: 720px; margin: 0 auto; padding: 14px 20px; display: flex; flex-direction: column; gap: 12px; background: rgba(15, 23, 42, .95); backdrop-filter: blur(10px); border-color: var(--color-accent); }
 .fleet-rally-tray__gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -575,8 +587,12 @@ select:focus-visible,
 .choice-minimized-pill__prompt { color: var(--color-text); font-size: 13px; font-weight: 600; }
 
 @media (max-width: 720px) {
-  .payment-drawer { top: 0; right: 0; bottom: 0; width: min(100%, 360px); }
-  .choice-workflow-modal { width: calc(100% - 24px); max-height: calc(100vh - 24px); overflow-y: auto; }
+  .decision-modal__panel, .choice-workflow-modal, .choice-dialog__panel { width: 100% !important; max-width: none !important; height: 100dvh; max-height: 100dvh; border-radius: 0; overflow-y: auto; }
+  .production-drawer { width: 100%; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+  .decision-modal__panel { padding: 12px; }
+  .decision-modal__header { align-items: center; }
+  .decision-modal .payment-drawer, .decision-modal .reaction-status-bar { padding: 12px; flex-wrap: wrap; }
+  .choice-workflow-modal { padding: 12px; }
   .agenda-dialog__grid, .fleet-rally-tray__gauges { grid-template-columns: 1fr; }
   .reaction-status-bar { bottom: 12px; flex-wrap: wrap; }
   .reaction-status-bar__actions { width: 100%; justify-content: flex-end; }
