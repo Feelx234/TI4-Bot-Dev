@@ -10400,6 +10400,29 @@ mod tests {
             );
         }
 
+        // The kept cards are not on round two's mat, so nobody else can draft them.
+        let kept = game.state.player(&a).unwrap().strategy_cards.clone();
+        while game.state.phase != Phase::Action {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            for card in &kept {
+                assert!(
+                    !game.state.unclaimed_strategy_cards.contains(card),
+                    "{card} is kept by a, not on the mat"
+                );
+                for other in [&b, &c] {
+                    assert!(
+                        !game
+                            .state
+                            .player(other)
+                            .unwrap()
+                            .strategy_cards
+                            .contains(card),
+                        "{other} drafted {card}, which a kept"
+                    );
+                }
+            }
+        }
+
         // Round two's draft deals around a, and its status phase returns everything,
         // the retained cards included.
         game.run(1, 4000).unwrap();
