@@ -99,8 +99,7 @@ export const DecisionGallery: React.FC = () => {
                 className="workflow-card decision-gallery__case"
                 onClick={() => select(item)}
               >
-                <strong>{item.title}</strong>
-                <span>{item.choice.context?.subtype}</span>
+                <strong>{item.title}</strong> <span>{item.choice.context?.subtype}</span>{" "}
                 <span>{item.note}</span>
               </button>
             ))}
@@ -114,9 +113,7 @@ export const DecisionGallery: React.FC = () => {
                 className="workflow-card decision-gallery__case"
                 onClick={() => select(item)}
               >
-                <strong>{item.title}</strong>
-                <span>{item.fallback}</span>
-                <span>{item.note}</span>
+                <strong>{item.title}</strong> <span>{item.fallback}</span> <span>{item.note}</span>
               </button>
             ))}
           </div>

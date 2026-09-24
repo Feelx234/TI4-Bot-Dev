@@ -1,4 +1,4 @@
-import "@testing-library/jest-dom";
+import "@testing-library/jest-dom/vitest";
 
 function createStorage(): Storage {
   let store: Record<string, string> = {};
