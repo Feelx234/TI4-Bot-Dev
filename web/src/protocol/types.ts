@@ -233,8 +233,11 @@ export type GameEvent = EventVisibility & {
   id: string;
   timestamp: string;
   version?: number;
+  decision_count?: number;
   event: GameEventKind;
 };
+
+export interface HistoryStatus { cursor: number; redo_count: number; generation?: number; }
 
 export interface GameEventMsg {
   type?: 'event';
@@ -255,6 +258,7 @@ export interface InitialSnapshotMsg {
   pending_choice?: PendingChoiceEnvelope | null;
   turn_status: PublicTurnStatus;
   events?: GameEvent[];
+  history?: HistoryStatus;
 }
 
 export interface StateUpdateMsg {
@@ -268,6 +272,7 @@ export interface StateUpdateMsg {
   galaxy_layout: GalaxyLayout;
   pending_choice?: PendingChoiceEnvelope | null;
   turn_status: PublicTurnStatus;
+  history?: HistoryStatus;
 }
 
 export interface PendingChoiceMsg {

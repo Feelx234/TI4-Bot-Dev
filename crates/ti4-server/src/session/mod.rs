@@ -86,6 +86,12 @@ pub struct SessionConfig {
     pub store: Option<Arc<crate::storage::FileGameStore>>,
     pub prior_decisions: Vec<DecisionRecord>,
     pub prior_events: Vec<crate::protocol::server::GameEvent>,
+    pub initial_version: u64,
+    pub redo_decisions: Vec<DecisionRecord>,
+    pub history_active: bool,
+    pub redo_events: Vec<crate::protocol::server::GameEvent>,
+    pub event_counter: u64,
+    pub history_generation: u64,
 }
 
 impl SessionConfig {
@@ -109,6 +115,12 @@ impl SessionConfig {
             store: None,
             prior_decisions: Vec::new(),
             prior_events: Vec::new(),
+            initial_version: 1,
+            redo_decisions: Vec::new(),
+            history_active: false,
+            redo_events: Vec::new(),
+            event_counter: 0,
+            history_generation: 0,
         }
     }
 
@@ -171,6 +183,7 @@ pub struct GameSession {
     game_id: String,
     shared: Arc<Mutex<SessionShared>>,
     worker_handle: Mutex<Option<JoinHandle<()>>>,
+    initial_config: SessionConfig,
 }
 
 impl GameSession {
@@ -178,12 +191,14 @@ impl GameSession {
     #[must_use]
     pub fn start(config: SessionConfig) -> Self {
         let game_id = config.game_id.clone();
+        let initial_config = config.clone();
         let (shared, handle) = spawn_session_worker(config);
 
         Self {
             game_id,
             shared,
             worker_handle: Mutex::new(Some(handle)),
+            initial_config,
         }
     }
 
@@ -197,12 +212,14 @@ impl GameSession {
         let game_id = config.game_id.clone();
         config.prior_decisions = prior_decisions;
         config.prior_events = prior_events;
+        let initial_config = config.clone();
         let (shared, handle) = spawn_session_worker(config);
 
         Self {
             game_id,
             shared,
             worker_handle: Mutex::new(Some(handle)),
+            initial_config,
         }
     }
 
@@ -340,6 +357,11 @@ impl GameSession {
             &lock.galaxy_layout,
             &lock.event_log,
         )
+        .with_history(
+            lock.decision_log.len(),
+            lock.redo_decisions.len(),
+            lock.history_generation,
+        )
     }
 
     /// Resolves an unguessable seat capability to its authorized viewer role.
@@ -443,6 +465,66 @@ impl GameSession {
     #[must_use]
     pub fn event_log(&self) -> Vec<crate::protocol::server::GameEvent> {
         self.shared.lock().expect("shared lock").event_log.clone()
+    }
+
+    /// Public decision cursor and the number of decisions available for redo.
+    pub fn history_status(&self) -> crate::protocol::server::HistoryStatus {
+        let lock = self.shared.lock().expect("shared lock");
+        crate::protocol::server::HistoryStatus {
+            cursor: lock.decision_log.len(),
+            redo_count: lock.redo_decisions.len(),
+            generation: lock.history_generation,
+        }
+    }
+
+    pub fn game_version(&self) -> u64 {
+        self.shared.lock().expect("shared lock").game_version
+    }
+
+    pub fn restart_config(&self) -> SessionConfig {
+        self.initial_config.clone()
+    }
+
+    pub fn history_ready(&self) -> bool {
+        let lock = self.shared.lock().expect("shared lock");
+        lock.replay_complete
+            && lock.error.is_none()
+            && !lock.stopped
+            && (lock.finished
+                || lock.pending_decision.as_ref().is_some_and(|pending| {
+                    pending.submission_state == PendingSubmissionState::AwaitingSubmission
+                }))
+    }
+
+    pub fn wait_replayed(&self) -> Result<(), String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let lock = self.shared.lock().expect("shared lock");
+            if let Some(error) = &lock.error {
+                return Err(error.clone());
+            }
+            if lock.replay_complete && (lock.finished || lock.pending_decision.is_some()) {
+                return Ok(());
+            }
+            drop(lock);
+            if std::time::Instant::now() >= deadline {
+                return Err("session replay timed out".to_owned());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    pub fn redo_decisions(&self) -> Vec<DecisionRecord> {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .redo_decisions
+            .clone()
+    }
+
+    pub fn history_events(&self) -> (Vec<crate::protocol::server::GameEvent>, u64) {
+        let lock = self.shared.lock().expect("shared lock");
+        (lock.redo_events.clone(), lock.event_counter)
     }
 
     /// Stops the worker thread cleanly.

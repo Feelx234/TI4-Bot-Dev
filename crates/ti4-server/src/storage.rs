@@ -285,6 +285,23 @@ struct SessionSnapshot {
     state: GameState,
 }
 
+/// Atomic authoritative timeline once a game has been rewound. The original append-only
+/// files are retained for historical audit but are no longer the active branch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GameHistory {
+    pub decisions: Vec<DecisionRecord>,
+    pub redo: Vec<DecisionRecord>,
+    pub events: Vec<GameEvent>,
+    #[serde(default)]
+    pub redo_events: Vec<GameEvent>,
+    #[serde(default)]
+    pub event_counter: u64,
+    pub revision: u64,
+    #[serde(default)]
+    pub generation: u64,
+}
+
 /// Initial configuration record saved atomically to `init.json`.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GameInitRecord {
@@ -355,6 +372,44 @@ pub struct FileGameStore {
 }
 
 impl FileGameStore {
+    pub fn save_history(&self, game_id: &str, history: &GameHistory) -> Result<(), StorageError> {
+        let dir = self.game_dir(game_id)?;
+        fs::create_dir_all(&dir)?;
+        let path = dir.join("history.json");
+        if serde_json::to_vec_pretty(&persist(history)?)?.len() + 1 > MAX_LOG_BYTES {
+            return Err(StorageError::Oversized {
+                path,
+                limit: MAX_LOG_BYTES,
+            });
+        }
+        atomic_write_json(&path, history)?;
+        Ok(())
+    }
+
+    pub fn load_history(&self, game_id: &str) -> Result<Option<GameHistory>, StorageError> {
+        let path = self.game_dir(game_id)?.join("history.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let history: GameHistory = read_json_file(&path, MAX_LOG_BYTES)?;
+        if history.revision == 0 || history.decisions.len() + history.redo.len() > 1_000_000 {
+            return Err(StorageError::InvalidPlayerRecord("history cursor"));
+        }
+        let mut cursor = 0;
+        let mut ids = std::collections::BTreeSet::new();
+        for event in history.events.iter().chain(&history.redo_events) {
+            if matches!(
+                event.event,
+                crate::protocol::server::GameEventKind::DecisionResolved
+            ) {
+                cursor += 1;
+            }
+            if !ids.insert(&event.id) || event.decision_count.is_some_and(|count| count != cursor) {
+                return Err(StorageError::InvalidPlayerRecord("history event cursor"));
+            }
+        }
+        Ok(Some(history))
+    }
     /// Store the versioned lobby as a single atomic private record.
     pub fn save_player_lobby(&self, record: &PlayerLobbyRecord) -> Result<(), StorageError> {
         record.validate()?;
@@ -660,13 +715,26 @@ impl FileGameStore {
         self.recover_from_init(game_id, record)
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "validates the durable replay and snapshot before starting a worker"
+    )]
     fn recover_from_init(
         self: &Arc<Self>,
         game_id: &str,
         init_record: GameInitRecord,
     ) -> Result<GameSession, StorageError> {
-        let decisions = self.load_decisions(game_id)?;
-        let events = self.load_events(game_id)?;
+        let history = self.load_history(game_id)?;
+        let decisions = if let Some(h) = &history {
+            h.decisions.clone()
+        } else {
+            self.load_decisions(game_id)?
+        };
+        let events = if let Some(h) = &history {
+            h.events.clone()
+        } else {
+            self.load_events(game_id)?
+        };
 
         let content = ContentStore::embedded();
         let galaxy = if let Some(seed) = init_record.seed {
@@ -698,7 +766,44 @@ impl FileGameStore {
             return Err(StorageError::HashMismatch(game_id.to_owned()));
         }
 
-        if let Some(snapshot) = self.load_snapshot(game_id)? {
+        if let Some(history) = &history {
+            let future: Vec<_> = history
+                .decisions
+                .iter()
+                .chain(&history.redo)
+                .cloned()
+                .collect();
+            let validated = replay_session(&init_record.initial_state, galaxy.as_ref(), &future)
+                .map_err(|source| StorageError::Replay {
+                    game_id: game_id.to_owned(),
+                    source,
+                })?;
+            if !validated.hashes_match || validated.decision_count != future.len() {
+                return Err(StorageError::HashMismatch(game_id.to_owned()));
+            }
+            let event_decisions = history
+                .events
+                .iter()
+                .chain(&history.redo_events)
+                .filter(|entry| {
+                    matches!(
+                        entry.event,
+                        crate::protocol::server::GameEventKind::DecisionResolved
+                    )
+                })
+                .count();
+            if event_decisions != future.len()
+                || history.event_counter < (history.events.len() + history.redo_events.len()) as u64
+            {
+                return Err(StorageError::InvalidPlayerRecord("history events"));
+            }
+        }
+
+        if let Some(snapshot) = if history.is_none() {
+            self.load_snapshot(game_id)?
+        } else {
+            None
+        } {
             if snapshot.decision_count > decisions.len() {
                 return Err(StorageError::SnapshotMismatch(game_id.to_owned()));
             }
@@ -721,6 +826,14 @@ impl FileGameStore {
             SessionConfig::new(&init_record.game_id, init_record.initial_state.clone())
                 .with_store(self.clone())
                 .with_prior_history(decisions.clone(), events.clone());
+        if let Some(history) = history {
+            config.initial_version = history.revision;
+            config.redo_decisions = history.redo;
+            config.redo_events = history.redo_events;
+            config.event_counter = history.event_counter;
+            config.history_generation = history.generation;
+            config.history_active = true;
+        }
 
         if let Some(seed) = init_record.seed {
             config = config.with_seed(seed);

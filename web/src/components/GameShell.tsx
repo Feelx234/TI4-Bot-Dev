@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { GameLogEntry } from '../hooks/useGameSession.ts';
-import { BoardView, PendingChoiceDto, PlayerView } from '../protocol/types.ts';
+import { BoardView, HistoryStatus, PendingChoiceDto, PlayerView } from '../protocol/types.ts';
 import { EventLog } from './EventLog.tsx';
 import { PendingChoiceModal } from './PendingChoiceModal.tsx';
 import { PaymentDrawer } from './PaymentDrawer.tsx';
@@ -21,6 +21,9 @@ export interface GameShellProps {
   playerSheet: React.ReactNode;
   detail?: React.ReactNode;
   events: GameLogEntry[];
+  history?: HistoryStatus;
+  onChangeHistory?: (action: 'undo' | 'redo' | { eventId: string }, steps?: number) => void;
+  historyBusy?: boolean;
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
   lastError?: string | null;
@@ -193,6 +196,9 @@ export const GameShell: React.FC<GameShellProps> = ({
   playerSheet,
   detail,
   events,
+  history,
+  onChangeHistory,
+  historyBusy,
   choice,
   onSubmitChoice,
   lastError,
@@ -315,8 +321,17 @@ export const GameShell: React.FC<GameShellProps> = ({
         className={`app-shell__event-log${openDrawer === 'events' ? ' app-shell__drawer--open' : ''}`}
         aria-label="Event log"
       >
+        {onChangeHistory && <div style={{ display: 'flex', gap: 8, padding: '4px 12px' }}>
+          <button type="button" className="button button--secondary button--sm" disabled={historyBusy || !history?.cursor}
+            onClick={() => onChangeHistory('undo', 1)}>Undo</button>
+          <button type="button" className="button button--secondary button--sm" disabled={historyBusy || !history?.redo_count}
+            onClick={() => onChangeHistory('redo')}>Redo</button>
+        </div>}
         <EventLog
           events={events}
+          cursor={history?.cursor}
+          busy={historyBusy}
+          onRestore={onChangeHistory ? (eventId, steps) => onChangeHistory({ eventId }, steps) : undefined}
           isOpen={openDrawer === 'events'}
           onToggle={() => setOpenDrawer((drawer) => drawer === 'events' ? null : 'events')}
         />

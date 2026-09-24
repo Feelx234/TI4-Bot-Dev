@@ -36,6 +36,34 @@ pub struct InitialSnapshotMsg {
     pub turn_status: PublicTurnStatus,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<GameEvent>,
+    #[serde(default, skip_serializing_if = "is_default_history")]
+    pub history: HistoryStatus,
+}
+
+/// Public cursor counts decisions, not engine steps or wall-clock events.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryStatus {
+    pub cursor: usize,
+    pub redo_count: usize,
+    #[serde(default)]
+    pub generation: u64,
+}
+
+fn is_default_history(value: &HistoryStatus) -> bool {
+    *value == HistoryStatus::default()
+}
+
+impl InitialSnapshotMsg {
+    #[must_use]
+    pub fn with_history(mut self, cursor: usize, redo_count: usize, generation: u64) -> Self {
+        self.history = HistoryStatus {
+            cursor,
+            redo_count,
+            generation,
+        };
+        self
+    }
 }
 
 /// Explicit audience for an authoritative event.
@@ -88,6 +116,8 @@ pub struct GameEvent {
     pub version: Option<u64>,
     pub visibility: EventVisibility,
     pub event: GameEventKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_count: Option<usize>,
 }
 
 /// Server message carrying a new game event to all subscribers.
@@ -113,6 +143,20 @@ pub struct StateUpdateMsg {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_choice: Option<PendingChoiceEnvelope>,
     pub turn_status: PublicTurnStatus,
+    #[serde(default, skip_serializing_if = "is_default_history")]
+    pub history: HistoryStatus,
+}
+
+impl StateUpdateMsg {
+    #[must_use]
+    pub fn with_history(mut self, cursor: usize, redo_count: usize, generation: u64) -> Self {
+        self.history = HistoryStatus {
+            cursor,
+            redo_count,
+            generation,
+        };
+        self
+    }
 }
 
 /// Pending choice sent only to the acting seat.

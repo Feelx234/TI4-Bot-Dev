@@ -89,6 +89,12 @@ async fn handle_socket(
         let msg_result = tokio::select! {
             msg = ws_receiver.next() => match msg { Some(msg) => msg, None => break },
             _ = auth_check.tick() => {
+                if session.error().is_some() {
+                    break;
+                }
+                if registry.get_game(&game_id).is_none_or(|current| !Arc::ptr_eq(&current, &session)) {
+                    break;
+                }
                 if current_token.as_deref().is_some_and(|token| registry.authenticate_player_session(&game_id, token).is_err()) {
                     break;
                 }

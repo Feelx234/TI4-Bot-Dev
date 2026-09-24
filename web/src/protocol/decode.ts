@@ -75,6 +75,9 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
     case 'initial_snapshot':
     case 'state_update':
       if (!isNonNegativeInteger(value.game_version) || !isRecord(value.view) || !isRecord(value.viewer) || !isRecord(value.turn_status)) fail('invalid snapshot');
+      if (value.history !== undefined && (!isRecord(value.history) || !isNonNegativeInteger(value.history.cursor) ||
+          !isNonNegativeInteger(value.history.redo_count) ||
+          (value.history.generation !== undefined && !isNonNegativeInteger(value.history.generation)))) fail('invalid history status');
       return value as unknown as ServerMessage;
     case 'pending_choice':
       if (!isNonNegativeInteger(value.game_version) || typeof value.nonce !== 'string' || !isRecord(value.choice) || !isRecord(value.state) || !isRecord(value.galaxy_layout)) fail('invalid pending choice');
@@ -90,6 +93,7 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
       return value as unknown as ServerMessage;
     case 'event':
       if (!isRecord(value.entry) || typeof value.entry.id !== 'string') fail('invalid event');
+      if (value.entry.decision_count !== undefined && !isNonNegativeInteger(value.entry.decision_count)) fail('invalid event cursor');
       return value as unknown as ServerMessage;
     case 'game_over':
       if (!isNonNegativeInteger(value.game_version) || !isRecord(value.final_scores)) fail('invalid game-over message');

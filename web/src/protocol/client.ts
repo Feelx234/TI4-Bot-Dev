@@ -7,6 +7,7 @@ import {
   ServerMessage,
   StateUpdateMsg,
   ViewerRole,
+  HistoryStatus,
 } from './types.ts';
 import { decodeInitialSnapshot, decodeServerMessage, isStaleServerMessage } from './decode.ts';
 
@@ -24,6 +25,7 @@ export interface GameSessionState {
   turnStatus: PublicTurnStatus | null;
   lastError: string | null;
   events: GameLogEntry[];
+  history: HistoryStatus;
 }
 
 export interface GameSessionClientOptions {
@@ -42,6 +44,7 @@ const initialState: GameSessionState = {
   turnStatus: null,
   lastError: null,
   events: [],
+  history: { cursor: 0, redo_count: 0 },
 };
 
 /** Keeps the rendered audit log server-authored while bounding client memory use. */
@@ -89,10 +92,15 @@ export function reduceServerMessage(state: GameSessionState, message: ServerMess
         turnStatus: message.turn_status,
         pendingChoice: message.pending_choice ? pendingChoice(message.pending_choice) : null,
         events: message.type === 'initial_snapshot' ? serverEventLog(message.events) : state.events,
+        history: message.history ?? state.history,
       };
     case 'event':
       if (state.events.some((entry) => entry.id === message.entry.id)) return state;
-      return { ...state, events: serverEventLog([...state.events, message.entry]) };
+      return { ...state, events: serverEventLog([...state.events, message.entry]),
+        history: message.entry.decision_count === undefined ? state.history : {
+          ...state.history, cursor: Math.max(state.history.cursor, message.entry.decision_count),
+          redo_count: 0,
+        } };
     case 'pending_choice':
       return {
         ...state,
@@ -192,6 +200,35 @@ export class GameSessionClient {
       this.rejectSubmission(`Could not send choice: ${String(error)}`);
     }
     return promise;
+  }
+
+  /** The host changes the authoritative Rust timeline; all clients reconnect to it. */
+  async changeHistory(action: 'undo' | 'redo' | { eventId: string }): Promise<void> {
+    if (this.options.viewer.role !== 'player' || !this.options.viewer.playerSession) throw new Error('A player session is required');
+    const url = this.snapshotUrl().replace(/\/snapshot$/, '/history');
+    const body = typeof action === 'string' ? { action } : { action: 'restore', event_id: action.eventId };
+    const response = await fetch(url, {
+      method: 'POST', headers: { ...this.snapshotHeaders(), 'content-type': 'application/json' },
+      body: JSON.stringify({ ...body, expected_version: this.state.gameVersion }),
+    });
+    if (!response.ok) {
+      const reason = await response.text();
+      const error = `History change failed (${response.status}): ${reason}`;
+      this.setState({ ...this.state, lastError: error });
+      throw new Error(error);
+    }
+    const snapshot = decodeInitialSnapshot(await response.json(), this.options.gameId);
+    const expected = this.options.viewer;
+    if (snapshot.viewer.role !== expected.role || (expected.role === 'player' &&
+      (snapshot.viewer.role !== 'player' || snapshot.viewer.seat !== expected.seat))) {
+      throw new Error('Server viewer identity does not match this session');
+    }
+    this.rejectSubmission('Game history changed');
+    this.detachSocket();
+    this.clearTimers();
+    this.setState(reduceServerMessage({ ...this.state, pendingChoice: null, lastError: null },
+      { ...snapshot, type: 'initial_snapshot' }));
+    this.openSocket();
   }
 
   private async loadSnapshot(): Promise<void> {

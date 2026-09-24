@@ -113,9 +113,14 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
             continuous_events.push(e.entry);
         }
     }
-    while continuous_events.len() < session.event_log().len() {
+    // A subscribe/snapshot race can deliver the same initial event twice.
+    let mut seen_ids = std::collections::BTreeSet::new();
+    continuous_events.retain(|event| seen_ids.insert(event.id.clone()));
+    while seen_ids.len() < session.event_log().len() {
         if let Ok(ServerMessage::Event(e)) = client1.recv() {
-            continuous_events.push(e.entry);
+            if seen_ids.insert(e.entry.id.clone()) {
+                continuous_events.push(e.entry);
+            }
         }
     }
     for msg in client_spec.drain_messages() {
@@ -127,6 +132,8 @@ fn recovery_replay_produces_identical_canonical_hashes_and_event_logs() {
     let reconnect_snap = reconnecting_client.snapshot();
 
     // 1. Verify snapshot event log matches continuous event log
+    // Subscription and the first snapshot are separate reads. An event emitted between
+    // them may arrive both in the snapshot and in the queue; clients deduplicate by ID.
     assert_eq!(
         reconnect_snap.events, continuous_events,
         "Reconnecting client event log must be identical to continuous client event log"

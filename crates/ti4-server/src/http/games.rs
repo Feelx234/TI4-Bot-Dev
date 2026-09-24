@@ -12,6 +12,7 @@ use ti4_model::id::PlayerId;
 use crate::protocol::server::ServerMessage;
 use crate::session::GameRegistry;
 use crate::session::registry::{GameSummary, LobbyError, PlayerLobbyView};
+use crate::session::registry::{HistoryAction, HistoryError};
 use crate::storage::LobbySlotId;
 
 const MAX_PLAYERS: usize = 8;
@@ -293,9 +294,54 @@ pub async fn get_snapshot(
         .get_game(&game_id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Game '{game_id}' not found")))?;
 
+    if session.error().is_some() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Game session failed closed".to_owned(),
+        ));
+    }
+
     Ok(Json(ServerMessage::InitialSnapshot(
         registry
             .player_snapshot(&game_id, player_session(&headers)?, &session)
             .map_err(lobby_error)?,
     )))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChangeHistoryRequest {
+    pub expected_version: u64,
+    pub action: String,
+    pub event_id: Option<String>,
+}
+
+/// Host-only authoritative rewind/redo. A changed session forces existing WS clients to
+/// reconnect and fetch a replacement snapshot rather than applying stale delta messages.
+pub async fn change_history(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<ChangeHistoryRequest>,
+) -> Result<Json<ServerMessage>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    let action = match (payload.action.as_str(), payload.event_id) {
+        ("undo", None) => HistoryAction::Undo,
+        ("redo", None) => HistoryAction::Redo,
+        ("restore", Some(event_id)) => HistoryAction::Restore { event_id },
+        _ => return Err((StatusCode::BAD_REQUEST, "Invalid history action".to_owned())),
+    };
+    let snapshot = registry
+        .change_history(&game_id, token, payload.expected_version, action)
+        .map_err(|error| {
+            let status = match error {
+                HistoryError::NotFound => StatusCode::NOT_FOUND,
+                HistoryError::Forbidden => StatusCode::FORBIDDEN,
+                HistoryError::InvalidTarget => StatusCode::BAD_REQUEST,
+                HistoryError::Conflict(_) => StatusCode::CONFLICT,
+                HistoryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status, format!("{error:?}"))
+        })?;
+    Ok(Json(ServerMessage::InitialSnapshot(snapshot)))
 }

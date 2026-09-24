@@ -34,9 +34,31 @@ const state: GameSessionState = {
   turnStatus: null,
   lastError: null,
   events: [],
+  history: { cursor: 0, redo_count: 0 },
 };
 
 describe('GameSessionClient reducer', () => {
+  it('refuses malformed history cursors before they reach the UI', () => {
+    expect(() => decodeServerMessage({ ...snapshot, history: { cursor: -1, redo_count: 0 } }, 'game_12345')).toThrow(/history status/);
+    expect(() => decodeServerMessage({ type: 'event', protocol_version: 3, game_id: 'game_12345',
+      entry: { id: 'bad', decision_count: 1.5 } }, 'game_12345')).toThrow(/event cursor/);
+  });
+  it('replaces events and cursor on a newer rewind snapshot, then ignores stale old events', () => {
+    const before = reduceServerMessage(state, decodeServerMessage({ ...snapshot, game_version: 12,
+      history: { cursor: 2, redo_count: 0, generation: 0 },
+      events: [{ id: 'one', timestamp: '', visibility: 'public', decision_count: 1, event: { kind: 'decision_resolved' } },
+        { id: 'two', timestamp: '', visibility: 'public', decision_count: 2, event: { kind: 'decision_resolved' } }],
+    }, 'game_12345'));
+    const after = reduceServerMessage(before, decodeServerMessage({ ...snapshot, game_version: 13,
+      history: { cursor: 1, redo_count: 1, generation: 1 }, events: [before.events[0]],
+    }, 'game_12345'));
+    const late = reduceServerMessage(after, decodeServerMessage({ type: 'event', protocol_version: 3,
+      game_id: 'game_12345', entry: { ...before.events[1], version: 12 },
+    }, 'game_12345'));
+    expect(after.events.map((event) => event.id)).toEqual(['one']);
+    expect(after.history).toMatchObject({ cursor: 1, redo_count: 1, generation: 1 });
+    expect(late).toBe(after);
+  });
   it('uses one snapshot reducer and refuses older state-bearing messages', () => {
     const current = reduceServerMessage(state, decodeServerMessage(snapshot, 'game_12345'));
     const stale = reduceServerMessage(current, decodeServerMessage({
@@ -122,6 +144,26 @@ class FakeWebSocket {
 }
 
 describe('GameSessionClient ingress lifecycle', () => {
+  it('posts host rewind with the current version, drops pending submissions and reconnects', async () => {
+    const { client, socket } = await connectedPlayer();
+    const submitted = client.submitChoice('opt-4');
+    const rejected = expect(submitted).rejects.toThrow(/history changed/i);
+    const request = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...snapshot,
+      game_version: 5, viewer: { role: 'player', seat: 'player_a' },
+      history: { cursor: 0, redo_count: 1, generation: 1 }, events: [], pending_choice: null,
+    }) });
+    vi.stubGlobal('fetch', request);
+    await client.changeHistory('undo');
+    await rejected;
+    expect(request).toHaveBeenCalledWith('/api/games/game_12345/history', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ action: 'undo', expected_version: 4 }),
+    }));
+    expect(client.getState().history.redo_count).toBe(1);
+    expect(client.getState().pendingChoice).toBeNull();
+    expect(socket.readyState).toBe(3);
+    expect(FakeWebSocket.latest).not.toBe(socket);
+    client.stop();
+  });
   async function connectedPlayer() {
     vi.stubGlobal('WebSocket', FakeWebSocket);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({

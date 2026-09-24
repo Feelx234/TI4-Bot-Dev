@@ -27,6 +27,26 @@ function renderShell(pendingChoice: PendingChoiceDto | null = null) {
 }
 
 describe('GameShell', () => {
+  it('offers host undo, redo and restore-after-event controls only when eligible', () => {
+    const change = vi.fn();
+    const events = [
+      { id: 'event-0', timestamp: '00:00', version: 1, decision_count: 0, visibility: 'public' as const,
+        event: { kind: 'game_initialized' as const, round: 1, phase: 'strategy', speaker: 'p1' } },
+      { id: 'event-1', timestamp: '00:01', version: 2, decision_count: 1, visibility: 'public' as const,
+        event: { kind: 'decision_resolved' as const } },
+      { id: 'event-2', timestamp: '00:02', version: 3, decision_count: 2, visibility: 'public' as const,
+        event: { kind: 'decision_resolved' as const } },
+    ];
+    render(<GameShell header={null} board={null} playerSheet={null} choice={null}
+      events={events} history={{ cursor: 2, redo_count: 1 }} onChangeHistory={change}
+      onSubmitChoice={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Undo$/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Redo$/ }));
+    fireEvent.click(screen.getByTestId('event-log-toggle'));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo to event 2' }));
+    expect(change.mock.calls).toEqual([['undo', 1], ['redo'], [{ eventId: 'event-1' }, 1]]);
+    expect(screen.queryByRole('button', { name: 'Undo to event 3' })).toBeNull();
+  });
   it('resumes staged production after payment on a fresh legal nonce', async () => {
     const produce = (nonce: string): PendingChoiceDto => ({ actor: 'p1', nonce, prompt: 'produce in 18',
       context: { subtype: 'produce_unit', target: { System: '18' }, outstanding: [{ amount: 3, paid: 0 }] },

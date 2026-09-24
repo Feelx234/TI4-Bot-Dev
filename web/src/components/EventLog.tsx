@@ -6,6 +6,9 @@ export interface EventLogProps {
   events: GameLogEntry[];
   isOpen: boolean;
   onToggle: () => void;
+  onRestore?: (eventId: string, steps: number) => void;
+  cursor?: number;
+  busy?: boolean;
 }
 
 function eventPresentation(event: GameLogEntry['event'], label: (id: string) => string): { color: string; text: string } {
@@ -38,7 +41,7 @@ function getVisibilityLabel(visibility: GameLogEntry): string | null {
   }
 }
 
-export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle }) => {
+export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle, onRestore, cursor = 0, busy = false }) => {
   const display = usePlayerIdentity();
   const present = useParticipantText();
   return (
@@ -144,6 +147,10 @@ export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle }) 
                   <span style={{ color: presentation.color, wordBreak: 'break-word' }}>
                      {present(presentation.text)}
                   </span>
+                  {onRestore && ev.decision_count !== undefined && ev.decision_count < cursor &&
+                    <button type="button" className="button button--secondary button--sm"
+                      disabled={busy} onClick={() => onRestore(ev.id, cursor - ev.decision_count!)}
+                      aria-label={`Undo to event ${i + 1}`}>Undo to here</button>}
                 </div>
               );
             })

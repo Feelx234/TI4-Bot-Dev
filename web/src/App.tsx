@@ -50,7 +50,17 @@ const GameRoute: React.FC<{ gameId: string; token?: string; onCredential: (crede
 };
 
 const GameViewContainer: React.FC<{ gameId: string; lobby: import('./protocol/types.ts').LobbyDto; viewer: ViewerRole; onLeave: () => void }> = ({ gameId, lobby, viewer, onLeave }) => {
-  const { status, gameVersion, snapshot, pendingChoice, turnStatus, lastError, events, submitChoice } = useGameSession({ gameId, viewer });
+  const { status, gameVersion, snapshot, pendingChoice, turnStatus, lastError, events, history: gameHistory, submitChoice, changeHistory } = useGameSession({ gameId, viewer });
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const onChangeHistory = (action: 'undo' | 'redo' | { eventId: string }, steps = 1) => {
+    if (historyBusy || (steps > 1 && !window.confirm(`Undo ${steps} decisions for everyone in this game?`))) return;
+    setHistoryBusy(true);
+    setHistoryError(null);
+    void changeHistory(action).then(() => { setSelectedOptionId(undefined); setSelectedSystemId(null); setCardSubject(null); })
+      .catch((error: unknown) => setHistoryError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setHistoryBusy(false));
+  };
   const userSeat = viewer.role === 'player' ? viewer.seat : undefined;
    const [selectedOptionId, setSelectedOptionId] = useState<string>(); const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
    const [cardSubject, setCardSubject] = useState<CardSubject | null>(null);
@@ -75,7 +85,8 @@ const GameViewContainer: React.FC<{ gameId: string; lobby: import('./protocol/ty
      else setSelectedOptionId(match.id);
    };
    return <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
-     <GameShell
+      {historyError && <div className="session-error" role="alert">{historyError}</div>}
+      <GameShell key={gameHistory.generation ?? 0}
        header={<div className="game-header">
          <TurnStatusBar status={turnStatus} view={snapshot?.view ?? null} gameVersion={gameVersion} connectionStatus={status} userSeat={userSeat} />
          <button data-testid="leave-game-button" onClick={onLeave} className="button button--secondary game-header__exit">Exit Game</button>
@@ -94,7 +105,9 @@ const GameViewContainer: React.FC<{ gameId: string; lobby: import('./protocol/ty
          revealedObjectives={snapshot.view.table.revealed_objectives}
          onInspectCard={(subject) => { setSelectedSystemId(null); setCardSubject(subject); }} /> : null}
        detail={cardSubject && cardIsVisible && <CardDetails subject={cardSubject} onClose={() => setCardSubject(null)} />}
-       events={events} choice={pendingChoice} viewerSeat={userSeat} players={snapshot?.view.players}
+        events={events} history={gameHistory} historyBusy={historyBusy}
+        onChangeHistory={userSeat === lobby.host_player_id ? onChangeHistory : undefined}
+        choice={pendingChoice} viewerSeat={userSeat} players={snapshot?.view.players}
        onSubmitChoice={submitChoice} lastError={lastError} selectedOptionId={selectedOptionId}
        onSelectOption={setSelectedOptionId}
      />

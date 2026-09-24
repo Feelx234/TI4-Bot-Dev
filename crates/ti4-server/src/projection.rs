@@ -263,6 +263,7 @@ pub fn project_initial_snapshot_with_map(
             .filter(|event| event.visibility.permits(viewer))
             .cloned()
             .collect(),
+        history: crate::protocol::server::HistoryStatus::default(),
     }
 }
 
@@ -304,6 +305,7 @@ pub fn project_state_update_with_map(
     galaxy_layout: &GalaxyLayout,
 ) -> StateUpdateMsg {
     StateUpdateMsg {
+        history: crate::protocol::server::HistoryStatus::default(),
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.to_owned(),
         game_version,

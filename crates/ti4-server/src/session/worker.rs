@@ -60,6 +60,10 @@ pub struct Subscriber {
 }
 
 /// Shared session state accessible across threads.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "worker lifecycle and durable history are independent states"
+)]
 pub struct SessionShared {
     pub game_id: String,
     pub game_version: u64,
@@ -82,9 +86,35 @@ pub struct SessionShared {
     pub event_counter: u64,
     pub store: Option<Arc<FileGameStore>>,
     pub snapshot_decision_count: usize,
+    pub redo_decisions: Vec<DecisionRecord>,
+    pub history_active: bool,
+    pub redo_events: Vec<GameEvent>,
+    pub replay_complete: bool,
+    pub history_generation: u64,
 }
 
 impl SessionShared {
+    fn persist_history(&self) -> Result<(), String> {
+        if self.history_active
+            && let Some(store) = &self.store
+        {
+            store
+                .save_history(
+                    &self.game_id,
+                    &crate::storage::GameHistory {
+                        decisions: self.decision_log.clone(),
+                        redo: self.redo_decisions.clone(),
+                        events: self.event_log.clone(),
+                        redo_events: self.redo_events.clone(),
+                        event_counter: self.event_counter,
+                        generation: self.history_generation,
+                        revision: self.game_version.saturating_add(1),
+                    },
+                )
+                .map_err(|error| format!("failed to persist history: {error}"))?;
+        }
+        Ok(())
+    }
     #[must_use]
     pub fn new(game_id: String, initial_state: GameState) -> Self {
         Self {
@@ -114,6 +144,11 @@ impl SessionShared {
             },
             store: None,
             snapshot_decision_count: 0,
+            redo_decisions: Vec::new(),
+            history_active: false,
+            redo_events: Vec::new(),
+            replay_complete: false,
+            history_generation: 0,
         }
     }
 
@@ -128,7 +163,38 @@ impl SessionShared {
         visibility: EventVisibility,
         event: GameEventKind,
         version: Option<u64>,
+        decision_count: usize,
     ) -> Result<(), String> {
+        if self.history_active
+            && !self.redo_decisions.is_empty()
+            && matches!(
+                event,
+                GameEventKind::PhaseTransition { .. } | GameEventKind::GameFinished { .. }
+            )
+        {
+            if self.event_log.last().is_some_and(|previous| {
+                previous.event == event && previous.decision_count == Some(decision_count)
+            }) {
+                return Ok(());
+            }
+            // A replay may traverse an automatic phase step before it reaches the next
+            // human choice. Reattach its original event instead of duplicating its ID.
+            let before_next_decision = self
+                .redo_events
+                .iter()
+                .take_while(|entry| !matches!(entry.event, GameEventKind::DecisionResolved))
+                .count();
+            if let Some(index) = self.redo_events[..before_next_decision]
+                .iter()
+                .position(|entry| {
+                    entry.event == event
+                        && entry.decision_count.unwrap_or(decision_count) == decision_count
+                })
+            {
+                self.event_log.push(self.redo_events.remove(index));
+                return Ok(());
+            }
+        }
         self.event_counter += 1;
         let id = format!("{}-{}", self.game_id, self.event_counter);
         let timestamp = current_utc_time_string();
@@ -138,14 +204,22 @@ impl SessionShared {
             version,
             visibility,
             event,
+            decision_count: Some(decision_count),
         };
-        if let Some(store) = &self.store {
+        if !self.history_active
+            && let Some(store) = &self.store
+        {
             store
                 .append_event(&self.game_id, &entry)
                 .map_err(|error| format!("failed to persist event: {error}"))?;
         }
 
         self.event_log.push(entry.clone());
+
+        if self.history_active {
+            // Publish only after the entire authoritative timeline is atomically saved.
+            return Ok(());
+        }
 
         let visible = entry.visibility.clone();
         let msg = ServerMessage::Event(crate::protocol::server::GameEventMsg {
@@ -158,6 +232,23 @@ impl SessionShared {
             !visible.permits(&subscriber.viewer) || subscriber.tx.try_send(msg.clone()).is_ok()
         });
         Ok(())
+    }
+
+    fn publish_history_events_since(&mut self, index: usize) {
+        if !self.history_active {
+            return;
+        }
+        for entry in self.event_log[index..].iter().cloned() {
+            let message = ServerMessage::Event(crate::protocol::server::GameEventMsg {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: self.game_id.clone(),
+                entry: entry.clone(),
+            });
+            self.subscribers.retain(|_, subscriber| {
+                !entry.visibility.permits(&subscriber.viewer)
+                    || subscriber.tx.try_send(message.clone()).is_ok()
+            });
+        }
     }
 
     /// Broadcasts a newly raised decision to all subscribers.
@@ -205,6 +296,9 @@ impl SessionShared {
         let state = self.latest_state.clone();
         let map_tiles = self.map_tiles.clone();
         let galaxy_layout = self.galaxy_layout.clone();
+        let self_decision_count = self.decision_log.len();
+        let self_redo_count = self.redo_decisions.len();
+        let self_generation = self.history_generation;
         self.publish(|viewer| {
             let update = crate::projection::project_state_update_with_map(
                 &game_id,
@@ -216,7 +310,8 @@ impl SessionShared {
                     .map(|(choice, nonce)| (choice, nonce.as_str())),
                 &map_tiles,
                 &galaxy_layout,
-            );
+            )
+            .with_history(self_decision_count, self_redo_count, self_generation);
             ServerMessage::StateUpdate(update)
         });
     }
@@ -258,14 +353,18 @@ impl SessionShared {
                 )
             })
             .collect();
+        let cursor = self.decision_log.len();
         self.record_and_broadcast_event(
             EventVisibility::Public,
             GameEventKind::GameFinished {
                 winner: winner.clone(),
             },
             Some(self.game_version),
+            cursor,
         )?;
-        self.broadcast_game_over(winner, final_scores);
+        if !self.history_active {
+            self.broadcast_game_over(winner, final_scores);
+        }
         Ok(())
     }
 
@@ -330,6 +429,7 @@ impl Decider for ReplayingDecider {
 #[must_use]
 pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>, JoinHandle<()>) {
     let prior_count = config.prior_decisions.len();
+    let prior_records = config.prior_decisions.clone();
     let prior_queue = Arc::new(Mutex::new(VecDeque::from(config.prior_decisions.clone())));
 
     let mut initial_shared = SessionShared::new(config.game_id.clone(), config.state.clone());
@@ -342,16 +442,26 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         .galaxy_layout
         .clone_from(&config.galaxy_layout);
     initial_shared.store.clone_from(&config.store);
+    initial_shared.game_version = config.initial_version.max(1);
+    initial_shared
+        .redo_decisions
+        .clone_from(&config.redo_decisions);
+    initial_shared.history_active = config.history_active;
+    initial_shared.redo_events.clone_from(&config.redo_events);
+    initial_shared.event_counter = config.event_counter;
+    initial_shared.history_generation = config.history_generation;
 
     if !config.prior_events.is_empty() {
-        initial_shared.event_counter = config.prior_events.len() as u64;
+        initial_shared.event_counter = initial_shared
+            .event_counter
+            .max(config.prior_events.len() as u64);
         let last_version = config
             .prior_events
             .iter()
             .filter_map(|e| e.version)
             .max()
             .unwrap_or(1);
-        initial_shared.game_version = last_version;
+        initial_shared.game_version = initial_shared.game_version.max(last_version);
         initial_shared.event_log.clone_from(&config.prior_events);
     }
     if !config.prior_decisions.is_empty() {
@@ -363,264 +473,333 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     let shared = Arc::new(Mutex::new(initial_shared));
 
     let worker_shared = shared.clone();
-    let handle = thread::spawn(move || {
-        let mut table = Table::new();
+    let handle =
+        thread::spawn(move || {
+            let mut table = Table::new();
 
-        // Configure table deciders
-        for (seat, controller) in config.seats {
-            let inner: Box<dyn Decider> = match controller {
-                SeatController::Human => {
-                    let (inbox_tx, inbox_rx) = mpsc::channel();
-                    {
-                        let mut lock = worker_shared.lock().expect("shared lock");
-                        lock.seat_inboxes.insert(seat.clone(), inbox_tx);
+            // Configure table deciders
+            for (seat, controller) in config.seats {
+                let inner: Box<dyn Decider> = match controller {
+                    SeatController::Human => {
+                        let (inbox_tx, inbox_rx) = mpsc::channel();
+                        {
+                            let mut lock = worker_shared.lock().expect("shared lock");
+                            lock.seat_inboxes.insert(seat.clone(), inbox_tx);
+                        }
+                        let decider = RemoteHumanDecider::new(
+                            seat.clone(),
+                            config.game_id.clone(),
+                            worker_shared.clone(),
+                            inbox_rx,
+                        );
+                        Box::new(decider)
                     }
-                    let decider = RemoteHumanDecider::new(
-                        seat.clone(),
-                        config.game_id.clone(),
-                        worker_shared.clone(),
-                        inbox_rx,
+                    SeatController::BotFirstOption => Box::new(FirstOption),
+                    SeatController::BotAlwaysDecline => Box::new(AlwaysDecline),
+                    SeatController::BotScripted(script) => Box::new(Scripted::new(script)),
+                };
+
+                if prior_count > 0 {
+                    table.seat(
+                        seat,
+                        Box::new(ReplayingDecider {
+                            prior_queue: prior_queue.clone(),
+                            inner,
+                        }),
                     );
-                    Box::new(decider)
-                }
-                SeatController::BotFirstOption => Box::new(FirstOption),
-                SeatController::BotAlwaysDecline => Box::new(AlwaysDecline),
-                SeatController::BotScripted(script) => Box::new(Scripted::new(script)),
-            };
-
-            if prior_count > 0 {
-                table.seat(
-                    seat,
-                    Box::new(ReplayingDecider {
-                        prior_queue: prior_queue.clone(),
-                        inner,
-                    }),
-                );
-            } else {
-                table.seat(seat, inner);
-            }
-        }
-
-        let mut game = Game::with_table(config.state, ContentStore::embedded(), table);
-        if let Some(galaxy) = config.galaxy {
-            game = game.with_galaxy(galaxy);
-        }
-
-        if prior_count == 0 {
-            // Emit initial game initialization event
-            let mut lock = worker_shared.lock().expect("shared lock");
-            let round = game.state.round;
-            let speaker = &game.state.speaker;
-            let version = lock.game_version;
-            if let Err(error) = lock.record_and_broadcast_event(
-                EventVisibility::Public,
-                GameEventKind::GameInitialized {
-                    round,
-                    phase: game.state.phase,
-                    speaker: speaker.clone(),
-                },
-                Some(version),
-            ) {
-                lock.error = Some(error);
-                return;
-            }
-        } else {
-            // Replay prior decisions to reach current state
-            while game.table.log.records.len() < prior_count {
-                let result = game.step();
-                if let Some(err) = result.error {
-                    let mut lock = worker_shared.lock().expect("shared lock");
-                    lock.error = Some(format!("recovery replay failed: {err}"));
-                    return;
-                }
-                if result.finished && game.table.log.records.len() < prior_count {
-                    let mut lock = worker_shared.lock().expect("shared lock");
-                    lock.error = Some("recovery replay ended before all decisions".to_owned());
-                    return;
-                }
-            }
-        }
-
-        let mut prev_round = game.state.round;
-        let mut prev_phase = game.state.phase;
-        let mut prev_decision_count = game.table.log.records.len();
-
-        'worker: loop {
-            // Check stop signal
-            {
-                let lock = worker_shared.lock().expect("shared lock");
-                if lock.stopped {
-                    break;
+                } else {
+                    table.seat(seat, inner);
                 }
             }
 
-            // Sync state to shared cache
-            {
+            let mut game = Game::with_table(config.state, ContentStore::embedded(), table);
+            if let Some(galaxy) = config.galaxy {
+                game = game.with_galaxy(galaxy);
+            }
+
+            if prior_count == 0 && config.prior_events.is_empty() {
+                // Emit initial game initialization event
                 let mut lock = worker_shared.lock().expect("shared lock");
-                lock.latest_state = game.state.clone();
-                lock.decision_log.clone_from(&game.table.log.records);
-            }
-
-            // Check if finished
-            if game.state.finished {
-                let mut lock = worker_shared.lock().expect("shared lock");
-                if let Err(error) = lock.finish_session(&game) {
+                let round = game.state.round;
+                let speaker = &game.state.speaker;
+                let version = lock.game_version;
+                if let Err(error) = lock.record_and_broadcast_event(
+                    EventVisibility::Public,
+                    GameEventKind::GameInitialized {
+                        round,
+                        phase: game.state.phase,
+                        speaker: speaker.clone(),
+                    },
+                    Some(version),
+                    0,
+                ) {
                     lock.error = Some(error);
-                    break;
+                    return;
                 }
-                break;
+            } else if prior_count > 0 {
+                // Replay prior decisions to reach current state
+                while game.table.log.records.len() < prior_count {
+                    let result = game.step();
+                    if let Some(err) = result.error {
+                        let mut lock = worker_shared.lock().expect("shared lock");
+                        lock.error = Some(format!("recovery replay failed: {err}"));
+                        return;
+                    }
+                    if result.finished && game.table.log.records.len() < prior_count {
+                        let mut lock = worker_shared.lock().expect("shared lock");
+                        lock.error = Some("recovery replay ended before all decisions".to_owned());
+                        return;
+                    }
+                }
+                if game.table.log.records != prior_records {
+                    worker_shared.lock().expect("shared lock").error =
+                        Some("recovery replay records diverged".to_owned());
+                    return;
+                }
             }
 
-            // Step the engine (will block if human decision is required)
-            let result = game.step();
+            let mut prev_round = game.state.round;
+            let mut prev_phase = game.state.phase;
+            let mut prev_decision_count = game.table.log.records.len();
 
-            // Record outcome
-            {
-                let mut lock = worker_shared.lock().expect("shared lock");
-                let mut accepted_reply = None;
-                lock.latest_state = game.state.clone();
-                lock.decision_log.clone_from(&game.table.log.records);
-
-                if let Some(err) = result.error {
-                    lock.error = Some(err.to_string());
-                    if let Some(reply_tx) = lock
-                        .pending_decision
-                        .as_mut()
-                        .and_then(|pending| pending.reply_tx.take())
-                    {
-                        let _ = reply_tx.send(Err(
-                            crate::protocol::status::RejectionReason::ValidationFailed {
-                                message: "engine transition failed".to_owned(),
-                            },
-                        ));
+            'worker: loop {
+                // Check stop signal
+                {
+                    let lock = worker_shared.lock().expect("shared lock");
+                    if lock.stopped {
+                        break;
                     }
-                    break 'worker;
                 }
 
-                // Any newly resolved decisions:
-                if game.table.log.records.len() > prev_decision_count {
-                    for record in &game.table.log.records[prev_decision_count..] {
-                        if let Some(store) = &lock.store
-                            && let Err(err) = store.append_decision(&lock.game_id, record)
-                        {
-                            lock.error =
-                                Some(format!("failed to persist accepted decision: {err}"));
-                            if let Some(reply_tx) = lock
-                                .pending_decision
-                                .as_mut()
-                                .and_then(|pending| pending.reply_tx.take())
-                            {
-                                let _ = reply_tx.send(Err(
-                                    crate::protocol::status::RejectionReason::ValidationFailed {
-                                        message: "decision could not be persisted".to_owned(),
-                                    },
-                                ));
-                            }
-                            break 'worker;
-                        }
-                        let version = lock.game_version;
-                        let event_error = lock
-                            .record_and_broadcast_event(
-                                EventVisibility::Public,
-                                GameEventKind::DecisionResolved,
-                                Some(version),
-                            )
-                            .err();
-                        if let Some(error) = event_error {
-                            lock.error = Some(error);
-                            if let Some(reply_tx) = lock
-                                .pending_decision
-                                .as_mut()
-                                .and_then(|pending| pending.reply_tx.take())
-                            {
-                                let _ = reply_tx.send(Err(
-                                    crate::protocol::status::RejectionReason::ValidationFailed {
-                                        message: "event could not be persisted".to_owned(),
-                                    },
-                                ));
-                            }
-                            break 'worker;
-                        }
-                        if accepted_reply.is_none()
-                            && let Some(reply_tx) = lock
-                                .pending_decision
-                                .take()
-                                .and_then(|pending| pending.reply_tx)
-                        {
-                            accepted_reply = Some((
-                                reply_tx,
-                                crate::protocol::server::ActionAcceptedMsg {
-                                    protocol_version: PROTOCOL_VERSION,
-                                    game_id: lock.game_id.clone(),
-                                    game_version: version,
-                                    option_id: record.chosen.clone(),
-                                },
-                            ));
-                        }
-                    }
-                    prev_decision_count = game.table.log.records.len();
+                // Sync state to shared cache
+                {
+                    let mut lock = worker_shared.lock().expect("shared lock");
+                    lock.latest_state = game.state.clone();
+                    lock.decision_log.clone_from(&game.table.log.records);
+                    lock.replay_complete = true;
                 }
 
-                if game.table.log.records.len() - lock.snapshot_decision_count >= 32 {
-                    if let Some(store) = &lock.store
-                        && let Err(error) = store.save_snapshot(
-                            &lock.game_id,
-                            game.table.log.records.len(),
-                            &game.state,
-                        )
-                    {
-                        lock.error = Some(format!("failed to persist snapshot: {error}"));
-                        if let Some((reply_tx, _)) = accepted_reply {
-                            let _ = reply_tx.send(Err(
-                                crate::protocol::status::RejectionReason::ValidationFailed {
-                                    message: "snapshot could not be persisted".to_owned(),
-                                },
-                            ));
-                        }
-                        break 'worker;
+                // Check if finished
+                if game.state.finished {
+                    let mut lock = worker_shared.lock().expect("shared lock");
+                    if lock.event_log.last().is_some_and(|event| {
+                        matches!(event.event, GameEventKind::GameFinished { .. })
+                    }) {
+                        lock.finished = true;
+                        break;
                     }
-                    lock.snapshot_decision_count = game.table.log.records.len();
-                }
-
-                // Phase transition:
-                if game.state.phase != prev_phase || game.state.round != prev_round {
-                    let round = game.state.round;
-                    let version = lock.game_version;
-                    if let Err(error) = lock.record_and_broadcast_event(
-                        EventVisibility::Public,
-                        GameEventKind::PhaseTransition {
-                            phase: game.state.phase,
-                            round,
-                        },
-                        Some(version),
-                    ) {
-                        lock.error = Some(error);
-                        break 'worker;
-                    }
-                    prev_phase = game.state.phase;
-                    prev_round = game.state.round;
-                }
-
-                if result.finished {
                     if let Err(error) = lock.finish_session(&game) {
                         lock.error = Some(error);
                         break;
                     }
-                    if let Some((reply_tx, accepted)) = accepted_reply {
-                        let _ = reply_tx.send(Ok(accepted));
-                    }
                     break;
                 }
 
-                if let Some((reply_tx, accepted)) = accepted_reply {
-                    let _ = reply_tx.send(Ok(accepted));
-                }
+                // Step the engine (will block if human decision is required)
+                let result = game.step();
 
-                lock.game_version += 1;
-                lock.broadcast_state_update();
+                // Record outcome
+                {
+                    let mut lock = worker_shared.lock().expect("shared lock");
+                    let mut accepted_reply = None;
+                    let event_start = lock.event_log.len();
+                    lock.latest_state = game.state.clone();
+                    lock.decision_log.clone_from(&game.table.log.records);
+
+                    if let Some(err) = result.error {
+                        lock.error = Some(err.to_string());
+                        if let Some(reply_tx) = lock
+                            .pending_decision
+                            .as_mut()
+                            .and_then(|pending| pending.reply_tx.take())
+                        {
+                            let _ = reply_tx.send(Err(
+                                crate::protocol::status::RejectionReason::ValidationFailed {
+                                    message: "engine transition failed".to_owned(),
+                                },
+                            ));
+                        }
+                        break 'worker;
+                    }
+
+                    // Any newly resolved decisions:
+                    if game.table.log.records.len() > prev_decision_count {
+                        for (offset, record) in game.table.log.records[prev_decision_count..]
+                            .iter()
+                            .enumerate()
+                        {
+                            if !lock.history_active
+                                && let Some(store) = &lock.store
+                                && let Err(err) = store.append_decision(&lock.game_id, record)
+                            {
+                                lock.error =
+                                    Some(format!("failed to persist accepted decision: {err}"));
+                                if let Some(reply_tx) = lock
+                                    .pending_decision
+                                    .as_mut()
+                                    .and_then(|pending| pending.reply_tx.take())
+                                {
+                                    let _ = reply_tx.send(Err(
+                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                        message: "decision could not be persisted".to_owned(),
+                                    },
+                                ));
+                                }
+                                break 'worker;
+                            }
+                            let version = lock.game_version;
+                            let event_error = lock
+                                .record_and_broadcast_event(
+                                    EventVisibility::Public,
+                                    GameEventKind::DecisionResolved,
+                                    Some(version),
+                                    prev_decision_count + offset + 1,
+                                )
+                                .err();
+                            if let Some(error) = event_error {
+                                lock.error = Some(error);
+                                if let Some(reply_tx) = lock
+                                    .pending_decision
+                                    .as_mut()
+                                    .and_then(|pending| pending.reply_tx.take())
+                                {
+                                    let _ = reply_tx.send(Err(
+                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                        message: "event could not be persisted".to_owned(),
+                                    },
+                                ));
+                                }
+                                break 'worker;
+                            }
+                            if accepted_reply.is_none()
+                                && let Some(reply_tx) = lock
+                                    .pending_decision
+                                    .take()
+                                    .and_then(|pending| pending.reply_tx)
+                            {
+                                accepted_reply = Some((
+                                    reply_tx,
+                                    crate::protocol::server::ActionAcceptedMsg {
+                                        protocol_version: PROTOCOL_VERSION,
+                                        game_id: lock.game_id.clone(),
+                                        game_version: version,
+                                        option_id: record.chosen.clone(),
+                                    },
+                                ));
+                            }
+                        }
+                        prev_decision_count = game.table.log.records.len();
+                        if !lock.redo_decisions.is_empty() {
+                            // Only an accepted decision forks history; autonomous engine
+                            // steps between decisions leave redo available.
+                            lock.redo_decisions.clear();
+                            lock.redo_events.clear();
+                        }
+                    }
+                    if !lock.history_active
+                        && game.table.log.records.len() - lock.snapshot_decision_count >= 32
+                    {
+                        if let Some(store) = &lock.store
+                            && let Err(error) = store.save_snapshot(
+                                &lock.game_id,
+                                game.table.log.records.len(),
+                                &game.state,
+                            )
+                        {
+                            lock.error = Some(format!("failed to persist snapshot: {error}"));
+                            if let Some((reply_tx, _)) = accepted_reply {
+                                let _ = reply_tx.send(Err(
+                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                        message: "snapshot could not be persisted".to_owned(),
+                                    },
+                                ));
+                            }
+                            break 'worker;
+                        }
+                        lock.snapshot_decision_count = game.table.log.records.len();
+                    }
+
+                    // Phase transition:
+                    if game.state.phase != prev_phase || game.state.round != prev_round {
+                        let round = game.state.round;
+                        let version = lock.game_version;
+                        let cursor = lock.decision_log.len();
+                        if let Err(error) = lock.record_and_broadcast_event(
+                            EventVisibility::Public,
+                            GameEventKind::PhaseTransition {
+                                phase: game.state.phase,
+                                round,
+                            },
+                            Some(version),
+                            cursor,
+                        ) {
+                            lock.error = Some(error);
+                            break 'worker;
+                        }
+                        prev_phase = game.state.phase;
+                        prev_round = game.state.round;
+                    }
+
+                    if result.finished {
+                        if let Err(error) = lock.finish_session(&game) {
+                            lock.error = Some(error);
+                            break;
+                        }
+                        if let Err(error) = lock.persist_history() {
+                            lock.error = Some(error);
+                            if let Some((reply_tx, _)) = accepted_reply {
+                                let _ = reply_tx.send(Err(
+                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                        message: "history could not be persisted".to_owned(),
+                                    },
+                                ));
+                            }
+                            break;
+                        }
+                        lock.publish_history_events_since(event_start);
+                        let winner = game
+                            .state
+                            .players
+                            .iter()
+                            .max_by_key(|p| p.victory_points)
+                            .map(|p| p.id.clone());
+                        let scores = game
+                            .state
+                            .players
+                            .iter()
+                            .map(|p| (p.id.clone(), p.victory_points.max(0).cast_unsigned()))
+                            .collect();
+                        if lock.history_active {
+                            lock.broadcast_game_over(winner, scores);
+                        }
+                        if let Some((reply_tx, accepted)) = accepted_reply {
+                            let _ = reply_tx.send(Ok(accepted));
+                        }
+                        break;
+                    }
+
+                    if let Err(error) = lock.persist_history() {
+                        lock.error = Some(error);
+                        if let Some((reply_tx, _)) = accepted_reply {
+                            let _ = reply_tx.send(Err(
+                                crate::protocol::status::RejectionReason::ValidationFailed {
+                                    message: "history could not be persisted".to_owned(),
+                                },
+                            ));
+                        }
+                        break 'worker;
+                    }
+                    lock.publish_history_events_since(event_start);
+
+                    if let Some((reply_tx, accepted)) = accepted_reply {
+                        let _ = reply_tx.send(Ok(accepted));
+                    }
+
+                    lock.game_version += 1;
+                    lock.broadcast_state_update();
+                }
             }
-        }
-    });
+        });
 
     (shared, handle)
 }

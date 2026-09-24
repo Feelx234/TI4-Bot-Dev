@@ -12,8 +12,25 @@ use crate::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg};
 use crate::protocol::status::{RejectionReason, ViewerRole};
 use crate::session::{GameSession, SeatController, SessionConfig};
 use crate::storage::{
-    GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat, StorageError,
+    GameHistory, GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat, StorageError,
 };
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum HistoryAction {
+    Undo,
+    Redo,
+    Restore { event_id: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HistoryError {
+    NotFound,
+    Forbidden,
+    Conflict(String),
+    InvalidTarget,
+    Storage(String),
+}
 
 use crate::storage::{
     LobbySlotId, PLAYER_RECORD_VERSION, PlayerGameInitRecord, PlayerLobbyMember, PlayerLobbyRecord,
@@ -313,6 +330,175 @@ impl Default for GameRegistry {
 }
 
 impl GameRegistry {
+    /// Serializes a host rewind against credential rotation and human submissions.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one serialized authorization, replay and publication boundary"
+    )]
+    pub fn change_history(
+        &self,
+        game_id: &str,
+        credential: &str,
+        expected_version: u64,
+        action: HistoryAction,
+    ) -> Result<InitialSnapshotMsg, HistoryError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let host = if let Some(lobby) = state.player_lobbies.get(game_id) {
+            let actor =
+                authenticate_player(lobby, credential).map_err(|_| HistoryError::Forbidden)?;
+            if actor != lobby.host_player_id {
+                return Err(HistoryError::Forbidden);
+            }
+            actor
+        } else if let Some(lobby) = state.lobbies.get(game_id) {
+            let actor =
+                authenticated_seat(lobby, credential).map_err(|_| HistoryError::Forbidden)?;
+            if actor != lobby.host_seat {
+                return Err(HistoryError::Forbidden);
+            }
+            actor
+        } else {
+            return Err(HistoryError::NotFound);
+        };
+        let session = state
+            .sessions
+            .get(game_id)
+            .ok_or(HistoryError::NotFound)?
+            .clone();
+        if session.game_version() != expected_version || !session.history_ready() {
+            return Err(HistoryError::Conflict(
+                "Game advanced or a decision is in flight".to_owned(),
+            ));
+        }
+        let current = session.decision_log();
+        let redo = session.redo_decisions();
+        let events = session.event_log();
+        let (redo_events, event_counter) = session.history_events();
+        let original_count = current.len();
+        let total = original_count + redo.len();
+        let target = match action {
+            HistoryAction::Undo => current
+                .len()
+                .checked_sub(1)
+                .ok_or(HistoryError::InvalidTarget)?,
+            HistoryAction::Redo => {
+                if redo.is_empty() {
+                    return Err(HistoryError::InvalidTarget);
+                }
+                current.len() + 1
+            }
+            HistoryAction::Restore { event_id } => {
+                if event_id.len() > 128 {
+                    return Err(HistoryError::InvalidTarget);
+                }
+                let mut count = 0;
+                let event = events
+                    .iter()
+                    .find(|event| {
+                        if matches!(
+                            event.event,
+                            crate::protocol::server::GameEventKind::DecisionResolved
+                        ) {
+                            count += 1;
+                        }
+                        event.id == event_id
+                            && event.visibility.permits(&ViewerRole::Player(host.clone()))
+                    })
+                    .ok_or(HistoryError::InvalidTarget)?;
+                let target = event.decision_count.unwrap_or(count);
+                if target >= current.len() {
+                    return Err(HistoryError::InvalidTarget);
+                }
+                target
+            }
+        };
+        if target > total {
+            return Err(HistoryError::InvalidTarget);
+        }
+        let all: Vec<_> = current.into_iter().chain(redo).collect();
+        let config = session.restart_config();
+        let report = crate::session::replay::replay_session(
+            &config.state,
+            config.galaxy.as_ref(),
+            &all[..target],
+        )
+        .map_err(|e| HistoryError::Conflict(format!("Replay failed: {e}")))?;
+        if !report.hashes_match || report.decision_count != target {
+            return Err(HistoryError::Conflict("Replay diverged".to_owned()));
+        }
+        // This stable boundary excludes all events after the selected decision. Legacy
+        // events have no cursor, so their decision_resolved ordering supplies one.
+        let all_events: Vec<_> = events.into_iter().chain(redo_events).collect();
+        let mut count = 0;
+        let mut split = 0;
+        for event in &all_events {
+            if matches!(
+                event.event,
+                crate::protocol::server::GameEventKind::DecisionResolved
+            ) {
+                count += 1;
+            }
+            if event.decision_count.unwrap_or(count) > target {
+                break;
+            }
+            split += 1;
+        }
+        let revision = expected_version
+            .checked_add(1)
+            .ok_or(HistoryError::InvalidTarget)?;
+        let history = GameHistory {
+            decisions: all[..target].to_vec(),
+            redo: all[target..].to_vec(),
+            events: all_events[..split].to_vec(),
+            redo_events: all_events[split..].to_vec(),
+            event_counter: event_counter.max(all_events.len() as u64),
+            revision,
+            generation: session.history_status().generation.saturating_add(1),
+        };
+        // A live worker must be quiescent before publishing the new authoritative branch.
+        session.stop();
+        if session.decision_log().len() != original_count {
+            // This branch is only reachable for an autonomous bot decision; keep the
+            // original timeline alive instead of committing an outdated cursor.
+            let replacement = Arc::new(GameSession::start_recovered(
+                config.clone(),
+                session.decision_log(),
+                session.event_log(),
+            ));
+            state.sessions.insert(game_id.to_owned(), replacement);
+            return Err(HistoryError::Conflict(
+                "Game advanced during rewind".to_owned(),
+            ));
+        }
+        if let Some(store) = &config.store
+            && let Err(error) = store.save_history(game_id, &history)
+        {
+            let replacement = Arc::new(GameSession::start_recovered(
+                config.clone(),
+                session.decision_log(),
+                session.event_log(),
+            ));
+            state.sessions.insert(game_id.to_owned(), replacement);
+            return Err(HistoryError::Storage(error.to_string()));
+        }
+        let mut next = config;
+        next.prior_decisions.clone_from(&history.decisions);
+        next.prior_events.clone_from(&history.events);
+        next.redo_decisions = history.redo;
+        next.redo_events = history.redo_events;
+        next.event_counter = history.event_counter;
+        next.initial_version = revision;
+        next.history_active = true;
+        next.history_generation = history.generation;
+        let replacement = Arc::new(GameSession::start(next));
+        state
+            .sessions
+            .insert(game_id.to_owned(), replacement.clone());
+        replacement
+            .wait_replayed()
+            .map_err(HistoryError::Conflict)?;
+        Ok(replacement.get_snapshot(&ViewerRole::Player(host)))
+    }
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -1607,6 +1793,12 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         store: None,
         prior_decisions: Vec::new(),
         prior_events: Vec::new(),
+        initial_version: 1,
+        redo_decisions: Vec::new(),
+        redo_events: Vec::new(),
+        event_counter: 0,
+        history_active: false,
+        history_generation: 0,
     })
 }
 
@@ -1711,5 +1903,11 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         player_ids: init.player_ids.clone(),
         prior_decisions: Vec::new(),
         prior_events: Vec::new(),
+        initial_version: 1,
+        redo_decisions: Vec::new(),
+        redo_events: Vec::new(),
+        event_counter: 0,
+        history_active: false,
+        history_generation: 0,
     })
 }

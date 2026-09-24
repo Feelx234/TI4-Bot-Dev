@@ -45,6 +45,10 @@ npm run dev
    every position is occupied and ready. Session credentials stay in tab-scoped
    storage, never in invitation URLs. Reconnect in the same tab to resume.
 5. Choices and private cards are hidden from opponents and spectators.
+6. The lobby host can use **Undo** and **Redo** in the event drawer, or select
+   **Undo to here** on an earlier log entry. This restores the authoritative
+   engine state after that entry for everyone in the game. Redo remains available
+   until a new choice is made; connected tabs reconnect to the restored timeline.
 
 ---
 
