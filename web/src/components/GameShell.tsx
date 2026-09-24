@@ -4,7 +4,11 @@ import { BoardView, HistoryStatus, PendingChoiceDto, PlayerView } from "../proto
 import { EventLog } from "./EventLog.tsx";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { PaymentDrawer } from "./PaymentDrawer.tsx";
-import { TacticalMovementOverlay } from "./TacticalMovementOverlay.tsx";
+import {
+  TacticalMovementOverlay,
+  emptyMovementPlan,
+  type ExecutionPlan,
+} from "./TacticalMovementOverlay.tsx";
 import { CombatResolutionModal } from "./CombatResolutionModal.tsx";
 import { TradeDeskModal } from "./TradeDeskModal.tsx";
 import { AgendaBallotModal } from "./AgendaBallotModal.tsx";
@@ -56,6 +60,9 @@ export interface ChoiceRendererDispatcherProps {
   productionQueue?: readonly string[];
   productionError?: string | null;
   onQueueProduction?: (units: string[]) => void;
+  tacticalPlan?: React.RefObject<ExecutionPlan>;
+  tacticalStep?: number;
+  onTacticalStep?: () => void;
 }
 
 type WorkflowRenderer = (
@@ -75,6 +82,9 @@ const renderTactical: WorkflowRenderer = ({
   isMinimized,
   onMinimizedChange,
   lastError,
+  tacticalPlan,
+  tacticalStep,
+  onTacticalStep,
 }) => (
   <TacticalMovementOverlay
     key="tactical_movement_overlay"
@@ -95,6 +105,9 @@ const renderTactical: WorkflowRenderer = ({
     isOpen={!isMinimized}
     onClose={() => onMinimizedChange(true)}
     lastError={lastError}
+    executionPlan={tacticalPlan}
+    executionStep={tacticalStep}
+    onExecutionStep={onTacticalStep}
   />
 );
 
@@ -126,7 +139,22 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
     ),
   ],
   ["tactical_movement", renderTactical],
-  ["tactical_cargo", renderTactical],
+  [
+    "tactical_cargo",
+    (props) =>
+      props.tacticalPlan?.current.active ? (
+        renderTactical(props)
+      ) : (
+        <CargoLoadingTray
+          choice={props.choice}
+          board={props.boardView}
+          onSubmit={props.onSubmit}
+          isOpen={!props.isMinimized}
+          onClose={() => props.onMinimizedChange(true)}
+          lastError={props.lastError}
+        />
+      ),
+  ],
   ["combat_sustain", renderCombat],
   ["combat_casualty", renderCombat],
   ["combat_retreat", renderCombat],
@@ -338,6 +366,9 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   productionQueue,
   productionError,
   onQueueProduction,
+  tacticalPlan,
+  tacticalStep,
+  onTacticalStep,
 }) => {
   const present = useParticipantText();
   const derivedModel = useMemo(() => {
@@ -381,6 +412,9 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     productionQueue,
     productionError,
     onQueueProduction,
+    tacticalPlan,
+    tacticalStep,
+    onTacticalStep,
   });
 
   return (
@@ -463,6 +497,15 @@ export const GameShell: React.FC<GameShellProps> = ({
   const [productionError, setProductionError] = useState<string | null>(null);
   const submittedNonce = useRef<string | null>(null);
   const productionSubmitting = useRef(false);
+  const tacticalPlan = useRef<ExecutionPlan>(emptyMovementPlan());
+  const [tacticalStep, setTacticalStep] = useState(0);
+  const lastHistoryGeneration = useRef(history?.generation);
+
+  // A restored timeline must not resume a movement plan from the old timeline.
+  if (history?.generation !== lastHistoryGeneration.current) {
+    tacticalPlan.current = emptyMovementPlan();
+    lastHistoryGeneration.current = history?.generation;
+  }
 
   // A build may open payment and placement decisions before the next production offer.
   // Keep the queue above the workflow renderer and resume only on a fresh legal offer.
@@ -634,6 +677,9 @@ export const GameShell: React.FC<GameShellProps> = ({
           onSelectOption={onSelectOption}
           isMinimized={isChoiceMinimized}
           onMinimizedChange={setIsChoiceMinimized}
+          tacticalPlan={tacticalPlan}
+          tacticalStep={tacticalStep}
+          onTacticalStep={() => setTacticalStep((step) => step + 1)}
           productionQueue={productionQueue?.units}
           productionError={productionError}
           onQueueProduction={(units) => {

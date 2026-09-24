@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
-import { TacticalMovementOverlay } from "./TacticalMovementOverlay.tsx";
+import { TacticalMovementOverlay, emptyMovementPlan } from "./TacticalMovementOverlay.tsx";
 import { PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import { deriveChoiceRendererModel } from "../presentation/choiceModel.ts";
 
@@ -61,6 +61,70 @@ const mockPlayer: PlayerView = {
 };
 
 describe("TacticalMovementOverlay Component", () => {
+  it("continues a staged ship and planet cargo across a missing choice and fresh engine decisions", async () => {
+    const plan = { current: emptyMovementPlan() };
+    const cargoChoice: PendingChoiceDto = {
+      actor: "p1",
+      nonce: "cargo-1",
+      prompt: "load carrier",
+      context: { subtype: "load_cargo", target: { System: "24" } },
+      options: [
+        {
+          id: "load|0",
+          kind: "load",
+          label: "load infantry",
+          payload: { unit: "infantry", source: "jord" },
+        },
+        { id: "done_loading", kind: "decline", label: "carry nothing further" },
+      ],
+    };
+    const moveAgain = {
+      ...mockMoveChoice,
+      nonce: "move-2",
+      options: [{ id: "done_moving", kind: "decline", label: "finish movement" }],
+    };
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const props = {
+      board: {
+        systems: {
+          "24": {
+            system_id: "24",
+            command_tokens: [],
+            planets: {},
+            units: [
+              { owner: "p1", unit_type: "carrier", damaged: false },
+              { owner: "p1", unit_type: "infantry", planet: "jord", damaged: false },
+            ],
+          },
+        },
+      } as any,
+      activeSystemId: "18",
+      player: mockPlayer,
+      onSubmit,
+      isOpen: true,
+      onClose: vi.fn(),
+      executionPlan: plan,
+      onExecutionStep: vi.fn(),
+    };
+    const { rerender } = render(<TacticalMovementOverlay {...props} choice={mockMoveChoice} />);
+    fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
+    fireEvent.click(screen.getByTestId("rally-inc-cargo-24-infantry-jord"));
+    fireEvent.click(screen.getByTestId("commit-moves-btn"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith("move|24|1"));
+    rerender(null); // No pending choice is projected between engine steps.
+    rerender(<TacticalMovementOverlay {...props} choice={cargoChoice} />);
+    await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(2, "load|0"));
+    rerender(
+      <TacticalMovementOverlay
+        {...props}
+        choice={{ ...cargoChoice, nonce: "cargo-2", options: [cargoChoice.options[1]] }}
+      />,
+    );
+    await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(3, "done_loading"));
+    rerender(<TacticalMovementOverlay {...props} choice={moveAgain} />);
+    await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(4, "done_moving"));
+    expect(plan.current.active).toBe(false);
+  });
   it("offers and submits the engine decline-only movement choice", async () => {
     const choice: PendingChoiceDto = {
       actor: "p1",
@@ -402,7 +466,9 @@ describe("TacticalMovementOverlay Component", () => {
     // 3 cruisers staged against fleet supply of 2
     expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("3 / 2 Ships");
     expect(
-      screen.getByText(/Exceeds fleet limit \(3\/2\) — excess ships must be lost in combat or destroyed/i),
+      screen.getByText(
+        /Exceeds fleet limit \(3\/2\) — excess ships must be lost in combat or destroyed/i,
+      ),
     ).toBeInTheDocument();
 
     // Commit button remains ENABLED (attacking over fleet supply is valid TI4 rules)
@@ -467,7 +533,7 @@ describe("TacticalMovementOverlay Component", () => {
     expect(screen.getByText("Carryable Cargo in Origin Systems")).toBeInTheDocument();
 
     // Stage 2 infantry from Jord
-    const infInc = screen.getByTestId("rally-inc-24-infantry");
+    const infInc = screen.getByTestId("rally-inc-cargo-24-infantry-jord");
     fireEvent.click(infInc);
     fireEvent.click(infInc);
 
@@ -483,4 +549,3 @@ describe("TacticalMovementOverlay Component", () => {
     expect(onSubmit).toHaveBeenCalledWith("move|24|0");
   });
 });
-

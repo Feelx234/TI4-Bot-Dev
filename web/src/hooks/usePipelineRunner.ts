@@ -5,14 +5,9 @@ export interface SemanticIntent {
   predicate: (option: ChoiceOptionDto) => boolean;
 }
 
-export interface PipelineRunnerOptions {
-  allowedSubtypes?: string[];
-}
-
 export function usePipelineRunner(
   pendingChoice: PendingChoiceDto | null,
   submitChoice: (optionId: string) => Promise<void>,
-  options?: PipelineRunnerOptions,
 ) {
   const [activeQueue, setActiveQueue] = useState<SemanticIntent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -20,11 +15,7 @@ export function usePipelineRunner(
   const [lastSubmittedNonce, setLastSubmittedNonce] = useState<string | null>(null);
   const isSubmittingRef = useRef(false);
   const runRef = useRef(0);
-  const originRef = useRef<{
-    actor: string;
-    subtype?: string;
-    allowedSubtypes?: string[];
-  } | null>(null);
+  const originRef = useRef<{ actor: string; subtype?: string } | null>(null);
   // Keep a stable ref to submitChoice so the effect never lists it as a
   // dependency. This prevents the effect from firing mid-run whenever the
   // parent re-creates onSubmit on every render.
@@ -49,20 +40,17 @@ export function usePipelineRunner(
     }
     if (pendingChoice.nonce === lastSubmittedNonce) return;
 
-    if (originRef.current) {
-      const isActorSame = pendingChoice.actor === originRef.current.actor;
-      const isSubtypeAllowed = originRef.current.allowedSubtypes
-        ? originRef.current.allowedSubtypes.includes(pendingChoice.context?.subtype ?? "")
-        : pendingChoice.context?.subtype === originRef.current.subtype;
-
-      if (!isActorSame || !isSubtypeAllowed) {
-        setIsRunning(false);
-        setActiveQueue([]);
-        setLastError(
-          "Decision pipeline interrupted: a different decision was offered. Previously submitted choices remain committed.",
-        );
-        return;
-      }
+    if (
+      originRef.current &&
+      (pendingChoice.actor !== originRef.current.actor ||
+        pendingChoice.context?.subtype !== originRef.current.subtype)
+    ) {
+      setIsRunning(false);
+      setActiveQueue([]);
+      setLastError(
+        "Decision pipeline interrupted: a different decision was offered. Previously submitted choices remain committed.",
+      );
+      return;
     }
 
     const nextIntent = activeQueue[0];
@@ -103,17 +91,10 @@ export function usePipelineRunner(
     }
   }, [pendingChoice?.nonce, isRunning, activeQueue, lastSubmittedNonce]);
 
-  const executePipeline = (
-    intents: SemanticIntent[],
-    execOptions?: PipelineRunnerOptions,
-  ) => {
+  const executePipeline = (intents: SemanticIntent[]) => {
     runRef.current += 1;
     originRef.current = pendingChoice
-      ? {
-          actor: pendingChoice.actor,
-          subtype: pendingChoice.context?.subtype,
-          allowedSubtypes: execOptions?.allowedSubtypes ?? options?.allowedSubtypes,
-        }
+      ? { actor: pendingChoice.actor, subtype: pendingChoice.context?.subtype }
       : null;
     if (intents.length === 0) {
       setIsRunning(false);

@@ -112,7 +112,8 @@ test("a real engine advances after an empty tactical movement", async ({ browser
     );
   });
   expect(distant, "seed 42 must offer a distant activation").toBeDefined();
-  await choose(page, distant!.id);
+  await page.getByTestId(`system-hex-${distant!.id}`).click();
+  await page.getByTestId("confirm-activation-btn").click();
 
   current = await choiceAt(request, gameId, actor.session, "movement_step");
   expect(current.pending_choice?.choice.context?.subtype).toBe("movement_step");
