@@ -20,6 +20,7 @@ import { SystemActivationBar } from "./SystemActivationBar.tsx";
 import { deriveChoiceRendererModel, ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { Dialog, overlayStack } from "../primitives/index.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
+import { PipelineRunnerContext, useOwnedPipelineRunner } from "../hooks/usePipelineRunner.ts";
 
 export interface GameShellProps {
   header: React.ReactNode;
@@ -500,6 +501,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   const tacticalPlan = useRef<ExecutionPlan>(emptyMovementPlan());
   const [tacticalStep, setTacticalStep] = useState(0);
   const lastHistoryGeneration = useRef(history?.generation);
+  const pipelineRunner = useOwnedPipelineRunner(choice, onSubmitChoice);
 
   // A restored timeline must not resume a movement plan from the old timeline.
   if (history?.generation !== lastHistoryGeneration.current) {
@@ -665,34 +667,36 @@ export const GameShell: React.FC<GameShellProps> = ({
       </section>
 
       <div className="app-shell__overlays">
-        <ChoiceRendererDispatcher
-          choice={choice}
-          viewerSeat={viewerSeat}
-          players={playersMap}
-          boardView={boardView}
-          onSubmit={onSubmitChoice}
-          lastError={lastError}
-          selectedOptionId={selectedOptionId}
-          selectedSystemId={selectedSystemId}
-          onSelectOption={onSelectOption}
-          isMinimized={isChoiceMinimized}
-          onMinimizedChange={setIsChoiceMinimized}
-          tacticalPlan={tacticalPlan}
-          tacticalStep={tacticalStep}
-          onTacticalStep={() => setTacticalStep((step) => step + 1)}
-          productionQueue={productionQueue?.units}
-          productionError={productionError}
-          onQueueProduction={(units) => {
-            if (!choice || productionQueue?.units.length) return;
-            const system =
-              choice.context?.target && "System" in choice.context.target
-                ? choice.context.target.System
-                : "";
-            setProductionError(null);
-            submittedNonce.current = null;
-            setProductionQueue({ actor: choice.actor, system, units });
-          }}
-        />
+        <PipelineRunnerContext.Provider value={pipelineRunner}>
+          <ChoiceRendererDispatcher
+            choice={choice}
+            viewerSeat={viewerSeat}
+            players={playersMap}
+            boardView={boardView}
+            onSubmit={onSubmitChoice}
+            lastError={lastError}
+            selectedOptionId={selectedOptionId}
+            selectedSystemId={selectedSystemId}
+            onSelectOption={onSelectOption}
+            isMinimized={isChoiceMinimized}
+            onMinimizedChange={setIsChoiceMinimized}
+            tacticalPlan={tacticalPlan}
+            tacticalStep={tacticalStep}
+            onTacticalStep={() => setTacticalStep((step) => step + 1)}
+            productionQueue={productionQueue?.units}
+            productionError={productionError}
+            onQueueProduction={(units) => {
+              if (!choice || productionQueue?.units.length) return;
+              const system =
+                choice.context?.target && "System" in choice.context.target
+                  ? choice.context.target.System
+                  : "";
+              setProductionError(null);
+              submittedNonce.current = null;
+              setProductionQueue({ actor: choice.actor, system, units });
+            }}
+          />
+        </PipelineRunnerContext.Provider>
       </div>
     </div>
   );

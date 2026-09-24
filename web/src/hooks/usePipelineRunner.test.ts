@@ -119,6 +119,34 @@ describe("usePipelineRunner", () => {
     expect(onSubmit).toHaveBeenNthCalledWith(2, "opt2");
   });
 
+  it("keeps the remaining intent across a gap with no pending choice", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const choice: PendingChoiceDto = {
+      actor: "p1",
+      nonce: "n1",
+      prompt: "Pay",
+      context: { subtype: "pay_resources" },
+      options: [{ id: "trade_good", label: "Spend" }],
+    };
+    const { result, rerender } = renderHook(({ pending }) => usePipelineRunner(pending, onSubmit), {
+      initialProps: { pending: choice as PendingChoiceDto | null },
+    });
+    await act(async () => {
+      result.current.executePipeline([
+        { predicate: (option) => option.id === "trade_good" },
+        { predicate: (option) => option.id === "trade_good" },
+      ]);
+    });
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith("trade_good");
+    await act(async () => rerender({ pending: null }));
+    expect(result.current.isRunning).toBe(true);
+    expect(result.current.queueLength).toBe(1);
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    await act(async () => rerender({ pending: { ...choice, nonce: "n2" } }));
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(result.current.isRunning).toBe(false);
+  });
+
   it("reports an interrupted multi-step queue without sending an unrelated option", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const choice: PendingChoiceDto = {

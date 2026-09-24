@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { PendingChoiceDto, ChoiceOptionDto } from "../protocol/types.ts";
 
 export interface SemanticIntent {
   predicate: (option: ChoiceOptionDto) => boolean;
 }
 
-export function usePipelineRunner(
+export function useOwnedPipelineRunner(
   pendingChoice: PendingChoiceDto | null,
   submitChoice: (optionId: string) => Promise<void>,
 ) {
@@ -32,12 +32,9 @@ export function usePipelineRunner(
     }
 
     if (isSubmittingRef.current) return;
-    if (!pendingChoice) {
-      setIsRunning(false);
-      setActiveQueue([]);
-      setLastError("Decision pipeline interrupted: no pending choice is available.");
-      return;
-    }
+    // The engine may briefly have no decision while resolving the previous one.
+    // Keep the queue until it offers a fresh choice (or the shell is unmounted).
+    if (!pendingChoice) return;
     if (pendingChoice.nonce === lastSubmittedNonce) return;
 
     if (
@@ -80,7 +77,7 @@ export function usePipelineRunner(
           setLastError(err instanceof Error ? err.message : String(err));
         })
         .finally(() => {
-          isSubmittingRef.current = false;
+          if (run === runRef.current) isSubmittingRef.current = false;
         });
     } else {
       // Intervening decision occurred or intent no longer available.
@@ -111,6 +108,7 @@ export function usePipelineRunner(
     setActiveQueue([]);
     setIsRunning(false);
     isSubmittingRef.current = false;
+    setLastError(null);
   };
 
   return {
@@ -120,4 +118,18 @@ export function usePipelineRunner(
     queueLength: activeQueue.length,
     lastError,
   };
+}
+
+export const PipelineRunnerContext = createContext<ReturnType<
+  typeof useOwnedPipelineRunner
+> | null>(null);
+
+/** GameShell owns the queue; isolated workflow renders retain their own runner. */
+export function usePipelineRunner(
+  pendingChoice: PendingChoiceDto | null,
+  submitChoice: (optionId: string) => Promise<void>,
+) {
+  const shared = useContext(PipelineRunnerContext);
+  const local = useOwnedPipelineRunner(pendingChoice, submitChoice);
+  return shared ?? local;
 }

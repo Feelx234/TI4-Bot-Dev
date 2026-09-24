@@ -27,6 +27,189 @@ function renderShell(pendingChoice: PendingChoiceDto | null = null) {
 }
 
 describe("GameShell", () => {
+  it.each([
+    {
+      name: "payment",
+      first: {
+        actor: "p1",
+        nonce: "one",
+        prompt: "pay 2 resources",
+        context: {
+          subtype: "pay_resources",
+          outstanding: [{ kind: "resources", amount: 2, paid: 0 }],
+        },
+        options: [
+          {
+            id: "exhaust|jord",
+            kind: "pay",
+            label: "Jord",
+            payload: { worth: 1, planet_name: "Jord" },
+          },
+          { id: "trade_good", kind: "pay", label: "Trade good", payload: { worth: 1 } },
+        ],
+      } satisfies PendingChoiceDto,
+      second: { id: "trade_good", kind: "pay", label: "Trade good", payload: { worth: 1 } },
+      expected: ["exhaust|jord", "trade_good"],
+      stage: () => {
+        fireEvent.click(screen.getByTestId("planet-card-exhaust|jord").querySelector("input")!);
+        fireEvent.click(screen.getByTestId("tg-increment-btn"));
+        fireEvent.click(screen.getByTestId("confirm-payment-btn"));
+      },
+    },
+    {
+      name: "cargo",
+      first: {
+        actor: "p1",
+        nonce: "one",
+        prompt: "load carrier (2 free)",
+        context: { subtype: "load_cargo", target: { System: "42" } },
+        options: [
+          {
+            id: "load|0",
+            kind: "load",
+            label: "Fighter",
+            payload: { unit: "fighter", source: null, capacity_remaining: 2 },
+          },
+          { id: "done_loading", kind: "decline", label: "Done" },
+        ],
+      } satisfies PendingChoiceDto,
+      second: {
+        id: "load|1",
+        kind: "load",
+        label: "Fighter",
+        payload: { unit: "fighter", source: null, capacity_remaining: 1 },
+      },
+      expected: ["load|0", "load|1"],
+      stage: () => {
+        fireEvent.click(screen.getByRole("button", { name: "Stage fighter from space" }));
+        fireEvent.click(screen.getByRole("button", { name: "Stage fighter from space" }));
+        fireEvent.click(screen.getByRole("button", { name: "Confirm 2 loads" }));
+      },
+    },
+    {
+      name: "agenda voting",
+      first: {
+        actor: "p1",
+        nonce: "one",
+        prompt: "exhaust planets to vote",
+        context: { subtype: "vote_exhaust_planet" },
+        options: [
+          { id: "Jord", kind: "vote_planet", label: "Jord", payload: { votes: 2 } },
+          { id: "Mecatol", kind: "vote_planet", label: "Mecatol", payload: { votes: 6 } },
+          { id: "decline", kind: "decline", label: "Done" },
+        ],
+      } satisfies PendingChoiceDto,
+      second: { id: "Mecatol", kind: "vote_planet", label: "Mecatol", payload: { votes: 6 } },
+      expected: ["Jord", "Mecatol"],
+      stage: () => {
+        fireEvent.click(screen.getByTestId("planet-card-Jord"));
+        fireEvent.click(screen.getByTestId("planet-card-Mecatol"));
+        fireEvent.click(screen.getByTestId("commit-planet-votes-btn"));
+      },
+    },
+    {
+      name: "generic multi-select",
+      first: {
+        actor: "p1",
+        nonce: "one",
+        prompt: "choose two",
+        context: {
+          subtype: "select_targets",
+          outstanding: [{ min_selection: 1, max_selection: 2 }],
+        },
+        options: [
+          { id: "first", kind: "target", label: "First" },
+          { id: "second", kind: "target", label: "Second" },
+        ],
+      } satisfies PendingChoiceDto,
+      second: { id: "second", kind: "target", label: "Second" },
+      expected: ["first", "second"],
+      stage: () => {
+        fireEvent.click(screen.getByText("First"));
+        fireEvent.click(screen.getByText("Second"));
+        fireEvent.click(screen.getByTestId("submit-choice-button"));
+      },
+    },
+  ])(
+    "resumes the $name queue after its modal unmounts between choices",
+    async ({ first, second, expected, stage }) => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      const view = (pending: PendingChoiceDto | null) => (
+        <GameShell
+          header={null}
+          board={null}
+          playerSheet={null}
+          events={[]}
+          choice={pending}
+          viewerSeat="p1"
+          onSubmitChoice={onSubmit}
+          boardView={{
+            systems: {
+              "42": {
+                system_id: "42",
+                command_tokens: [],
+                planets: {},
+                units: [
+                  { owner: "p1", unit_type: "fighter", damaged: false },
+                  { owner: "p1", unit_type: "fighter", damaged: false },
+                ],
+              },
+            },
+          }}
+        />
+      );
+      const { rerender } = render(view(first));
+      stage();
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith(expected[0]));
+      rerender(view(null));
+      expect(screen.queryByTestId("decision-modal")).not.toBeInTheDocument();
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+      rerender(view({ ...first, nonce: "two", options: [second] }));
+      await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(2, expected[1]));
+    },
+  );
+
+  it("cancels an interrupted queue rather than submitting to a different workflow", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const first: PendingChoiceDto = {
+      actor: "p1",
+      nonce: "one",
+      prompt: "choose two",
+      context: { subtype: "select_targets", outstanding: [{ min_selection: 1, max_selection: 2 }] },
+      options: [
+        { id: "first", label: "First" },
+        { id: "second", label: "Second" },
+      ],
+    };
+    const view = (pending: PendingChoiceDto | null) => (
+      <GameShell
+        header={null}
+        board={null}
+        playerSheet={null}
+        events={[]}
+        choice={pending}
+        viewerSeat="p1"
+        onSubmitChoice={onSubmit}
+      />
+    );
+    const { rerender } = render(view(first));
+    fireEvent.click(screen.getByText("First"));
+    fireEvent.click(screen.getByText("Second"));
+    fireEvent.click(screen.getByTestId("submit-choice-button"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith("first"));
+    rerender(view(null));
+    rerender(
+      view({
+        ...first,
+        nonce: "two",
+        context: { subtype: "pay_resources" },
+        options: [{ id: "second", kind: "pay", label: "Second" }],
+      }),
+    );
+    await act(async () => {});
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
   it("offers host undo, redo and restore-after-event controls only when eligible", () => {
     const change = vi.fn();
     const events = [
