@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChoiceRendererDispatcher, GameShell } from "./GameShell.tsx";
 import { PendingChoiceDto } from "../protocol/types.ts";
 import { deriveChoiceRendererModel } from "../presentation/choiceModel.ts";
@@ -146,7 +146,7 @@ describe("GameShell", () => {
     expect(screen.getByTestId("system-activation-bar")).toBeVisible();
     expect(screen.getByText("Activate a system")).toBeInTheDocument();
   });
-  it("presents dynamic choice text and errors from the latest roster without changing submissions", () => {
+  it("presents dynamic choice text and errors from the latest roster without changing submissions", async () => {
     const a = `player_${"a".repeat(64)}`;
     const b = `player_${"b".repeat(64)}`;
     const missing = `player_${"c".repeat(64)}`;
@@ -219,7 +219,9 @@ describe("GameShell", () => {
       }),
     );
     expect(screen.getByTestId("choice-prompt")).toHaveTextContent("Renamed offers Sam a deal");
-    fireEvent.click(screen.getByTestId("submit-choice-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("submit-choice-button"));
+    });
     expect(onSubmit).toHaveBeenCalledWith(`deal:${b}`);
     expect(dynamic.prompt).toContain(b);
     expect(dynamic.options[0].label).toContain(b);

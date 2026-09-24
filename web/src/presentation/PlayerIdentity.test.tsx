@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { PlayerIdentityProvider, SeatBadge } from "./PlayerIdentity.tsx";
 import { PlayerSheet } from "../components/PlayerSheet.tsx";
 import { TurnStatusBar } from "../components/TurnStatusBar.tsx";
@@ -161,7 +161,7 @@ it("renders player and spectator surfaces with current names, seat shapes and no
   fireEvent.click(screen.getByTestId("event-log-toggle"));
 });
 
-it("keeps trade target and submitted choice IDs internal while displaying the current roster", () => {
+it("keeps trade target and submitted choice IDs internal while displaying the current roster", async () => {
   const onSubmit = vi.fn().mockResolvedValue(undefined);
   const choice = {
     actor: "player_b",
@@ -205,6 +205,8 @@ it("keeps trade target and submitted choice IDs internal while displaying the cu
   );
   expect(screen.getByText("With Robin")).toBeInTheDocument();
   fireEvent.click(screen.getByTestId("trade-opt-offer-1"));
-  fireEvent.click(screen.getByTestId("propose-trade-btn"));
+  await act(async () => {
+    fireEvent.click(screen.getByTestId("propose-trade-btn"));
+  });
   expect(onSubmit).toHaveBeenCalledWith("offer-1");
 });
