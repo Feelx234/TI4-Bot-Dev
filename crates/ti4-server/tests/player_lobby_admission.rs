@@ -11,6 +11,125 @@ fn slot(id: &str) -> LobbySlotId {
 }
 
 #[test]
+fn a_bad_saved_lobby_does_not_hide_a_recoverable_running_game() {
+    let dir = std::env::temp_dir().join(format!(
+        "ti4_recovery_isolation_{:032x}",
+        rand::random::<u128>()
+    ));
+    let store = Arc::new(FileGameStore::new(&dir).unwrap());
+    let original = GameRegistry::new().with_store(store.clone());
+    original
+        .create_player_lobby("a_bad".into(), 2, 1, "Bad")
+        .unwrap();
+    let (_, host, token) = original
+        .create_player_lobby("z_good".into(), 2, 19, "Host")
+        .unwrap();
+    let (_, _, guest_token) = original
+        .join_player_lobby("z_good", None, Some("Guest"))
+        .unwrap();
+    original
+        .set_player_ready("z_good", token.as_str(), true)
+        .unwrap();
+    original
+        .set_player_ready("z_good", guest_token.unwrap().as_str(), true)
+        .unwrap();
+    original
+        .start_player_lobby("z_good", token.as_str())
+        .unwrap();
+
+    let bad_path = store.game_dir("a_bad").unwrap().join("lobby.json");
+    let bytes = std::fs::read_to_string(&bad_path).unwrap();
+    std::fs::write(
+        &bad_path,
+        bytes.replacen("\"checksum\": \"", "\"checksum\": \"0", 1),
+    )
+    .unwrap();
+
+    let restarted = GameRegistry::new().with_store(store);
+    let report = restarted.recover_all_games_report().unwrap();
+    assert_eq!(report.recovered, ["z_good"]);
+    assert_eq!(report.failed.len(), 1);
+    assert_eq!(report.failed[0].game_id, "a_bad");
+    assert_eq!(report.failed[0].stage, "lobby.json");
+    assert!(
+        report.failed[0]
+            .error
+            .to_string()
+            .contains("checksum mismatch")
+    );
+    assert_eq!(
+        std::fs::read_to_string(&bad_path).unwrap(),
+        bytes.replacen("\"checksum\": \"", "\"checksum\": \"0", 1)
+    );
+    assert!(restarted.player_lobby_status("a_bad", None).is_err());
+    assert_eq!(restarted.list_games()[0].game_id, "z_good");
+    assert_eq!(
+        restarted
+            .join_player_lobby("z_good", Some(token.as_str()), None)
+            .unwrap()
+            .1,
+        host
+    );
+    assert!(restarted.get_game("z_good").is_some());
+
+    restarted.remove_game("z_good");
+    original.remove_game("z_good");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn failed_running_recovery_does_not_publish_a_phantom_lobby() {
+    let dir = std::env::temp_dir().join(format!(
+        "ti4_recovery_atomic_{:032x}",
+        rand::random::<u128>()
+    ));
+    let store = Arc::new(FileGameStore::new(&dir).unwrap());
+    let original = GameRegistry::new().with_store(store.clone());
+    let (_, _, host_token) = original
+        .create_player_lobby("a_running".into(), 2, 19, "Host")
+        .unwrap();
+    let (_, _, guest_token) = original
+        .join_player_lobby("a_running", None, Some("Guest"))
+        .unwrap();
+    original
+        .set_player_ready("a_running", host_token.as_str(), true)
+        .unwrap();
+    original
+        .set_player_ready("a_running", guest_token.unwrap().as_str(), true)
+        .unwrap();
+    original
+        .start_player_lobby("a_running", host_token.as_str())
+        .unwrap();
+    let (_, _, waiting_token) = original
+        .create_player_lobby("z_waiting".into(), 2, 21, "Waiting")
+        .unwrap();
+
+    let init_path = store.game_dir("a_running").unwrap().join("init.json");
+    let bytes = std::fs::read_to_string(&init_path).unwrap();
+    std::fs::write(
+        &init_path,
+        bytes.replacen("\"checksum\": \"", "\"checksum\": \"0", 1),
+    )
+    .unwrap();
+    let restarted = GameRegistry::new().with_store(store);
+    let report = restarted.recover_all_games_report().unwrap();
+    assert_eq!(report.recovered, ["z_waiting"]);
+    assert_eq!(report.failed.len(), 1);
+    assert_eq!(report.failed[0].game_id, "a_running");
+    assert_eq!(report.failed[0].stage, "init.json");
+    assert!(restarted.player_lobby_status("a_running", None).is_err());
+    assert!(restarted.get_game("a_running").is_none());
+    assert!(
+        restarted
+            .join_player_lobby("z_waiting", Some(waiting_token.as_str()), None)
+            .is_ok()
+    );
+
+    original.remove_game("a_running");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn nicknames_follow_identity_through_reorder_and_running_takeover_recovery() {
     let dir = std::env::temp_dir().join(format!("ti4_pil09_{:032x}", rand::random::<u128>()));
     let store = Arc::new(FileGameStore::new(&dir).unwrap());

@@ -27,20 +27,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = Arc::new(ti4_server::storage::FileGameStore::new(&data_dir)?);
     let registry = Arc::new(GameRegistry::new().with_store(store));
 
-    // Recover existing saved games from disk
-    match registry.recover_all_games() {
-        Ok(recovered) if !recovered.is_empty() => {
-            for gid in &recovered {
-                info!("Durable storage: recovered active session '{gid}' from disk");
-            }
-        }
-        Ok(_) => {
-            info!("Durable storage: initialized with no prior games");
-        }
-        Err(err) => {
-            tracing::warn!("Durable storage recovery encountered an error: {err}");
-        }
+    // Print recovery results even when tracing has no RUST_LOG filter configured.
+    let recovery = registry.recover_all_games_report()?;
+    for gid in &recovery.recovered {
+        info!("Durable storage: recovered '{gid}' from disk");
     }
+    for failure in &recovery.failed {
+        eprintln!(
+            "Durable storage: could not recover '{}' ({}): {}",
+            failure.game_id, failure.stage, failure.error
+        );
+    }
+    println!(
+        "Durable storage: recovered {} game(s); {} failed (saved files retained)",
+        recovery.recovered.len(),
+        recovery.failed.len()
+    );
 
     let app = create_app(registry);
     let addr = format!("{host}:{port}");

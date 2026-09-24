@@ -258,6 +258,20 @@ struct RegistryState {
     next_connection_id: u64,
 }
 
+/// A failed save is left on disk unchanged; other games can still be recovered.
+#[derive(Debug)]
+pub struct RecoveryFailure {
+    pub game_id: String,
+    pub stage: &'static str,
+    pub error: StorageError,
+}
+
+#[derive(Debug, Default)]
+pub struct RecoveryReport {
+    pub recovered: Vec<String>,
+    pub failed: Vec<RecoveryFailure>,
+}
+
 struct PlayerPresence {
     last_heartbeat: Option<Instant>,
     connections: BTreeMap<u64, Instant>,
@@ -487,41 +501,98 @@ impl GameRegistry {
 
     /// Recovers both unstarted lobbies and started sessions from durable storage.
     pub fn recover_all_games(&self) -> Result<Vec<String>, StorageError> {
+        let mut report = self.recover_all_games_report()?;
+        if !report.failed.is_empty() {
+            return Err(report.failed.remove(0).error);
+        }
+        Ok(report.recovered)
+    }
+
+    /// Recover each saved game independently, reporting invalid saves without loading them.
+    pub fn recover_all_games_report(&self) -> Result<RecoveryReport, StorageError> {
         let Some(store) = &self.store else {
-            return Ok(Vec::new());
+            return Ok(RecoveryReport::default());
         };
         let game_ids: BTreeSet<_> = store.list_saved_games()?.into_iter().collect();
-        let lobby_ids = store.list_saved_lobbies()?;
+        let lobby_ids: BTreeSet<_> = store.list_saved_lobbies()?.into_iter().collect();
         let mut state = self.state.lock().expect("registry lock");
-        let mut recovered = Vec::new();
+        let mut report = RecoveryReport::default();
 
-        for game_id in lobby_ids {
-            if state.lobbies.contains_key(&game_id)
-                || state.sessions.contains_key(&game_id)
-                || state.player_lobbies.contains_key(&game_id)
+        for game_id in game_ids.union(&lobby_ids) {
+            if state.lobbies.contains_key(game_id)
+                || state.sessions.contains_key(game_id)
+                || state.player_lobbies.contains_key(game_id)
             {
                 continue;
             }
-            // A versioned player lobby is private; never deserialize it as a v1 seat lobby.
-            let path = store.game_dir(&game_id)?.join("lobby.json");
-            if std::fs::metadata(&path)?.len() > 64 * 1024 {
-                return Err(StorageError::Oversized {
-                    path,
-                    limit: 64 * 1024,
-                });
+            match Self::recover_one_game(
+                store,
+                &mut state,
+                game_id,
+                lobby_ids.contains(game_id),
+                game_ids.contains(game_id),
+            ) {
+                Ok(()) => report.recovered.push(game_id.clone()),
+                Err((stage, error)) => report.failed.push(RecoveryFailure {
+                    game_id: game_id.clone(),
+                    stage,
+                    error,
+                }),
             }
-            let marker: serde_json::Value = serde_json::from_slice(&std::fs::read(&path)?)?;
+        }
+        Ok(report)
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "all recovery branches share one atomic registry insertion boundary"
+    )]
+    fn recover_one_game(
+        store: &Arc<crate::storage::FileGameStore>,
+        state: &mut RegistryState,
+        game_id: &str,
+        has_lobby: bool,
+        has_init: bool,
+    ) -> Result<(), (&'static str, StorageError)> {
+        if has_lobby {
+            // A versioned player lobby is private; never deserialize it as a v1 seat lobby.
+            let path = store
+                .game_dir(game_id)
+                .map_err(|e| ("lobby.json", e))?
+                .join("lobby.json");
+            if std::fs::metadata(&path)
+                .map_err(|e| ("lobby.json", e.into()))?
+                .len()
+                > 64 * 1024
+            {
+                return Err((
+                    "lobby.json",
+                    StorageError::Oversized {
+                        path,
+                        limit: 64 * 1024,
+                    },
+                ));
+            }
+            let marker: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(&path).map_err(|e| ("lobby.json", e.into()))?,
+            )
+            .map_err(|e| ("lobby.json", e.into()))?;
             if marker
                 .get("payload")
                 .and_then(|v| v.get("schema_version"))
                 .is_some()
             {
                 let mut record = store
-                    .load_player_lobby(&game_id)?
+                    .load_player_lobby(game_id)
+                    .map_err(|e| ("lobby.json", e))?
                     .expect("listed lobby exists");
-                if game_ids.contains(&game_id) {
-                    let init = store.load_player_init(&game_id)?;
-                    let credentials = store.load_player_sessions(&game_id)?;
+                let session = if has_init {
+                    let init = store
+                        .load_player_init(game_id)
+                        .map_err(|e| ("init.json", e))?;
+                    let credentials = store
+                        .load_player_sessions(game_id)
+                        .map_err(|e| ("player_sessions.json", e))?;
                     if init.player_ids
                         != record
                             .slots
@@ -531,56 +602,71 @@ impl GameRegistry {
                         || credentials.sessions.len() != record.players.len()
                         || credentials.sessions.keys().ne(record.players.keys())
                     {
-                        return Err(StorageError::InvalidPlayerRecord("started roster"));
+                        return Err((
+                            "player_sessions.json",
+                            StorageError::InvalidPlayerRecord("started roster"),
+                        ));
                     }
                     // The session record is authoritative after start; the lobby file
                     // may predate a successful running-game credential rotation.
                     for (id, session) in credentials.sessions {
                         let member = record.players.get_mut(&id).expect("validated roster");
                         member.session = session;
-                        member.nickname = credentials.nicknames[&id].clone();
+                        member.nickname.clone_from(&credentials.nicknames[&id]);
                     }
-                    state.sessions.insert(
-                        game_id.clone(),
-                        Arc::new(store.recover_player_session(&game_id)?),
+                    let session = Arc::new(
+                        store
+                            .recover_player_session(game_id)
+                            .map_err(|e| ("session replay", e))?,
                     );
                     record.phase = PersistedLobbyPhase::Running;
+                    Some(session)
                 } else {
                     record.phase = PersistedLobbyPhase::Lobby;
+                    None
+                };
+                if let Some(session) = session {
+                    state.sessions.insert(game_id.to_owned(), session);
                 }
-                state.player_lobbies.insert(game_id.clone(), record);
-                recovered.push(game_id);
-                continue;
+                state.player_lobbies.insert(game_id.to_owned(), record);
+                return Ok(());
             }
-            let record = store.load_lobby(&game_id)?.expect("listed lobby exists");
+            let record = store
+                .load_lobby(game_id)
+                .map_err(|e| ("lobby.json", e))?
+                .expect("listed lobby exists");
             let mut lobby = lobby_from_record(record);
-            if game_ids.contains(&game_id) {
+            let session = if has_init {
+                let session = Arc::new(
+                    store
+                        .recover_session(game_id)
+                        .map_err(|e| ("session replay", e))?,
+                );
                 lobby.phase = LobbyPhase::Running;
-                state
-                    .sessions
-                    .insert(game_id.clone(), Arc::new(store.recover_session(&game_id)?));
+                Some(session)
             } else {
                 // A crash between marking the lobby running and writing init.json remains a lobby.
                 lobby.phase = LobbyPhase::Lobby;
+                None
+            };
+            if let Some(session) = session {
+                state.sessions.insert(game_id.to_owned(), session);
             }
-            state.lobbies.insert(game_id.clone(), lobby);
-            recovered.push(game_id);
+            state.lobbies.insert(game_id.to_owned(), lobby);
+            return Ok(());
         }
 
-        for game_id in game_ids {
-            if state.sessions.contains_key(&game_id) {
-                continue;
-            }
-            let session = Arc::new(store.recover_session(&game_id)?);
-            let init = store.load_init(&game_id)?;
-            state
-                .lobbies
-                .insert(game_id.clone(), legacy_running_lobby(&init));
-            state.sessions.insert(game_id.clone(), session);
-            recovered.push(game_id);
-        }
-        recovered.sort();
-        Ok(recovered)
+        let init = store.load_init(game_id).map_err(|e| ("init.json", e))?;
+        let session = Arc::new(
+            store
+                .recover_session(game_id)
+                .map_err(|e| ("session replay", e))?,
+        );
+        state
+            .lobbies
+            .insert(game_id.to_owned(), legacy_running_lobby(&init));
+        state.sessions.insert(game_id.to_owned(), session);
+        Ok(())
     }
 
     /// Creates the private v2 lobby before delivering its first credential.
