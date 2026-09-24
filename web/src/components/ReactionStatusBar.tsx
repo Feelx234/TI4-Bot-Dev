@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { PendingChoiceDto } from '../protocol/types.ts';
-import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
-import { usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
+import React, { useState, useEffect, useMemo } from "react";
+import { PendingChoiceDto } from "../protocol/types.ts";
+import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { DecisionHeader } from "./DecisionHeader.tsx";
 
 export interface ReactionStatusBarProps {
   choice: PendingChoiceDto | null;
@@ -20,6 +21,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   viewerSeat,
   onSubmit,
   isOpen,
+  onClose,
   lastError,
   autoPassTimeoutSeconds,
 }) => {
@@ -27,24 +29,30 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(
-    autoPassTimeoutSeconds ?? null
+    autoPassTimeoutSeconds ?? null,
   );
   const [isPinned, setIsPinned] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
 
   // Reset state on nonce change
   useEffect(() => {
     setIsSubmitting(false);
     setSecondsRemaining(autoPassTimeoutSeconds ?? null);
+    setSubmissionError(null);
   }, [choice?.nonce, autoPassTimeoutSeconds]);
 
   // Use model.declineOption when available (centralized extraction), fallback to local search
   const declineOption = useMemo(() => {
-    return model?.declineOption ?? choice?.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
+    return (
+      model?.declineOption ??
+      choice?.options.find((o) => o.id === "decline" || o.kind === "decline") ??
+      null
+    );
   }, [choice, model]);
 
   const reactionOptions = useMemo(() => {
     if (!choice) return [];
-    return choice.options.filter((o) => o.id !== 'decline' && o.kind !== 'decline');
+    return choice.options.filter((o) => o.id !== "decline" && o.kind !== "decline");
   }, [choice]);
 
   const handleAction = async (optionId: string) => {
@@ -52,6 +60,8 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
     setIsSubmitting(true);
     try {
       await onSubmit(optionId);
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -64,16 +74,16 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if focused on an input element
       const activeTag = document.activeElement?.tagName?.toLowerCase();
-      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+      if (activeTag === "input" || activeTag === "textarea" || activeTag === "select") {
         return;
       }
 
-      if (e.key === ' ' || e.code === 'Space') {
+      if (e.key === " " || e.code === "Space") {
         if (declineOption) {
           e.preventDefault();
           handleAction(declineOption.id);
         }
-      } else if (e.key === 'Enter') {
+      } else if (e.key === "Enter") {
         if (reactionOptions.length > 0) {
           e.preventDefault();
           handleAction(reactionOptions[0].id);
@@ -81,20 +91,13 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, choice, isActor, isSubmitting, declineOption, reactionOptions]);
 
   // Countdown timer for auto-pass (if configured and not pinned)
   useEffect(() => {
-    if (
-      !isOpen ||
-      !choice ||
-      !isActor ||
-      isPinned ||
-      secondsRemaining === null ||
-      isSubmitting
-    ) {
+    if (!isOpen || !choice || !isActor || isPinned || secondsRemaining === null || isSubmitting) {
       return;
     }
 
@@ -125,25 +128,30 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       data-testid="reaction-status-bar"
       className="reaction-status-bar"
     >
+      <DecisionHeader
+        actor={choice.actor}
+        title="Respond to the action card"
+        instruction={choice.prompt}
+        progress={
+          secondsRemaining === null || isPinned
+            ? undefined
+            : `${secondsRemaining} seconds remaining`
+        }
+        onMinimize={() => onClose?.()}
+      />
       {/* Icon & Details */}
       <div className="reaction-status-bar__details">
         <span className="reaction-status-bar__icon" role="img" aria-label="Reaction opportunity">
           ⚡
         </span>
         <div className="reaction-status-bar__text">
-          <div
-            data-testid="reaction-bar-title"
-            className="reaction-status-bar__title"
-          >
+          <div data-testid="reaction-bar-title" className="reaction-status-bar__title">
             Reaction Opportunity
             {secondsRemaining !== null && !isPinned && (
               <span className="reaction-status-bar__countdown">({secondsRemaining}s)</span>
             )}
           </div>
-          <div
-            data-testid="reaction-bar-prompt"
-            className="reaction-status-bar__prompt"
-          >
+          <div data-testid="reaction-bar-prompt" className="reaction-status-bar__prompt">
             {choice.prompt}
           </div>
         </div>
@@ -151,11 +159,8 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
 
       {/* Spectator Notice */}
       {!isActor ? (
-        <div
-          data-testid="spectator-reaction-notice"
-          className="reaction-status-bar__spectator"
-        >
-           Waiting for {display(choice.actor).label}...
+        <div data-testid="spectator-reaction-notice" className="reaction-status-bar__spectator">
+          Waiting for {display(choice.actor).label}...
         </div>
       ) : (
         /* Action Buttons */
@@ -188,9 +193,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
           )}
 
           {/* Pinned Toggle */}
-          <label
-            className="reaction-status-bar__pin"
-          >
+          <label className="reaction-status-bar__pin">
             <input
               type="checkbox"
               data-testid="pin-reaction-toggle"
@@ -203,12 +206,9 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       )}
 
       {/* Error alert if present */}
-      {lastError && (
-        <div
-          data-testid="reaction-error-badge"
-          className="reaction-status-bar__error"
-        >
-          {lastError}
+      {(lastError || submissionError) && (
+        <div data-testid="reaction-error-badge" role="alert" className="reaction-status-bar__error">
+          {submissionError || lastError}
         </div>
       )}
     </div>

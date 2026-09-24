@@ -1,10 +1,10 @@
-import React from 'react';
+import React from "react";
 
 export interface UseSvgControlOptions<T extends SVGElement = SVGElement> {
   isInteractive?: boolean;
   disabled?: boolean;
   label?: string;
-  role?: 'button' | 'link' | 'checkbox' | 'radio';
+  role?: "button" | "link" | "checkbox" | "radio";
   pressed?: boolean;
   onActivate?: () => void;
   onClick?: (event: React.MouseEvent<T>) => void;
@@ -16,7 +16,7 @@ export function useSvgControl<T extends SVGElement = SVGElement>(options: UseSvg
     isInteractive = true,
     disabled = false,
     label,
-    role = 'button',
+    role = "button",
     pressed,
     onActivate,
     onClick,
@@ -36,7 +36,7 @@ export function useSvgControl<T extends SVGElement = SVGElement>(options: UseSvg
     onKeyDown?.(e);
     if (disabled || !isInteractive) return;
 
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       e.stopPropagation();
       onActivate?.();
@@ -47,22 +47,23 @@ export function useSvgControl<T extends SVGElement = SVGElement>(options: UseSvg
     ? {
         role,
         tabIndex: disabled ? -1 : 0,
-        'aria-label': label,
-        'aria-disabled': disabled ? ('true' as const) : undefined,
-        'aria-pressed': pressed !== undefined ? (pressed ? ('true' as const) : ('false' as const)) : undefined,
+        "aria-label": label,
+        "aria-disabled": disabled ? ("true" as const) : undefined,
+        "aria-pressed":
+          pressed !== undefined ? (pressed ? ("true" as const) : ("false" as const)) : undefined,
       }
     : {
         role: undefined,
         tabIndex: undefined,
-        'aria-label': undefined,
-        'aria-disabled': undefined,
-        'aria-pressed': undefined,
+        "aria-label": undefined,
+        "aria-disabled": undefined,
+        "aria-pressed": undefined,
       };
 
   return {
     ...a11yProps,
     onClick: handleClick,
     onKeyDown: handleKeyDown,
-    cursor: isInteractive && !disabled ? 'pointer' : 'default',
+    cursor: isInteractive && !disabled ? "pointer" : "default",
   };
 }

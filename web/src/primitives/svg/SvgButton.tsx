@@ -1,5 +1,5 @@
-import React, { forwardRef } from 'react';
-import { useSvgControl } from './useSvgControl.ts';
+import React, { forwardRef } from "react";
+import { useSvgControl } from "./useSvgControl.ts";
 
 export interface SvgButtonProps extends React.SVGAttributes<SVGGElement> {
   label?: string;
@@ -7,7 +7,7 @@ export interface SvgButtonProps extends React.SVGAttributes<SVGGElement> {
   disabled?: boolean;
   pressed?: boolean;
   onActivate?: () => void;
-  'data-testid'?: string;
+  "data-testid"?: string;
 }
 
 export const SvgButton = forwardRef<SVGGElement, SvgButtonProps>(
@@ -23,17 +23,17 @@ export const SvgButton = forwardRef<SVGGElement, SvgButtonProps>(
       children,
       className,
       style,
-      'data-testid': testId,
+      "data-testid": testId,
       ...rest
     },
-    ref
+    ref,
   ) => {
     const {
       role,
       tabIndex,
-      'aria-label': ariaLabel,
-      'aria-disabled': ariaDisabled,
-      'aria-pressed': ariaPressed,
+      "aria-label": ariaLabel,
+      "aria-disabled": ariaDisabled,
+      "aria-pressed": ariaPressed,
       onClick: handleClick,
       onKeyDown: handleKeyDown,
       cursor,
@@ -58,10 +58,10 @@ export const SvgButton = forwardRef<SVGGElement, SvgButtonProps>(
         onClick={handleClick}
         onKeyDown={handleKeyDown}
         data-testid={testId}
-        className={`svg-interactive-control ${className || ''}`}
+        className={`svg-interactive-control ${className || ""}`}
         style={{
           cursor,
-          outline: 'none',
+          outline: "none",
           ...style,
         }}
         {...rest}
@@ -69,7 +69,7 @@ export const SvgButton = forwardRef<SVGGElement, SvgButtonProps>(
         {children}
       </g>
     );
-  }
+  },
 );
 
-SvgButton.displayName = 'SvgButton';
+SvgButton.displayName = "SvgButton";

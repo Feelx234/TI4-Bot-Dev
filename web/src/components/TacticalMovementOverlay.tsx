@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { PendingChoiceDto, PlayerView } from '../protocol/types.ts';
-import { getMovementPayload, ChoiceRendererModel } from '../presentation/choiceModel.ts';
-import { usePipelineRunner, SemanticIntent } from '../hooks/usePipelineRunner.ts';
+import React, { useState, useEffect, useMemo } from "react";
+import { PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import { getMovementPayload, ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
+import { DecisionHeader } from "./DecisionHeader.tsx";
 
 export interface TacticalMovementOverlayProps {
   choice: PendingChoiceDto | null;
@@ -40,11 +41,17 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   const [isDirectSubmitting, setIsDirectSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const { executePipeline, isRunning: isPipelineRunning, lastError: pipelineError } = usePipelineRunner(choice, onSubmit);
+  const {
+    executePipeline,
+    isRunning: isPipelineRunning,
+    lastError: pipelineError,
+  } = usePipelineRunner(choice, onSubmit);
 
   const doneMovingOption = useMemo(() => {
     return (
-      model?.declineOption ?? (choice?.options.find((o) => o.id === 'done_moving' || o.kind === 'decline') ?? null)
+      model?.declineOption ??
+      choice?.options.find((o) => o.id === "done_moving" || o.kind === "decline") ??
+      null
     );
   }, [choice, model]);
 
@@ -55,15 +62,15 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     const groupMap = new Map<string, OriginShipGroup>();
 
     for (const opt of choice.options) {
-      if (opt.id === 'done_moving' || opt.kind === 'decline') continue;
+      if (opt.id === "done_moving" || opt.kind === "decline") continue;
 
       const p = getMovementPayload(opt);
-      const origin = p.origin ?? 'unknown';
+      const origin = p.origin ?? "unknown";
       const unit = p.unit ?? opt.label.toLowerCase();
       const key = `${origin}:${unit}`;
 
-      const isFighter = unit.includes('fighter');
-      const isGroundForce = unit.includes('infantry') || unit.includes('mech');
+      const isFighter = unit.includes("fighter");
+      const isGroundForce = unit.includes("infantry") || unit.includes("mech");
       // Capacity comes from the engine payload; default to 0 rather than
       // hard-coding faction-specific values (Nomad, Nekro, Titans, etc.).
       const capacityPerUnit = p.capacity ?? 0;
@@ -95,7 +102,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     setLocalError(null);
   }, [choice?.nonce]);
 
-  const fleetTokens = player?.fleet_tokens ?? 3;
+  const fleetTokens = player?.fleet_tokens;
 
   // Capacity & Fleet calculations
   const { totalNonFightersMoving, totalCapacityProvided, totalCargoMoving } = useMemo(() => {
@@ -136,7 +143,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   const submitFinish = async () => {
     setLocalError(null);
     if (!doneMovingOption) {
-      setLocalError('Cannot finish movement: no finish option was offered.');
+      setLocalError("Cannot finish movement: no finish option was offered.");
       return;
     }
     setIsDirectSubmitting(true);
@@ -174,7 +181,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
 
     // Append done_moving to close the movement step
     if (!doneMovingOption) {
-      setLocalError('Cannot finish movement: no finish option was offered.');
+      setLocalError("Cannot finish movement: no finish option was offered.");
       return;
     }
     intents.push({ predicate: (opt) => opt.id === doneMovingOption.id });
@@ -186,8 +193,10 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
 
   const destinationSystemId =
     activeSystemId ??
-    (model?.selectionMode.mode === 'tactical_move' ? model.selectionMode.activeSystem : null) ??
-    (choice?.context?.target && 'System' in choice.context.target ? choice.context.target.System : null);
+    (model?.selectionMode.mode === "tactical_move" ? model.selectionMode.activeSystem : null) ??
+    (choice?.context?.target && "System" in choice.context.target
+      ? choice.context.target.System
+      : null);
 
   return (
     <aside
@@ -196,49 +205,36 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       data-testid="tactical-movement-tray"
       className="fleet-rally-tray panel"
     >
-      {/* Header */}
-      <div className="choice-workflow-row">
-        <div>
-          <div className="choice-workflow-eyebrow">
-            Tactical Action • Fleet Movement Staging
-          </div>
-          <h3 className="choice-workflow-title">
-            Destination System: #{destinationSystemId ?? 'Active'}
-          </h3>
-        </div>
-
-        <button
-          type="button"
-          data-testid="close-movement-tray"
-          onClick={onClose}
-          aria-label="Close rally tray"
-          className="button button--secondary button--icon choice-workflow-close"
-        >
-          ✕
-        </button>
-      </div>
+      <DecisionHeader
+        actor={choice.actor}
+        title="Move units"
+        instruction={choice.prompt}
+        progress={destinationSystemId ? `Destination: system ${destinationSystemId}` : undefined}
+        onMinimize={onClose}
+        minimizeTestId="close-movement-tray"
+      />
 
       {/* Capacity & Fleet Supply Gauges */}
       <div className="fleet-rally-tray__gauges">
-        <div
-          data-testid="fleet-supply-gauge"
-          className="workflow-card"
-        >
+        <div data-testid="fleet-supply-gauge" className="workflow-card">
           <div className="workflow-card--row">
             <span className="text-muted">Fleet Supply:</span>
-            <span className="fleet-rally-tray__status" data-alert={totalNonFightersMoving > fleetTokens}>
-              {totalNonFightersMoving} / {fleetTokens} Ships
+            <span
+              className="fleet-rally-tray__status"
+              data-alert={fleetTokens !== undefined && totalNonFightersMoving > fleetTokens}
+            >
+              {totalNonFightersMoving} / {fleetTokens ?? "unknown"} Ships
             </span>
           </div>
         </div>
 
-        <div
-          data-testid="cargo-capacity-gauge"
-          className="workflow-card"
-        >
+        <div data-testid="cargo-capacity-gauge" className="workflow-card">
           <div className="workflow-card--row">
             <span className="text-muted">Cargo Capacity:</span>
-            <span className="fleet-rally-tray__status" data-alert={totalCargoMoving > totalCapacityProvided}>
+            <span
+              className="fleet-rally-tray__status"
+              data-alert={totalCargoMoving > totalCapacityProvided}
+            >
               {totalCargoMoving} / {totalCapacityProvided} Loaded
             </span>
           </div>
@@ -248,9 +244,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       {/* Ship List by Origin */}
       <div className="fleet-rally-tray__list">
         {shipGroups.length === 0 ? (
-          <div className="text-muted">
-            No ships eligible to move into the active system.
-          </div>
+          <div className="text-muted">No ships eligible to move into the active system.</div>
         ) : (
           shipGroups.map((g) => {
             const key = `${g.originSystemId}:${g.unitType}`;
@@ -263,9 +257,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                 className="workflow-card workflow-card--row"
               >
                 <div>
-                  <div className="workflow-unit-name">
-                    {g.unitType}
-                  </div>
+                  <div className="workflow-unit-name">{g.unitType}</div>
                   <div className="text-muted">
                     Origin: #{g.originSystemId} • Available: {g.totalAvailable}
                   </div>
@@ -304,17 +296,27 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       </div>
 
       {(localError || pipelineError || lastError) && (
-        <div
-          data-testid="movement-error-banner"
-          role="alert"
-          className="workflow-error"
-        >
+        <div data-testid="movement-error-banner" role="alert" className="workflow-error">
           {localError || pipelineError || lastError}
         </div>
       )}
 
       {/* Action Footer */}
       <div className="workflow-actions">
+        {totalUnitsStaged > 0 && (
+          <button
+            type="button"
+            className="button button--secondary"
+            onClick={() => setStagedMoves({})}
+          >
+            Reset selection
+          </button>
+        )}
+        {totalUnitsStaged > 1 && (
+          <p>
+            Each move is submitted separately. Later options remain unverified until the next offer.
+          </p>
+        )}
         {doneMovingOption && (
           <button
             type="button"
@@ -323,7 +325,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
             disabled={isPipelineRunning || isDirectSubmitting}
             className="button button--secondary workflow-button--wide"
           >
-            {doneMovingOption.label || 'Finish Movement'}
+            {doneMovingOption.label || "Finish Movement"}
           </button>
         )}
 
@@ -335,10 +337,10 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
           className="button button--primary workflow-button--wide"
         >
           {isPipelineRunning || isDirectSubmitting
-            ? 'Moving Fleet...'
+            ? "Moving Fleet..."
             : totalUnitsStaged > 0
               ? `Commit Moves (${totalUnitsStaged})`
-              : 'Done Moving'}
+              : "Done Moving"}
         </button>
       </div>
     </aside>

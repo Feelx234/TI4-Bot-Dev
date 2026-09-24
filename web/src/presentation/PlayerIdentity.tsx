@@ -1,16 +1,20 @@
-import React, { createContext, useContext } from 'react';
-import type { LobbyDto } from '../protocol/types.ts';
-import { playerDisplay, seatStyle } from './playerDisplay.ts';
-import { participantText } from './participantText.ts';
+import React, { createContext, useContext } from "react";
+import type { LobbyDto } from "../protocol/types.ts";
+import { playerDisplay, seatStyle } from "./playerDisplay.ts";
+import { participantText } from "./participantText.ts";
 
-const PlayerContext = createContext<{ lobby: LobbyDto | null; seatingOrder: readonly string[] }>({ lobby: null, seatingOrder: [] });
+const PlayerContext = createContext<{ lobby: LobbyDto | null; seatingOrder: readonly string[] }>({
+  lobby: null,
+  seatingOrder: [],
+});
 
 export const PlayerIdentityProvider: React.FC<{
   lobby: LobbyDto | null;
   seatingOrder: readonly string[];
   children: React.ReactNode;
-}> = ({ lobby, seatingOrder, children }) =>
-  <PlayerContext.Provider value={{ lobby, seatingOrder }}>{children}</PlayerContext.Provider>;
+}> = ({ lobby, seatingOrder, children }) => (
+  <PlayerContext.Provider value={{ lobby, seatingOrder }}>{children}</PlayerContext.Provider>
+);
 
 export function usePlayerIdentity() {
   const { lobby, seatingOrder } = useContext(PlayerContext);
@@ -26,10 +30,22 @@ export function useParticipantText() {
 /** The visible number and shape remain readable when color cannot be perceived. */
 export const SeatBadge: React.FC<{ position: number }> = ({ position }) => {
   const { color, symbol } = seatStyle(position);
-  return <span className="seat-badge" style={{ borderColor: color }} aria-label={`Position ${position}`}>
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" focusable="false">
-      <circle cx="12" cy="12" r="10" fill={color} stroke="#f8fafc" strokeWidth="1.5" />
-      <text x="12" y="16" textAnchor="middle" fill={position === 8 ? '#fff' : '#0b1220'} fontSize="12" fontWeight="bold">{symbol}</text>
-    </svg><span>{position}</span>
-  </span>;
+  return (
+    <span className="seat-badge" style={{ borderColor: color }} aria-label={`Position ${position}`}>
+      <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" focusable="false">
+        <circle cx="12" cy="12" r="10" fill={color} stroke="#f8fafc" strokeWidth="1.5" />
+        <text
+          x="12"
+          y="16"
+          textAnchor="middle"
+          fill={position === 8 ? "#fff" : "#0b1220"}
+          fontSize="12"
+          fontWeight="bold"
+        >
+          {symbol}
+        </text>
+      </svg>
+      <span>{position}</span>
+    </span>
+  );
 };

@@ -1,4 +1,4 @@
-import { GENERATED_CONTENT_CATALOG } from './generatedContentManifest.ts';
+import { GENERATED_CONTENT_CATALOG } from "./generatedContentManifest.ts";
 
 export interface StrategyCardMeta {
   id: string;
@@ -30,9 +30,7 @@ export const ACTION_CARDS = GENERATED_CONTENT_CATALOG.actionCards;
 export const TECHNOLOGIES = GENERATED_CONTENT_CATALOG.technologies;
 
 export function humanizeId(id: string): string {
-  return id
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return id.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function exactLookup<T>(catalog: Record<string, T>, id: string): T | undefined {
@@ -44,13 +42,15 @@ export function findStrategyCardMeta(id: string): StrategyCardMeta | undefined {
 }
 
 export function getStrategyCardMeta(id: string): StrategyCardMeta {
-  return findStrategyCardMeta(id) ?? {
-    id,
-    name: humanizeId(id),
-    initiative: 0,
-    primaryText: '',
-    secondaryText: '',
-  };
+  return (
+    findStrategyCardMeta(id) ?? {
+      id,
+      name: humanizeId(id),
+      initiative: 0,
+      primaryText: "",
+      secondaryText: "",
+    }
+  );
 }
 
 export function findSecretObjectiveMeta(id: string): ObjectiveMeta | undefined {
@@ -58,13 +58,15 @@ export function findSecretObjectiveMeta(id: string): ObjectiveMeta | undefined {
 }
 
 export function getSecretObjectiveMeta(id: string): ObjectiveMeta {
-  return findSecretObjectiveMeta(id) ?? {
-    id,
-    name: humanizeId(id),
-    phase: 'Secret',
-    points: 1,
-    description: 'Secret Objective',
-  };
+  return (
+    findSecretObjectiveMeta(id) ?? {
+      id,
+      name: humanizeId(id),
+      phase: "Secret",
+      points: 1,
+      description: "Secret Objective",
+    }
+  );
 }
 
 export function findPublicObjectiveMeta(id: string): ObjectiveMeta | undefined {
@@ -72,13 +74,15 @@ export function findPublicObjectiveMeta(id: string): ObjectiveMeta | undefined {
 }
 
 export function getPublicObjectiveMeta(id: string): ObjectiveMeta {
-  return findPublicObjectiveMeta(id) ?? {
-    id,
-    name: humanizeId(id),
-    phase: 'Public',
-    points: 1,
-    description: 'Public Objective',
-  };
+  return (
+    findPublicObjectiveMeta(id) ?? {
+      id,
+      name: humanizeId(id),
+      phase: "Public",
+      points: 1,
+      description: "Public Objective",
+    }
+  );
 }
 
 export function findActionCardMeta(id: string): CardMeta | undefined {
@@ -86,11 +90,13 @@ export function findActionCardMeta(id: string): CardMeta | undefined {
 }
 
 export function getActionCardMeta(id: string): CardMeta {
-  return findActionCardMeta(id) ?? {
-    id,
-    name: humanizeId(id),
-    description: 'Action Card',
-  };
+  return (
+    findActionCardMeta(id) ?? {
+      id,
+      name: humanizeId(id),
+      description: "Action Card",
+    }
+  );
 }
 
 export function findTechnologyMeta(id: string): CardMeta | undefined {
@@ -98,9 +104,11 @@ export function findTechnologyMeta(id: string): CardMeta | undefined {
 }
 
 export function getTechnologyMeta(id: string): CardMeta {
-  return findTechnologyMeta(id) ?? {
-    id,
-    name: humanizeId(id),
-    description: 'Technology',
-  };
+  return (
+    findTechnologyMeta(id) ?? {
+      id,
+      name: humanizeId(id),
+      description: "Technology",
+    }
+  );
 }

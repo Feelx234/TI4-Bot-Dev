@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { PendingChoiceDto, ChoiceOptionDto } from '../protocol/types.ts';
+import { useState, useEffect, useRef } from "react";
+import { PendingChoiceDto, ChoiceOptionDto } from "../protocol/types.ts";
 
 export interface SemanticIntent {
   predicate: (option: ChoiceOptionDto) => boolean;
@@ -7,7 +7,7 @@ export interface SemanticIntent {
 
 export function usePipelineRunner(
   pendingChoice: PendingChoiceDto | null,
-  submitChoice: (optionId: string) => Promise<void>
+  submitChoice: (optionId: string) => Promise<void>,
 ) {
   const [activeQueue, setActiveQueue] = useState<SemanticIntent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -15,6 +15,7 @@ export function usePipelineRunner(
   const [lastSubmittedNonce, setLastSubmittedNonce] = useState<string | null>(null);
   const isSubmittingRef = useRef(false);
   const runRef = useRef(0);
+  const originRef = useRef<{ actor: string; subtype?: string } | null>(null);
   // Keep a stable ref to submitChoice so the effect never lists it as a
   // dependency. This prevents the effect from firing mid-run whenever the
   // parent re-creates onSubmit on every render.
@@ -34,10 +35,23 @@ export function usePipelineRunner(
     if (!pendingChoice) {
       setIsRunning(false);
       setActiveQueue([]);
-      setLastError('Decision pipeline interrupted: no pending choice is available.');
+      setLastError("Decision pipeline interrupted: no pending choice is available.");
       return;
     }
     if (pendingChoice.nonce === lastSubmittedNonce) return;
+
+    if (
+      originRef.current &&
+      (pendingChoice.actor !== originRef.current.actor ||
+        pendingChoice.context?.subtype !== originRef.current.subtype)
+    ) {
+      setIsRunning(false);
+      setActiveQueue([]);
+      setLastError(
+        "Decision pipeline interrupted: a different decision was offered. Previously submitted choices remain committed.",
+      );
+      return;
+    }
 
     const nextIntent = activeQueue[0];
     const matchingOption = pendingChoice.options.find(nextIntent.predicate);
@@ -46,7 +60,8 @@ export function usePipelineRunner(
       isSubmittingRef.current = true;
       const run = runRef.current;
       const nonce = pendingChoice.nonce;
-      submitRef.current(matchingOption.id)
+      submitRef
+        .current(matchingOption.id)
         .then(() => {
           if (run !== runRef.current) return;
           setLastSubmittedNonce(nonce);
@@ -72,12 +87,15 @@ export function usePipelineRunner(
       setIsRunning(false);
       setActiveQueue([]);
       isSubmittingRef.current = false;
-      setLastError('Decision pipeline interrupted: the next option is no longer available.');
+      setLastError("Decision pipeline interrupted: the next option is no longer available.");
     }
   }, [pendingChoice?.nonce, isRunning, activeQueue, lastSubmittedNonce]);
 
   const executePipeline = (intents: SemanticIntent[]) => {
     runRef.current += 1;
+    originRef.current = pendingChoice
+      ? { actor: pendingChoice.actor, subtype: pendingChoice.context?.subtype }
+      : null;
     if (intents.length === 0) {
       setIsRunning(false);
       return;

@@ -1,22 +1,22 @@
-import { test, expect, Page } from '@playwright/test';
-import { createStartedGame, openPlayerGame } from './lobbyHelpers';
+import { test, expect, Page } from "@playwright/test";
+import { createStartedGame, openPlayerGame } from "./lobbyHelpers";
 
 /**
  * Helper to ensure zero console errors / unhandled browser exceptions.
  */
 function trackErrors(page: Page, label: string) {
-  page.on('pageerror', (err) => {
+  page.on("pageerror", (err) => {
     throw new Error(`[${label}] Unhandled browser error: ${err.message}`);
   });
-  page.on('console', (msg) => {
-    if (msg.type() === 'error' && !msg.text().includes('favicon')) {
+  page.on("console", (msg) => {
+    if (msg.type() === "error" && !msg.text().includes("favicon")) {
       throw new Error(`[${label}] Console Error: ${msg.text()}`);
     }
   });
 }
 
-test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
-  test('responsive layout breakpoints on mobile, tablet, and desktop viewports', async ({
+test.describe("Gameplay Workflows & Responsive Shell Suite (UI-08)", () => {
+  test("responsive layout breakpoints on mobile, tablet, and desktop viewports", async ({
     browser,
     request,
   }) => {
@@ -24,7 +24,7 @@ test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
 
     const context = await browser.newContext();
     const page = await context.newPage();
-    trackErrors(page, 'Responsive View');
+    trackErrors(page, "Responsive View");
 
     // 1. Desktop Viewport (>= 1280px)
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -57,14 +57,18 @@ test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
 
     // Toggle mobile player sheet drawer
     await page.locator('[data-testid="player-sheet-toggle"]').click();
-    await expect(page.locator('[data-testid="player-sheet-drawer"]')).toHaveClass(/app-shell__drawer--open/);
+    await expect(page.locator('[data-testid="player-sheet-drawer"]')).toHaveClass(
+      /app-shell__drawer--open/,
+    );
     await page.locator('[data-testid="player-sheet-toggle"]').click();
-    await expect(page.locator('[data-testid="player-sheet-drawer"]')).not.toHaveClass(/app-shell__drawer--open/);
+    await expect(page.locator('[data-testid="player-sheet-drawer"]')).not.toHaveClass(
+      /app-shell__drawer--open/,
+    );
 
     await context.close();
   });
 
-  test('multiplayer turn progression through ChoiceRendererDispatcher', async ({
+  test("multiplayer turn progression through ChoiceRendererDispatcher", async ({
     browser,
     request,
   }) => {
@@ -72,7 +76,7 @@ test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
 
     const contextP1 = await browser.newContext();
     const pageP1 = await contextP1.newPage();
-    trackErrors(pageP1, 'Player 1');
+    trackErrors(pageP1, "Player 1");
     await openPlayerGame(pageP1, gameId, players[0].session);
 
     // Verify game connected and strategy draft choice is rendered
@@ -83,10 +87,10 @@ test.describe('Gameplay Workflows & Responsive Shell Suite (UI-08)', () => {
     // Verify option search filter works for large lists
     const searchFilter = pageP1.locator('[data-testid="choice-search-input"]');
     if (await searchFilter.isVisible()) {
-      await searchFilter.fill('Leadership');
+      await searchFilter.fill("Leadership");
       const filteredOptions = pageP1.locator('[data-testid="choice-option"]');
       await expect(filteredOptions).toHaveCount(1);
-      await searchFilter.fill('');
+      await searchFilter.fill("");
     }
 
     // Select first option and submit strategy pick

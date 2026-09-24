@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { PendingChoiceDto } from '../protocol/types.ts';
-import { ChoiceRendererModel } from '../presentation/choiceModel.ts';
-import { useDeclineOption, useNonceReset } from '../hooks/useWorkflowState.ts';
-import { useParticipantText } from '../presentation/PlayerIdentity.tsx';
+import React, { useState } from "react";
+import { PendingChoiceDto } from "../protocol/types.ts";
+import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import { useDeclineOption, useNonceReset } from "../hooks/useWorkflowState.ts";
+import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 
 export interface WorkflowShellProps {
   choice: PendingChoiceDto;
@@ -19,7 +19,7 @@ export interface WorkflowShellProps {
 export interface WorkflowShellState {
   isActor: boolean;
   isDirectSubmitting: boolean;
-  declineOption: PendingChoiceDto['options'][number] | null;
+  declineOption: PendingChoiceDto["options"][number] | null;
   submitDirect: (optionId: string) => Promise<void>;
 }
 
@@ -39,7 +39,10 @@ export const WorkflowShell: React.FC<WorkflowShellProps> = ({
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const isActor = !viewerSeat || choice.actor === viewerSeat;
   const declineOption = useDeclineOption(choice, model);
-  useNonceReset(choice.nonce, () => { setIsDirectSubmitting(false); setSubmissionError(null); });
+  useNonceReset(choice.nonce, () => {
+    setIsDirectSubmitting(false);
+    setSubmissionError(null);
+  });
 
   const submitDirect = async (optionId: string) => {
     if (isDirectSubmitting) return;
@@ -64,7 +67,7 @@ export const WorkflowShell: React.FC<WorkflowShellProps> = ({
       {children({ isActor, isDirectSubmitting, declineOption, submitDirect })}
       {(lastError || submissionError) && (
         <div data-testid={errorTestId} role="alert">
-           {present(lastError || submissionError || '')}
+          {present(lastError || submissionError || "")}
         </div>
       )}
     </>

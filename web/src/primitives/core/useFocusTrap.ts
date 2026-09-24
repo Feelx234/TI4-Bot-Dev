@@ -1,13 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef } from "react";
 
 const FOCUSABLE_SELECTOR = [
-  'a[href]',
-  'button:not(:disabled)',
-  'textarea:not(:disabled)',
-  'input:not(:disabled)',
-  'select:not(:disabled)',
+  "a[href]",
+  "button:not(:disabled)",
+  "textarea:not(:disabled)",
+  "input:not(:disabled)",
+  "select:not(:disabled)",
   '[tabindex]:not([tabindex="-1"])',
-].join(', ');
+].join(", ");
 
 export interface UseFocusTrapOptions {
   isActive: boolean;
@@ -18,7 +18,7 @@ export interface UseFocusTrapOptions {
 
 export function useFocusTrap<T extends HTMLElement>(
   containerRef: React.RefObject<T | null>,
-  options: UseFocusTrapOptions
+  options: UseFocusTrapOptions,
 ) {
   const { isActive, initialFocusRef, returnFocusRef, autoFocus = true } = options;
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
@@ -42,8 +42,8 @@ export function useFocusTrap<T extends HTMLElement>(
         if (focusable.length > 0) {
           focusable[0].focus();
         } else {
-          if (!container.hasAttribute('tabindex')) {
-            container.setAttribute('tabindex', '-1');
+          if (!container.hasAttribute("tabindex")) {
+            container.setAttribute("tabindex", "-1");
           }
           container.focus();
         }
@@ -51,19 +51,19 @@ export function useFocusTrap<T extends HTMLElement>(
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab') return;
+      if (event.key !== "Tab") return;
       const currentContainer = containerRef.current;
       if (!currentContainer) return;
 
       const focusable = Array.from(
-        currentContainer.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+        currentContainer.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
       ).filter((el) => {
         if (el.hidden) return false;
-        if (typeof el.checkVisibility === 'function') {
+        if (typeof el.checkVisibility === "function") {
           return el.checkVisibility();
         }
-        const style = typeof window !== 'undefined' ? window.getComputedStyle(el) : null;
-        if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+        const style = typeof window !== "undefined" ? window.getComputedStyle(el) : null;
+        if (style && (style.display === "none" || style.visibility === "hidden")) return false;
         return true;
       });
 
@@ -89,12 +89,12 @@ export function useFocusTrap<T extends HTMLElement>(
       }
     };
 
-    container.addEventListener('keydown', handleKeyDown);
+    container.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      container.removeEventListener('keydown', handleKeyDown);
+      container.removeEventListener("keydown", handleKeyDown);
       const targetToRestore = returnFocusRef?.current ?? previousActiveElementRef.current;
-      if (targetToRestore && typeof targetToRestore.focus === 'function') {
+      if (targetToRestore && typeof targetToRestore.focus === "function") {
         targetToRestore.focus();
       }
     };

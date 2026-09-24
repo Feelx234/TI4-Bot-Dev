@@ -12,7 +12,7 @@ class OverlayStackManager {
   private pointerListenerAttached = false;
 
   private handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== 'Escape') return;
+    if (event.key !== "Escape") return;
     if (this.stack.length === 0) return;
 
     // Topmost overlay handles Escape
@@ -43,14 +43,14 @@ class OverlayStackManager {
     }
     this.stack.push(entry);
 
-    if (!this.keydownListenerAttached && typeof window !== 'undefined') {
-      window.addEventListener('keydown', this.handleKeyDown, true);
+    if (!this.keydownListenerAttached && typeof window !== "undefined") {
+      window.addEventListener("keydown", this.handleKeyDown, true);
       this.keydownListenerAttached = true;
     }
 
-    if (!this.pointerListenerAttached && typeof window !== 'undefined') {
+    if (!this.pointerListenerAttached && typeof window !== "undefined") {
       // Use pointerdown to intercept outside clicks before they trigger actions
-      window.addEventListener('pointerdown', this.handlePointerDown, true);
+      window.addEventListener("pointerdown", this.handlePointerDown, true);
       this.pointerListenerAttached = true;
     }
 
@@ -65,10 +65,10 @@ class OverlayStackManager {
       this.stack.splice(index, 1);
     }
 
-    if (this.stack.length === 0 && typeof window !== 'undefined') {
-      window.removeEventListener('keydown', this.handleKeyDown, true);
+    if (this.stack.length === 0 && typeof window !== "undefined") {
+      window.removeEventListener("keydown", this.handleKeyDown, true);
       this.keydownListenerAttached = false;
-      window.removeEventListener('pointerdown', this.handlePointerDown, true);
+      window.removeEventListener("pointerdown", this.handlePointerDown, true);
       this.pointerListenerAttached = false;
     }
   }

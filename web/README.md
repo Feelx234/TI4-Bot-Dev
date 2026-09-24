@@ -16,8 +16,8 @@ In a terminal from the repository root:
 cargo run -p ti4-server --bin server
 ```
 
-* Starts the HTTP and WebSocket authoritative server on `http://127.0.0.1:8080`.
-* Start on the home page to create a lobby with 2–8 positions. Share the
+- Starts the HTTP and WebSocket authoritative server on `http://127.0.0.1:8080`.
+- Start on the home page to create a lobby with 2–8 positions. Share the
   resulting game URL to invite other players or spectators.
 
 ### 2. Start the Frontend Dev Server
@@ -30,8 +30,8 @@ npm install
 npm run dev
 ```
 
-* Starts Vite at `http://127.0.0.1:3000`.
-* API requests (`/api/*`) and WebSocket connections (`/ws/*`) are automatically proxied to `http://127.0.0.1:8080`.
+- Starts Vite at `http://127.0.0.1:3000`.
+- API requests (`/api/*`) and WebSocket connections (`/ws/*`) are automatically proxied to `http://127.0.0.1:8080`.
 
 ### 3. Open in Browser
 
@@ -65,11 +65,12 @@ npm test
 ### End-to-End Invariant Tests (Playwright)
 
 Runs real-server end-to-end tests in isolated browser contexts verifying:
-* Zero console errors / JavaScript runtime exceptions.
-* Live strategy card draft synchronization across multiple tabs.
-* Strict DOM privacy redaction (opponents/spectators never receive private card DOM nodes).
-* Actionability and decision-making invariants.
-* Disconnect and clean reconnection to a live game session.
+
+- Zero console errors / JavaScript runtime exceptions.
+- Live strategy card draft synchronization across multiple tabs.
+- Strict DOM privacy redaction (opponents/spectators never receive private card DOM nodes).
+- Actionability and decision-making invariants.
+- Disconnect and clean reconnection to a live game session.
 
 ```bash
 # Headless run:

@@ -6,10 +6,10 @@
 export const PROTOCOL_VERSION = 3;
 
 export type ViewerRole =
-  | { role: 'player'; seat: string; playerSession?: string }
-  | { role: 'spectator' };
+  | { role: "player"; seat: string; playerSession?: string }
+  | { role: "spectator" };
 
-export type LobbyPhase = 'lobby' | 'running';
+export type LobbyPhase = "lobby" | "running";
 
 export interface LobbySlot {
   slot_id: string;
@@ -36,21 +36,25 @@ export interface CreateGameResponse {
   lobby: LobbyDto;
 }
 
-export interface JoinResponse { player_session?: string; player: { id: string }; lobby: LobbyDto; }
+export interface JoinResponse {
+  player_session?: string;
+  player: { id: string };
+  lobby: LobbyDto;
+}
 
 export type PublicTurnStatus =
-  | { kind: 'active_turn'; player: string; phase: string; round: number }
-  | { kind: 'waiting_for_decision'; seat: string; phase: string; round: number; stage: string }
-  | { kind: 'phase_transition'; phase: string; round: number }
-  | { kind: 'game_over'; winner?: string | null };
+  | { kind: "active_turn"; player: string; phase: string; round: number }
+  | { kind: "waiting_for_decision"; seat: string; phase: string; round: number; stage: string }
+  | { kind: "phase_transition"; phase: string; round: number }
+  | { kind: "game_over"; winner?: string | null };
 
 export type RejectionReason =
-  | { reason: 'stale_version'; expected: number; current: number }
-  | { reason: 'stale_nonce' }
-  | { reason: 'unauthorized_seat'; seat?: string | null }
-  | { reason: 'no_pending_choice' }
-  | { reason: 'unknown_option'; option_id: string }
-  | { reason: 'validation_failed'; message: string };
+  | { reason: "stale_version"; expected: number; current: number }
+  | { reason: "stale_nonce" }
+  | { reason: "unauthorized_seat"; seat?: string | null }
+  | { reason: "no_pending_choice" }
+  | { reason: "unknown_option"; option_id: string }
+  | { reason: "validation_failed"; message: string };
 
 export type DecisionTargetDto =
   | { System: string }
@@ -219,15 +223,15 @@ export interface GameView {
 }
 
 export type EventVisibility =
-  | { visibility: 'public' }
-  | { visibility: 'seat'; seat: string }
-  | { visibility: 'referee' };
+  | { visibility: "public" }
+  | { visibility: "seat"; seat: string }
+  | { visibility: "referee" };
 
 export type GameEventKind =
-  | { kind: 'game_initialized'; round: number; phase: string; speaker: string }
-  | { kind: 'decision_resolved' }
-  | { kind: 'phase_transition'; phase: string; round: number }
-  | { kind: 'game_finished'; winner?: string | null };
+  | { kind: "game_initialized"; round: number; phase: string; speaker: string }
+  | { kind: "decision_resolved" }
+  | { kind: "phase_transition"; phase: string; round: number }
+  | { kind: "game_finished"; winner?: string | null };
 
 export type GameEvent = EventVisibility & {
   id: string;
@@ -237,17 +241,21 @@ export type GameEvent = EventVisibility & {
   event: GameEventKind;
 };
 
-export interface HistoryStatus { cursor: number; redo_count: number; generation?: number; }
+export interface HistoryStatus {
+  cursor: number;
+  redo_count: number;
+  generation?: number;
+}
 
 export interface GameEventMsg {
-  type?: 'event';
+  type?: "event";
   protocol_version: number;
   game_id: string;
   entry: GameEvent;
 }
 
 export interface InitialSnapshotMsg {
-  type?: 'initial_snapshot';
+  type?: "initial_snapshot";
   protocol_version: number;
   game_id: string;
   game_version: number;
@@ -262,7 +270,7 @@ export interface InitialSnapshotMsg {
 }
 
 export interface StateUpdateMsg {
-  type?: 'state_update';
+  type?: "state_update";
   protocol_version: number;
   game_id: string;
   game_version: number;
@@ -276,7 +284,7 @@ export interface StateUpdateMsg {
 }
 
 export interface PendingChoiceMsg {
-  type?: 'pending_choice';
+  type?: "pending_choice";
   protocol_version: number;
   game_id: string;
   game_version: number;
@@ -287,7 +295,7 @@ export interface PendingChoiceMsg {
 }
 
 export interface TurnStatusMsg {
-  type?: 'turn_status';
+  type?: "turn_status";
   protocol_version: number;
   game_id: string;
   game_version: number;
@@ -295,7 +303,7 @@ export interface TurnStatusMsg {
 }
 
 export interface ActionAcceptedMsg {
-  type?: 'action_accepted';
+  type?: "action_accepted";
   protocol_version: number;
   game_id: string;
   game_version: number;
@@ -303,7 +311,7 @@ export interface ActionAcceptedMsg {
 }
 
 export interface ActionRejectedMsg {
-  type?: 'action_rejected';
+  type?: "action_rejected";
   protocol_version: number;
   game_id: string;
   game_version: number;
@@ -311,14 +319,14 @@ export interface ActionRejectedMsg {
 }
 
 export interface ProtocolErrorMsg {
-  type?: 'error';
+  type?: "error";
   protocol_version: number;
   kind: string;
   message: string;
 }
 
 export interface GameOverMsg {
-  type?: 'game_over';
+  type?: "game_over";
   protocol_version: number;
   game_id: string;
   game_version: number;
@@ -327,32 +335,32 @@ export interface GameOverMsg {
 }
 
 export interface PongMsg {
-  type?: 'pong';
+  type?: "pong";
   protocol_version: number;
   sequence: number;
 }
 
 export type ServerMessage =
-  | ({ type: 'initial_snapshot' } & InitialSnapshotMsg)
-  | ({ type: 'state_update' } & StateUpdateMsg)
-  | ({ type: 'pending_choice' } & PendingChoiceMsg)
-  | ({ type: 'turn_status' } & TurnStatusMsg)
-  | ({ type: 'action_accepted' } & ActionAcceptedMsg)
-  | ({ type: 'action_rejected' } & ActionRejectedMsg)
-  | ({ type: 'error' } & ProtocolErrorMsg)
-  | ({ type: 'game_over' } & GameOverMsg)
-  | ({ type: 'pong' } & PongMsg)
-  | ({ type: 'event' } & GameEventMsg);
+  | ({ type: "initial_snapshot" } & InitialSnapshotMsg)
+  | ({ type: "state_update" } & StateUpdateMsg)
+  | ({ type: "pending_choice" } & PendingChoiceMsg)
+  | ({ type: "turn_status" } & TurnStatusMsg)
+  | ({ type: "action_accepted" } & ActionAcceptedMsg)
+  | ({ type: "action_rejected" } & ActionRejectedMsg)
+  | ({ type: "error" } & ProtocolErrorMsg)
+  | ({ type: "game_over" } & GameOverMsg)
+  | ({ type: "pong" } & PongMsg)
+  | ({ type: "event" } & GameEventMsg);
 
 export type ClientMessage =
   | {
-      type: 'subscribe';
+      type: "subscribe";
       protocol_version: number;
       game_id: string;
       player_session?: string;
     }
   | {
-      type: 'submit_choice';
+      type: "submit_choice";
       protocol_version: number;
       game_id: string;
       nonce: string;
@@ -360,7 +368,7 @@ export type ClientMessage =
       option_id: string;
     }
   | {
-      type: 'ping';
+      type: "ping";
       protocol_version: number;
       sequence: number;
     };

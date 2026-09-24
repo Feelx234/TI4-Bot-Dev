@@ -8,12 +8,12 @@ import {
   StateUpdateMsg,
   ViewerRole,
   HistoryStatus,
-} from './types.ts';
-import { decodeInitialSnapshot, decodeServerMessage, isStaleServerMessage } from './decode.ts';
+} from "./types.ts";
+import { decodeInitialSnapshot, decodeServerMessage, isStaleServerMessage } from "./decode.ts";
 
-export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
-export type GameLogEntry = import('./types.ts').GameEvent;
+export type GameLogEntry = import("./types.ts").GameEvent;
 
 const MAX_EVENT_LOG_ENTRIES = 500;
 
@@ -37,7 +37,7 @@ export interface GameSessionClientOptions {
 type Listener = () => void;
 
 const initialState: GameSessionState = {
-  status: 'connecting',
+  status: "connecting",
   gameVersion: 0,
   snapshot: null,
   pendingChoice: null,
@@ -52,22 +52,22 @@ export function serverEventLog(entries: readonly GameLogEntry[] | undefined): Ga
   return (entries ?? []).slice(-MAX_EVENT_LOG_ENTRIES);
 }
 
-function rejectionMessage(message: Extract<ServerMessage, { type: 'action_rejected' }>): string {
+function rejectionMessage(message: Extract<ServerMessage, { type: "action_rejected" }>): string {
   switch (message.reason.reason) {
-    case 'stale_version':
+    case "stale_version":
       return `Rejected: Stale version (expected ${message.reason.expected}, server at ${message.reason.current})`;
-    case 'stale_nonce':
-      return 'Rejected: Stale decision nonce';
-    case 'unauthorized_seat':
-      return 'Rejected: Unauthorized seat';
-    case 'unknown_option':
+    case "stale_nonce":
+      return "Rejected: Stale decision nonce";
+    case "unauthorized_seat":
+      return "Rejected: Unauthorized seat";
+    case "unknown_option":
       return `Rejected: Unknown option '${message.reason.option_id}'`;
     default:
-      return 'Action rejected';
+      return "Action rejected";
   }
 }
 
-function pendingChoice(envelope: import('./types.ts').PendingChoiceEnvelope): PendingChoiceDto {
+function pendingChoice(envelope: import("./types.ts").PendingChoiceEnvelope): PendingChoiceDto {
   if (!envelope.choice) return envelope as unknown as PendingChoiceDto;
   return {
     nonce: envelope.nonce,
@@ -79,44 +79,54 @@ function pendingChoice(envelope: import('./types.ts').PendingChoiceEnvelope): Pe
 }
 
 /** Applies only validated, non-stale protocol messages to the client projection. */
-export function reduceServerMessage(state: GameSessionState, message: ServerMessage): GameSessionState {
+export function reduceServerMessage(
+  state: GameSessionState,
+  message: ServerMessage,
+): GameSessionState {
   if (isStaleServerMessage(message, state.gameVersion)) return state;
 
   switch (message.type) {
-    case 'initial_snapshot':
-    case 'state_update':
+    case "initial_snapshot":
+    case "state_update":
       return {
         ...state,
         snapshot: message,
         gameVersion: message.game_version,
         turnStatus: message.turn_status,
         pendingChoice: message.pending_choice ? pendingChoice(message.pending_choice) : null,
-        events: message.type === 'initial_snapshot' ? serverEventLog(message.events) : state.events,
+        events: message.type === "initial_snapshot" ? serverEventLog(message.events) : state.events,
         history: message.history ?? state.history,
       };
-    case 'event':
+    case "event":
       if (state.events.some((entry) => entry.id === message.entry.id)) return state;
-      return { ...state, events: serverEventLog([...state.events, message.entry]),
-        history: message.entry.decision_count === undefined ? state.history : {
-          ...state.history, cursor: Math.max(state.history.cursor, message.entry.decision_count),
-          redo_count: 0,
-        } };
-    case 'pending_choice':
+      return {
+        ...state,
+        events: serverEventLog([...state.events, message.entry]),
+        history:
+          message.entry.decision_count === undefined
+            ? state.history
+            : {
+                ...state.history,
+                cursor: Math.max(state.history.cursor, message.entry.decision_count),
+                redo_count: 0,
+              },
+      };
+    case "pending_choice":
       return {
         ...state,
         gameVersion: message.game_version,
         pendingChoice: pendingChoice({ nonce: message.nonce, choice: message.choice }),
       };
-    case 'turn_status':
+    case "turn_status":
       return { ...state, gameVersion: message.game_version, turnStatus: message.status };
-    case 'action_accepted':
+    case "action_accepted":
       return { ...state, lastError: null };
-    case 'action_rejected':
+    case "action_rejected":
       return { ...state, lastError: rejectionMessage(message) };
-    case 'error':
+    case "error":
       return { ...state, lastError: `Server Error: ${message.message}` };
-    case 'game_over':
-    case 'pong':
+    case "game_over":
+    case "pong":
       return state;
   }
 }
@@ -153,7 +163,7 @@ export class GameSessionClient {
 
   start(): void {
     this.stopped = false;
-    this.setState({ ...this.state, status: 'connecting', lastError: null });
+    this.setState({ ...this.state, status: "connecting", lastError: null });
     void this.loadSnapshot();
     this.openSocket();
   }
@@ -162,28 +172,29 @@ export class GameSessionClient {
     this.stopped = true;
     this.clearTimers();
     this.detachSocket();
-    this.rejectSubmission('Submission stopped');
+    this.rejectSubmission("Submission stopped");
   }
 
   async submitChoice(optionId: string): Promise<void> {
     const { pendingChoice, gameVersion } = this.state;
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      const message = 'Cannot submit choice: not connected to server';
+      const message = "Cannot submit choice: not connected to server";
       this.setState({ ...this.state, lastError: message });
       throw new Error(message);
     }
     if (!pendingChoice) {
-      const message = 'No decision currently pending';
+      const message = "No decision currently pending";
       this.setState({ ...this.state, lastError: message });
       throw new Error(message);
     }
     if (this.submission) {
-      if (this.submission.nonce === pendingChoice.nonce && this.submission.optionId === optionId) return this.submission.promise;
-      throw new Error('Another choice submission is still pending');
+      if (this.submission.nonce === pendingChoice.nonce && this.submission.optionId === optionId)
+        return this.submission.promise;
+      throw new Error("Another choice submission is still pending");
     }
 
     const message: ClientMessage = {
-      type: 'submit_choice',
+      type: "submit_choice",
       protocol_version: PROTOCOL_VERSION,
       game_id: this.options.gameId,
       nonce: pendingChoice.nonce,
@@ -192,8 +203,19 @@ export class GameSessionClient {
     };
     let resolve!: () => void;
     let reject!: (error: Error) => void;
-    const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
-    this.submission = { nonce: pendingChoice.nonce, optionId, version: gameVersion, accepted: false, promise, resolve, reject };
+    const promise = new Promise<void>((done, fail) => {
+      resolve = done;
+      reject = fail;
+    });
+    this.submission = {
+      nonce: pendingChoice.nonce,
+      optionId,
+      version: gameVersion,
+      accepted: false,
+      promise,
+      resolve,
+      reject,
+    };
     try {
       this.socket.send(JSON.stringify(message));
     } catch (error) {
@@ -203,12 +225,15 @@ export class GameSessionClient {
   }
 
   /** The host changes the authoritative Rust timeline; all clients reconnect to it. */
-  async changeHistory(action: 'undo' | 'redo' | { eventId: string }): Promise<void> {
-    if (this.options.viewer.role !== 'player' || !this.options.viewer.playerSession) throw new Error('A player session is required');
-    const url = this.snapshotUrl().replace(/\/snapshot$/, '/history');
-    const body = typeof action === 'string' ? { action } : { action: 'restore', event_id: action.eventId };
+  async changeHistory(action: "undo" | "redo" | { eventId: string }): Promise<void> {
+    if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
+      throw new Error("A player session is required");
+    const url = this.snapshotUrl().replace(/\/snapshot$/, "/history");
+    const body =
+      typeof action === "string" ? { action } : { action: "restore", event_id: action.eventId };
     const response = await fetch(url, {
-      method: 'POST', headers: { ...this.snapshotHeaders(), 'content-type': 'application/json' },
+      method: "POST",
+      headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
       body: JSON.stringify({ ...body, expected_version: this.state.gameVersion }),
     });
     if (!response.ok) {
@@ -219,15 +244,22 @@ export class GameSessionClient {
     }
     const snapshot = decodeInitialSnapshot(await response.json(), this.options.gameId);
     const expected = this.options.viewer;
-    if (snapshot.viewer.role !== expected.role || (expected.role === 'player' &&
-      (snapshot.viewer.role !== 'player' || snapshot.viewer.seat !== expected.seat))) {
-      throw new Error('Server viewer identity does not match this session');
+    if (
+      snapshot.viewer.role !== expected.role ||
+      (expected.role === "player" &&
+        (snapshot.viewer.role !== "player" || snapshot.viewer.seat !== expected.seat))
+    ) {
+      throw new Error("Server viewer identity does not match this session");
     }
-    this.rejectSubmission('Game history changed');
+    this.rejectSubmission("Game history changed");
     this.detachSocket();
     this.clearTimers();
-    this.setState(reduceServerMessage({ ...this.state, pendingChoice: null, lastError: null },
-      { ...snapshot, type: 'initial_snapshot' }));
+    this.setState(
+      reduceServerMessage(
+        { ...this.state, pendingChoice: null, lastError: null },
+        { ...snapshot, type: "initial_snapshot" },
+      ),
+    );
     this.openSocket();
   }
 
@@ -237,7 +269,8 @@ export class GameSessionClient {
       if (!response.ok) throw new Error(`Snapshot request failed (${response.status})`);
       this.ingestHttpSnapshot(await response.json());
     } catch (error) {
-      if (!this.stopped) this.setState({ ...this.state, lastError: `Snapshot request failed: ${String(error)}` });
+      if (!this.stopped)
+        this.setState({ ...this.state, lastError: `Snapshot request failed: ${String(error)}` });
     }
   }
 
@@ -246,43 +279,76 @@ export class GameSessionClient {
     this.socket = socket;
     socket.onopen = () => {
       if (this.stopped || this.socket !== socket) return;
-      const playerSession = this.options.viewer.role === 'player' ? this.options.viewer.playerSession : undefined;
+      const playerSession =
+        this.options.viewer.role === "player" ? this.options.viewer.playerSession : undefined;
       const message: ClientMessage = {
-        type: 'subscribe',
+        type: "subscribe",
         protocol_version: PROTOCOL_VERSION,
         game_id: this.options.gameId,
         player_session: playerSession,
       };
       socket.send(JSON.stringify(message));
-      if (playerSession) this.heartbeat = setInterval(() => {
-        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'ping', protocol_version: PROTOCOL_VERSION, sequence: ++this.pingSequence } satisfies ClientMessage));
-      }, 10_000);
-      this.setState({ ...this.state, status: 'connected', lastError: null });
+      if (playerSession)
+        this.heartbeat = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN)
+            socket.send(
+              JSON.stringify({
+                type: "ping",
+                protocol_version: PROTOCOL_VERSION,
+                sequence: ++this.pingSequence,
+              } satisfies ClientMessage),
+            );
+        }, 10_000);
+      this.setState({ ...this.state, status: "connected", lastError: null });
     };
     socket.onmessage = (event) => this.ingestWebSocket(event.data);
     socket.onerror = () => {
       if (!this.stopped && this.socket === socket) {
-        this.setState({ ...this.state, status: 'error', lastError: 'WebSocket network error occurred' });
+        this.setState({
+          ...this.state,
+          status: "error",
+          lastError: "WebSocket network error occurred",
+        });
       }
     };
     socket.onclose = () => {
       if (!this.stopped && this.socket === socket) {
         this.clearTimers();
         this.socket = null;
-        this.rejectSubmission('Submission disconnected before confirmation');
-        this.setState({ ...this.state, status: 'disconnected', pendingChoice: null, snapshot: null });
-        this.retry = setTimeout(() => { if (!this.stopped) { void this.loadSnapshot(); this.openSocket(); } }, 2_000);
+        this.rejectSubmission("Submission disconnected before confirmation");
+        this.setState({
+          ...this.state,
+          status: "disconnected",
+          pendingChoice: null,
+          snapshot: null,
+        });
+        this.retry = setTimeout(() => {
+          if (!this.stopped) {
+            void this.loadSnapshot();
+            this.openSocket();
+          }
+        }, 2_000);
       }
     };
   }
 
   private ingestHttpSnapshot(value: unknown): void {
-    this.apply(decodeInitialSnapshot(value, this.options.gameId) as Extract<ServerMessage, { type: 'initial_snapshot' }>);
+    this.apply(
+      decodeInitialSnapshot(value, this.options.gameId) as Extract<
+        ServerMessage,
+        { type: "initial_snapshot" }
+      >,
+    );
   }
 
   private ingestWebSocket(value: unknown): void {
     try {
-      this.apply(decodeServerMessage(typeof value === 'string' ? JSON.parse(value) : value, this.options.gameId));
+      this.apply(
+        decodeServerMessage(
+          typeof value === "string" ? JSON.parse(value) : value,
+          this.options.gameId,
+        ),
+      );
     } catch (error) {
       if (!this.stopped) {
         const message = `Invalid server message: ${String(error)}`;
@@ -293,21 +359,33 @@ export class GameSessionClient {
   }
 
   private apply(message: ServerMessage): void {
-    if (message.type === 'initial_snapshot' || message.type === 'state_update') {
+    if (message.type === "initial_snapshot" || message.type === "state_update") {
       const expected = this.options.viewer;
-      if (message.viewer.role !== expected.role || (expected.role === 'player' && (message.viewer.role !== 'player' || message.viewer.seat !== expected.seat))) {
-        this.setState({ ...initialState, status: 'error', lastError: 'Server viewer identity does not match this session' });
+      if (
+        message.viewer.role !== expected.role ||
+        (expected.role === "player" &&
+          (message.viewer.role !== "player" || message.viewer.seat !== expected.seat))
+      ) {
+        this.setState({
+          ...initialState,
+          status: "error",
+          lastError: "Server viewer identity does not match this session",
+        });
         this.stop();
         return;
       }
     }
     // A state update may precede its acknowledgement on the broadcast channel.
     // Do not discard a late acknowledgement just because its version is older.
-    if (message.type === 'action_accepted' && this.submission &&
-      message.option_id === this.submission.optionId && message.game_version >= this.submission.version) {
+    if (
+      message.type === "action_accepted" &&
+      this.submission &&
+      message.option_id === this.submission.optionId &&
+      message.game_version >= this.submission.version
+    ) {
       this.submission.accepted = true;
     }
-    if (message.type === 'action_rejected' && this.submission) {
+    if (message.type === "action_rejected" && this.submission) {
       const reason = rejectionMessage(message);
       this.setState({ ...this.state, lastError: reason });
       this.rejectSubmission(reason);
@@ -315,9 +393,12 @@ export class GameSessionClient {
     }
     this.setState(reduceServerMessage(this.state, message));
     const submission = this.submission;
-    if (submission?.accepted && this.state.gameVersion > submission.version &&
+    if (
+      submission?.accepted &&
+      this.state.gameVersion > submission.version &&
       this.state.snapshot?.game_version === this.state.gameVersion &&
-      this.state.pendingChoice?.nonce !== submission.nonce) {
+      this.state.pendingChoice?.nonce !== submission.nonce
+    ) {
       this.submission = null;
       submission.resolve();
     }
@@ -337,7 +418,8 @@ export class GameSessionClient {
     socket.onmessage = null;
     socket.onerror = null;
     socket.onclose = null;
-    if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) socket.close();
+    if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)
+      socket.close();
   }
 
   private clearTimers(): void {
@@ -354,22 +436,23 @@ export class GameSessionClient {
 
   private webSocketUrl(): string {
     if (this.options.serverUrl) return this.options.serverUrl;
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${protocol}//${window.location.host}/ws/games/${encodeURIComponent(this.options.gameId)}`;
   }
 
   private snapshotUrl(): string {
-    if (!this.options.serverUrl) return `/api/games/${encodeURIComponent(this.options.gameId)}/snapshot`;
+    if (!this.options.serverUrl)
+      return `/api/games/${encodeURIComponent(this.options.gameId)}/snapshot`;
     const url = new URL(this.options.serverUrl, window.location.href);
-    url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
     url.pathname = `/api/games/${encodeURIComponent(this.options.gameId)}/snapshot`;
-    url.search = '';
+    url.search = "";
     return url.toString();
   }
 
   private snapshotHeaders(): HeadersInit {
-    return this.options.viewer.role === 'player' && this.options.viewer.playerSession
-      ? { 'x-ti4-player-session': this.options.viewer.playerSession }
+    return this.options.viewer.role === "player" && this.options.viewer.playerSession
+      ? { "x-ti4-player-session": this.options.viewer.playerSession }
       : {};
   }
 }

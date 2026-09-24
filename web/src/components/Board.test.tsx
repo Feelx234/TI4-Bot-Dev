@@ -1,42 +1,42 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { Board, getPlayerColor } from './Board.tsx';
-import { BoardView } from '../protocol/types.ts';
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { Board, getPlayerColor } from "./Board.tsx";
+import { BoardView } from "../protocol/types.ts";
 
 const mockBoard: BoardView = {
   systems: {
-    '18': {
-      system_id: '18',
-      coordinate: '<0, 0, 0>',
-      tile_type: 'normal',
+    "18": {
+      system_id: "18",
+      coordinate: "<0, 0, 0>",
+      tile_type: "normal",
       planets: {
         mecatol_rex: {
-          planet_id: 'mecatol_rex',
+          planet_id: "mecatol_rex",
           controlled_by: null,
           exhausted: false,
           attachments: [],
         },
       },
       units: [
-        { unit_type: 'cruiser', owner: 'p1', damaged: false },
-        { unit_type: 'infantry', owner: 'p1', damaged: false },
+        { unit_type: "cruiser", owner: "p1", damaged: false },
+        { unit_type: "infantry", owner: "p1", damaged: false },
       ],
-      command_tokens: ['p1'],
+      command_tokens: ["p1"],
     },
-    '34': {
-      system_id: '34',
-      coordinate: '<1, 0, -1>',
-      tile_type: 'normal',
+    "34": {
+      system_id: "34",
+      coordinate: "<1, 0, -1>",
+      tile_type: "normal",
       planets: {
         abyz: {
-          planet_id: 'abyz',
-          controlled_by: 'p2',
+          planet_id: "abyz",
+          controlled_by: "p2",
           exhausted: true,
           attachments: [],
         },
         fria: {
-          planet_id: 'fria',
-          controlled_by: 'p2',
+          planet_id: "fria",
+          controlled_by: "p2",
           exhausted: false,
           attachments: [],
         },
@@ -47,101 +47,101 @@ const mockBoard: BoardView = {
   },
 };
 
-describe('Board Component', () => {
-  it('renders all systems in SVG with correct coordinates and planet labels', () => {
-    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} />);
+describe("Board Component", () => {
+  it("renders all systems in SVG with correct coordinates and planet labels", () => {
+    render(<Board board={mockBoard} seatingOrder={["p1", "p2"]} />);
 
-    expect(screen.getByTestId('ti4-board-svg')).toBeInTheDocument();
-    expect(screen.getByTestId('system-hex-18')).toBeInTheDocument();
-    expect(screen.getByTestId('system-hex-34')).toBeInTheDocument();
+    expect(screen.getByTestId("ti4-board-svg")).toBeInTheDocument();
+    expect(screen.getByTestId("system-hex-18")).toBeInTheDocument();
+    expect(screen.getByTestId("system-hex-34")).toBeInTheDocument();
 
     // Mecatol Rex text
-    expect(screen.getByText('Mecatol Rex')).toBeInTheDocument();
-    expect(screen.getByText('#34')).toBeInTheDocument();
+    expect(screen.getByText("Mecatol Rex")).toBeInTheDocument();
+    expect(screen.getByText("#34")).toBeInTheDocument();
 
     // Planet abbreviations
-    expect(screen.getByText('MEC')).toBeInTheDocument();
-    expect(screen.getByText('ABY')).toBeInTheDocument();
-    expect(screen.getByText('FRI')).toBeInTheDocument();
+    expect(screen.getByText("MEC")).toBeInTheDocument();
+    expect(screen.getByText("ABY")).toBeInTheDocument();
+    expect(screen.getByText("FRI")).toBeInTheDocument();
 
     // Units label
-    expect(screen.getByText('2 units')).toBeInTheDocument();
+    expect(screen.getByText("2 units")).toBeInTheDocument();
   });
 
-  it('makes every system keyboard-inspectable', () => {
-    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} />);
+  it("makes every system keyboard-inspectable", () => {
+    render(<Board board={mockBoard} seatingOrder={["p1", "p2"]} />);
 
-    const hex18 = screen.getByTestId('system-hex-18');
-    const hex34 = screen.getByTestId('system-hex-34');
-    expect(hex18).toHaveAttribute('role', 'button');
-    expect(hex18).toHaveAttribute('tabindex', '0');
-    expect(hex34).toHaveAttribute('aria-label', 'Inspect system #34 #34');
+    const hex18 = screen.getByTestId("system-hex-18");
+    const hex34 = screen.getByTestId("system-hex-34");
+    expect(hex18).toHaveAttribute("role", "button");
+    expect(hex18).toHaveAttribute("tabindex", "0");
+    expect(hex34).toHaveAttribute("aria-label", "Inspect system #34 #34");
   });
 
-  it('assigns colors by projected seating order, not seat name', () => {
-    expect(getPlayerColor('unusual-seat', ['unusual-seat', 'another-seat'])).toBe('#E69F00');
-    expect(getPlayerColor('another-seat', ['unusual-seat', 'another-seat'])).toBe('#56B4E9');
-    expect(getPlayerColor('absent-seat', ['unusual-seat'])).toBe('#94a3b8');
+  it("assigns colors by projected seating order, not seat name", () => {
+    expect(getPlayerColor("unusual-seat", ["unusual-seat", "another-seat"])).toBe("#E69F00");
+    expect(getPlayerColor("another-seat", ["unusual-seat", "another-seat"])).toBe("#56B4E9");
+    expect(getPlayerColor("absent-seat", ["unusual-seat"])).toBe("#94a3b8");
   });
 
-  it('renders static map_tiles with anomalies, wormholes, and zoom controls', () => {
+  it("renders static map_tiles with anomalies, wormholes, and zoom controls", () => {
     const boardWithMap: BoardView = {
       systems: {
-        '18': {
-          system_id: '18',
+        "18": {
+          system_id: "18",
           command_tokens: [],
           planets: {},
-          units: [{ unit_type: 'carrier', owner: 'p1', damaged: false }],
+          units: [{ unit_type: "carrier", owner: "p1", damaged: false }],
         },
       },
       map_tiles: [
         {
-          system_id: '18',
-          label: 'Mecatol Rex',
+          system_id: "18",
+          label: "Mecatol Rex",
           q: 0,
           r: 0,
-          planets: [{ id: 'mecatol_rex', label: 'Mecatol Rex', resources: 1, influence: 6 }],
+          planets: [{ id: "mecatol_rex", label: "Mecatol Rex", resources: 1, influence: 6 }],
         },
         {
-          system_id: '67',
-          label: 'Cormund',
+          system_id: "67",
+          label: "Cormund",
           q: 1,
           r: -1,
-          anomalies: ['gravity rift'],
-          wormholes: ['alpha'],
+          anomalies: ["gravity rift"],
+          wormholes: ["alpha"],
           planets: [],
         },
       ],
     };
 
-    render(<Board board={boardWithMap} seatingOrder={['p1']} />);
+    render(<Board board={boardWithMap} seatingOrder={["p1"]} />);
 
-    expect(screen.getByTestId('system-hex-18')).toBeInTheDocument();
-    expect(screen.getByTestId('system-hex-67')).toBeInTheDocument();
-    expect(screen.getByText('Mecatol Rex')).toBeInTheDocument();
-    expect(screen.getByText('GRAVITY RIFT')).toBeInTheDocument();
-    expect(screen.getByText('α')).toBeInTheDocument();
-    expect(screen.getByText('1/6')).toBeInTheDocument();
+    expect(screen.getByTestId("system-hex-18")).toBeInTheDocument();
+    expect(screen.getByTestId("system-hex-67")).toBeInTheDocument();
+    expect(screen.getByText("Mecatol Rex")).toBeInTheDocument();
+    expect(screen.getByText("GRAVITY RIFT")).toBeInTheDocument();
+    expect(screen.getByText("α")).toBeInTheDocument();
+    expect(screen.getByText("1/6")).toBeInTheDocument();
 
     // Zoom buttons
-    expect(screen.getByTitle('Zoom In')).toBeInTheDocument();
-    expect(screen.getByTitle('Zoom Out')).toBeInTheDocument();
-    expect(screen.getByTitle('Reset Pan & Zoom')).toBeInTheDocument();
+    expect(screen.getByTitle("Zoom In")).toBeInTheDocument();
+    expect(screen.getByTitle("Zoom Out")).toBeInTheDocument();
+    expect(screen.getByTitle("Reset Pan & Zoom")).toBeInTheDocument();
   });
 
-  it('highlights candidate targets on the board for the deciding actor and handles clicks', () => {
+  it("highlights candidate targets on the board for the deciding actor and handles clicks", () => {
     const onSelectTarget = vi.fn();
     const onSelectSystem = vi.fn();
     const pendingChoice = {
-      nonce: 'nonce_test',
-      actor: 'p1',
-      prompt: 'Activate a system',
+      nonce: "nonce_test",
+      actor: "p1",
+      prompt: "Activate a system",
       options: [
         {
-          id: 'opt_activate_18',
-          kind: 'activate',
-          label: 'Activate Mecatol Rex',
-          payload: { system: '18' },
+          id: "opt_activate_18",
+          kind: "activate",
+          label: "Activate Mecatol Rex",
+          payload: { system: "18" },
         },
       ],
     };
@@ -149,40 +149,40 @@ describe('Board Component', () => {
     render(
       <Board
         board={mockBoard}
-        seatingOrder={['p1', 'p2']}
+        seatingOrder={["p1", "p2"]}
         pendingChoice={pendingChoice}
         viewerSeat="p1"
         onSelectTarget={onSelectTarget}
         onSelectSystem={onSelectSystem}
-      />
+      />,
     );
 
-    const hex18 = screen.getByTestId('system-hex-18');
-    const hex34 = screen.getByTestId('system-hex-34');
+    const hex18 = screen.getByTestId("system-hex-18");
+    const hex34 = screen.getByTestId("system-hex-34");
 
-    expect(hex18).toHaveAttribute('data-target-candidate', 'true');
-    expect(hex18).toHaveAttribute('role', 'button');
-    expect(hex18).toHaveAttribute('tabindex', '0');
+    expect(hex18).toHaveAttribute("data-target-candidate", "true");
+    expect(hex18).toHaveAttribute("role", "button");
+    expect(hex18).toHaveAttribute("tabindex", "0");
 
-    expect(hex34).not.toHaveAttribute('data-target-candidate');
+    expect(hex34).not.toHaveAttribute("data-target-candidate");
 
     // Click candidate target hex
     fireEvent.click(hex18);
-    expect(onSelectTarget).toHaveBeenCalledWith('18');
-    expect(onSelectSystem).toHaveBeenCalledWith('18');
+    expect(onSelectTarget).toHaveBeenCalledWith("18");
+    expect(onSelectSystem).toHaveBeenCalledWith("18");
   });
 
-  it('redacts target candidate highlighting when viewer is not the actor', () => {
+  it("redacts target candidate highlighting when viewer is not the actor", () => {
     const pendingChoice = {
-      nonce: 'nonce_test',
-      actor: 'p1',
-      prompt: 'Activate a system',
+      nonce: "nonce_test",
+      actor: "p1",
+      prompt: "Activate a system",
       options: [
         {
-          id: 'opt_activate_18',
-          kind: 'activate',
-          label: 'Activate Mecatol Rex',
-          payload: { system: '18' },
+          id: "opt_activate_18",
+          kind: "activate",
+          label: "Activate Mecatol Rex",
+          payload: { system: "18" },
         },
       ],
     };
@@ -190,53 +190,53 @@ describe('Board Component', () => {
     render(
       <Board
         board={mockBoard}
-        seatingOrder={['p1', 'p2']}
+        seatingOrder={["p1", "p2"]}
         pendingChoice={pendingChoice}
         viewerSeat="p2"
-      />
+      />,
     );
 
-    const hex18 = screen.getByTestId('system-hex-18');
-    expect(hex18).not.toHaveAttribute('data-target-candidate');
-    expect(hex18).toHaveAttribute('aria-label', 'Inspect system Mecatol Rex #18');
-    expect(screen.queryByTestId('activation-target-reticle')).not.toBeInTheDocument();
+    const hex18 = screen.getByTestId("system-hex-18");
+    expect(hex18).not.toHaveAttribute("data-target-candidate");
+    expect(hex18).toHaveAttribute("aria-label", "Inspect system Mecatol Rex #18");
+    expect(screen.queryByTestId("activation-target-reticle")).not.toBeInTheDocument();
   });
 
-  it('displays SystemInspector when a system is selected', () => {
-    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} selectedSystemId="18" />);
+  it("displays SystemInspector when a system is selected", () => {
+    render(<Board board={mockBoard} seatingOrder={["p1", "p2"]} selectedSystemId="18" />);
 
-    expect(screen.getByTestId('system-inspector')).toBeInTheDocument();
-    expect(screen.getByTestId('inspector-system-title')).toHaveTextContent('Mecatol Rex');
+    expect(screen.getByTestId("system-inspector")).toBeInTheDocument();
+    expect(screen.getByTestId("inspector-system-title")).toHaveTextContent("Mecatol Rex");
   });
 
-  it('pins inspection on click and closes via its close button or empty map', () => {
+  it("pins inspection on click and closes via its close button or empty map", () => {
     const onSelectSystem = vi.fn();
-    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} onSelectSystem={onSelectSystem} />);
-    fireEvent.click(screen.getByTestId('system-hex-18'));
-    expect(screen.getByTestId('system-inspector')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('system-hex-34'));
-    expect(screen.getByTestId('inspector-system-title')).toHaveTextContent('#34');
-    fireEvent.click(screen.getByTestId('close-inspector-button'));
-    expect(screen.queryByTestId('system-inspector')).not.toBeInTheDocument();
-    fireEvent.keyDown(screen.getByTestId('system-hex-18'), { key: 'Enter' });
-    expect(screen.getByTestId('system-inspector')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('ti4-board-svg'));
-    expect(screen.queryByTestId('system-inspector')).not.toBeInTheDocument();
+    render(<Board board={mockBoard} seatingOrder={["p1", "p2"]} onSelectSystem={onSelectSystem} />);
+    fireEvent.click(screen.getByTestId("system-hex-18"));
+    expect(screen.getByTestId("system-inspector")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("system-hex-34"));
+    expect(screen.getByTestId("inspector-system-title")).toHaveTextContent("#34");
+    fireEvent.click(screen.getByTestId("close-inspector-button"));
+    expect(screen.queryByTestId("system-inspector")).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByTestId("system-hex-18"), { key: "Enter" });
+    expect(screen.getByTestId("system-inspector")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("ti4-board-svg"));
+    expect(screen.queryByTestId("system-inspector")).not.toBeInTheDocument();
     expect(onSelectSystem).toHaveBeenCalledWith(null);
   });
 
-  it('assigns accessible button semantics and keyboard activation to candidate target planets', () => {
+  it("assigns accessible button semantics and keyboard activation to candidate target planets", () => {
     const onSelectTarget = vi.fn();
     const pendingChoice = {
-      nonce: 'nonce_planet',
-      actor: 'p1',
-      prompt: 'Commit ground forces to planet',
+      nonce: "nonce_planet",
+      actor: "p1",
+      prompt: "Commit ground forces to planet",
       options: [
         {
-          id: 'opt_land_mecatol',
-          kind: 'commit_ground_forces',
-          label: 'Land on Mecatol Rex',
-          payload: { system: '18', planet: 'mecatol_rex' },
+          id: "opt_land_mecatol",
+          kind: "commit_ground_forces",
+          label: "Land on Mecatol Rex",
+          payload: { system: "18", planet: "mecatol_rex" },
         },
       ],
     };
@@ -244,98 +244,117 @@ describe('Board Component', () => {
     render(
       <Board
         board={mockBoard}
-        seatingOrder={['p1', 'p2']}
+        seatingOrder={["p1", "p2"]}
         pendingChoice={pendingChoice}
         viewerSeat="p1"
         onSelectTarget={onSelectTarget}
-      />
+      />,
     );
 
-    const planetMecatol = screen.getByTestId('planet-mecatol_rex');
-    const planetAbyz = screen.getByTestId('planet-abyz');
+    const planetMecatol = screen.getByTestId("planet-mecatol_rex");
+    const planetAbyz = screen.getByTestId("planet-abyz");
 
-    expect(planetMecatol).toHaveAttribute('data-target-candidate', 'true');
-    expect(planetMecatol).toHaveAttribute('role', 'button');
-    expect(planetMecatol).toHaveAttribute('tabindex', '0');
-    expect(planetMecatol).toHaveAttribute('aria-label', 'Target planet mecatol_rex');
+    expect(planetMecatol).toHaveAttribute("data-target-candidate", "true");
+    expect(planetMecatol).toHaveAttribute("role", "button");
+    expect(planetMecatol).toHaveAttribute("tabindex", "0");
+    expect(planetMecatol).toHaveAttribute("aria-label", "Target planet mecatol_rex");
 
-    expect(planetAbyz).not.toHaveAttribute('data-target-candidate');
-    expect(planetAbyz).not.toHaveAttribute('role');
+    expect(planetAbyz).not.toHaveAttribute("data-target-candidate");
+    expect(planetAbyz).not.toHaveAttribute("role");
 
     // Keyboard activation via Enter
-    fireEvent.keyDown(planetMecatol, { key: 'Enter' });
-    expect(onSelectTarget).toHaveBeenCalledWith('18', 'mecatol_rex');
+    fireEvent.keyDown(planetMecatol, { key: "Enter" });
+    expect(onSelectTarget).toHaveBeenCalledWith("18", "mecatol_rex");
 
     // Keyboard activation via Space
-    fireEvent.keyDown(planetMecatol, { key: ' ' });
-    expect(onSelectTarget).toHaveBeenCalledWith('18', 'mecatol_rex');
+    fireEvent.keyDown(planetMecatol, { key: " " });
+    expect(onSelectTarget).toHaveBeenCalledWith("18", "mecatol_rex");
     expect(onSelectTarget).toHaveBeenCalledTimes(2);
   });
 
-  it('renders activation target reticles during system activation mode', () => {
+  it("renders activation target reticles during system activation mode", () => {
     const activationChoice = {
-      nonce: 'nonce_act',
-      actor: 'p1',
-      prompt: 'activate a system',
-      context: { subtype: 'activate_system' },
-      options: [
-        { id: '18', label: 'Mecatol Rex', kind: 'activate', payload: { system: '18' } },
-      ],
+      nonce: "nonce_act",
+      actor: "p1",
+      prompt: "activate a system",
+      context: { subtype: "activate_system" },
+      options: [{ id: "18", label: "Mecatol Rex", kind: "activate", payload: { system: "18" } }],
     };
 
     render(
       <Board
         board={mockBoard}
-        seatingOrder={['p1', 'p2']}
+        seatingOrder={["p1", "p2"]}
         pendingChoice={activationChoice}
         viewerSeat="p1"
-      />
+      />,
     );
 
-    expect(screen.getByTestId('activation-target-reticle')).toBeInTheDocument();
+    expect(screen.getByTestId("activation-target-reticle")).toBeInTheDocument();
   });
 
-  it('uses the exact legal option ID when an inspector action is clicked', () => {
+  it("uses the exact legal option ID when an inspector action is clicked", () => {
     const onSelectOptionId = vi.fn();
-    render(<Board board={mockBoard} seatingOrder={['p1', 'p2']} selectedSystemId="18"
-      viewerSeat="p1" onSelectOptionId={onSelectOptionId} pendingChoice={{
-        nonce: 'n', actor: 'p1', prompt: 'choose', options: [
-          { id: 'first', label: 'First', payload: { system: '18' } },
-          { id: 'second', label: 'Second', payload: { system: '18' } },
-        ],
-      }} />);
-    fireEvent.click(screen.getByTestId('inspector-action-second'));
-    expect(onSelectOptionId).toHaveBeenCalledWith('second');
+    render(
+      <Board
+        board={mockBoard}
+        seatingOrder={["p1", "p2"]}
+        selectedSystemId="18"
+        viewerSeat="p1"
+        onSelectOptionId={onSelectOptionId}
+        pendingChoice={{
+          nonce: "n",
+          actor: "p1",
+          prompt: "choose",
+          options: [
+            { id: "first", label: "First", payload: { system: "18" } },
+            { id: "second", label: "Second", payload: { system: "18" } },
+          ],
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("inspector-action-second"));
+    expect(onSelectOptionId).toHaveBeenCalledWith("second");
   });
 
-  it('renders animated movement vector lines and badges between origin and destination', () => {
+  it("renders animated movement vector lines and badges between origin and destination", () => {
     const movementChoice = {
-      nonce: 'nonce_move',
-      actor: 'p1',
-      prompt: 'movement',
+      nonce: "nonce_move",
+      actor: "p1",
+      prompt: "movement",
       context: {
-        subtype: 'movement_step',
-        target: { System: '18' },
+        subtype: "movement_step",
+        target: { System: "18" },
       },
       options: [
-        { id: 'move|34|0', label: 'Cruiser', kind: 'move', payload: { origin: '34', unit: 'cruiser' } },
-        { id: 'move|34|1', label: 'Fighter', kind: 'move', payload: { origin: '34', unit: 'fighter' } },
-        { id: 'done_moving', label: 'Finish', kind: 'decline' },
+        {
+          id: "move|34|0",
+          label: "Cruiser",
+          kind: "move",
+          payload: { origin: "34", unit: "cruiser" },
+        },
+        {
+          id: "move|34|1",
+          label: "Fighter",
+          kind: "move",
+          payload: { origin: "34", unit: "fighter" },
+        },
+        { id: "done_moving", label: "Finish", kind: "decline" },
       ],
     };
 
     render(
       <Board
         board={mockBoard}
-        seatingOrder={['p1', 'p2']}
+        seatingOrder={["p1", "p2"]}
         pendingChoice={movementChoice}
         viewerSeat="p1"
-      />
+      />,
     );
 
-    const vectorLine = screen.getByTestId('movement-vector-line');
+    const vectorLine = screen.getByTestId("movement-vector-line");
     expect(vectorLine).toBeInTheDocument();
-    expect(vectorLine).toHaveAttribute('marker-end', 'url(#vector-arrow)');
-    expect(vectorLine.parentElement?.querySelector('text')).toHaveTextContent('2'); // 2 units available to move
+    expect(vectorLine).toHaveAttribute("marker-end", "url(#vector-arrow)");
+    expect(vectorLine.parentElement?.querySelector("text")).toHaveTextContent("2"); // 2 units available to move
   });
 });

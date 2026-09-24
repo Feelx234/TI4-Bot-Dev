@@ -1,15 +1,15 @@
-import React, { useState, useRef } from 'react';
-import { BoardView, PlayerView, PendingChoiceDto } from '../protocol/types.ts';
+import React, { useState, useRef } from "react";
+import { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.ts";
 import {
   buildBoardPresentationModel,
   getPlayerColor,
   PLAYER_PALETTE,
   TilePresentation,
-} from '../presentation/boardPresentation.ts';
-import { SystemInspector } from './SystemInspector.tsx';
-import { Tooltip, SvgButton } from '../primitives/index.ts';
-import { SeatBadge, usePlayerIdentity } from '../presentation/PlayerIdentity.tsx';
-import { seatStyle } from '../presentation/playerDisplay.ts';
+} from "../presentation/boardPresentation.ts";
+import { SystemInspector } from "./SystemInspector.tsx";
+import { Tooltip, SvgButton } from "../primitives/index.ts";
+import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { seatStyle } from "../presentation/playerDisplay.ts";
 
 export { getPlayerColor, PLAYER_PALETTE };
 
@@ -37,8 +37,13 @@ export const Board: React.FC<BoardProps> = ({
   onSelectOptionId,
 }) => {
   const display = usePlayerIdentity();
-  const [uncontrolledSelectedSystemId, setUncontrolledSelectedSystemId] = useState<string | null>(null);
-  const selectedSystemId = controlledSelectedSystemId === undefined ? uncontrolledSelectedSystemId : controlledSelectedSystemId;
+  const [uncontrolledSelectedSystemId, setUncontrolledSelectedSystemId] = useState<string | null>(
+    null,
+  );
+  const selectedSystemId =
+    controlledSelectedSystemId === undefined
+      ? uncontrolledSelectedSystemId
+      : controlledSelectedSystemId;
   const setSelectedSystemId = (id: string | null) => {
     if (controlledSelectedSystemId === undefined) {
       setUncontrolledSelectedSystemId(id);
@@ -68,7 +73,7 @@ export const Board: React.FC<BoardProps> = ({
     players,
     pendingChoice,
     viewerSeat,
-    selectedSystemId
+    selectedSystemId,
   );
 
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -90,8 +95,10 @@ export const Board: React.FC<BoardProps> = ({
 
   const handlePointerUp = () => setIsPanning(false);
 
-  const zoomIn = () => setViewTransform((prev) => ({ ...prev, scale: Math.min(prev.scale * 1.25, 2.5) }));
-  const zoomOut = () => setViewTransform((prev) => ({ ...prev, scale: Math.max(prev.scale / 1.25, 0.5) }));
+  const zoomIn = () =>
+    setViewTransform((prev) => ({ ...prev, scale: Math.min(prev.scale * 1.25, 2.5) }));
+  const zoomOut = () =>
+    setViewTransform((prev) => ({ ...prev, scale: Math.max(prev.scale / 1.25, 0.5) }));
   const resetView = () => setViewTransform({ x: 0, y: 0, scale: 1 });
 
   const handleTileClick = (tile: TilePresentation) => {
@@ -106,12 +113,12 @@ export const Board: React.FC<BoardProps> = ({
       className="board-container"
       data-testid="board-viewport"
       style={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        overflow: 'hidden',
-        background: '#090d16',
-        userSelect: 'none',
+        position: "relative",
+        width: "100%",
+        height: "100%",
+        overflow: "hidden",
+        background: "#090d16",
+        userSelect: "none",
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -122,7 +129,7 @@ export const Board: React.FC<BoardProps> = ({
       <div
         className="board-controls"
         style={{
-          display: 'flex',
+          display: "flex",
           gap: 6,
         }}
       >
@@ -162,15 +169,24 @@ export const Board: React.FC<BoardProps> = ({
       </div>
 
       <div className="board-seat-legend" aria-label="Player positions">
-        {seatingOrder.map((id, index) => <span key={id} style={{ borderColor: seatStyle(index + 1).color }}>
-          <SeatBadge position={index + 1} /> {display(id).label}
-        </span>)}
+        {seatingOrder.map((id, index) => (
+          <span key={id} style={{ borderColor: seatStyle(index + 1).color }}>
+            <SeatBadge position={index + 1} /> {display(id).label}
+          </span>
+        ))}
       </div>
 
       <svg
         viewBox={presentation.viewBox}
-        onClick={(e) => { if (e.target === e.currentTarget) setSelectedSystemId(null); }}
-        style={{ width: '100%', height: '100%', display: 'block', cursor: isPanning ? 'grabbing' : 'grab' }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setSelectedSystemId(null);
+        }}
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "block",
+          cursor: isPanning ? "grabbing" : "grab",
+        }}
         data-testid="ti4-board-svg"
       >
         <defs>
@@ -198,14 +214,20 @@ export const Board: React.FC<BoardProps> = ({
           </marker>
         </defs>
 
-        <g transform={`translate(${viewTransform.x}, ${viewTransform.y}) scale(${viewTransform.scale})`}
-          onClick={(e) => { if (e.target === e.currentTarget) setSelectedSystemId(null); }}>
+        <g
+          transform={`translate(${viewTransform.x}, ${viewTransform.y}) scale(${viewTransform.scale})`}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedSystemId(null);
+          }}
+        >
           {presentation.tiles.map((tile, idx) => {
             const sysId = tile.systemId;
             const isSelected = selectedSystemId === sysId;
             const singlePlanetOwner =
               tile.planets.length > 0 &&
-              tile.planets.every((p) => p.controlledBy && p.controlledBy === tile.planets[0].controlledBy)
+              tile.planets.every(
+                (p) => p.controlledBy && p.controlledBy === tile.planets[0].controlledBy,
+              )
                 ? tile.planets[0].controlledBy
                 : null;
 
@@ -214,11 +236,11 @@ export const Board: React.FC<BoardProps> = ({
                 key={`hex-${sysId}-${idx}`}
                 data-testid={`system-hex-${sysId}`}
                 data-system-id={sysId}
-                data-target-candidate={tile.isCandidateTarget ? 'true' : undefined}
-                data-context-subject={tile.isContextSubject ? 'true' : undefined}
-                data-system-selected={isSelected ? 'true' : undefined}
+                data-target-candidate={tile.isCandidateTarget ? "true" : undefined}
+                data-context-subject={tile.isContextSubject ? "true" : undefined}
+                data-system-selected={isSelected ? "true" : undefined}
                 isInteractive
-                label={`${tile.isCandidateTarget ? 'Target' : 'Inspect'} system ${tile.label} #${sysId}`}
+                label={`${tile.isCandidateTarget ? "Target" : "Inspect"} system ${tile.label} #${sysId}`}
                 onActivate={() => handleTileClick(tile)}
                 onMouseEnter={() => {
                   setHoveredTile({
@@ -238,18 +260,20 @@ export const Board: React.FC<BoardProps> = ({
                 }}
                 onMouseLeave={() => setHoveredTile(null)}
                 style={{
-                  cursor: 'pointer',
-                  outline: 'none',
+                  cursor: "pointer",
+                  outline: "none",
                 }}
               >
                 {/* Hexagon Tile */}
                 <polygon
                   points={tile.points}
                   fill={tile.fillColor}
-                  stroke={isSelected ? '#facc15' : tile.isCandidateTarget ? '#38bdf8' : tile.strokeColor}
+                  stroke={
+                    isSelected ? "#facc15" : tile.isCandidateTarget ? "#38bdf8" : tile.strokeColor
+                  }
                   strokeWidth={isSelected ? 4 : tile.isCandidateTarget ? 3.5 : tile.strokeWidth}
                   strokeDasharray={tile.strokeDashArray}
-                  filter={tile.isCandidateTarget ? 'url(#target-glow)' : undefined}
+                  filter={tile.isCandidateTarget ? "url(#target-glow)" : undefined}
                 />
 
                 {/* Candidate target highlight animation ring */}
@@ -266,7 +290,7 @@ export const Board: React.FC<BoardProps> = ({
 
                 {/* Activation Mode Target Reticle */}
                 {tile.isCandidateTarget && presentation.targets.isActivationMode && (
-                  <g data-testid="activation-target-reticle" style={{ pointerEvents: 'none' }}>
+                  <g data-testid="activation-target-reticle" style={{ pointerEvents: "none" }}>
                     <circle
                       cx={tile.center.x}
                       cy={tile.center.y}
@@ -332,7 +356,13 @@ export const Board: React.FC<BoardProps> = ({
                   fontWeight="bold"
                   pointerEvents="none"
                 >
-                  {sysId === '18' ? 'Mecatol Rex' : tile.label ? (tile.label.startsWith('#') ? tile.label : `#${sysId}`) : `#${sysId}`}
+                  {sysId === "18"
+                    ? "Mecatol Rex"
+                    : tile.label
+                      ? tile.label.startsWith("#")
+                        ? tile.label
+                        : `#${sysId}`
+                      : `#${sysId}`}
                 </text>
 
                 {/* Anomaly badge text */}
@@ -356,7 +386,14 @@ export const Board: React.FC<BoardProps> = ({
                   const wY = tile.center.y - 18;
                   return (
                     <g key={`wh-${wh.kind}-${wIdx}`}>
-                      <circle cx={wX} cy={wY} r="8" fill="#08111d" stroke={wh.color} strokeWidth="2" />
+                      <circle
+                        cx={wX}
+                        cy={wY}
+                        r="8"
+                        fill="#08111d"
+                        stroke={wh.color}
+                        strokeWidth="2"
+                      />
                       <text
                         x={wX}
                         y={wY + 3.5}
@@ -383,7 +420,7 @@ export const Board: React.FC<BoardProps> = ({
                     <SvgButton
                       key={p.id}
                       data-testid={`planet-${p.id}`}
-                      data-target-candidate={p.isCandidateTarget ? 'true' : undefined}
+                      data-target-candidate={p.isCandidateTarget ? "true" : undefined}
                       isInteractive={p.isCandidateTarget}
                       label={`Target planet ${p.label}`}
                       onActivate={() => {
@@ -392,7 +429,10 @@ export const Board: React.FC<BoardProps> = ({
                           setSelectedSystemId(sysId);
                         }
                       }}
-                      onKeyDown={(e) => { if (p.isCandidateTarget && (e.key === 'Enter' || e.key === ' ')) e.stopPropagation(); }}
+                      onKeyDown={(e) => {
+                        if (p.isCandidateTarget && (e.key === "Enter" || e.key === " "))
+                          e.stopPropagation();
+                      }}
                       onClick={(e) => {
                         if (p.isCandidateTarget) {
                           e.stopPropagation();
@@ -400,19 +440,39 @@ export const Board: React.FC<BoardProps> = ({
                           setSelectedSystemId(sysId);
                         }
                       }}
-                      style={{ cursor: p.isCandidateTarget ? 'pointer' : 'inherit' }}
+                      style={{ cursor: p.isCandidateTarget ? "pointer" : "inherit" }}
                     >
                       <circle
                         cx={pX}
                         cy={pY}
                         r="14"
-                        fill={isControlled ? p.controllerColor : '#334155'}
-                        stroke={p.isCandidateTarget ? '#38bdf8' : p.exhausted ? '#ef4444' : isControlled ? '#f8fafc' : '#64748b'}
+                        fill={isControlled ? p.controllerColor : "#334155"}
+                        stroke={
+                          p.isCandidateTarget
+                            ? "#38bdf8"
+                            : p.exhausted
+                              ? "#ef4444"
+                              : isControlled
+                                ? "#f8fafc"
+                                : "#64748b"
+                        }
                         strokeWidth={p.isCandidateTarget ? 3 : 2}
                       />
-                      {p.controlledBy && <text x={pX + 12} y={pY - 11} textAnchor="middle" fill="#fff" stroke="#0b1220" strokeWidth="0.6" paintOrder="stroke" fontSize="12" pointerEvents="none">
-                        {display(p.controlledBy).symbol}
-                      </text>}
+                      {p.controlledBy && (
+                        <text
+                          x={pX + 12}
+                          y={pY - 11}
+                          textAnchor="middle"
+                          fill="#fff"
+                          stroke="#0b1220"
+                          strokeWidth="0.6"
+                          paintOrder="stroke"
+                          fontSize="12"
+                          pointerEvents="none"
+                        >
+                          {display(p.controlledBy).symbol}
+                        </text>
+                      )}
                       {/* Planet Abbreviation */}
                       <text
                         x={pX}
@@ -474,8 +534,24 @@ export const Board: React.FC<BoardProps> = ({
                 {tile.commandTokens.map((ct, cIdx) => (
                   <g key={`cmd-${cIdx}`}>
                     <title>{display(ct.owner).label} command token</title>
-                    <circle cx={tile.center.x - 42 + cIdx * 12} cy={tile.center.y + 56} r="6" fill={ct.color} stroke="#f8fafc" strokeWidth="1" />
-                    <text x={tile.center.x - 42 + cIdx * 12} y={tile.center.y + 59} textAnchor="middle" fill={display(ct.owner).position === 8 ? '#fff' : '#0b1220'} fontSize="8" pointerEvents="none">{display(ct.owner).symbol}</text>
+                    <circle
+                      cx={tile.center.x - 42 + cIdx * 12}
+                      cy={tile.center.y + 56}
+                      r="6"
+                      fill={ct.color}
+                      stroke="#f8fafc"
+                      strokeWidth="1"
+                    />
+                    <text
+                      x={tile.center.x - 42 + cIdx * 12}
+                      y={tile.center.y + 59}
+                      textAnchor="middle"
+                      fill={display(ct.owner).position === 8 ? "#fff" : "#0b1220"}
+                      fontSize="8"
+                      pointerEvents="none"
+                    >
+                      {display(ct.owner).symbol}
+                    </text>
                   </g>
                 ))}
               </SvgButton>
@@ -495,7 +571,7 @@ export const Board: React.FC<BoardProps> = ({
                 strokeWidth={3}
                 strokeDasharray="8 5"
                 markerEnd="url(#vector-arrow)"
-                style={{ opacity: 0.85, pointerEvents: 'none' }}
+                style={{ opacity: 0.85, pointerEvents: "none" }}
               />
               <circle
                 cx={(vec.fromCenter.x + vec.toCenter.x) / 2}
@@ -504,7 +580,7 @@ export const Board: React.FC<BoardProps> = ({
                 fill="#0f172a"
                 stroke="#4ade80"
                 strokeWidth={1.5}
-                style={{ pointerEvents: 'none' }}
+                style={{ pointerEvents: "none" }}
               />
               <text
                 x={(vec.fromCenter.x + vec.toCenter.x) / 2}
@@ -513,7 +589,7 @@ export const Board: React.FC<BoardProps> = ({
                 fill="#4ade80"
                 fontSize="10"
                 fontWeight="bold"
-                style={{ pointerEvents: 'none' }}
+                style={{ pointerEvents: "none" }}
               >
                 {vec.unitCount}
               </text>
@@ -539,38 +615,47 @@ export const Board: React.FC<BoardProps> = ({
           data-testid="system-tooltip"
           className="board-tooltip panel"
           style={{
-            border: '1px solid #38bdf8',
-            padding: '10px 14px',
+            border: "1px solid #38bdf8",
+            padding: "10px 14px",
             fontSize: 13,
-            pointerEvents: 'none',
+            pointerEvents: "none",
             maxWidth: 320,
           }}
         >
-          <div style={{ fontWeight: 'bold', color: '#38bdf8', marginBottom: 4 }}>
+          <div style={{ fontWeight: "bold", color: "#38bdf8", marginBottom: 4 }}>
             System #{hoveredTile.systemId} — {hoveredTile.label}
           </div>
           {hoveredTile.anomalies && hoveredTile.anomalies.length > 0 && (
-            <div style={{ color: '#fef08a', fontSize: 12 }}>
-              Anomaly: {hoveredTile.anomalies.join(', ')}
+            <div style={{ color: "#fef08a", fontSize: 12 }}>
+              Anomaly: {hoveredTile.anomalies.join(", ")}
             </div>
           )}
           {hoveredTile.wormholes && hoveredTile.wormholes.length > 0 && (
-            <div style={{ color: '#a78bfa', fontSize: 12 }}>
-              Wormholes: {hoveredTile.wormholes.join(', ')}
+            <div style={{ color: "#a78bfa", fontSize: 12 }}>
+              Wormholes: {hoveredTile.wormholes.join(", ")}
             </div>
           )}
           <div style={{ marginTop: 4 }}>
-            <span style={{ fontWeight: 'bold', color: '#cbd5e1' }}>Planets: </span>
+            <span style={{ fontWeight: "bold", color: "#cbd5e1" }}>Planets: </span>
             {hoveredTile.planets.length > 0 ? (
               hoveredTile.planets.map((p, i) => (
                 <div key={i} style={{ marginLeft: 6, fontSize: 12 }}>
                   • {p.label}
                   {p.resources !== undefined && ` (${p.resources} Res / ${p.influence} Inf)`}
-                  {p.owner && <span style={{ color: getPlayerColor(p.owner, seatingOrder) }}> [{display(p.owner).position && <SeatBadge position={display(p.owner).position!} />} {display(p.owner).label}]</span>}
+                  {p.owner && (
+                    <span style={{ color: getPlayerColor(p.owner, seatingOrder) }}>
+                      {" "}
+                      [
+                      {display(p.owner).position && (
+                        <SeatBadge position={display(p.owner).position!} />
+                      )}{" "}
+                      {display(p.owner).label}]
+                    </span>
+                  )}
                 </div>
               ))
             ) : (
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>None</span>
+              <span style={{ fontSize: 12, color: "#94a3b8" }}>None</span>
             )}
           </div>
           <div style={{ marginTop: 4, fontSize: 12 }}>

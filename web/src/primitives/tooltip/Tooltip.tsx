@@ -1,22 +1,15 @@
-import React, {
-  useState,
-  useRef,
-  useId,
-  useEffect,
-  cloneElement,
-  isValidElement,
-} from 'react';
-import { overlayStack } from '../core/overlayStack.ts';
+import React, { useState, useRef, useId, useEffect, cloneElement, isValidElement } from "react";
+import { overlayStack } from "../core/overlayStack.ts";
 
 export interface TooltipProps {
   content: React.ReactNode;
   children: React.ReactElement;
-  position?: 'top' | 'bottom' | 'left' | 'right';
+  position?: "top" | "bottom" | "left" | "right";
   delayMs?: number;
   disabled?: boolean;
   className?: string;
-  'data-testid'?: string;
-  as?: 'div' | 'span';
+  "data-testid"?: string;
+  as?: "div" | "span";
   wrapperStyle?: React.CSSProperties;
   wrapperClassName?: string;
 }
@@ -24,12 +17,12 @@ export interface TooltipProps {
 export const Tooltip: React.FC<TooltipProps> = ({
   content,
   children,
-  position = 'top',
+  position = "top",
   delayMs = 200,
   disabled = false,
   className,
-  'data-testid': testId,
-  as = 'div',
+  "data-testid": testId,
+  as = "div",
   wrapperStyle,
   wrapperClassName,
 }) => {
@@ -83,13 +76,13 @@ export const Tooltip: React.FC<TooltipProps> = ({
     ref: (node: HTMLElement | null) => {
       triggerRef.current = node;
       const childRef = (children as { ref?: React.Ref<HTMLElement> }).ref;
-      if (typeof childRef === 'function') {
+      if (typeof childRef === "function") {
         childRef(node);
-      } else if (childRef && 'current' in childRef) {
+      } else if (childRef && "current" in childRef) {
         (childRef as React.MutableRefObject<HTMLElement | null>).current = node;
       }
     },
-    'aria-describedby': isVisible ? tooltipId : undefined,
+    "aria-describedby": isVisible ? tooltipId : undefined,
     onPointerEnter: (e: React.PointerEvent) => {
       show();
       (childProps.onPointerEnter as ((e: React.PointerEvent) => void) | undefined)?.(e);
@@ -107,7 +100,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       (childProps.onBlur as ((e: React.FocusEvent) => void) | undefined)?.(e);
     },
     onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape' && isVisible) {
+      if (e.key === "Escape" && isVisible) {
         e.stopPropagation();
         hide();
       }
@@ -122,8 +115,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
       ref={containerRef}
       className={wrapperClassName}
       style={{
-        display: as === 'span' ? 'inline-block' : 'inline-flex',
-        position: 'relative',
+        display: as === "span" ? "inline-block" : "inline-flex",
+        position: "relative",
         ...wrapperStyle,
       }}
     >
@@ -133,21 +126,21 @@ export const Tooltip: React.FC<TooltipProps> = ({
           ref={tooltipRef}
           role="tooltip"
           id={tooltipId}
-          data-testid={testId || 'accessible-tooltip'}
+          data-testid={testId || "accessible-tooltip"}
           data-position={position}
-          className={`accessible-tooltip ${className || ''}`}
+          className={`accessible-tooltip ${className || ""}`}
           style={{
-            position: 'absolute',
-            ...(position === 'top'
-              ? { bottom: '100%', left: '50%', transform: 'translateX(-50%) translateY(-6px)' }
-              : position === 'bottom'
-              ? { top: '100%', left: '50%', transform: 'translateX(-50%) translateY(6px)' }
-              : position === 'left'
-              ? { right: '100%', top: '50%', transform: 'translateY(-50%) translateX(-6px)' }
-              : { left: '100%', top: '50%', transform: 'translateY(-50%) translateX(6px)' }),
-            zIndex: 'var(--layer-popover)',
-            pointerEvents: 'none',
-            whiteSpace: typeof content === 'string' ? 'pre-line' : 'normal',
+            position: "absolute",
+            ...(position === "top"
+              ? { bottom: "100%", left: "50%", transform: "translateX(-50%) translateY(-6px)" }
+              : position === "bottom"
+                ? { top: "100%", left: "50%", transform: "translateX(-50%) translateY(6px)" }
+                : position === "left"
+                  ? { right: "100%", top: "50%", transform: "translateY(-50%) translateX(-6px)" }
+                  : { left: "100%", top: "50%", transform: "translateY(-50%) translateX(6px)" }),
+            zIndex: "var(--layer-popover)",
+            pointerEvents: "none",
+            whiteSpace: typeof content === "string" ? "pre-line" : "normal",
           }}
         >
           {content}
