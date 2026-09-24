@@ -266,4 +266,221 @@ describe("TacticalMovementOverlay Component", () => {
     // Submits the first matched option for cruiser from 24
     expect(onSubmit).toHaveBeenCalledWith("move|24|0");
   });
+
+  it("reads true unit count from boardView, formats unit names, and shows UnitIcons", () => {
+    const choiceWithSolCarrier: PendingChoiceDto = {
+      prompt: "movement",
+      actor: "p1",
+      nonce: "nonce_sol",
+      context: { subtype: "movement_step", target: { System: "18" } },
+      options: [
+        {
+          id: "move|24|0",
+          label: "Sol Carrier",
+          kind: "move",
+          payload: { origin: "24", unit: "sol_carrier", capacity: 4 },
+        },
+        {
+          id: "move|24|1",
+          label: "Cruiser",
+          kind: "move",
+          payload: { origin: "24", unit: "cruiser" },
+        },
+        { id: "done_moving", kind: "decline", label: "finish movement" },
+      ],
+    };
+
+    const mockBoard = {
+      systems: {
+        "24": {
+          system_id: "24",
+          command_tokens: [],
+          planets: {},
+          units: [
+            { unit_type: "sol_carrier", owner: "p1", damaged: false },
+            { unit_type: "cruiser", owner: "p1", damaged: false },
+            { unit_type: "cruiser", owner: "p1", damaged: false },
+            { unit_type: "cruiser", owner: "p1", damaged: false },
+          ],
+        },
+      },
+    };
+
+    render(
+      <TacticalMovementOverlay
+        choice={choiceWithSolCarrier}
+        board={mockBoard as any}
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={vi.fn()}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // Title Case header and clear instruction
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Move Units");
+    expect(
+      screen.getByText("Select ships and cargo to rally into the active system"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("movement")).not.toBeInTheDocument();
+
+    // Friendly display name for sol_carrier
+    expect(screen.getByText("Carrier")).toBeInTheDocument();
+    // UnitIcon rendered
+    const icons = screen.getAllByRole("img");
+    expect(icons.length).toBeGreaterThan(0);
+
+    // Cruisers count derived from boardView: 3 available instead of 1
+    expect(screen.getByText(/Origin: #24 • Available: 3/)).toBeInTheDocument();
+
+    // Can increment cruiser up to 3
+    const cruiserInc = screen.getByTestId("rally-inc-24-cruiser");
+    fireEvent.click(cruiserInc);
+    fireEvent.click(cruiserInc);
+    fireEvent.click(cruiserInc);
+    expect(screen.getByTestId("rally-count-24-cruiser")).toHaveTextContent("3");
+    expect(cruiserInc).toBeDisabled();
+  });
+
+  it("permits exceeding fleet supply with an advisory warning while keeping commit enabled", () => {
+    const choiceWithManyShips: PendingChoiceDto = {
+      prompt: "movement",
+      actor: "p1",
+      nonce: "nonce_fleet",
+      context: { subtype: "movement_step", target: { System: "18" } },
+      options: [
+        {
+          id: "move|24|0",
+          label: "Cruiser",
+          kind: "move",
+          payload: { origin: "24", unit: "cruiser" },
+        },
+        { id: "done_moving", kind: "decline", label: "finish movement" },
+      ],
+    };
+
+    const mockBoard = {
+      systems: {
+        "24": {
+          system_id: "24",
+          command_tokens: [],
+          planets: {},
+          units: [
+            { unit_type: "cruiser", owner: "p1", damaged: false },
+            { unit_type: "cruiser", owner: "p1", damaged: false },
+            { unit_type: "cruiser", owner: "p1", damaged: false },
+            { unit_type: "cruiser", owner: "p1", damaged: false },
+          ],
+        },
+      },
+    };
+
+    // Fleet tokens = 2 (so staging 4 cruisers exceeds the fleet limit)
+    const constrainedPlayer: PlayerView = {
+      ...mockPlayer,
+      fleet_tokens: 2,
+    };
+
+    render(
+      <TacticalMovementOverlay
+        choice={choiceWithManyShips}
+        board={mockBoard as any}
+        activeSystemId="18"
+        player={constrainedPlayer}
+        onSubmit={vi.fn()}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const cruiserInc = screen.getByTestId("rally-inc-24-cruiser");
+    fireEvent.click(cruiserInc);
+    fireEvent.click(cruiserInc);
+    fireEvent.click(cruiserInc);
+
+    // 3 cruisers staged against fleet supply of 2
+    expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("3 / 2 Ships");
+    expect(
+      screen.getByText(/Exceeds fleet limit \(3\/2\) — excess ships must be lost in combat or destroyed/i),
+    ).toBeInTheDocument();
+
+    // Commit button remains ENABLED (attacking over fleet supply is valid TI4 rules)
+    const commitBtn = screen.getByTestId("commit-moves-btn");
+    expect(commitBtn).toBeEnabled();
+    expect(commitBtn).toHaveTextContent("Commit Moves (3)");
+  });
+
+  it("stages pooled cargo from origin and enqueues load intents in the pipeline", async () => {
+    const choiceWithCarrier: PendingChoiceDto = {
+      prompt: "movement",
+      actor: "p1",
+      nonce: "nonce_cargo",
+      context: { subtype: "movement_step", target: { System: "18" } },
+      options: [
+        {
+          id: "move|24|0",
+          label: "Carrier",
+          kind: "move",
+          payload: { origin: "24", unit: "carrier", capacity: 4 },
+        },
+        { id: "done_moving", kind: "decline", label: "finish movement" },
+      ],
+    };
+
+    const mockBoard = {
+      systems: {
+        "24": {
+          system_id: "24",
+          command_tokens: [],
+          planets: {
+            jord: { planet_id: "jord", exhausted: false },
+          },
+          units: [
+            { unit_type: "carrier", owner: "p1", damaged: false },
+            { unit_type: "infantry", owner: "p1", planet: "jord", damaged: false },
+            { unit_type: "infantry", owner: "p1", planet: "jord", damaged: false },
+          ],
+        },
+      },
+    };
+
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <TacticalMovementOverlay
+        choice={choiceWithCarrier}
+        board={mockBoard as any}
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={onSubmit}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // Carrier is staged
+    fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
+    expect(screen.getByTestId("cargo-capacity-gauge")).toHaveTextContent("0 / 4 Loaded");
+
+    // Carryable cargo section is visible
+    expect(screen.getByText("Carryable Cargo in Origin Systems")).toBeInTheDocument();
+
+    // Stage 2 infantry from Jord
+    const infInc = screen.getByTestId("rally-inc-24-infantry");
+    fireEvent.click(infInc);
+    fireEvent.click(infInc);
+
+    expect(screen.getByTestId("cargo-capacity-gauge")).toHaveTextContent("2 / 4 Loaded");
+
+    // Commit moves
+    const commitBtn = screen.getByTestId("commit-moves-btn");
+    await act(async () => {
+      fireEvent.click(commitBtn);
+    });
+
+    // Submits the carrier move first
+    expect(onSubmit).toHaveBeenCalledWith("move|24|0");
+  });
 });
+

@@ -1394,7 +1394,7 @@ select:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 180px;
+  max-height: 280px;
   overflow-y: auto;
 }
 .fleet-rally-tray__status[data-alert="true"] {
@@ -1402,6 +1402,14 @@ select:focus-visible,
 }
 .fleet-rally-tray__status[data-alert="false"] {
   color: #4ade80;
+}
+.fleet-rally-tray__status[data-warning="true"] {
+  color: #f59e0b;
+}
+.fleet-rally-tray__advisory {
+  font-size: 0.8rem;
+  color: #f59e0b;
+  margin-top: 4px;
 }
 
 .reaction-status-bar {

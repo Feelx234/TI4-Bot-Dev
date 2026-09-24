@@ -229,8 +229,93 @@ fn setup_base_3p_game(
 fn build_tactical_scenario(
     seed: u64,
 ) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String), String> {
-    let (config, lobby_record, p1, token, _, _, _) =
+    let (mut config, lobby_record, p1, token, galaxy, p2, _) =
         setup_base_3p_game(seed, "dev_tactical")?;
+    let content = ContentStore::embedded();
+
+    // 1. Find a passable adjacent system to Sol's home (01) to serve as Hacan's border system
+    let adjacent_ids = galaxy.adjacent("01");
+    let border_system = adjacent_ids
+        .iter()
+        .find(|sys_id| {
+            if let Some(sys) = ti4_content::galaxy::system(content, sys_id, POK) {
+                !sys.is_supernova() && !sys.is_asteroid_field()
+            } else {
+                false
+            }
+        })
+        .copied()
+        .unwrap_or("18");
+
+    // 2. Find a second passable system adjacent to the border system (distinct from 01)
+    let border_adjacents = galaxy.adjacent(border_system);
+    let second_system = border_adjacents
+        .iter()
+        .find(|sys_id| {
+            if **sys_id == "01" || **sys_id == border_system {
+                return false;
+            }
+            if let Some(sys) = ti4_content::galaxy::system(content, sys_id, POK) {
+                !sys.is_supernova() && !sys.is_asteroid_field()
+            } else {
+                false
+            }
+        })
+        .copied()
+        .unwrap_or("19");
+
+    let border_sys_id = SystemId::new(border_system);
+    let second_sys_id = SystemId::new(second_system);
+
+    // Place Hacan's fleet in the border system
+    let border_state = config.state.system_mut(&border_sys_id);
+    border_state.command_tokens.clear();
+    border_state.units.clear();
+    border_state
+        .units
+        .push(Unit::new(UnitTypeId::new("cruiser"), p2.clone()));
+    border_state
+        .units
+        .push(Unit::new(UnitTypeId::new("destroyer"), p2.clone()));
+    border_state
+        .units
+        .push(Unit::new(UnitTypeId::new("fighter"), p2.clone()));
+    border_state
+        .units
+        .push(Unit::new(UnitTypeId::new("fighter"), p2.clone()));
+
+    // If there are planets in border_system, place 1 Hacan Infantry on the first planet
+    if let Some(first_planet) = border_state.planet_units.keys().cloned().next() {
+        border_state.land(&first_planet, &[Unit::new(UnitTypeId::new("infantry"), p2.clone())]);
+        border_state.set_control(first_planet, p2.clone());
+    }
+
+    // Place Sol's second fleet in second_system (also adjacent to border system)
+    let second_state = config.state.system_mut(&second_sys_id);
+    second_state.command_tokens.clear();
+    second_state.units.clear();
+    second_state
+        .units
+        .push(Unit::new(UnitTypeId::new("cruiser"), p1.clone()));
+    second_state
+        .units
+        .push(Unit::new(UnitTypeId::new("dreadnought"), p1.clone()));
+    second_state
+        .units
+        .push(Unit::new(UnitTypeId::new("fighter"), p1.clone()));
+
+    let sol_infantry = vec![
+        Unit::new(UnitTypeId::new("infantry"), p1.clone()),
+        Unit::new(UnitTypeId::new("infantry"), p1.clone()),
+    ];
+
+    if let Some(first_planet) = second_state.planet_units.keys().cloned().next() {
+        second_state.land(&first_planet, &sol_infantry);
+        second_state.set_control(first_planet, p1.clone());
+    } else {
+        second_state.units.extend(sol_infantry);
+    }
+
     Ok((config, lobby_record, p1, token))
 }
 

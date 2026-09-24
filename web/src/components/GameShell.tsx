@@ -65,6 +65,39 @@ type WorkflowRenderer = (
   },
 ) => React.ReactNode;
 
+const renderTactical: WorkflowRenderer = ({
+  choice,
+  model,
+  boardView,
+  viewerSeat,
+  players,
+  onSubmit,
+  isMinimized,
+  onMinimizedChange,
+  lastError,
+}) => (
+  <TacticalMovementOverlay
+    key="tactical_movement_overlay"
+    choice={choice}
+    model={model}
+    board={boardView}
+    viewerSeat={viewerSeat}
+    activeSystemId={
+      model?.selectionMode.mode === "tactical_move" ||
+      model?.selectionMode.mode === "tactical_cargo"
+        ? model.selectionMode.activeSystem
+        : choice.context?.target && "System" in choice.context.target
+          ? choice.context.target.System
+          : null
+    }
+    player={players?.[choice.actor] ?? null}
+    onSubmit={onSubmit}
+    isOpen={!isMinimized}
+    onClose={() => onMinimizedChange(true)}
+    lastError={lastError}
+  />
+);
+
 const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRenderer>([
   [
     "payment",
@@ -92,50 +125,8 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
       />
     ),
   ],
-  [
-    "tactical_movement",
-    ({
-      choice,
-      model,
-      viewerSeat,
-      players,
-      onSubmit,
-      isMinimized,
-      onMinimizedChange,
-      lastError,
-    }) => (
-      <TacticalMovementOverlay
-        choice={choice}
-        model={model}
-        viewerSeat={viewerSeat}
-        activeSystemId={
-          model?.selectionMode.mode === "tactical_move"
-            ? model.selectionMode.activeSystem
-            : choice.context?.target && "System" in choice.context.target
-              ? choice.context.target.System
-              : null
-        }
-        player={players?.[choice.actor] ?? null}
-        onSubmit={onSubmit}
-        isOpen={!isMinimized}
-        onClose={() => onMinimizedChange(true)}
-        lastError={lastError}
-      />
-    ),
-  ],
-  [
-    "tactical_cargo",
-    ({ choice, boardView, onSubmit, isMinimized, onMinimizedChange, lastError }) => (
-      <CargoLoadingTray
-        choice={choice}
-        board={boardView}
-        onSubmit={onSubmit}
-        isOpen={!isMinimized}
-        onClose={() => onMinimizedChange(true)}
-        lastError={lastError}
-      />
-    ),
-  ],
+  ["tactical_movement", renderTactical],
+  ["tactical_cargo", renderTactical],
   ["combat_sustain", renderCombat],
   ["combat_casualty", renderCombat],
   ["combat_retreat", renderCombat],
@@ -403,7 +394,13 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
           "system_activation",
         ].includes(workflow) && (
           <div className="choice-banner choice-minimized-pill" data-testid="choice-minimized-pill">
-            <span className="choice-minimized-pill__prompt">{visibleChoice.prompt}</span>
+            <span className="choice-minimized-pill__prompt">
+              {workflow === "tactical_movement" || visibleChoice.prompt === "movement"
+                ? "Move Units"
+                : workflow === "tactical_cargo" || visibleChoice.prompt === "load_cargo"
+                  ? "Load Cargo"
+                  : visibleChoice.prompt}
+            </span>
             <button
               type="button"
               data-testid="resume-decision-btn"

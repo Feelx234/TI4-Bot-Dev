@@ -366,9 +366,12 @@ impl GameRegistry {
             .ok_or(HistoryError::NotFound)?
             .clone();
         if session.game_version() != expected_version || !session.history_ready() {
-            return Err(HistoryError::Conflict(
-                "Game advanced or a decision is in flight".to_owned(),
-            ));
+            return Err(HistoryError::Conflict(format!(
+                "Game advanced or a decision is in flight (session_ver={}, expected_ver={}, history_ready={})",
+                session.game_version(),
+                expected_version,
+                session.history_ready()
+            )));
         }
         let current = session.decision_log();
         let redo = session.redo_decisions();

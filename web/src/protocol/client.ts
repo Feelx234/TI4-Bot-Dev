@@ -63,7 +63,7 @@ function rejectionMessage(message: Extract<ServerMessage, { type: "action_reject
     case "unknown_option":
       return `Rejected: Unknown option '${message.reason.option_id}'`;
     default:
-      return "Action rejected";
+      return `Action rejected: ${JSON.stringify(message.reason)}`;
   }
 }
 
@@ -396,7 +396,6 @@ export class GameSessionClient {
     if (
       submission?.accepted &&
       this.state.gameVersion > submission.version &&
-      this.state.snapshot?.game_version === this.state.gameVersion &&
       this.state.pendingChoice?.nonce !== submission.nonce
     ) {
       this.submission = null;
