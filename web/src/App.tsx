@@ -243,7 +243,10 @@ const GameViewContainer: React.FC<{
           option.id.startsWith(`exhaust|${planetId}|`)
         : String(option.payload?.system ?? option.payload?.to ?? option.id) === systemId,
     );
-    if (!match) return;
+    if (!match) {
+      setSelectedOptionId(undefined);
+      return;
+    }
     setSelectedOptionId(match.id);
   };
   return (
@@ -285,6 +288,14 @@ const GameViewContainer: React.FC<{
               onSelectSystem={(id) => {
                 setSelectedSystemId(id);
                 setCardSubject(null);
+                if (id && pendingChoice && pendingChoice.actor === userSeat) {
+                  const match = pendingChoice.options.find((option) =>
+                    String(option.payload?.system ?? option.payload?.to ?? option.id) === id,
+                  );
+                  if (!match) {
+                    setSelectedOptionId(undefined);
+                  }
+                }
               }}
               onSelectOptionId={(id) => {
                 if (pendingChoice?.options.some((option) => option.id === id))

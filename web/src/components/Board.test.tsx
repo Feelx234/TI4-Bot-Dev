@@ -293,15 +293,13 @@ describe("Board Component", () => {
     expect(screen.getByTestId("activation-target-reticle")).toBeInTheDocument();
   });
 
-  it("uses the exact legal option ID when an inspector action is clicked", () => {
-    const onSelectOptionId = vi.fn();
+  it("does not render available decision actions inside the system inspector", () => {
     render(
       <Board
         board={mockBoard}
         seatingOrder={["p1", "p2"]}
         selectedSystemId="18"
         viewerSeat="p1"
-        onSelectOptionId={onSelectOptionId}
         pendingChoice={{
           nonce: "n",
           actor: "p1",
@@ -313,8 +311,9 @@ describe("Board Component", () => {
         }}
       />,
     );
-    fireEvent.click(screen.getByTestId("inspector-action-second"));
-    expect(onSelectOptionId).toHaveBeenCalledWith("second");
+    expect(screen.getByTestId("system-inspector")).toBeInTheDocument();
+    expect(screen.queryByText(/Available Decision Actions/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("inspector-action-second")).not.toBeInTheDocument();
   });
 
   it("renders animated movement vector lines and badges between origin and destination", () => {

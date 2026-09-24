@@ -77,15 +77,36 @@ describe("development decision gallery", () => {
     expect(screen.queryByText(/Awaiting next decision/)).not.toBeInTheDocument();
   });
 
-  it("selects an offered activation target on the map without submitting until confirmation", async () => {
+  it("selects an offered activation target directly on the map without modal and submits on confirmation", async () => {
     render(<DecisionGallery />);
     fireEvent.click(screen.getByRole("button", { name: /^system activation/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Minimize decision" }));
+    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("system-activation-bar")).toBeVisible();
+    expect(screen.getByText(/directly on the map to activate/i)).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("system-hex-24"));
     expect(screen.getByTestId("system-hex-24")).toHaveAttribute("data-system-selected", "true");
-    fireEvent.click(screen.getByTestId("resume-choice-button"));
-    expect(screen.getByLabelText("Activate system 24")).toBeChecked();
-    fireEvent.click(screen.getByTestId("submit-choice-button"));
+    const bar = screen.getByTestId("system-activation-bar");
+    expect(bar).toHaveTextContent(/Activate/);
+    expect(bar).toHaveTextContent("Mehar Xull");
+    fireEvent.click(screen.getByTestId("confirm-activation-btn"));
     await waitFor(() => expect(screen.getByText(/Local submission: 24/)).toBeInTheDocument());
   });
+
+  it("switches from confirm activation bar to blocked status when clicking a non-activatable system", () => {
+    render(<DecisionGallery />);
+    fireEvent.click(screen.getByRole("button", { name: /^system activation/i }));
+
+    // 1. Click activatable system (24 - Mehar Xull)
+    fireEvent.click(screen.getByTestId("system-hex-24"));
+    expect(screen.getByTestId("confirm-activation-btn")).toBeVisible();
+    expect(screen.getByTestId("system-activation-bar")).toHaveTextContent("Mehar Xull");
+
+    // 2. Click blocked/non-activatable system (22 - Tar'Mann, contains player token)
+    fireEvent.click(screen.getByTestId("system-hex-22"));
+    expect(screen.queryByTestId("confirm-activation-btn")).not.toBeInTheDocument();
+    expect(screen.getByTestId("system-activation-bar")).not.toHaveTextContent("Mehar Xull");
+    expect(screen.getByTestId("system-activation-bar")).toHaveTextContent("Activated / Blocked");
+    expect(screen.getByTestId("system-activation-bar")).toHaveTextContent("Tar'Mann");
+  });
 });
+

@@ -102,8 +102,9 @@ export const Board: React.FC<BoardProps> = ({
   const resetView = () => setViewTransform({ x: 0, y: 0, scale: 1 });
 
   const handleTileClick = (tile: TilePresentation) => {
-    if (tile.isCandidateTarget) {
-      onSelectTarget?.(tile.systemId);
+    onSelectTarget?.(tile.systemId);
+    if (!tile.isCandidateTarget) {
+      onSelectOptionId?.("");
     }
     setSelectedSystemId(tile.systemId);
   };
@@ -223,13 +224,6 @@ export const Board: React.FC<BoardProps> = ({
           {presentation.tiles.map((tile, idx) => {
             const sysId = tile.systemId;
             const isSelected = selectedSystemId === sysId;
-            const singlePlanetOwner =
-              tile.planets.length > 0 &&
-              tile.planets.every(
-                (p) => p.controlledBy && p.controlledBy === tile.planets[0].controlledBy,
-              )
-                ? tile.planets[0].controlledBy
-                : null;
 
             return (
               <SvgButton
@@ -276,6 +270,15 @@ export const Board: React.FC<BoardProps> = ({
                   filter={tile.isCandidateTarget ? "url(#target-glow)" : undefined}
                 />
 
+                {/* Candidate target soft glow fill */}
+                {tile.isCandidateTarget && presentation.targets.isActivationMode && (
+                  <polygon
+                    points={tile.points}
+                    fill="rgba(56, 189, 248, 0.15)"
+                    pointerEvents="none"
+                  />
+                )}
+
                 {/* Candidate target highlight animation ring */}
                 {tile.isCandidateTarget && (
                   <polygon
@@ -294,56 +297,97 @@ export const Board: React.FC<BoardProps> = ({
                     <circle
                       cx={tile.center.x}
                       cy={tile.center.y}
-                      r={28}
+                      r={26}
                       fill="none"
                       stroke="#38bdf8"
                       strokeWidth={2}
                       strokeDasharray="4 2"
                     />
                     <line
-                      x1={tile.center.x - 34}
+                      x1={tile.center.x - 32}
                       y1={tile.center.y}
-                      x2={tile.center.x - 20}
+                      x2={tile.center.x - 16}
                       y2={tile.center.y}
                       stroke="#38bdf8"
                       strokeWidth={2}
                     />
                     <line
-                      x1={tile.center.x + 20}
+                      x1={tile.center.x + 16}
                       y1={tile.center.y}
-                      x2={tile.center.x + 34}
+                      x2={tile.center.x + 32}
                       y2={tile.center.y}
                       stroke="#38bdf8"
                       strokeWidth={2}
                     />
                     <line
                       x1={tile.center.x}
-                      y1={tile.center.y - 34}
+                      y1={tile.center.y - 32}
                       x2={tile.center.x}
-                      y2={tile.center.y - 20}
+                      y2={tile.center.y - 16}
                       stroke="#38bdf8"
                       strokeWidth={2}
                     />
                     <line
                       x1={tile.center.x}
-                      y1={tile.center.y + 20}
+                      y1={tile.center.y + 16}
                       x2={tile.center.x}
-                      y2={tile.center.y + 34}
+                      y2={tile.center.y + 32}
                       stroke="#38bdf8"
                       strokeWidth={2}
                     />
+                    <rect
+                      x={tile.center.x - 24}
+                      y={tile.center.y - 36}
+                      width={48}
+                      height={13}
+                      rx={3}
+                      fill="#0f172a"
+                      stroke="#38bdf8"
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={tile.center.x}
+                      y={tile.center.y - 27}
+                      textAnchor="middle"
+                      fill="#38bdf8"
+                      fontSize="8"
+                      fontWeight="bold"
+                      letterSpacing="1"
+                    >
+                      TARGET
+                    </text>
                   </g>
                 )}
 
-                {/* Inner border for exclusive planet control */}
-                {singlePlanetOwner && !tile.isCandidateTarget && (
-                  <polygon
-                    points={tile.innerPoints}
-                    fill="none"
-                    stroke={getPlayerColor(singlePlanetOwner, seatingOrder)}
-                    strokeWidth={2}
-                    strokeDasharray="4 2"
-                  />
+                {/* Blocked by player's command token overlay */}
+                {tile.commandTokens.some((ct) => ct.owner === viewerSeat) && (
+                  <g data-testid={`blocked-token-${tile.systemId}`} style={{ pointerEvents: "none" }}>
+                    <polygon
+                      points={tile.points}
+                      fill="rgba(15, 23, 42, 0.4)"
+                    />
+                    <rect
+                      x={tile.center.x - 32}
+                      y={tile.center.y - 36}
+                      width={64}
+                      height={13}
+                      rx={3}
+                      fill="#1e293b"
+                      stroke="#64748b"
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={tile.center.x}
+                      y={tile.center.y - 27}
+                      textAnchor="middle"
+                      fill="#94a3b8"
+                      fontSize="8"
+                      fontWeight="bold"
+                      letterSpacing="0.5"
+                    >
+                      ACTIVATED
+                    </text>
+                  </g>
                 )}
 
                 {/* Tile Label / System Number */}
@@ -603,7 +647,6 @@ export const Board: React.FC<BoardProps> = ({
         <SystemInspector
           system={presentation.selectedSystem}
           onClose={() => setSelectedSystemId(null)}
-          onSelectAction={onSelectOptionId}
         />
       )}
 

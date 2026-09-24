@@ -277,11 +277,6 @@ describe("INV-03 decision invariant matrix", () => {
     region: string;
   }> = [
     {
-      subtype: "activate_system",
-      options: [{ id: "18", kind: "activate", label: "System 18" }],
-      region: "pending-choice-dialog",
-    },
-    {
       subtype: "movement_step",
       options: [{ id: "done_moving", kind: "decline", label: "Done" }],
       region: "decision-modal",
@@ -401,6 +396,32 @@ describe("INV-03 decision invariant matrix", () => {
       expect(screen.getByTestId(region).closest('[role="dialog"]')).not.toBeNull();
     });
   }
+
+  it("activate_system: presents on the map with system-activation-bar and never traps in a modal dialog", () => {
+    const choice: PendingChoiceDto = {
+      actor,
+      nonce: "activate",
+      prompt: "Decide activate_system",
+      context: { subtype: "activate_system" },
+      options: [{ id: "18", kind: "activate", label: "System 18", payload: { system: "18" } }],
+    };
+    render(
+      <GameShell
+        header={<div>Header</div>}
+        board={<button type="button">Inspect board</button>}
+        playerSheet={<div>Players</div>}
+        events={[]}
+        choice={choice}
+        viewerSeat={actor}
+        players={{ [actor]: player }}
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("system-activation-bar")).toBeVisible();
+    expect(screen.getByText("Decide activate_system")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspect board" })).toBeEnabled();
+  });
 
   it("submits a mixed resource payment once per new offered nonce and keeps the draft on minimize", async () => {
     const pay = (

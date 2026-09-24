@@ -125,7 +125,7 @@ describe("GameShell", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
     expect(onSubmit).toHaveBeenNthCalledWith(2, "build|fighter|1");
   });
-  it("offers system activation in a minimizable decision modal", () => {
+  it("offers system activation directly over the map with activation bar without modal", () => {
     const activation: PendingChoiceDto = {
       actor: "p1",
       nonce: "activation",
@@ -142,9 +142,9 @@ describe("GameShell", () => {
         onMinimizedChange={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("pending-choice-dialog")).toHaveTextContent("Activate a system");
-    expect(screen.getByDisplayValue("18")).toBeChecked();
-    fireEvent.click(screen.getByTestId("minimize-choice-button"));
+    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("system-activation-bar")).toBeVisible();
+    expect(screen.getByText("Activate a system")).toBeInTheDocument();
   });
   it("presents dynamic choice text and errors from the latest roster without changing submissions", () => {
     const a = `player_${"a".repeat(64)}`;

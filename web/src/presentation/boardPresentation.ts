@@ -584,13 +584,13 @@ export function buildBoardPresentationModel(
     let strokeDashArray: string | undefined;
 
     if (singleSpaceOwner) {
-      strokeColor = getPlayerColor(singleSpaceOwner, seatingOrder);
-      strokeWidth = 3;
+      strokeColor = "#475569";
+      strokeWidth = 1.5;
     }
 
-    if (board.active_system === sysId) {
-      strokeColor = "#38bdf8";
-      strokeWidth = 3.5;
+    if (board.active_system === sysId && !targets.isActivationMode) {
+      strokeColor = "#f59e0b";
+      strokeWidth = 3;
       strokeDashArray = "6 3";
     }
 

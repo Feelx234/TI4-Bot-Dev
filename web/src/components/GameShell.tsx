@@ -12,6 +12,7 @@ import { ReactionStatusBar } from "./ReactionStatusBar.tsx";
 import { ProductionBuilderDrawer } from "./ProductionBuilderDrawer.tsx";
 import { CargoLoadingTray } from "./CargoLoadingTray.tsx";
 import { InvasionLandingTray } from "./InvasionLandingTray.tsx";
+import { SystemActivationBar } from "./SystemActivationBar.tsx";
 import { deriveChoiceRendererModel, ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { Dialog, overlayStack } from "../primitives/index.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
@@ -29,6 +30,7 @@ export interface GameShellProps {
   onSubmitChoice: (optionId: string) => Promise<void>;
   lastError?: string | null;
   selectedOptionId?: string;
+  selectedSystemId?: string | null;
   onSelectOption?: (optionId: string) => void;
   viewerSeat?: string | null;
   players?: Record<string, PlayerView> | PlayerView[];
@@ -45,6 +47,7 @@ export interface ChoiceRendererDispatcherProps {
   onSubmit: (optionId: string) => Promise<void>;
   lastError?: string | null;
   selectedOptionId?: string;
+  selectedSystemId?: string | null;
   onSelectOption?: (optionId: string) => void;
   isMinimized: boolean;
   onMinimizedChange: (minimized: boolean) => void;
@@ -184,7 +187,32 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
   ["generic_selection", renderGeneric],
   ["objective_scoring", renderGeneric],
   ["strategy_card_draft", renderGeneric],
-  ["system_activation", renderGeneric],
+  [
+    "system_activation",
+    ({
+      choice,
+      model,
+      viewerSeat,
+      selectedOptionId,
+      selectedSystemId,
+      onSelectOption,
+      onSubmit,
+      boardView,
+      lastError,
+    }) => (
+      <SystemActivationBar
+        choice={choice}
+        model={model}
+        viewerSeat={viewerSeat}
+        selectedOptionId={selectedOptionId}
+        selectedSystemId={selectedSystemId}
+        onSelectOption={onSelectOption}
+        onSubmit={onSubmit}
+        boardView={boardView}
+        lastError={lastError}
+      />
+    ),
+  ],
   [
     "tactical_invasion",
     ({
@@ -310,6 +338,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   onSubmit,
   lastError,
   selectedOptionId,
+  selectedSystemId,
   onSelectOption,
   isMinimized,
   onMinimizedChange,
@@ -352,6 +381,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     onSubmit,
     lastError: lastError ? present(lastError) : lastError,
     selectedOptionId,
+    selectedSystemId,
     onSelectOption,
     isMinimized,
     onMinimizedChange,
@@ -420,6 +450,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   onSubmitChoice,
   lastError,
   selectedOptionId,
+  selectedSystemId,
   onSelectOption,
   viewerSeat,
   players,
@@ -602,6 +633,7 @@ export const GameShell: React.FC<GameShellProps> = ({
           onSubmit={onSubmitChoice}
           lastError={lastError}
           selectedOptionId={selectedOptionId}
+          selectedSystemId={selectedSystemId}
           onSelectOption={onSelectOption}
           isMinimized={isChoiceMinimized}
           onMinimizedChange={setIsChoiceMinimized}

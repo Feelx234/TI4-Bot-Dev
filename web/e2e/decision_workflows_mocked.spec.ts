@@ -113,7 +113,7 @@ async function openMockedGame(page: Page, snapshot = initial) {
   return socketReady;
 }
 
-test("activation modal minimizes to allow selection on the map", async ({ page }) => {
+test("activation on the map shows confirmation bar and inspector without generic modal", async ({ page }) => {
   const activation: typeof initial = {
     ...initial,
     view: {
@@ -142,9 +142,8 @@ test("activation modal minimizes to allow selection on the map", async ({ page }
     const message = JSON.parse(String(data)) as ClientMessage;
     if (message.type === "submit_choice") submissions.push(message);
   });
-  await expect(page.getByTestId("pending-choice-dialog")).toBeVisible();
-  await page.getByTestId("minimize-choice-button").click();
-  await expect(page.getByTestId("minimized-choice-banner")).toBeVisible();
+  await expect(page.getByTestId("pending-choice-dialog")).toHaveCount(0);
+  await expect(page.getByTestId("system-activation-bar")).toBeVisible();
   await page.getByTestId("system-hex-18").click();
   await expect(page.getByTestId("system-inspector")).toBeVisible();
   await page.getByTestId("event-log-toggle").click();
@@ -155,8 +154,7 @@ test("activation modal minimizes to allow selection on the map", async ({ page }
   expect(inspector!.y + inspector!.height).toBeLessThanOrEqual(eventLog!.y);
   await page.getByTestId("close-inspector-button").click();
   await expect(page.getByTestId("system-inspector")).toHaveCount(0);
-  await page.getByRole("button", { name: "Resume decision" }).click();
-  await page.getByRole("button", { name: "Activate system" }).click();
+  await page.getByTestId("confirm-activation-btn").click();
   await expect.poll(() => submissions.length).toBe(1);
   expect(submissions[0]).toMatchObject({ option_id: "activate|18", nonce: "activate-7" });
 });

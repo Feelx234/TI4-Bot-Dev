@@ -1,11 +1,7 @@
 import React from "react";
 import { SelectedSystemDetails } from "../presentation/boardPresentation.ts";
 import { DetailPanel } from "./DetailPanel.tsx";
-import {
-  SeatBadge,
-  useParticipantText,
-  usePlayerIdentity,
-} from "../presentation/PlayerIdentity.tsx";
+import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 
 export interface SystemInspectorProps {
   system: SelectedSystemDetails | null;
@@ -13,13 +9,8 @@ export interface SystemInspectorProps {
   onSelectAction?: (optionId: string) => void;
 }
 
-export const SystemInspector: React.FC<SystemInspectorProps> = ({
-  system,
-  onClose,
-  onSelectAction,
-}) => {
+export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClose }) => {
   const display = usePlayerIdentity();
-  const present = useParticipantText();
   if (!system) return null;
 
   return (
@@ -316,42 +307,6 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
                 {display(ct.owner).position && <SeatBadge position={display(ct.owner).position!} />}{" "}
                 {display(ct.owner).label}
               </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Available Actions (When viewer has legal choices targeting this system) */}
-      {system.availableActions.length > 0 && (
-        <div style={{ marginTop: 4, paddingTop: 8, borderTop: "1px solid #334155" }}>
-          <h4
-            style={{
-              margin: "0 0 6px 0",
-              fontSize: 12,
-              fontWeight: 700,
-              color: "#38bdf8",
-              textTransform: "uppercase",
-            }}
-          >
-            Available Decision Actions
-          </h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {system.availableActions.map((act) => (
-              <button
-                key={act.optionId}
-                type="button"
-                data-testid={`inspector-action-${act.optionId}`}
-                onClick={() => onSelectAction?.(act.optionId)}
-                className="button button--primary"
-                style={{
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  textAlign: "left",
-                  borderRadius: 6,
-                }}
-              >
-                {present(act.label)}
-              </button>
             ))}
           </div>
         </div>

@@ -16,6 +16,7 @@ export const DecisionGallery: React.FC = () => {
   const [viewer, setViewer] = useState<"actor" | "other">("actor");
   const [nonce, setNonce] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string>();
+  const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
   const [trace, setTrace] = useState<
     Array<{ message: Extract<ClientMessage, { type: "submit_choice" }>; result: string }>
   >([]);
@@ -28,6 +29,7 @@ export const DecisionGallery: React.FC = () => {
     setRejectNext(false);
     setViewer("actor");
     setSelectedOption(undefined);
+    setSelectedSystemId(null);
     setTrace([]);
     setAwaiting(false);
     setNonce((previous) => previous + 1);
@@ -62,6 +64,7 @@ export const DecisionGallery: React.FC = () => {
                 setLastSubmitted(null);
                 setAwaiting(false);
                 setSelectedOption(undefined);
+                setSelectedSystemId(null);
               }}
             >
               Reset preview
@@ -186,15 +189,40 @@ export const DecisionGallery: React.FC = () => {
                   seatingOrder={gallerySeating}
                   pendingChoice={choice}
                   viewerSeat={viewerSeat}
+                  selectedSystemId={selectedSystemId}
+                  onSelectSystem={(sys) => {
+                    setSelectedSystemId(sys);
+                    if (!sys) {
+                      setSelectedOption(undefined);
+                    } else {
+                      const offered = choice?.options.find((o) =>
+                        String(o.payload?.system ?? o.id) === sys ||
+                        o.id === `activate|${sys}` ||
+                        o.id === sys,
+                      );
+                      if (!offered) {
+                        setSelectedOption(undefined);
+                      }
+                    }
+                  }}
+                  onSelectOptionId={(optId) => {
+                    setSelectedOption(optId);
+                  }}
                   onSelectTarget={(system, planet) => {
                     const offered = choice?.options.find((o) =>
                       planet
                         ? o.id === `exhaust|${planet}` ||
                           o.id === planet ||
                           o.payload?.planet === planet
-                        : o.payload?.system === system || o.id === system,
+                        : String(o.payload?.system ?? o.id) === system ||
+                          o.id === `activate|${system}` ||
+                          o.id === system,
                     );
-                    if (offered) setSelectedOption(offered.id);
+                    if (offered) {
+                      setSelectedOption(offered.id);
+                    } else {
+                      setSelectedOption(undefined);
+                    }
                   }}
                 />
               }
@@ -207,7 +235,11 @@ export const DecisionGallery: React.FC = () => {
               choice={choice}
               viewerSeat={viewerSeat}
               selectedOptionId={selectedOption}
-              onSelectOption={setSelectedOption}
+              selectedSystemId={selectedSystemId}
+              onSelectOption={(opt) => {
+                setSelectedOption(opt);
+                if (!opt) setSelectedSystemId(null);
+              }}
               onSubmitChoice={async (id) => {
                 if (!choice?.options.some((o) => o.id === id))
                   throw new Error("Option is not offered in this preview.");

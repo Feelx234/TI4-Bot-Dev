@@ -1221,6 +1221,60 @@ select:focus-visible,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.system-activation-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 20px;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid #38bdf8;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 12px rgba(56, 189, 248, 0.25);
+  border-radius: 8px;
+  max-width: min(650px, 92vw);
+}
+.system-activation-bar__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.system-activation-bar__confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.system-activation-bar__title {
+  color: #f8fafc;
+  font-size: 14px;
+}
+.system-activation-bar__title strong {
+  color: #38bdf8;
+}
+.system-activation-bar__prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.system-activation-bar__prompt {
+  font-weight: 600;
+  color: #f8fafc;
+}
+.system-activation-bar__hint {
+  font-size: 12px;
+}
+.system-activation-bar__actions {
+  display: flex;
+  gap: 8px;
+}
+.system-activation-bar__error {
+  font-size: 13px;
+  color: #f87171;
+}
 .choice-workflow-modal .workflow-inline {
   min-width: 0;
 }

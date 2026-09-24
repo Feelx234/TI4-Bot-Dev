@@ -72,16 +72,11 @@ describe("SystemInspector Component", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("triggers action selection callback when an available action is clicked", () => {
-    const onSelectAction = vi.fn();
-    render(
-      <SystemInspector system={mockSystem} onClose={() => {}} onSelectAction={onSelectAction} />,
-    );
+  it("does not render available decisions or action buttons in the system inspector", () => {
+    render(<SystemInspector system={mockSystem} onClose={() => {}} />);
 
-    const actionBtn = screen.getByTestId("inspector-action-opt_produce");
-    expect(actionBtn).toHaveTextContent("Produce 2 Fighters");
-    fireEvent.click(actionBtn);
-    expect(onSelectAction).toHaveBeenCalledWith("opt_produce");
+    expect(screen.queryByText(/Available Decision Actions/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("inspector-action-opt_produce")).not.toBeInTheDocument();
   });
 
   it("renders nothing when system is null", () => {
