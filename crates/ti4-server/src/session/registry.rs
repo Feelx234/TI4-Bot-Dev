@@ -1652,6 +1652,34 @@ impl GameRegistry {
         Ok(session)
     }
 
+    /// Creates and starts an authoritative dev scenario session with both player and legacy lobby registered.
+    pub fn launch_dev_scenario(
+        &self,
+        config: SessionConfig,
+        lobby_record: PlayerLobbyRecord,
+    ) -> Result<Arc<GameSession>, String> {
+        lobby_record.validate().map_err(|error| error.to_string())?;
+        crate::storage::validate_game_id(&config.game_id).map_err(|error| error.to_string())?;
+        let mut state = self.state.lock().expect("registry lock");
+        if state.sessions.contains_key(&config.game_id)
+            || state.lobbies.contains_key(&config.game_id)
+            || state.player_lobbies.contains_key(&config.game_id)
+        {
+            return Err(format!("Game session '{}' already exists", config.game_id));
+        }
+
+        let legacy_lobby = running_lobby_from_session_config(&config);
+        let session = Arc::new(GameSession::start(config));
+        state.lobbies.insert(legacy_lobby.game_id.clone(), legacy_lobby);
+        state
+            .player_lobbies
+            .insert(lobby_record.game_id.clone(), lobby_record);
+        state
+            .sessions
+            .insert(session.id().to_owned(), session.clone());
+        Ok(session)
+    }
+
     pub fn register_recovered(&self, session: Arc<GameSession>) -> Result<(), String> {
         let mut state = self.state.lock().expect("registry lock");
         if state.sessions.contains_key(session.id()) || state.lobbies.contains_key(session.id()) {

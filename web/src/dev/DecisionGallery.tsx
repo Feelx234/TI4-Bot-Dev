@@ -44,9 +44,14 @@ export const DecisionGallery: React.FC = () => {
   return (
     <div className="decision-gallery" data-testid="decision-gallery">
       <header className="decision-gallery__header panel">
-        <h1>
-          Decision gallery <small>Development only · synthetic previews</small>
-        </h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <h1>
+            Decision gallery <small>Development only · synthetic previews</small>
+          </h1>
+          <a href="/dev/scenarios" className="button button--secondary">
+            Switch to Live Dev Scenarios &rarr;
+          </a>
+        </div>
         <p>
           No server is connected. Submissions are recorded locally; they do not acknowledge an
           action or advance an engine decision.

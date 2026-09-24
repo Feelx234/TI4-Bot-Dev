@@ -20,6 +20,14 @@ const DevDecisionGallery = import.meta.env.DEV
     )
   : null;
 
+const DevScenarioLauncher = import.meta.env.DEV
+  ? React.lazy(() =>
+      import("./dev/ScenarioLauncher.tsx").then(({ ScenarioLauncher }) => ({
+        default: ScenarioLauncher,
+      })),
+    )
+  : null;
+
 const storageKey = (gameId: string) => `ti4.player-session:${gameId}`;
 const pathGameId = () =>
   /^\/games\/([^/]+)$/.exec(window.location.pathname)?.[1]
@@ -53,6 +61,12 @@ export const App: React.FC = () => {
     return (
       <React.Suspense fallback={<main>Loading decision gallery…</main>}>
         <DevDecisionGallery />
+      </React.Suspense>
+    );
+  if (DevScenarioLauncher && window.location.pathname === "/dev/scenarios")
+    return (
+      <React.Suspense fallback={<main>Loading dev scenarios…</main>}>
+        <DevScenarioLauncher />
       </React.Suspense>
     );
   if (!gameId)

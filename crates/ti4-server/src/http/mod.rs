@@ -83,6 +83,14 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
         )
         .route("/api/games/{game_id}/map", get(games::get_map))
         .route("/api/content/catalog", get(content::get_catalog))
+        .route(
+            "/api/dev/scenarios",
+            get(crate::dev::list_scenarios),
+        )
+        .route(
+            "/api/dev/scenarios/launch",
+            axum::routing::post(crate::dev::launch_scenario),
+        )
         .route("/ws/games/{game_id}", get(ws_handler))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
