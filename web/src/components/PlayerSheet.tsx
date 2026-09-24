@@ -133,6 +133,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {player.strategy_cards.map((scId) => {
                     const meta = getStrategyCardMeta(scId);
+                    const tooltipText = `${meta.name} (Initiative ${meta.initiative})\n\nPrimary:\n${meta.primaryText}\n\nSecondary:\n${meta.secondaryText}`;
                     return (
                       <button
                         type="button"
@@ -140,6 +141,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                         onClick={() => onInspectCard?.({ kind: "strategy", id: scId })}
                         data-testid={`strategy-card-badge-${scId}`}
                         data-card-id={scId}
+                        title={tooltipText}
                         style={{
                           background: "#090d16",
                           border: "1px solid #38bdf8",
@@ -223,6 +225,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                     >
                       {player.held_action_cards.map((cardId) => {
                         const meta = getActionCardMeta(cardId);
+                        const tooltipText = `${meta.name} (${meta.phase ?? "Action"})\n\n${meta.description}`;
 
                         return (
                           <li
@@ -233,6 +236,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                             }
                             data-action-card-id={cardId}
                             data-testid={`action-card-item-${cardId}`}
+                            title={tooltipText}
                             className="card"
                             style={{
                               border: "1px solid #475569",
@@ -310,6 +314,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                     >
                       {player.held_secret_objectives.map((objId) => {
                         const meta = getSecretObjectiveMeta(objId);
+                        const tooltipText = `${meta.name} (${meta.phase} Phase, ${meta.points} VP)\n\nRequirement: ${meta.description}`;
 
                         return (
                           <li
@@ -320,6 +325,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                             }
                             data-secret-obj-id={objId}
                             data-testid={`secret-objective-item-${objId}`}
+                            title={tooltipText}
                             className="card"
                             style={{
                               border: "1px solid #fbbf24",

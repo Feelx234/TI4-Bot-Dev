@@ -19,6 +19,7 @@ test("creates, joins, leaves, rejoins, starts, and restores using the real serve
   failOnBrowserErrors(host);
   await host.goto("/");
   await host.getByLabel("Players").selectOption("2");
+  await host.getByLabel("Nickname").fill("Player 1");
   await host.getByTestId("create-game-button").click();
   await expect(host.getByText("Game lobby")).toBeVisible();
   const hostUrl = host.url();
@@ -40,6 +41,7 @@ test("creates, joins, leaves, rejoins, starts, and restores using the real serve
   await expect(guest.getByText("Join or watch")).toBeVisible();
   await guest.getByRole("button", { name: "Watch" }).click();
   await expect(guest.getByText("Watching as spectator")).toBeVisible();
+  await guest.getByLabel("Nickname").fill("Player 2");
   await guest.getByRole("button", { name: "Join game" }).click();
   await expect(guest.getByTestId("ready-button")).toBeVisible();
   await expect(guest.getByText(/Position 2: Player 2/)).toBeVisible();
@@ -71,6 +73,7 @@ test("reorders open positions, watches a running game, and revokes a disconnecte
   failOnBrowserErrors(host);
   await host.goto("/");
   await host.getByLabel("Players").selectOption("2");
+  await host.getByLabel("Nickname").fill("Player 1");
   await host.getByTestId("create-game-button").click();
   await expect(host.getByText("Game lobby")).toBeVisible();
   const gameUrl = host.url();
@@ -86,6 +89,7 @@ test("reorders open positions, watches a running game, and revokes a disconnecte
   const guest = await guestContext.newPage();
   failOnBrowserErrors(guest);
   await guest.goto(gameUrl);
+  await guest.getByLabel("Nickname").fill("Player 2");
   await guest.getByRole("button", { name: "Join game" }).click();
   await expect(guest.getByText(/Position 1: Player 2/)).toBeVisible();
   await expect(guest.getByTestId("ready-button")).toBeVisible();
@@ -126,6 +130,7 @@ test("reorders open positions, watches a running game, and revokes a disconnecte
   const takeover = await takeoverContext.newPage();
   failOnBrowserErrors(takeover);
   await takeover.goto(gameUrl);
+  await takeover.getByLabel("Nickname").fill("Player 2");
   await expect(takeover.getByRole("button", { name: /Rejoin as Player 2/ })).toBeVisible();
   await takeover.getByRole("button", { name: /Rejoin as Player 2/ }).click();
   await expect(takeover.getByTestId("turn-status-bar")).toBeVisible();

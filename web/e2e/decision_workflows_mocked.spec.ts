@@ -146,8 +146,6 @@ test("activation modal minimizes to allow selection on the map", async ({ page }
   await page.getByTestId("minimize-choice-button").click();
   await expect(page.getByTestId("minimized-choice-banner")).toBeVisible();
   await page.getByTestId("system-hex-18").click();
-  await expect.poll(() => submissions.length).toBe(1);
-  expect(submissions[0]).toMatchObject({ option_id: "activate|18", nonce: "activate-7" });
   await expect(page.getByTestId("system-inspector")).toBeVisible();
   await page.getByTestId("event-log-toggle").click();
   const inspector = await page.getByTestId("system-inspector").boundingBox();
@@ -157,6 +155,10 @@ test("activation modal minimizes to allow selection on the map", async ({ page }
   expect(inspector!.y + inspector!.height).toBeLessThanOrEqual(eventLog!.y);
   await page.getByTestId("close-inspector-button").click();
   await expect(page.getByTestId("system-inspector")).toHaveCount(0);
+  await page.getByRole("button", { name: "Resume decision" }).click();
+  await page.getByRole("button", { name: "Activate system" }).click();
+  await expect.poll(() => submissions.length).toBe(1);
+  expect(submissions[0]).toMatchObject({ option_id: "activate|18", nonce: "activate-7" });
 });
 
 test("production builder accepts a real pointer click on a unit", async ({ page }) => {
