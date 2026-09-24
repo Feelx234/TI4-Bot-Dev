@@ -1,7 +1,14 @@
 import React from "react";
-import { SelectedSystemDetails } from "../presentation/boardPresentation.ts";
+import { SelectedSystemDetails, PlacedUnitPresentation } from "../presentation/boardPresentation.ts";
 import { DetailPanel } from "./DetailPanel.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import {
+  UnitIcon,
+  getUnitBaseType,
+  getUnitDisplayName,
+  UNIT_PRIORITY,
+  UnitBaseType,
+} from "./UnitIcon.tsx";
 
 export interface SystemInspectorProps {
   system: SelectedSystemDetails | null;
@@ -207,62 +214,168 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
         </h4>
 
         {/* Space Units */}
-        <div style={{ marginBottom: 6 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "#cbd5e1" }}>Space Roster:</div>
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#cbd5e1", marginBottom: 4 }}>
+            Space Roster:
+          </div>
           {system.spaceUnits.length === 0 ? (
             <div style={{ color: "#64748b", fontSize: 11, marginLeft: 6 }}>No space units</div>
           ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2, marginLeft: 6 }}>
-              {system.spaceUnits.map((u, i) => (
-                <span
-                  key={i}
-                  data-testid="inspector-space-unit"
-                  style={{
-                    padding: "2px 6px",
-                    borderRadius: 4,
-                    fontSize: 11,
-                    background: "#1e293b",
-                    borderLeft: `3px solid ${u.ownerColor}`,
-                    color: u.damaged ? "#fca5a5" : "#e2e8f0",
-                  }}
-                >
-                  {u.unitType} {u.damaged && "(Damaged)"} [
-                  {display(u.owner).position && <SeatBadge position={display(u.owner).position!} />}{" "}
-                  {display(u.owner).label}]
-                </span>
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: 6 }}>
+              {groupUnitsByPlayer(system.spaceUnits).map((pg) => {
+                const pInfo = display(pg.owner);
+                const playerColor = pg.ownerColor || pInfo.color;
+                return (
+                  <div
+                    key={pg.owner}
+                    data-testid={`inspector-player-space-${pg.owner}`}
+                    style={{
+                      background: "rgba(15, 23, 42, 0.6)",
+                      border: "1px solid rgba(51, 65, 85, 0.7)",
+                      borderLeft: `3px solid ${playerColor}`,
+                      borderRadius: 4,
+                      padding: "6px 8px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        marginBottom: 4,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "#f8fafc",
+                      }}
+                    >
+                      {pInfo.position && <SeatBadge position={pInfo.position} />}
+                      <span>{pInfo.label}</span>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {pg.units.map((u) => (
+                        <span
+                          key={u.baseType}
+                          data-testid="inspector-space-unit"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            fontSize: 11,
+                            background: "#1e293b",
+                            color: u.damagedCount > 0 ? "#fca5a5" : "#e2e8f0",
+                          }}
+                        >
+                          <UnitIcon type={u.baseType} size={14} color={playerColor} aria-hidden="true" />
+                          <span>
+                            {u.totalCount} × {getUnitDisplayName(u.baseType, u.totalCount)}
+                          </span>
+                          {u.damagedCount > 0 && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                color: "#f87171",
+                              }}
+                            >
+                              {" "}({u.damagedCount} damaged)
+                            </span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
         {/* Ground Units */}
-        {Object.entries(system.planetUnits).map(([pId, pUnits]) => (
-          <div key={pId} style={{ marginTop: 4 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#cbd5e1" }}>
-              On {system.planets.find((p) => p.id === pId)?.label || pId}:
+        {Object.entries(system.planetUnits).map(([pId, pUnits]) => {
+          const planet = system.planets.find((p) => p.id === pId);
+          const planetLabel = planet?.label || pId;
+          const playerGroups = groupUnitsByPlayer(pUnits);
+
+          if (pUnits.length === 0) return null;
+
+          return (
+            <div key={pId} style={{ marginTop: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#cbd5e1", marginBottom: 4 }}>
+                On {planetLabel}:
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: 6 }}>
+                {playerGroups.map((pg) => {
+                  const pInfo = display(pg.owner);
+                  const playerColor = pg.ownerColor || pInfo.color;
+                  return (
+                    <div
+                      key={pg.owner}
+                      data-testid={`inspector-player-ground-${pId}-${pg.owner}`}
+                      style={{
+                        background: "rgba(15, 23, 42, 0.6)",
+                        border: "1px solid rgba(51, 65, 85, 0.7)",
+                        borderLeft: `3px solid ${playerColor}`,
+                        borderRadius: 4,
+                        padding: "6px 8px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          marginBottom: 4,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: "#f8fafc",
+                        }}
+                      >
+                        {pInfo.position && <SeatBadge position={pInfo.position} />}
+                        <span>{pInfo.label}</span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {pg.units.map((u) => (
+                          <span
+                            key={u.baseType}
+                            data-testid="inspector-ground-unit"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 5,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              fontSize: 11,
+                              background: "#1e293b",
+                              color: u.damagedCount > 0 ? "#fca5a5" : "#e2e8f0",
+                            }}
+                          >
+                            <UnitIcon type={u.baseType} size={14} color={playerColor} aria-hidden="true" />
+                            <span>
+                              {u.totalCount} × {getUnitDisplayName(u.baseType, u.totalCount)}
+                            </span>
+                            {u.damagedCount > 0 && (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: "#f87171",
+                                }}
+                              >
+                                {" "}({u.damagedCount} damaged)
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2, marginLeft: 6 }}>
-              {pUnits.map((u, i) => (
-                <span
-                  key={i}
-                  data-testid="inspector-ground-unit"
-                  style={{
-                    padding: "2px 6px",
-                    borderRadius: 4,
-                    fontSize: 11,
-                    background: "#1e293b",
-                    borderLeft: `3px solid ${u.ownerColor}`,
-                    color: u.damaged ? "#fca5a5" : "#e2e8f0",
-                  }}
-                >
-                  {u.unitType} {u.damaged && "(Damaged)"} [
-                  {display(u.owner).position && <SeatBadge position={display(u.owner).position!} />}{" "}
-                  {display(u.owner).label}]
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Command Tokens */}
@@ -314,3 +427,57 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
     </DetailPanel>
   );
 };
+
+interface GroupedUnit {
+  baseType: UnitBaseType;
+  totalCount: number;
+  damagedCount: number;
+}
+
+interface PlayerUnitGroup {
+  owner: string;
+  ownerColor: string;
+  units: GroupedUnit[];
+}
+
+function groupUnitsByPlayer(units: PlacedUnitPresentation[]): PlayerUnitGroup[] {
+  const playerMap = new Map<
+    string,
+    { ownerColor: string; typeMap: Map<UnitBaseType, { total: number; damaged: number }> }
+  >();
+
+  for (const u of units) {
+    let pEntry = playerMap.get(u.owner);
+    if (!pEntry) {
+      pEntry = { ownerColor: u.ownerColor, typeMap: new Map() };
+      playerMap.set(u.owner, pEntry);
+    }
+    const baseType = getUnitBaseType(u.unitType);
+    const existing = pEntry.typeMap.get(baseType) ?? { total: 0, damaged: 0 };
+    existing.total += 1;
+    if (u.damaged) {
+      existing.damaged += 1;
+    }
+    pEntry.typeMap.set(baseType, existing);
+  }
+
+  const result: PlayerUnitGroup[] = [];
+  for (const [owner, { ownerColor, typeMap }] of playerMap.entries()) {
+    const groupedUnits: GroupedUnit[] = Array.from(typeMap.entries())
+      .map(([baseType, counts]) => ({
+        baseType,
+        totalCount: counts.total,
+        damagedCount: counts.damaged,
+      }))
+      .sort((a, b) => (UNIT_PRIORITY[a.baseType] ?? 99) - (UNIT_PRIORITY[b.baseType] ?? 99));
+
+    result.push({
+      owner,
+      ownerColor,
+      units: groupedUnits,
+    });
+  }
+
+  return result;
+}
+
