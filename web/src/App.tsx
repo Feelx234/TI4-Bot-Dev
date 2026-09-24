@@ -13,6 +13,10 @@ import { participantText } from './presentation/participantText.ts';
 import { CardDetails, CardSubject } from './components/CardDetails.tsx';
 import { classifyChoiceWorkflow } from './presentation/choiceModel.ts';
 
+const DevDecisionGallery = import.meta.env.DEV
+  ? React.lazy(() => import('./dev/DecisionGallery.tsx').then(({ DecisionGallery }) => ({ default: DecisionGallery })))
+  : null;
+
 const storageKey = (gameId: string) => `ti4.player-session:${gameId}`;
 const pathGameId = () => /^\/games\/([^/]+)$/.exec(window.location.pathname)?.[1] ? decodeURIComponent(/^\/games\/([^/]+)$/.exec(window.location.pathname)![1]) : null;
 
@@ -26,6 +30,8 @@ export const App: React.FC = () => {
     window.addEventListener('popstate', receive);
     return () => window.removeEventListener('popstate', receive);
   }, []);
+  if (DevDecisionGallery && window.location.pathname === '/dev/decisions')
+    return <React.Suspense fallback={<main>Loading decision gallery…</main>}><DevDecisionGallery /></React.Suspense>;
   if (!gameId) return <><CreateLobby onError={setError} onCreated={(created) => navigate(created.game_id, created.player_session)} />{error && <div className="session-error" role="alert">{error}</div>}</>;
   return <GameRoute key={gameId} gameId={gameId} token={token} onCredential={(credential) => { sessionStorage.setItem(storageKey(gameId), credential); setToken(credential); }} onCredentialInvalid={() => { sessionStorage.removeItem(storageKey(gameId)); setToken(undefined); }} onForget={() => { sessionStorage.removeItem(storageKey(gameId)); navigate(null); }} />;
 };
