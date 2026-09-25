@@ -73,7 +73,13 @@ has finished, not while a submitted choice is in flight.
 1. The browser sends `POST /api/games/{game_id}/history` with the current
    `game_version` and its player-session credential. The server verifies that
    the credential belongs to the **current host**. Actions are `undo`, `redo`,
-   or `restore` with an event ID. A stale version or invalid target is rejected.
+   `undo_pipeline`, or `restore` with an event ID. **Undo action** rewinds to
+   before the latest action-phase choice, including its movement, combat, and
+   other follow-up decisions; outside an action it undoes one choice. Its
+   remaining decisions are available for redo. A stale version or invalid
+   target is rejected. If the worker is still advancing toward the next
+   decision, the browser refreshes the snapshot and retries briefly, but only
+   while the decision cursor has not changed.
 2. The server replays the desired decision prefix from `init.json` in a
    temporary game and checks the resulting decision hashes. It then stops the
    old worker, persists the new active/redo split, and starts a replacement

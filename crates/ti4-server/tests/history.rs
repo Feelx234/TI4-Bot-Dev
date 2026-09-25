@@ -29,6 +29,71 @@ fn pending(session: &GameSession) -> (PlayerId, String, u64, String) {
 }
 
 #[test]
+fn undo_action_rewinds_the_whole_movement_pipeline_and_preserves_redo() {
+    let registry = GameRegistry::new();
+    let host = PlayerId::new("p1");
+    let guest = PlayerId::new("p2");
+    let players = vec![host.clone(), guest.clone()];
+    let (state, galaxy) =
+        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let config = SessionConfig::new("probe", state)
+        .with_player_ids(players)
+        .with_galaxy(galaxy, tiles)
+        .with_seat(host.clone(), SeatController::Human)
+        .with_seat(guest, SeatController::Human);
+    let session = registry.create_game(config).unwrap();
+    let host_token = session.seat_tokens()[&host].clone();
+    for i in 0..6 {
+        let (seat, nonce, version, _) = pending(&session);
+        let snapshot = session.get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+            seat.clone(),
+        ));
+        let choice = snapshot.pending_choice.unwrap().choice;
+        if i == 4 || i == 5 {
+            assert_eq!(choice.prompt, "movement");
+        }
+        let option = choice
+            .options
+            .iter()
+            .find(|o| o.id == "tactical" || o.id == "22")
+            .unwrap_or(&choice.options[0]);
+        session
+            .submit_choice(&seat, &nonce, version, &option.id)
+            .unwrap();
+    }
+    let _ = pending(&session);
+    let decisions = session.decision_log();
+    assert_eq!(decisions[2].chosen, "tactical");
+    assert_eq!(decisions[4].prompt, "movement");
+    let restored = registry
+        .change_history(
+            "probe",
+            &host_token,
+            session.game_version(),
+            HistoryAction::UndoPipeline,
+        )
+        .unwrap();
+    assert_eq!(restored.history.cursor, 2);
+    assert_eq!(restored.history.redo_count, 4);
+    let replayed = registry.get_game("probe").unwrap();
+    let _ = pending(&replayed);
+    assert_eq!(replayed.decision_log(), decisions[..2]);
+    registry
+        .change_history(
+            "probe",
+            &host_token,
+            replayed.game_version(),
+            HistoryAction::Redo,
+        )
+        .unwrap();
+    let redone = registry.get_game("probe").unwrap();
+    let _ = pending(&redone);
+    assert_eq!(redone.decision_log(), decisions[..3]);
+    assert_eq!(redone.history_status().redo_count, 3);
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "exercises a complete durable branch lifecycle"
@@ -233,8 +298,10 @@ async fn http_history_requires_the_current_host_and_replaces_connected_sessions(
     let _ = pending(&session);
     let client = reqwest::Client::new();
     let url = format!("http://{addr}/api/games/history_http/history");
-    let payload =
-        serde_json::json!({ "expected_version": session.game_version(), "action": "undo" });
+    let payload = serde_json::json!({
+        "expected_version": session.game_version(),
+        "action": "undo_pipeline"
+    });
     let guest_result = client
         .post(&url)
         .header("x-ti4-player-session", guest_token)

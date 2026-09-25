@@ -206,9 +206,11 @@ const GameViewContainer: React.FC<{
   } = useGameSession({ gameId, viewer });
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const onChangeHistory = (action: "undo" | "redo" | { eventId: string }, steps = 1) => {
+  const onChangeHistory = (action: import("./protocol/client.ts").HistoryChange, steps = 1) => {
     if (
       historyBusy ||
+      (action === "undo_pipeline" &&
+        !window.confirm("Undo the latest action and its follow-up decisions for everyone?")) ||
       (steps > 1 && !window.confirm(`Undo ${steps} decisions for everyone in this game?`))
     )
       return;

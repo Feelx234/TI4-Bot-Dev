@@ -251,10 +251,16 @@ describe("GameShell", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /^Undo$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Undo action" }));
     fireEvent.click(screen.getByRole("button", { name: /^Redo$/ }));
     fireEvent.click(screen.getByTestId("event-log-toggle"));
     fireEvent.click(screen.getByRole("button", { name: "Undo to event 2" }));
-    expect(change.mock.calls).toEqual([["undo", 1], ["redo"], [{ eventId: "event-1" }, 1]]);
+    expect(change.mock.calls).toEqual([
+      ["undo", 1],
+      ["undo_pipeline"],
+      ["redo"],
+      [{ eventId: "event-1" }, 1],
+    ]);
     expect(screen.queryByRole("button", { name: "Undo to event 3" })).toBeNull();
   });
   it("resumes staged production after payment on a fresh legal nonce", async () => {

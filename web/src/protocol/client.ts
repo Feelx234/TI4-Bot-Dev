@@ -14,8 +14,10 @@ import { decodeInitialSnapshot, decodeServerMessage, isStaleServerMessage } from
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
 export type GameLogEntry = import("./types.ts").GameEvent;
+export type HistoryChange = "undo" | "undo_pipeline" | "redo" | { eventId: string };
 
 const MAX_EVENT_LOG_ENTRIES = 500;
+const HISTORY_RETRY_ATTEMPTS = 20;
 
 export interface GameSessionState {
   status: ConnectionStatus;
@@ -225,19 +227,41 @@ export class GameSessionClient {
   }
 
   /** The host changes the authoritative Rust timeline; all clients reconnect to it. */
-  async changeHistory(action: "undo" | "redo" | { eventId: string }): Promise<void> {
+  async changeHistory(action: HistoryChange): Promise<void> {
     if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
       throw new Error("A player session is required");
     const url = this.snapshotUrl().replace(/\/snapshot$/, "/history");
     const body =
       typeof action === "string" ? { action } : { action: "restore", event_id: action.eventId };
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
-      body: JSON.stringify({ ...body, expected_version: this.state.gameVersion }),
-    });
+    let version = this.state.gameVersion;
+    const cursor = this.state.history.cursor;
+    let response!: Response;
+    let conflictReason: string | undefined;
+    for (let attempt = 0; attempt < HISTORY_RETRY_ATTEMPTS; attempt++) {
+      conflictReason = undefined;
+      response = await fetch(url, {
+        method: "POST",
+        headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
+        body: JSON.stringify({ ...body, expected_version: version }),
+      });
+      if (response.ok || response.status !== 409) break;
+      conflictReason = await response.text();
+      if (
+        attempt === HISTORY_RETRY_ATTEMPTS - 1 ||
+        !conflictReason.includes("Game advanced or a decision is in flight")
+      )
+        break;
+      // The worker may still be advancing automatically toward its next human choice.
+      // Refresh the version, but never rewind a different decision if someone acted meanwhile.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const latest = await fetch(this.snapshotUrl(), { headers: this.snapshotHeaders() });
+      if (!latest.ok) break;
+      const snapshot = decodeInitialSnapshot(await latest.json(), this.options.gameId);
+      if (snapshot.history?.cursor !== cursor) break;
+      version = snapshot.game_version;
+    }
     if (!response.ok) {
-      const reason = await response.text();
+      const reason = conflictReason ?? (await response.text());
       const error = `History change failed (${response.status}): ${reason}`;
       this.setState({ ...this.state, lastError: error });
       throw new Error(error);

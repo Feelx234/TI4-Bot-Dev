@@ -28,7 +28,7 @@ export interface UseGameSessionReturn {
   events: GameLogEntry[];
   history: import("../protocol/types.ts").HistoryStatus;
   submitChoice: (optionId: string) => Promise<void>;
-  changeHistory: (action: "undo" | "redo" | { eventId: string }) => Promise<void>;
+  changeHistory: (action: import("../protocol/client.ts").HistoryChange) => Promise<void>;
 }
 
 export function useGameSession({
@@ -50,7 +50,7 @@ export function useGameSession({
 
   const submitChoice = useCallback((optionId: string) => client.submitChoice(optionId), [client]);
   const changeHistory = useCallback(
-    (action: "undo" | "redo" | { eventId: string }) => client.changeHistory(action),
+    (action: import("../protocol/client.ts").HistoryChange) => client.changeHistory(action),
     [client],
   );
 

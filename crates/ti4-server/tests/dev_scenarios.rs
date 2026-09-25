@@ -5,6 +5,7 @@ use std::time::Duration;
 use ti4_server::dev::{available_scenarios, execute_launch_scenario};
 use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::ViewerRole;
+use ti4_server::session::registry::HistoryAction;
 use ti4_server::session::{GameRegistry, MockClient};
 
 #[test]
@@ -60,6 +61,61 @@ fn test_launch_tactical_scenario_and_flow() {
     let activate_choice = wait_for_choice(&client).expect("choice for system activation");
     assert_eq!(activate_choice.options[0].kind, "activate");
     assert!(!activate_choice.options.is_empty());
+}
+
+#[test]
+fn dev_movement_history_rewinds_to_the_action_choice() {
+    let registry = Arc::new(GameRegistry::new());
+    let launched = execute_launch_scenario(&registry, "tactical_action", Some(42)).unwrap();
+    let session = registry.get_game(&launched.game_id).unwrap();
+    let seat = ti4_model::id::PlayerId::new(&launched.player_id);
+    let mut previous_nonce = None;
+    for option_id in ["tactical", "22"] {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let snapshot = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+            if let Some(pending) = snapshot
+                .pending_choice
+                .filter(|p| previous_nonce.as_ref() != Some(&p.nonce))
+                && let Some(chosen) = pending.choice.options.iter().find(|o| o.id == option_id)
+            {
+                let result =
+                    session.submit_choice(&seat, &pending.nonce, snapshot.game_version, &chosen.id);
+                if matches!(
+                    result,
+                    Err(ti4_server::protocol::status::RejectionReason::NoPendingChoice)
+                ) {
+                    continue;
+                }
+                assert!(result.is_ok(), "{option_id}: {result:?}");
+                previous_nonce = Some(pending.nonce);
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "waiting for {option_id}: {:?}",
+                session.error()
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !session.history_ready() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{:?}",
+            session.error()
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    let result = registry.change_history(
+        &launched.game_id,
+        &launched.player_session,
+        session.game_version(),
+        HistoryAction::UndoPipeline,
+    );
+    assert!(result.is_ok(), "{result:?}");
+    assert_eq!(result.unwrap().history.cursor, 0);
 }
 
 #[test]
@@ -302,4 +358,3 @@ fn test_launch_ongoing_combat_scenario_starts_in_combat() {
         "combat hits or dice rolls must be present"
     );
 }
-

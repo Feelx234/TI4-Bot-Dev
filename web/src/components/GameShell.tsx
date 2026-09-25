@@ -29,7 +29,7 @@ export interface GameShellProps {
   detail?: React.ReactNode;
   events: GameLogEntry[];
   history?: HistoryStatus;
-  onChangeHistory?: (action: "undo" | "redo" | { eventId: string }, steps?: number) => void;
+  onChangeHistory?: (action: import("../protocol/client.ts").HistoryChange, steps?: number) => void;
   historyBusy?: boolean;
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
@@ -680,6 +680,14 @@ export const GameShell: React.FC<GameShellProps> = ({
               onClick={() => onChangeHistory("undo", 1)}
             >
               Undo
+            </button>
+            <button
+              type="button"
+              className="button button--secondary button--sm"
+              disabled={historyBusy || !history?.cursor}
+              onClick={() => onChangeHistory("undo_pipeline")}
+            >
+              Undo action
             </button>
             <button
               type="button"

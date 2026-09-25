@@ -327,6 +327,7 @@ pub async fn change_history(
     let token = require_player_session(&headers)?;
     let action = match (payload.action.as_str(), payload.event_id) {
         ("undo", None) => HistoryAction::Undo,
+        ("undo_pipeline", None) => HistoryAction::UndoPipeline,
         ("redo", None) => HistoryAction::Redo,
         ("restore", Some(event_id)) => HistoryAction::Restore { event_id },
         _ => return Err((StatusCode::BAD_REQUEST, "Invalid history action".to_owned())),

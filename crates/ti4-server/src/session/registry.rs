@@ -19,6 +19,7 @@ use crate::storage::{
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HistoryAction {
     Undo,
+    UndoPipeline,
     Redo,
     Restore { event_id: String },
 }
@@ -381,6 +382,29 @@ impl GameRegistry {
                 .len()
                 .checked_sub(1)
                 .ok_or(HistoryError::InvalidTarget)?,
+            HistoryAction::UndoPipeline => {
+                let last = current
+                    .len()
+                    .checked_sub(1)
+                    .ok_or(HistoryError::InvalidTarget)?;
+                let phase = current[..=last]
+                    .iter()
+                    .rev()
+                    .find_map(|record| record.context.as_ref());
+                current[..=last]
+                    .iter()
+                    .rposition(|record| {
+                        record.prompt == "action phase"
+                            && phase.is_some_and(|end| {
+                                end.phase == ti4_model::state::Phase::Action
+                                    && record
+                                        .context
+                                        .as_ref()
+                                        .is_none_or(|start| start.round == end.round)
+                            })
+                    })
+                    .unwrap_or(last)
+            }
             HistoryAction::Redo => {
                 if redo.is_empty() {
                     return Err(HistoryError::InvalidTarget);

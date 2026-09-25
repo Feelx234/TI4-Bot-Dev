@@ -295,6 +295,72 @@ class FakeWebSocket {
 }
 
 describe("GameSessionClient ingress lifecycle", () => {
+  it("refreshes the version after an in-flight history conflict without changing the undo target", async () => {
+    const { client } = await connectedPlayer();
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        text: async () => "Game advanced or a decision is in flight",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ...snapshot,
+          game_version: 6,
+          viewer: { role: "player", seat: "player_a" },
+          history: { cursor: 0, redo_count: 0 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ...snapshot,
+          game_version: 7,
+          viewer: { role: "player", seat: "player_a" },
+          history: { cursor: 0, redo_count: 1, generation: 1 },
+          events: [],
+        }),
+      });
+    vi.stubGlobal("fetch", request);
+    await client.changeHistory("undo_pipeline");
+    expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({
+      action: "undo_pipeline",
+      expected_version: 4,
+    });
+    expect(request.mock.calls[1][0]).toBe("/api/games/game_12345/snapshot");
+    expect(JSON.parse(request.mock.calls[2][1].body)).toEqual({
+      action: "undo_pipeline",
+      expected_version: 6,
+    });
+    client.stop();
+  });
+
+  it("does not retry undo if another decision was made during refresh", async () => {
+    const { client } = await connectedPlayer();
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        text: async () => "Game advanced or a decision is in flight",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ...snapshot,
+          game_version: 6,
+          viewer: { role: "player", seat: "player_a" },
+          history: { cursor: 1, redo_count: 0 },
+        }),
+      });
+    vi.stubGlobal("fetch", request);
+    await expect(client.changeHistory("undo")).rejects.toThrow(/409/);
+    expect(request).toHaveBeenCalledTimes(2);
+    client.stop();
+  });
+
   it("posts host rewind with the current version, drops pending submissions and reconnects", async () => {
     const { client, socket } = await connectedPlayer();
     const submitted = client.submitChoice("opt-4");
