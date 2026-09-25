@@ -593,7 +593,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           <span className="combat-arena-dock__system">
             System {combatSystemId} — {display(attackerSeat).label} vs {display(defenderSeat).label}
           </span>
-          {hitsOwed !== undefined && (
+          {hitsOwed != null && (
             <span className="combat-arena-dock__hits">({hitsOwed} hits to resolve)</span>
           )}
           {isActor && (
@@ -789,7 +789,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                       </div>
 
                       {/* Hits Remaining Banner */}
-                      {hitsOwed !== undefined && hitsOwed > 0 && (
+                      {hitsOwed != null && hitsOwed > 0 && (
                         <div className="combat-hits-callout" data-testid="combat-hits-callout">
                           <span className="combat-hits-callout__count">{hitsOwed}</span>
                           <span className="combat-hits-callout__label">

@@ -9,7 +9,7 @@ import {
   emptyMovementPlan,
   type ExecutionPlan,
 } from "./TacticalMovementOverlay.tsx";
-import { CombatResolutionModal, SpaceCombatOverlay } from "./CombatResolutionModal.tsx";
+import { SpaceCombatOverlay } from "./CombatResolutionModal.tsx";
 import { TradeDeskModal } from "./TradeDeskModal.tsx";
 import { AgendaBallotModal } from "./AgendaBallotModal.tsx";
 import { ReactionStatusBar } from "./ReactionStatusBar.tsx";
