@@ -872,6 +872,12 @@ impl<'a> Game<'a> {
         &mut self.timing
     }
 
+    /// Access the game dice roller and its roll history.
+    #[must_use]
+    pub const fn dice(&self) -> &Dice {
+        &self.dice
+    }
+
     /// The choice currently offered, without resolving automatic followers or phase work.
     #[must_use]
     pub fn legal_options(&self) -> Option<Choice> {

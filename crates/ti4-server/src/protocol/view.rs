@@ -114,6 +114,40 @@ pub struct BoardTileView {
     pub planets: Vec<PlanetMetaView>,
 }
 
+/// A die roll result during combat.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CombatDieRoll {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<PlayerId>,
+    pub unit: String,
+    pub roll: u32,
+    pub target: u32,
+    pub hit: bool,
+}
+
+/// Publicly observable space combat state in progress.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CombatView {
+    pub system_id: SystemId,
+    pub round: u32,
+    pub attacker: PlayerId,
+    pub defender: PlayerId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_player: Option<PlayerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hits_to_assign: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attacker_hits: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defender_hits: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dice_rolls: Vec<CombatDieRoll>,
+}
+
 /// Redacted view of the galaxy board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -123,6 +157,8 @@ pub struct BoardView {
     pub active_system: Option<SystemId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub map_tiles: Vec<BoardTileView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combat: Option<CombatView>,
 }
 
 /// Public table state: objectives, laws, strategy card goods.

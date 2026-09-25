@@ -204,10 +204,32 @@ export interface BoardTileView {
   planets?: PlanetMetaView[];
 }
 
+export interface CombatDieRoll {
+  player?: string | null;
+  unit: string;
+  roll: number;
+  target: number;
+  hit: boolean;
+}
+
+export interface CombatView {
+  system_id: string;
+  round: number;
+  attacker: string;
+  defender: string;
+  active_player?: string | null;
+  stage?: string | null;
+  hits_to_assign?: number | null;
+  attacker_hits?: number | null;
+  defender_hits?: number | null;
+  dice_rolls?: CombatDieRoll[];
+}
+
 export interface BoardView {
   systems: Record<string, SystemView>;
   active_system?: string | null;
   map_tiles?: BoardTileView[];
+  combat?: CombatView | null;
 }
 
 export interface GameView {

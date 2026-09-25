@@ -6,10 +6,15 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_model::content_types::POK;
-use ti4_model::id::{PlayerId, StrategyCardId, SystemId, UnitTypeId};
+use ti4_model::id::{ActionCardId, PlayerId, StrategyCardId, SystemId, UnitTypeId};
 use ti4_model::units::Unit;
 
-use crate::session::{GameRegistry, SeatController, SessionConfig};
+use std::thread;
+use std::time::Duration;
+
+use crate::protocol::server::ServerMessage;
+use crate::protocol::status::ViewerRole;
+use crate::session::{GameRegistry, GameSession, MockClient, SeatController, SessionConfig};
 use crate::storage::{
     LobbySlotId, PLAYER_RECORD_VERSION, PersistedLobbyPhase, PlayerLobbyMember, PlayerLobbyRecord,
     PlayerLobbySlot, PlayerSession, generate_player_id,
@@ -66,6 +71,15 @@ pub fn available_scenarios() -> Vec<ScenarioSummary> {
             human_faction: "Federation of Sol".to_owned(),
             opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
         },
+        ScenarioSummary {
+            id: "ongoing_combat".to_owned(),
+            title: "Ongoing Space Combat".to_owned(),
+            category: "Combat".to_owned(),
+            description: "Space combat is already in progress between your Sol fleet and Letnev's armada in a contested sector. Experience immediate combat overlay resolution, live odds calculation, dice rolls, sustain damage, and casualty assignment without needing to set up movement first.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
     ]
 }
 
@@ -76,14 +90,21 @@ pub fn launch_scenario(
     seed: Option<u64>,
 ) -> Result<LaunchScenarioResponse, String> {
     let seed = seed.unwrap_or_else(rand::random::<u64>);
-    let (config, lobby_record, human_player, session_token) = match scenario_id {
-        "tactical_action" => build_tactical_scenario(seed)?,
-        "space_combat" => build_space_combat_scenario(seed)?,
+    let (config, lobby_record, human_player, session_token, border_system) = match scenario_id {
+        "tactical_action" => {
+            let (c, l, p, t) = build_tactical_scenario(seed)?;
+            (c, l, p, t, String::new())
+        }
+        "space_combat" | "ongoing_combat" => build_space_combat_scenario(seed)?,
         other => return Err(format!("Unknown scenario '{other}'")),
     };
 
     let game_id = config.game_id.clone();
-    registry.launch_dev_scenario(config, lobby_record)?;
+    let session = registry.launch_dev_scenario(config, lobby_record)?;
+
+    if scenario_id == "ongoing_combat" {
+        advance_into_space_combat(&session, &human_player, &border_system)?;
+    }
 
     Ok(LaunchScenarioResponse {
         game_id,
@@ -91,6 +112,90 @@ pub fn launch_scenario(
         player_id: human_player.to_string(),
         scenario_id: scenario_id.to_owned(),
     })
+}
+
+fn advance_into_space_combat(
+    session: &Arc<GameSession>,
+    human_player: &PlayerId,
+    border_system: &str,
+) -> Result<(), String> {
+    let client = MockClient::connect(session.clone(), ViewerRole::Player(human_player.clone()));
+    let wait_for_choice = |client: &MockClient| {
+        for _ in 0..150 {
+            if let Ok(ServerMessage::PendingChoice(msg)) = client.try_recv() {
+                return Some(msg.choice);
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        None
+    };
+
+    let border_sys_id = border_system;
+
+    // 1. Initial choice -> "tactical"
+    let _ = wait_for_choice(&client)
+        .ok_or_else(|| "timed out waiting for initial choice".to_owned())?;
+    let (_, nonce_1, ver_1) = session
+        .current_pending_decision()
+        .ok_or_else(|| "no pending decision for tactical".to_owned())?;
+    client
+        .submit(&nonce_1, ver_1, "tactical")
+        .map_err(|e| format!("submit tactical failed: {e:?}"))?;
+
+    // 2. Activate border system
+    let _ = wait_for_choice(&client)
+        .ok_or_else(|| "timed out waiting for activate choice".to_owned())?;
+    let (_, nonce_2, ver_2) = session
+        .current_pending_decision()
+        .ok_or_else(|| "no pending decision for activate".to_owned())?;
+    client
+        .submit(&nonce_2, ver_2, border_sys_id)
+        .map_err(|e| format!("submit activate failed: {e:?}"))?;
+
+    // 3. Movement and loading loop
+    let mut choice = wait_for_choice(&client)
+        .ok_or_else(|| "timed out waiting for movement choice".to_owned())?;
+    while !choice
+        .options
+        .iter()
+        .any(|o| o.kind == "sustain" || o.kind == "casualty")
+    {
+        let (_, nonce, ver) = session
+            .current_pending_decision()
+            .ok_or_else(|| "no pending decision in move/combat loop".to_owned())?;
+        if let Some(retreat_opt) = choice.options.iter().find(|o| o.kind == "retreat") {
+            let opt = choice
+                .options
+                .iter()
+                .find(|o| o.id == "decline")
+                .unwrap_or(retreat_opt);
+            client
+                .submit(&nonce, ver, &opt.id)
+                .map_err(|e| format!("submit retreat decline failed: {e:?}"))?;
+        } else if let Some(load_opt) = choice.options.iter().find(|o| o.id.starts_with("load|0")) {
+            client
+                .submit(&nonce, ver, &load_opt.id)
+                .map_err(|e| format!("submit load failed: {e:?}"))?;
+        } else if let Some(done_load) = choice.options.iter().find(|o| o.id == "done_loading") {
+            client
+                .submit(&nonce, ver, &done_load.id)
+                .map_err(|e| format!("submit done_loading failed: {e:?}"))?;
+        } else if let Some(move_opt) = choice.options.iter().find(|o| o.id.starts_with("move|")) {
+            client
+                .submit(&nonce, ver, &move_opt.id)
+                .map_err(|e| format!("submit move failed: {e:?}"))?;
+        } else if let Some(done_move) = choice.options.iter().find(|o| o.id == "done_moving") {
+            client
+                .submit(&nonce, ver, &done_move.id)
+                .map_err(|e| format!("submit done_moving failed: {e:?}"))?;
+        } else {
+            return Err(format!("unexpected choice in loop: {:?}", choice.prompt));
+        }
+        choice = wait_for_choice(&client)
+            .ok_or_else(|| "timed out in loop".to_owned())?;
+    }
+
+    Ok(())
 }
 
 fn setup_base_3p_game(
@@ -321,10 +426,25 @@ fn build_tactical_scenario(
 
 fn build_space_combat_scenario(
     seed: u64,
-) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String), String> {
+) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String, String), String> {
     let (mut config, lobby_record, p1, token, galaxy, _, p3) =
         setup_base_3p_game(seed, "dev_combat")?;
     let content = ContentStore::embedded();
+
+    // Give Sol direct_hit action card and enough fleet tokens for the fleet
+    if let Some(sol) = config.state.player_mut(&p1) {
+        sol.fleet_tokens = 4;
+        sol.action_cards.push(ActionCardId::new("direct_hit"));
+    }
+    if let Some(letnev) = config.state.player_mut(&p3) {
+        letnev.fleet_tokens = 4;
+    }
+
+    // Add Dreadnought to Sol's home system (01)
+    let home_state = config.state.system_mut(&SystemId::new("01"));
+    home_state
+        .units
+        .push(Unit::new(UnitTypeId::new("dreadnought"), p1.clone()));
 
     // Find an adjacent system to Sol's home (01) that is not an impassable anomaly
     let adjacent_ids = galaxy.adjacent("01");
@@ -341,10 +461,16 @@ fn build_space_combat_scenario(
 
     let border_sys_id = SystemId::new(border_system);
 
-    // Place Letnev's fleet in the border system
+    // Place Letnev's fleet in the border system (including Dreadnoughts)
     let sys_state = config.state.system_mut(&border_sys_id);
     sys_state.command_tokens.clear();
     sys_state.units.clear();
+    sys_state
+        .units
+        .push(Unit::new(UnitTypeId::new("dreadnought"), p3.clone()));
+    sys_state
+        .units
+        .push(Unit::new(UnitTypeId::new("dreadnought"), p3.clone()));
     sys_state
         .units
         .push(Unit::new(UnitTypeId::new("cruiser"), p3.clone()));
@@ -358,5 +484,5 @@ fn build_space_combat_scenario(
         .units
         .push(Unit::new(UnitTypeId::new("fighter"), p3.clone()));
 
-    Ok((config, lobby_record, p1, token))
+    Ok((config, lobby_record, p1, token, border_system.to_owned()))
 }

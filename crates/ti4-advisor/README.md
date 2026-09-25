@@ -81,3 +81,77 @@ A successful response contains the selected policy head, raw critic `value`,
 `value` is a raw critic output, not a win probability. Build requests from the
 server's current snapshot and pending-choice messages rather than hand-writing
 state or option IDs.
+
+## Evaluate space combat odds
+
+Send JSON to `POST http://127.0.0.1:8081/battle` (or `/battle_odds`):
+
+### 1. From a game state snapshot
+
+```json
+{
+  "state": { ... },
+  "system": "18",
+  "attacker": "player_a",
+  "defender": "player_b",
+  "simulations": 2000
+}
+```
+
+Fleets, upgrades, damage, and space cannon in the system are extracted directly from `state`.
+Arriving units can also be added on top of the state:
+
+```json
+{
+  "state": { ... },
+  "system": "18",
+  "attacker": {
+    "player": "player_a",
+    "units": {"cruiser": 1}
+  },
+  "defender": "player_b"
+}
+```
+
+### 2. Standalone fleets (calculator mode)
+
+```json
+{
+  "attacker": {
+    "faction": "sol",
+    "units": {"carrier": 1, "fighter": 4}
+  },
+  "defender": {
+    "faction": "letnev",
+    "units": {"dreadnought": 1}
+  },
+  "simulations": 2000
+}
+```
+
+### Response
+
+```json
+{
+  "simulations": 2000,
+  "attacker_win_rate": 0.685,
+  "defender_win_rate": 0.280,
+  "mutual_destruction_rate": 0.035,
+  "unresolved_rate": 0.0,
+  "average_rounds": 2.45,
+  "attacker_expected_survivors": {
+    "carrier": 0.65,
+    "fighter": 1.20
+  },
+  "defender_expected_survivors": {
+    "dreadnought": 0.28
+  },
+  "attacker_fielded": {
+    "carrier": 1,
+    "fighter": 4
+  },
+  "defender_fielded": {
+    "dreadnought": 1
+  }
+}
+```

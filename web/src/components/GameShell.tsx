@@ -9,7 +9,7 @@ import {
   emptyMovementPlan,
   type ExecutionPlan,
 } from "./TacticalMovementOverlay.tsx";
-import { CombatResolutionModal } from "./CombatResolutionModal.tsx";
+import { CombatResolutionModal, SpaceCombatOverlay } from "./CombatResolutionModal.tsx";
 import { TradeDeskModal } from "./TradeDeskModal.tsx";
 import { AgendaBallotModal } from "./AgendaBallotModal.tsx";
 import { ReactionStatusBar } from "./ReactionStatusBar.tsx";
@@ -267,16 +267,22 @@ function renderCombat({
   isMinimized,
   onMinimizedChange,
   lastError,
+  boardView,
+  players,
 }: Parameters<WorkflowRenderer>[0]) {
   return (
-    <CombatResolutionModal
+    <SpaceCombatOverlay
       choice={choice}
       model={model}
       viewerSeat={viewerSeat}
       onSubmit={onSubmit}
       isOpen={!isMinimized}
       onClose={() => onMinimizedChange(true)}
+      isMinimized={isMinimized}
+      onMinimize={onMinimizedChange}
       lastError={lastError}
+      board={boardView}
+      players={players}
     />
   );
 }
@@ -376,7 +382,34 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     return choice ? deriveChoiceRendererModel(choice, viewerSeat ?? null) : null;
   }, [choice, viewerSeat]);
 
-  if (!choice || (viewerSeat !== undefined && choice.actor !== viewerSeat)) return null;
+  const model = propModel ?? derivedModel;
+  const workflow = model?.workflow ?? "generic_selection";
+
+  const isCombatWorkflow =
+    workflow === "combat_sustain" ||
+    workflow === "combat_casualty" ||
+    workflow === "combat_retreat";
+
+  // If there is an active combat on the board without a pending choice, render combat overlay in spectator mode
+  if (!choice && boardView?.combat) {
+    return (
+      <SpaceCombatOverlay
+        choice={null}
+        model={null}
+        viewerSeat={viewerSeat}
+        onSubmit={onSubmit}
+        isOpen={!isMinimized}
+        onClose={() => onMinimizedChange(true)}
+        isMinimized={isMinimized}
+        onMinimize={onMinimizedChange}
+        lastError={lastError}
+        board={boardView}
+        players={players}
+      />
+    );
+  }
+
+  if (!choice || (viewerSeat !== undefined && choice.actor !== viewerSeat && !isCombatWorkflow)) return null;
 
   // A view-only copy: IDs, payloads and the original pending choice stay intact.
   const visibleChoice = {
@@ -389,8 +422,6 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     })),
   };
 
-  const model = propModel ?? derivedModel;
-  const workflow = model?.workflow ?? "generic_selection";
   const renderer = workflowRenderers.get(workflow) ?? workflowRenderers.get("generic_selection")!;
   const wrappedWorkflow =
     workflow === "payment" ||
@@ -427,6 +458,9 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
           "objective_scoring",
           "strategy_card_draft",
           "system_activation",
+          "combat_sustain",
+          "combat_casualty",
+          "combat_retreat",
         ].includes(workflow) && (
           <div className="choice-banner choice-minimized-pill" data-testid="choice-minimized-pill">
             <span className="choice-minimized-pill__prompt">
@@ -576,8 +610,11 @@ export const GameShell: React.FC<GameShellProps> = ({
   }, [players]);
 
   useEffect(() => {
-    setIsChoiceMinimized(false);
-  }, [choice?.nonce]);
+    // Only automatically un-minimize if it's the viewer's turn to make a decision
+    if (!choice || viewerSeat === undefined || choice.actor === viewerSeat) {
+      setIsChoiceMinimized(false);
+    }
+  }, [choice?.nonce, choice?.actor, viewerSeat]);
 
   // Register open drawer in overlayStack for Escape dismissal
   useEffect(() => {

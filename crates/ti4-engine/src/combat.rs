@@ -13,11 +13,13 @@ use ti4_content::galaxy::Galaxy;
 use ti4_content::units::{UnitType, catalogue};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, RelicId, SystemId};
-use ti4_model::state::{Feat, FeatOccurrence, GameState, RerollEntry, RerollSet};
+use ti4_model::state::{CombatRollRecord, Feat, FeatOccurrence, GameState, RerollEntry, RerollSet};
 use ti4_model::units::Unit;
 
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, Observed, Resolving, Table, Window};
-use crate::decision_context::{DecisionContext, DecisionSource, DecisionTarget};
+use crate::decision_context::{
+    ConstraintKind, DecisionContext, DecisionSource, DecisionTarget, OutstandingConstraint,
+};
 use crate::dice::Dice;
 use crate::preview::{Delta, Preview, Quantity, stochastic};
 use crate::rng::GameRng;
@@ -2790,6 +2792,35 @@ impl CombatWindow {
         let (attacker_free, attacker_forced) = split(&sets[0], attacker_hits, &self.attacker);
         let (defender_free, defender_forced) = split(&sets[1], defender_hits, &self.defender);
 
+        state
+            .combat_round_hits
+            .insert(self.attacker.clone(), (attacker_free + attacker_forced) as u32);
+        state
+            .combat_round_hits
+            .insert(self.defender.clone(), (defender_free + defender_forced) as u32);
+
+        let mut round_dice = Vec::new();
+        for (side, set) in [(&self.attacker, &sets[0]), (&self.defender, &sets[1])] {
+            if let Some(s) = set {
+                for entry in &s.rolls {
+                    let threshold = entry.hits_on.unwrap_or(0);
+                    for (die_idx, face) in entry.faces.iter().enumerate() {
+                        let delta = entry.deltas.get(&die_idx).copied().unwrap_or(0);
+                        let final_val = (*face as i64 + delta as i64).max(0) as u32;
+                        let hit = threshold > 0 && final_val >= threshold;
+                        round_dice.push(CombatRollRecord {
+                            player: (*side).clone(),
+                            unit: entry.unit.clone(),
+                            roll: *face,
+                            target: threshold,
+                            hit,
+                        });
+                    }
+                }
+            }
+        }
+        state.combat_round_dice = round_dice;
+
         // Forced hits first, so a free hit can still take a fighter the forced ones had to spare.
         let queue: Vec<Pending> = [
             (&self.defender, attacker_forced, &self.attacker, true),
@@ -3223,7 +3254,12 @@ impl Window for CombatWindow {
                             state.phase,
                             state.round,
                         )
-                        .about(DecisionTarget::System(self.system.clone())),
+                        .about(DecisionTarget::System(self.system.clone()))
+                        .owing(OutstandingConstraint::new(
+                            ConstraintKind::UnitsToRemove,
+                            i64::try_from(front.hits).unwrap_or(0),
+                            0,
+                        )),
                     ),
                 )
             }
@@ -3265,7 +3301,12 @@ impl Window for CombatWindow {
                             state.phase,
                             state.round,
                         )
-                        .about(DecisionTarget::System(self.system.clone())),
+                        .about(DecisionTarget::System(self.system.clone()))
+                        .owing(OutstandingConstraint::new(
+                            ConstraintKind::UnitsToRemove,
+                            i64::try_from(front.hits).unwrap_or(0),
+                            0,
+                        )),
                     ),
                 )
             }

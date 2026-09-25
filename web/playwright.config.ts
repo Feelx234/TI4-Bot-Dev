@@ -1,7 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const backendPort = process.env.TI4_E2E_BACKEND_PORT ?? "8080";
-const frontendPort = process.env.TI4_E2E_FRONTEND_PORT ?? "3000";
+const backendPort = process.env.TI4_E2E_BACKEND_PORT ?? "8180";
+const frontendPort = process.env.TI4_E2E_FRONTEND_PORT ?? "3100";
+process.env.TI4_E2E_BACKEND_PORT = backendPort;
+process.env.TI4_E2E_FRONTEND_PORT = frontendPort;
 
 export default defineConfig({
   testDir: "./e2e",

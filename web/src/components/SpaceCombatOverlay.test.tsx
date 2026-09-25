@@ -1,0 +1,515 @@
+import { act } from "react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { SpaceCombatOverlay } from "./SpaceCombatOverlay.tsx";
+import { PendingChoiceDto, BoardView, PlayerView } from "../protocol/types.ts";
+
+describe("SpaceCombatOverlay", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = vi.fn().mockImplementation(() => new Promise(() => {}));
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  const sampleBoard: BoardView = {
+    systems: {
+      "18": {
+        system_id: "18",
+        command_tokens: [],
+        planets: {},
+        units: [
+          // Attacker (seat_1): Dreadnought, Carrier, 2 Fighters
+          { unit_type: "dreadnought", owner: "seat_1", damaged: false },
+          { unit_type: "carrier", owner: "seat_1", damaged: true },
+          { unit_type: "fighter", owner: "seat_1", damaged: false },
+          { unit_type: "fighter", owner: "seat_1", damaged: false },
+          // Defender (seat_2): Cruiser, Destroyer
+          { unit_type: "cruiser", owner: "seat_2", damaged: false },
+          { unit_type: "destroyer", owner: "seat_2", damaged: false },
+        ],
+      },
+    },
+    active_system: "18",
+  };
+
+  const samplePlayers: Record<string, PlayerView> = {
+    seat_1: {
+      id: "seat_1",
+      faction: "Federation of Sol",
+      victory_points: 4,
+      trade_goods: 2,
+      commodities: 3,
+      tactic_tokens: 3,
+      fleet_tokens: 3,
+      strategic_tokens: 2,
+      passed: false,
+      strategy_cards: [],
+      exhausted_strategy_cards: [],
+      technologies: [],
+      exhausted_technologies: [],
+      relics: [],
+      exhausted_relics: [],
+      action_cards_count: 3,
+      secret_objectives_count: 1,
+      leaders: {},
+    },
+    seat_2: {
+      id: "seat_2",
+      faction: "Barony of Letnev",
+      victory_points: 3,
+      trade_goods: 1,
+      commodities: 2,
+      tactic_tokens: 2,
+      fleet_tokens: 2,
+      strategic_tokens: 1,
+      passed: false,
+      strategy_cards: [],
+      exhausted_strategy_cards: [],
+      technologies: [],
+      exhausted_technologies: [],
+      relics: [],
+      exhausted_relics: [],
+      action_cards_count: 2,
+      secret_objectives_count: 1,
+      leaders: {},
+    },
+  };
+
+  it("renders both sides of combat with fleet supply and capacity gauges", () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+
+    const sustainChoice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "100",
+      prompt: "Sustain damage on a ship",
+      context: {
+        subtype: "sustain_damage",
+        target: { System: "18" },
+      },
+      options: [
+        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" },
+        { id: "decline", label: "Take the hit", kind: "decline" },
+      ],
+    };
+
+    render(
+      <SpaceCombatOverlay
+        isOpen={true}
+        choice={sustainChoice}
+        viewerSeat="seat_1"
+        board={sampleBoard}
+        players={samplePlayers}
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />,
+    );
+
+    // Both fleets present
+    expect(screen.getByTestId("attacker-fleet-card")).toBeInTheDocument();
+    expect(screen.getByTestId("defender-fleet-card")).toBeInTheDocument();
+
+    // Attacker fleet supply: Dreadnought + Carrier = 2 non-fighters vs 3 fleet tokens
+    expect(screen.getByTestId("attacker-fleet-supply-gauge")).toHaveTextContent("2 / 3");
+    // Attacker capacity: Dreadnought (1) + Carrier (4) = 5 capacity; 2 Fighters = 2 used
+    expect(screen.getByTestId("attacker-capacity-gauge")).toHaveTextContent("2 / 5");
+
+    // Defender fleet supply: Cruiser + Destroyer = 2 non-fighters vs 2 fleet tokens
+    expect(screen.getByTestId("defender-fleet-supply-gauge")).toHaveTextContent("2 / 2");
+    // Defender capacity: 0 used / 0 capacity
+    expect(screen.getByTestId("defender-capacity-gauge")).toHaveTextContent("0 / 0");
+
+    // Damaged unit indicator on Carrier
+    expect(screen.getByText(/1 damaged/i)).toBeInTheDocument();
+
+    // Mocked combat odds card
+    expect(screen.getByTestId("combat-odds-card")).toBeInTheDocument();
+    expect(screen.getByText(/Combat Odds Analysis/i)).toBeInTheDocument();
+  });
+
+  it("allows active player to sustain damage on eligible ship and handles submission", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+
+    const sustainChoice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "101",
+      prompt: "Sustain damage on a ship",
+      context: {
+        subtype: "sustain_damage",
+        target: { System: "18" },
+      },
+      options: [
+        { id: "sustain:dreadnought:1", label: "Dreadnought (System 18)", kind: "sustain" },
+        { id: "decline", label: "Take the hit", kind: "decline" },
+      ],
+    };
+
+    render(
+      <SpaceCombatOverlay
+        isOpen={true}
+        choice={sustainChoice}
+        viewerSeat="seat_1"
+        board={sampleBoard}
+        players={samplePlayers}
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />,
+    );
+
+    expect(screen.getByText(/Caution: Opponents holding "Direct Hit"/i)).toBeInTheDocument();
+    const sustainBtn = screen.getByTestId("sustain-opt-sustain:dreadnought:1");
+    expect(sustainBtn).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(sustainBtn);
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith("sustain:dreadnought:1");
+  });
+
+  it("displays dice rolls with hit and miss tags when provided", () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "102",
+      prompt: "Assign hits",
+      context: {
+        subtype: "assign_casualty",
+        outstanding: [{ amount: 2 }],
+        target: { System: "18" },
+      },
+      options: [
+        { id: "destroy|fighter", label: "Destroy Fighter", kind: "casualty" },
+      ],
+    };
+
+    const diceRolls = [
+      { unit: "Dreadnought", roll: 8, target: 5, hit: true },
+      { unit: "Carrier", roll: 9, target: 9, hit: true },
+      { unit: "Fighter", roll: 3, target: 9, hit: false },
+    ];
+
+    render(
+      <SpaceCombatOverlay
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        board={sampleBoard}
+        players={samplePlayers}
+        recentDiceRolls={diceRolls}
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />,
+    );
+
+    expect(screen.getByTestId("combat-dice-feed")).toBeInTheDocument();
+    const badges = screen.getAllByTestId("dice-roll-badge");
+    expect(badges).toHaveLength(3);
+    expect(badges[0]).toHaveTextContent("Dreadnought (5+): [8] ★ HIT");
+    expect(badges[2]).toHaveTextContent("Fighter (9+): [3] MISS");
+    expect(screen.getByTestId("combat-hits-callout")).toHaveTextContent("2");
+  });
+
+  it("renders dockable minimized bar when isMinimized is true", () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const onMinimize = vi.fn();
+
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "103",
+      prompt: "Assign hits",
+      context: {
+        subtype: "assign_casualty",
+        target: { System: "18" },
+      },
+      options: [],
+    };
+
+    render(
+      <SpaceCombatOverlay
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        board={sampleBoard}
+        players={samplePlayers}
+        isMinimized={true}
+        onMinimize={onMinimize}
+        onSubmit={onSubmit}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("combat-docked-pill")).toBeInTheDocument();
+    expect(screen.getByText(/SPACE COMBAT/i)).toBeInTheDocument();
+    expect(screen.getByText(/System 18/i)).toBeInTheDocument();
+
+    const resumeBtn = screen.getByTestId("resume-combat-btn");
+    expect(resumeBtn).toBeInTheDocument();
+    fireEvent.click(resumeBtn);
+    expect(onMinimize).toHaveBeenCalledWith(false);
+  });
+
+  it("renders in spectator mode for observers and opponents when not their turn", () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    const choice: PendingChoiceDto = {
+      actor: "seat_2",
+      nonce: "104",
+      prompt: "Sustain damage",
+      context: {
+        subtype: "sustain_damage",
+        target: { System: "18" },
+      },
+      options: [
+        { id: "sustain:cruiser", label: "Cruiser", kind: "sustain" },
+      ],
+    };
+
+    render(
+      <SpaceCombatOverlay
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        board={sampleBoard}
+        players={samplePlayers}
+        onSubmit={onSubmit}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("spectator-combat-notice")).toBeInTheDocument();
+    // Action buttons are NOT rendered for the spectator
+    expect(screen.queryByTestId("sustain-opt-sustain:cruiser")).not.toBeInTheDocument();
+  });
+
+  it("fetches and renders live simulated combat odds from advisor endpoint", async () => {
+    const mockOdds = {
+      simulations: 2000,
+      attacker_win_rate: 0.72,
+      defender_win_rate: 0.25,
+      mutual_destruction_rate: 0.03,
+      unresolved_rate: 0,
+      average_rounds: 2.4,
+      attacker_expected_survivors: { carrier: 0.8, dreadnought: 0.9, fighter: 0.3 },
+      defender_expected_survivors: { cruiser: 0.2 },
+      attacker_fielded: { carrier: 1, dreadnought: 1, fighter: 2 },
+      defender_fielded: { cruiser: 1, destroyer: 1 },
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockOdds,
+    } as Response);
+
+    const sustainChoice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "105",
+      prompt: "Sustain damage on a ship",
+      context: {
+        subtype: "sustain_damage",
+        target: { System: "18" },
+      },
+      options: [
+        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" },
+        { id: "decline", label: "Take the hit", kind: "decline" },
+      ],
+    };
+
+    await act(async () => {
+      render(
+        <SpaceCombatOverlay
+          isOpen={true}
+          choice={sustainChoice}
+          viewerSeat="seat_1"
+          board={sampleBoard}
+          players={samplePlayers}
+          onSubmit={vi.fn().mockResolvedValue(undefined)}
+          onClose={vi.fn()}
+        />,
+      );
+    });
+
+    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent("Simulated (2,000 rollouts)");
+    expect(screen.getByText("72%")).toBeInTheDocument();
+    expect(screen.getByText("25%")).toBeInTheDocument();
+    expect(screen.getByText(/~2.0 survivors/i)).toBeInTheDocument();
+    expect(screen.getByText(/~0.2 survivors/i)).toBeInTheDocument();
+    expect(screen.getByTestId("combat-odds-sub-detail")).toHaveTextContent(
+      "Avg 2.4 rounds • 3% mutual wipe",
+    );
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/advisor/battle",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"faction":"sol"'),
+      }),
+    );
+  });
+
+  it("falls back to heuristic odds with offline tag when advisor fails", async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error("Advisor offline"));
+
+    const sustainChoice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "106",
+      prompt: "Sustain damage on a ship",
+      context: {
+        subtype: "sustain_damage",
+        target: { System: "18" },
+      },
+      options: [
+        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" },
+      ],
+    };
+
+    await act(async () => {
+      render(
+        <SpaceCombatOverlay
+          isOpen={true}
+          choice={sustainChoice}
+          viewerSeat="seat_1"
+          board={sampleBoard}
+          players={samplePlayers}
+          onSubmit={vi.fn().mockResolvedValue(undefined)}
+          onClose={vi.fn()}
+        />,
+      );
+    });
+
+    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent("Estimated (Advisor Offline)");
+    expect(screen.getByTestId("combat-odds-card")).toBeInTheDocument();
+  });
+
+  it("renders round hits scorecard displaying hits dealt by each player", () => {
+    const boardWithCombat: BoardView = {
+      ...sampleBoard,
+      combat: {
+        system_id: "18",
+        round: 2,
+        attacker: "seat_1",
+        defender: "seat_2",
+        attacker_hits: 3,
+        defender_hits: 1,
+        hits_to_assign: 1,
+      },
+    };
+
+    render(
+      <SpaceCombatOverlay
+        isOpen={true}
+        choice={null}
+        viewerSeat="seat_1"
+        board={boardWithCombat}
+        players={samplePlayers}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("combat-round-hits")).toBeInTheDocument();
+    expect(screen.getByText("Round 2 Hits Produced")).toBeInTheDocument();
+    expect(screen.getByTestId("attacker-round-hits")).toHaveTextContent("3");
+    expect(screen.getByTestId("defender-round-hits")).toHaveTextContent("1");
+    expect(screen.getByTestId("attacker-hits-dealt")).toHaveTextContent("💥 3 hits");
+    expect(screen.getByTestId("defender-hits-dealt")).toHaveTextContent("💥 1 hit");
+  });
+
+  it("allows player to assign casualty by clicking directly on the unit row", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const casualtyChoice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "107",
+      prompt: "Assign casualty",
+      context: {
+        subtype: "assign_casualty",
+        target: { System: "18" },
+      },
+      options: [
+        {
+          id: "destroy|18|carrier|true",
+          label: "Carrier (damaged)",
+          kind: "casualty",
+          payload: { unit: "carrier", damaged: true },
+        },
+        {
+          id: "destroy|18|fighter|false",
+          label: "Fighter",
+          kind: "casualty",
+          payload: { unit: "fighter" },
+        },
+      ],
+    };
+
+    render(
+      <SpaceCombatOverlay
+        isOpen={true}
+        choice={casualtyChoice}
+        viewerSeat="seat_1"
+        board={sampleBoard}
+        players={samplePlayers}
+        onSubmit={onSubmit}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // Find the carrier unit row
+    const carrierRow = screen.getByTestId("unit-row-carrier");
+    expect(carrierRow).toHaveClass("combat-unit-row--interactive");
+    expect(carrierRow).toHaveTextContent("💥 Click to assign");
+
+    // Click directly on the carrier row
+    await act(async () => {
+      fireEvent.click(carrierRow);
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith("destroy|18|carrier|true");
+  });
+
+  it("renders Direct Hit warning when opponent holds Direct Hit card", () => {
+    const playersWithDirectHit: Record<string, PlayerView> = {
+      ...samplePlayers,
+      seat_2: {
+        ...samplePlayers.seat_2,
+        held_action_cards: ["direct_hit"],
+      },
+    };
+
+    const sustainChoice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "108",
+      prompt: "Sustain damage",
+      context: {
+        subtype: "sustain_damage",
+        target: { System: "18" },
+      },
+      options: [
+        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" },
+        { id: "decline", label: "Decline", kind: "decline" },
+      ],
+    };
+
+    render(
+      <SpaceCombatOverlay
+        isOpen={true}
+        choice={sustainChoice}
+        viewerSeat="seat_1"
+        board={sampleBoard}
+        players={playersWithDirectHit}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("direct-hit-threat-banner")).toBeInTheDocument();
+    expect(screen.getByText(/Opponent holds a "Direct Hit" action card/i)).toBeInTheDocument();
+  });
+});

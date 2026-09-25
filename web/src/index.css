@@ -1069,6 +1069,559 @@ select:focus-visible,
   background: var(--color-danger);
 }
 
+/* Space Combat Arena Overlay */
+.combat-arena-dialog {
+  /* Inherits centered backdrop flex properties from choice-workflow-dialog */
+}
+
+.combat-arena-panel {
+  width: min(1000px, calc(100vw - 32px));
+  max-width: 1000px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.combat-arena-sides-grid {
+  display: grid;
+  grid-template-columns: 1fr 240px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .combat-arena-sides-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.combat-fleet-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.combat-fleet-card--active {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.2);
+}
+
+.combat-fleet-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 700;
+}
+
+.combat-fleet-card__role {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+}
+
+.combat-fleet-card--active .combat-fleet-card__role {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--color-danger);
+}
+
+.combat-fleet-card__name {
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.combat-fleet-card__faction {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.combat-fleet-card__hits {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  margin-left: auto;
+}
+
+.combat-fleet-card__gauges {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  padding: 6px 10px;
+  background: var(--color-background);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.combat-gauge-stat {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.combat-gauge-stat[data-alert="true"] {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
+.combat-gauge-stat__label {
+  color: var(--color-text-muted);
+}
+
+.combat-fleet-card__units {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.combat-unit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--color-background);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.combat-unit-row--interactive {
+  cursor: pointer;
+  border-color: var(--color-border);
+}
+
+.combat-unit-row--interactive:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: var(--color-danger);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.25);
+}
+
+.combat-unit-row--casualty {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.combat-unit-row--casualty:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: var(--color-danger);
+}
+
+.combat-unit-row__name {
+  flex: 1;
+}
+
+.combat-unit-row__count {
+  font-weight: 700;
+}
+
+.combat-unit-row__damaged-badge {
+  font-size: 11px;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.combat-unit-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.combat-unit-row__action-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 3px;
+  cursor: pointer;
+  background: var(--color-danger);
+  color: #fff;
+  border: none;
+  transition: filter 0.15s ease;
+}
+
+.combat-unit-row__action-btn:hover {
+  filter: brightness(1.15);
+}
+
+.combat-unit-row__action-btn--damaged {
+  background: #d97706;
+}
+
+.combat-unit-row__sustain-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 3px;
+  cursor: pointer;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  transition: filter 0.15s ease;
+}
+
+.combat-unit-row__sustain-btn:hover {
+  filter: brightness(1.15);
+}
+
+.combat-empty-fleet {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-style: italic;
+  padding: 8px 0;
+}
+
+/* Round Hits Scorecard */
+.combat-round-hits-card {
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.combat-round-hits__header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.combat-round-hits__grid {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  width: 100%;
+  gap: 8px;
+}
+
+.combat-round-hits__player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+
+.combat-round-hits__count {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.combat-round-hits__count--attacker {
+  color: #60a5fa;
+}
+
+.combat-round-hits__count--defender {
+  color: #f87171;
+}
+
+.combat-round-hits__label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.combat-round-hits__divider {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}
+
+.combat-dialog__die-side {
+  font-weight: 700;
+  color: var(--color-text-muted);
+  margin-right: 4px;
+}
+
+.combat-direct-hit-banner {
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.combat-arena-center {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.combat-odds-card {
+  width: 100%;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.combat-odds-card__title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.combat-odds-card__tag {
+  font-size: 9px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.combat-odds-card__bars {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.combat-odds-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 48px;
+}
+
+.combat-odds-col--right {
+  align-items: flex-end;
+}
+
+.combat-odds-col__pct {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.combat-odds-col__exp {
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
+.combat-odds-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--color-border);
+  border-radius: 4px;
+  display: flex;
+  overflow: hidden;
+}
+
+.combat-odds-bar__att {
+  background: #3b82f6;
+  height: 100%;
+}
+
+.combat-odds-bar__mutual {
+  background: #a855f7;
+  height: 100%;
+}
+
+.combat-odds-bar__def {
+  background: #ef4444;
+  height: 100%;
+}
+
+.combat-odds-card__sub-detail {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.combat-odds-card__tag--simulated {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.combat-odds-card__tag--offline {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.combat-odds-card__tag--loading {
+  background: rgba(14, 165, 233, 0.15);
+  color: #38bdf8;
+}
+
+.combat-hits-callout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  width: 100%;
+}
+
+.combat-hits-callout__count {
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--color-danger);
+  line-height: 1;
+}
+
+.combat-hits-callout__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.combat-action-area {
+  margin-top: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.combat-action-prompt {
+  font-size: 13px;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+
+.combat-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.combat-sustain-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 14px;
+  text-align: left;
+}
+
+.combat-btn-icon {
+  font-size: 16px;
+}
+
+.combat-btn-label {
+  font-weight: 600;
+}
+
+.combat-btn-sub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.combat-decline-row {
+  margin-top: 10px;
+}
+
+.combat-casualty-instruction {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.combat-location-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.combat-casualty-options-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.combat-arena-dock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--color-surface);
+  border: 2px solid var(--color-danger);
+  border-radius: var(--radius-full);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+}
+
+.combat-arena-dock__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.combat-arena-dock__badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--color-danger);
+}
+
+.combat-arena-dock__system {
+  color: var(--color-text);
+}
+
+.combat-arena-dock__hits {
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+.combat-arena-dock__alert-pill {
+  font-size: 11px;
+  background: var(--color-danger);
+  color: white;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  animation: pulse 1.5s infinite;
+}
+
+.combat-spectator-waiting {
+  padding: 16px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-style: italic;
+  text-align: center;
+}
+
 .trade-dialog {
   --workflow-accent: var(--color-accent);
 }

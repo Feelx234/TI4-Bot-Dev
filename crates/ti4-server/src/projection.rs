@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use ti4_engine::choice::Choice;
-use ti4_model::id::PlanetId;
+use ti4_model::id::{PlanetId, PlayerId};
 use ti4_model::state::{GameState, Player};
 use ti4_model::view::{HIDDEN, redact_player, view_for};
 
@@ -55,9 +55,130 @@ pub fn project_player_view(player: &Player) -> PlayerView {
     }
 }
 
+/// Helper to construct public combat view if a space combat is detected
+#[must_use]
+pub fn project_combat_view(
+    state: &GameState,
+    pending_choice: Option<&Choice>,
+    dice_rolls: &[crate::protocol::view::CombatDieRoll],
+) -> Option<crate::protocol::view::CombatView> {
+    let choice_ctx = pending_choice.and_then(|c| c.context.as_ref());
+    let is_combat_choice = choice_ctx.is_some_and(|ctx| {
+        matches!(
+            ctx.subtype.as_str(),
+            "sustain_damage" | "assign_casualty" | "announce_retreat" | "retreat_to"
+        )
+    });
+
+    let system_id = if let Some(ctx) = choice_ctx {
+        if let Some(target) = &ctx.target {
+            match target {
+                ti4_engine::decision_context::DecisionTarget::System(sys) => Some(sys.clone()),
+                _ => state.active_system.clone(),
+            }
+        } else {
+            state.active_system.clone()
+        }
+    } else {
+        state.active_system.clone()
+    };
+
+    let sys_id = system_id?;
+    let sys_state = state.board.get(&sys_id)?;
+
+    // Check distinct ship owners in space
+    let mut ship_owners = BTreeSet::new();
+    for u in &sys_state.units {
+        ship_owners.insert(u.owner.clone());
+    }
+
+    if !is_combat_choice && ship_owners.len() < 2 {
+        return None;
+    }
+
+    let attacker = state.active.clone().unwrap_or_else(|| {
+        ship_owners.iter().next().cloned().unwrap_or_else(|| PlayerId::new(""))
+    });
+
+    let defender = ship_owners
+        .into_iter()
+        .find(|p| *p != attacker)
+        .unwrap_or_else(|| {
+            pending_choice
+                .map(|c| c.player.clone())
+                .unwrap_or_else(|| PlayerId::new(""))
+        });
+
+    let active_player = pending_choice.map(|c| c.player.clone());
+    let stage = choice_ctx.map(|ctx| ctx.subtype.clone());
+    let attacker_hits = state.combat_round_hits.get(&attacker).copied();
+    let defender_hits = state.combat_round_hits.get(&defender).copied();
+
+    let dice_rolls: Vec<crate::protocol::view::CombatDieRoll> = if !dice_rolls.is_empty() {
+        dice_rolls.to_vec()
+    } else {
+        state
+            .combat_round_dice
+            .iter()
+            .map(|r| crate::protocol::view::CombatDieRoll {
+                player: Some(r.player.clone()),
+                unit: r.unit.clone(),
+                roll: r.roll,
+                target: r.target,
+                hit: r.hit,
+            })
+            .collect()
+    };
+
+    let hits_to_assign = choice_ctx
+        .and_then(|ctx| ctx.outstanding.first())
+        .map(|o| usize::try_from(o.amount).unwrap_or(0))
+        .or_else(|| {
+            active_player.as_ref().and_then(|p| {
+                if *p == attacker {
+                    defender_hits.map(|h| h as usize)
+                } else if *p == defender {
+                    attacker_hits.map(|h| h as usize)
+                } else {
+                    None
+                }
+            })
+        });
+
+    Some(crate::protocol::view::CombatView {
+        system_id: sys_id,
+        round: state.combat_round_seq.max(1),
+        attacker,
+        defender,
+        active_player,
+        stage,
+        hits_to_assign,
+        attacker_hits,
+        defender_hits,
+        dice_rolls,
+    })
+}
+
+/// Projects the board systems, planets, and units without map tiles.
+#[must_use]
+pub fn project_board_view(state: &GameState) -> BoardView {
+    project_board_view_with_map(state, &[])
+}
+
 /// Projects the board systems, planets, and units.
 #[must_use]
 pub fn project_board_view_with_map(state: &GameState, map_tiles: &[BoardTileView]) -> BoardView {
+    project_board_view_full(state, map_tiles, None, &[])
+}
+
+/// Projects the full board view with combat and dice information.
+#[must_use]
+pub fn project_board_view_full(
+    state: &GameState,
+    map_tiles: &[BoardTileView],
+    pending_choice: Option<&Choice>,
+    dice_rolls: &[crate::protocol::view::CombatDieRoll],
+) -> BoardView {
     let mut systems = BTreeMap::new();
 
     for (sys_id, sys_state) in &state.board {
@@ -119,13 +240,8 @@ pub fn project_board_view_with_map(state: &GameState, map_tiles: &[BoardTileView
         systems,
         active_system: state.active_system.clone(),
         map_tiles: map_tiles.to_vec(),
+        combat: project_combat_view(state, pending_choice, dice_rolls),
     }
-}
-
-/// Projects the board systems, planets, and units without map tiles.
-#[must_use]
-pub fn project_board_view(state: &GameState) -> BoardView {
-    project_board_view_with_map(state, &[])
 }
 
 /// Projects table-level public objectives, laws, and strategy cards.
@@ -147,6 +263,18 @@ pub fn project_game_view_with_map(
     viewer: &ViewerRole,
     map_tiles: &[BoardTileView],
 ) -> GameView {
+    project_game_view_full(state, viewer, map_tiles, None, &[])
+}
+
+/// Projects the entire game state for a specific viewer role with pending choice and combat dice.
+#[must_use]
+pub fn project_game_view_full(
+    state: &GameState,
+    viewer: &ViewerRole,
+    map_tiles: &[BoardTileView],
+    pending_choice: Option<&Choice>,
+    dice_rolls: &[crate::protocol::view::CombatDieRoll],
+) -> GameView {
     let redacted = redacted_state(state, viewer);
     let players = redacted.players.iter().map(project_player_view).collect();
 
@@ -158,7 +286,7 @@ pub fn project_game_view_with_map(
         active_player: redacted.active.clone(),
         finished: redacted.finished,
         players,
-        board: project_board_view_with_map(&redacted, map_tiles),
+        board: project_board_view_full(&redacted, map_tiles, pending_choice, dice_rolls),
         table: project_table_view(&redacted),
     }
 }
@@ -253,7 +381,7 @@ pub fn project_initial_snapshot_with_map(
         game_id: game_id.to_owned(),
         game_version,
         viewer: viewer.clone(),
-        view: project_game_view_with_map(state, viewer, map_tiles),
+        view: project_game_view_full(state, viewer, map_tiles, pending_choice.map(|(c, _)| c), &[]),
         state: redacted_state(state, viewer),
         galaxy_layout: galaxy_layout.clone(),
         pending_choice: project_pending_choice(viewer, pending_choice),
@@ -310,7 +438,7 @@ pub fn project_state_update_with_map(
         game_id: game_id.to_owned(),
         game_version,
         viewer: viewer.clone(),
-        view: project_game_view_with_map(state, viewer, map_tiles),
+        view: project_game_view_full(state, viewer, map_tiles, pending_choice.map(|(c, _)| c), &[]),
         state: redacted_state(state, viewer),
         galaxy_layout: galaxy_layout.clone(),
         pending_choice: project_pending_choice(viewer, pending_choice),
