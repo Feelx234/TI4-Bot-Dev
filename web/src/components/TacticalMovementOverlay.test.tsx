@@ -149,7 +149,7 @@ describe("TacticalMovementOverlay Component", () => {
     );
     expect(screen.getByText("No ships eligible to move into the active system.")).toBeVisible();
     expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("0 / 3 Ships");
-    expect(screen.getByTestId("cargo-capacity-gauge")).toHaveTextContent("0 / 0 Loaded");
+    expect(screen.queryByTestId(/cargo-capacity-gauge/)).not.toBeInTheDocument();
     const done = screen.getByTestId("commit-moves-btn");
     expect(done).toBeEnabled();
     expect(done).toHaveTextContent("Done Moving");
@@ -251,12 +251,13 @@ describe("TacticalMovementOverlay Component", () => {
 
     expect(screen.getByTestId("tactical-movement-tray")).toBeInTheDocument();
     expect(screen.getByText("Destination: system 18")).toBeInTheDocument();
+    expect(screen.getByTestId("origin-group-24")).toBeInTheDocument();
     expect(screen.getByTestId("rally-row-24-cruiser")).toBeInTheDocument();
     expect(screen.getByTestId("rally-row-24-carrier")).toBeInTheDocument();
     expect(screen.getByTestId("rally-row-24-fighter")).toBeInTheDocument();
 
     expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("0 / 3 Ships");
-    expect(screen.getByTestId("cargo-capacity-gauge")).toHaveTextContent("0 / 0 Loaded");
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("0 / 0 Loaded");
   });
 
   it("updates fleet supply and cargo capacity when staging ships", () => {
@@ -276,13 +277,13 @@ describe("TacticalMovementOverlay Component", () => {
     fireEvent.click(carrierInc);
 
     expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("1 / 3 Ships");
-    expect(screen.getByTestId("cargo-capacity-gauge")).toHaveTextContent("0 / 4 Loaded");
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("0 / 4 Loaded");
 
     // Stage 1 Fighter (+1 cargo)
     const fighterInc = screen.getByTestId("rally-inc-24-fighter");
     fireEvent.click(fighterInc);
 
-    expect(screen.getByTestId("cargo-capacity-gauge")).toHaveTextContent("1 / 4 Loaded");
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("1 / 4 Loaded");
     expect(screen.getByTestId("commit-moves-btn")).toHaveTextContent("Commit Moves (2)");
   });
 
@@ -527,17 +528,17 @@ describe("TacticalMovementOverlay Component", () => {
 
     // Carrier is staged
     fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
-    expect(screen.getByTestId("cargo-capacity-gauge")).toHaveTextContent("0 / 4 Loaded");
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("0 / 4 Loaded");
 
     // Carryable cargo section is visible
-    expect(screen.getByText("Carryable Cargo in Origin Systems")).toBeInTheDocument();
+    expect(screen.getByText("Carryable Cargo")).toBeInTheDocument();
 
     // Stage 2 infantry from Jord
     const infInc = screen.getByTestId("rally-inc-cargo-24-infantry-jord");
     fireEvent.click(infInc);
     fireEvent.click(infInc);
 
-    expect(screen.getByTestId("cargo-capacity-gauge")).toHaveTextContent("2 / 4 Loaded");
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("2 / 4 Loaded");
 
     // Commit moves
     const commitBtn = screen.getByTestId("commit-moves-btn");
@@ -547,5 +548,188 @@ describe("TacticalMovementOverlay Component", () => {
 
     // Submits the carrier move first
     expect(onSubmit).toHaveBeenCalledWith("move|24|0");
+  });
+
+  it("groups by origin system with origin-specific cargo capacity and global fleet supply", () => {
+    const multiOriginChoice: PendingChoiceDto = {
+      prompt: "movement",
+      actor: "p1",
+      nonce: "nonce_multi",
+      context: { subtype: "movement_step", target: { System: "18" } },
+      options: [
+        {
+          id: "move|24|0",
+          label: "Carrier",
+          kind: "move",
+          payload: { origin: "24", unit: "carrier", capacity: 4 },
+        },
+        {
+          id: "move|12|0",
+          label: "Cruiser",
+          kind: "move",
+          payload: { origin: "12", unit: "cruiser" },
+        },
+        { id: "done_moving", kind: "decline", label: "finish movement" },
+      ],
+    };
+
+    const multiBoard = {
+      systems: {
+        "24": {
+          system_id: "24",
+          command_tokens: [],
+          planets: { jord: { planet_id: "jord", exhausted: false } },
+          units: [
+            { unit_type: "carrier", owner: "p1", damaged: false },
+            { unit_type: "infantry", owner: "p1", planet: "jord", damaged: false },
+            { unit_type: "infantry", owner: "p1", planet: "jord", damaged: false },
+          ],
+        },
+        "12": {
+          system_id: "12",
+          command_tokens: [],
+          planets: { mecatol: { planet_id: "mecatol", exhausted: false } },
+          units: [
+            { unit_type: "cruiser", owner: "p1", damaged: false },
+            { unit_type: "infantry", owner: "p1", planet: "mecatol", damaged: false },
+          ],
+        },
+      },
+    };
+
+    render(
+      <TacticalMovementOverlay
+        choice={multiOriginChoice}
+        board={multiBoard as any}
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={vi.fn()}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // Both origin groups rendered
+    expect(screen.getByTestId("origin-group-24")).toBeInTheDocument();
+    expect(screen.getByTestId("origin-group-12")).toBeInTheDocument();
+
+    // Fleet supply is global (0 / 3)
+    expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("0 / 3 Ships");
+
+    // Origin 24 and 12 cargo gauges start at 0 / 0
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("0 / 0 Loaded");
+    expect(screen.getByTestId("cargo-capacity-gauge-12")).toHaveTextContent("0 / 0 Loaded");
+
+    // Stage 1 Carrier in 24 (+1 fleet, +4 capacity in 24)
+    fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
+    expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("1 / 3 Ships");
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("0 / 4 Loaded");
+    expect(screen.getByTestId("cargo-capacity-gauge-12")).toHaveTextContent("0 / 0 Loaded");
+
+    // Stage 1 Cruiser in 12 (+1 fleet, 0 capacity in 12)
+    fireEvent.click(screen.getByTestId("rally-inc-12-cruiser"));
+    expect(screen.getByTestId("fleet-supply-gauge")).toHaveTextContent("2 / 3 Ships");
+    expect(screen.getByTestId("cargo-capacity-gauge-12")).toHaveTextContent("0 / 0 Loaded");
+
+    // Stage 1 Infantry in 12: 12 has 0 capacity, so it exceeds origin capacity!
+    fireEvent.click(screen.getByTestId("rally-inc-cargo-12-infantry-mecatol"));
+    expect(screen.getByTestId("cargo-capacity-gauge-12")).toHaveTextContent("1 / 0 Loaded");
+    expect(screen.getByTestId("cargo-capacity-gauge-12")).toHaveAttribute("data-alert", "true");
+
+    // Commit Moves must be DISABLED even though global capacity is 4 and total cargo is 1!
+    const commitBtn = screen.getByTestId("commit-moves-btn");
+    expect(commitBtn).toBeDisabled();
+    expect(
+      screen.getByText(
+        /Cannot commit moves: cargo exceeds transport capacity in one or more origin systems/i,
+      ),
+    ).toBeInTheDocument();
+
+    // Unstage the infantry from 12
+    fireEvent.click(screen.getByTestId("rally-dec-cargo-12-infantry-mecatol"));
+    expect(screen.getByTestId("cargo-capacity-gauge-12")).toHaveTextContent("0 / 0 Loaded");
+    expect(commitBtn).toBeEnabled();
+
+    // Stage 2 Infantry in 24: fits in 24's capacity (2/4)
+    fireEvent.click(screen.getByTestId("rally-inc-cargo-24-infantry-jord"));
+    fireEvent.click(screen.getByTestId("rally-inc-cargo-24-infantry-jord"));
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("2 / 4 Loaded");
+    expect(commitBtn).toBeEnabled();
+  });
+
+  it("permits soft staging past origin capacity with alert and blocks commit until resolved", () => {
+    const choiceWithCarrier: PendingChoiceDto = {
+      prompt: "movement",
+      actor: "p1",
+      nonce: "nonce_soft",
+      context: { subtype: "movement_step", target: { System: "18" } },
+      options: [
+        {
+          id: "move|24|0",
+          label: "Carrier",
+          kind: "move",
+          payload: { origin: "24", unit: "carrier", capacity: 2 },
+        },
+        { id: "done_moving", kind: "decline", label: "finish movement" },
+      ],
+    };
+
+    const mockBoard = {
+      systems: {
+        "24": {
+          system_id: "24",
+          command_tokens: [],
+          planets: {
+            jord: { planet_id: "jord", exhausted: false },
+          },
+          units: [
+            { unit_type: "carrier", owner: "p1", damaged: false },
+            { unit_type: "infantry", owner: "p1", planet: "jord", damaged: false },
+            { unit_type: "infantry", owner: "p1", planet: "jord", damaged: false },
+            { unit_type: "infantry", owner: "p1", planet: "jord", damaged: false },
+          ],
+        },
+      },
+    };
+
+    render(
+      <TacticalMovementOverlay
+        choice={choiceWithCarrier}
+        board={mockBoard as any}
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={vi.fn()}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // Stage carrier (capacity = 2)
+    fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("0 / 2 Loaded");
+
+    // Soft limit allows staging 3 infantry even though capacity is 2
+    const infInc = screen.getByTestId("rally-inc-cargo-24-infantry-jord");
+    fireEvent.click(infInc);
+    fireEvent.click(infInc);
+    fireEvent.click(infInc);
+
+    expect(screen.getByTestId("rally-count-cargo-24-infantry-jord")).toHaveTextContent("3");
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("3 / 2 Loaded");
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveAttribute("data-alert", "true");
+
+    // Advisory message shown
+    expect(
+      screen.getByText(/Exceeds origin cargo capacity \(3\/2\) — remove excess cargo/i),
+    ).toBeInTheDocument();
+
+    // Commit button is disabled
+    const commitBtn = screen.getByTestId("commit-moves-btn");
+    expect(commitBtn).toBeDisabled();
+
+    // Decrement 1 infantry -> 2 / 2 Loaded
+    fireEvent.click(screen.getByTestId("rally-dec-cargo-24-infantry-jord"));
+    expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveTextContent("2 / 2 Loaded");
+    expect(commitBtn).toBeEnabled();
   });
 });

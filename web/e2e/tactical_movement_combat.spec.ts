@@ -69,7 +69,7 @@ test.describe("Tactical fleet rally", () => {
     await page.getByTestId(`rally-inc-${forwardId}-cruiser`).click();
     // The same selection includes a planet-sourced load for the carrier.
     await page.getByTestId("rally-inc-cargo-01-sol_infantry-jord").click();
-    await expect(page.getByTestId("cargo-capacity-gauge")).toContainText("1 /");
+    await expect(page.getByTestId("cargo-capacity-gauge-01")).toContainText("1 /");
     await expect(page.getByTestId("fleet-supply-gauge")).not.toHaveAttribute(
       "data-warning",
       "true",

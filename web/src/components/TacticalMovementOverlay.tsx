@@ -247,13 +247,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   }, [board, destinationSystemId, choice]);
 
   // Capacity & Fleet calculations
-  const {
-    totalNonFightersMoving,
-    totalCapacityProvided,
-    totalCargoMoving,
-    capacityByOrigin,
-    cargoByOrigin,
-  } = useMemo(() => {
+  const { totalNonFightersMoving, capacityByOrigin, cargoByOrigin } = useMemo(() => {
     let nonFighters = 0;
     let capacity = 0;
     let cargo = 0;
@@ -294,6 +288,25 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       cargoByOrigin: cargoByOrig,
     };
   }, [shipGroups, originCargoGroups, stagedMoves]);
+
+  const originSystemIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const g of shipGroups) {
+      ids.add(g.originSystemId);
+    }
+    for (const c of originCargoGroups) {
+      ids.add(c.originSystemId);
+    }
+    return Array.from(ids).sort();
+  }, [shipGroups, originCargoGroups]);
+
+  const hasAnyOriginOverCapacity = useMemo(() => {
+    return originSystemIds.some((orig) => {
+      const cap = capacityByOrigin[orig] ?? 0;
+      const cargo = cargoByOrigin[orig] ?? 0;
+      return cargo > cap;
+    });
+  }, [originSystemIds, capacityByOrigin, cargoByOrigin]);
 
   const totalProjectedFleet = existingNonFightersInDestination + totalNonFightersMoving;
   const isOverFleetSupply = fleetTokens !== undefined && totalProjectedFleet > fleetTokens;
@@ -516,6 +529,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     }
     setLocalError(null);
 
+    if (hasAnyOriginOverCapacity) {
+      setLocalError("Cargo exceeds transport capacity in one or more origin systems.");
+      return;
+    }
+
     // Collect capital ships to move
     const ships: ExecutionPlan["remainingShips"] = [];
     for (const g of shipGroups) {
@@ -636,20 +654,6 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
             )}
           </div>
         )}
-
-        {!isCargoStep && (
-          <div data-testid="cargo-capacity-gauge" className="workflow-card">
-            <div className="workflow-card--row">
-              <span className="text-muted">Cargo Capacity:</span>
-              <span
-                className="fleet-rally-tray__status"
-                data-alert={totalCargoMoving > totalCapacityProvided}
-              >
-                {totalCargoMoving} / {totalCapacityProvided} Loaded
-              </span>
-            </div>
-          </div>
-        )}
       </div>
 
       {planRef.current.active ? (
@@ -657,170 +661,200 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
           Moving selected fleet and loading cargo…
         </div>
       ) : (
-        /* Standard Movement & Pooled Cargo List */
+        /* Movement & Cargo grouped by Origin System */
         <div className="fleet-rally-tray__list">
-          {shipGroups.length === 0 ? (
+          {originSystemIds.length === 0 ? (
             <div className="text-muted">No ships eligible to move into the active system.</div>
           ) : (
-            shipGroups
-              // A fighter already represented as carryable cargo must not be staged twice.
-              .filter(
+            originSystemIds.map((originId) => {
+              const shipsForOrigin = shipGroups.filter(
                 (g) =>
-                  !g.isFighter ||
-                  !originCargoGroups.some(
-                    (cargo) =>
-                      cargo.originSystemId === g.originSystemId &&
-                      cargo.unitType === g.unitType &&
-                      cargo.damaged === g.damaged &&
-                      cargo.source === null,
-                  ),
-              )
-              .map((g) => {
-                const key = `${g.originSystemId}:${g.unitType}${g.damaged ? ":damaged" : ""}`;
-                const count = stagedMoves[key] ?? 0;
+                  g.originSystemId === originId &&
+                  (!g.isFighter ||
+                    !originCargoGroups.some(
+                      (cargo) =>
+                        cargo.originSystemId === g.originSystemId &&
+                        cargo.unitType === g.unitType &&
+                        cargo.damaged === g.damaged &&
+                        cargo.source === null,
+                    )),
+              );
+              const cargoForOrigin = originCargoGroups.filter(
+                (c) => c.originSystemId === originId,
+              );
+              const originCap = capacityByOrigin[originId] ?? 0;
+              const originCargo = cargoByOrigin[originId] ?? 0;
+              const isOriginOverCapacity = originCargo > originCap;
 
-                return (
-                  <div
-                    key={key}
-                    data-testid={`rally-row-${g.originSystemId}-${g.unitType}`}
-                    className="workflow-card workflow-card--row"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                      <UnitIcon type={g.unitType} size={22} />
-                      <div>
-                        <div className="workflow-unit-name">
-                          {getUnitDisplayName(g.unitType)}
-                          {g.damaged ? " (Damaged)" : ""}
-                        </div>
-                        <div className="text-muted">
-                          Origin: #{g.originSystemId} • Available: {g.totalAvailable}
-                          {g.capacityPerUnit > 0 && ` • Capacity: ${g.capacityPerUnit}`}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="workflow-row">
-                      <button
-                        type="button"
-                        data-testid={`rally-dec-${g.originSystemId}-${g.unitType}`}
-                        onClick={() => handleUpdateCount(key, -1, g.totalAvailable)}
-                        disabled={count <= 0 || isExecuting || isDirectSubmitting}
-                        className="button button--secondary button--icon workflow-button--stepper"
-                      >
-                        -
-                      </button>
-                      <span
-                        data-testid={`rally-count-${g.originSystemId}-${g.unitType}`}
-                        className="workflow-count"
-                      >
-                        {count}
-                      </span>
-                      <button
-                        type="button"
-                        data-testid={`rally-inc-${g.originSystemId}-${g.unitType}`}
-                        onClick={() => handleUpdateCount(key, 1, g.totalAvailable)}
-                        disabled={count >= g.totalAvailable || isExecuting || isDirectSubmitting}
-                        className="button button--secondary button--icon workflow-button--stepper"
-                      >
-                        +
-                      </button>
-                    </div>
+              return (
+                <div
+                  key={originId}
+                  data-testid={`origin-group-${originId}`}
+                  className="origin-system-group"
+                  data-alert={isOriginOverCapacity ? "true" : undefined}
+                >
+                  <div className="origin-system-group__header">
+                    <span className="origin-system-group__title">
+                      Origin: System #{originId}
+                    </span>
+                    <span
+                      data-testid={`cargo-capacity-gauge-${originId}`}
+                      className="fleet-rally-tray__status"
+                      data-alert={isOriginOverCapacity}
+                      data-warning={false}
+                    >
+                      Cargo Capacity: {originCargo} / {originCap} Loaded
+                    </span>
                   </div>
-                );
-              })
-          )}
 
-          {/* Pooled Cargo for origins with capacity */}
-          {originCargoGroups.length > 0 && (
-            <div style={{ marginTop: "8px" }}>
-              <div
-                className="text-muted"
-                style={{
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                  marginBottom: "4px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                }}
-              >
-                Carryable Cargo in Origin Systems
-              </div>
-              {originCargoGroups.map((c) => {
-                const key = `cargo:${c.originSystemId}:${c.unitType}:${c.source ?? "space"}${c.damaged ? ":damaged" : ""}`;
-                const count = stagedMoves[key] ?? 0;
-                const originCap = capacityByOrigin[c.originSystemId] ?? 0;
-                const originCargoStaged = cargoByOrigin[c.originSystemId] ?? 0;
-                const maxForThisCargo = Math.min(
-                  c.totalAvailable,
-                  count + Math.max(0, originCap - originCargoStaged),
-                );
+                  {isOriginOverCapacity && (
+                    <div
+                      className="fleet-rally-tray__advisory"
+                      style={{ color: "var(--color-danger)" }}
+                    >
+                      Exceeds origin cargo capacity ({originCargo}/{originCap}) — remove excess cargo
+                      or stage more transport capacity.
+                    </div>
+                  )}
 
-                return (
-                  <div
-                    key={key}
-                    data-testid={`rally-row-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
-                    className="workflow-card workflow-card--row"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      opacity: originCap > 0 ? 1 : 0.6,
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                      <UnitIcon type={c.unitType} size={18} />
-                      <div>
-                        <div className="workflow-unit-name">
-                          {getUnitDisplayName(c.unitType)}
-                          {c.damaged ? " (Damaged)" : ""}
-                        </div>
-                        <div className="text-muted">
-                          Origin: #{c.originSystemId} ({c.source ?? "Space"}) • Available:{" "}
-                          {c.totalAvailable}
-                        </div>
+                  {shipsForOrigin.length > 0 && (
+                    <>
+                      <div className="origin-system-group__section-title">Ships</div>
+                      {shipsForOrigin.map((g) => {
+                        const key = `${g.originSystemId}:${g.unitType}${g.damaged ? ":damaged" : ""}`;
+                        const count = stagedMoves[key] ?? 0;
+
+                        return (
+                          <div
+                            key={key}
+                            data-testid={`rally-row-${g.originSystemId}-${g.unitType}`}
+                            className="workflow-card workflow-card--row"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                              <UnitIcon type={g.unitType} size={22} />
+                              <div>
+                                <div className="workflow-unit-name">
+                                  {getUnitDisplayName(g.unitType)}
+                                  {g.damaged ? " (Damaged)" : ""}
+                                </div>
+                                <div className="text-muted">
+                                  Origin: #{g.originSystemId} • Available: {g.totalAvailable}
+                                  {g.capacityPerUnit > 0 && ` • Capacity: ${g.capacityPerUnit}`}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="workflow-row">
+                              <button
+                                type="button"
+                                data-testid={`rally-dec-${g.originSystemId}-${g.unitType}`}
+                                onClick={() => handleUpdateCount(key, -1, g.totalAvailable)}
+                                disabled={count <= 0 || isExecuting || isDirectSubmitting}
+                                className="button button--secondary button--icon workflow-button--stepper"
+                              >
+                                -
+                              </button>
+                              <span
+                                data-testid={`rally-count-${g.originSystemId}-${g.unitType}`}
+                                className="workflow-count"
+                              >
+                                {count}
+                              </span>
+                              <button
+                                type="button"
+                                data-testid={`rally-inc-${g.originSystemId}-${g.unitType}`}
+                                onClick={() => handleUpdateCount(key, 1, g.totalAvailable)}
+                                disabled={
+                                  count >= g.totalAvailable || isExecuting || isDirectSubmitting
+                                }
+                                className="button button--secondary button--icon workflow-button--stepper"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+
+                  {cargoForOrigin.length > 0 && (
+                    <>
+                      <div className="origin-system-group__section-title">
+                        Carryable Cargo
                       </div>
-                    </div>
+                      {cargoForOrigin.map((c) => {
+                        const key = `cargo:${c.originSystemId}:${c.unitType}:${c.source ?? "space"}${c.damaged ? ":damaged" : ""}`;
+                        const count = stagedMoves[key] ?? 0;
 
-                    <div className="workflow-row">
-                      <button
-                        type="button"
-                        data-testid={`rally-dec-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
-                        onClick={() => handleUpdateCount(key, -1, maxForThisCargo)}
-                        disabled={count <= 0 || isExecuting || isDirectSubmitting}
-                        className="button button--secondary button--icon workflow-button--stepper"
-                      >
-                        -
-                      </button>
-                      <span
-                        data-testid={`rally-count-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
-                        className="workflow-count"
-                      >
-                        {count}
-                      </span>
-                      <button
-                        type="button"
-                        data-testid={`rally-inc-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
-                        onClick={() => handleUpdateCount(key, 1, maxForThisCargo)}
-                        disabled={
-                          count >= maxForThisCargo ||
-                          originCap === 0 ||
-                          isExecuting ||
-                          isDirectSubmitting
-                        }
-                        className="button button--secondary button--icon workflow-button--stepper"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                        return (
+                          <div
+                            key={key}
+                            data-testid={`rally-row-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
+                            className="workflow-card workflow-card--row"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                              <UnitIcon type={c.unitType} size={18} />
+                              <div>
+                                <div className="workflow-unit-name">
+                                  {getUnitDisplayName(c.unitType)}
+                                  {c.damaged ? " (Damaged)" : ""}
+                                </div>
+                                <div className="text-muted">
+                                  Origin: #{c.originSystemId} ({c.source ?? "Space"}) • Available:{" "}
+                                  {c.totalAvailable}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="workflow-row">
+                              <button
+                                type="button"
+                                data-testid={`rally-dec-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
+                                onClick={() => handleUpdateCount(key, -1, c.totalAvailable)}
+                                disabled={count <= 0 || isExecuting || isDirectSubmitting}
+                                className="button button--secondary button--icon workflow-button--stepper"
+                              >
+                                -
+                              </button>
+                              <span
+                                data-testid={`rally-count-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
+                                className="workflow-count"
+                              >
+                                {count}
+                              </span>
+                              <button
+                                type="button"
+                                data-testid={`rally-inc-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
+                                onClick={() => handleUpdateCount(key, 1, c.totalAvailable)}
+                                disabled={
+                                  count >= c.totalAvailable ||
+                                  isExecuting ||
+                                  isDirectSubmitting
+                                }
+                                className="button button--secondary button--icon workflow-button--stepper"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       )}
@@ -833,6 +867,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
 
       {/* Action Footer */}
       <div className="workflow-actions">
+        {hasAnyOriginOverCapacity && (
+          <div className="fleet-rally-tray__advisory" style={{ color: "var(--color-danger)" }}>
+            Cannot commit moves: cargo exceeds transport capacity in one or more origin systems.
+          </div>
+        )}
         {totalUnitsStaged > 0 && !isExecuting && (
           <button
             type="button"
@@ -859,7 +898,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
           type="button"
           data-testid="commit-moves-btn"
           onClick={handleCommitMoves}
-          disabled={isExecuting || isDirectSubmitting}
+          disabled={
+            isExecuting ||
+            isDirectSubmitting ||
+            (totalUnitsStaged > 0 && hasAnyOriginOverCapacity)
+          }
           className="button button--primary workflow-button--wide"
         >
           {isExecuting || isDirectSubmitting
