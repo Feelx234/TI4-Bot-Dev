@@ -192,60 +192,62 @@ pub fn public_decision_facts(
         return (None, None);
     };
     let actor = &record.player;
-    let detail = match (
-        context.subtype.as_str(),
-        option.kind.as_str(),
-        option.id.as_str(),
-    ) {
-        ("pay_resources" | "pay_influence", "pay", "trade_good") => {
-            Some(format!("{actor} spent a trade good"))
-        }
-        ("pay_resources" | "pay_influence", "pay", id) => id
-            .strip_prefix("exhaust|")
-            .filter(|planet| !planet.is_empty())
-            .map(|planet| format!("{actor} exhausted {planet}")),
-        ("vote_exhaust_planet", _, "decline") => Some("Done voting".into()),
-        ("vote_exhaust_planet", "vote_planet", _) => {
-            Some(format!("{actor} exhausted {} to vote", option.id))
-        }
-        ("produce_unit", _, "done_producing") => Some("Done producing".into()),
-        ("produce_unit", "produce", _) => {
-            let unit = option
+    let detail = combat_decision_detail(context, option, actor).or_else(|| {
+        match (
+            context.subtype.as_str(),
+            option.kind.as_str(),
+            option.id.as_str(),
+        ) {
+            ("pay_resources" | "pay_influence", "pay", "trade_good") => {
+                Some(format!("{actor} spent a trade good"))
+            }
+            ("pay_resources" | "pay_influence", "pay", id) => id
+                .strip_prefix("exhaust|")
+                .filter(|planet| !planet.is_empty())
+                .map(|planet| format!("{actor} exhausted {planet}")),
+            ("vote_exhaust_planet", _, "decline") => Some("Done voting".into()),
+            ("vote_exhaust_planet", "vote_planet", _) => {
+                Some(format!("{actor} exhausted {} to vote", option.id))
+            }
+            ("produce_unit", _, "done_producing") => Some("Done producing".into()),
+            ("produce_unit", "produce", _) => {
+                let unit = option
+                    .payload
+                    .get("unit")
+                    .and_then(serde_json::Value::as_str);
+                let count = option
+                    .payload
+                    .get("count")
+                    .and_then(serde_json::Value::as_u64);
+                unit.zip(count)
+                    .map(|(unit, count)| format!("{actor} produced {count} {unit}"))
+            }
+            ("load_cargo", _, "done_loading") => Some("Done loading".into()),
+            ("load_cargo", "load", _) => option
                 .payload
                 .get("unit")
-                .and_then(serde_json::Value::as_str);
-            let count = option
-                .payload
-                .get("count")
-                .and_then(serde_json::Value::as_u64);
-            unit.zip(count)
-                .map(|(unit, count)| format!("{actor} produced {count} {unit}"))
+                .and_then(serde_json::Value::as_str)
+                .map(|unit| format!("{actor} loaded {unit}")),
+            ("movement_step", _, "done_moving") => Some("Done moving".into()),
+            ("movement_step", "move", _) => {
+                let origin = option
+                    .payload
+                    .get("origin")
+                    .and_then(serde_json::Value::as_str);
+                let unit = option
+                    .payload
+                    .get("unit")
+                    .and_then(serde_json::Value::as_str);
+                origin
+                    .zip(unit)
+                    .zip(destination)
+                    .map(|((origin, unit), destination)| {
+                        format!("{actor} moved {unit} from #{origin} to #{destination}")
+                    })
+            }
+            _ => None,
         }
-        ("load_cargo", _, "done_loading") => Some("Done loading".into()),
-        ("load_cargo", "load", _) => option
-            .payload
-            .get("unit")
-            .and_then(serde_json::Value::as_str)
-            .map(|unit| format!("{actor} loaded {unit}")),
-        ("movement_step", _, "done_moving") => Some("Done moving".into()),
-        ("movement_step", "move", _) => {
-            let origin = option
-                .payload
-                .get("origin")
-                .and_then(serde_json::Value::as_str);
-            let unit = option
-                .payload
-                .get("unit")
-                .and_then(serde_json::Value::as_str);
-            origin
-                .zip(unit)
-                .zip(destination)
-                .map(|((origin, unit), destination)| {
-                    format!("{actor} moved {unit} from #{origin} to #{destination}")
-                })
-        }
-        _ => None,
-    };
+    });
     let movement = if context.subtype == "movement_step" && option.kind == "move" {
         option
             .payload
@@ -268,6 +270,82 @@ pub fn public_decision_facts(
         None
     };
     (detail, movement)
+}
+
+/// Combat choices are public board decisions. Use only known context/option pairs and
+/// allowlisted payload fields; option labels and opaque IDs may contain private data.
+fn combat_decision_detail(
+    context: &ti4_engine::decision_context::DecisionContext,
+    option: &ChoiceOption,
+    actor: &ti4_model::id::PlayerId,
+) -> Option<String> {
+    use ti4_engine::decision_context::DecisionTarget;
+
+    let location = match context.target.as_ref()? {
+        DecisionTarget::System(system) => format!("in #{system}"),
+        DecisionTarget::Planet { planet, .. } => format!("on {planet}"),
+        _ => return None,
+    };
+    let unit = || {
+        option
+            .payload
+            .get("unit")
+            .and_then(serde_json::Value::as_str)
+    };
+    match (
+        context.subtype.as_str(),
+        option.kind.as_str(),
+        option.id.as_str(),
+    ) {
+        ("assign_casualty" | "assign_ground_casualty", "casualty" | "ground_casualty", _)
+            if option.id.starts_with("destroy|") =>
+        {
+            let damage = if option
+                .payload
+                .get("damaged")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            {
+                "damaged "
+            } else {
+                ""
+            };
+            unit().map(|unit| format!("{actor} lost a {damage}{unit} {location}"))
+        }
+        ("sustain_damage", "sustain", _) if option.id.starts_with("sustain|") => {
+            unit().map(|unit| format!("{actor} sustained damage on a {unit} {location}"))
+        }
+        ("sustain_damage", "decline", "decline") => {
+            Some(format!("{actor} took the hit {location}"))
+        }
+        ("announce_retreat", "retreat", "retreat") => {
+            Some(format!("{actor} announced a retreat {location}"))
+        }
+        ("announce_retreat", "retreat", "stay") => {
+            Some(format!("{actor} stayed to fight {location}"))
+        }
+        ("retreat_to", "retreat_to", _) => option
+            .payload
+            .get("system")
+            .and_then(serde_json::Value::as_str)
+            .filter(|system| *system == option.id)
+            .map(|system| {
+                format!(
+                    "{actor} retreated from {} to #{system}",
+                    location.strip_prefix("in ").unwrap_or(&location)
+                )
+            }),
+        ("fight_ground_combat_round", "ground_casualty", "fight") => {
+            Some(format!("{actor} fought a ground combat round {location}"))
+        }
+        ("start_next_ground_combat", "ground_casualty", _) if option.id.starts_with("fight|") => {
+            Some(format!("{actor} started another ground combat {location}"))
+        }
+        ("start_next_ground_combat", "decline", "decline") => {
+            Some(format!("{actor} declined another ground combat {location}"))
+        }
+        _ => None,
+    }
 }
 
 /// Derive public facts and an explicitly seat-only detail from the same offered option.
@@ -324,7 +402,8 @@ pub struct MovementFact {
 mod fact_tests {
     use super::*;
     use ti4_engine::choice::DecisionRecord;
-    use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+    use ti4_engine::decision_context::{DecisionContext, DecisionSource, DecisionTarget};
+    use ti4_model::id::{PlanetId, SystemId};
 
     fn record(subtype: &str, option: &ChoiceOption) -> DecisionRecord {
         let player = PlayerId::new("p1");
@@ -363,6 +442,130 @@ mod fact_tests {
                 Some("22")
             ),
             (None, None)
+        );
+    }
+
+    #[test]
+    fn combat_facts_describe_casualties_sustain_and_retreat() {
+        let system = DecisionTarget::System(SystemId::new("22"));
+        let planet = DecisionTarget::Planet {
+            system: SystemId::new("22"),
+            planet: PlanetId::new("jord"),
+        };
+        let cases = [
+            (
+                "assign_casualty",
+                "casualty",
+                "destroy|4",
+                Some("dreadnought"),
+                system.clone(),
+                "p1 lost a damaged dreadnought in #22",
+            ),
+            (
+                "assign_ground_casualty",
+                "ground_casualty",
+                "destroy|1",
+                Some("infantry"),
+                planet.clone(),
+                "p1 lost a damaged infantry on jord",
+            ),
+            (
+                "sustain_damage",
+                "sustain",
+                "sustain|2",
+                Some("dreadnought"),
+                system.clone(),
+                "p1 sustained damage on a dreadnought in #22",
+            ),
+            (
+                "sustain_damage",
+                "decline",
+                "decline",
+                None,
+                system.clone(),
+                "p1 took the hit in #22",
+            ),
+            (
+                "announce_retreat",
+                "retreat",
+                "stay",
+                None,
+                system.clone(),
+                "p1 stayed to fight in #22",
+            ),
+            (
+                "announce_retreat",
+                "retreat",
+                "retreat",
+                None,
+                system.clone(),
+                "p1 announced a retreat in #22",
+            ),
+            (
+                "retreat_to",
+                "retreat_to",
+                "16",
+                None,
+                system.clone(),
+                "p1 retreated from #22 to #16",
+            ),
+            (
+                "fight_ground_combat_round",
+                "ground_casualty",
+                "fight",
+                None,
+                planet,
+                "p1 fought a ground combat round on jord",
+            ),
+        ];
+        for (subtype, kind, id, unit, target, expected) in cases {
+            let mut option = ChoiceOption::new(id, kind);
+            if let Some(unit) = unit {
+                option = option.with("unit", unit).with("damaged", true);
+            }
+            if subtype == "retreat_to" {
+                option = option.with("system", id);
+            }
+            let mut record = record(subtype, &option);
+            record.context.as_mut().unwrap().target = Some(target);
+            assert_eq!(
+                public_decision_facts(&record, Some(&option), None)
+                    .0
+                    .as_deref(),
+                Some(expected),
+                "{subtype}: {id}"
+            );
+            assert_eq!(public_decision_facts(&record, None, None).0, None);
+        }
+    }
+
+    #[test]
+    fn combat_facts_ignore_unknown_payloads_and_missing_targets() {
+        let option = ChoiceOption::new("destroy|0", "casualty").with("unit", "fighter");
+        let mut casualty = record("assign_casualty", &option);
+        assert_eq!(
+            public_decision_facts(&casualty, Some(&option), None).0,
+            None
+        );
+        casualty.context.as_mut().unwrap().target =
+            Some(DecisionTarget::System(SystemId::new("22")));
+        assert_eq!(
+            public_decision_facts(
+                &casualty,
+                Some(&ChoiceOption::new("other", "casualty")),
+                None
+            )
+            .0,
+            None
+        );
+        assert_eq!(
+            public_decision_facts(
+                &record("score_secret_objective", &option),
+                Some(&option),
+                None
+            )
+            .0,
+            None
         );
     }
 
