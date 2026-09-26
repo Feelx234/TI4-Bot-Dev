@@ -91,6 +91,7 @@ pub struct SessionShared {
     pub redo_events: Vec<GameEvent>,
     pub replay_complete: bool,
     pub history_generation: u64,
+    pub batches: Vec<crate::storage::BatchRecord>,
 }
 
 impl SessionShared {
@@ -109,6 +110,7 @@ impl SessionShared {
                         event_counter: self.event_counter,
                         generation: self.history_generation,
                         revision: self.game_version.saturating_add(1),
+                        batches: self.batches.clone(),
                     },
                 )
                 .map_err(|error| format!("failed to persist history: {error}"))?;
@@ -149,6 +151,7 @@ impl SessionShared {
             redo_events: Vec::new(),
             replay_complete: false,
             history_generation: 0,
+            batches: Vec::new(),
         }
     }
 
@@ -205,6 +208,9 @@ impl SessionShared {
             visibility,
             event,
             decision_count: Some(decision_count),
+            batch_id: None,
+            detail: None,
+            movement: None,
         };
         if !self.history_active
             && let Some(store) = &self.store
@@ -450,6 +456,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     initial_shared.redo_events.clone_from(&config.redo_events);
     initial_shared.event_counter = config.event_counter;
     initial_shared.history_generation = config.history_generation;
+    initial_shared.batches.clone_from(&config.batches);
 
     if !config.prior_events.is_empty() {
         initial_shared.event_counter = initial_shared
@@ -700,6 +707,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                             // steps between decisions leave redo available.
                             lock.redo_decisions.clear();
                             lock.redo_events.clear();
+                            lock.batches.retain(|b| b.end_cursor <= prev_decision_count);
                         }
                     }
                     if !lock.history_active

@@ -3,6 +3,7 @@ import { PendingChoiceDto, PlayerView, BoardView } from "../protocol/types.ts";
 import { getMovementPayload, ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitDisplayName, getUnitBaseType } from "./UnitIcon.tsx";
+import type { MovementStep } from "../protocol/client.ts";
 
 export interface TacticalMovementOverlayProps {
   choice: PendingChoiceDto | null;
@@ -12,6 +13,7 @@ export interface TacticalMovementOverlayProps {
   activeSystemId?: string | null;
   player?: PlayerView | null;
   onSubmit: (optionId: string) => Promise<void>;
+  onSubmitBatch?: (destination: string, steps: MovementStep[]) => Promise<void>;
   isOpen: boolean;
   onClose: () => void;
   lastError?: string | null;
@@ -72,6 +74,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   activeSystemId,
   player,
   onSubmit,
+  onSubmitBatch,
   isOpen,
   onClose,
   lastError,
@@ -517,7 +520,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   };
 
   useEffect(() => {
-    if (choice && planRef.current.active && !planRef.current.submitting) {
+    if (!onSubmitBatch && choice && planRef.current.active && !planRef.current.submitting) {
       void stepExecution(choice);
     }
   }, [choice?.nonce, isExecuting, executionStep, parentExecutionStep]);
@@ -592,6 +595,39 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     if (ships.length === 0 && cargo.length > 0) {
       planRef.current.active = false;
       setLocalError("Select a ship to carry the staged cargo.");
+      return;
+    }
+    if (onSubmitBatch && destinationSystemId) {
+      const steps: MovementStep[] = [];
+      const remaining = [...cargo];
+      for (const ship of ships) {
+        steps.push({ kind: "move", origin: ship.origin, unit: ship.unitType, damaged: ship.damaged });
+        let loaded = 0;
+        while (loaded < ship.capacity) {
+          const index = remaining.findIndex((item) => item.origin === ship.origin);
+          if (index < 0) break;
+          const item = remaining.splice(index, 1)[0];
+          steps.push({ kind: "load", origin: item.origin, unit: item.unitType, source: item.source, damaged: item.damaged });
+          loaded++;
+        }
+        if (ship.capacity > 0) steps.push({ kind: "done_loading" });
+      }
+      if (remaining.length) {
+        planRef.current.active = false;
+        setLocalError("Some selected cargo could not fit on the staged ships.");
+        return;
+      }
+      steps.push({ kind: "done_moving" });
+      setIsExecuting(true);
+      try {
+        await onSubmitBatch(destinationSystemId, steps);
+        setStagedMoves({});
+      } catch (error) {
+        setLocalError(error instanceof Error ? error.message : String(error));
+      } finally {
+        planRef.current.active = false;
+        setIsExecuting(false);
+      }
       return;
     }
     setIsExecuting(true);
@@ -881,7 +917,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
             Reset selection
           </button>
         )}
-        {totalUnitsStaged > 1 && <p>Moves and cargo loading are committed sequentially.</p>}
+        {totalUnitsStaged > 1 && !onSubmitBatch && <p>Moves and cargo loading are committed sequentially.</p>}
         {doneMovingOption && (
           <button
             type="button"

@@ -203,6 +203,7 @@ const GameViewContainer: React.FC<{
     history: gameHistory,
     submitChoice,
     changeHistory,
+    submitMovementBatch,
   } = useGameSession({ gameId, viewer });
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -324,6 +325,7 @@ const GameViewContainer: React.FC<{
           )
         }
         boardView={snapshot?.view.board}
+        activeSystemId={typeof snapshot?.state.active_system === "string" ? snapshot.state.active_system : null}
         playerSheet={
           snapshot ? (
             <PlayerSheet
@@ -351,6 +353,7 @@ const GameViewContainer: React.FC<{
         viewerSeat={userSeat}
         players={snapshot?.view.players}
         onSubmitChoice={submitChoice}
+        onSubmitMovementBatch={submitMovementBatch}
         lastError={lastError}
         selectedOptionId={selectedOptionId}
         onSelectOption={setSelectedOptionId}

@@ -14,7 +14,13 @@ import { decodeInitialSnapshot, decodeServerMessage, isStaleServerMessage } from
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
 export type GameLogEntry = import("./types.ts").GameEvent;
-export type HistoryChange = "undo" | "undo_pipeline" | "redo" | { eventId: string };
+export type HistoryChange = "undo" | "undo_batch" | "undo_pipeline" | "redo" | "redo_batch" | { eventId: string };
+
+export type MovementStep =
+  | { kind: "move"; origin: string; unit: string; damaged: boolean }
+  | { kind: "load"; origin: string; unit: string; source: string | null; damaged: boolean }
+  | { kind: "done_loading" }
+  | { kind: "done_moving" };
 
 const MAX_EVENT_LOG_ENTRIES = 500;
 const HISTORY_RETRY_ATTEMPTS = 20;
@@ -224,6 +230,31 @@ export class GameSessionClient {
       this.rejectSubmission(`Could not send choice: ${String(error)}`);
     }
     return promise;
+  }
+
+  async submitMovementBatch(destination: string, steps: MovementStep[]): Promise<void> {
+    if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
+      throw new Error("A player session is required");
+    const pending = this.state.pendingChoice;
+    if (!pending || pending.actor !== this.options.viewer.seat || !pending.context || pending.context.subtype !== "movement_step")
+      throw new Error("Movement is no longer pending");
+    const response = await fetch(this.snapshotUrl().replace(/\/snapshot$/, "/batches"), {
+      method: "POST",
+      headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ request_id: crypto.randomUUID(), expected_version: this.state.gameVersion,
+        nonce: pending.nonce, plan: { destination, steps } }),
+    });
+    if (!response.ok) {
+      const failure = await response.json() as { failed_step?: number; reason?: string; expected?: string };
+      throw new Error(`Movement step ${(failure.failed_step ?? 0) + 1}: ${failure.reason ?? "batch rejected"}${failure.expected ? ` (${failure.expected})` : ""}`);
+    }
+    const result = await response.json() as { snapshot: unknown };
+    const snapshot = decodeInitialSnapshot({ type: "initial_snapshot", ...result.snapshot as object }, this.options.gameId);
+    this.rejectSubmission("Game history changed");
+    this.detachSocket();
+    this.clearTimers();
+    this.setState(reduceServerMessage({ ...this.state, pendingChoice: null, lastError: null }, { ...snapshot, type: "initial_snapshot" }));
+    this.openSocket();
   }
 
   /** The host changes the authoritative Rust timeline; all clients reconnect to it. */

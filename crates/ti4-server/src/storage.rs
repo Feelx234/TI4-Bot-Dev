@@ -300,6 +300,18 @@ pub struct GameHistory {
     pub revision: u64,
     #[serde(default)]
     pub generation: u64,
+    #[serde(default)]
+    pub batches: Vec<BatchRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BatchRecord {
+    pub request_id: String,
+    pub batch_id: String,
+    pub actor: PlayerId,
+    pub start_cursor: usize,
+    pub end_cursor: usize,
 }
 
 /// Initial configuration record saved atomically to `init.json`.
@@ -406,6 +418,23 @@ impl FileGameStore {
             }
             if !ids.insert(&event.id) || event.decision_count.is_some_and(|count| count != cursor) {
                 return Err(StorageError::InvalidPlayerRecord("history event cursor"));
+            }
+        }
+        let mut requests = std::collections::BTreeSet::new();
+        let total = history.decisions.len() + history.redo.len();
+        for batch in &history.batches {
+            if batch.start_cursor >= batch.end_cursor
+                || batch.end_cursor > total
+                || !requests.insert(&batch.request_id)
+                || !history
+                    .decisions
+                    .iter()
+                    .chain(&history.redo)
+                    .skip(batch.start_cursor)
+                    .take(batch.end_cursor - batch.start_cursor)
+                    .all(|d| d.player == batch.actor)
+            {
+                return Err(StorageError::InvalidPlayerRecord("history batch"));
             }
         }
         Ok(Some(history))
@@ -833,6 +862,7 @@ impl FileGameStore {
             config.event_counter = history.event_counter;
             config.history_generation = history.generation;
             config.history_active = true;
+            config.batches = history.batches;
         }
 
         if let Some(seed) = init_record.seed {

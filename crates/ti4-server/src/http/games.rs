@@ -11,9 +11,47 @@ use ti4_model::id::PlayerId;
 
 use crate::protocol::server::ServerMessage;
 use crate::session::GameRegistry;
+use crate::session::batch::BatchRequest;
 use crate::session::registry::{GameSummary, LobbyError, PlayerLobbyView};
 use crate::session::registry::{HistoryAction, HistoryError};
 use crate::storage::LobbySlotId;
+
+pub async fn submit_batch(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(request): Json<BatchRequest>,
+) -> Result<
+    Json<crate::session::registry::BatchResult>,
+    (StatusCode, Json<crate::session::registry::BatchError>),
+> {
+    let token = require_player_session(&headers).map_err(|_| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(crate::session::registry::BatchError {
+                failed_step: 0,
+                reason: "unauthorized".into(),
+                expected: String::new(),
+                offered_summary: Vec::new(),
+            }),
+        )
+    })?;
+    registry
+        .submit_batch(&game_id, token, request)
+        .map(Json)
+        .map_err(|error| {
+            let status = if error.reason == "unauthorized" {
+                StatusCode::FORBIDDEN
+            } else if error.reason == "game not found" {
+                StatusCode::NOT_FOUND
+            } else if error.reason.starts_with("storage error:") {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::CONFLICT
+            };
+            (status, Json(error))
+        })
+}
 
 const MAX_PLAYERS: usize = 8;
 
@@ -327,8 +365,10 @@ pub async fn change_history(
     let token = require_player_session(&headers)?;
     let action = match (payload.action.as_str(), payload.event_id) {
         ("undo", None) => HistoryAction::Undo,
+        ("undo_batch", None) => HistoryAction::UndoBatch,
         ("undo_pipeline", None) => HistoryAction::UndoPipeline,
         ("redo", None) => HistoryAction::Redo,
+        ("redo_batch", None) => HistoryAction::RedoBatch,
         ("restore", Some(event_id)) => HistoryAction::Restore { event_id },
         _ => return Err((StatusCode::BAD_REQUEST, "Invalid history action".to_owned())),
     };

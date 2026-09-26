@@ -78,6 +78,10 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
         )
         .route("/api/games/{game_id}/snapshot", get(games::get_snapshot))
         .route(
+            "/api/games/{game_id}/batches",
+            axum::routing::post(games::submit_batch),
+        )
+        .route(
             "/api/games/{game_id}/history",
             axum::routing::post(games::change_history),
         )

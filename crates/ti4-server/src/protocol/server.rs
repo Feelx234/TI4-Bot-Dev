@@ -118,6 +118,21 @@ pub struct GameEvent {
     pub event: GameEventKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub movement: Option<MovementFact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MovementFact {
+    pub actor: PlayerId,
+    pub origin: String,
+    pub destination: String,
+    pub unit: String,
 }
 
 /// Server message carrying a new game event to all subscribers.

@@ -1,3 +1,4 @@
+pub mod batch;
 pub mod decider;
 pub mod registry;
 pub mod replay;
@@ -92,6 +93,7 @@ pub struct SessionConfig {
     pub redo_events: Vec<crate::protocol::server::GameEvent>,
     pub event_counter: u64,
     pub history_generation: u64,
+    pub batches: Vec<crate::storage::BatchRecord>,
 }
 
 impl SessionConfig {
@@ -121,6 +123,7 @@ impl SessionConfig {
             redo_events: Vec::new(),
             event_counter: 0,
             history_generation: 0,
+            batches: Vec::new(),
         }
     }
 
@@ -525,6 +528,10 @@ impl GameSession {
     pub fn history_events(&self) -> (Vec<crate::protocol::server::GameEvent>, u64) {
         let lock = self.shared.lock().expect("shared lock");
         (lock.redo_events.clone(), lock.event_counter)
+    }
+
+    pub fn batches(&self) -> Vec<crate::storage::BatchRecord> {
+        self.shared.lock().expect("shared lock").batches.clone()
     }
 
     /// Stops the worker thread cleanly.

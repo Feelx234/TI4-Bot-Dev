@@ -159,6 +159,9 @@ fn server_event_round_trips() {
             visibility: ti4_server::protocol::server::EventVisibility::Public,
             event: ti4_server::protocol::server::GameEventKind::DecisionResolved,
             decision_count: Some(1),
+            batch_id: None,
+            detail: None,
+            movement: None,
         },
     });
     let json = serde_json::to_string(&msg).expect("serialize");

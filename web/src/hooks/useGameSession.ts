@@ -29,6 +29,7 @@ export interface UseGameSessionReturn {
   history: import("../protocol/types.ts").HistoryStatus;
   submitChoice: (optionId: string) => Promise<void>;
   changeHistory: (action: import("../protocol/client.ts").HistoryChange) => Promise<void>;
+  submitMovementBatch: (destination: string, steps: import("../protocol/client.ts").MovementStep[]) => Promise<void>;
 }
 
 export function useGameSession({
@@ -58,5 +59,6 @@ export function useGameSession({
     ...state,
     submitChoice,
     changeHistory,
+    submitMovementBatch: (destination, steps) => client.submitMovementBatch(destination, steps),
   };
 }

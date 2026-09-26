@@ -3,9 +3,177 @@ use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
 use ti4_model::id::PlayerId;
+use ti4_server::session::batch::{BatchRequest, MovementPlan, MovementStep};
 use ti4_server::session::registry::{HistoryAction, HistoryError};
 use ti4_server::session::{GameRegistry, GameSession, SeatController, SessionConfig};
 use ti4_server::storage::FileGameStore;
+
+#[test]
+fn movement_batch_is_atomic_idempotent_and_undoable() {
+    let path = std::env::temp_dir().join(format!("ti4_batch_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&path).unwrap());
+    let registry = GameRegistry::new().with_store(store.clone());
+    let host = PlayerId::new("p1");
+    let guest = PlayerId::new("p2");
+    let players = vec![host.clone(), guest.clone()];
+    let (state, galaxy) =
+        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let config = SessionConfig::new("batch_probe", state)
+        .with_seed(42)
+        .with_player_ids(players)
+        .with_galaxy(galaxy, tiles)
+        .with_seat(host.clone(), SeatController::Human)
+        .with_seat(guest, SeatController::Human);
+    let session = registry.create_game(config).unwrap();
+    let token = session.seat_tokens()[&host].clone();
+    for _ in 0..4 {
+        let (seat, nonce, version, _) = pending(&session);
+        let choice = session
+            .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+                seat.clone(),
+            ))
+            .pending_choice
+            .unwrap()
+            .choice;
+        let option = choice
+            .options
+            .iter()
+            .find(|o| o.id == "tactical" || o.id == "22")
+            .unwrap_or(&choice.options[0]);
+        session
+            .submit_choice(&seat, &nonce, version, &option.id)
+            .unwrap();
+    }
+    let (seat, nonce, version, _) = pending(&session);
+    assert_eq!(seat, host);
+    let choice = session
+        .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+            host.clone(),
+        ))
+        .pending_choice
+        .unwrap()
+        .choice;
+    assert_eq!(choice.context.as_ref().unwrap().subtype, "movement_step");
+    let destination = session
+        .current_state()
+        .active_system
+        .unwrap()
+        .as_str()
+        .to_owned();
+    let mut request = BatchRequest {
+        request_id: "confirm_1".into(),
+        expected_version: version,
+        nonce,
+        plan: MovementPlan {
+            destination,
+            steps: vec![MovementStep::DoneMoving],
+        },
+    };
+    let original = session.decision_log();
+    if let Some(option) = choice.options.iter().find(|option| option.kind == "move") {
+        let origin = option.payload["origin"].as_str().unwrap().to_owned();
+        let unit = option.payload["unit"].as_str().unwrap().to_owned();
+        let damaged = option.payload["damaged"].as_bool().unwrap();
+        let mut steps = vec![MovementStep::Move {
+            origin,
+            unit,
+            damaged,
+        }];
+        if option.payload["capacity"].as_i64().unwrap_or(0) > 0 {
+            steps.push(MovementStep::DoneLoading);
+        }
+        steps.push(MovementStep::DoneMoving);
+        let mut probe = request.clone();
+        probe.request_id = "move_probe".into();
+        probe.plan.steps = steps;
+        let result = registry.submit_batch("batch_probe", &token, probe);
+        assert!(result.is_ok(), "ship movement batch: {result:?}");
+        let moved = registry.get_game("batch_probe").unwrap();
+        assert_eq!(
+            moved.decision_log().len(),
+            original.len()
+                + if option.payload["capacity"].as_i64().unwrap_or(0) > 0 {
+                    3
+                } else {
+                    2
+                }
+        );
+        registry
+            .change_history(
+                "batch_probe",
+                &token,
+                moved.game_version(),
+                HistoryAction::UndoBatch,
+            )
+            .unwrap();
+        let restored = registry.get_game("batch_probe").unwrap();
+        let (_, fresh_nonce, fresh_version, _) = pending(&restored);
+        request.nonce = fresh_nonce;
+        request.expected_version = fresh_version;
+    }
+    let mut invalid = request.clone();
+    invalid.plan.steps.insert(
+        0,
+        MovementStep::Move {
+            origin: "missing".into(),
+            unit: "carrier".into(),
+            damaged: false,
+        },
+    );
+    assert_eq!(
+        registry
+            .submit_batch("batch_probe", &token, invalid)
+            .unwrap_err()
+            .failed_step,
+        0
+    );
+    assert_eq!(session.decision_log(), original);
+    let committed = registry
+        .submit_batch("batch_probe", &token, request.clone())
+        .unwrap();
+    assert_eq!(committed.start_cursor, original.len());
+    assert_eq!(committed.end_cursor, original.len() + 1);
+    let duplicate = registry
+        .submit_batch("batch_probe", &token, request)
+        .unwrap();
+    assert_eq!(committed.batch_id, duplicate.batch_id);
+    let active = registry.get_game("batch_probe").unwrap();
+    assert_eq!(active.decision_log().len(), original.len() + 1);
+    let recovered = store.recover_session("batch_probe").unwrap();
+    recovered.wait_replayed().unwrap();
+    assert_eq!(recovered.decision_log(), active.decision_log());
+    assert_eq!(recovered.batches().len(), 1);
+    recovered.stop();
+    registry
+        .change_history(
+            "batch_probe",
+            &token,
+            active.game_version(),
+            HistoryAction::UndoBatch,
+        )
+        .unwrap();
+    let undone = registry.get_game("batch_probe").unwrap();
+    assert_eq!(undone.decision_log(), original);
+    registry
+        .change_history(
+            "batch_probe",
+            &token,
+            undone.game_version(),
+            HistoryAction::RedoBatch,
+        )
+        .unwrap();
+    assert_eq!(
+        registry
+            .get_game("batch_probe")
+            .unwrap()
+            .decision_log()
+            .len(),
+        original.len() + 1
+    );
+    drop(registry);
+    std::fs::remove_dir_all(path).unwrap();
+}
 
 fn pending(session: &GameSession) -> (PlayerId, String, u64, String) {
     let deadline = Instant::now() + Duration::from_secs(10);

@@ -10,14 +10,42 @@
 
 **Scope of an atomic batch:** one player’s staged UI workflow, such as moving/loading a fleet, spending a basket of resources, or exhausting planets for a vote. Do not wait for another human’s combat or reaction decision inside a batch. The wider tactical action remains a grouping for the log and for action-level undo, not a multi-player atomic transaction.
 
-## Current state
+## Current implementation state
 
-- The engine asks one `Choice` at a time and records each accepted answer as a `DecisionRecord` (player, prompt, option ID, offered IDs, optional `DecisionContext`). The context describes the decision, not an explicit parent action or UI batch. See `crates/ti4-engine/src/choice.rs` and `decision_context.rs`.
-- The server persists an initial state and accepted decisions. Undo replays a prefix from the beginning; it does not keep a complete engine checkpoint per choice. After a rewind, the active and redo branches live in atomically replaced `history.json`. See `docs/code/WEB_GAME_HISTORY.md`, `crates/ti4-server/src/storage.rs`, and `session/registry.rs`.
-- `undo_pipeline` already rewinds from the latest action-phase decision through subsequent choices. It finds the boundary by searching for the prompt `"action phase"` and comparing context phase/round. This is useful but not an explicit action identity and need not match what a player staged in a drawer.
-- Server events currently include a bare `DecisionResolved`, phase changes, initialization, and game over. The web log therefore says “Decision resolved”; the stored decision contains no chosen-option label or payload for presenting a fleet or payment summary. Events carry a `decision_count`, which links them to undo targets. See `protocol/server.rs`, `session/worker.rs`, and `web/src/components/EventLog.tsx`.
-- Web workflows stage choices in `usePipelineRunner.ts`, `TacticalMovementOverlay.tsx`, `CargoLoadingTray.tsx`, `PaymentDrawer.tsx`, and `AgendaBallotModal.tsx`; production has another queue in `GameShell.tsx`. They submit one option ID, await acceptance **and a newer authoritative state/nonce** in `web/src/protocol/client.ts`, and then select the next option. Already accepted steps stay committed on an interruption. A browser refresh loses the UI queue.
-- A `GameState` snapshot by itself is **not** an engine transaction snapshot: `Game` also owns open tactical/combat/payment windows, RNG streams, a decision table, and other in-flight state (`crates/ti4-engine/src/game.rs`). Publishing choices and then calling Undo would expose intermediate events and could leave partially persisted history on a crash.
+**Status: tactical movement/cargo pilot implemented; the overall plan remains in progress.** The implementation described below is in the working tree. The architecture and verification sections further down describe the *target*, not a claim that every part is complete.
+
+| Area | Implemented | Still needed |
+|---|---|---|
+| Movement batches | `POST /api/games/{game_id}/batches` authenticates the player session, checks version/nonce and active destination, and accepts ordered `move`, `load`, `done_loading`, `done_moving` steps. The browser's tactical tray submits one request for its staged ships/cargo. | More varied multi-origin/cargo scenarios and equivalence tests against sequential play; retry UX after a lost HTTP response. |
+| Private execution and commit | `session/batch.rs` reconstructs a private `Game`, replays the accepted prefix, matches each step to exactly one fresh offer, stops at the next choice, and returns step-specific errors. The server writes decisions, decision/phase/finish events, batch metadata, version and generation through one atomic `history.json` replacement before starting the replacement worker. Request size is bounded by HTTP's 8 KiB limit, plans by 100 steps, and simulation has a step budget plus a 15-second deadline checked between engine steps. | A deadline that also bounds an individual blocking `game.step()`; failure handling if the replacement worker cannot replay *after* persistence; broader crash, storage-failure and race tests. |
+| Concurrency | The registry mutex serializes batch submission with ordinary registry-mediated choices, history changes and credential rotation; the worker is stopped and its cursor checked before commit. | Replace the registry-wide replay lock with a **per-game gate**, including bot advancement and all submission paths, so one game's replay does not stall others. |
+| History and log | `GameHistory` persists `BatchRecord`s across recovery, undo and redo. Host controls offer Undo/Redo batch as well as one-decision and legacy Undo action (`undo_pipeline`). Batched movement events carry a `batch_id`, optional detail and a typed `movement` fact; the web log folds contiguous visible batch entries into an expandable row. Older event JSON remains readable. | Engine-owned action IDs/boundaries and action-level redo; typed facts for *all* decisions, including non-batched choices and private details; stronger validation tying events to batch cursors; handling log truncation and split visible groups. The existing Undo action still detects the `"action phase"` prompt rather than using an explicit action ID. |
+| Other workflows | Individual decisions and the existing sequential queues still work. | Typed atomic schemas, stopping rules and UI migration for payments, agenda votes and production; performance measurements and latency budget. |
+
+The actual pilot request has **no `plan.kind` or count expansion**: each requested choice is a separate step, with `damaged` specified for moves/loads and `origin` plus nullable `source` for loads. For example:
+
+```json
+{
+  "request_id": "confirm_123",
+  "expected_version": 41,
+  "nonce": "current-choice-nonce",
+  "plan": {
+    "destination": "22",
+    "steps": [
+      { "kind": "move", "origin": "16", "unit": "carrier", "damaged": false },
+      { "kind": "load", "origin": "16", "unit": "infantry", "source": "jord", "damaged": false },
+      { "kind": "done_loading" },
+      { "kind": "done_moving" }
+    ]
+  }
+}
+```
+
+Successful responses contain `request_id`, `batch_id`, `start_cursor`, `end_cursor`, `active` and a viewer-specific `snapshot`; failures contain `failed_step` (zero-based), `reason`, `expected` and `offered_summary`. A duplicate successful `request_id` returns its recorded batch and current snapshot even if its batch is in the redo branch (`active: false`); a different request with a stale nonce/version conflicts. A new branch removes superseded batch records, so a request ID from a discarded branch is no longer retained. Failed confirmation leaves the staged tactical draft available for correction.
+
+**Baseline that still applies:** the engine accepts one legal `Choice` at a time and records each answer as a `DecisionRecord` (`crates/ti4-engine/src/choice.rs`). Undo still replays a prefix from the initial state, not an engine checkpoint per decision (`docs/code/WEB_GAME_HISTORY.md`). A `GameState` alone cannot be used as a transaction snapshot because `Game` also owns windows, RNG and other in-flight state. Outside the tactical pilot, the web queues in `usePipelineRunner.ts`, `CargoLoadingTray.tsx`, `PaymentDrawer.tsx`, `AgendaBallotModal.tsx` and production in `GameShell.tsx` still submit choices sequentially and lose staged queues on refresh.
+
+**Verification so far:** `cargo test -q -p ti4-server`, `npm test -- --run` and `npm run build` passed. `crates/ti4-server/tests/history.rs` covers an invalid first movement step leaving the cursor unchanged, a multi-decision ship batch, duplicate submission, recovery from `history.json`, and Undo/Redo batch. `TacticalMovementOverlay.test.tsx` checks the one-request ship/cargo plan. The longer race, late-mismatch, visibility and 50-choice latency criteria below remain open.
 
 ## Target architecture
 

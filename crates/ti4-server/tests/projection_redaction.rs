@@ -258,6 +258,9 @@ fn event_history_is_projected_to_its_explicit_audience() {
             visibility: EventVisibility::Public,
             event: GameEventKind::DecisionResolved,
             decision_count: Some(1),
+            batch_id: None,
+            detail: None,
+            movement: None,
         },
         GameEvent {
             id: "test-2".to_owned(),
@@ -266,6 +269,9 @@ fn event_history_is_projected_to_its_explicit_audience() {
             visibility: EventVisibility::Seat(PlayerId::new("seat_a")),
             event: GameEventKind::DecisionResolved,
             decision_count: Some(2),
+            batch_id: None,
+            detail: None,
+            movement: None,
         },
     ];
 

@@ -10,17 +10,21 @@ use ti4_model::id::PlayerId;
 
 use crate::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg};
 use crate::protocol::status::{RejectionReason, ViewerRole};
+use crate::session::batch::{BatchFailure, BatchRequest, simulate};
 use crate::session::{GameSession, SeatController, SessionConfig};
 use crate::storage::{
-    GameHistory, GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat, StorageError,
+    BatchRecord, GameHistory, GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat,
+    StorageError,
 };
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum HistoryAction {
     Undo,
+    UndoBatch,
     UndoPipeline,
     Redo,
+    RedoBatch,
     Restore { event_id: String },
 }
 
@@ -31,6 +35,46 @@ pub enum HistoryError {
     Conflict(String),
     InvalidTarget,
     Storage(String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchResult {
+    pub request_id: String,
+    pub batch_id: String,
+    pub start_cursor: usize,
+    pub end_cursor: usize,
+    pub active: bool,
+    pub snapshot: InitialSnapshotMsg,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchError {
+    pub failed_step: usize,
+    pub reason: String,
+    pub expected: String,
+    pub offered_summary: Vec<String>,
+}
+
+impl From<BatchFailure> for BatchError {
+    fn from(value: BatchFailure) -> Self {
+        Self {
+            failed_step: value.failed_step,
+            reason: value.reason,
+            expected: value.expected,
+            offered_summary: value.offered_summary,
+        }
+    }
+}
+
+impl BatchError {
+    fn simple(reason: &str) -> Self {
+        Self {
+            failed_step: 0,
+            reason: reason.into(),
+            expected: String::new(),
+            offered_summary: Vec::new(),
+        }
+    }
 }
 
 use crate::storage::{
@@ -331,6 +375,229 @@ impl Default for GameRegistry {
 }
 
 impl GameRegistry {
+    /// Replay a staged movement privately, then durably replace the entire timeline.
+    pub fn submit_batch(
+        &self,
+        game_id: &str,
+        credential: &str,
+        request: BatchRequest,
+    ) -> Result<BatchResult, BatchError> {
+        // This lock is the same authorization and submission boundary as WS choices,
+        // takeover and history changes. No speculative state enters the live worker.
+        let mut state = self.state.lock().expect("registry lock");
+        let actor = if let Some(lobby) = state.player_lobbies.get(game_id) {
+            authenticate_player(lobby, credential)
+                .map_err(|_| BatchError::simple("unauthorized"))?
+        } else {
+            authenticated_seat(
+                state
+                    .lobbies
+                    .get(game_id)
+                    .ok_or_else(|| BatchError::simple("game not found"))?,
+                credential,
+            )
+            .map_err(|_| BatchError::simple("unauthorized"))?
+        };
+        let session = state
+            .sessions
+            .get(game_id)
+            .ok_or_else(|| BatchError::simple("game not found"))?
+            .clone();
+        if request.request_id.is_empty()
+            || request.request_id.len() > 128
+            || !request
+                .request_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
+            return Err(BatchError::simple("invalid request_id"));
+        }
+        if let Some(batch) = session
+            .batches()
+            .iter()
+            .find(|b| b.request_id == request.request_id)
+        {
+            if batch.actor != actor {
+                return Err(BatchError::simple("request_id already used"));
+            }
+            return Ok(BatchResult {
+                request_id: request.request_id,
+                batch_id: batch.batch_id.clone(),
+                start_cursor: batch.start_cursor,
+                end_cursor: batch.end_cursor,
+                active: batch.end_cursor <= session.decision_log().len(),
+                snapshot: session.get_snapshot(&ViewerRole::Player(actor)),
+            });
+        }
+        if !session.history_ready()
+            || session.game_version() != request.expected_version
+            || !session
+                .current_pending_decision()
+                .is_some_and(|(seat, nonce, version)| {
+                    seat == actor && nonce == request.nonce && version == request.expected_version
+                })
+        {
+            return Err(BatchError::simple("stale decision boundary"));
+        }
+        if session
+            .current_state()
+            .active_system
+            .as_ref()
+            .map(|id| id.as_str())
+            != Some(request.plan.destination.as_str())
+        {
+            return Err(BatchError::simple("movement destination changed"));
+        }
+        let config = session.restart_config();
+        let prior = session.decision_log();
+        let simulation = simulate(&config, &prior, &actor, &request.plan)?;
+        let decisions = simulation.decisions;
+        let start_cursor = prior.len();
+        let end_cursor = start_cursor + decisions.len();
+        let batch_id = format!("batch_{:032x}", rand::random::<u128>());
+        let mut events = session.event_log();
+        let (_, mut counter) = session.history_events();
+        counter = counter.max(events.len() as u64);
+        for (i, decision) in decisions.iter().enumerate() {
+            counter += 1;
+            events.push(crate::protocol::server::GameEvent {
+                id: format!("{game_id}-{counter}"),
+                timestamp: String::new(),
+                version: Some(request.expected_version),
+                visibility: crate::protocol::server::EventVisibility::Public,
+                event: crate::protocol::server::GameEventKind::DecisionResolved,
+                decision_count: Some(start_cursor + i + 1),
+                batch_id: Some(batch_id.clone()),
+                movement: match &request.plan.steps[i] {
+                    crate::session::batch::MovementStep::Move { origin, unit, .. } => {
+                        Some(crate::protocol::server::MovementFact {
+                            actor: decision.player.clone(),
+                            origin: origin.clone(),
+                            destination: request.plan.destination.clone(),
+                            unit: unit.clone(),
+                        })
+                    }
+                    _ => None,
+                },
+                // Option payloads can disclose hidden information: only movement semantics are public.
+                detail: Some(match &request.plan.steps[i] {
+                    crate::session::batch::MovementStep::Move { origin, unit, .. } => format!(
+                        "{} moved {unit} from #{origin} to #{}",
+                        decision.player, request.plan.destination
+                    ),
+                    crate::session::batch::MovementStep::Load { unit, .. } => {
+                        format!("{} loaded {unit}", decision.player)
+                    }
+                    crate::session::batch::MovementStep::DoneLoading => "Done loading".into(),
+                    crate::session::batch::MovementStep::DoneMoving => "Done moving".into(),
+                }),
+            });
+            for (_, phase, round) in simulation
+                .transitions
+                .iter()
+                .filter(|(cursor, _, _)| *cursor == start_cursor + i + 1)
+            {
+                counter += 1;
+                events.push(crate::protocol::server::GameEvent {
+                    id: format!("{game_id}-{counter}"),
+                    timestamp: String::new(),
+                    version: Some(request.expected_version),
+                    visibility: crate::protocol::server::EventVisibility::Public,
+                    event: crate::protocol::server::GameEventKind::PhaseTransition {
+                        phase: *phase,
+                        round: *round,
+                    },
+                    decision_count: Some(start_cursor + i + 1),
+                    batch_id: None,
+                    detail: None,
+                    movement: None,
+                });
+            }
+        }
+        if let Some(winner) = simulation.winner {
+            counter += 1;
+            events.push(crate::protocol::server::GameEvent {
+                id: format!("{game_id}-{counter}"),
+                timestamp: String::new(),
+                version: Some(request.expected_version),
+                visibility: crate::protocol::server::EventVisibility::Public,
+                event: crate::protocol::server::GameEventKind::GameFinished { winner },
+                decision_count: Some(end_cursor),
+                batch_id: None,
+                detail: None,
+                movement: None,
+            });
+        }
+        let mut batches = session.batches();
+        batches.retain(|b| b.end_cursor <= start_cursor);
+        batches.push(BatchRecord {
+            request_id: request.request_id.clone(),
+            batch_id: batch_id.clone(),
+            actor: actor.clone(),
+            start_cursor,
+            end_cursor,
+        });
+        let revision = request
+            .expected_version
+            .checked_add(1)
+            .ok_or_else(|| BatchError::simple("version exhausted"))?;
+        let history = GameHistory {
+            decisions: prior.into_iter().chain(decisions).collect(),
+            redo: Vec::new(),
+            events,
+            redo_events: Vec::new(),
+            event_counter: counter,
+            revision,
+            generation: session.history_status().generation.saturating_add(1),
+            batches,
+        };
+        session.stop();
+        if session.decision_log().len() != start_cursor {
+            let replacement = Arc::new(GameSession::start_recovered(
+                config.clone(),
+                session.decision_log(),
+                session.event_log(),
+            ));
+            state.sessions.insert(game_id.to_owned(), replacement);
+            return Err(BatchError::simple("game advanced during batch"));
+        }
+        if let Some(store) = &config.store
+            && let Err(error) = store.save_history(game_id, &history)
+        {
+            let replacement = Arc::new(GameSession::start_recovered(
+                config.clone(),
+                session.decision_log(),
+                session.event_log(),
+            ));
+            state.sessions.insert(game_id.to_owned(), replacement);
+            return Err(BatchError::simple(&format!("storage error: {error}")));
+        }
+        let mut next = config;
+        next.prior_decisions = history.decisions;
+        next.prior_events = history.events;
+        next.redo_decisions = history.redo;
+        next.redo_events = history.redo_events;
+        next.event_counter = history.event_counter;
+        next.initial_version = revision;
+        next.history_generation = history.generation;
+        next.history_active = true;
+        next.batches = history.batches;
+        let replacement = Arc::new(GameSession::start(next));
+        state
+            .sessions
+            .insert(game_id.to_owned(), replacement.clone());
+        replacement
+            .wait_replayed()
+            .map_err(|_| BatchError::simple("committed session failed to replay"))?;
+        Ok(BatchResult {
+            request_id: request.request_id,
+            batch_id,
+            start_cursor,
+            end_cursor,
+            active: true,
+            snapshot: replacement.get_snapshot(&ViewerRole::Player(actor)),
+        })
+    }
     /// Serializes a host rewind against credential rotation and human submissions.
     #[expect(
         clippy::too_many_lines,
@@ -382,6 +649,13 @@ impl GameRegistry {
                 .len()
                 .checked_sub(1)
                 .ok_or(HistoryError::InvalidTarget)?,
+            HistoryAction::UndoBatch => session
+                .batches()
+                .iter()
+                .rev()
+                .find(|b| b.end_cursor <= current.len())
+                .map(|b| b.start_cursor)
+                .ok_or(HistoryError::InvalidTarget)?,
             HistoryAction::UndoPipeline => {
                 let last = current
                     .len()
@@ -411,6 +685,12 @@ impl GameRegistry {
                 }
                 current.len() + 1
             }
+            HistoryAction::RedoBatch => session
+                .batches()
+                .iter()
+                .find(|b| b.start_cursor == current.len())
+                .map(|b| b.end_cursor)
+                .ok_or(HistoryError::InvalidTarget)?,
             HistoryAction::Restore { event_id } => {
                 if event_id.len() > 128 {
                     return Err(HistoryError::InvalidTarget);
@@ -478,6 +758,7 @@ impl GameRegistry {
             event_counter: event_counter.max(all_events.len() as u64),
             revision,
             generation: session.history_status().generation.saturating_add(1),
+            batches: session.batches(),
         };
         // A live worker must be quiescent before publishing the new authoritative branch.
         session.stop();
@@ -514,6 +795,7 @@ impl GameRegistry {
         next.initial_version = revision;
         next.history_active = true;
         next.history_generation = history.generation;
+        next.batches = history.batches;
         let replacement = Arc::new(GameSession::start(next));
         state
             .sessions
@@ -1114,6 +1396,11 @@ impl GameRegistry {
         }
         // The worker reply is awaited here; takeover cannot commit midway
         // through an already-authorized choice.
+        if !state.sessions.get(game_id).is_some_and(|current| {
+            std::ptr::eq(Arc::as_ptr(current), session as *const GameSession)
+        }) {
+            return Err(RejectionReason::NoPendingChoice);
+        }
         session.submit_choice(player, nonce, version, option)
     }
 
@@ -1123,7 +1410,7 @@ impl GameRegistry {
         &self,
         game_id: &str,
         credential: Option<&str>,
-        session: &GameSession,
+        _session: &GameSession,
     ) -> Result<InitialSnapshotMsg, LobbyError> {
         let state = self.state.lock().expect("registry lock");
         let role = match credential {
@@ -1140,7 +1427,11 @@ impl GameRegistry {
             }
             None => ViewerRole::Spectator,
         };
-        Ok(session.get_snapshot(&role))
+        Ok(state
+            .sessions
+            .get(game_id)
+            .ok_or(LobbyError::NotFound)?
+            .get_snapshot(&role))
     }
 
     /// A leaving player retires their identity and credential, never the host's.
@@ -1694,7 +1985,9 @@ impl GameRegistry {
 
         let legacy_lobby = running_lobby_from_session_config(&config);
         let session = Arc::new(GameSession::start(config));
-        state.lobbies.insert(legacy_lobby.game_id.clone(), legacy_lobby);
+        state
+            .lobbies
+            .insert(legacy_lobby.game_id.clone(), legacy_lobby);
         state
             .player_lobbies
             .insert(lobby_record.game_id.clone(), lobby_record);
@@ -1851,6 +2144,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         event_counter: 0,
         history_active: false,
         history_generation: 0,
+        batches: Vec::new(),
     })
 }
 
@@ -1961,5 +2255,6 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         event_counter: 0,
         history_active: false,
         history_generation: 0,
+        batches: Vec::new(),
     })
 }

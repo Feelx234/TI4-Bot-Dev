@@ -33,6 +33,7 @@ export interface GameShellProps {
   historyBusy?: boolean;
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
+  onSubmitMovementBatch?: (destination: string, steps: import("../protocol/client.ts").MovementStep[]) => Promise<void>;
   lastError?: string | null;
   selectedOptionId?: string;
   selectedSystemId?: string | null;
@@ -40,6 +41,7 @@ export interface GameShellProps {
   viewerSeat?: string | null;
   players?: Record<string, PlayerView> | PlayerView[];
   boardView?: BoardView;
+  activeSystemId?: string | null;
   productionQueue?: readonly string[];
   productionError?: string | null;
   onQueueProduction?: (units: string[]) => void;
@@ -50,6 +52,7 @@ export interface ChoiceRendererDispatcherProps {
   model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
+  onSubmitMovementBatch?: GameShellProps["onSubmitMovementBatch"];
   lastError?: string | null;
   selectedOptionId?: string;
   selectedSystemId?: string | null;
@@ -58,6 +61,7 @@ export interface ChoiceRendererDispatcherProps {
   onMinimizedChange: (minimized: boolean) => void;
   players?: Record<string, PlayerView>;
   boardView?: BoardView;
+  activeSystemId?: string | null;
   productionQueue?: readonly string[];
   productionError?: string | null;
   onQueueProduction?: (units: string[]) => void;
@@ -77,9 +81,11 @@ const renderTactical: WorkflowRenderer = ({
   choice,
   model,
   boardView,
+  activeSystemId,
   viewerSeat,
   players,
   onSubmit,
+  onSubmitMovementBatch,
   isMinimized,
   onMinimizedChange,
   lastError,
@@ -93,16 +99,17 @@ const renderTactical: WorkflowRenderer = ({
     model={model}
     board={boardView}
     viewerSeat={viewerSeat}
-    activeSystemId={
+    activeSystemId={activeSystemId || (
       model?.selectionMode.mode === "tactical_move" ||
       model?.selectionMode.mode === "tactical_cargo"
         ? model.selectionMode.activeSystem
         : choice.context?.target && "System" in choice.context.target
           ? choice.context.target.System
           : null
-    }
+    )}
     player={players?.[choice.actor] ?? null}
     onSubmit={onSubmit}
+    onSubmitBatch={onSubmitMovementBatch}
     isOpen={!isMinimized}
     onClose={() => onMinimizedChange(true)}
     lastError={lastError}
@@ -362,6 +369,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   model: propModel,
   viewerSeat,
   onSubmit,
+  onSubmitMovementBatch,
   lastError,
   selectedOptionId,
   selectedSystemId,
@@ -370,6 +378,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   onMinimizedChange,
   players,
   boardView,
+  activeSystemId,
   productionQueue,
   productionError,
   onQueueProduction,
@@ -446,6 +455,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     model,
     viewerSeat,
     onSubmit,
+    onSubmitMovementBatch,
     lastError: lastError ? present(lastError) : lastError,
     selectedOptionId,
     selectedSystemId,
@@ -454,6 +464,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     onMinimizedChange,
     players,
     boardView,
+    activeSystemId,
     productionQueue,
     productionError,
     onQueueProduction,
@@ -527,6 +538,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   historyBusy,
   choice,
   onSubmitChoice,
+  onSubmitMovementBatch,
   lastError,
   selectedOptionId,
   selectedSystemId,
@@ -534,6 +546,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   viewerSeat,
   players,
   boardView,
+  activeSystemId,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<"events" | "players" | null>(null);
   const [isChoiceMinimized, setIsChoiceMinimized] = useState(false);
@@ -732,6 +745,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             >
               Undo action
             </button>
+            <button type="button" className="button button--secondary button--sm" disabled={historyBusy || !history?.cursor} onClick={() => onChangeHistory("undo_batch")}>Undo batch</button>
             <button
               type="button"
               className="button button--secondary button--sm"
@@ -740,6 +754,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             >
               Redo
             </button>
+            <button type="button" className="button button--secondary button--sm" disabled={historyBusy || !history?.redo_count} onClick={() => onChangeHistory("redo_batch")}>Redo batch</button>
           </div>
         )}
         <EventLog
@@ -762,7 +777,9 @@ export const GameShell: React.FC<GameShellProps> = ({
               viewerSeat={viewerSeat}
               players={playersMap}
               boardView={boardView}
+              activeSystemId={activeSystemId}
               onSubmit={onSubmitChoice}
+              onSubmitMovementBatch={onSubmitMovementBatch}
               lastError={lastError}
               selectedOptionId={selectedOptionId}
               selectedSystemId={selectedSystemId}

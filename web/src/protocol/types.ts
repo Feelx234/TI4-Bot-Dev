@@ -260,6 +260,9 @@ export type GameEvent = EventVisibility & {
   timestamp: string;
   version?: number;
   decision_count?: number;
+  batch_id?: string;
+  detail?: string;
+  movement?: { actor: string; origin: string; destination: string; unit: string };
   event: GameEventKind;
 };
 
