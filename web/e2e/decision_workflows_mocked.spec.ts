@@ -6,6 +6,7 @@ import {
   type LobbyDto,
   type StateUpdateMsg,
 } from "../src/protocol/types";
+import type { BasketPlan } from "../src/protocol/client";
 
 const gameId = "mocked-decision";
 const seat = "p1";
@@ -113,6 +114,37 @@ async function openMockedGame(page: Page, snapshot = initial) {
   return socketReady;
 }
 
+type BatchRequest = {
+  request_id: string;
+  expected_version: number;
+  nonce: string;
+  plan: BasketPlan;
+};
+
+async function mockBatchSubmission(page: Page, snapshot: typeof initial) {
+  const requests: BatchRequest[] = [];
+  await page.route(`**/api/games/${gameId}/batches`, (route) => {
+    const body = route.request().postDataJSON() as BatchRequest;
+    requests.push(body);
+    return route.fulfill({
+      json: {
+        request_id: body.request_id,
+        batch_id: "batch-1",
+        start_cursor: 0,
+        end_cursor: body.plan.steps.length,
+        active: true,
+        snapshot: {
+          ...snapshot,
+          game_version: snapshot.game_version + body.plan.steps.length,
+          pending_choice: null,
+          turn_status: { kind: "active_turn", player: seat, phase: "action", round: 1 },
+        },
+      },
+    });
+  });
+  return requests;
+}
+
 test("activation on the map shows confirmation bar and inspector without generic modal", async ({
   page,
 }) => {
@@ -186,6 +218,7 @@ test("production builder accepts a real pointer click on a unit", async ({ page 
       },
     },
   };
+  const batches = await mockBatchSubmission(page, production);
   const { socket } = await openMockedGame(page, production);
   const submissions: ClientMessage[] = [];
   socket.onMessage((data) => {
@@ -207,8 +240,18 @@ test("production builder accepts a real pointer click on a unit", async ({ page 
   await expect(page.getByTestId("produce-unit-btn-build|carrier|1")).toBeDisabled();
   expect(submissions).toHaveLength(0);
   await page.getByRole("button", { name: "Confirm builds" }).click();
-  await expect.poll(() => submissions.length).toBe(1);
-  expect(submissions[0]).toMatchObject({ option_id: "build|carrier|1", nonce: "produce-7" });
+  await expect.poll(() => batches.length).toBe(1);
+  expect(batches[0]).toMatchObject({
+    expected_version: 7,
+    nonce: "produce-7",
+    plan: {
+      kind: "production",
+      destination: "18",
+      steps: [{ kind: "produce", unit: "carrier", count: 1 }],
+    },
+  });
+  expect(batches[0].request_id).toBeTruthy();
+  expect(submissions).toHaveLength(0);
 });
 
 test("production unit grid fits within the modal and reset clears only the draft", async ({
@@ -282,6 +325,7 @@ test("resource payment accepts real pointer clicks, retains draft on minimize, a
       },
     },
   };
+  const batches = await mockBatchSubmission(page, payment);
   const { socket } = await openMockedGame(page, payment);
   const submissions: ClientMessage[] = [];
   socket.onMessage((data) => {
@@ -296,8 +340,14 @@ test("resource payment accepts real pointer clicks, retains draft on minimize, a
   await page.getByTestId("resume-decision-btn").click();
   await expect(page.getByTestId("committed-amount")).toHaveText("4 Resources");
   await page.getByTestId("confirm-payment-btn").click();
-  await expect.poll(() => submissions.length).toBe(1);
-  expect(submissions[0]).toMatchObject({ option_id: "exhaust|jord", nonce: "pay-7" });
+  await expect.poll(() => batches.length).toBe(1);
+  expect(batches[0]).toMatchObject({
+    expected_version: 7,
+    nonce: "pay-7",
+    plan: { kind: "payment", steps: [{ kind: "exhaust", planet: "jord" }] },
+  });
+  expect(batches[0].request_id).toBeTruthy();
+  expect(submissions).toHaveLength(0);
 });
 
 test("payment controls remain reachable on a mobile viewport", async ({ page }) => {

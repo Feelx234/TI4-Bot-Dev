@@ -421,6 +421,8 @@ impl SessionShared {
 struct ReplayingDecider {
     prior_queue: Arc<Mutex<VecDeque<DecisionRecord>>>,
     inner: Box<dyn Decider>,
+    shared: Arc<Mutex<SessionShared>>,
+    has_boundary_state: bool,
 }
 
 /// Capture the actual offer for decisions made by either a human or a bot. Replay
@@ -480,6 +482,11 @@ impl Decider for ReplayingDecider {
         if let Some(res) = self.try_replay(choice) {
             return res;
         }
+        // A single engine step can consume the last replayed decision and ask the
+        // next human before returning (for example, fleet-limit enforcement).
+        if self.has_boundary_state {
+            self.shared.lock().expect("shared lock").replay_complete = true;
+        }
         self.inner.choose(choice)
     }
 
@@ -490,6 +497,9 @@ impl Decider for ReplayingDecider {
     ) -> Result<ChoiceOption, IllegalChoice> {
         if let Some(res) = self.try_replay(choice) {
             return res;
+        }
+        if self.has_boundary_state {
+            self.shared.lock().expect("shared lock").replay_complete = true;
         }
         self.inner.choose_seeing(choice, seen)
     }
@@ -503,8 +513,18 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     let prior_records = config.prior_decisions.clone();
     let prior_queue = Arc::new(Mutex::new(VecDeque::from(config.prior_decisions.clone())));
     let selected_options = Arc::new(Mutex::new(VecDeque::new()));
+    let boundary_state = config.replay_boundary_state.clone().or_else(|| {
+        (prior_count > 0)
+            .then(|| {
+                crate::session::batch::replay_boundary_state(&config, &config.prior_decisions).ok()
+            })
+            .flatten()
+    });
 
     let mut initial_shared = SessionShared::new(config.game_id.clone(), config.state.clone());
+    if let Some(state) = &boundary_state {
+        initial_shared.latest_state = state.clone();
+    }
     initial_shared.seat_tokens.clone_from(&config.seat_tokens);
     initial_shared.player_ids.clone_from(&config.player_ids);
     initial_shared.seats.clone_from(&config.seats);
@@ -582,6 +602,8 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         Box::new(ReplayingDecider {
                             prior_queue: prior_queue.clone(),
                             inner,
+                            shared: worker_shared.clone(),
+                            has_boundary_state: boundary_state.is_some(),
                         }),
                     );
                 } else {

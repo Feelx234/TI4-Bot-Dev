@@ -94,6 +94,8 @@ pub struct SessionConfig {
     pub event_counter: u64,
     pub history_generation: u64,
     pub batches: Vec<crate::storage::BatchRecord>,
+    /// State at the first unplanned choice, computed by private replay for a committed batch.
+    pub replay_boundary_state: Option<GameState>,
 }
 
 impl SessionConfig {
@@ -124,6 +126,7 @@ impl SessionConfig {
             event_counter: 0,
             history_generation: 0,
             batches: Vec::new(),
+            replay_boundary_state: None,
         }
     }
 
@@ -175,6 +178,7 @@ impl SessionConfig {
         decisions: Vec<DecisionRecord>,
         events: Vec<crate::protocol::server::GameEvent>,
     ) -> Self {
+        self.replay_boundary_state = None;
         self.prior_decisions = decisions;
         self.prior_events = events;
         self
@@ -213,6 +217,9 @@ impl GameSession {
         prior_events: Vec<crate::protocol::server::GameEvent>,
     ) -> Self {
         let game_id = config.game_id.clone();
+        if config.prior_decisions != prior_decisions {
+            config.replay_boundary_state = None;
+        }
         config.prior_decisions = prior_decisions;
         config.prior_events = prior_events;
         let initial_config = config.clone();
@@ -485,7 +492,11 @@ impl GameSession {
     }
 
     pub fn restart_config(&self) -> SessionConfig {
-        self.initial_config.clone()
+        let mut config = self.initial_config.clone();
+        // Callers can replace the decision prefix (batch commit, undo, redo).
+        // The old speculative view must never be reused for a different cursor.
+        config.replay_boundary_state = None;
+        config
     }
 
     pub fn history_ready(&self) -> bool {

@@ -9,7 +9,7 @@ use ti4_engine::choice::{Choice, ChoiceOption, Decider, DecisionRecord, IllegalC
 use ti4_engine::decision_context::{DecisionContext, DecisionTarget};
 use ti4_engine::game::Game;
 use ti4_model::id::PlayerId;
-use ti4_model::state::Phase;
+use ti4_model::state::{GameState, Phase};
 
 use super::SessionConfig;
 
@@ -338,6 +338,7 @@ pub struct Simulation {
     pub selected: Vec<ChoiceOption>,
     pub transitions: Vec<(usize, Phase, u32)>,
     pub winner: Option<Option<PlayerId>>,
+    pub boundary_state: GameState,
 }
 
 impl Decider for PrivateDecider {
@@ -514,6 +515,33 @@ pub fn simulate(
             "valid workflow steps required",
         ));
     }
+    simulate_script(config, prefix, actor, plan)
+}
+
+/// Reconstruct the view at the first unrecorded choice when a session is recovered
+/// without the in-memory boundary state from a batch simulation.
+pub fn replay_boundary_state(
+    config: &SessionConfig,
+    prefix: &[DecisionRecord],
+) -> Result<GameState, BatchFailure> {
+    let plan = MovementPlan {
+        kind: BatchKind::TacticalMovement,
+        destination: String::new(),
+        steps: Vec::new(),
+    };
+    let actor = prefix
+        .last()
+        .map(|record| record.player.clone())
+        .ok_or_else(|| BatchFailure::new(0, "empty replay", "recorded prefix"))?;
+    simulate_script(config, prefix, &actor, &plan).map(|simulation| simulation.boundary_state)
+}
+
+fn simulate_script(
+    config: &SessionConfig,
+    prefix: &[DecisionRecord],
+    actor: &PlayerId,
+    plan: &MovementPlan,
+) -> Result<Simulation, BatchFailure> {
     let script = Arc::new(Mutex::new(Script {
         prefix: prefix.iter().cloned().collect(),
         steps: plan.steps.clone(),
@@ -597,6 +625,7 @@ pub fn simulate(
                 selected: guard.selected.clone(),
                 transitions,
                 winner: (game.state.finished || result.finished).then_some(winner),
+                boundary_state: game.state.clone(),
             });
         }
         if let Some(err) = result.error {

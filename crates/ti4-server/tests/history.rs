@@ -288,6 +288,135 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
 }
 
 #[test]
+fn excess_fleet_batch_replays_at_the_next_choice_and_recovers_its_state() {
+    let path =
+        std::env::temp_dir().join(format!("ti4_fleet_batch_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&path).unwrap());
+    let registry = GameRegistry::new().with_store(store.clone());
+    let host = PlayerId::new("p1");
+    let guest = PlayerId::new("p2");
+    let (mut state, galaxy) = ti4_server::map::create_game_with_map(
+        ContentStore::embedded(),
+        &[host.clone(), guest.clone()],
+        42,
+    )
+    .unwrap();
+    let origin = SystemId::new(galaxy.adjacent("22").into_iter().next().unwrap());
+    state
+        .system_mut(&origin)
+        .units
+        .extend((0..4).map(|_| Unit::new(UnitTypeId::new("destroyer"), host.clone())));
+    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let config = SessionConfig::new("fleet_batch", state)
+        .with_seed(42)
+        .with_player_ids(vec![host.clone(), guest.clone()])
+        .with_galaxy(galaxy, tiles)
+        .with_seat(host.clone(), SeatController::Human)
+        .with_seat(guest, SeatController::Human);
+    let session = registry.create_game(config).unwrap();
+    let token = session.seat_tokens()[&host].clone();
+    for _ in 0..4 {
+        let (seat, nonce, version, _) = pending(&session);
+        let choice = session
+            .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+                seat.clone(),
+            ))
+            .pending_choice
+            .unwrap()
+            .choice;
+        let option = choice
+            .options
+            .iter()
+            .find(|o| o.id == "tactical" || o.id == "22")
+            .unwrap_or(&choice.options[0]);
+        session
+            .submit_choice(&seat, &nonce, version, &option.id)
+            .unwrap();
+    }
+    let (seat, nonce, version, _) = pending(&session);
+    assert_eq!(seat, host);
+    let mut steps = vec![
+        MovementStep::Move {
+            origin: origin.to_string(),
+            unit: "destroyer".into(),
+            damaged: false,
+        };
+        4
+    ];
+    steps.push(MovementStep::DoneMoving);
+    let result = registry
+        .submit_batch(
+            "fleet_batch",
+            &token,
+            BatchRequest {
+                request_id: "over_supply".into(),
+                expected_version: version,
+                nonce,
+                plan: MovementPlan {
+                    kind: BatchKind::TacticalMovement,
+                    destination: "22".into(),
+                    steps,
+                },
+            },
+        )
+        .unwrap();
+    assert_eq!(result.end_cursor - result.start_cursor, 5);
+    let live = registry.get_game("fleet_batch").unwrap();
+    assert_eq!(
+        live.current_state()
+            .board
+            .get(&SystemId::new("22"))
+            .unwrap()
+            .units_of(&host)
+            .iter()
+            .filter(|unit| unit.type_id.as_str() == "destroyer")
+            .count(),
+        4,
+    );
+    let _ = pending(&live);
+    let recovered = store.recover_session("fleet_batch").unwrap();
+    recovered.wait_replayed().unwrap();
+    assert_eq!(recovered.current_state(), live.current_state());
+    assert_eq!(recovered.decision_log(), live.decision_log());
+    recovered.stop();
+    registry
+        .change_history(
+            "fleet_batch",
+            &token,
+            live.game_version(),
+            HistoryAction::UndoBatch,
+        )
+        .unwrap();
+    let undone = registry.get_game("fleet_batch").unwrap();
+    assert!(
+        undone
+            .current_state()
+            .board
+            .get(&SystemId::new("22"))
+            .is_none_or(|system| {
+                system
+                    .units_of(&host)
+                    .iter()
+                    .all(|unit| unit.type_id.as_str() != "destroyer")
+            })
+    );
+    registry
+        .change_history(
+            "fleet_batch",
+            &token,
+            undone.game_version(),
+            HistoryAction::RedoBatch,
+        )
+        .unwrap();
+    assert_eq!(
+        registry.get_game("fleet_batch").unwrap().current_state(),
+        live.current_state()
+    );
+    drop(registry);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
 fn fiftieth_movement_step_failure_preserves_the_durable_redo_branch() {
     let path = std::env::temp_dir().join(format!("ti4_batch_late_{:032x}", rand::random::<u128>()));
     let store = Arc::new(FileGameStore::new(&path).unwrap());

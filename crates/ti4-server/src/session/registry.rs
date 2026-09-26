@@ -671,6 +671,7 @@ impl GameRegistry {
         let prior = session.decision_log();
         drop(state);
         let simulation = simulate(&config, &prior, &actor, &request.plan)?;
+        let boundary_state = simulation.boundary_state.clone();
         let decisions = simulation.decisions;
         let start_cursor = prior.len();
         let end_cursor = start_cursor + decisions.len();
@@ -831,6 +832,7 @@ impl GameRegistry {
         next.history_generation = history.generation;
         next.history_active = true;
         next.batches = history.batches;
+        next.replay_boundary_state = Some(boundary_state);
         let (replacement, replay) = start_committed_worker(next, &mut start_worker);
         state
             .sessions
@@ -2476,6 +2478,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         history_active: false,
         history_generation: 0,
         batches: Vec::new(),
+        replay_boundary_state: None,
     })
 }
 
@@ -2587,5 +2590,6 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         history_active: false,
         history_generation: 0,
         batches: Vec::new(),
+        replay_boundary_state: None,
     })
 }

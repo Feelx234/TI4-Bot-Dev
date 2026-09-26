@@ -100,7 +100,7 @@ test.describe("Tactical fleet rally", () => {
     await expect(page.getByTestId("movement-error-banner")).toHaveCount(0);
   });
 
-  test("advises about excess fleet supply without blocking a multi-origin commit", async ({
+  test("advises about excess fleet supply and commits a multi-origin batch", async ({
     page,
     request,
   }) => {
@@ -109,7 +109,8 @@ test.describe("Tactical fleet rally", () => {
       page,
       request,
     );
-    // Fleet supply is three; stage every non-fighter ship across both origins.
+    // Fleet supply is three; stage four non-fighter ships across both origins.
+    let staged = 0;
     for (const origin of ["01", forwardId]) {
       const units = (await snapshot(request, gameId, session)).view.board.systems[origin].units;
       const ships = [
@@ -126,13 +127,33 @@ test.describe("Tactical fleet rally", () => {
       ];
       for (const type of ships) {
         const increment = page.getByTestId(`rally-inc-${origin}-${type}`);
-        while (await increment.isEnabled()) await increment.click();
+        while (staged < 4 && (await increment.isEnabled())) {
+          await increment.click();
+          staged++;
+        }
       }
     }
+    expect(staged).toBe(4);
     await expect(page.getByTestId("fleet-supply-gauge")).toHaveAttribute("data-warning", "true");
     await expect(page.getByTestId("commit-moves-btn")).toBeEnabled();
+    const batchRequest = page.waitForRequest((request) =>
+      request.url().endsWith(`/api/games/${gameId}/batches`),
+    );
     await page.getByTestId("commit-moves-btn").click();
-    await expect(tray).toHaveCount(0, { timeout: 35_000 });
+    const sent = await batchRequest;
+    expect(sent.postDataJSON()).toMatchObject({ plan: { kind: "tactical_movement" } });
+    expect(sent.postDataJSON().plan.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "move", origin: "01" }),
+        expect.objectContaining({ kind: "move", origin: forwardId }),
+      ]),
+    );
+    const response = await page.waitForResponse(
+      (response) => response.request() === sent,
+      { timeout: 15_000 },
+    );
+    expect(response.ok(), `batch response ${response.status()}: ${await response.text()}`).toBe(true);
+    await expect(tray).toHaveCount(0);
     await expect
       .poll(async () => {
         const current = await snapshot(request, gameId, session);
