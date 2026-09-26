@@ -384,8 +384,18 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
 
   const model = propModel ?? derivedModel;
   const workflow = model?.workflow ?? "generic_selection";
+  const combatSubtype = choice?.context?.subtype;
+  const spectatorCombatWorkflow =
+    combatSubtype === "sustain_damage" ||
+    combatSubtype === "assign_casualty" ||
+    combatSubtype === "announce_retreat" ||
+    combatSubtype === "retreat_to";
+  const isDirectHitReaction = Boolean(boardView?.combat && choice?.options.some(
+    (option) => option.id.endsWith(":SUSTAIN_DAMAGE_USED:after") && option.kind === "ability",
+  ));
 
   const isCombatWorkflow =
+    spectatorCombatWorkflow || isDirectHitReaction ||
     workflow === "combat_sustain" ||
     workflow === "combat_casualty" ||
     workflow === "combat_retreat";
@@ -422,7 +432,10 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     })),
   };
 
-  const renderer = workflowRenderers.get(workflow) ?? workflowRenderers.get("generic_selection")!;
+  const renderer =
+    isDirectHitReaction || (spectatorCombatWorkflow && !model)
+      ? renderCombat
+      : (workflowRenderers.get(workflow) ?? workflowRenderers.get("generic_selection")!);
   const wrappedWorkflow =
     workflow === "payment" ||
     workflow === "tactical_movement" ||
@@ -524,6 +537,8 @@ export const GameShell: React.FC<GameShellProps> = ({
 }) => {
   const [openDrawer, setOpenDrawer] = useState<"events" | "players" | null>(null);
   const [isChoiceMinimized, setIsChoiceMinimized] = useState(false);
+  const [isRecapDocked, setIsRecapDocked] = useState(false);
+  const lastCombat = useRef<BoardView | null>(null);
   const [productionQueue, setProductionQueue] = useState<{
     actor: string;
     system: string;
@@ -608,6 +623,34 @@ export const GameShell: React.FC<GameShellProps> = ({
     }
     return players;
   }, [players]);
+
+  // Keep the last public combat view when the server stops projecting active combat.
+  // The shell is remounted for history changes, so a recap cannot leak across timelines.
+  if (boardView?.combat) {
+    lastCombat.current = boardView;
+  }
+  const combatChoice = choice?.context?.subtype;
+  const isCombatChoice =
+    combatChoice === "sustain_damage" ||
+    combatChoice === "assign_casualty" ||
+    combatChoice === "announce_retreat" ||
+    combatChoice === "retreat_to";
+  const recap = boardView && !boardView.combat && !isCombatChoice ? lastCombat.current : null;
+  const recapBoard = recap?.combat
+    ? {
+        ...recap,
+        systems: {
+          ...recap.systems,
+          ...(boardView?.systems[recap.combat.system_id]
+            ? { [recap.combat.system_id]: boardView.systems[recap.combat.system_id] }
+            : {}),
+        },
+      }
+    : undefined;
+
+  useEffect(() => {
+    if (boardView?.combat) setIsRecapDocked(false);
+  }, [boardView?.combat?.system_id]);
 
   useEffect(() => {
     // Only automatically un-minimize if it's the viewer's turn to make a decision
@@ -713,34 +756,50 @@ export const GameShell: React.FC<GameShellProps> = ({
 
       <div className="app-shell__overlays">
         <PipelineRunnerContext.Provider value={pipelineRunner}>
-          <ChoiceRendererDispatcher
-            choice={choice}
-            viewerSeat={viewerSeat}
-            players={playersMap}
-            boardView={boardView}
-            onSubmit={onSubmitChoice}
-            lastError={lastError}
-            selectedOptionId={selectedOptionId}
-            selectedSystemId={selectedSystemId}
-            onSelectOption={onSelectOption}
-            isMinimized={isChoiceMinimized}
-            onMinimizedChange={setIsChoiceMinimized}
-            tacticalPlan={tacticalPlan}
-            tacticalStep={tacticalStep}
-            onTacticalStep={() => setTacticalStep((step) => step + 1)}
-            productionQueue={productionQueue?.units}
-            productionError={productionError}
-            onQueueProduction={(units) => {
-              if (!choice || productionQueue?.units.length) return;
-              const system =
-                choice.context?.target && "System" in choice.context.target
-                  ? choice.context.target.System
-                  : "";
-              setProductionError(null);
-              submittedNonce.current = null;
-              setProductionQueue({ actor: choice.actor, system, units });
-            }}
-          />
+          {(!recap || isRecapDocked) && (
+            <ChoiceRendererDispatcher
+              choice={choice}
+              viewerSeat={viewerSeat}
+              players={playersMap}
+              boardView={boardView}
+              onSubmit={onSubmitChoice}
+              lastError={lastError}
+              selectedOptionId={selectedOptionId}
+              selectedSystemId={selectedSystemId}
+              onSelectOption={onSelectOption}
+              isMinimized={isChoiceMinimized}
+              onMinimizedChange={setIsChoiceMinimized}
+              tacticalPlan={tacticalPlan}
+              tacticalStep={tacticalStep}
+              onTacticalStep={() => setTacticalStep((step) => step + 1)}
+              productionQueue={productionQueue?.units}
+              productionError={productionError}
+              onQueueProduction={(units) => {
+                if (!choice || productionQueue?.units.length) return;
+                const system =
+                  choice.context?.target && "System" in choice.context.target
+                    ? choice.context.target.System
+                    : "";
+                setProductionError(null);
+                submittedNonce.current = null;
+                setProductionQueue({ actor: choice.actor, system, units });
+              }}
+            />
+          )}
+          {recap && recapBoard && (
+            <SpaceCombatOverlay
+              choice={null}
+              viewerSeat={viewerSeat}
+              board={recapBoard}
+              players={playersMap}
+              onSubmit={onSubmitChoice}
+              isRecap
+              isOpen={!isRecapDocked}
+              isMinimized={isRecapDocked}
+              onClose={() => setIsRecapDocked(true)}
+              onMinimize={setIsRecapDocked}
+            />
+          )}
         </PipelineRunnerContext.Provider>
       </div>
     </div>

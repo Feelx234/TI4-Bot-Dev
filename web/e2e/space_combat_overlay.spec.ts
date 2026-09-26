@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
 import { openPlayerGame } from "./lobbyHelpers";
 import type { InitialSnapshotMsg } from "../src/protocol/types";
+import { getUnitBaseType } from "../src/components/UnitIcon";
 
 const backend = `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? "8180"}`;
 
@@ -27,7 +28,7 @@ test.describe("Space Combat Overlay", () => {
     const launch = await request.post(`${backend}/api/dev/scenarios/launch`, {
       data: { scenario_id: "ongoing_combat", seed: 42 },
     });
-    expect(launch.ok(), `launch scenario: ${launch.status()}`).toBe(true);
+    expect(launch.ok(), `launch scenario: ${launch.status()} ${await launch.text()}`).toBe(true);
     const { game_id: gameId, player_session: session, player_id: playerId } = await launch.json();
 
     // 2. Verify backend state starts with active combat already in progress
@@ -36,9 +37,9 @@ test.describe("Space Combat Overlay", () => {
     expect(initial.view.board.combat?.attacker).toBe(playerId);
     expect(initial.pending_choice).toBeDefined();
 
-    // Verify Sol has direct_hit in held action cards
+    // Verify Sol has a playable Direct Hit copy in hand.
     const solPlayer = initial.view.players.find((p) => p.id === playerId);
-    expect(solPlayer?.held_action_cards).toContain("direct_hit");
+    expect(solPlayer?.held_action_cards).toContain("dh1");
 
     // 3. Open the game in browser as active player
     await openPlayerGame(page, gameId, session);
@@ -50,6 +51,8 @@ test.describe("Space Combat Overlay", () => {
     // Verify modal panel is present
     const panel = modal.locator(".combat-arena-panel");
     await expect(panel).toBeVisible();
+    await expect(panel).toHaveCSS("background-color", "rgb(11, 18, 34)");
+    await expect(modal).toHaveCSS("background-color", "rgb(7, 12, 22)");
 
     // Verify both attacker and defender have Dreadnoughts
     const attackerCard = page.getByTestId("attacker-fleet-card");
@@ -63,6 +66,26 @@ test.describe("Space Combat Overlay", () => {
     await expect(defenderCard.getByTestId("unit-row-dreadnought")).toBeVisible();
     await expect(page.getByTestId("defender-fleet-supply-gauge")).toBeVisible();
     await expect(page.getByTestId("defender-capacity-gauge")).toBeVisible();
+
+    await expect(attackerCard.getByTestId(`combat-cards-${playerId}`)).toContainText("Direct Hit");
+    const opponent = initial.view.board.combat?.defender;
+    if (opponent) {
+      const count = initial.view.players.find((p) => p.id === opponent)?.action_cards_count;
+      await expect(defenderCard.getByTestId(`combat-cards-${opponent}`)).toContainText(`Action cards: ${count}`);
+    }
+
+    const firstRoll = initial.view.board.combat?.dice_rolls?.[0];
+    if (firstRoll) {
+      const seat = firstRoll.player ?? playerId;
+      const card = seat === playerId ? attackerCard : defenderCard;
+      const badge = card.getByTestId(`combat-roll-group-${seat}-${getUnitBaseType(firstRoll.unit)}`);
+      await expect(badge).toBeVisible();
+      await badge.hover();
+      await expect(badge.locator(".combat-unit-row__roll-tooltip")).toBeVisible();
+      await expect(badge.locator(".combat-unit-row__roll-tooltip")).toContainText(
+        `${firstRoll.roll} vs ${firstRoll.target}+`,
+      );
+    }
 
     // Verify combat odds card
     const oddsCard = page.getByTestId("combat-odds-card");
@@ -96,7 +119,9 @@ test.describe("Space Combat Overlay", () => {
 
     // 6. Test submitting an integrated combat decision
     const subtype = initial.pending_choice?.choice?.context?.subtype;
-    if (subtype === "sustain_damage") {
+    if (initial.pending_choice?.choice.options.some((option) => option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"))) {
+      await page.getByTestId("play-direct-hit-btn").click();
+    } else if (subtype === "sustain_damage") {
       // Test integrated sustain option on the dreadnought row or decline
       const sustainBtn = attackerCard.locator('[data-testid^="sustain-opt-"]');
       if (await sustainBtn.count() > 0) {
@@ -113,9 +138,9 @@ test.describe("Space Combat Overlay", () => {
         await page.locator('[data-testid^="casualty-opt-"]').first().click();
       }
     } else {
-      // In case retreat stage is presented
-      const anyOpt = page.locator('[data-testid^="retreat-opt-"]').first();
-      await anyOpt.click();
+      const stay = initial.pending_choice?.choice.options.find((option) => option.id === "stay" || option.id === "decline");
+      expect(stay).toBeDefined();
+      await page.getByTestId(`retreat-opt-${stay!.id}`).click();
     }
 
     // After submitting, the choice advances and game_version increments
@@ -125,5 +150,34 @@ test.describe("Space Combat Overlay", () => {
         return current.game_version;
       })
       .toBeGreaterThan(initial.game_version);
+  });
+
+  test("plays Direct Hit when the opposing fleet sustains damage", async ({ page, request }) => {
+    test.setTimeout(90_000);
+    const launch = await request.post(`${backend}/api/dev/scenarios/launch`, {
+      data: { scenario_id: "ongoing_combat", seed: 42 },
+    });
+    expect(launch.ok(), `launch scenario: ${launch.status()} ${await launch.text()}`).toBe(true);
+    const { game_id: gameId, player_session: session, player_id: playerId } = await launch.json();
+    const initial = await snapshot(request, gameId, session);
+    const defender = initial.view.board.combat?.defender;
+    expect(defender).toBeTruthy();
+    expect(initial.pending_choice?.choice.context?.subtype).toBe("announce_retreat");
+    const systemId = initial.view.board.combat!.system_id;
+    const dreadnoughts = (state: InitialSnapshotMsg) => state.view.board.systems[systemId].units
+      .filter((unit) => unit.owner === defender && unit.unit_type === "dreadnought").length;
+    expect(dreadnoughts(initial)).toBeGreaterThan(0);
+    await openPlayerGame(page, gameId, session);
+    expect(initial.pending_choice?.choice.player).toBe(playerId);
+    await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
+    const stay = initial.pending_choice!.choice.options.find((option) => option.id === "stay" || option.id === "decline");
+    expect(stay).toBeDefined();
+    await page.getByTestId(`retreat-opt-${stay!.id}`).click();
+    await expect.poll(async () => (await snapshot(request, gameId, session)).pending_choice?.choice.options
+      .some((option) => option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"))).toBe(true);
+    await page.getByTestId("play-direct-hit-btn").click();
+    await expect.poll(async () => (await snapshot(request, gameId, session)).game_version).toBeGreaterThan(initial.game_version);
+    const after = await snapshot(request, gameId, session);
+    expect(dreadnoughts(after)).toBeLessThan(dreadnoughts(initial));
   });
 });

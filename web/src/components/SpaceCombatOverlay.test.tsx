@@ -173,7 +173,7 @@ describe("SpaceCombatOverlay", () => {
     expect(onSubmit).toHaveBeenCalledWith("sustain:dreadnought:1");
   });
 
-  it("displays dice rolls with hit and miss tags when provided", () => {
+  it("summarizes hits by ship type and side with full rolls available on focus", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
 
@@ -192,9 +192,11 @@ describe("SpaceCombatOverlay", () => {
     };
 
     const diceRolls = [
-      { unit: "Dreadnought", roll: 8, target: 5, hit: true },
-      { unit: "Carrier", roll: 9, target: 9, hit: true },
-      { unit: "Fighter", roll: 3, target: 9, hit: false },
+      { player: "seat_1", unit: "Dreadnought", roll: 8, target: 5, hit: true },
+      { player: "seat_1", unit: "dreadnought", roll: 2, target: 5, hit: false },
+      { player: "seat_1", unit: "Carrier", roll: 9, target: 9, hit: true },
+      { player: "seat_2", unit: "Cruiser", roll: 7, target: 7, hit: true },
+      { player: "seat_2", unit: "Destroyer", roll: 3, target: 9, hit: false },
     ];
 
     render(
@@ -210,11 +212,18 @@ describe("SpaceCombatOverlay", () => {
       />,
     );
 
-    expect(screen.getByTestId("combat-dice-feed")).toBeInTheDocument();
-    const badges = screen.getAllByTestId("dice-roll-badge");
-    expect(badges).toHaveLength(3);
-    expect(badges[0]).toHaveTextContent("Dreadnought (5+): [8] ★ HIT");
-    expect(badges[2]).toHaveTextContent("Fighter (9+): [3] MISS");
+    const dreadnoughts = screen.getByTestId("combat-roll-group-seat_1-dreadnought");
+    expect(dreadnoughts).toHaveTextContent("1 hit");
+    expect(dreadnoughts.closest("[data-testid='unit-row-dreadnought']")).toBeInTheDocument();
+    expect(dreadnoughts).toHaveAttribute(
+      "aria-label",
+      "Dreadnought: 1 hit from 2 rolls. 8 (5+) hit, 2 (5+) miss",
+    );
+    expect(dreadnoughts.querySelectorAll(".combat-unit-row__roll-result")).toHaveLength(2);
+    expect(screen.getByTestId("combat-roll-group-seat_1-carrier")).toHaveTextContent("1 hit");
+    expect(screen.getByTestId("combat-roll-group-seat_2-cruiser")).toHaveTextContent("1 hit");
+    expect(screen.getByTestId("combat-roll-group-seat_2-destroyer")).toHaveTextContent("0 hits");
+    expect(screen.queryByTestId("combat-dice-feed")).not.toBeInTheDocument();
     expect(screen.getByTestId("combat-hits-callout")).toHaveTextContent("2");
   });
 
@@ -400,6 +409,10 @@ describe("SpaceCombatOverlay", () => {
         attacker_hits: 3,
         defender_hits: 1,
         hits_to_assign: 1,
+        dice_rolls: [
+          { player: "seat_1", unit: "War Sun", roll: 7, target: 3, hit: true },
+          { player: "seat_1", unit: "War Sun", roll: 8, target: 3, hit: true },
+        ],
       },
     };
 
@@ -421,6 +434,59 @@ describe("SpaceCombatOverlay", () => {
     expect(screen.getByTestId("defender-round-hits")).toHaveTextContent("1");
     expect(screen.getByTestId("attacker-hits-dealt")).toHaveTextContent("💥 3 hits");
     expect(screen.getByTestId("defender-hits-dealt")).toHaveTextContent("💥 1 hit");
+    expect(screen.getByTestId("unit-row-lost-warsun")).toHaveTextContent("War Sun×02 hits");
+  });
+
+  it("keeps casualty rows in place when the board reorders ships or loses a type", () => {
+    const choice: PendingChoiceDto = {
+      actor: "seat_1", nonce: "assign-1", prompt: "Assign a hit",
+      context: { subtype: "assign_casualty", target: { System: "18" } },
+      options: [
+        { id: "fighter", label: "fighter", kind: "casualty", payload: { unit: "fighter" } },
+        { id: "dreadnought", label: "dreadnought", kind: "casualty", payload: { unit: "dreadnought" } },
+      ],
+    };
+    const board: BoardView = {
+      ...sampleBoard,
+      combat: {
+        system_id: "18", round: 1, attacker: "seat_1", defender: "seat_2",
+        attacker_hits: 1, defender_hits: 2, hits_to_assign: 2,
+        dice_rolls: [{ player: "seat_1", unit: "dreadnought", roll: 9, target: 5, hit: true }],
+      },
+    };
+    const props = { isOpen: true, choice, viewerSeat: "seat_1", players: samplePlayers,
+      onSubmit: vi.fn().mockResolvedValue(undefined), onClose: vi.fn() };
+    const order = () => Array.from(screen.getByTestId("attacker-units-list").children)
+      .map((row) => row.getAttribute("data-testid")?.replace("unit-row-lost-", "unit-row-"));
+    const { rerender } = render(<SpaceCombatOverlay {...props} board={board} />);
+    const initialOrder = order();
+    const remaining = board.systems["18"].units.filter((unit) => unit.owner !== "seat_1" || unit.unit_type !== "fighter");
+    rerender(<SpaceCombatOverlay {...props} choice={{ ...choice, nonce: "assign-2" }}
+      board={{ ...board, systems: { "18": { ...board.systems["18"], units: remaining.reverse() } } }} />);
+    expect(order()).toEqual(initialOrder);
+    expect(screen.getByTestId("unit-row-lost-fighter")).toHaveTextContent("×0");
+  });
+
+  it("shows the viewer's action cards and only the opponent's card count", () => {
+    render(
+      <SpaceCombatOverlay
+        isOpen
+        choice={null}
+        viewerSeat="seat_1"
+        board={sampleBoard}
+        players={{
+          seat_1: { ...samplePlayers.seat_1, held_action_cards: ["direct_hit"], action_cards_count: 1 },
+          seat_2: { ...samplePlayers.seat_2, held_action_cards: ["sabotage"], action_cards_count: 3 },
+        }}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("combat-cards-seat_1")).toHaveTextContent("Action cards: 1");
+    expect(screen.getByTestId("combat-cards-seat_1")).toHaveTextContent("Direct Hit");
+    expect(screen.getByTestId("combat-cards-seat_2")).toHaveTextContent("Action cards: 3");
+    expect(screen.getByTestId("combat-cards-seat_2")).not.toHaveTextContent("Sabotage");
   });
 
   it("allows player to assign casualty by clicking directly on the unit row", async () => {
@@ -456,6 +522,7 @@ describe("SpaceCombatOverlay", () => {
         viewerSeat="seat_1"
         board={sampleBoard}
         players={samplePlayers}
+        recentDiceRolls={[{ player: "seat_1", unit: "carrier", roll: 10, target: 9, hit: true }]}
         onSubmit={onSubmit}
         onClose={vi.fn()}
       />,
@@ -465,6 +532,9 @@ describe("SpaceCombatOverlay", () => {
     const carrierRow = screen.getByTestId("unit-row-carrier");
     expect(carrierRow).toHaveClass("combat-unit-row--interactive");
     expect(carrierRow).toHaveTextContent("💥 Click to assign");
+
+    fireEvent.click(screen.getByTestId("combat-roll-group-seat_1-carrier"));
+    expect(onSubmit).not.toHaveBeenCalled();
 
     // Click directly on the carrier row
     await act(async () => {

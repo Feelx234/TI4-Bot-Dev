@@ -10,7 +10,8 @@ export const DecisionHeader: React.FC<{
   onMinimize: () => void;
   titleTestId?: string;
   minimizeTestId?: string;
-}> = ({ title, instruction, actor, progress, onMinimize, titleTestId, minimizeTestId }) => {
+  minimizeLabel?: string;
+}> = ({ title, instruction, actor, progress, onMinimize, titleTestId, minimizeTestId, minimizeLabel = "Minimize decision" }) => {
   const display = usePlayerIdentity();
   const participant = display(actor);
   return (
@@ -25,8 +26,8 @@ export const DecisionHeader: React.FC<{
         type="button"
         data-testid={minimizeTestId}
         className="button button--secondary button--icon"
-        aria-label="Minimize decision"
-        title="Minimize decision"
+        aria-label={minimizeLabel}
+        title={minimizeLabel}
         onClick={onMinimize}
       >
         −

@@ -152,13 +152,14 @@ fn advance_into_space_combat(
         .submit(&nonce_2, ver_2, border_sys_id)
         .map_err(|e| format!("submit activate failed: {e:?}"))?;
 
-    // 3. Movement and loading loop
+    // 3. Movement and loading loop; stop at the first combat decision, before
+    // rolling dice or opening a reaction to the bot's sustain damage.
     let mut choice = wait_for_choice(&client)
         .ok_or_else(|| "timed out waiting for movement choice".to_owned())?;
     while !choice
         .options
         .iter()
-        .any(|o| o.kind == "sustain" || o.kind == "casualty")
+        .any(|o| o.kind == "retreat" || o.kind == "sustain" || o.kind == "casualty")
     {
         let (_, nonce, ver) = session
             .current_pending_decision()
@@ -431,10 +432,10 @@ fn build_space_combat_scenario(
         setup_base_3p_game(seed, "dev_combat")?;
     let content = ContentStore::embedded();
 
-    // Give Sol direct_hit action card and enough fleet tokens for the fleet
+    // Give Sol a playable Direct Hit copy and enough fleet tokens for the fleet.
     if let Some(sol) = config.state.player_mut(&p1) {
         sol.fleet_tokens = 4;
-        sol.action_cards.push(ActionCardId::new("direct_hit"));
+        sol.action_cards.push(ActionCardId::new("dh1"));
     }
     if let Some(letnev) = config.state.player_mut(&p3) {
         letnev.fleet_tokens = 4;

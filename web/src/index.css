@@ -1025,34 +1025,6 @@ select:focus-visible,
   flex-direction: column;
   gap: 12px;
 }
-.combat-dialog__feed {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 14px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-}
-.combat-dialog__dice {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.combat-dialog__die {
-  padding: 3px 8px;
-  border: 1px solid var(--color-border-muted);
-  border-radius: 4px;
-  background: rgba(100, 116, 139, 0.2);
-  color: var(--color-text-muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-.combat-dialog__die[data-hit="true"] {
-  border-color: #4ade80;
-  background: rgba(74, 222, 128, 0.2);
-  color: #4ade80;
-}
 .combat-dialog__tally[data-valid="true"] {
   border-color: #4ade80;
 }
@@ -1071,7 +1043,8 @@ select:focus-visible,
 
 /* Space Combat Arena Overlay */
 .combat-arena-dialog {
-  /* Inherits centered backdrop flex properties from choice-workflow-dialog */
+  background: #070c16;
+  backdrop-filter: none;
 }
 
 .combat-arena-panel {
@@ -1082,6 +1055,7 @@ select:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 16px;
+  background: #0b1222;
 }
 
 .combat-arena-sides-grid {
@@ -1098,7 +1072,7 @@ select:focus-visible,
 }
 
 .combat-fleet-card {
-  background: var(--color-surface);
+  background: #142035;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 14px;
@@ -1187,16 +1161,98 @@ select:focus-visible,
   gap: 6px;
 }
 
+.combat-unit-row__rolls {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: #4ade80;
+  background: #163a33;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.combat-unit-row__rolls:hover,
+.combat-unit-row__rolls:focus-visible {
+  outline: 2px solid #4ade80;
+}
+
+.combat-unit-row__roll-tooltip {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  right: 0;
+  min-width: 160px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: #0b1222;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.combat-unit-row__rolls:hover .combat-unit-row__roll-tooltip,
+.combat-unit-row__rolls:focus-visible .combat-unit-row__roll-tooltip {
+  display: grid;
+  gap: 3px;
+}
+
+.combat-unit-row__roll-result[data-hit="true"] {
+  color: #4ade80;
+}
+
+.combat-unit-row__roll-result[data-hit="false"] {
+  color: var(--color-text-muted);
+}
+
+.combat-fleet-card__cards {
+  border-top: 1px solid var(--color-border-strong);
+  padding-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-strong);
+}
+
+.combat-fleet-card__card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0;
+  margin: 6px 0 0;
+  list-style: none;
+}
+
+.combat-fleet-card__card-list li {
+  padding: 3px 6px;
+  border: 1px solid var(--color-border-muted);
+  border-radius: 4px;
+  background: var(--color-surface-raised);
+}
+
 .combat-unit-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 6px 10px;
-  background: var(--color-background);
+  background: #0b1222;
   border: 1px solid transparent;
   border-radius: 4px;
   font-size: 13px;
   transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.combat-unit-row--lost {
+  opacity: 0.8;
+}
+
+.combat-unit-row:has(.combat-unit-row__rolls) .combat-unit-row__count {
+  margin-right: auto;
 }
 
 .combat-unit-row--interactive {
@@ -1351,12 +1407,6 @@ select:focus-visible,
   font-weight: 700;
   color: var(--color-text-muted);
   text-transform: uppercase;
-}
-
-.combat-dialog__die-side {
-  font-weight: 700;
-  color: var(--color-text-muted);
-  margin-right: 4px;
 }
 
 .combat-direct-hit-banner {
@@ -1747,6 +1797,9 @@ select:focus-visible,
   border: 1px solid var(--color-border-strong);
   box-shadow: none;
   background: var(--color-surface);
+}
+.combat-dialog .combat-arena-panel {
+  background: #0b1222;
 }
 .agenda-dialog,
 .combat-dialog,

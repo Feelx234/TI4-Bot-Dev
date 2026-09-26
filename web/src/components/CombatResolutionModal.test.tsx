@@ -32,7 +32,7 @@ describe("CombatResolutionModal", () => {
       />,
     );
 
-    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent("Sustain damage");
+    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent("Space Combat");
     expect(screen.getByText(/Caution: Opponents holding "Direct Hit"/i)).toBeInTheDocument();
 
     const sustainBtn = screen.getByTestId("sustain-opt-sustain:dreadnought:1");
@@ -116,7 +116,7 @@ describe("CombatResolutionModal", () => {
       />,
     );
 
-    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent("Assign a casualty");
+    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent("Space Combat");
     expect(screen.getByText(/2 hits remaining/)).toBeInTheDocument();
     expect(screen.queryByTestId("confirm-casualties-btn")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Assign this hit/i })).toHaveLength(2);
@@ -202,7 +202,7 @@ describe("CombatResolutionModal", () => {
       />,
     );
 
-    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent("Announce retreat");
+    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent("Space Combat");
     const optBtn = screen.getByTestId("retreat-opt-announce_retreat:yes");
     await act(async () => {
       fireEvent.click(optBtn);
@@ -270,8 +270,8 @@ describe("CombatResolutionModal", () => {
       />,
     );
 
-    expect(screen.getByTestId("combat-dice-feed")).toBeInTheDocument();
-    expect(screen.getAllByTestId("dice-roll-badge")).toHaveLength(2);
+    expect(screen.getByTestId("combat-roll-group-seat_1-cruiser")).toHaveTextContent("1 hit");
+    expect(screen.getByTestId("combat-roll-group-seat_1-fighter")).toHaveTextContent("0 hits");
     expect(screen.getByTestId("combat-error-banner")).toHaveTextContent("Invalid selection");
   });
 });

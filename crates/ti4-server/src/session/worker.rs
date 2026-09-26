@@ -601,6 +601,12 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 // Record outcome
                 {
                     let mut lock = worker_shared.lock().expect("shared lock");
+                    // A rewind stops this worker at its last published decision. A step
+                    // interrupted while waiting for a human may still let bots act before
+                    // returning; those results belong to the discarded timeline.
+                    if lock.stopped {
+                        break 'worker;
+                    }
                     let mut accepted_reply = None;
                     let event_start = lock.event_log.len();
                     lock.latest_state = game.state.clone();

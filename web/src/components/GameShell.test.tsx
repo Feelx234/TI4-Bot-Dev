@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChoiceRendererDispatcher, GameShell } from "./GameShell.tsx";
-import { PendingChoiceDto } from "../protocol/types.ts";
+import { BoardView, PendingChoiceDto } from "../protocol/types.ts";
 import { deriveChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { PlayerIdentityProvider } from "../presentation/PlayerIdentity.tsx";
 import type { LobbyDto } from "../protocol/types.ts";
@@ -27,6 +27,67 @@ function renderShell(pendingChoice: PendingChoiceDto | null = null) {
 }
 
 describe("GameShell", () => {
+  it("keeps the final round visible until docked and lets the next decision proceed", () => {
+    const activeBoard: BoardView = {
+      systems: {
+        "18": {
+          system_id: "18",
+          command_tokens: [],
+          planets: {},
+          units: [
+            { owner: "p1", unit_type: "dreadnought", damaged: false },
+            { owner: "p2", unit_type: "cruiser", damaged: false },
+          ],
+        },
+      },
+      combat: {
+        system_id: "18",
+        round: 2,
+        attacker: "p1",
+        defender: "p2",
+        attacker_hits: 1,
+        defender_hits: 0,
+        dice_rolls: [{ player: "p1", unit: "dreadnought", roll: 9, target: 5, hit: true }],
+      },
+    };
+    const nextBoard: BoardView = {
+      systems: {
+        "18": { ...activeBoard.systems["18"], units: activeBoard.systems["18"].units.slice(0, 1) },
+      },
+    };
+    const combatChoice: PendingChoiceDto = {
+      actor: "p2",
+      nonce: "combat-last",
+      prompt: "Assign a casualty",
+      context: { subtype: "assign_casualty", target: { System: "18" } },
+      options: [{ id: "destroy", label: "Cruiser", kind: "casualty" }],
+    };
+    const props = {
+      header: <div>Header</div>,
+      board: <div>Board</div>,
+      playerSheet: <div>Player sheet</div>,
+      events: [],
+      viewerSeat: "p1",
+      onSubmitChoice: vi.fn().mockResolvedValue(undefined),
+    };
+    const { rerender } = render(<GameShell {...props} choice={combatChoice} boardView={activeBoard} />);
+    expect(screen.getByTestId("combat-resolution-modal")).toBeInTheDocument();
+
+    rerender(<GameShell {...props} choice={choice} boardView={nextBoard} />);
+    expect(screen.getByTestId("combat-resolution-modal")).toHaveTextContent("Battle complete");
+    expect(screen.getByTestId("attacker-round-hits")).toHaveTextContent("1");
+    expect(screen.getByTestId("combat-roll-group-p1-dreadnought")).toHaveTextContent("1 hit");
+    expect(screen.getByTestId("defender-units-list")).toHaveTextContent("No ships remaining");
+    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("close-combat-modal"));
+    expect(screen.getByTestId("combat-docked-pill")).toHaveTextContent("BATTLE RECAP");
+    expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("resume-combat-btn"));
+    expect(screen.getByTestId("combat-resolution-modal")).toHaveTextContent("Battle complete");
+    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
+  });
+
   it.each([
     {
       name: "payment",

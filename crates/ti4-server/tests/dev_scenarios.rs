@@ -150,6 +150,13 @@ fn test_launch_space_combat_scenario_has_hostile_units() {
 
     // 2. Activate choice -> activate border system where Letnev ships are
     let initial_snapshot = session.get_snapshot(&ViewerRole::Player(p1.clone()));
+    assert!(
+        initial_snapshot.view.players.iter().any(|player| {
+            player.id == p1
+                && player.held_action_cards.iter().any(|card| card.as_str() == "dh1")
+        }),
+        "Player 1 must start the space_combat scenario holding Direct Hit"
+    );
     let letnev_id = initial_snapshot
         .view
         .players
@@ -296,7 +303,7 @@ fn test_launch_ongoing_combat_scenario_starts_in_combat() {
     let combat = snapshot.view.board.combat.unwrap();
     assert_eq!(combat.attacker, p1);
 
-    // Sol holds direct_hit action card
+    // Sol holds a playable Direct Hit action card
     let p1_player = snapshot
         .view
         .players
@@ -307,8 +314,8 @@ fn test_launch_ongoing_combat_scenario_starts_in_combat() {
         p1_player
             .held_action_cards
             .iter()
-            .any(|c| c.as_str() == "direct_hit"),
-        "Player 1 (Sol) must hold direct_hit action card"
+            .any(|c| c.as_str() == "dh1"),
+        "Player 1 (Sol) must hold a Direct Hit action card"
     );
 
     // Both sides fielded a Dreadnought in the battle system
@@ -331,7 +338,7 @@ fn test_launch_ongoing_combat_scenario_starts_in_combat() {
         "Defender must have dreadnought in combat"
     );
 
-    // Pending choice is combat choice
+    // The player enters combat before the dice and Direct Hit reaction.
     assert!(snapshot.pending_choice.is_some());
     let pending = snapshot.pending_choice.unwrap();
     assert_eq!(pending.choice.player, p1);
@@ -342,19 +349,74 @@ fn test_launch_ongoing_combat_scenario_starts_in_combat() {
         .map(|c| c.subtype.as_str())
         .unwrap_or("");
     assert!(
-        matches!(
-            subtype,
-            "sustain_damage" | "assign_casualty"
-        ),
-        "expected sustain_damage or assign_casualty, got: {subtype}"
+        matches!(subtype, "announce_retreat" | "retreat_to"),
+        "expected a pre-roll retreat choice, got: {subtype}"
     );
 
-    // Hits or rolls are populated
     assert!(
-        combat.attacker_hits.is_some()
-            || combat.defender_hits.is_some()
-            || combat.hits_to_assign.is_some()
-            || !combat.dice_rolls.is_empty(),
-        "combat hits or dice rolls must be present"
+        combat.dice_rolls.is_empty(),
+        "combat should start before the first roll"
     );
+}
+
+#[test]
+fn ongoing_combat_can_undo_twice() {
+    let registry = Arc::new(GameRegistry::new());
+    let launched = execute_launch_scenario(&registry, "ongoing_combat", Some(42)).unwrap();
+    let seat = ti4_model::id::PlayerId::new(&launched.player_id);
+    let session = registry.get_game(&launched.game_id).unwrap();
+    let first = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+    let retreat = first.pending_choice.as_ref().unwrap();
+    let stay = retreat
+        .choice
+        .options
+        .iter()
+        .find(|o| o.id == "decline" || o.id == "stay")
+        .unwrap();
+    session
+        .submit_choice(&seat, &retreat.nonce, first.game_version, &stay.id)
+        .unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let snapshot = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+        if let Some(reaction) = snapshot.pending_choice.as_ref()
+            && let Some(play) = reaction
+                .choice
+                .options
+                .iter()
+                .find(|o| o.id.ends_with(":SUSTAIN_DAMAGE_USED:after"))
+        {
+            session
+                .submit_choice(&seat, &reaction.nonce, snapshot.game_version, &play.id)
+                .unwrap();
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "waiting for Direct Hit reaction"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+
+    for attempt in 0..2 {
+        let session = registry.get_game(&launched.game_id).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !session.history_ready() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "waiting for history: {:?}",
+                session.error()
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+        let snapshot = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+        let result = registry.change_history(
+            &launched.game_id,
+            &launched.player_session,
+            snapshot.game_version,
+            HistoryAction::Undo,
+        );
+        assert!(result.is_ok(), "undo {attempt} failed: {result:?}");
+    }
 }
