@@ -29,6 +29,177 @@ pub enum HistoryAction {
     Restore { event_id: String },
 }
 
+#[cfg(test)]
+mod committed_worker_tests {
+    use super::*;
+    use crate::session::batch::{BatchKind, MovementPlan, MovementStep};
+    use crate::storage::FileGameStore;
+
+    fn pending(session: &GameSession) -> (PlayerId, String, u64, String) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some((seat, nonce, version)) = session.current_pending_decision() {
+                let option = session
+                    .get_snapshot(&ViewerRole::Player(seat.clone()))
+                    .pending_choice
+                    .unwrap()
+                    .choice
+                    .options[0]
+                    .id
+                    .clone();
+                return (seat, nonce, version, option);
+            }
+            assert!(Instant::now() < deadline, "worker: {:?}", session.error());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn committed_batch_recovers_from_first_replacement_replay_failure() {
+        let path = std::env::temp_dir().join(format!("ti4_replay_{:032x}", rand::random::<u128>()));
+        let store = Arc::new(FileGameStore::new(&path).unwrap());
+        let registry = GameRegistry::new().with_store(store.clone());
+        let host = PlayerId::new("p1");
+        let guest = PlayerId::new("p2");
+        let players = vec![host.clone(), guest.clone()];
+        let (state, galaxy) =
+            crate::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        let tiles = crate::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+        let config = SessionConfig::new("replay_retry", state)
+            .with_seed(42)
+            .with_player_ids(players)
+            .with_galaxy(galaxy, tiles)
+            .with_seat(host.clone(), SeatController::Human)
+            .with_seat(guest, SeatController::Human);
+        let session = registry.create_game(config).unwrap();
+        let token = session.seat_tokens()[&host].clone();
+        for _ in 0..4 {
+            let (seat, nonce, version, _) = pending(&session);
+            let choice = session
+                .get_snapshot(&ViewerRole::Player(seat.clone()))
+                .pending_choice
+                .unwrap()
+                .choice;
+            let option = choice
+                .options
+                .iter()
+                .find(|o| o.id == "tactical" || o.id == "22")
+                .unwrap_or(&choice.options[0]);
+            session
+                .submit_choice(&seat, &nonce, version, &option.id)
+                .unwrap();
+        }
+        let (_, nonce, version, _) = pending(&session);
+        let start_cursor = session.decision_log().len();
+        let request = BatchRequest {
+            request_id: "replay_failure".into(),
+            expected_version: version,
+            nonce,
+            plan: MovementPlan {
+                kind: BatchKind::TacticalMovement,
+                destination: session.current_state().active_system.unwrap().to_string(),
+                steps: vec![MovementStep::DoneMoving],
+            },
+        };
+        let mut attempts = 0;
+        let result = registry
+            .submit_batch_with_worker("replay_retry", &token, request.clone(), |mut config| {
+                attempts += 1;
+                if attempts == 1 {
+                    // Only the first worker receives a bad replay input. The durable
+                    // history has already been written with the correct decision.
+                    config.prior_decisions[0].chosen = "unoffered_option".into();
+                }
+                GameSession::start(config)
+            })
+            .unwrap();
+        assert_eq!(attempts, 2);
+        assert_eq!(result.start_cursor, start_cursor);
+        assert_eq!(result.end_cursor, start_cursor + 1);
+        let live = registry.get_game("replay_retry").unwrap();
+        let _ = pending(&live);
+        assert!(live.error().is_none());
+        assert_eq!(live.history_status().cursor, start_cursor + 1);
+        let history = store.load_history("replay_retry").unwrap().unwrap();
+        assert_eq!(history.decisions, live.decision_log());
+        assert_eq!(history.batches.len(), 1);
+        assert_eq!(history.batches[0].batch_id, result.batch_id);
+        assert_eq!(history.events, live.event_log());
+        let duplicate = registry
+            .submit_batch("replay_retry", &token, request)
+            .unwrap();
+        assert_eq!(duplicate.batch_id, result.batch_id);
+        assert_eq!(live.history_status().cursor, start_cursor + 1);
+
+        let recovered = store.recover_session("replay_retry").unwrap();
+        recovered.wait_replayed().unwrap();
+        assert_eq!(recovered.decision_log(), live.decision_log());
+        assert_eq!(recovered.decision_hashes(), live.decision_hashes());
+        assert_eq!(recovered.current_state(), live.current_state());
+        assert_eq!(recovered.batches().len(), 1);
+        recovered.stop();
+
+        registry
+            .change_history(
+                "replay_retry",
+                &token,
+                live.game_version(),
+                HistoryAction::UndoBatch,
+            )
+            .unwrap();
+        let undone = registry.get_game("replay_retry").unwrap();
+        let (_, nonce, version, _) = pending(&undone);
+        let failed_request = BatchRequest {
+            request_id: "persistent_replay_failure".into(),
+            expected_version: version,
+            nonce,
+            plan: MovementPlan {
+                kind: BatchKind::TacticalMovement,
+                destination: undone.current_state().active_system.unwrap().to_string(),
+                steps: vec![MovementStep::DoneMoving],
+            },
+        };
+        let mut failed_attempts = 0;
+        let failed = registry
+            .submit_batch_with_worker(
+                "replay_retry",
+                &token,
+                failed_request.clone(),
+                |mut config| {
+                    failed_attempts += 1;
+                    config.prior_decisions[0].chosen = "unoffered_option".into();
+                    GameSession::start(config)
+                },
+            )
+            .unwrap_err();
+        assert_eq!(failed_attempts, 2);
+        assert!(failed.reason.contains("batch committed"), "{failed:?}");
+        let committed_history = store.load_history("replay_retry").unwrap().unwrap();
+        assert_eq!(committed_history.batches.len(), 1);
+        assert_eq!(
+            committed_history.batches[0].request_id,
+            failed_request.request_id
+        );
+        assert_eq!(committed_history.decisions.len(), start_cursor + 1);
+        assert!(
+            registry
+                .submit_batch("replay_retry", &token, failed_request)
+                .unwrap_err()
+                .reason
+                .contains("batch committed")
+        );
+        let restarted = store.recover_session("replay_retry").unwrap();
+        restarted.wait_replayed().unwrap();
+        assert_eq!(restarted.decision_log(), committed_history.decisions);
+        assert_eq!(restarted.event_log(), committed_history.events);
+        assert_eq!(restarted.batches().len(), 1);
+        let _ = pending(&restarted);
+        restarted.stop();
+        drop(registry);
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HistoryError {
     NotFound,
@@ -378,6 +549,24 @@ impl Default for GameRegistry {
     }
 }
 
+// The history is already durable here. Do not publish an unusable first worker:
+// a fresh replay can recover from a transient worker-start failure without
+// re-executing the batch or assigning it a second request ID. If both attempts
+// fail, publish the committed history with its error so a restart can recover it.
+fn start_committed_worker(
+    config: SessionConfig,
+    start: &mut impl FnMut(SessionConfig) -> GameSession,
+) -> (Arc<GameSession>, Result<(), String>) {
+    let first = Arc::new(start(config.clone()));
+    if first.wait_replayed().is_ok() {
+        return (first, Ok(()));
+    }
+    first.stop();
+    let retry = Arc::new(start(config));
+    let replay = retry.wait_replayed();
+    (retry, replay)
+}
+
 impl GameRegistry {
     fn game_gate(&self, game_id: &str) -> Arc<Mutex<()>> {
         self.game_gates
@@ -394,6 +583,16 @@ impl GameRegistry {
         game_id: &str,
         credential: &str,
         request: BatchRequest,
+    ) -> Result<BatchResult, BatchError> {
+        self.submit_batch_with_worker(game_id, credential, request, GameSession::start)
+    }
+
+    fn submit_batch_with_worker(
+        &self,
+        game_id: &str,
+        credential: &str,
+        request: BatchRequest,
+        mut start_worker: impl FnMut(SessionConfig) -> GameSession,
     ) -> Result<BatchResult, BatchError> {
         let gate = self.game_gate(game_id);
         let _reservation = gate.lock().expect("game gate lock");
@@ -432,6 +631,11 @@ impl GameRegistry {
         {
             if batch.actor != actor {
                 return Err(BatchError::simple("request_id already used"));
+            }
+            if !session.history_ready() {
+                return Err(BatchError::simple(
+                    "batch committed, replacement session unavailable",
+                ));
             }
             return Ok(BatchResult {
                 request_id: request.request_id,
@@ -605,8 +809,7 @@ impl GameRegistry {
         next.history_generation = history.generation;
         next.history_active = true;
         next.batches = history.batches;
-        let replacement = Arc::new(GameSession::start(next));
-        let replay = replacement.wait_replayed();
+        let (replacement, replay) = start_committed_worker(next, &mut start_worker);
         state
             .sessions
             .insert(game_id.to_owned(), replacement.clone());
