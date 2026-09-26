@@ -12,6 +12,7 @@ export interface PaymentDrawerProps {
   viewerSeat?: string | null;
   player?: PlayerView | null;
   onSubmit: (optionId: string) => Promise<void>;
+  onSubmitBatch?: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
   isOpen: boolean;
   onClose: () => void;
   lastError?: string | null;
@@ -32,6 +33,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   viewerSeat,
   player,
   onSubmit,
+  onSubmitBatch,
   isOpen,
   onClose,
   lastError,
@@ -40,6 +42,8 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   const display = usePlayerIdentity();
   const [selectedPlanetIds, setSelectedPlanetIds] = useState<string[]>([]);
   const [tradeGoodsToSpend, setTradeGoodsToSpend] = useState<number>(0);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
 
   const {
     executePipeline,
@@ -112,6 +116,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   useEffect(() => {
     setSelectedPlanetIds([]);
     setTradeGoodsToSpend(0);
+    setBatchError(null);
   }, [choice?.nonce]);
 
   useEffect(() => {
@@ -144,7 +149,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
     isDirectSubmitting: boolean,
     submitDirect: (optionId: string) => Promise<void>,
   ) => {
-    if (!isSettled || isPipelineRunning || isDirectSubmitting || !choice) return;
+    if (!isSettled || isPipelineRunning || isDirectSubmitting || batchRunning || !choice) return;
 
     // Build execution list
     const intents: SemanticIntent[] = [];
@@ -161,6 +166,22 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       intents.push({
         predicate: (opt) => opt.id === "trade_good",
       });
+    }
+
+    if (onSubmitBatch && intents.length > 0) {
+      setBatchRunning(true);
+      setBatchError(null);
+      try {
+        await onSubmitBatch({ kind: "payment", steps: [
+          ...selectedPlanetIds.map((id) => ({ kind: "exhaust" as const, planet: id.replace(/^exhaust\|/, "") })),
+          ...Array.from({ length: tradeGoodsToSpend }, () => ({ kind: "trade_good" as const })),
+        ] });
+      } catch (error) {
+        setBatchError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBatchRunning(false);
+      }
+      return;
     }
 
     if (intents.length === 1) {
@@ -201,7 +222,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
           model={model}
           viewerSeat={viewerSeat}
           onSubmit={onSubmit}
-          lastError={lastError}
+          lastError={batchError ?? lastError}
           spectatorNotice={`Observing payment in progress for ${display(choice.actor).label}...`}
           spectatorNoticeTestId="spectator-payment-notice"
           errorTestId="payment-error-banner"

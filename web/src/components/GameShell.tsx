@@ -34,6 +34,7 @@ export interface GameShellProps {
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
   onSubmitMovementBatch?: (destination: string, steps: import("../protocol/client.ts").MovementStep[]) => Promise<void>;
+  onSubmitBasketBatch?: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
   lastError?: string | null;
   selectedOptionId?: string;
   selectedSystemId?: string | null;
@@ -53,6 +54,7 @@ export interface ChoiceRendererDispatcherProps {
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
   onSubmitMovementBatch?: GameShellProps["onSubmitMovementBatch"];
+  onSubmitBasketBatch?: GameShellProps["onSubmitBasketBatch"];
   lastError?: string | null;
   selectedOptionId?: string;
   selectedSystemId?: string | null;
@@ -128,6 +130,7 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
       viewerSeat,
       players,
       onSubmit,
+      onSubmitBasketBatch,
       isMinimized,
       onMinimizedChange,
       lastError,
@@ -139,6 +142,7 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
         viewerSeat={viewerSeat}
         player={players?.[choice.actor] ?? null}
         onSubmit={onSubmit}
+        onSubmitBatch={onSubmitBasketBatch}
         isOpen={!isMinimized}
         onClose={() => onMinimizedChange(true)}
         lastError={lastError}
@@ -191,6 +195,7 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
       model,
       viewerSeat,
       onSubmit,
+      onSubmitBasketBatch,
       isMinimized,
       onMinimizedChange,
       lastError,
@@ -198,11 +203,12 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
       productionError,
       onQueueProduction,
     }) => (
-      <ProductionBuilderDrawer
+       <ProductionBuilderDrawer
         choice={choice}
         model={model}
         viewerSeat={viewerSeat}
         onSubmit={onSubmit}
+        onSubmitBatch={onSubmitBasketBatch}
         isOpen={!isMinimized}
         onClose={() => onMinimizedChange(true)}
         lastError={productionError || lastError}
@@ -321,6 +327,7 @@ function renderAgenda({
   model,
   viewerSeat,
   onSubmit,
+  onSubmitBasketBatch,
   isMinimized,
   onMinimizedChange,
   lastError,
@@ -332,6 +339,7 @@ function renderAgenda({
       model={model}
       viewerSeat={viewerSeat}
       onSubmit={onSubmit}
+      onSubmitBatch={onSubmitBasketBatch}
       isOpen={!isMinimized}
       onClose={() => onMinimizedChange(true)}
       lastError={lastError}
@@ -370,6 +378,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   viewerSeat,
   onSubmit,
   onSubmitMovementBatch,
+  onSubmitBasketBatch,
   lastError,
   selectedOptionId,
   selectedSystemId,
@@ -456,6 +465,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     viewerSeat,
     onSubmit,
     onSubmitMovementBatch,
+    onSubmitBasketBatch,
     lastError: lastError ? present(lastError) : lastError,
     selectedOptionId,
     selectedSystemId,
@@ -539,6 +549,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   choice,
   onSubmitChoice,
   onSubmitMovementBatch,
+  onSubmitBasketBatch,
   lastError,
   selectedOptionId,
   selectedSystemId,
@@ -755,6 +766,7 @@ export const GameShell: React.FC<GameShellProps> = ({
               Redo
             </button>
             <button type="button" className="button button--secondary button--sm" disabled={historyBusy || !history?.redo_count} onClick={() => onChangeHistory("redo_batch")}>Redo batch</button>
+            <button type="button" className="button button--secondary button--sm" disabled={historyBusy || !history?.redo_count} onClick={() => onChangeHistory("redo_pipeline")}>Redo action</button>
           </div>
         )}
         <EventLog
@@ -780,6 +792,7 @@ export const GameShell: React.FC<GameShellProps> = ({
               activeSystemId={activeSystemId}
               onSubmit={onSubmitChoice}
               onSubmitMovementBatch={onSubmitMovementBatch}
+              onSubmitBasketBatch={onSubmitBasketBatch}
               lastError={lastError}
               selectedOptionId={selectedOptionId}
               selectedSystemId={selectedSystemId}

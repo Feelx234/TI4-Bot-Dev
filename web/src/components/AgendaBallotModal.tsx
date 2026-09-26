@@ -12,6 +12,7 @@ export interface AgendaBallotModalProps {
   model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
+  onSubmitBatch?: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
   isOpen: boolean;
   onClose: () => void;
   lastError?: string | null;
@@ -23,6 +24,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
   model,
   viewerSeat,
   onSubmit,
+  onSubmitBatch,
   isOpen,
   onClose,
   lastError,
@@ -46,12 +48,15 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
 
   // For planet basket in vote_exhaust_planet
   const [stagedPlanets, setStagedPlanets] = useState<string[]>([]);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
 
   const { executePipeline, isRunning: isPipelineRunning } = usePipelineRunner(choice, onSubmit);
 
   // Reset staging on nonce change
   useEffect(() => {
     setStagedPlanets([]);
+    setBatchError(null);
   }, [choice?.nonce]);
 
   useEffect(() => {
@@ -110,8 +115,23 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
     );
   };
 
-  const handleCommitPlanetVotes = (isDirectSubmitting: boolean) => {
-    if (stagedPlanets.length === 0 || isPipelineRunning || isDirectSubmitting) return;
+  const handleCommitPlanetVotes = async (isDirectSubmitting: boolean) => {
+    if (stagedPlanets.length === 0 || isPipelineRunning || isDirectSubmitting || batchRunning) return;
+    if (onSubmitBatch) {
+      setBatchRunning(true);
+      setBatchError(null);
+      try {
+        await onSubmitBatch({ kind: "agenda_vote_planets", steps: [
+          ...stagedPlanets.map((planet) => ({ kind: "vote_planet" as const, planet })),
+          ... (stagedPlanets.length < planetOptions.length ? [{ kind: "done_voting" as const }] : []),
+        ] });
+      } catch (error) {
+        setBatchError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setBatchRunning(false);
+      }
+      return;
+    }
 
     const intents: SemanticIntent[] = stagedPlanets.map((planetId) => ({
       predicate: (opt) => opt.id === planetId,
@@ -164,7 +184,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
             model={model}
             viewerSeat={viewerSeat}
             onSubmit={onSubmit}
-            lastError={lastError}
+            lastError={batchError ?? lastError}
             spectatorNotice={`Observing council voting in progress for ${display(choice.actor).label}...`}
             spectatorNoticeTestId="spectator-agenda-notice"
             errorTestId="agenda-error-banner"

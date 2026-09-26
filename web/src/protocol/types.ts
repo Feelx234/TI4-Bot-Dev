@@ -261,6 +261,7 @@ export type GameEvent = EventVisibility & {
   version?: number;
   decision_count?: number;
   batch_id?: string;
+  action_id?: string;
   detail?: string;
   movement?: { actor: string; origin: string; destination: string; unit: string };
   event: GameEventKind;

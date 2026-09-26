@@ -121,9 +121,25 @@ pub struct GameEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub batch_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub movement: Option<MovementFact>,
+}
+
+/// Stable decision-cursor identity of the most recent engine action selection.
+/// Histories predating action IDs still use the prompt boundary as a fallback.
+#[must_use]
+pub fn action_id_for(
+    records: &[ti4_engine::choice::DecisionRecord],
+    cursor: usize,
+) -> Option<String> {
+    records
+        .get(..cursor)?
+        .iter()
+        .rposition(|record| record.prompt == "action phase")
+        .map(|start| format!("action_{}", start + 1))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

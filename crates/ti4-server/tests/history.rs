@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
 use ti4_model::id::PlayerId;
-use ti4_server::session::batch::{BatchRequest, MovementPlan, MovementStep};
+use ti4_server::session::batch::{BatchKind, BatchRequest, MovementPlan, MovementStep};
 use ti4_server::session::registry::{HistoryAction, HistoryError};
 use ti4_server::session::{GameRegistry, GameSession, SeatController, SessionConfig};
 use ti4_server::storage::FileGameStore;
@@ -66,6 +66,7 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
         expected_version: version,
         nonce,
         plan: MovementPlan {
+            kind: BatchKind::TacticalMovement,
             destination,
             steps: vec![MovementStep::DoneMoving],
         },
@@ -84,6 +85,25 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
             steps.push(MovementStep::DoneLoading);
         }
         steps.push(MovementStep::DoneMoving);
+        let mut late = request.clone();
+        late.request_id = "late_invalid".into();
+        late.plan.steps = vec![
+            steps[0].clone(),
+            MovementStep::Move {
+                origin: "missing".into(),
+                unit: "carrier".into(),
+                damaged: false,
+            },
+            MovementStep::DoneMoving,
+        ];
+        assert_eq!(
+            registry
+                .submit_batch("batch_probe", &token, late)
+                .unwrap_err()
+                .failed_step,
+            1
+        );
+        assert_eq!(session.decision_log(), original);
         let mut probe = request.clone();
         probe.request_id = "move_probe".into();
         probe.plan.steps = steps;
@@ -140,6 +160,16 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
     assert_eq!(committed.batch_id, duplicate.batch_id);
     let active = registry.get_game("batch_probe").unwrap();
     assert_eq!(active.decision_log().len(), original.len() + 1);
+    let action = active
+        .event_log()
+        .iter()
+        .find(|event| event.decision_count == Some(original.len()))
+        .and_then(|event| event.action_id.clone());
+    assert!(
+        action.is_some(),
+        "the engine's action selection should associate follow-up events"
+    );
+    assert_eq!(active.event_log().last().unwrap().action_id, action);
     let recovered = store.recover_session("batch_probe").unwrap();
     recovered.wait_replayed().unwrap();
     assert_eq!(recovered.decision_log(), active.decision_log());
@@ -171,6 +201,29 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
             .len(),
         original.len() + 1
     );
+    let redone = registry.get_game("batch_probe").unwrap();
+    registry
+        .change_history(
+            "batch_probe",
+            &token,
+            redone.game_version(),
+            HistoryAction::UndoBatch,
+        )
+        .unwrap();
+    let branch = registry.get_game("batch_probe").unwrap();
+    let (seat, nonce, version, option) = pending(&branch);
+    branch
+        .submit_choice(&seat, &nonce, version, &option)
+        .unwrap();
+    let _ = pending(&branch);
+    assert!(
+        branch.batches().is_empty(),
+        "a fork must discard the undone batch's request ID"
+    );
+    let recovered_branch = store.recover_session("batch_probe").unwrap();
+    recovered_branch.wait_replayed().unwrap();
+    assert!(recovered_branch.batches().is_empty());
+    recovered_branch.stop();
     drop(registry);
     std::fs::remove_dir_all(path).unwrap();
 }
@@ -247,6 +300,27 @@ fn undo_action_rewinds_the_whole_movement_pipeline_and_preserves_redo() {
     let replayed = registry.get_game("probe").unwrap();
     let _ = pending(&replayed);
     assert_eq!(replayed.decision_log(), decisions[..2]);
+    registry
+        .change_history(
+            "probe",
+            &host_token,
+            replayed.game_version(),
+            HistoryAction::RedoPipeline,
+        )
+        .unwrap();
+    let whole_action = registry.get_game("probe").unwrap();
+    let _ = pending(&whole_action);
+    assert_eq!(whole_action.decision_log(), decisions);
+    registry
+        .change_history(
+            "probe",
+            &host_token,
+            whole_action.game_version(),
+            HistoryAction::UndoPipeline,
+        )
+        .unwrap();
+    let replayed = registry.get_game("probe").unwrap();
+    let _ = pending(&replayed);
     registry
         .change_history(
             "probe",
@@ -485,7 +559,7 @@ async fn http_history_requires_the_current_host_and_replaces_connected_sessions(
     );
     let result = client
         .post(&url)
-        .header("x-ti4-player-session", host_token)
+        .header("x-ti4-player-session", host_token.clone())
         .json(&payload)
         .send()
         .await
@@ -500,10 +574,15 @@ async fn http_history_requires_the_current_host_and_replaces_connected_sessions(
     let _ = pending(&replacement);
     assert_eq!(replacement.history_status().cursor, 0);
     let mut closed = false;
+    let mut replacement_code = None;
     for _ in 0..8 {
         match tokio::time::timeout(Duration::from_secs(1), socket.next()).await {
-            Ok(None | Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))))
-            | Ok(Some(Err(_))) => {
+            Ok(Some(Ok(tokio_tungstenite::tungstenite::Message::Close(frame)))) => {
+                replacement_code = frame.map(|frame| frame.code);
+                closed = true;
+                break;
+            }
+            Ok(None | Some(Err(_))) => {
                 closed = true;
                 break;
             }
@@ -511,6 +590,34 @@ async fn http_history_requires_the_current_host_and_replaces_connected_sessions(
         }
     }
     assert!(closed, "old connection must close on session replacement");
+    assert_eq!(
+        replacement_code,
+        Some(tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Library(4001))
+    );
+    let redo = client
+        .post(&url)
+        .header("x-ti4-player-session", host_token)
+        .json(&serde_json::json!({
+            "expected_version": replacement.game_version(),
+            "action": "redo_pipeline"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        redo.status(),
+        reqwest::StatusCode::OK,
+        "{}",
+        redo.text().await.unwrap_or_default()
+    );
+    assert_eq!(
+        registry
+            .get_game("history_http")
+            .unwrap()
+            .history_status()
+            .cursor,
+        1
+    );
     replacement.stop();
     server.abort();
 }

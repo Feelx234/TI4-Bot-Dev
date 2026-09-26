@@ -421,11 +421,18 @@ impl FileGameStore {
             }
         }
         let mut requests = std::collections::BTreeSet::new();
+        let mut batch_ids = std::collections::BTreeSet::new();
         let total = history.decisions.len() + history.redo.len();
+        if cursor != total {
+            return Err(StorageError::InvalidPlayerRecord(
+                "history decision event count",
+            ));
+        }
         for batch in &history.batches {
             if batch.start_cursor >= batch.end_cursor
                 || batch.end_cursor > total
                 || !requests.insert(&batch.request_id)
+                || !batch_ids.insert(&batch.batch_id)
                 || !history
                     .decisions
                     .iter()
@@ -435,6 +442,61 @@ impl FileGameStore {
                     .all(|d| d.player == batch.actor)
             {
                 return Err(StorageError::InvalidPlayerRecord("history batch"));
+            }
+            for decision_cursor in batch.start_cursor + 1..=batch.end_cursor {
+                if !history
+                    .events
+                    .iter()
+                    .chain(&history.redo_events)
+                    .any(|event| {
+                        event.decision_count == Some(decision_cursor)
+                            && event.batch_id.as_deref() == Some(&batch.batch_id)
+                            && matches!(
+                                event.event,
+                                crate::protocol::server::GameEventKind::DecisionResolved
+                            )
+                    })
+                {
+                    return Err(StorageError::InvalidPlayerRecord(
+                        "history missing batch event",
+                    ));
+                }
+            }
+        }
+        for event in history.events.iter().chain(&history.redo_events) {
+            if let Some(id) = &event.action_id {
+                let start = id
+                    .strip_prefix("action_")
+                    .and_then(|value| value.parse::<usize>().ok());
+                if !matches!(
+                    event.event,
+                    crate::protocol::server::GameEventKind::DecisionResolved
+                ) || !start.is_some_and(|start| {
+                    start > 0
+                        && start <= event.decision_count.unwrap_or(0)
+                        && history
+                            .decisions
+                            .iter()
+                            .chain(&history.redo)
+                            .nth(start - 1)
+                            .is_some_and(|record| record.prompt == "action phase")
+                }) {
+                    return Err(StorageError::InvalidPlayerRecord("history action event"));
+                }
+            }
+            if let Some(id) = &event.batch_id
+                && !history.batches.iter().any(|batch| {
+                    &batch.batch_id == id
+                        && matches!(
+                            event.event,
+                            crate::protocol::server::GameEventKind::DecisionResolved
+                        )
+                        && event.decision_count.is_some_and(|cursor| {
+                            cursor > batch.start_cursor && cursor <= batch.end_cursor
+                        })
+                })
+            {
+                return Err(StorageError::InvalidPlayerRecord("history batch event"));
             }
         }
         Ok(Some(history))

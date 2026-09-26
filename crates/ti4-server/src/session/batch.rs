@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice, Table};
-use ti4_engine::decision_context::DecisionTarget;
+use ti4_engine::decision_context::{DecisionContext, DecisionTarget};
 use ti4_engine::game::Game;
 use ti4_model::id::PlayerId;
 use ti4_model::state::Phase;
@@ -25,8 +25,21 @@ pub struct BatchRequest {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MovementPlan {
+    #[serde(default)]
+    pub kind: BatchKind,
+    #[serde(default)]
     pub destination: String,
     pub steps: Vec<MovementStep>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchKind {
+    #[default]
+    TacticalMovement,
+    Payment,
+    AgendaVotePlanets,
+    Production,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +58,19 @@ pub enum MovementStep {
     },
     DoneLoading,
     DoneMoving,
+    Exhaust {
+        planet: String,
+    },
+    TradeGood,
+    VotePlanet {
+        planet: String,
+    },
+    DoneVoting,
+    Produce {
+        unit: String,
+        count: u32,
+    },
+    DoneProducing,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,6 +98,10 @@ struct Script {
     next: usize,
     actor: PlayerId,
     destination: String,
+    kind: BatchKind,
+    payment_subtype: Option<String>,
+    workflow_context: Option<DecisionContext>,
+    selected: Vec<ChoiceOption>,
     failure: Option<BatchFailure>,
     finished: bool,
 }
@@ -80,6 +110,7 @@ struct PrivateDecider(Arc<Mutex<Script>>);
 
 pub struct Simulation {
     pub decisions: Vec<DecisionRecord>,
+    pub selected: Vec<ChoiceOption>,
     pub transitions: Vec<(usize, Phase, u32)>,
     pub winner: Option<Option<PlayerId>>,
 }
@@ -113,12 +144,29 @@ impl Decider for PrivateDecider {
         let subtype = match step {
             MovementStep::Move { .. } | MovementStep::DoneMoving => "movement_step",
             MovementStep::Load { .. } | MovementStep::DoneLoading => "load_cargo",
+            MovementStep::Exhaust { .. } | MovementStep::TradeGood => match script.kind {
+                BatchKind::Payment => "pay_resources", // influence is accepted below
+                _ => "invalid",
+            },
+            MovementStep::VotePlanet { .. } | MovementStep::DoneVoting => "vote_exhaust_planet",
+            MovementStep::Produce { .. } | MovementStep::DoneProducing => "produce_unit",
         };
         let context_ok = choice.context.as_ref().is_some_and(|c| {
-            c.actor == script.actor && c.subtype == subtype &&
+            c.actor == script.actor && (c.subtype == subtype ||
+                (script.kind == BatchKind::Payment && c.subtype == "pay_influence" && subtype == "pay_resources")) &&
+                script.payment_subtype.as_ref().is_none_or(|first| *first == c.subtype) &&
+                (script.kind == BatchKind::TacticalMovement || script.workflow_context.as_ref().is_none_or(|first| {
+                    first.source == c.source && first.phase == c.phase && first.round == c.round
+                        && first.target == c.target && first.subtype == c.subtype
+                        && first.outstanding.iter().all(|owed| c.outstanding.iter().any(|next| {
+                            next.kind == owed.kind && next.amount == owed.amount && next.paid >= owed.paid
+                        }))
+                })) &&
                 (if let MovementStep::Load { origin, .. } = step {
                     matches!(&c.target, Some(DecisionTarget::System(id)) if id.as_str() == origin)
-                } else if subtype == "load_cargo" { true } else {
+                } else if script.kind == BatchKind::Production {
+                    matches!(&c.target, Some(DecisionTarget::System(id)) if id.as_str() == script.destination)
+                } else if subtype == "load_cargo" || script.kind != BatchKind::TacticalMovement { true } else {
                     c.target.as_ref().is_none_or(|target| matches!(target, DecisionTarget::System(id) if id.as_str() == script.destination))
                 })
         });
@@ -164,6 +212,22 @@ impl Decider for PrivateDecider {
                     }
                     MovementStep::DoneLoading => o.id == "done_loading",
                     MovementStep::DoneMoving => o.id == "done_moving",
+                    MovementStep::Exhaust { planet } => {
+                        o.kind == "pay" && o.id == format!("exhaust|{planet}")
+                    }
+                    MovementStep::TradeGood => o.kind == "pay" && o.id == "trade_good",
+                    MovementStep::VotePlanet { planet } => {
+                        o.kind == "vote_planet" && o.id == *planet
+                    }
+                    MovementStep::DoneVoting => o.id == "decline",
+                    MovementStep::DoneProducing => o.id == "done_producing",
+                    MovementStep::Produce { unit, count } => {
+                        o.kind == "produce"
+                            && o.payload.get("unit").and_then(serde_json::Value::as_str)
+                                == Some(unit.as_str())
+                            && o.payload.get("count").and_then(serde_json::Value::as_u64)
+                                == Some(u64::from(*count))
+                    }
                 })
                 .collect()
         } else {
@@ -199,6 +263,13 @@ impl Decider for PrivateDecider {
             });
         }
         let selected = (*matches[0]).clone();
+        if script.kind == BatchKind::Payment && script.payment_subtype.is_none() {
+            script.payment_subtype = choice.context.as_ref().map(|c| c.subtype.clone());
+        }
+        if script.workflow_context.is_none() {
+            script.workflow_context = choice.context.clone();
+        }
+        script.selected.push(selected.clone());
         script.next += 1;
         Ok(selected)
     }
@@ -211,19 +282,60 @@ pub fn simulate(
     actor: &PlayerId,
     plan: &MovementPlan,
 ) -> Result<Simulation, BatchFailure> {
-    if plan.destination.is_empty()
-        || plan.destination.len() > 64
-        || plan.steps.is_empty()
-        || plan.steps.len() > 100
-        || !matches!(plan.steps.last(), Some(MovementStep::DoneMoving))
-        || plan.steps[..plan.steps.len() - 1]
-            .iter()
-            .any(|s| matches!(s, MovementStep::DoneMoving))
-    {
+    let valid = match plan.kind {
+        BatchKind::TacticalMovement => {
+            !plan.destination.is_empty()
+                && plan.destination.len() <= 64
+                && matches!(plan.steps.last(), Some(MovementStep::DoneMoving))
+                && plan.steps[..plan.steps.len().saturating_sub(1)]
+                    .iter()
+                    .all(|s| {
+                        matches!(
+                            s,
+                            MovementStep::Move { .. }
+                                | MovementStep::Load { .. }
+                                | MovementStep::DoneLoading
+                        )
+                    })
+        }
+        BatchKind::Payment => {
+            plan.destination.is_empty()
+                && plan
+                    .steps
+                    .iter()
+                    .all(|s| matches!(s, MovementStep::Exhaust { .. } | MovementStep::TradeGood))
+        }
+        BatchKind::AgendaVotePlanets => {
+            plan.destination.is_empty()
+                && plan.steps.iter().all(|s| {
+                    matches!(
+                        s,
+                        MovementStep::VotePlanet { .. } | MovementStep::DoneVoting
+                    )
+                })
+                && plan.steps[..plan.steps.len().saturating_sub(1)]
+                    .iter()
+                    .all(|s| !matches!(s, MovementStep::DoneVoting))
+        }
+        BatchKind::Production => {
+            !plan.destination.is_empty()
+                && plan.destination.len() <= 64
+                && plan.steps.iter().all(|s| {
+                    matches!(
+                        s,
+                        MovementStep::Produce { count: 1..=100, .. } | MovementStep::DoneProducing
+                    )
+                })
+                && plan.steps[..plan.steps.len().saturating_sub(1)]
+                    .iter()
+                    .all(|s| !matches!(s, MovementStep::DoneProducing))
+        }
+    };
+    if !valid || plan.steps.is_empty() || plan.steps.len() > 100 {
         return Err(BatchFailure::new(
             0,
-            "invalid movement plan",
-            "final done_moving required",
+            "invalid batch plan",
+            "valid workflow steps required",
         ));
     }
     let script = Arc::new(Mutex::new(Script {
@@ -232,6 +344,10 @@ pub fn simulate(
         next: 0,
         actor: actor.clone(),
         destination: plan.destination.clone(),
+        kind: plan.kind,
+        payment_subtype: None,
+        workflow_context: None,
+        selected: Vec::new(),
         failure: None,
         finished: false,
     }));
@@ -302,6 +418,7 @@ pub fn simulate(
                 .flatten();
             return Ok(Simulation {
                 decisions: game.table.log.records[prefix.len()..].to_vec(),
+                selected: guard.selected.clone(),
                 transitions,
                 winner: (game.state.finished || result.finished).then_some(winner),
             });
@@ -319,4 +436,148 @@ pub fn simulate(
         "simulation step limit exceeded",
         "next engine choice",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+
+    fn offered(subtype: &str, options: Vec<ChoiceOption>) -> Choice {
+        let player = PlayerId::new("p1");
+        Choice::new(player.clone(), "basket", options).contextualized(DecisionContext::new(
+            player,
+            DecisionSource::Rule("test".into()),
+            subtype,
+            Phase::Action,
+            1,
+        ))
+    }
+
+    fn decider(kind: BatchKind, steps: Vec<MovementStep>) -> PrivateDecider {
+        PrivateDecider(Arc::new(Mutex::new(Script {
+            prefix: VecDeque::new(),
+            steps,
+            next: 0,
+            actor: PlayerId::new("p1"),
+            destination: String::new(),
+            kind,
+            payment_subtype: None,
+            workflow_context: None,
+            selected: Vec::new(),
+            failure: None,
+            finished: false,
+        })))
+    }
+
+    #[test]
+    fn payment_checks_each_repeated_trade_good_against_a_fresh_offer() {
+        let mut decider = decider(
+            BatchKind::Payment,
+            vec![MovementStep::TradeGood, MovementStep::TradeGood],
+        );
+        let pay = offered(
+            "pay_resources",
+            vec![ChoiceOption::labelled("trade_good", "pay", "spend")],
+        );
+        assert_eq!(decider.choose(&pay).unwrap().id, "trade_good");
+        let gone = offered(
+            "pay_resources",
+            vec![ChoiceOption::labelled("exhaust|jord", "pay", "exhaust")],
+        );
+        assert!(decider.choose(&gone).is_err());
+        let script = decider.0.lock().unwrap();
+        assert_eq!(script.next, 1);
+        assert_eq!(script.failure.as_ref().unwrap().failed_step, 1);
+    }
+
+    #[test]
+    fn payment_cannot_change_currency_mid_batch() {
+        let mut decider = decider(
+            BatchKind::Payment,
+            vec![MovementStep::TradeGood, MovementStep::TradeGood],
+        );
+        let pay = offered(
+            "pay_resources",
+            vec![ChoiceOption::labelled("trade_good", "pay", "spend")],
+        );
+        decider.choose(&pay).unwrap();
+        assert!(
+            decider
+                .choose(&offered("pay_influence", pay.options))
+                .is_err()
+        );
+        assert_eq!(
+            decider.0.lock().unwrap().failure.as_ref().unwrap().reason,
+            "workflow interrupted"
+        );
+    }
+
+    #[test]
+    fn payment_cannot_spill_into_a_different_payment_offer() {
+        let mut decider = decider(
+            BatchKind::Payment,
+            vec![MovementStep::TradeGood, MovementStep::TradeGood],
+        );
+        let pay = offered(
+            "pay_resources",
+            vec![ChoiceOption::labelled("trade_good", "pay", "spend")],
+        );
+        decider.choose(&pay).unwrap();
+        let mut next_bill = pay.clone();
+        next_bill.context.as_mut().unwrap().source = DecisionSource::Rule("different bill".into());
+        assert!(decider.choose(&next_bill).is_err());
+        assert_eq!(
+            decider.0.lock().unwrap().failure.as_ref().unwrap().reason,
+            "workflow interrupted"
+        );
+    }
+
+    #[test]
+    fn late_mismatch_reports_step_fifty_without_consuming_it() {
+        let mut decider = decider(BatchKind::Payment, vec![MovementStep::TradeGood; 50]);
+        let pay = offered(
+            "pay_resources",
+            vec![ChoiceOption::labelled("trade_good", "pay", "spend")],
+        );
+        for _ in 0..49 {
+            decider.choose(&pay).unwrap();
+        }
+        let unavailable = offered(
+            "pay_resources",
+            vec![ChoiceOption::labelled("exhaust|jord", "pay", "exhaust")],
+        );
+        assert!(decider.choose(&unavailable).is_err());
+        let script = decider.0.lock().unwrap();
+        assert_eq!(script.failure.as_ref().unwrap().failed_step, 49);
+        assert_eq!(script.selected.len(), 49);
+    }
+
+    #[test]
+    fn vote_stops_before_another_seat_answers() {
+        let mut decider = decider(
+            BatchKind::AgendaVotePlanets,
+            vec![MovementStep::VotePlanet {
+                planet: "jord".into(),
+            }],
+        );
+        let choice = offered(
+            "vote_exhaust_planet",
+            vec![ChoiceOption::labelled("jord", "vote_planet", "vote")],
+        );
+        let mut other = choice.clone();
+        other.player = PlayerId::new("p2");
+        assert!(decider.choose(&other).is_err());
+        assert_eq!(
+            decider
+                .0
+                .lock()
+                .unwrap()
+                .failure
+                .as_ref()
+                .unwrap()
+                .failed_step,
+            0
+        );
+    }
 }

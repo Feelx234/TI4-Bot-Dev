@@ -36,8 +36,20 @@ pub async fn submit_batch(
             }),
         )
     })?;
-    registry
-        .submit_batch(&game_id, token, request)
+    let token = token.to_owned();
+    tokio::task::spawn_blocking(move || registry.submit_batch(&game_id, &token, request))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(crate::session::registry::BatchError {
+                    failed_step: 0,
+                    reason: format!("batch worker failed: {error}"),
+                    expected: String::new(),
+                    offered_summary: Vec::new(),
+                }),
+            )
+        })?
         .map(Json)
         .map_err(|error| {
             let status = if error.reason == "unauthorized" {
@@ -369,20 +381,30 @@ pub async fn change_history(
         ("undo_pipeline", None) => HistoryAction::UndoPipeline,
         ("redo", None) => HistoryAction::Redo,
         ("redo_batch", None) => HistoryAction::RedoBatch,
+        ("redo_pipeline", None) => HistoryAction::RedoPipeline,
         ("restore", Some(event_id)) => HistoryAction::Restore { event_id },
         _ => return Err((StatusCode::BAD_REQUEST, "Invalid history action".to_owned())),
     };
-    let snapshot = registry
-        .change_history(&game_id, token, payload.expected_version, action)
-        .map_err(|error| {
-            let status = match error {
-                HistoryError::NotFound => StatusCode::NOT_FOUND,
-                HistoryError::Forbidden => StatusCode::FORBIDDEN,
-                HistoryError::InvalidTarget => StatusCode::BAD_REQUEST,
-                HistoryError::Conflict(_) => StatusCode::CONFLICT,
-                HistoryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            (status, format!("{error:?}"))
-        })?;
+    let token = token.to_owned();
+    let snapshot = tokio::task::spawn_blocking(move || {
+        registry.change_history(&game_id, &token, payload.expected_version, action)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("History worker failed: {error}"),
+        )
+    })?
+    .map_err(|error| {
+        let status = match error {
+            HistoryError::NotFound => StatusCode::NOT_FOUND,
+            HistoryError::Forbidden => StatusCode::FORBIDDEN,
+            HistoryError::InvalidTarget => StatusCode::BAD_REQUEST,
+            HistoryError::Conflict(_) => StatusCode::CONFLICT,
+            HistoryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        (status, format!("{error:?}"))
+    })?;
     Ok(Json(ServerMessage::InitialSnapshot(snapshot)))
 }

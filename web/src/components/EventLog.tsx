@@ -66,7 +66,11 @@ export const EventLog: React.FC<EventLogProps> = ({
   const rows: GameLogEntry[][] = [];
   for (const event of events) {
     const last = rows[rows.length - 1];
-    if (event.batch_id && last?.[0].batch_id === event.batch_id) last.push(event);
+    if (event.batch_id && event.event.kind === "decision_resolved" &&
+        last?.[0].batch_id === event.batch_id &&
+        last.at(-1)?.event.kind === "decision_resolved" &&
+        event.decision_count !== undefined && last.at(-1)?.decision_count !== undefined &&
+        event.decision_count === last.at(-1)!.decision_count! + 1) last.push(event);
     else rows.push([event]);
   }
   return (
@@ -139,14 +143,18 @@ export const EventLog: React.FC<EventLogProps> = ({
                 const key = `${move.unit}|${move.origin}|${move.destination}`;
                 counts.set(key, (counts.get(key) ?? 0) + 1);
               }
-              const heading = ev.batch_id
-                ? moves.length
+               const heading = ev.batch_id
+                 ? moves.length
                   ? `${display(moves[0].actor).label} moved ${[...counts].map(([key, count]) => {
                       const [unit, origin, destination] = key.split("|");
                       return `${count} ${unit}${count === 1 ? "" : "s"} from #${origin} to #${destination}`;
                     }).join(", ")}`
-                  : meaningful.length ? `${meaningful.length} cargo choices` : "Movement finished"
-                : (ev.detail ?? presentation.text);
+                   : meaningful.length
+                     ? meaningful.length === 1 ? meaningful[0] : `${meaningful.length} choices: ${meaningful[0]}`
+                     : "Workflow finished"
+                : (ev.detail ?? (ev.movement
+                    ? `${display(ev.movement.actor).label} moved ${ev.movement.unit} from #${ev.movement.origin} to #${ev.movement.destination}`
+                    : presentation.text));
               return (
                 <div
                    key={group[0].id}

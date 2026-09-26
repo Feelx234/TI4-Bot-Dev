@@ -204,6 +204,7 @@ const GameViewContainer: React.FC<{
     submitChoice,
     changeHistory,
     submitMovementBatch,
+    submitBatch,
   } = useGameSession({ gameId, viewer });
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -354,6 +355,7 @@ const GameViewContainer: React.FC<{
         players={snapshot?.view.players}
         onSubmitChoice={submitChoice}
         onSubmitMovementBatch={submitMovementBatch}
+        onSubmitBasketBatch={submitBatch}
         lastError={lastError}
         selectedOptionId={selectedOptionId}
         onSelectOption={setSelectedOptionId}

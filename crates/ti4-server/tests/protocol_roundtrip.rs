@@ -160,6 +160,7 @@ fn server_event_round_trips() {
             event: ti4_server::protocol::server::GameEventKind::DecisionResolved,
             decision_count: Some(1),
             batch_id: None,
+            action_id: None,
             detail: None,
             movement: None,
         },

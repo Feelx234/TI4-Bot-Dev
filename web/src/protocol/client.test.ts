@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GameSessionClient, GameSessionState, reduceServerMessage } from "./client.ts";
+import { GameSessionClient, GameSessionState, reduceServerMessage, serverEventLog } from "./client.ts";
 import {
   decodeCreateGameResponse,
   decodeJoinResponse,
@@ -49,6 +49,16 @@ const state: GameSessionState = {
 };
 
 describe("GameSessionClient reducer", () => {
+  it("does not display a truncated batch as a complete basket", () => {
+    const events = Array.from({ length: 510 }, (_, index) => ({
+      id: String(index), timestamp: "", visibility: "public" as const,
+      event: { kind: "decision_resolved" as const }, decision_count: index + 1,
+      batch_id: index >= 5 && index < 20 ? "basket" : undefined,
+    }));
+    const visible = serverEventLog(events);
+    expect(visible[0].decision_count).toBe(21);
+    expect(visible).toHaveLength(490);
+  });
   it("refuses malformed history cursors before they reach the UI", () => {
     expect(() =>
       decodeServerMessage({ ...snapshot, history: { cursor: -1, redo_count: 0 } }, "game_12345"),
@@ -295,6 +305,27 @@ class FakeWebSocket {
 }
 
 describe("GameSessionClient ingress lifecycle", () => {
+  it("retries an uncertain basket confirmation with the same request ID", async () => {
+    const { client, send } = await connectedPlayer();
+    send({ ...snapshot, type: "initial_snapshot", viewer: { role: "player", seat: "player_a" },
+      pending_choice: { nonce: "nonce-4", choice: { player: "player_a", prompt: "Pay",
+        context: { subtype: "pay_resources" }, options: [{ id: "trade_good", kind: "pay", label: "Trade good" }] } } });
+    const request = vi.fn().mockRejectedValueOnce(new Error("Connection lost"))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ active: true, snapshot: {
+        ...snapshot, game_version: 5, viewer: { role: "player", seat: "player_a" },
+      } }) });
+    vi.stubGlobal("fetch", request);
+    const plan = { kind: "payment" as const, steps: [{ kind: "trade_good" as const }] };
+    await expect(client.submitBatch(plan)).rejects.toThrow("Connection lost");
+    await client.submitBatch(plan);
+    const first = JSON.parse(request.mock.calls[0][1].body);
+    const second = JSON.parse(request.mock.calls[1][1].body);
+    expect(first).toMatchObject({ plan, expected_version: 4, nonce: "nonce-4" });
+    expect(second.request_id).toBe(first.request_id);
+    expect(request).toHaveBeenCalledTimes(2);
+    client.stop();
+  });
+
   it("refreshes the version after an in-flight history conflict without changing the undo target", async () => {
     const { client } = await connectedPlayer();
     const request = vi

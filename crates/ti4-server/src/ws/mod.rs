@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -50,6 +50,8 @@ async fn handle_socket(
 
     // Bounded outbound channel for messages destined for this client
     let (outbound_tx, mut outbound_rx) = mpsc::channel::<ServerMessage>(OUTBOUND_QUEUE_CAPACITY);
+    let (replacement_tx, mut replacement_rx) = tokio::sync::oneshot::channel::<()>();
+    let mut replacement_tx = Some(replacement_tx);
     let outbound_registry = registry.clone();
     let outbound_game = game_id.clone();
     let outbound_credential = Arc::new(std::sync::Mutex::new(None::<String>));
@@ -57,7 +59,19 @@ async fn handle_socket(
 
     // Outbound pump task: forwards ServerMessage as JSON text to WebSocket sink
     let outbound_task = tokio::spawn(async move {
-        while let Some(msg) = outbound_rx.recv().await {
+        loop {
+            let msg = tokio::select! {
+                msg = outbound_rx.recv() => match msg { Some(msg) => msg, None => break },
+                result = &mut replacement_rx => {
+                    if result.is_ok() {
+                        let _ = ws_sender.send(Message::Close(Some(CloseFrame {
+                            code: 4001,
+                            reason: "session replaced".into(),
+                        }))).await;
+                    }
+                    break;
+                }
+            };
             let credential = credential_for_pump.lock().expect("credential lock").clone();
             if credential.as_deref().is_some_and(|token| {
                 outbound_registry
@@ -93,6 +107,9 @@ async fn handle_socket(
                     break;
                 }
                 if registry.get_game(&game_id).is_none_or(|current| !Arc::ptr_eq(&current, &session)) {
+                    if let Some(tx) = replacement_tx.take() {
+                        let _ = tx.send(());
+                    }
                     break;
                 }
                 if current_token.as_deref().is_some_and(|token| registry.authenticate_player_session(&game_id, token).is_err()) {
@@ -351,5 +368,9 @@ async fn handle_socket(
     if let (Some(ViewerRole::Player(player)), Some(connection)) = (&current_role, connection_id) {
         registry.disconnect_player(&game_id, player, connection);
     }
-    outbound_task.abort();
+    if replacement_tx.is_none() {
+        let _ = outbound_task.await;
+    } else {
+        outbound_task.abort();
+    }
 }

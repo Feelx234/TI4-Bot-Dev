@@ -16,6 +16,7 @@ export interface ProductionBuilderDrawerProps {
   lastError?: string | null;
   queuedUnits?: readonly string[];
   onQueueProduction?: (units: string[]) => void;
+  onSubmitBatch?: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
 }
 
 function draftResourceCost(options: ChoiceOptionDto[], draft: Record<string, number>): number {
@@ -57,9 +58,12 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   lastError,
   queuedUnits = [],
   onQueueProduction,
+  onSubmitBatch,
 }) => {
   const display = usePlayerIdentity();
   const [draft, setDraft] = useState<Record<string, number>>({});
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
   useEffect(() => setDraft({}), [choice?.nonce]);
   const subtype = choice?.context?.subtype ?? "";
   const isPlaceUnit = subtype === "place_unit";
@@ -147,7 +151,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
             model={model}
             viewerSeat={viewerSeat}
             onSubmit={onSubmit}
-            lastError={lastError}
+             lastError={batchError ?? lastError}
             spectatorNotice={`Observing unit production in progress for ${display(choice.actor).label}...`}
             spectatorNoticeTestId="spectator-production-notice"
             errorTestId="production-error-banner"
@@ -275,9 +279,28 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                       <button
                         type="button"
                         className="button button--primary"
-                        disabled={!stagedBatches || queued || isSubmitting}
-                        onClick={() => {
-                          const units = productionOptions.flatMap((opt) =>
+                         disabled={!stagedBatches || queued || isSubmitting || batchRunning}
+                         onClick={async () => {
+                           if (onSubmitBatch) {
+                             setBatchRunning(true);
+                             setBatchError(null);
+                             try {
+                               await onSubmitBatch({ kind: "production", destination: systemId, steps: productionOptions.flatMap((opt) =>
+                                 Array.from({ length: draft[opt.id] ?? 0 }, () => ({
+                                   kind: "produce" as const,
+                                   unit: String(opt.payload?.unit ?? opt.id),
+                                   count: Number(opt.payload?.count ?? 1),
+                                 })),
+                               ) });
+                               setDraft({});
+                             } catch (error) {
+                               setBatchError(error instanceof Error ? error.message : String(error));
+                             } finally {
+                               setBatchRunning(false);
+                             }
+                             return;
+                           }
+                           const units = productionOptions.flatMap((opt) =>
                             Array.from({ length: draft[opt.id] ?? 0 }, () =>
                               typeof opt.payload?.unit === "string" ? opt.payload.unit : opt.id,
                             ),

@@ -14,13 +14,17 @@ import { decodeInitialSnapshot, decodeServerMessage, isStaleServerMessage } from
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
 export type GameLogEntry = import("./types.ts").GameEvent;
-export type HistoryChange = "undo" | "undo_batch" | "undo_pipeline" | "redo" | "redo_batch" | { eventId: string };
+export type HistoryChange = "undo" | "undo_batch" | "undo_pipeline" | "redo" | "redo_batch" | "redo_pipeline" | { eventId: string };
 
 export type MovementStep =
   | { kind: "move"; origin: string; unit: string; damaged: boolean }
   | { kind: "load"; origin: string; unit: string; source: string | null; damaged: boolean }
   | { kind: "done_loading" }
   | { kind: "done_moving" };
+export type BasketPlan =
+  | { kind: "payment"; steps: ({ kind: "exhaust"; planet: string } | { kind: "trade_good" })[] }
+  | { kind: "agenda_vote_planets"; steps: ({ kind: "vote_planet"; planet: string } | { kind: "done_voting" })[] }
+  | { kind: "production"; destination: string; steps: ({ kind: "produce"; unit: string; count: number } | { kind: "done_producing" })[] };
 
 const MAX_EVENT_LOG_ENTRIES = 500;
 const HISTORY_RETRY_ATTEMPTS = 20;
@@ -57,7 +61,17 @@ const initialState: GameSessionState = {
 
 /** Keeps the rendered audit log server-authored while bounding client memory use. */
 export function serverEventLog(entries: readonly GameLogEntry[] | undefined): GameLogEntry[] {
-  return (entries ?? []).slice(-MAX_EVENT_LOG_ENTRIES);
+  if (!entries || entries.length <= MAX_EVENT_LOG_ENTRIES) return [...(entries ?? [])];
+  let start = entries.length - MAX_EVENT_LOG_ENTRIES;
+  // Discard the leading fragment of a batch instead of displaying a partial
+  // basket as if it were the full confirmation. A single batch has at most 100 steps.
+  const previous = entries[start - 1];
+  const first = entries[start];
+  if (first.batch_id && first.batch_id === previous.batch_id) {
+    const id = first.batch_id;
+    while (start < entries.length && entries[start].batch_id === id) start++;
+  }
+  return entries.slice(start);
 }
 
 function rejectionMessage(message: Extract<ServerMessage, { type: "action_rejected" }>): string {
@@ -157,6 +171,7 @@ export class GameSessionClient {
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private pingSequence = 0;
+  private pendingBatch: { nonce: string; plan: string; requestId: string } | null = null;
 
   constructor(private readonly options: GameSessionClientOptions) {}
 
@@ -233,22 +248,34 @@ export class GameSessionClient {
   }
 
   async submitMovementBatch(destination: string, steps: MovementStep[]): Promise<void> {
+    return this.submitBatch({ kind: "tactical_movement", destination, steps });
+  }
+
+  async submitBatch(plan: BasketPlan | { kind: "tactical_movement"; destination: string; steps: MovementStep[] }): Promise<void> {
     if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
       throw new Error("A player session is required");
     const pending = this.state.pendingChoice;
-    if (!pending || pending.actor !== this.options.viewer.seat || !pending.context || pending.context.subtype !== "movement_step")
-      throw new Error("Movement is no longer pending");
+    if (!pending || pending.actor !== this.options.viewer.seat || !pending.context)
+      throw new Error("Decision is no longer pending");
+    const expected = { tactical_movement: ["movement_step"], payment: ["pay_resources", "pay_influence"], agenda_vote_planets: ["vote_exhaust_planet"], production: ["produce_unit"] }[plan.kind];
+    if (!expected.includes(pending.context.subtype)) throw new Error("Workflow is no longer pending");
+    const serialized = JSON.stringify(plan);
+    if (this.pendingBatch?.nonce !== pending.nonce || this.pendingBatch.plan !== serialized)
+      this.pendingBatch = { nonce: pending.nonce, plan: serialized, requestId: crypto.randomUUID() };
     const response = await fetch(this.snapshotUrl().replace(/\/snapshot$/, "/batches"), {
       method: "POST",
       headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
-      body: JSON.stringify({ request_id: crypto.randomUUID(), expected_version: this.state.gameVersion,
-        nonce: pending.nonce, plan: { destination, steps } }),
+      body: JSON.stringify({ request_id: this.pendingBatch.requestId, expected_version: this.state.gameVersion,
+        nonce: pending.nonce, plan }),
     });
     if (!response.ok) {
+      if (response.status !== 500 && response.status !== 502 && response.status !== 503) this.pendingBatch = null;
       const failure = await response.json() as { failed_step?: number; reason?: string; expected?: string };
-      throw new Error(`Movement step ${(failure.failed_step ?? 0) + 1}: ${failure.reason ?? "batch rejected"}${failure.expected ? ` (${failure.expected})` : ""}`);
+      throw new Error(`Batch step ${(failure.failed_step ?? 0) + 1}: ${failure.reason ?? "batch rejected"}${failure.expected ? ` (${failure.expected})` : ""}`);
     }
-    const result = await response.json() as { snapshot: unknown };
+    this.pendingBatch = null;
+    const result = await response.json() as { snapshot: unknown; active?: boolean };
+    if (result.active === false) throw new Error("This confirmation was already committed but is now undone. Refresh the decision before confirming again.");
     const snapshot = decodeInitialSnapshot({ type: "initial_snapshot", ...result.snapshot as object }, this.options.gameId);
     this.rejectSubmission("Game history changed");
     this.detachSocket();
@@ -366,7 +393,7 @@ export class GameSessionClient {
         });
       }
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (!this.stopped && this.socket === socket) {
         this.clearTimers();
         this.socket = null;
@@ -382,7 +409,7 @@ export class GameSessionClient {
             void this.loadSnapshot();
             this.openSocket();
           }
-        }, 2_000);
+        }, event?.code === 4001 ? 0 : 2_000);
       }
     };
   }

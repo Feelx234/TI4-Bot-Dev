@@ -17,8 +17,8 @@ use ti4_model::state::GameState;
 use crate::projection::project_turn_status;
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::server::{
-    EventVisibility, GameEvent, GameEventKind, GameOverMsg, PendingChoiceMsg, ServerMessage,
-    TurnStatusMsg,
+    EventVisibility, GameEvent, GameEventKind, GameOverMsg, MovementFact, PendingChoiceMsg,
+    ServerMessage, TurnStatusMsg,
 };
 use crate::protocol::status::ViewerRole;
 use crate::session::decider::{ChoiceSubmission, RemoteHumanDecider};
@@ -94,6 +94,59 @@ pub struct SessionShared {
     pub batches: Vec<crate::storage::BatchRecord>,
 }
 
+/// Only explicitly public decisions receive prose. Unknown/private option IDs
+/// remain generic rather than accidentally exposing a card or secret objective.
+fn public_decision_detail(record: &DecisionRecord) -> Option<String> {
+    let subtype = record.context.as_ref()?.subtype.as_str();
+    let actor = &record.player;
+    match subtype {
+        "pay_resources" | "pay_influence" if record.chosen == "trade_good" => {
+            Some(format!("{actor} spent a trade good"))
+        }
+        "pay_resources" | "pay_influence" => record
+            .chosen
+            .strip_prefix("exhaust|")
+            .map(|planet| format!("{actor} exhausted {planet}")),
+        "vote_exhaust_planet" if record.chosen == "decline" => Some("Done voting".into()),
+        "vote_exhaust_planet" => Some(format!("{actor} exhausted {} to vote", record.chosen)),
+        "produce_unit" if record.chosen == "done_producing" => Some("Done producing".into()),
+        "produce_unit" => {
+            let parts: Vec<_> = record.chosen.split('|').collect();
+            if let ["build", unit, count] = parts.as_slice() {
+                Some(format!("{actor} produced {count} {unit}"))
+            } else {
+                None
+            }
+        }
+        "movement_step" if record.chosen == "done_moving" => Some("Done moving".into()),
+        _ => None,
+    }
+}
+
+fn public_movement_fact(shared: &SessionShared, record: &DecisionRecord) -> Option<MovementFact> {
+    if record.context.as_ref()?.subtype != "movement_step" {
+        return None;
+    }
+    let offered = shared
+        .pending_decision
+        .as_ref()?
+        .choice
+        .options
+        .iter()
+        .find(|option| option.id == record.chosen && option.kind == "move")?;
+    Some(MovementFact {
+        actor: record.player.clone(),
+        origin: offered.payload.get("origin")?.as_str()?.to_owned(),
+        destination: shared
+            .latest_state
+            .active_system
+            .as_ref()?
+            .as_str()
+            .to_owned(),
+        unit: offered.payload.get("unit")?.as_str()?.to_owned(),
+    })
+}
+
 impl SessionShared {
     fn persist_history(&self) -> Result<(), String> {
         if self.history_active
@@ -167,6 +220,8 @@ impl SessionShared {
         event: GameEventKind,
         version: Option<u64>,
         decision_count: usize,
+        detail: Option<String>,
+        movement: Option<MovementFact>,
     ) -> Result<(), String> {
         if self.history_active
             && !self.redo_decisions.is_empty()
@@ -201,6 +256,10 @@ impl SessionShared {
         self.event_counter += 1;
         let id = format!("{}-{}", self.game_id, self.event_counter);
         let timestamp = current_utc_time_string();
+        let action_id = (matches!(event, GameEventKind::DecisionResolved)
+            && self.latest_state.phase == ti4_model::state::Phase::Action)
+            .then(|| crate::protocol::server::action_id_for(&self.decision_log, decision_count))
+            .flatten();
         let entry = GameEvent {
             id,
             timestamp,
@@ -209,8 +268,9 @@ impl SessionShared {
             event,
             decision_count: Some(decision_count),
             batch_id: None,
-            detail: None,
-            movement: None,
+            action_id,
+            detail,
+            movement,
         };
         if !self.history_active
             && let Some(store) = &self.store
@@ -367,6 +427,8 @@ impl SessionShared {
             },
             Some(self.game_version),
             cursor,
+            None,
+            None,
         )?;
         if !self.history_active {
             self.broadcast_game_over(winner, final_scores);
@@ -539,6 +601,8 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     },
                     Some(version),
                     0,
+                    None,
+                    None,
                 ) {
                     lock.error = Some(error);
                     return;
@@ -637,6 +701,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
 
                     // Any newly resolved decisions:
                     if game.table.log.records.len() > prev_decision_count {
+                        let fork_cursor = prev_decision_count;
                         for (offset, record) in game.table.log.records[prev_decision_count..]
                             .iter()
                             .enumerate()
@@ -661,12 +726,15 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                                 break 'worker;
                             }
                             let version = lock.game_version;
+                            let movement = public_movement_fact(&lock, record);
                             let event_error = lock
                                 .record_and_broadcast_event(
                                     EventVisibility::Public,
                                     GameEventKind::DecisionResolved,
                                     Some(version),
                                     prev_decision_count + offset + 1,
+                                    public_decision_detail(record),
+                                    movement,
                                 )
                                 .err();
                             if let Some(error) = event_error {
@@ -707,7 +775,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                             // steps between decisions leave redo available.
                             lock.redo_decisions.clear();
                             lock.redo_events.clear();
-                            lock.batches.retain(|b| b.end_cursor <= prev_decision_count);
+                            lock.batches.retain(|b| b.end_cursor <= fork_cursor);
                         }
                     }
                     if !lock.history_active
@@ -746,6 +814,8 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                             },
                             Some(version),
                             cursor,
+                            None,
+                            None,
                         ) {
                             lock.error = Some(error);
                             break 'worker;
