@@ -110,8 +110,10 @@ function rejectionMessage(message: Extract<ServerMessage, { type: "action_reject
       return "Rejected: Unauthorized seat";
     case "unknown_option":
       return `Rejected: Unknown option '${message.reason.option_id}'`;
-    default:
-      return "Action rejected";
+    case "no_pending_choice":
+      return "Rejected: No decision is currently pending";
+    case "validation_failed":
+      return `Rejected: ${message.reason.message}`;
   }
 }
 
@@ -194,6 +196,10 @@ export class GameSessionClient {
     resolve: () => void;
     reject: (error: Error) => void;
   } | null = null;
+  // An engine step may offer another human reaction before acknowledging the
+  // previous choice. Keep its promise until the step commits, but allow the
+  // newly offered choice to be submitted meanwhile.
+  private priorSubmissions: NonNullable<GameSessionClient["submission"]>[] = [];
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private pingSequence = 0;
@@ -239,7 +245,10 @@ export class GameSessionClient {
     if (this.submission) {
       if (this.submission.nonce === pendingChoice.nonce && this.submission.optionId === optionId)
         return this.submission.promise;
-      throw new Error("Another choice submission is still pending");
+      if (this.submission.nonce === pendingChoice.nonce)
+        throw new Error("Another choice submission is still pending");
+      this.priorSubmissions.push(this.submission);
+      this.submission = null;
     }
 
     const message: ClientMessage = {
@@ -526,6 +535,28 @@ export class GameSessionClient {
     }
     // A state update may precede its acknowledgement on the broadcast channel.
     // Do not discard a late acknowledgement just because its version is older.
+    if (message.type === "action_accepted") {
+      const index = this.priorSubmissions.findIndex(
+        (pending) =>
+          pending.optionId === message.option_id && message.game_version >= pending.version,
+      );
+      if (index !== -1) {
+        this.priorSubmissions.splice(index, 1)[0].resolve();
+        this.setState(reduceServerMessage(this.state, message));
+        return;
+      }
+    }
+    if (message.type === "action_rejected") {
+      const index = this.priorSubmissions.findIndex(
+        (pending) => pending.version === message.game_version,
+      );
+      if (index !== -1) {
+        const reason = rejectionMessage(message);
+        this.priorSubmissions.splice(index, 1)[0].reject(new Error(reason));
+        this.setState({ ...this.state, lastError: reason });
+        return;
+      }
+    }
     if (
       message.type === "action_accepted" &&
       this.submission &&
@@ -560,6 +591,7 @@ export class GameSessionClient {
     const submission = this.submission;
     this.submission = null;
     submission?.reject(new Error(reason));
+    for (const prior of this.priorSubmissions.splice(0)) prior.reject(new Error(reason));
   }
 
   private detachSocket(): void {

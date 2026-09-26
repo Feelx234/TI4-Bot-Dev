@@ -52,6 +52,11 @@ impl Decider for RemoteHumanDecider {
         {
             let mut shared = self.shared.lock().expect("session shared lock");
             shared.game_version += 1;
+            if let Some(previous) = shared.pending_decision.take()
+                && previous.reply_tx.is_some()
+            {
+                shared.in_flight_submissions.push_back(previous);
+            }
             shared.pending_decision = Some(PendingDecision {
                 seat: self.seat.clone(),
                 nonce: nonce.clone(),

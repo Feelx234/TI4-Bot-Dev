@@ -98,6 +98,7 @@ fn scripted_end_to_end_game_handles_draft_action_and_nested_secondary_choice() {
 
     // Now in Action phase, drive choices until nested reaction or action choices happen
     let mut nested_received = false;
+    let mut submissions = Vec::new();
     for _ in 0..100 {
         if let Some((actor, nonce, ver)) = session.current_pending_decision() {
             if let Some(client) = get_client(&actor) {
@@ -112,7 +113,12 @@ fn scripted_end_to_end_game_handles_draft_action_and_nested_secondary_choice() {
                         nested_received = true;
                     }
                     let opt = c.options[0].id.clone();
-                    let _ = client.submit(&nonce, ver, &opt);
+                    // A nested choice can be offered before the previous game.step() returns.
+                    // Do not block the driver waiting for that earlier acknowledgement.
+                    let session = session.clone();
+                    submissions.push(thread::spawn(move || {
+                        session.submit_choice(&actor, &nonce, ver, &opt)
+                    }));
                 }
             }
         }
@@ -143,4 +149,7 @@ fn scripted_end_to_end_game_handles_draft_action_and_nested_secondary_choice() {
     );
 
     session.stop();
+    for submission in submissions {
+        let _ = submission.join();
+    }
 }

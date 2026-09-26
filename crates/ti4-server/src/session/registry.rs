@@ -1642,6 +1642,13 @@ impl GameRegistry {
         if !self.disconnected_since(&state, game_id, player) {
             return Err(LobbyError::TakeoverUnavailable);
         }
+        if state
+            .sessions
+            .get(game_id)
+            .is_some_and(|session| session.choice_in_flight())
+        {
+            return Err(LobbyError::TakeoverUnavailable);
+        }
         let mut updated = lobby.clone();
         let replacement = loop {
             let candidate = PlayerSession::generate();
@@ -1726,15 +1733,19 @@ impl GameRegistry {
                 seat: Some(player.clone()),
             });
         }
-        // The per-game gate stays held through the worker reply, preventing
-        // takeover or history changes without blocking another game's registry calls.
+        // Reserve under the gate. A nested reaction can be offered before the
+        // worker returns from this step, so its next choice must be able to reserve too.
         if !state.sessions.get(game_id).is_some_and(|current| {
             std::ptr::eq(Arc::as_ptr(current), session as *const GameSession)
         }) {
             return Err(RejectionReason::NoPendingChoice);
         }
         drop(state);
-        session.submit_choice(player, nonce, version, option)
+        let reply = session.reserve_choice(player, nonce, version, option)?;
+        drop(_reservation);
+        reply
+            .recv()
+            .unwrap_or(Err(RejectionReason::NoPendingChoice))
     }
 
     /// Bind a private HTTP snapshot to the current credential under the same

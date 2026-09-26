@@ -323,32 +323,39 @@ async fn handle_socket(
                                 .await;
                             continue;
                         };
-                        let res = registry.submit_player_choice(
-                            &game_id,
-                            token,
-                            acting_seat,
-                            &session,
-                            &nonce,
-                            expected_version,
-                            &option_id,
-                        );
-                        match res {
-                            Ok(accepted) => {
-                                let _ = outbound_tx
-                                    .send(ServerMessage::ActionAccepted(accepted))
-                                    .await;
-                            }
-                            Err(reason) => {
-                                let _ = outbound_tx
-                                    .send(ServerMessage::ActionRejected(ActionRejectedMsg {
+                        let registry = registry.clone();
+                        let session = session.clone();
+                        let game_id = game_id.clone();
+                        let token = token.to_owned();
+                        let acting_seat = acting_seat.clone();
+                        let outbound_tx = outbound_tx.clone();
+                        tokio::spawn(async move {
+                            let result = tokio::task::spawn_blocking(move || {
+                                registry.submit_player_choice(
+                                    &game_id,
+                                    &token,
+                                    &acting_seat,
+                                    &session,
+                                    &nonce,
+                                    expected_version,
+                                    &option_id,
+                                )
+                            })
+                            .await;
+                            let message = match result {
+                                Ok(Ok(accepted)) => ServerMessage::ActionAccepted(accepted),
+                                Ok(Err(reason)) => {
+                                    ServerMessage::ActionRejected(ActionRejectedMsg {
                                         protocol_version: PROTOCOL_VERSION,
-                                        game_id: game_id.clone(),
+                                        game_id: message_game_id.clone(),
                                         game_version: expected_version,
                                         reason,
-                                    }))
-                                    .await;
-                            }
-                        }
+                                    })
+                                }
+                                Err(_) => return,
+                            };
+                            let _ = outbound_tx.send(message).await;
+                        });
                     }
                     Some(ViewerRole::Spectator) | None => {
                         let _ = outbound_tx

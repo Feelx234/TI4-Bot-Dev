@@ -258,6 +258,17 @@ impl GameSession {
         expected_version: u64,
         option_id: &str,
     ) -> Result<ActionAcceptedMsg, RejectionReason> {
+        let rx = self.reserve_choice(seat, nonce, expected_version, option_id)?;
+        rx.recv().unwrap_or(Err(RejectionReason::NoPendingChoice))
+    }
+
+    pub(crate) fn reserve_choice(
+        &self,
+        seat: &PlayerId,
+        nonce: &str,
+        expected_version: u64,
+        option_id: &str,
+    ) -> Result<mpsc::Receiver<Result<ActionAcceptedMsg, RejectionReason>>, RejectionReason> {
         let (tx, rx) = mpsc::channel();
         let submission = ChoiceSubmission {
             seat: seat.clone(),
@@ -327,7 +338,7 @@ impl GameSession {
             return Err(RejectionReason::NoPendingChoice);
         }
 
-        rx.recv().unwrap_or(Err(RejectionReason::NoPendingChoice))
+        Ok(rx)
     }
 
     /// Subscribes a viewer role to receive live server messages.
@@ -504,10 +515,20 @@ impl GameSession {
         lock.replay_complete
             && lock.error.is_none()
             && !lock.stopped
+            && lock.in_flight_submissions.is_empty()
             && (lock.finished
                 || lock.pending_decision.as_ref().is_some_and(|pending| {
                     pending.submission_state == PendingSubmissionState::AwaitingSubmission
                 }))
+    }
+
+    pub(crate) fn choice_in_flight(&self) -> bool {
+        let lock = self.shared.lock().expect("shared lock");
+        !lock.in_flight_submissions.is_empty()
+            || lock
+                .pending_decision
+                .as_ref()
+                .is_some_and(|pending| pending.submission_state == PendingSubmissionState::Reserved)
     }
 
     pub fn wait_replayed(&self) -> Result<(), String> {
@@ -558,6 +579,9 @@ impl GameSession {
         if let Some(handle) = handle_lock.take() {
             let _ = handle.join();
         }
+        let mut lock = self.shared.lock().expect("shared lock");
+        lock.pending_decision = None;
+        lock.in_flight_submissions.clear();
     }
 }
 

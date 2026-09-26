@@ -166,75 +166,85 @@ test.describe("Space Combat Overlay", () => {
       .toBeGreaterThan(initial.game_version);
   });
 
-  test("can submit sustain damage after playing Direct Hit", async ({ page, request }) => {
-    test.setTimeout(90_000);
-    const launch = await request.post(`${backend}/api/dev/scenarios/launch`, {
-      data: { scenario_id: "ongoing_combat", seed: 42 },
+  // This full-width seed rolls enough return-fire hits to open a nested reaction
+  // before the Direct Hit engine step returns to the server worker.
+  for (const seed of [42, "11056244294849564155"])
+    test(`can submit sustain damage after playing Direct Hit (seed ${seed})`, async ({
+      page,
+      request,
+    }) => {
+      test.setTimeout(90_000);
+      const launch = await request.post(`${backend}/api/dev/scenarios/launch`, {
+        data: `{"scenario_id":"ongoing_combat","seed":${seed}}`,
+        headers: { "content-type": "application/json" },
+      });
+      expect(launch.ok(), `launch scenario: ${launch.status()} ${await launch.text()}`).toBe(true);
+      const { game_id: gameId, player_session: session, player_id: playerId } = await launch.json();
+      const initial = await snapshot(request, gameId, session);
+      const defender = initial.view.board.combat?.defender;
+      expect(defender).toBeTruthy();
+      expect(initial.pending_choice?.choice.context?.subtype).toBe("announce_retreat");
+      const systemId = initial.view.board.combat!.system_id;
+      const dreadnoughts = (state: InitialSnapshotMsg) =>
+        state.view.board.systems[systemId].units.filter(
+          (unit) => unit.owner === defender && unit.unit_type === "dreadnought",
+        ).length;
+      expect(dreadnoughts(initial)).toBeGreaterThan(0);
+      await openPlayerGame(page, gameId, session);
+      expect(initial.pending_choice?.choice.player).toBe(playerId);
+      await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
+      const stay = initial.pending_choice!.choice.options.find(
+        (option) => option.id === "stay" || option.id === "decline",
+      );
+      expect(stay).toBeDefined();
+      await page.getByTestId(`retreat-opt-${stay!.id}`).click();
+      await expect
+        .poll(async () =>
+          (await snapshot(request, gameId, session)).pending_choice?.choice.options.some((option) =>
+            option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"),
+          ),
+        )
+        .toBe(true);
+      await page.getByTestId("play-direct-hit-btn").click();
+      await expect
+        .poll(async () => (await snapshot(request, gameId, session)).game_version)
+        .toBeGreaterThan(initial.game_version);
+      const after = await snapshot(request, gameId, session);
+      if (seed === 42) expect(dreadnoughts(after)).toBeLessThan(dreadnoughts(initial));
+
+      await expect
+        .poll(async () =>
+          (await snapshot(request, gameId, session)).pending_choice?.choice.options.some((option) =>
+            option.id.endsWith(":HITS_TO_ASSIGN:when"),
+          ),
+        )
+        .toBe(true);
+      await expect(page.getByTestId("choice-error-banner")).toBeHidden();
+      await page.getByRole("radio", { name: "Decline" }).click();
+      await page.getByRole("button", { name: "Confirm choice" }).click();
+
+      await expect(page.getByTestId("choice-error-banner")).toBeHidden();
+
+      await expect
+        .poll(
+          async () =>
+            (await snapshot(request, gameId, session)).pending_choice?.choice.context?.subtype,
+        )
+        .toBe("sustain_damage");
+      const sustainChoice = await snapshot(request, gameId, session);
+      expect(sustainChoice.pending_choice?.choice.player).toBe(playerId);
+      const sustain = sustainChoice.pending_choice!.choice.options.find(
+        (option) => option.id !== "decline" && option.kind !== "decline",
+      );
+      expect(sustain).toBeDefined();
+      const sustainButton = page.getByTestId(`sustain-opt-${sustain!.id}`);
+      await expect(sustainButton).toBeVisible();
+      await sustainButton.click();
+      await expect
+        .poll(async () => (await snapshot(request, gameId, session)).game_version)
+        .toBeGreaterThan(sustainChoice.game_version);
+      await expect(page.getByTestId("combat-error-banner")).toBeHidden();
     });
-    expect(launch.ok(), `launch scenario: ${launch.status()} ${await launch.text()}`).toBe(true);
-    const { game_id: gameId, player_session: session, player_id: playerId } = await launch.json();
-    const initial = await snapshot(request, gameId, session);
-    const defender = initial.view.board.combat?.defender;
-    expect(defender).toBeTruthy();
-    expect(initial.pending_choice?.choice.context?.subtype).toBe("announce_retreat");
-    const systemId = initial.view.board.combat!.system_id;
-    const dreadnoughts = (state: InitialSnapshotMsg) =>
-      state.view.board.systems[systemId].units.filter(
-        (unit) => unit.owner === defender && unit.unit_type === "dreadnought",
-      ).length;
-    expect(dreadnoughts(initial)).toBeGreaterThan(0);
-    await openPlayerGame(page, gameId, session);
-    expect(initial.pending_choice?.choice.player).toBe(playerId);
-    await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
-    const stay = initial.pending_choice!.choice.options.find(
-      (option) => option.id === "stay" || option.id === "decline",
-    );
-    expect(stay).toBeDefined();
-    await page.getByTestId(`retreat-opt-${stay!.id}`).click();
-    await expect
-      .poll(async () =>
-        (await snapshot(request, gameId, session)).pending_choice?.choice.options.some((option) =>
-          option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"),
-        ),
-      )
-      .toBe(true);
-    await page.getByTestId("play-direct-hit-btn").click();
-    await expect
-      .poll(async () => (await snapshot(request, gameId, session)).game_version)
-      .toBeGreaterThan(initial.game_version);
-    const after = await snapshot(request, gameId, session);
-    expect(dreadnoughts(after)).toBeLessThan(dreadnoughts(initial));
-
-    await expect
-      .poll(async () =>
-        (await snapshot(request, gameId, session)).pending_choice?.choice.options.some((option) =>
-          option.id.endsWith(":HITS_TO_ASSIGN:when"),
-        ),
-      )
-      .toBe(true);
-    await page.getByRole("radio", { name: "Decline" }).click();
-    await page.getByRole("button", { name: "Confirm choice" }).click();
-
-    await expect
-      .poll(
-        async () =>
-          (await snapshot(request, gameId, session)).pending_choice?.choice.context?.subtype,
-      )
-      .toBe("sustain_damage");
-    const sustainChoice = await snapshot(request, gameId, session);
-    expect(sustainChoice.pending_choice?.choice.player).toBe(playerId);
-    const sustain = sustainChoice.pending_choice!.choice.options.find(
-      (option) => option.id !== "decline" && option.kind !== "decline",
-    );
-    expect(sustain).toBeDefined();
-    const sustainButton = page.getByTestId(`sustain-opt-${sustain!.id}`);
-    await expect(sustainButton).toBeVisible();
-    await sustainButton.click();
-    await expect
-      .poll(async () => (await snapshot(request, gameId, session)).game_version)
-      .toBeGreaterThan(sustainChoice.game_version);
-    await expect(page.getByTestId("combat-error-banner")).toBeHidden();
-  });
 
   test("plays Shields Holding to cancel incoming combat hits", async ({ page, request }) => {
     test.setTimeout(90_000);
@@ -270,12 +280,14 @@ test.describe("Space Combat Overlay", () => {
 
     await expect
       .poll(async () =>
-        (await snapshot(request, gameId, session)).view.players.find((p) => p.id === playerId)
+        (await snapshot(request, gameId, session)).view.players
+          .find((p) => p.id === playerId)
           ?.held_action_cards.includes("sh1"),
       )
       .toBe(false);
     const after = await snapshot(request, gameId, session);
     expect(after.game_version).toBeGreaterThan(before.game_version);
     expect(after.view.board.combat).toBeDefined();
+    await expect(page.getByTestId("choice-error-banner")).toBeHidden();
   });
 });

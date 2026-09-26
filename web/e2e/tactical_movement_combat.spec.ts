@@ -148,11 +148,12 @@ test.describe("Tactical fleet rally", () => {
         expect.objectContaining({ kind: "move", origin: forwardId }),
       ]),
     );
-    const response = await page.waitForResponse(
-      (response) => response.request() === sent,
-      { timeout: 15_000 },
+    const response = await page.waitForResponse((response) => response.request() === sent, {
+      timeout: 15_000,
+    });
+    expect(response.ok(), `batch response ${response.status()}: ${await response.text()}`).toBe(
+      true,
     );
-    expect(response.ok(), `batch response ${response.status()}: ${await response.text()}`).toBe(true);
     await expect(tray).toHaveCount(0);
     await expect
       .poll(async () => {
