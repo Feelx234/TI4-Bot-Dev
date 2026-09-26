@@ -94,59 +94,6 @@ pub struct SessionShared {
     pub batches: Vec<crate::storage::BatchRecord>,
 }
 
-/// Only explicitly public decisions receive prose. Unknown/private option IDs
-/// remain generic rather than accidentally exposing a card or secret objective.
-fn public_decision_detail(record: &DecisionRecord) -> Option<String> {
-    let subtype = record.context.as_ref()?.subtype.as_str();
-    let actor = &record.player;
-    match subtype {
-        "pay_resources" | "pay_influence" if record.chosen == "trade_good" => {
-            Some(format!("{actor} spent a trade good"))
-        }
-        "pay_resources" | "pay_influence" => record
-            .chosen
-            .strip_prefix("exhaust|")
-            .map(|planet| format!("{actor} exhausted {planet}")),
-        "vote_exhaust_planet" if record.chosen == "decline" => Some("Done voting".into()),
-        "vote_exhaust_planet" => Some(format!("{actor} exhausted {} to vote", record.chosen)),
-        "produce_unit" if record.chosen == "done_producing" => Some("Done producing".into()),
-        "produce_unit" => {
-            let parts: Vec<_> = record.chosen.split('|').collect();
-            if let ["build", unit, count] = parts.as_slice() {
-                Some(format!("{actor} produced {count} {unit}"))
-            } else {
-                None
-            }
-        }
-        "movement_step" if record.chosen == "done_moving" => Some("Done moving".into()),
-        _ => None,
-    }
-}
-
-fn public_movement_fact(shared: &SessionShared, record: &DecisionRecord) -> Option<MovementFact> {
-    if record.context.as_ref()?.subtype != "movement_step" {
-        return None;
-    }
-    let offered = shared
-        .pending_decision
-        .as_ref()?
-        .choice
-        .options
-        .iter()
-        .find(|option| option.id == record.chosen && option.kind == "move")?;
-    Some(MovementFact {
-        actor: record.player.clone(),
-        origin: offered.payload.get("origin")?.as_str()?.to_owned(),
-        destination: shared
-            .latest_state
-            .active_system
-            .as_ref()?
-            .as_str()
-            .to_owned(),
-        unit: offered.payload.get("unit")?.as_str()?.to_owned(),
-    })
-}
-
 impl SessionShared {
     fn persist_history(&self) -> Result<(), String> {
         if self.history_active
@@ -451,6 +398,37 @@ struct ReplayingDecider {
     inner: Box<dyn Decider>,
 }
 
+/// Capture the actual offer for decisions made by either a human or a bot. Replay
+/// decisions bypass this wrapper and already have their historical events.
+struct ObservedDecider {
+    inner: Box<dyn Decider>,
+    selected: Arc<Mutex<VecDeque<ChoiceOption>>>,
+}
+
+impl Decider for ObservedDecider {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        let option = self.inner.choose(choice)?;
+        self.selected
+            .lock()
+            .expect("selected options lock")
+            .push_back(option.clone());
+        Ok(option)
+    }
+
+    fn choose_seeing(
+        &mut self,
+        choice: &Choice,
+        seen: &SeatObservation<'_>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
+        let option = self.inner.choose_seeing(choice, seen)?;
+        self.selected
+            .lock()
+            .expect("selected options lock")
+            .push_back(option.clone());
+        Ok(option)
+    }
+}
+
 impl ReplayingDecider {
     fn try_replay(&self, choice: &Choice) -> Option<Result<ChoiceOption, IllegalChoice>> {
         let next_prior = {
@@ -499,6 +477,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     let prior_count = config.prior_decisions.len();
     let prior_records = config.prior_decisions.clone();
     let prior_queue = Arc::new(Mutex::new(VecDeque::from(config.prior_decisions.clone())));
+    let selected_options = Arc::new(Mutex::new(VecDeque::new()));
 
     let mut initial_shared = SessionShared::new(config.game_id.clone(), config.state.clone());
     initial_shared.seat_tokens.clone_from(&config.seat_tokens);
@@ -568,6 +547,10 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     SeatController::BotScripted(script) => Box::new(Scripted::new(script)),
                 };
 
+                let inner: Box<dyn Decider> = Box::new(ObservedDecider {
+                    inner,
+                    selected: selected_options.clone(),
+                });
                 if prior_count > 0 {
                     table.seat(
                         seat,
@@ -726,14 +709,26 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                                 break 'worker;
                             }
                             let version = lock.game_version;
-                            let movement = public_movement_fact(&lock, record);
+                            let selected = selected_options
+                                .lock()
+                                .expect("selected options lock")
+                                .pop_front();
+                            let offered = selected.as_ref();
+                            let (detail, movement) = crate::protocol::server::public_decision_facts(
+                                record,
+                                offered,
+                                lock.latest_state
+                                    .active_system
+                                    .as_ref()
+                                    .map(|id| id.as_str()),
+                            );
                             let event_error = lock
                                 .record_and_broadcast_event(
                                     EventVisibility::Public,
                                     GameEventKind::DecisionResolved,
                                     Some(version),
                                     prev_decision_count + offset + 1,
-                                    public_decision_detail(record),
+                                    detail,
                                     movement,
                                 )
                                 .err();

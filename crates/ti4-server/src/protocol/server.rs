@@ -142,6 +142,99 @@ pub fn action_id_for(
         .map(|start| format!("action_{}", start + 1))
 }
 
+/// Public facts derived from the engine's offered option, never from a submitted plan.
+/// Unrecognized choices stay generic so private option payloads cannot enter the public log.
+#[must_use]
+pub fn public_decision_facts(
+    record: &ti4_engine::choice::DecisionRecord,
+    offered: Option<&ChoiceOption>,
+    destination: Option<&str>,
+) -> (Option<String>, Option<MovementFact>) {
+    let Some(context) = record.context.as_ref() else {
+        return (None, None);
+    };
+    let Some(option) = offered.filter(|option| option.id == record.chosen) else {
+        return (None, None);
+    };
+    let actor = &record.player;
+    let detail = match (
+        context.subtype.as_str(),
+        option.kind.as_str(),
+        option.id.as_str(),
+    ) {
+        ("pay_resources" | "pay_influence", "pay", "trade_good") => {
+            Some(format!("{actor} spent a trade good"))
+        }
+        ("pay_resources" | "pay_influence", "pay", id) => id
+            .strip_prefix("exhaust|")
+            .filter(|planet| !planet.is_empty())
+            .map(|planet| format!("{actor} exhausted {planet}")),
+        ("vote_exhaust_planet", _, "decline") => Some("Done voting".into()),
+        ("vote_exhaust_planet", "vote_planet", _) => {
+            Some(format!("{actor} exhausted {} to vote", option.id))
+        }
+        ("produce_unit", _, "done_producing") => Some("Done producing".into()),
+        ("produce_unit", "produce", _) => {
+            let unit = option
+                .payload
+                .get("unit")
+                .and_then(serde_json::Value::as_str);
+            let count = option
+                .payload
+                .get("count")
+                .and_then(serde_json::Value::as_u64);
+            unit.zip(count)
+                .map(|(unit, count)| format!("{actor} produced {count} {unit}"))
+        }
+        ("load_cargo", _, "done_loading") => Some("Done loading".into()),
+        ("load_cargo", "load", _) => option
+            .payload
+            .get("unit")
+            .and_then(serde_json::Value::as_str)
+            .map(|unit| format!("{actor} loaded {unit}")),
+        ("movement_step", _, "done_moving") => Some("Done moving".into()),
+        ("movement_step", "move", _) => {
+            let origin = option
+                .payload
+                .get("origin")
+                .and_then(serde_json::Value::as_str);
+            let unit = option
+                .payload
+                .get("unit")
+                .and_then(serde_json::Value::as_str);
+            origin
+                .zip(unit)
+                .zip(destination)
+                .map(|((origin, unit), destination)| {
+                    format!("{actor} moved {unit} from #{origin} to #{destination}")
+                })
+        }
+        _ => None,
+    };
+    let movement = if context.subtype == "movement_step" && option.kind == "move" {
+        option
+            .payload
+            .get("origin")
+            .and_then(serde_json::Value::as_str)
+            .zip(
+                option
+                    .payload
+                    .get("unit")
+                    .and_then(serde_json::Value::as_str),
+            )
+            .zip(destination)
+            .map(|((origin, unit), destination)| MovementFact {
+                actor: actor.clone(),
+                origin: origin.into(),
+                destination: destination.into(),
+                unit: unit.into(),
+            })
+    } else {
+        None
+    };
+    (detail, movement)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MovementFact {
@@ -149,6 +242,91 @@ pub struct MovementFact {
     pub origin: String,
     pub destination: String,
     pub unit: String,
+}
+
+#[cfg(test)]
+mod fact_tests {
+    use super::*;
+    use ti4_engine::choice::DecisionRecord;
+    use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+
+    fn record(subtype: &str, option: &ChoiceOption) -> DecisionRecord {
+        let player = PlayerId::new("p1");
+        DecisionRecord {
+            player: player.clone(),
+            prompt: "test".into(),
+            chosen: option.id.clone(),
+            offered: vec![option.id.clone()],
+            context: Some(DecisionContext::new(
+                player,
+                DecisionSource::Rule("test".into()),
+                subtype,
+                Phase::Action,
+                1,
+            )),
+        }
+    }
+
+    #[test]
+    fn movement_facts_require_a_matching_offered_option_and_destination() {
+        let move_option = ChoiceOption::new("move|16|fighter", "move")
+            .with("origin", "16")
+            .with("unit", "fighter");
+        let record = record("movement_step", &move_option);
+        let (detail, movement) = public_decision_facts(&record, Some(&move_option), Some("22"));
+        assert_eq!(detail.as_deref(), Some("p1 moved fighter from #16 to #22"));
+        assert_eq!(movement.unwrap().destination, "22");
+        assert_eq!(
+            public_decision_facts(&record, Some(&move_option), None),
+            (None, None)
+        );
+        assert_eq!(
+            public_decision_facts(
+                &record,
+                Some(&ChoiceOption::new("other", "move")),
+                Some("22")
+            ),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn public_facts_do_not_echo_unknown_or_private_option_payloads() {
+        let secret = ChoiceOption::new("secret_card", "play_card").with("card", "private");
+        assert_eq!(
+            public_decision_facts(&record("play_card", &secret), Some(&secret), None),
+            (None, None)
+        );
+        let production = ChoiceOption::new("build|fighter|2", "produce")
+            .with("unit", "fighter")
+            .with("count", 2);
+        assert_eq!(
+            public_decision_facts(
+                &record("produce_unit", &production),
+                Some(&production),
+                None
+            )
+            .0
+            .as_deref(),
+            Some("p1 produced 2 fighter")
+        );
+    }
+
+    #[test]
+    fn action_selection_is_included_in_its_own_action_id() {
+        let action = DecisionRecord {
+            prompt: "action phase".into(),
+            ..record("select_action", &ChoiceOption::new("tactical", "action"))
+        };
+        assert_eq!(
+            action_id_for(&[action.clone()], 1).as_deref(),
+            Some("action_1")
+        );
+        assert_eq!(
+            action_id_for(&[action.clone(), action], 2).as_deref(),
+            Some("action_2")
+        );
+    }
 }
 
 /// Server message carrying a new game event to all subscribers.

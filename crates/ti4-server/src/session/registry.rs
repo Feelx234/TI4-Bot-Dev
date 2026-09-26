@@ -470,11 +470,18 @@ impl GameRegistry {
         let start_cursor = prior.len();
         let end_cursor = start_cursor + decisions.len();
         let batch_id = format!("batch_{:032x}", rand::random::<u128>());
+        let all_decisions: Vec<_> = prior.iter().chain(decisions.iter()).cloned().collect();
         let mut events = session.event_log();
         let (_, mut counter) = session.history_events();
         counter = counter.max(events.len() as u64);
         for (i, decision) in decisions.iter().enumerate() {
             let offered = &simulation.selected[i];
+            let (detail, movement) = crate::protocol::server::public_decision_facts(
+                decision,
+                Some(offered),
+                (request.plan.kind == crate::session::batch::BatchKind::TacticalMovement)
+                    .then_some(request.plan.destination.as_str()),
+            );
             counter += 1;
             events.push(crate::protocol::server::GameEvent {
                 id: format!("{game_id}-{counter}"),
@@ -489,66 +496,12 @@ impl GameRegistry {
                     .as_ref()
                     .is_some_and(|c| c.phase == ti4_model::state::Phase::Action)
                 {
-                    crate::protocol::server::action_id_for(&prior, start_cursor)
+                    crate::protocol::server::action_id_for(&all_decisions, start_cursor + i + 1)
                 } else {
                     None
                 },
-                movement: match &request.plan.steps[i] {
-                    crate::session::batch::MovementStep::Move { .. } => {
-                        Some(crate::protocol::server::MovementFact {
-                            actor: decision.player.clone(),
-                            origin: offered.payload["origin"]
-                                .as_str()
-                                .unwrap_or_default()
-                                .into(),
-                            destination: request.plan.destination.clone(),
-                            unit: offered.payload["unit"].as_str().unwrap_or_default().into(),
-                        })
-                    }
-                    _ => None,
-                },
-                // Option payloads can disclose hidden information: only movement semantics are public.
-                detail: Some(match &request.plan.steps[i] {
-                    crate::session::batch::MovementStep::Move { .. } => format!(
-                        "{} moved {unit} from #{origin} to #{}",
-                        decision.player,
-                        request.plan.destination,
-                        unit = offered.payload["unit"].as_str().unwrap_or_default(),
-                        origin = offered.payload["origin"].as_str().unwrap_or_default(),
-                    ),
-                    crate::session::batch::MovementStep::Load { .. } => {
-                        format!(
-                            "{} loaded {}",
-                            decision.player,
-                            offered.payload["unit"].as_str().unwrap_or_default()
-                        )
-                    }
-                    crate::session::batch::MovementStep::DoneLoading => "Done loading".into(),
-                    crate::session::batch::MovementStep::DoneMoving => "Done moving".into(),
-                    crate::session::batch::MovementStep::Exhaust { .. } => {
-                        format!(
-                            "{} exhausted {}",
-                            decision.player,
-                            offered.id.strip_prefix("exhaust|").unwrap_or_default()
-                        )
-                    }
-                    crate::session::batch::MovementStep::TradeGood => {
-                        format!("{} spent a trade good", decision.player)
-                    }
-                    crate::session::batch::MovementStep::VotePlanet { .. } => {
-                        format!("{} exhausted {} to vote", decision.player, offered.id)
-                    }
-                    crate::session::batch::MovementStep::DoneVoting => "Done voting".into(),
-                    crate::session::batch::MovementStep::Produce { .. } => {
-                        format!(
-                            "{} produced {} {}",
-                            decision.player,
-                            offered.payload["count"].as_u64().unwrap_or_default(),
-                            offered.payload["unit"].as_str().unwrap_or_default()
-                        )
-                    }
-                    crate::session::batch::MovementStep::DoneProducing => "Done producing".into(),
-                }),
+                movement,
+                detail,
             });
             for (_, phase, round) in simulation
                 .transitions

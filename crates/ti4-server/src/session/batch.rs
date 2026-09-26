@@ -119,16 +119,30 @@ impl Decider for PrivateDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         let mut script = self.0.lock().expect("batch script lock");
         if let Some(record) = script.prefix.pop_front() {
-            return choice
+            let matching: Vec<_> = choice
                 .options
                 .iter()
-                .find(|o| o.id == record.chosen && choice.player == record.player)
-                .cloned()
-                .ok_or_else(|| IllegalChoice::DeciderFailed {
+                .filter(|o| o.id == record.chosen)
+                .collect();
+            return if choice.player == record.player
+                && choice.prompt == record.prompt
+                && choice.ids()
+                    == record
+                        .offered
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>()
+                && choice.context == record.context
+                && matching.len() == 1
+            {
+                Ok(matching[0].clone())
+            } else {
+                Err(IllegalChoice::DeciderFailed {
                     player: choice.player.clone(),
                     prompt: choice.prompt.clone(),
                     reason: "batch prefix diverged".into(),
-                });
+                })
+            };
         }
         if script.next == script.steps.len() {
             script.finished = true;
@@ -489,6 +503,26 @@ mod tests {
         let script = decider.0.lock().unwrap();
         assert_eq!(script.next, 1);
         assert_eq!(script.failure.as_ref().unwrap().failed_step, 1);
+    }
+
+    #[test]
+    fn prefix_rejects_an_offer_change_before_consuming_a_planned_step() {
+        let pay = offered(
+            "pay_resources",
+            vec![ChoiceOption::labelled("trade_good", "pay", "spend")],
+        );
+        let mut script = decider(BatchKind::Payment, vec![MovementStep::TradeGood]);
+        script.0.lock().unwrap().prefix.push_back(DecisionRecord {
+            player: pay.player.clone(),
+            prompt: pay.prompt.clone(),
+            chosen: "trade_good".into(),
+            offered: vec!["trade_good".into()],
+            context: pay.context.clone(),
+        });
+        let mut changed = pay;
+        changed.options.push(ChoiceOption::decline());
+        assert!(script.choose(&changed).is_err());
+        assert_eq!(script.0.lock().unwrap().next, 0);
     }
 
     #[test]
