@@ -259,9 +259,17 @@ fn event_history_is_projected_to_its_explicit_audience() {
             event: GameEventKind::DecisionResolved,
             decision_count: Some(1),
             batch_id: None,
+            batch_start_cursor: None,
+            batch_end_cursor: None,
             action_id: None,
+            action_start_cursor: None,
             detail: None,
             movement: None,
+            seat_detail: Some(ti4_server::protocol::server::SeatDecisionDetail {
+                seat: PlayerId::new("seat_a"),
+                detail: "Private objective: hidden_test".into(),
+            }),
+            private_detail: None,
         },
         GameEvent {
             id: "test-2".to_owned(),
@@ -271,9 +279,14 @@ fn event_history_is_projected_to_its_explicit_audience() {
             event: GameEventKind::DecisionResolved,
             decision_count: Some(2),
             batch_id: None,
+            batch_start_cursor: None,
+            batch_end_cursor: None,
             action_id: None,
+            action_start_cursor: None,
             detail: None,
             movement: None,
+            seat_detail: None,
+            private_detail: None,
         },
     ];
 
@@ -309,6 +322,41 @@ fn event_history_is_projected_to_its_explicit_audience() {
     );
 
     assert_eq!(actor.events.len(), 2);
+    assert_eq!(
+        actor.events[0].private_detail.as_deref(),
+        Some("Private objective: hidden_test")
+    );
+    assert!(actor.events.iter().all(|event| event.seat_detail.is_none()));
     assert_eq!(opponent.events.len(), 1);
     assert_eq!(opponent.events[0].id, "test-1");
+    assert!(opponent.events[0].private_detail.is_none());
+    let spectator = ti4_server::projection::project_initial_snapshot(
+        "test_game",
+        1,
+        &game,
+        &ViewerRole::Spectator,
+        None,
+    );
+    assert!(spectator.events.is_empty());
+    let spectator = ti4_server::projection::project_initial_snapshot_with_map(
+        "test_game",
+        1,
+        &game,
+        &ViewerRole::Spectator,
+        None,
+        &[],
+        &ti4_server::map::GalaxyLayout {
+            version: 1,
+            active_sources: Vec::new(),
+            placements: Vec::new(),
+            off_map_system_ids: Vec::new(),
+        },
+        &events,
+    );
+    assert!(spectator.events[0].private_detail.is_none());
+    assert!(
+        !serde_json::to_string(&spectator.events)
+            .unwrap()
+            .contains("hidden_test")
+    );
 }

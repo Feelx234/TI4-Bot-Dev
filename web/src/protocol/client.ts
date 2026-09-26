@@ -21,7 +21,8 @@ export type HistoryChange =
   | "redo"
   | "redo_batch"
   | "redo_pipeline"
-  | { eventId: string };
+  | { eventId: string }
+  | { cursor: number };
 
 export type MovementStep =
   | { kind: "move"; origin: string; unit: string; damaged: boolean }
@@ -79,11 +80,22 @@ export function serverEventLog(entries: readonly GameLogEntry[] | undefined): Ga
   let start = entries.length - MAX_EVENT_LOG_ENTRIES;
   // Discard the leading fragment of a batch instead of displaying a partial
   // basket as if it were the full confirmation. A single batch has at most 100 steps.
-  const previous = entries[start - 1];
-  const first = entries[start];
-  if (first.batch_id && first.batch_id === previous.batch_id) {
-    const id = first.batch_id;
-    while (start < entries.length && entries[start].batch_id === id) start++;
+  const firstDecision = entries
+    .slice(start)
+    .find((entry) => entry.event.kind === "decision_resolved");
+  if (
+    firstDecision?.batch_id &&
+    (firstDecision.batch_start_cursor === undefined ||
+      firstDecision.decision_count !== firstDecision.batch_start_cursor + 1)
+  ) {
+    const id = firstDecision.batch_id;
+    while (
+      start < entries.length &&
+      (entries[start].batch_id === id ||
+        entries[start].decision_count === firstDecision.decision_count ||
+        entries[start].event.kind !== "decision_resolved")
+    )
+      start++;
   }
   return entries.slice(start);
 }
@@ -338,7 +350,11 @@ export class GameSessionClient {
       throw new Error("A player session is required");
     const url = this.snapshotUrl().replace(/\/snapshot$/, "/history");
     const body =
-      typeof action === "string" ? { action } : { action: "restore", event_id: action.eventId };
+      typeof action === "string"
+        ? { action }
+        : "cursor" in action
+          ? { action: "restore_cursor", cursor: action.cursor }
+          : { action: "restore", event_id: action.eventId };
     let version = this.state.gameVersion;
     const cursor = this.state.history.cursor;
     let response!: Response;

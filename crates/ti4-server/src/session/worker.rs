@@ -169,6 +169,7 @@ impl SessionShared {
         decision_count: usize,
         detail: Option<String>,
         movement: Option<MovementFact>,
+        seat_detail: Option<crate::protocol::server::SeatDecisionDetail>,
     ) -> Result<(), String> {
         if self.history_active
             && !self.redo_decisions.is_empty()
@@ -207,6 +208,11 @@ impl SessionShared {
             && self.latest_state.phase == ti4_model::state::Phase::Action)
             .then(|| crate::protocol::server::action_id_for(&self.decision_log, decision_count))
             .flatten();
+        let action_start_cursor = action_id
+            .as_ref()
+            .and_then(|id| id.strip_prefix("action_"))
+            .and_then(|n| n.parse::<usize>().ok())
+            .and_then(|n| n.checked_sub(1));
         let entry = GameEvent {
             id,
             timestamp,
@@ -215,9 +221,14 @@ impl SessionShared {
             event,
             decision_count: Some(decision_count),
             batch_id: None,
+            batch_start_cursor: None,
+            batch_end_cursor: None,
             action_id,
+            action_start_cursor,
             detail,
             movement,
+            seat_detail,
+            private_detail: None,
         };
         if !self.history_active
             && let Some(store) = &self.store
@@ -234,15 +245,21 @@ impl SessionShared {
             return Ok(());
         }
 
-        let visible = entry.visibility.clone();
-        let msg = ServerMessage::Event(crate::protocol::server::GameEventMsg {
-            protocol_version: PROTOCOL_VERSION,
-            game_id: self.game_id.clone(),
-            entry,
-        });
-
         self.subscribers.retain(|_, subscriber| {
-            !visible.permits(&subscriber.viewer) || subscriber.tx.try_send(msg.clone()).is_ok()
+            entry
+                .for_viewer(&subscriber.viewer)
+                .is_none_or(|projected| {
+                    subscriber
+                        .tx
+                        .try_send(ServerMessage::Event(
+                            crate::protocol::server::GameEventMsg {
+                                protocol_version: PROTOCOL_VERSION,
+                                game_id: self.game_id.clone(),
+                                entry: projected,
+                            },
+                        ))
+                        .is_ok()
+                })
         });
         Ok(())
     }
@@ -252,14 +269,21 @@ impl SessionShared {
             return;
         }
         for entry in self.event_log[index..].iter().cloned() {
-            let message = ServerMessage::Event(crate::protocol::server::GameEventMsg {
-                protocol_version: PROTOCOL_VERSION,
-                game_id: self.game_id.clone(),
-                entry: entry.clone(),
-            });
             self.subscribers.retain(|_, subscriber| {
-                !entry.visibility.permits(&subscriber.viewer)
-                    || subscriber.tx.try_send(message.clone()).is_ok()
+                entry
+                    .for_viewer(&subscriber.viewer)
+                    .is_none_or(|projected| {
+                        subscriber
+                            .tx
+                            .try_send(ServerMessage::Event(
+                                crate::protocol::server::GameEventMsg {
+                                    protocol_version: PROTOCOL_VERSION,
+                                    game_id: self.game_id.clone(),
+                                    entry: projected,
+                                },
+                            ))
+                            .is_ok()
+                    })
             });
         }
     }
@@ -374,6 +398,7 @@ impl SessionShared {
             },
             Some(self.game_version),
             cursor,
+            None,
             None,
             None,
         )?;
@@ -586,6 +611,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     0,
                     None,
                     None,
+                    None,
                 ) {
                     lock.error = Some(error);
                     return;
@@ -714,14 +740,15 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                                 .expect("selected options lock")
                                 .pop_front();
                             let offered = selected.as_ref();
-                            let (detail, movement) = crate::protocol::server::public_decision_facts(
-                                record,
-                                offered,
-                                lock.latest_state
-                                    .active_system
-                                    .as_ref()
-                                    .map(|id| id.as_str()),
-                            );
+                            let (detail, movement, seat_detail) =
+                                crate::protocol::server::decision_facts(
+                                    record,
+                                    offered,
+                                    lock.latest_state
+                                        .active_system
+                                        .as_ref()
+                                        .map(|id| id.as_str()),
+                                );
                             let event_error = lock
                                 .record_and_broadcast_event(
                                     EventVisibility::Public,
@@ -730,6 +757,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                                     prev_decision_count + offset + 1,
                                     detail,
                                     movement,
+                                    seat_detail,
                                 )
                                 .err();
                             if let Some(error) = event_error {
@@ -809,6 +837,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                             },
                             Some(version),
                             cursor,
+                            None,
                             None,
                             None,
                         ) {

@@ -174,6 +174,15 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
       if (value.entry.detail !== undefined && typeof value.entry.detail !== "string")
         fail("invalid event detail");
       if (
+        value.entry.private_detail !== undefined &&
+        typeof value.entry.private_detail !== "string"
+      )
+        fail("invalid private event detail");
+      for (const field of ["batch_start_cursor", "batch_end_cursor", "action_start_cursor"]) {
+        if (value.entry[field] !== undefined && !isNonNegativeInteger(value.entry[field]))
+          fail(`invalid ${field}`);
+      }
+      if (
         value.entry.decision_count !== undefined &&
         !isNonNegativeInteger(value.entry.decision_count)
       )

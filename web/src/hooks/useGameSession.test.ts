@@ -23,4 +23,22 @@ describe("serverEventLog", () => {
     expect(bounded[0]?.id).toBe("server-1");
     expect(bounded.at(-1)?.id).toBe("server-500");
   });
+
+  it("discards a clipped batch even when the window begins on a same-cursor phase event", () => {
+    const events = Array.from({ length: 504 }, (_, index): GameLogEntry => ({
+      ...entry(`server-${index}`),
+      decision_count: index,
+      ...(index >= 3 && index <= 7
+        ? {
+            batch_id: "batch",
+            batch_start_cursor: 2,
+            batch_end_cursor: 8,
+          }
+        : {}),
+    }));
+    events[4] = { ...events[4], event: { kind: "phase_transition", phase: "action", round: 1 } };
+    const bounded = serverEventLog(events);
+    expect(bounded[0].id).toBe("server-8");
+    expect(bounded.some((event) => event.batch_id === "batch")).toBe(false);
+  });
 });

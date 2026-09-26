@@ -747,65 +747,17 @@ export const GameShell: React.FC<GameShellProps> = ({
         className={`app-shell__event-log${openDrawer === "events" ? " app-shell__drawer--open" : ""}`}
         aria-label="Event log"
       >
-        {onChangeHistory && (
-          <div style={{ display: "flex", gap: 8, padding: "4px 12px" }}>
-            <button
-              type="button"
-              className="button button--secondary button--sm"
-              disabled={historyBusy || !history?.cursor}
-              onClick={() => onChangeHistory("undo", 1)}
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              className="button button--secondary button--sm"
-              disabled={historyBusy || !history?.cursor}
-              onClick={() => onChangeHistory("undo_pipeline")}
-            >
-              Undo action
-            </button>
-            <button
-              type="button"
-              className="button button--secondary button--sm"
-              disabled={historyBusy || !history?.cursor}
-              onClick={() => onChangeHistory("undo_batch")}
-            >
-              Undo batch
-            </button>
-            <button
-              type="button"
-              className="button button--secondary button--sm"
-              disabled={historyBusy || !history?.redo_count}
-              onClick={() => onChangeHistory("redo")}
-            >
-              Redo
-            </button>
-            <button
-              type="button"
-              className="button button--secondary button--sm"
-              disabled={historyBusy || !history?.redo_count}
-              onClick={() => onChangeHistory("redo_batch")}
-            >
-              Redo batch
-            </button>
-            <button
-              type="button"
-              className="button button--secondary button--sm"
-              disabled={historyBusy || !history?.redo_count}
-              onClick={() => onChangeHistory("redo_pipeline")}
-            >
-              Redo action
-            </button>
-          </div>
-        )}
         <EventLog
           events={events}
           cursor={history?.cursor}
+          redoCount={history?.redo_count}
           busy={historyBusy}
           onRestore={
-            onChangeHistory ? (eventId, steps) => onChangeHistory({ eventId }, steps) : undefined
+            onChangeHistory
+              ? (cursor) => onChangeHistory({ cursor }, (history?.cursor ?? 0) - cursor)
+              : undefined
           }
+          onChangeHistory={onChangeHistory ? (action) => onChangeHistory(action) : undefined}
           isOpen={openDrawer === "events"}
           onToggle={() => setOpenDrawer((drawer) => (drawer === "events" ? null : "events"))}
         />

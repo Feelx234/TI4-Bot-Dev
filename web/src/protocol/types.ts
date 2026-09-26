@@ -261,8 +261,12 @@ export type GameEvent = EventVisibility & {
   version?: number;
   decision_count?: number;
   batch_id?: string;
+  batch_start_cursor?: number;
+  batch_end_cursor?: number;
   action_id?: string;
+  action_start_cursor?: number;
   detail?: string;
+  private_detail?: string;
   movement?: { actor: string; origin: string; destination: string; unit: string };
   event: GameEventKind;
 };

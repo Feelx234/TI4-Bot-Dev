@@ -119,6 +119,86 @@ html,
   font-size: 12px;
 }
 
+.event-log__redo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.event-log__entry {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.event-log__entry > .event-log__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.event-log__index {
+  color: var(--color-text-faint);
+  font-size: 11px;
+}
+.event-log__actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.event-log__actions > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 18px;
+}
+.event-log__actions > summary:hover,
+.event-log__actions[open] > summary {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+.event-log__actions > summary::-webkit-details-marker {
+  display: none;
+}
+.event-log__action-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 0;
+}
+.event-log__action-list button,
+.event-log__detail-undo {
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  font-size: 11px;
+  padding: 4px 8px;
+}
+.event-log__action-list button:hover,
+.event-log__detail-undo:hover {
+  color: var(--color-accent);
+  background: var(--color-surface-raised);
+}
+.event-log__action-list button:disabled,
+.event-log__detail-undo:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .app-shell__mobile-actions {
   display: none;
 }

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { format } from "oxfmt";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(scriptDir, "..");
@@ -142,7 +143,9 @@ async function generate() {
   return output;
 }
 
-const output = await generate();
+// Keep the generated file in the same format as the checked-in TypeScript.
+const { code: output, errors } = await format(outputPath, await generate());
+if (errors.length > 0) throw new Error("Failed to format generated content manifest");
 if (process.argv.includes("--check")) {
   const existing = await readFile(outputPath, "utf8").catch(() => "");
   if (existing !== output) {

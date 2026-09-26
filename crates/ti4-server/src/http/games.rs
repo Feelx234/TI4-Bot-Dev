@@ -364,6 +364,7 @@ pub struct ChangeHistoryRequest {
     pub expected_version: u64,
     pub action: String,
     pub event_id: Option<String>,
+    pub cursor: Option<usize>,
 }
 
 /// Host-only authoritative rewind/redo. A changed session forces existing WS clients to
@@ -375,14 +376,15 @@ pub async fn change_history(
     Json(payload): Json<ChangeHistoryRequest>,
 ) -> Result<Json<ServerMessage>, (StatusCode, String)> {
     let token = require_player_session(&headers)?;
-    let action = match (payload.action.as_str(), payload.event_id) {
-        ("undo", None) => HistoryAction::Undo,
-        ("undo_batch", None) => HistoryAction::UndoBatch,
-        ("undo_pipeline", None) => HistoryAction::UndoPipeline,
-        ("redo", None) => HistoryAction::Redo,
-        ("redo_batch", None) => HistoryAction::RedoBatch,
-        ("redo_pipeline", None) => HistoryAction::RedoPipeline,
-        ("restore", Some(event_id)) => HistoryAction::Restore { event_id },
+    let action = match (payload.action.as_str(), payload.event_id, payload.cursor) {
+        ("undo", None, None) => HistoryAction::Undo,
+        ("undo_batch", None, None) => HistoryAction::UndoBatch,
+        ("undo_pipeline", None, None) => HistoryAction::UndoPipeline,
+        ("redo", None, None) => HistoryAction::Redo,
+        ("redo_batch", None, None) => HistoryAction::RedoBatch,
+        ("redo_pipeline", None, None) => HistoryAction::RedoPipeline,
+        ("restore", Some(event_id), None) => HistoryAction::Restore { event_id },
+        ("restore_cursor", None, Some(cursor)) => HistoryAction::RestoreCursor { cursor },
         _ => return Err((StatusCode::BAD_REQUEST, "Invalid history action".to_owned())),
     };
     let token = token.to_owned();

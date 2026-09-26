@@ -121,11 +121,46 @@ pub struct GameEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub batch_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch_start_cursor: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch_end_cursor: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_start_cursor: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub movement: Option<MovementFact>,
+    /// Stored only in authoritative history; stripped from every projected event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat_detail: Option<SeatDecisionDetail>,
+    /// Only populated on the acting seat's projected copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SeatDecisionDetail {
+    pub seat: PlayerId,
+    pub detail: String,
+}
+
+impl GameEvent {
+    #[must_use]
+    pub fn for_viewer(&self, viewer: &ViewerRole) -> Option<Self> {
+        if !self.visibility.permits(viewer) {
+            return None;
+        }
+        let mut projected = self.clone();
+        projected.private_detail = self
+            .seat_detail
+            .as_ref()
+            .and_then(|fact| viewer.is_actor(&fact.seat).then(|| fact.detail.clone()));
+        projected.seat_detail = None;
+        Some(projected)
+    }
 }
 
 /// Stable decision-cursor identity of the most recent engine action selection.
@@ -235,6 +270,47 @@ pub fn public_decision_facts(
     (detail, movement)
 }
 
+/// Derive public facts and an explicitly seat-only detail from the same offered option.
+/// Only known private contexts are allowed to expose their selected ID to their actor.
+#[must_use]
+pub fn decision_facts(
+    record: &ti4_engine::choice::DecisionRecord,
+    offered: Option<&ChoiceOption>,
+    destination: Option<&str>,
+) -> (
+    Option<String>,
+    Option<MovementFact>,
+    Option<SeatDecisionDetail>,
+) {
+    let (detail, movement) = public_decision_facts(record, offered, destination);
+    let private = record
+        .context
+        .as_ref()
+        .zip(offered)
+        .and_then(|(context, option)| {
+            if option.id != record.chosen || option.id.is_empty() || option.id.len() > 128 {
+                return None;
+            }
+            let description = match context.subtype.as_str() {
+                "score_secret_objective" if option.kind == "score" => {
+                    Some(format!("Scored secret objective {}", option.id))
+                }
+                "score_objective" if option.kind == "score" => {
+                    Some(format!("Selected objective {}", option.id))
+                }
+                "legendary_galactic_council" if option.kind == "legendary" => {
+                    Some(format!("Discarded secret objective {}", option.id))
+                }
+                _ => None,
+            }?;
+            Some(SeatDecisionDetail {
+                seat: record.player.clone(),
+                detail: description,
+            })
+        });
+    (detail, movement, private)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MovementFact {
@@ -309,6 +385,63 @@ mod fact_tests {
             .0
             .as_deref(),
             Some("p1 produced 2 fighter")
+        );
+    }
+
+    #[test]
+    fn secret_facts_are_projected_only_to_the_actor() {
+        let secret =
+            ChoiceOption::new("hidden_objective", "score").with("card", "do not broadcast");
+        let record = record("score_secret_objective", &secret);
+        let (detail, movement, seat_detail) = decision_facts(&record, Some(&secret), None);
+        assert_eq!((detail, movement), (None, None));
+        let event = GameEvent {
+            id: "event-1".into(),
+            timestamp: String::new(),
+            version: Some(1),
+            visibility: EventVisibility::Public,
+            event: GameEventKind::DecisionResolved,
+            decision_count: Some(1),
+            batch_id: None,
+            batch_start_cursor: None,
+            batch_end_cursor: None,
+            action_id: None,
+            action_start_cursor: None,
+            detail: None,
+            movement: None,
+            seat_detail,
+            private_detail: None,
+        };
+        let actor = event
+            .for_viewer(&ViewerRole::Player(PlayerId::new("p1")))
+            .unwrap();
+        assert_eq!(
+            actor.private_detail.as_deref(),
+            Some("Scored secret objective hidden_objective")
+        );
+        for viewer in [
+            ViewerRole::Player(PlayerId::new("p2")),
+            ViewerRole::Spectator,
+        ] {
+            let projected = event.for_viewer(&viewer).unwrap();
+            let json = serde_json::to_string(&projected).unwrap();
+            assert!(!json.contains("hidden_objective"));
+            assert!(!json.contains("seat_detail"));
+            assert!(!json.contains("do not broadcast"));
+        }
+        assert!(
+            serde_json::to_string(&actor)
+                .unwrap()
+                .contains("private_detail")
+        );
+        assert!(
+            !serde_json::to_string(&actor)
+                .unwrap()
+                .contains("seat_detail")
+        );
+        assert_eq!(
+            decision_facts(&record, Some(&ChoiceOption::new("other", "score")), None).2,
+            None
         );
     }
 

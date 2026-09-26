@@ -160,9 +160,14 @@ fn server_event_round_trips() {
             event: ti4_server::protocol::server::GameEventKind::DecisionResolved,
             decision_count: Some(1),
             batch_id: None,
+            batch_start_cursor: None,
+            batch_end_cursor: None,
             action_id: None,
+            action_start_cursor: None,
             detail: None,
             movement: None,
+            seat_detail: None,
+            private_detail: None,
         },
     });
     let json = serde_json::to_string(&msg).expect("serialize");

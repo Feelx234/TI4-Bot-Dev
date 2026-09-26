@@ -27,6 +27,7 @@ pub enum HistoryAction {
     RedoBatch,
     RedoPipeline,
     Restore { event_id: String },
+    RestoreCursor { cursor: usize },
 }
 
 #[cfg(test)]
@@ -680,7 +681,21 @@ impl GameRegistry {
         counter = counter.max(events.len() as u64);
         for (i, decision) in decisions.iter().enumerate() {
             let offered = &simulation.selected[i];
-            let (detail, movement) = crate::protocol::server::public_decision_facts(
+            let action_id = if decision
+                .context
+                .as_ref()
+                .is_some_and(|c| c.phase == ti4_model::state::Phase::Action)
+            {
+                crate::protocol::server::action_id_for(&all_decisions, start_cursor + i + 1)
+            } else {
+                None
+            };
+            let action_start_cursor = action_id
+                .as_ref()
+                .and_then(|id| id.strip_prefix("action_"))
+                .and_then(|n| n.parse::<usize>().ok())
+                .and_then(|n| n.checked_sub(1));
+            let (detail, movement, seat_detail) = crate::protocol::server::decision_facts(
                 decision,
                 Some(offered),
                 (request.plan.kind == crate::session::batch::BatchKind::TacticalMovement)
@@ -695,17 +710,14 @@ impl GameRegistry {
                 event: crate::protocol::server::GameEventKind::DecisionResolved,
                 decision_count: Some(start_cursor + i + 1),
                 batch_id: Some(batch_id.clone()),
-                action_id: if decision
-                    .context
-                    .as_ref()
-                    .is_some_and(|c| c.phase == ti4_model::state::Phase::Action)
-                {
-                    crate::protocol::server::action_id_for(&all_decisions, start_cursor + i + 1)
-                } else {
-                    None
-                },
+                batch_start_cursor: Some(start_cursor),
+                batch_end_cursor: Some(end_cursor),
+                action_id,
+                action_start_cursor,
                 movement,
                 detail,
+                seat_detail,
+                private_detail: None,
             });
             for (_, phase, round) in simulation
                 .transitions
@@ -724,9 +736,14 @@ impl GameRegistry {
                     },
                     decision_count: Some(start_cursor + i + 1),
                     batch_id: None,
+                    batch_start_cursor: None,
+                    batch_end_cursor: None,
                     action_id: None,
+                    action_start_cursor: None,
                     detail: None,
                     movement: None,
+                    seat_detail: None,
+                    private_detail: None,
                 });
             }
         }
@@ -740,9 +757,14 @@ impl GameRegistry {
                 event: crate::protocol::server::GameEventKind::GameFinished { winner },
                 decision_count: Some(end_cursor),
                 batch_id: None,
+                batch_start_cursor: None,
+                batch_end_cursor: None,
                 action_id: None,
+                action_start_cursor: None,
                 detail: None,
                 movement: None,
+                seat_detail: None,
+                private_detail: None,
             });
         }
         let mut batches = session.batches();
@@ -996,6 +1018,12 @@ impl GameRegistry {
                     return Err(HistoryError::InvalidTarget);
                 }
                 target
+            }
+            HistoryAction::RestoreCursor { cursor } => {
+                if cursor >= current.len() {
+                    return Err(HistoryError::InvalidTarget);
+                }
+                cursor
             }
         };
         if target > total {

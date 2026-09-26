@@ -680,7 +680,7 @@ fn host_rewinds_replays_and_branches_durably() {
             "history_game",
             &host_token,
             redone.game_version(),
-            HistoryAction::Undo,
+            HistoryAction::RestoreCursor { cursor: 1 },
         )
         .unwrap();
     let forked = registry.get_game("history_game").unwrap();

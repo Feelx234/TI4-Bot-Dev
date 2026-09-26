@@ -452,6 +452,27 @@ describe("GameSessionClient ingress lifecycle", () => {
     expect(FakeWebSocket.latest).not.toBe(socket);
     client.stop();
   });
+  it("posts a log row's actual decision cursor rather than its visible row index", async () => {
+    const { client } = await connectedPlayer();
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...snapshot,
+        game_version: 5,
+        viewer: { role: "player", seat: "player_a" },
+        history: { cursor: 2, redo_count: 2, generation: 1 },
+        events: [],
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    await client.changeHistory({ cursor: 2 });
+    expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({
+      action: "restore_cursor",
+      cursor: 2,
+      expected_version: 4,
+    });
+    client.stop();
+  });
   async function connectedPlayer() {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     vi.stubGlobal(

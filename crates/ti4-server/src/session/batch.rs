@@ -1,4 +1,4 @@
-//! Private, bounded engine replay for a single tactical movement confirmation.
+//! Private, bounded engine replay for a staged workflow confirmation.
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -22,14 +22,171 @@ pub struct BatchRequest {
     pub plan: MovementPlan,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub struct MovementPlan {
-    #[serde(default)]
     pub kind: BatchKind,
-    #[serde(default)]
     pub destination: String,
     pub steps: Vec<MovementStep>,
+}
+
+// Reject cross-workflow steps at the request boundary, before entering private replay.
+// The original movement request without a kind remains a supported request shape.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum WirePlan {
+    Typed(TypedPlan),
+    Legacy(LegacyMovement),
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum TypedPlan {
+    TacticalMovement {
+        destination: String,
+        steps: Vec<MovementOnlyStep>,
+    },
+    Payment {
+        steps: Vec<PaymentStep>,
+    },
+    AgendaVotePlanets {
+        steps: Vec<VoteStep>,
+    },
+    Production {
+        destination: String,
+        steps: Vec<ProductionStep>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyMovement {
+    destination: String,
+    steps: Vec<MovementOnlyStep>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum MovementOnlyStep {
+    Move {
+        origin: String,
+        unit: String,
+        damaged: bool,
+    },
+    Load {
+        origin: String,
+        unit: String,
+        source: Option<String>,
+        damaged: bool,
+    },
+    DoneLoading,
+    DoneMoving,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum PaymentStep {
+    Exhaust { planet: String },
+    TradeGood,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum VoteStep {
+    VotePlanet { planet: String },
+    DoneVoting,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum ProductionStep {
+    Produce { unit: String, count: u32 },
+    DoneProducing,
+}
+
+impl<'de> Deserialize<'de> for MovementPlan {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let plan = WirePlan::deserialize(deserializer)?;
+        Ok(match plan {
+            WirePlan::Legacy(plan) => Self {
+                kind: BatchKind::TacticalMovement,
+                destination: plan.destination,
+                steps: plan.steps.into_iter().map(Into::into).collect(),
+            },
+            WirePlan::Typed(TypedPlan::TacticalMovement { destination, steps }) => Self {
+                kind: BatchKind::TacticalMovement,
+                destination,
+                steps: steps.into_iter().map(Into::into).collect(),
+            },
+            WirePlan::Typed(TypedPlan::Payment { steps }) => Self {
+                kind: BatchKind::Payment,
+                destination: String::new(),
+                steps: steps.into_iter().map(Into::into).collect(),
+            },
+            WirePlan::Typed(TypedPlan::AgendaVotePlanets { steps }) => Self {
+                kind: BatchKind::AgendaVotePlanets,
+                destination: String::new(),
+                steps: steps.into_iter().map(Into::into).collect(),
+            },
+            WirePlan::Typed(TypedPlan::Production { destination, steps }) => Self {
+                kind: BatchKind::Production,
+                destination,
+                steps: steps.into_iter().map(Into::into).collect(),
+            },
+        })
+    }
+}
+
+impl From<MovementOnlyStep> for MovementStep {
+    fn from(step: MovementOnlyStep) -> Self {
+        match step {
+            MovementOnlyStep::Move {
+                origin,
+                unit,
+                damaged,
+            } => Self::Move {
+                origin,
+                unit,
+                damaged,
+            },
+            MovementOnlyStep::Load {
+                origin,
+                unit,
+                source,
+                damaged,
+            } => Self::Load {
+                origin,
+                unit,
+                source,
+                damaged,
+            },
+            MovementOnlyStep::DoneLoading => Self::DoneLoading,
+            MovementOnlyStep::DoneMoving => Self::DoneMoving,
+        }
+    }
+}
+impl From<PaymentStep> for MovementStep {
+    fn from(step: PaymentStep) -> Self {
+        match step {
+            PaymentStep::Exhaust { planet } => Self::Exhaust { planet },
+            PaymentStep::TradeGood => Self::TradeGood,
+        }
+    }
+}
+impl From<VoteStep> for MovementStep {
+    fn from(step: VoteStep) -> Self {
+        match step {
+            VoteStep::VotePlanet { planet } => Self::VotePlanet { planet },
+            VoteStep::DoneVoting => Self::DoneVoting,
+        }
+    }
+}
+impl From<ProductionStep> for MovementStep {
+    fn from(step: ProductionStep) -> Self {
+        match step {
+            ProductionStep::Produce { unit, count } => Self::Produce { unit, count },
+            ProductionStep::DoneProducing => Self::DoneProducing,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
@@ -71,6 +228,74 @@ pub enum MovementStep {
         count: u32,
     },
     DoneProducing,
+}
+
+impl MovementStep {
+    fn subtype(&self) -> &'static str {
+        match self {
+            Self::Move { .. } | Self::DoneMoving => "movement_step",
+            Self::Load { .. } | Self::DoneLoading => "load_cargo",
+            Self::Exhaust { .. } | Self::TradeGood => "pay_resources",
+            Self::VotePlanet { .. } | Self::DoneVoting => "vote_exhaust_planet",
+            Self::Produce { .. } | Self::DoneProducing => "produce_unit",
+        }
+    }
+
+    fn matches_option(&self, option: &ChoiceOption) -> bool {
+        let value = |key: &str| option.payload.get(key).and_then(serde_json::Value::as_str);
+        match self {
+            Self::Move {
+                origin,
+                unit,
+                damaged,
+            } => {
+                option.kind == "move"
+                    && value("origin") == Some(origin.as_str())
+                    && value("unit") == Some(unit.as_str())
+                    && option
+                        .payload
+                        .get("damaged")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                        == *damaged
+            }
+            Self::Load {
+                origin,
+                unit,
+                source,
+                damaged,
+            } => {
+                option.kind == "load"
+                    && value("system") == Some(origin.as_str())
+                    && value("unit") == Some(unit.as_str())
+                    && value("source") == source.as_deref()
+                    && option
+                        .payload
+                        .get("damaged")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                        == *damaged
+            }
+            Self::DoneLoading => option.id == "done_loading",
+            Self::DoneMoving => option.id == "done_moving",
+            Self::Exhaust { planet } => {
+                option.kind == "pay" && option.id == format!("exhaust|{planet}")
+            }
+            Self::TradeGood => option.kind == "pay" && option.id == "trade_good",
+            Self::VotePlanet { planet } => option.kind == "vote_planet" && option.id == *planet,
+            Self::DoneVoting => option.id == "decline",
+            Self::DoneProducing => option.id == "done_producing",
+            Self::Produce { unit, count } => {
+                option.kind == "produce"
+                    && value("unit") == Some(unit.as_str())
+                    && option
+                        .payload
+                        .get("count")
+                        .and_then(serde_json::Value::as_u64)
+                        == Some(u64::from(*count))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,16 +380,7 @@ impl Decider for PrivateDecider {
         let index = script.next;
         let step = &script.steps[index];
         let expected = format!("{step:?}");
-        let subtype = match step {
-            MovementStep::Move { .. } | MovementStep::DoneMoving => "movement_step",
-            MovementStep::Load { .. } | MovementStep::DoneLoading => "load_cargo",
-            MovementStep::Exhaust { .. } | MovementStep::TradeGood => match script.kind {
-                BatchKind::Payment => "pay_resources", // influence is accepted below
-                _ => "invalid",
-            },
-            MovementStep::VotePlanet { .. } | MovementStep::DoneVoting => "vote_exhaust_planet",
-            MovementStep::Produce { .. } | MovementStep::DoneProducing => "produce_unit",
-        };
+        let subtype = step.subtype();
         let context_ok = choice.context.as_ref().is_some_and(|c| {
             c.actor == script.actor && (c.subtype == subtype ||
                 (script.kind == BatchKind::Payment && c.subtype == "pay_influence" && subtype == "pay_resources")) &&
@@ -188,61 +404,7 @@ impl Decider for PrivateDecider {
             choice
                 .options
                 .iter()
-                .filter(|o| match step {
-                    MovementStep::Move {
-                        origin,
-                        unit,
-                        damaged,
-                    } => {
-                        o.kind == "move"
-                            && o.payload.get("origin").and_then(serde_json::Value::as_str)
-                                == Some(origin.as_str())
-                            && o.payload.get("unit").and_then(serde_json::Value::as_str)
-                                == Some(unit.as_str())
-                            && o.payload
-                                .get("damaged")
-                                .and_then(serde_json::Value::as_bool)
-                                .unwrap_or(false)
-                                == *damaged
-                    }
-                    MovementStep::Load {
-                        origin,
-                        unit,
-                        source,
-                        damaged,
-                    } => {
-                        o.kind == "load"
-                            && o.payload.get("system").and_then(serde_json::Value::as_str)
-                                == Some(origin.as_str())
-                            && o.payload.get("unit").and_then(serde_json::Value::as_str)
-                                == Some(unit.as_str())
-                            && o.payload.get("source").and_then(serde_json::Value::as_str)
-                                == source.as_deref()
-                            && o.payload
-                                .get("damaged")
-                                .and_then(serde_json::Value::as_bool)
-                                .unwrap_or(false)
-                                == *damaged
-                    }
-                    MovementStep::DoneLoading => o.id == "done_loading",
-                    MovementStep::DoneMoving => o.id == "done_moving",
-                    MovementStep::Exhaust { planet } => {
-                        o.kind == "pay" && o.id == format!("exhaust|{planet}")
-                    }
-                    MovementStep::TradeGood => o.kind == "pay" && o.id == "trade_good",
-                    MovementStep::VotePlanet { planet } => {
-                        o.kind == "vote_planet" && o.id == *planet
-                    }
-                    MovementStep::DoneVoting => o.id == "decline",
-                    MovementStep::DoneProducing => o.id == "done_producing",
-                    MovementStep::Produce { unit, count } => {
-                        o.kind == "produce"
-                            && o.payload.get("unit").and_then(serde_json::Value::as_str)
-                                == Some(unit.as_str())
-                            && o.payload.get("count").and_then(serde_json::Value::as_u64)
-                                == Some(u64::from(*count))
-                    }
-                })
+                .filter(|o| step.matches_option(o))
                 .collect()
         } else {
             Vec::new()
@@ -456,6 +618,46 @@ pub fn simulate(
 mod tests {
     use super::*;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+
+    #[test]
+    fn request_schemas_reject_steps_from_other_baskets() {
+        for (kind, step) in [
+            (
+                "payment",
+                "{\"kind\":\"produce\",\"unit\":\"fighter\",\"count\":1}",
+            ),
+            ("agenda_vote_planets", "{\"kind\":\"trade_good\"}"),
+            (
+                "production",
+                "{\"kind\":\"vote_planet\",\"planet\":\"jord\"}",
+            ),
+            (
+                "tactical_movement",
+                "{\"kind\":\"exhaust\",\"planet\":\"jord\"}",
+            ),
+        ] {
+            let destination = if kind == "production" || kind == "tactical_movement" {
+                ",\"destination\":\"22\""
+            } else {
+                ""
+            };
+            let json = format!("{{\"kind\":\"{kind}\"{destination},\"steps\":[{step}]}}");
+            assert!(
+                serde_json::from_str::<MovementPlan>(&json).is_err(),
+                "{json}"
+            );
+        }
+        let legacy = serde_json::from_str::<MovementPlan>(
+            r#"{"destination":"22","steps":[{"kind":"done_moving"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.kind, BatchKind::TacticalMovement);
+        let payment = serde_json::from_str::<MovementPlan>(
+            r#"{"kind":"payment","steps":[{"kind":"trade_good"}]}"#,
+        )
+        .unwrap();
+        assert!(matches!(payment.steps[0], MovementStep::TradeGood));
+    }
 
     fn offered(subtype: &str, options: Vec<ChoiceOption>) -> Choice {
         let player = PlayerId::new("p1");

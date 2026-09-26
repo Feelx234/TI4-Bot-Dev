@@ -398,8 +398,7 @@ pub fn project_initial_snapshot_with_map(
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
         events: events
             .iter()
-            .filter(|event| event.visibility.permits(viewer))
-            .cloned()
+            .filter_map(|event| event.for_viewer(viewer))
             .collect(),
         history: crate::protocol::server::HistoryStatus::default(),
     }
