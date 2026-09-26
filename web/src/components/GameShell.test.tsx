@@ -70,7 +70,9 @@ describe("GameShell", () => {
       viewerSeat: "p1",
       onSubmitChoice: vi.fn().mockResolvedValue(undefined),
     };
-    const { rerender } = render(<GameShell {...props} choice={combatChoice} boardView={activeBoard} />);
+    const { rerender } = render(
+      <GameShell {...props} choice={combatChoice} boardView={activeBoard} />,
+    );
     expect(screen.getByTestId("combat-resolution-modal")).toBeInTheDocument();
 
     rerender(<GameShell {...props} choice={choice} boardView={nextBoard} />);

@@ -361,11 +361,11 @@ export const Board: React.FC<BoardProps> = ({
 
                 {/* Blocked by player's command token overlay */}
                 {tile.commandTokens.some((ct) => ct.owner === viewerSeat) && (
-                  <g data-testid={`blocked-token-${tile.systemId}`} style={{ pointerEvents: "none" }}>
-                    <polygon
-                      points={tile.points}
-                      fill="rgba(15, 23, 42, 0.4)"
-                    />
+                  <g
+                    data-testid={`blocked-token-${tile.systemId}`}
+                    style={{ pointerEvents: "none" }}
+                  >
+                    <polygon points={tile.points} fill="rgba(15, 23, 42, 0.4)" />
                     <rect
                       x={tile.center.x - 32}
                       y={tile.center.y - 36}

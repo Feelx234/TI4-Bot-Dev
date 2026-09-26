@@ -55,17 +55,15 @@ afterEach(() => {
 describe("lobby UI", () => {
   it("creates empty positions without choosing bot or player identities", async () => {
     const onCreated = vi.fn();
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          game_id: "game",
-          player_session: "secret",
-          player: { id: "player_a" },
-          lobby,
-        }),
-      });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        game_id: "game",
+        player_session: "secret",
+        player: { id: "player_a" },
+        lobby,
+      }),
+    });
     vi.stubGlobal("fetch", fetchMock);
     render(<CreateLobby onCreated={onCreated} onError={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "Host 🪐" } });

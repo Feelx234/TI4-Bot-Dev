@@ -39,27 +39,25 @@ afterEach(() => {
 describe("App lobby routing", () => {
   it("reads without admission, then joins and retains the credential in tab storage only", async () => {
     history.replaceState({}, "", "/games/game-1");
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((url: string) =>
-        Promise.resolve({
-          ok: true,
-          json: async () =>
-            url.endsWith("/join")
-              ? {
-                  player_session: "private",
-                  player: { id: "player_b" },
-                  lobby: {
-                    ...lobby(),
-                    slots: [
-                      lobby().slots[0],
-                      { ...lobby().slots[1], occupant: "player_b", nickname: "Guest" },
-                    ],
-                  },
-                }
-              : lobby(),
-        }),
-      );
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.endsWith("/join")
+            ? {
+                player_session: "private",
+                player: { id: "player_b" },
+                lobby: {
+                  ...lobby(),
+                  slots: [
+                    lobby().slots[0],
+                    { ...lobby().slots[1], occupant: "player_b", nickname: "Guest" },
+                  ],
+                },
+              }
+            : lobby(),
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
     await waitFor(() => expect(screen.getByText("Join game")).toBeInTheDocument());
@@ -80,27 +78,25 @@ describe("App lobby routing", () => {
   it("watches without admitting and reuses the saved nickname for a later join", async () => {
     localStorage.setItem("ti4.nickname", "Visitor");
     history.replaceState({}, "", "/games/game-1");
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((url: string) =>
-        Promise.resolve({
-          ok: true,
-          json: async () =>
-            url.endsWith("/join")
-              ? {
-                  player_session: "private",
-                  player: { id: "player_b" },
-                  lobby: {
-                    ...lobby(),
-                    slots: [
-                      lobby().slots[0],
-                      { ...lobby().slots[1], occupant: "player_b", nickname: "Visitor" },
-                    ],
-                  },
-                }
-              : lobby(),
-        }),
-      );
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.endsWith("/join")
+            ? {
+                player_session: "private",
+                player: { id: "player_b" },
+                lobby: {
+                  ...lobby(),
+                  slots: [
+                    lobby().slots[0],
+                    { ...lobby().slots[1], occupant: "player_b", nickname: "Visitor" },
+                  ],
+                },
+              }
+            : lobby(),
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
     fireEvent.click(await screen.findByText("Watch"));
@@ -129,24 +125,22 @@ describe("App lobby routing", () => {
 
   it("explicitly takes over an eligible disconnected player on a fresh computer", async () => {
     history.replaceState({}, "", "/games/game-1");
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((url: string) =>
-        Promise.resolve({
-          ok: true,
-          json: async () =>
-            url.endsWith("/join")
-              ? {
-                  player_session: "replacement",
-                  player: { id: "player_a" },
-                  lobby: {
-                    ...lobby(),
-                    slots: [{ ...lobby().slots[0], nickname: "New host" }, lobby().slots[1]],
-                  },
-                }
-              : lobby("lobby", true),
-        }),
-      );
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.endsWith("/join")
+            ? {
+                player_session: "replacement",
+                player: { id: "player_a" },
+                lobby: {
+                  ...lobby(),
+                  slots: [{ ...lobby().slots[0], nickname: "New host" }, lobby().slots[1]],
+                },
+              }
+            : lobby("lobby", true),
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
     await screen.findByText(/Rejoin as Host/);
@@ -165,17 +159,15 @@ describe("App lobby routing", () => {
     localStorage.setItem("ti4.nickname", "Different preference");
     sessionStorage.setItem("ti4.player-session:game-1", "private");
     history.replaceState({}, "", "/games/game-1");
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((url: string) =>
-        Promise.resolve({
-          ok: true,
-          json: async () =>
-            url.endsWith("/join")
-              ? { player_session: null, player: { id: "player_a" }, lobby: lobby() }
-              : lobby(),
-        }),
-      );
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.endsWith("/join")
+            ? { player_session: null, player: { id: "player_a" }, lobby: lobby() }
+            : lobby(),
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
     fireEvent.click(await screen.findByLabelText("Move position 2 up"));
@@ -218,19 +210,17 @@ describe("App lobby routing", () => {
       ...lobby(),
       slots: [lobby().slots[0], { ...lobby().slots[1], occupant: "player_b", nickname: "Guest" }],
     };
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((url: string) =>
-        Promise.resolve({
-          ok: true,
-          json: async () =>
-            url.endsWith("/join")
-              ? { player_session: null, player: { id: "player_b" }, lobby: guestLobby }
-              : url.endsWith("/leave")
-                ? lobby()
-                : guestLobby,
-        }),
-      );
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () =>
+          url.endsWith("/join")
+            ? { player_session: null, player: { id: "player_b" }, lobby: guestLobby }
+            : url.endsWith("/leave")
+              ? lobby()
+              : guestLobby,
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
     fireEvent.click(await screen.findByText("Leave lobby"));
@@ -250,21 +240,19 @@ describe("App lobby routing", () => {
       ...lobby(),
       slots: [lobby().slots[0], { ...lobby().slots[1], occupant: "player_b", nickname: "Guest" }],
     };
-    const fetchMock = vi
-      .fn()
-      .mockImplementation((url: string) =>
-        Promise.resolve(
-          url.endsWith("/leave")
-            ? { ok: false, status: 500, text: async () => "Storage error" }
-            : {
-                ok: true,
-                json: async () =>
-                  url.endsWith("/join")
-                    ? { player_session: null, player: { id: "player_b" }, lobby: guestLobby }
-                    : guestLobby,
-              },
-        ),
-      );
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("/leave")
+          ? { ok: false, status: 500, text: async () => "Storage error" }
+          : {
+              ok: true,
+              json: async () =>
+                url.endsWith("/join")
+                  ? { player_session: null, player: { id: "player_b" }, lobby: guestLobby }
+                  : guestLobby,
+            },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
     fireEvent.click(await screen.findByText("Leave lobby"));

@@ -20,18 +20,38 @@ export function getUnitBaseType(unitType: string): UnitBaseType {
   const norm = unitType.toLowerCase().replace(/[-_\s]/g, "");
 
   if (norm.includes("warsun") || norm === "nowarsun" || norm === "ws") return "warsun";
-  if (norm.includes("spacedock") || norm.includes("dock") || norm.includes("floatingfactory") || norm.includes("dimensionaltear"))
+  if (
+    norm.includes("spacedock") ||
+    norm.includes("dock") ||
+    norm.includes("floatingfactory") ||
+    norm.includes("dimensionaltear")
+  )
     return "spacedock";
-  if (norm.includes("dreadnought") || norm.includes("exotrireme") || norm.includes("superdreadnought"))
+  if (
+    norm.includes("dreadnought") ||
+    norm.includes("exotrireme") ||
+    norm.includes("superdreadnought")
+  )
     return "dreadnought";
-  if (norm.includes("flagship") || norm.includes("cavalry") || norm === "genesis") return "flagship";
+  if (norm.includes("flagship") || norm.includes("cavalry") || norm === "genesis")
+    return "flagship";
   if (norm.includes("carrier") || norm.includes("combattran")) return "carrier";
   if (norm.includes("cruiser") || norm.includes("saturnengine")) return "cruiser";
   if (norm.includes("destroyer") || norm.includes("strikewingalpha")) return "destroyer";
   if (norm.includes("fighter")) return "fighter";
-  if (norm.includes("infantry") || norm.includes("specops") || norm.includes("letaniwarrior") || norm.includes("crimsonlegionnaire"))
+  if (
+    norm.includes("infantry") ||
+    norm.includes("specops") ||
+    norm.includes("letaniwarrior") ||
+    norm.includes("crimsonlegionnaire")
+  )
     return "infantry";
-  if (norm.includes("mech") || norm.includes("eidolon") || norm.includes("reanimator") || norm.includes("behemoth"))
+  if (
+    norm.includes("mech") ||
+    norm.includes("eidolon") ||
+    norm.includes("reanimator") ||
+    norm.includes("behemoth")
+  )
     return "mech";
   if (norm.includes("pds") || norm.includes("heltitan")) return "pds";
 
@@ -251,15 +271,11 @@ function renderIconPath(type: UnitBaseType): React.ReactNode {
           {/* Upper docking gantry */}
           <rect x="3" y="7" width="18" height="2.5" rx="0.5" />
           {/* Lower curved drydock construction arms */}
-          <path
-            d="M5 9.5V16C5 18 7.5 19.5 11 19.5V17C8.5 17 7 16 7 14.5V9.5Z"
-          />
-          <path
-            d="M19 9.5V16C19 18 16.5 19.5 13 19.5V17C15.5 17 17 16 17 14.5V9.5Z"
-          />
+          <path d="M5 9.5V16C5 18 7.5 19.5 11 19.5V17C8.5 17 7 16 7 14.5V9.5Z" />
+          <path d="M19 9.5V16C19 18 16.5 19.5 13 19.5V17C15.5 17 17 16 17 14.5V9.5Z" />
           {/* Core power hub */}
           <circle cx="12" cy="13" r="2" fill="#0f172a" stroke="currentColor" strokeWidth="1" />
         </g>
       );
   }
-};
+}

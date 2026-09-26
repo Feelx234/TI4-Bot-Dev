@@ -14,7 +14,14 @@ import { decodeInitialSnapshot, decodeServerMessage, isStaleServerMessage } from
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
 export type GameLogEntry = import("./types.ts").GameEvent;
-export type HistoryChange = "undo" | "undo_batch" | "undo_pipeline" | "redo" | "redo_batch" | "redo_pipeline" | { eventId: string };
+export type HistoryChange =
+  | "undo"
+  | "undo_batch"
+  | "undo_pipeline"
+  | "redo"
+  | "redo_batch"
+  | "redo_pipeline"
+  | { eventId: string };
 
 export type MovementStep =
   | { kind: "move"; origin: string; unit: string; damaged: boolean }
@@ -23,8 +30,15 @@ export type MovementStep =
   | { kind: "done_moving" };
 export type BasketPlan =
   | { kind: "payment"; steps: ({ kind: "exhaust"; planet: string } | { kind: "trade_good" })[] }
-  | { kind: "agenda_vote_planets"; steps: ({ kind: "vote_planet"; planet: string } | { kind: "done_voting" })[] }
-  | { kind: "production"; destination: string; steps: ({ kind: "produce"; unit: string; count: number } | { kind: "done_producing" })[] };
+  | {
+      kind: "agenda_vote_planets";
+      steps: ({ kind: "vote_planet"; planet: string } | { kind: "done_voting" })[];
+    }
+  | {
+      kind: "production";
+      destination: string;
+      steps: ({ kind: "produce"; unit: string; count: number } | { kind: "done_producing" })[];
+    };
 
 const MAX_EVENT_LOG_ENTRIES = 500;
 const HISTORY_RETRY_ATTEMPTS = 20;
@@ -251,36 +265,70 @@ export class GameSessionClient {
     return this.submitBatch({ kind: "tactical_movement", destination, steps });
   }
 
-  async submitBatch(plan: BasketPlan | { kind: "tactical_movement"; destination: string; steps: MovementStep[] }): Promise<void> {
+  async submitBatch(
+    plan: BasketPlan | { kind: "tactical_movement"; destination: string; steps: MovementStep[] },
+  ): Promise<void> {
     if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
       throw new Error("A player session is required");
     const pending = this.state.pendingChoice;
     if (!pending || pending.actor !== this.options.viewer.seat || !pending.context)
       throw new Error("Decision is no longer pending");
-    const expected = { tactical_movement: ["movement_step"], payment: ["pay_resources", "pay_influence"], agenda_vote_planets: ["vote_exhaust_planet"], production: ["produce_unit"] }[plan.kind];
-    if (!expected.includes(pending.context.subtype)) throw new Error("Workflow is no longer pending");
+    const expected = {
+      tactical_movement: ["movement_step"],
+      payment: ["pay_resources", "pay_influence"],
+      agenda_vote_planets: ["vote_exhaust_planet"],
+      production: ["produce_unit"],
+    }[plan.kind];
+    if (!expected.includes(pending.context.subtype))
+      throw new Error("Workflow is no longer pending");
     const serialized = JSON.stringify(plan);
     if (this.pendingBatch?.nonce !== pending.nonce || this.pendingBatch.plan !== serialized)
-      this.pendingBatch = { nonce: pending.nonce, plan: serialized, requestId: crypto.randomUUID() };
+      this.pendingBatch = {
+        nonce: pending.nonce,
+        plan: serialized,
+        requestId: crypto.randomUUID(),
+      };
     const response = await fetch(this.snapshotUrl().replace(/\/snapshot$/, "/batches"), {
       method: "POST",
       headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
-      body: JSON.stringify({ request_id: this.pendingBatch.requestId, expected_version: this.state.gameVersion,
-        nonce: pending.nonce, plan }),
+      body: JSON.stringify({
+        request_id: this.pendingBatch.requestId,
+        expected_version: this.state.gameVersion,
+        nonce: pending.nonce,
+        plan,
+      }),
     });
     if (!response.ok) {
-      if (response.status !== 500 && response.status !== 502 && response.status !== 503) this.pendingBatch = null;
-      const failure = await response.json() as { failed_step?: number; reason?: string; expected?: string };
-      throw new Error(`Batch step ${(failure.failed_step ?? 0) + 1}: ${failure.reason ?? "batch rejected"}${failure.expected ? ` (${failure.expected})` : ""}`);
+      if (response.status !== 500 && response.status !== 502 && response.status !== 503)
+        this.pendingBatch = null;
+      const failure = (await response.json()) as {
+        failed_step?: number;
+        reason?: string;
+        expected?: string;
+      };
+      throw new Error(
+        `Batch step ${(failure.failed_step ?? 0) + 1}: ${failure.reason ?? "batch rejected"}${failure.expected ? ` (${failure.expected})` : ""}`,
+      );
     }
     this.pendingBatch = null;
-    const result = await response.json() as { snapshot: unknown; active?: boolean };
-    if (result.active === false) throw new Error("This confirmation was already committed but is now undone. Refresh the decision before confirming again.");
-    const snapshot = decodeInitialSnapshot({ type: "initial_snapshot", ...result.snapshot as object }, this.options.gameId);
+    const result = (await response.json()) as { snapshot: unknown; active?: boolean };
+    if (result.active === false)
+      throw new Error(
+        "This confirmation was already committed but is now undone. Refresh the decision before confirming again.",
+      );
+    const snapshot = decodeInitialSnapshot(
+      { type: "initial_snapshot", ...(result.snapshot as object) },
+      this.options.gameId,
+    );
     this.rejectSubmission("Game history changed");
     this.detachSocket();
     this.clearTimers();
-    this.setState(reduceServerMessage({ ...this.state, pendingChoice: null, lastError: null }, { ...snapshot, type: "initial_snapshot" }));
+    this.setState(
+      reduceServerMessage(
+        { ...this.state, pendingChoice: null, lastError: null },
+        { ...snapshot, type: "initial_snapshot" },
+      ),
+    );
     this.openSocket();
   }
 
@@ -404,12 +452,15 @@ export class GameSessionClient {
           pendingChoice: null,
           snapshot: null,
         });
-        this.retry = setTimeout(() => {
-          if (!this.stopped) {
-            void this.loadSnapshot();
-            this.openSocket();
-          }
-        }, event?.code === 4001 ? 0 : 2_000);
+        this.retry = setTimeout(
+          () => {
+            if (!this.stopped) {
+              void this.loadSnapshot();
+              this.openSocket();
+            }
+          },
+          event?.code === 4001 ? 0 : 2_000,
+        );
       }
     };
   }

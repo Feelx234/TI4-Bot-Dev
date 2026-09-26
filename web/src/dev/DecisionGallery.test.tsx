@@ -109,4 +109,3 @@ describe("development decision gallery", () => {
     expect(screen.getByTestId("system-activation-bar")).toHaveTextContent("Tar'Mann");
   });
 });
-

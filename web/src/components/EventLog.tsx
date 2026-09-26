@@ -66,11 +66,16 @@ export const EventLog: React.FC<EventLogProps> = ({
   const rows: GameLogEntry[][] = [];
   for (const event of events) {
     const last = rows[rows.length - 1];
-    if (event.batch_id && event.event.kind === "decision_resolved" &&
-        last?.[0].batch_id === event.batch_id &&
-        last.at(-1)?.event.kind === "decision_resolved" &&
-        event.decision_count !== undefined && last.at(-1)?.decision_count !== undefined &&
-        event.decision_count === last.at(-1)!.decision_count! + 1) last.push(event);
+    if (
+      event.batch_id &&
+      event.event.kind === "decision_resolved" &&
+      last?.[0].batch_id === event.batch_id &&
+      last.at(-1)?.event.kind === "decision_resolved" &&
+      event.decision_count !== undefined &&
+      last.at(-1)?.decision_count !== undefined &&
+      event.decision_count === last.at(-1)!.decision_count! + 1
+    )
+      last.push(event);
     else rows.push([event]);
   }
   return (
@@ -136,28 +141,35 @@ export const EventLog: React.FC<EventLogProps> = ({
               const presentation = eventPresentation(ev.event, (id) => display(id).label);
               const visibility = getVisibilityLabel(ev);
               const details = group.map((entry) => entry.detail ?? "Decision resolved");
-              const meaningful = details.filter((detail) => detail !== "Done loading" && detail !== "Done moving");
-              const moves = group.flatMap((entry) => entry.movement ? [entry.movement] : []);
+              const meaningful = details.filter(
+                (detail) => detail !== "Done loading" && detail !== "Done moving",
+              );
+              const moves = group.flatMap((entry) => (entry.movement ? [entry.movement] : []));
               const counts = new Map<string, number>();
               for (const move of moves) {
                 const key = `${move.unit}|${move.origin}|${move.destination}`;
                 counts.set(key, (counts.get(key) ?? 0) + 1);
               }
-               const heading = ev.batch_id
-                 ? moves.length
-                  ? `${display(moves[0].actor).label} moved ${[...counts].map(([key, count]) => {
-                      const [unit, origin, destination] = key.split("|");
-                      return `${count} ${unit}${count === 1 ? "" : "s"} from #${origin} to #${destination}`;
-                    }).join(", ")}`
-                   : meaningful.length
-                     ? meaningful.length === 1 ? meaningful[0] : `${meaningful.length} choices: ${meaningful[0]}`
-                     : "Workflow finished"
-                : (ev.detail ?? (ev.movement
+              const heading = ev.batch_id
+                ? moves.length
+                  ? `${display(moves[0].actor).label} moved ${[...counts]
+                      .map(([key, count]) => {
+                        const [unit, origin, destination] = key.split("|");
+                        return `${count} ${unit}${count === 1 ? "" : "s"} from #${origin} to #${destination}`;
+                      })
+                      .join(", ")}`
+                  : meaningful.length
+                    ? meaningful.length === 1
+                      ? meaningful[0]
+                      : `${meaningful.length} choices: ${meaningful[0]}`
+                    : "Workflow finished"
+                : (ev.detail ??
+                  (ev.movement
                     ? `${display(ev.movement.actor).label} moved ${ev.movement.unit} from #${ev.movement.origin} to #${ev.movement.destination}`
                     : presentation.text));
               return (
                 <div
-                   key={group[0].id}
+                  key={group[0].id}
                   data-testid="event-log-entry"
                   style={{
                     fontFamily: "ui-monospace, monospace",
@@ -189,12 +201,20 @@ export const EventLog: React.FC<EventLogProps> = ({
                     </span>
                   )}
                   {visibility && <span style={{ color: "#f59e0b" }}>{visibility}</span>}
-                   {ev.batch_id ? (
-                     <details style={{ color: presentation.color, wordBreak: "break-word" }}>
-                       <summary>{present(heading)}</summary>
-                       <ul>{details.map((detail, index) => <li key={group[index].id}>{present(detail)}</li>)}</ul>
-                     </details>
-                   ) : <span style={{ color: presentation.color, wordBreak: "break-word" }}>{present(heading)}</span>}
+                  {ev.batch_id ? (
+                    <details style={{ color: presentation.color, wordBreak: "break-word" }}>
+                      <summary>{present(heading)}</summary>
+                      <ul>
+                        {details.map((detail, index) => (
+                          <li key={group[index].id}>{present(detail)}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : (
+                    <span style={{ color: presentation.color, wordBreak: "break-word" }}>
+                      {present(heading)}
+                    </span>
+                  )}
                   {onRestore && ev.decision_count !== undefined && ev.decision_count < cursor && (
                     <button
                       type="button"

@@ -172,10 +172,16 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       setBatchRunning(true);
       setBatchError(null);
       try {
-        await onSubmitBatch({ kind: "payment", steps: [
-          ...selectedPlanetIds.map((id) => ({ kind: "exhaust" as const, planet: id.replace(/^exhaust\|/, "") })),
-          ...Array.from({ length: tradeGoodsToSpend }, () => ({ kind: "trade_good" as const })),
-        ] });
+        await onSubmitBatch({
+          kind: "payment",
+          steps: [
+            ...selectedPlanetIds.map((id) => ({
+              kind: "exhaust" as const,
+              planet: id.replace(/^exhaust\|/, ""),
+            })),
+            ...Array.from({ length: tradeGoodsToSpend }, () => ({ kind: "trade_good" as const })),
+          ],
+        });
       } catch (error) {
         setBatchError(error instanceof Error ? error.message : String(error));
       } finally {

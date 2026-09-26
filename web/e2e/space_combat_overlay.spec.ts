@@ -71,14 +71,18 @@ test.describe("Space Combat Overlay", () => {
     const opponent = initial.view.board.combat?.defender;
     if (opponent) {
       const count = initial.view.players.find((p) => p.id === opponent)?.action_cards_count;
-      await expect(defenderCard.getByTestId(`combat-cards-${opponent}`)).toContainText(`Action cards: ${count}`);
+      await expect(defenderCard.getByTestId(`combat-cards-${opponent}`)).toContainText(
+        `Action cards: ${count}`,
+      );
     }
 
     const firstRoll = initial.view.board.combat?.dice_rolls?.[0];
     if (firstRoll) {
       const seat = firstRoll.player ?? playerId;
       const card = seat === playerId ? attackerCard : defenderCard;
-      const badge = card.getByTestId(`combat-roll-group-${seat}-${getUnitBaseType(firstRoll.unit)}`);
+      const badge = card.getByTestId(
+        `combat-roll-group-${seat}-${getUnitBaseType(firstRoll.unit)}`,
+      );
       await expect(badge).toBeVisible();
       await badge.hover();
       await expect(badge.locator(".combat-unit-row__roll-tooltip")).toBeVisible();
@@ -119,12 +123,16 @@ test.describe("Space Combat Overlay", () => {
 
     // 6. Test submitting an integrated combat decision
     const subtype = initial.pending_choice?.choice?.context?.subtype;
-    if (initial.pending_choice?.choice.options.some((option) => option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"))) {
+    if (
+      initial.pending_choice?.choice.options.some((option) =>
+        option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"),
+      )
+    ) {
       await page.getByTestId("play-direct-hit-btn").click();
     } else if (subtype === "sustain_damage") {
       // Test integrated sustain option on the dreadnought row or decline
       const sustainBtn = attackerCard.locator('[data-testid^="sustain-opt-"]');
-      if (await sustainBtn.count() > 0) {
+      if ((await sustainBtn.count()) > 0) {
         await sustainBtn.first().click();
       } else {
         await page.getByTestId("decline-sustain-btn").click();
@@ -132,13 +140,15 @@ test.describe("Space Combat Overlay", () => {
     } else if (subtype === "assign_casualty") {
       // Test clicking interactive unit row directly or casualty button
       const interactiveRow = attackerCard.locator(".combat-unit-row--interactive");
-      if (await interactiveRow.count() > 0) {
+      if ((await interactiveRow.count()) > 0) {
         await interactiveRow.first().click();
       } else {
         await page.locator('[data-testid^="casualty-opt-"]').first().click();
       }
     } else {
-      const stay = initial.pending_choice?.choice.options.find((option) => option.id === "stay" || option.id === "decline");
+      const stay = initial.pending_choice?.choice.options.find(
+        (option) => option.id === "stay" || option.id === "decline",
+      );
       expect(stay).toBeDefined();
       await page.getByTestId(`retreat-opt-${stay!.id}`).click();
     }
@@ -164,19 +174,30 @@ test.describe("Space Combat Overlay", () => {
     expect(defender).toBeTruthy();
     expect(initial.pending_choice?.choice.context?.subtype).toBe("announce_retreat");
     const systemId = initial.view.board.combat!.system_id;
-    const dreadnoughts = (state: InitialSnapshotMsg) => state.view.board.systems[systemId].units
-      .filter((unit) => unit.owner === defender && unit.unit_type === "dreadnought").length;
+    const dreadnoughts = (state: InitialSnapshotMsg) =>
+      state.view.board.systems[systemId].units.filter(
+        (unit) => unit.owner === defender && unit.unit_type === "dreadnought",
+      ).length;
     expect(dreadnoughts(initial)).toBeGreaterThan(0);
     await openPlayerGame(page, gameId, session);
     expect(initial.pending_choice?.choice.player).toBe(playerId);
     await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
-    const stay = initial.pending_choice!.choice.options.find((option) => option.id === "stay" || option.id === "decline");
+    const stay = initial.pending_choice!.choice.options.find(
+      (option) => option.id === "stay" || option.id === "decline",
+    );
     expect(stay).toBeDefined();
     await page.getByTestId(`retreat-opt-${stay!.id}`).click();
-    await expect.poll(async () => (await snapshot(request, gameId, session)).pending_choice?.choice.options
-      .some((option) => option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"))).toBe(true);
+    await expect
+      .poll(async () =>
+        (await snapshot(request, gameId, session)).pending_choice?.choice.options.some((option) =>
+          option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"),
+        ),
+      )
+      .toBe(true);
     await page.getByTestId("play-direct-hit-btn").click();
-    await expect.poll(async () => (await snapshot(request, gameId, session)).game_version).toBeGreaterThan(initial.game_version);
+    await expect
+      .poll(async () => (await snapshot(request, gameId, session)).game_version)
+      .toBeGreaterThan(initial.game_version);
     const after = await snapshot(request, gameId, session);
     expect(dreadnoughts(after)).toBeLessThan(dreadnoughts(initial));
   });

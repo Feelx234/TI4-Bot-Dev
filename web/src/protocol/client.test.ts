@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GameSessionClient, GameSessionState, reduceServerMessage, serverEventLog } from "./client.ts";
+import {
+  GameSessionClient,
+  GameSessionState,
+  reduceServerMessage,
+  serverEventLog,
+} from "./client.ts";
 import {
   decodeCreateGameResponse,
   decodeJoinResponse,
@@ -51,8 +56,11 @@ const state: GameSessionState = {
 describe("GameSessionClient reducer", () => {
   it("does not display a truncated batch as a complete basket", () => {
     const events = Array.from({ length: 510 }, (_, index) => ({
-      id: String(index), timestamp: "", visibility: "public" as const,
-      event: { kind: "decision_resolved" as const }, decision_count: index + 1,
+      id: String(index),
+      timestamp: "",
+      visibility: "public" as const,
+      event: { kind: "decision_resolved" as const },
+      decision_count: index + 1,
       batch_id: index >= 5 && index < 20 ? "basket" : undefined,
     }));
     const visible = serverEventLog(events);
@@ -307,13 +315,34 @@ class FakeWebSocket {
 describe("GameSessionClient ingress lifecycle", () => {
   it("retries an uncertain basket confirmation with the same request ID", async () => {
     const { client, send } = await connectedPlayer();
-    send({ ...snapshot, type: "initial_snapshot", viewer: { role: "player", seat: "player_a" },
-      pending_choice: { nonce: "nonce-4", choice: { player: "player_a", prompt: "Pay",
-        context: { subtype: "pay_resources" }, options: [{ id: "trade_good", kind: "pay", label: "Trade good" }] } } });
-    const request = vi.fn().mockRejectedValueOnce(new Error("Connection lost"))
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ active: true, snapshot: {
-        ...snapshot, game_version: 5, viewer: { role: "player", seat: "player_a" },
-      } }) });
+    send({
+      ...snapshot,
+      type: "initial_snapshot",
+      viewer: { role: "player", seat: "player_a" },
+      pending_choice: {
+        nonce: "nonce-4",
+        choice: {
+          player: "player_a",
+          prompt: "Pay",
+          context: { subtype: "pay_resources" },
+          options: [{ id: "trade_good", kind: "pay", label: "Trade good" }],
+        },
+      },
+    });
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Connection lost"))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          active: true,
+          snapshot: {
+            ...snapshot,
+            game_version: 5,
+            viewer: { role: "player", seat: "player_a" },
+          },
+        }),
+      });
     vi.stubGlobal("fetch", request);
     const plan = { kind: "payment" as const, steps: [{ kind: "trade_good" as const }] };
     await expect(client.submitBatch(plan)).rejects.toThrow("Connection lost");
@@ -396,19 +425,17 @@ describe("GameSessionClient ingress lifecycle", () => {
     const { client, socket } = await connectedPlayer();
     const submitted = client.submitChoice("opt-4");
     const rejected = expect(submitted).rejects.toThrow(/history changed/i);
-    const request = vi
-      .fn()
-      .mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          ...snapshot,
-          game_version: 5,
-          viewer: { role: "player", seat: "player_a" },
-          history: { cursor: 0, redo_count: 1, generation: 1 },
-          events: [],
-          pending_choice: null,
-        }),
-      });
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...snapshot,
+        game_version: 5,
+        viewer: { role: "player", seat: "player_a" },
+        history: { cursor: 0, redo_count: 1, generation: 1 },
+        events: [],
+        pending_choice: null,
+      }),
+    });
     vi.stubGlobal("fetch", request);
     await client.changeHistory("undo");
     await rejected;
@@ -639,12 +666,10 @@ describe("GameSessionClient ingress lifecycle", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue({
-          ok: true,
-          json: async () => ({ ...snapshot, viewer: { role: "player", seat: "player_a" } }),
-        }),
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ ...snapshot, viewer: { role: "player", seat: "player_a" } }),
+      }),
     );
     const client = new GameSessionClient({
       gameId: "game_12345",
@@ -672,12 +697,10 @@ describe("GameSessionClient ingress lifecycle", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue({
-          ok: true,
-          json: async () => ({ ...snapshot, viewer: { role: "player", seat: "player_b" } }),
-        }),
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ ...snapshot, viewer: { role: "player", seat: "player_b" } }),
+      }),
     );
     const client = new GameSessionClient({
       gameId: "game_12345",

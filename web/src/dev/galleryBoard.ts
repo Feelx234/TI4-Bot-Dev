@@ -1,4 +1,10 @@
-import type { BoardTileView, BoardView, LobbyDto, PlayerView, SystemView } from "../protocol/types.ts";
+import type {
+  BoardTileView,
+  BoardView,
+  LobbyDto,
+  PlayerView,
+  SystemView,
+} from "../protocol/types.ts";
 import { actor } from "./decisionGalleryCases.ts";
 
 export const gallerySeating = [actor, "other_seat"];
@@ -68,14 +74,30 @@ const mapTiles: BoardTileView[] = [
     label: "Wellon",
     q: 1,
     r: -1,
-    planets: [{ id: "wellon", label: "Wellon", resources: 1, influence: 2, tech_specialties: ["cybernetic"] }],
+    planets: [
+      {
+        id: "wellon",
+        label: "Wellon",
+        resources: 1,
+        influence: 2,
+        tech_specialties: ["cybernetic"],
+      },
+    ],
   },
   {
     system_id: "22",
     label: "Tar'Mann",
     q: 0,
     r: -1,
-    planets: [{ id: "tarmann", label: "Tar'Mann", resources: 1, influence: 1, tech_specialties: ["biotic"] }],
+    planets: [
+      {
+        id: "tarmann",
+        label: "Tar'Mann",
+        resources: 1,
+        influence: 1,
+        tech_specialties: ["biotic"],
+      },
+    ],
   },
   {
     system_id: "25",
@@ -90,7 +112,15 @@ const mapTiles: BoardTileView[] = [
     label: "Mehar Xull",
     q: -1,
     r: 1,
-    planets: [{ id: "mehar_xull", label: "Mehar Xull", resources: 1, influence: 3, tech_specialties: ["warfare"] }],
+    planets: [
+      {
+        id: "mehar_xull",
+        label: "Mehar Xull",
+        resources: 1,
+        influence: 3,
+        tech_specialties: ["warfare"],
+      },
+    ],
   },
   {
     system_id: "20",
@@ -107,7 +137,13 @@ const mapTiles: BoardTileView[] = [
     q: 2,
     r: 0,
     planets: [
-      { id: "new_albion", label: "New Albion", resources: 1, influence: 1, tech_specialties: ["biotic"] },
+      {
+        id: "new_albion",
+        label: "New Albion",
+        resources: 1,
+        influence: 1,
+        tech_specialties: ["biotic"],
+      },
       { id: "starpoint", label: "Starpoint", resources: 3, influence: 1 },
     ],
   },
@@ -339,7 +375,9 @@ const mapTiles: BoardTileView[] = [
     label: "Hope's End",
     q: 1,
     r: -3,
-    planets: [{ id: "hopes_end", label: "Hope's End", resources: 3, influence: 0, legendary: true }],
+    planets: [
+      { id: "hopes_end", label: "Hope's End", resources: 3, influence: 0, legendary: true },
+    ],
   },
   {
     system_id: "46",

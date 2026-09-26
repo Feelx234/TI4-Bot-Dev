@@ -54,8 +54,7 @@ export const SystemActivationBar: React.FC<SystemActivationBarProps> = ({
       ? selectedOption.id.replace("activate|", "")
       : selectedOption?.id);
 
-  const targetMatchesSelectedSystem =
-    !selectedSystemId || targetSystemId === selectedSystemId;
+  const targetMatchesSelectedSystem = !selectedSystemId || targetSystemId === selectedSystemId;
   const activeOption = targetMatchesSelectedSystem ? selectedOption : null;
 
   const targetTile = boardView?.map_tiles?.find((t) => t.system_id === targetSystemId);
@@ -67,9 +66,7 @@ export const SystemActivationBar: React.FC<SystemActivationBarProps> = ({
     ? boardView?.map_tiles?.find((t) => t.system_id === selectedSystemId)
     : null;
   const inspectedSys = selectedSystemId ? boardView?.systems?.[selectedSystemId] : null;
-  const hasViewerToken = Boolean(
-    inspectedSys?.command_tokens?.some((ct) => ct === viewerSeat),
-  );
+  const hasViewerToken = Boolean(inspectedSys?.command_tokens?.some((ct) => ct === viewerSeat));
   const inspectedLabel =
     inspectedTile?.label ||
     (selectedSystemId === "18" ? "Mecatol Rex" : selectedSystemId ? `#${selectedSystemId}` : "");
@@ -133,14 +130,20 @@ export const SystemActivationBar: React.FC<SystemActivationBarProps> = ({
               <>
                 <span className="badge badge--warning">Activated / Blocked</span>
                 <span className="system-activation-bar__prompt">
-                  <strong>{inspectedLabel} (#{selectedSystemId})</strong> already contains your command token
+                  <strong>
+                    {inspectedLabel} (#{selectedSystemId})
+                  </strong>{" "}
+                  already contains your command token
                 </span>
               </>
             ) : (
               <>
                 <span className="badge badge--secondary">Not Targetable</span>
                 <span className="system-activation-bar__prompt">
-                  <strong>{inspectedLabel} (#{selectedSystemId})</strong> cannot be activated in this action
+                  <strong>
+                    {inspectedLabel} (#{selectedSystemId})
+                  </strong>{" "}
+                  cannot be activated in this action
                 </span>
               </>
             )}

@@ -1,5 +1,8 @@
 import React from "react";
-import { SelectedSystemDetails, PlacedUnitPresentation } from "../presentation/boardPresentation.ts";
+import {
+  SelectedSystemDetails,
+  PlacedUnitPresentation,
+} from "../presentation/boardPresentation.ts";
 import { DetailPanel } from "./DetailPanel.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import {
@@ -267,7 +270,12 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
                             color: u.damagedCount > 0 ? "#fca5a5" : "#e2e8f0",
                           }}
                         >
-                          <UnitIcon type={u.baseType} size={14} color={playerColor} aria-hidden="true" />
+                          <UnitIcon
+                            type={u.baseType}
+                            size={14}
+                            color={playerColor}
+                            aria-hidden="true"
+                          />
                           <span>
                             {u.totalCount} × {getUnitDisplayName(u.baseType, u.totalCount)}
                           </span>
@@ -279,7 +287,8 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
                                 color: "#f87171",
                               }}
                             >
-                              {" "}({u.damagedCount} damaged)
+                              {" "}
+                              ({u.damagedCount} damaged)
                             </span>
                           )}
                         </span>
@@ -351,7 +360,12 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
                               color: u.damagedCount > 0 ? "#fca5a5" : "#e2e8f0",
                             }}
                           >
-                            <UnitIcon type={u.baseType} size={14} color={playerColor} aria-hidden="true" />
+                            <UnitIcon
+                              type={u.baseType}
+                              size={14}
+                              color={playerColor}
+                              aria-hidden="true"
+                            />
                             <span>
                               {u.totalCount} × {getUnitDisplayName(u.baseType, u.totalCount)}
                             </span>
@@ -363,7 +377,8 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
                                   color: "#f87171",
                                 }}
                               >
-                                {" "}({u.damagedCount} damaged)
+                                {" "}
+                                ({u.damagedCount} damaged)
                               </span>
                             )}
                           </span>
@@ -480,4 +495,3 @@ function groupUnitsByPlayer(units: PlacedUnitPresentation[]): PlayerUnitGroup[] 
 
   return result;
 }
-

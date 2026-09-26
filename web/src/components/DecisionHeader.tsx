@@ -11,7 +11,16 @@ export const DecisionHeader: React.FC<{
   titleTestId?: string;
   minimizeTestId?: string;
   minimizeLabel?: string;
-}> = ({ title, instruction, actor, progress, onMinimize, titleTestId, minimizeTestId, minimizeLabel = "Minimize decision" }) => {
+}> = ({
+  title,
+  instruction,
+  actor,
+  progress,
+  onMinimize,
+  titleTestId,
+  minimizeTestId,
+  minimizeLabel = "Minimize decision",
+}) => {
   const display = usePlayerIdentity();
   const participant = display(actor);
   return (

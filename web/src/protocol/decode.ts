@@ -167,9 +167,12 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
       return value as unknown as ServerMessage;
     case "event":
       if (!isRecord(value.entry) || typeof value.entry.id !== "string") fail("invalid event");
-      if (value.entry.batch_id !== undefined && typeof value.entry.batch_id !== "string") fail("invalid batch ID");
-      if (value.entry.action_id !== undefined && typeof value.entry.action_id !== "string") fail("invalid action ID");
-      if (value.entry.detail !== undefined && typeof value.entry.detail !== "string") fail("invalid event detail");
+      if (value.entry.batch_id !== undefined && typeof value.entry.batch_id !== "string")
+        fail("invalid batch ID");
+      if (value.entry.action_id !== undefined && typeof value.entry.action_id !== "string")
+        fail("invalid action ID");
+      if (value.entry.detail !== undefined && typeof value.entry.detail !== "string")
+        fail("invalid event detail");
       if (
         value.entry.decision_count !== undefined &&
         !isNonNegativeInteger(value.entry.decision_count)

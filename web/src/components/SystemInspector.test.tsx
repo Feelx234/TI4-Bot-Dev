@@ -57,13 +57,23 @@ describe("SystemInspector Component", () => {
     expect(screen.getByText("Attachments: custodians")).toBeInTheDocument();
 
     // Units grouped by player and type, without repeating player info inside unit chips
-    expect(screen.getByTestId("inspector-player-space-seat_a")).toHaveTextContent("Unknown participant");
-    expect(screen.getByTestId("inspector-space-unit")).toHaveTextContent("1 × Dreadnought (1 damaged)");
-    expect(screen.getByTestId("inspector-space-unit").textContent).not.toContain("Unknown participant");
+    expect(screen.getByTestId("inspector-player-space-seat_a")).toHaveTextContent(
+      "Unknown participant",
+    );
+    expect(screen.getByTestId("inspector-space-unit")).toHaveTextContent(
+      "1 × Dreadnought (1 damaged)",
+    );
+    expect(screen.getByTestId("inspector-space-unit").textContent).not.toContain(
+      "Unknown participant",
+    );
 
-    expect(screen.getByTestId("inspector-player-ground-mecatol_rex-seat_a")).toHaveTextContent("Unknown participant");
+    expect(screen.getByTestId("inspector-player-ground-mecatol_rex-seat_a")).toHaveTextContent(
+      "Unknown participant",
+    );
     expect(screen.getByTestId("inspector-ground-unit")).toHaveTextContent("1 × Infantry");
-    expect(screen.getByTestId("inspector-ground-unit").textContent).not.toContain("Unknown participant");
+    expect(screen.getByTestId("inspector-ground-unit").textContent).not.toContain(
+      "Unknown participant",
+    );
 
     // Command Token
     expect(screen.getByTestId("inspector-command-token")).toHaveTextContent("Unknown participant");

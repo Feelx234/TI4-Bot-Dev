@@ -601,13 +601,24 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       const steps: MovementStep[] = [];
       const remaining = [...cargo];
       for (const ship of ships) {
-        steps.push({ kind: "move", origin: ship.origin, unit: ship.unitType, damaged: ship.damaged });
+        steps.push({
+          kind: "move",
+          origin: ship.origin,
+          unit: ship.unitType,
+          damaged: ship.damaged,
+        });
         let loaded = 0;
         while (loaded < ship.capacity) {
           const index = remaining.findIndex((item) => item.origin === ship.origin);
           if (index < 0) break;
           const item = remaining.splice(index, 1)[0];
-          steps.push({ kind: "load", origin: item.origin, unit: item.unitType, source: item.source, damaged: item.damaged });
+          steps.push({
+            kind: "load",
+            origin: item.origin,
+            unit: item.unitType,
+            source: item.source,
+            damaged: item.damaged,
+          });
           loaded++;
         }
         if (ship.capacity > 0) steps.push({ kind: "done_loading" });
@@ -715,9 +726,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                         cargo.source === null,
                     )),
               );
-              const cargoForOrigin = originCargoGroups.filter(
-                (c) => c.originSystemId === originId,
-              );
+              const cargoForOrigin = originCargoGroups.filter((c) => c.originSystemId === originId);
               const originCap = capacityByOrigin[originId] ?? 0;
               const originCargo = cargoByOrigin[originId] ?? 0;
               const isOriginOverCapacity = originCargo > originCap;
@@ -730,9 +739,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                   data-alert={isOriginOverCapacity ? "true" : undefined}
                 >
                   <div className="origin-system-group__header">
-                    <span className="origin-system-group__title">
-                      Origin: System #{originId}
-                    </span>
+                    <span className="origin-system-group__title">Origin: System #{originId}</span>
                     <span
                       data-testid={`cargo-capacity-gauge-${originId}`}
                       className="fleet-rally-tray__status"
@@ -748,8 +755,8 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                       className="fleet-rally-tray__advisory"
                       style={{ color: "var(--color-danger)" }}
                     >
-                      Exceeds origin cargo capacity ({originCargo}/{originCap}) — remove excess cargo
-                      or stage more transport capacity.
+                      Exceeds origin cargo capacity ({originCargo}/{originCap}) — remove excess
+                      cargo or stage more transport capacity.
                     </div>
                   )}
 
@@ -821,9 +828,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
 
                   {cargoForOrigin.length > 0 && (
                     <>
-                      <div className="origin-system-group__section-title">
-                        Carryable Cargo
-                      </div>
+                      <div className="origin-system-group__section-title">Carryable Cargo</div>
                       {cargoForOrigin.map((c) => {
                         const key = `cargo:${c.originSystemId}:${c.unitType}:${c.source ?? "space"}${c.damaged ? ":damaged" : ""}`;
                         const count = stagedMoves[key] ?? 0;
@@ -874,9 +879,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                                 data-testid={`rally-inc-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
                                 onClick={() => handleUpdateCount(key, 1, c.totalAvailable)}
                                 disabled={
-                                  count >= c.totalAvailable ||
-                                  isExecuting ||
-                                  isDirectSubmitting
+                                  count >= c.totalAvailable || isExecuting || isDirectSubmitting
                                 }
                                 className="button button--secondary button--icon workflow-button--stepper"
                               >
@@ -917,7 +920,9 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
             Reset selection
           </button>
         )}
-        {totalUnitsStaged > 1 && !onSubmitBatch && <p>Moves and cargo loading are committed sequentially.</p>}
+        {totalUnitsStaged > 1 && !onSubmitBatch && (
+          <p>Moves and cargo loading are committed sequentially.</p>
+        )}
         {doneMovingOption && (
           <button
             type="button"
@@ -935,9 +940,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
           data-testid="commit-moves-btn"
           onClick={handleCommitMoves}
           disabled={
-            isExecuting ||
-            isDirectSubmitting ||
-            (totalUnitsStaged > 0 && hasAnyOriginOverCapacity)
+            isExecuting || isDirectSubmitting || (totalUnitsStaged > 0 && hasAnyOriginOverCapacity)
           }
           className="button button--primary workflow-button--wide"
         >

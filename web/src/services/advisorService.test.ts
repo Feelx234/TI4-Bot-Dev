@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  normalizeFaction,
-  buildBattleRequest,
-  fetchBattleOdds,
-} from "./advisorService.ts";
+import { normalizeFaction, buildBattleRequest, fetchBattleOdds } from "./advisorService.ts";
 import { BattleOddsResponse } from "../protocol/advisorTypes.ts";
 
 describe("advisorService", () => {

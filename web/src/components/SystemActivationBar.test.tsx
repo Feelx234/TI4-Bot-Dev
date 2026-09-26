@@ -24,11 +24,7 @@ describe("SystemActivationBar Component", () => {
 
   it("renders waiting message for non-actor viewer", () => {
     render(
-      <SystemActivationBar
-        choice={mockChoice}
-        viewerSeat="other_player"
-        onSubmit={vi.fn()}
-      />,
+      <SystemActivationBar choice={mockChoice} viewerSeat="other_player" onSubmit={vi.fn()} />,
     );
 
     expect(screen.getByText(/Waiting for player1 to activate a system/i)).toBeInTheDocument();
@@ -190,4 +186,3 @@ describe("SystemActivationBar Component", () => {
     expect(screen.getByText(/already contains your command token/i)).toBeInTheDocument();
   });
 });
-

@@ -1,11 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
-import {
-  UnitIcon,
-  getUnitBaseType,
-  getUnitDisplayName,
-  UnitBaseType,
-} from "./UnitIcon.tsx";
+import { UnitIcon, getUnitBaseType, getUnitDisplayName, UnitBaseType } from "./UnitIcon.tsx";
 
 describe("UnitIcon", () => {
   const allUnitTypes: UnitBaseType[] = [

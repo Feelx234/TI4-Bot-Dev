@@ -44,7 +44,15 @@ export const DecisionGallery: React.FC = () => {
   return (
     <div className="decision-gallery" data-testid="decision-gallery">
       <header className="decision-gallery__header panel">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
           <h1>
             Decision gallery <small>Development only · synthetic previews</small>
           </h1>
@@ -200,10 +208,11 @@ export const DecisionGallery: React.FC = () => {
                     if (!sys) {
                       setSelectedOption(undefined);
                     } else {
-                      const offered = choice?.options.find((o) =>
-                        String(o.payload?.system ?? o.id) === sys ||
-                        o.id === `activate|${sys}` ||
-                        o.id === sys,
+                      const offered = choice?.options.find(
+                        (o) =>
+                          String(o.payload?.system ?? o.id) === sys ||
+                          o.id === `activate|${sys}` ||
+                          o.id === sys,
                       );
                       if (!offered) {
                         setSelectedOption(undefined);

@@ -186,9 +186,7 @@ describe("SpaceCombatOverlay", () => {
         outstanding: [{ amount: 2 }],
         target: { System: "18" },
       },
-      options: [
-        { id: "destroy|fighter", label: "Destroy Fighter", kind: "casualty" },
-      ],
+      options: [{ id: "destroy|fighter", label: "Destroy Fighter", kind: "casualty" }],
     };
 
     const diceRolls = [
@@ -277,9 +275,7 @@ describe("SpaceCombatOverlay", () => {
         subtype: "sustain_damage",
         target: { System: "18" },
       },
-      options: [
-        { id: "sustain:cruiser", label: "Cruiser", kind: "sustain" },
-      ],
+      options: [{ id: "sustain:cruiser", label: "Cruiser", kind: "sustain" }],
     };
 
     render(
@@ -375,9 +371,7 @@ describe("SpaceCombatOverlay", () => {
         subtype: "sustain_damage",
         target: { System: "18" },
       },
-      options: [
-        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" },
-      ],
+      options: [{ id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" }],
     };
 
     await act(async () => {
@@ -439,30 +433,60 @@ describe("SpaceCombatOverlay", () => {
 
   it("keeps casualty rows in place when the board reorders ships or loses a type", () => {
     const choice: PendingChoiceDto = {
-      actor: "seat_1", nonce: "assign-1", prompt: "Assign a hit",
+      actor: "seat_1",
+      nonce: "assign-1",
+      prompt: "Assign a hit",
       context: { subtype: "assign_casualty", target: { System: "18" } },
       options: [
         { id: "fighter", label: "fighter", kind: "casualty", payload: { unit: "fighter" } },
-        { id: "dreadnought", label: "dreadnought", kind: "casualty", payload: { unit: "dreadnought" } },
+        {
+          id: "dreadnought",
+          label: "dreadnought",
+          kind: "casualty",
+          payload: { unit: "dreadnought" },
+        },
       ],
     };
     const board: BoardView = {
       ...sampleBoard,
       combat: {
-        system_id: "18", round: 1, attacker: "seat_1", defender: "seat_2",
-        attacker_hits: 1, defender_hits: 2, hits_to_assign: 2,
+        system_id: "18",
+        round: 1,
+        attacker: "seat_1",
+        defender: "seat_2",
+        attacker_hits: 1,
+        defender_hits: 2,
+        hits_to_assign: 2,
         dice_rolls: [{ player: "seat_1", unit: "dreadnought", roll: 9, target: 5, hit: true }],
       },
     };
-    const props = { isOpen: true, choice, viewerSeat: "seat_1", players: samplePlayers,
-      onSubmit: vi.fn().mockResolvedValue(undefined), onClose: vi.fn() };
-    const order = () => Array.from(screen.getByTestId("attacker-units-list").children)
-      .map((row) => row.getAttribute("data-testid")?.replace("unit-row-lost-", "unit-row-"));
+    const props = {
+      isOpen: true,
+      choice,
+      viewerSeat: "seat_1",
+      players: samplePlayers,
+      onSubmit: vi.fn().mockResolvedValue(undefined),
+      onClose: vi.fn(),
+    };
+    const order = () =>
+      Array.from(screen.getByTestId("attacker-units-list").children).map((row) =>
+        row.getAttribute("data-testid")?.replace("unit-row-lost-", "unit-row-"),
+      );
     const { rerender } = render(<SpaceCombatOverlay {...props} board={board} />);
     const initialOrder = order();
-    const remaining = board.systems["18"].units.filter((unit) => unit.owner !== "seat_1" || unit.unit_type !== "fighter");
-    rerender(<SpaceCombatOverlay {...props} choice={{ ...choice, nonce: "assign-2" }}
-      board={{ ...board, systems: { "18": { ...board.systems["18"], units: remaining.reverse() } } }} />);
+    const remaining = board.systems["18"].units.filter(
+      (unit) => unit.owner !== "seat_1" || unit.unit_type !== "fighter",
+    );
+    rerender(
+      <SpaceCombatOverlay
+        {...props}
+        choice={{ ...choice, nonce: "assign-2" }}
+        board={{
+          ...board,
+          systems: { "18": { ...board.systems["18"], units: remaining.reverse() } },
+        }}
+      />,
+    );
     expect(order()).toEqual(initialOrder);
     expect(screen.getByTestId("unit-row-lost-fighter")).toHaveTextContent("×0");
   });
@@ -475,8 +499,16 @@ describe("SpaceCombatOverlay", () => {
         viewerSeat="seat_1"
         board={sampleBoard}
         players={{
-          seat_1: { ...samplePlayers.seat_1, held_action_cards: ["direct_hit"], action_cards_count: 1 },
-          seat_2: { ...samplePlayers.seat_2, held_action_cards: ["sabotage"], action_cards_count: 3 },
+          seat_1: {
+            ...samplePlayers.seat_1,
+            held_action_cards: ["direct_hit"],
+            action_cards_count: 1,
+          },
+          seat_2: {
+            ...samplePlayers.seat_2,
+            held_action_cards: ["sabotage"],
+            action_cards_count: 3,
+          },
         }}
         onSubmit={vi.fn()}
         onClose={vi.fn()}

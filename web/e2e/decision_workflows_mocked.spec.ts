@@ -113,7 +113,9 @@ async function openMockedGame(page: Page, snapshot = initial) {
   return socketReady;
 }
 
-test("activation on the map shows confirmation bar and inspector without generic modal", async ({ page }) => {
+test("activation on the map shows confirmation bar and inspector without generic modal", async ({
+  page,
+}) => {
   const activation: typeof initial = {
     ...initial,
     view: {

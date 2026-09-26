@@ -33,7 +33,10 @@ export interface GameShellProps {
   historyBusy?: boolean;
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
-  onSubmitMovementBatch?: (destination: string, steps: import("../protocol/client.ts").MovementStep[]) => Promise<void>;
+  onSubmitMovementBatch?: (
+    destination: string,
+    steps: import("../protocol/client.ts").MovementStep[],
+  ) => Promise<void>;
   onSubmitBasketBatch?: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
   lastError?: string | null;
   selectedOptionId?: string;
@@ -101,14 +104,15 @@ const renderTactical: WorkflowRenderer = ({
     model={model}
     board={boardView}
     viewerSeat={viewerSeat}
-    activeSystemId={activeSystemId || (
-      model?.selectionMode.mode === "tactical_move" ||
+    activeSystemId={
+      activeSystemId ||
+      (model?.selectionMode.mode === "tactical_move" ||
       model?.selectionMode.mode === "tactical_cargo"
         ? model.selectionMode.activeSystem
         : choice.context?.target && "System" in choice.context.target
           ? choice.context.target.System
-          : null
-    )}
+          : null)
+    }
     player={players?.[choice.actor] ?? null}
     onSubmit={onSubmit}
     onSubmitBatch={onSubmitMovementBatch}
@@ -203,7 +207,7 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
       productionError,
       onQueueProduction,
     }) => (
-       <ProductionBuilderDrawer
+      <ProductionBuilderDrawer
         choice={choice}
         model={model}
         viewerSeat={viewerSeat}
@@ -408,12 +412,16 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     combatSubtype === "assign_casualty" ||
     combatSubtype === "announce_retreat" ||
     combatSubtype === "retreat_to";
-  const isDirectHitReaction = Boolean(boardView?.combat && choice?.options.some(
-    (option) => option.id.endsWith(":SUSTAIN_DAMAGE_USED:after") && option.kind === "ability",
-  ));
+  const isDirectHitReaction = Boolean(
+    boardView?.combat &&
+    choice?.options.some(
+      (option) => option.id.endsWith(":SUSTAIN_DAMAGE_USED:after") && option.kind === "ability",
+    ),
+  );
 
   const isCombatWorkflow =
-    spectatorCombatWorkflow || isDirectHitReaction ||
+    spectatorCombatWorkflow ||
+    isDirectHitReaction ||
     workflow === "combat_sustain" ||
     workflow === "combat_casualty" ||
     workflow === "combat_retreat";
@@ -437,7 +445,8 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     );
   }
 
-  if (!choice || (viewerSeat !== undefined && choice.actor !== viewerSeat && !isCombatWorkflow)) return null;
+  if (!choice || (viewerSeat !== undefined && choice.actor !== viewerSeat && !isCombatWorkflow))
+    return null;
 
   // A view-only copy: IDs, payloads and the original pending choice stay intact.
   const visibleChoice = {
@@ -756,7 +765,14 @@ export const GameShell: React.FC<GameShellProps> = ({
             >
               Undo action
             </button>
-            <button type="button" className="button button--secondary button--sm" disabled={historyBusy || !history?.cursor} onClick={() => onChangeHistory("undo_batch")}>Undo batch</button>
+            <button
+              type="button"
+              className="button button--secondary button--sm"
+              disabled={historyBusy || !history?.cursor}
+              onClick={() => onChangeHistory("undo_batch")}
+            >
+              Undo batch
+            </button>
             <button
               type="button"
               className="button button--secondary button--sm"
@@ -765,8 +781,22 @@ export const GameShell: React.FC<GameShellProps> = ({
             >
               Redo
             </button>
-            <button type="button" className="button button--secondary button--sm" disabled={historyBusy || !history?.redo_count} onClick={() => onChangeHistory("redo_batch")}>Redo batch</button>
-            <button type="button" className="button button--secondary button--sm" disabled={historyBusy || !history?.redo_count} onClick={() => onChangeHistory("redo_pipeline")}>Redo action</button>
+            <button
+              type="button"
+              className="button button--secondary button--sm"
+              disabled={historyBusy || !history?.redo_count}
+              onClick={() => onChangeHistory("redo_batch")}
+            >
+              Redo batch
+            </button>
+            <button
+              type="button"
+              className="button button--secondary button--sm"
+              disabled={historyBusy || !history?.redo_count}
+              onClick={() => onChangeHistory("redo_pipeline")}
+            >
+              Redo action
+            </button>
           </div>
         )}
         <EventLog

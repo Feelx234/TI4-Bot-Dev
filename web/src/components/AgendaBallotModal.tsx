@@ -116,15 +116,21 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
   };
 
   const handleCommitPlanetVotes = async (isDirectSubmitting: boolean) => {
-    if (stagedPlanets.length === 0 || isPipelineRunning || isDirectSubmitting || batchRunning) return;
+    if (stagedPlanets.length === 0 || isPipelineRunning || isDirectSubmitting || batchRunning)
+      return;
     if (onSubmitBatch) {
       setBatchRunning(true);
       setBatchError(null);
       try {
-        await onSubmitBatch({ kind: "agenda_vote_planets", steps: [
-          ...stagedPlanets.map((planet) => ({ kind: "vote_planet" as const, planet })),
-          ... (stagedPlanets.length < planetOptions.length ? [{ kind: "done_voting" as const }] : []),
-        ] });
+        await onSubmitBatch({
+          kind: "agenda_vote_planets",
+          steps: [
+            ...stagedPlanets.map((planet) => ({ kind: "vote_planet" as const, planet })),
+            ...(stagedPlanets.length < planetOptions.length
+              ? [{ kind: "done_voting" as const }]
+              : []),
+          ],
+        });
       } catch (error) {
         setBatchError(error instanceof Error ? error.message : String(error));
       } finally {

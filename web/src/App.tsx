@@ -307,8 +307,9 @@ const GameViewContainer: React.FC<{
                 setSelectedSystemId(id);
                 setCardSubject(null);
                 if (id && pendingChoice && pendingChoice.actor === userSeat) {
-                  const match = pendingChoice.options.find((option) =>
-                    String(option.payload?.system ?? option.payload?.to ?? option.id) === id,
+                  const match = pendingChoice.options.find(
+                    (option) =>
+                      String(option.payload?.system ?? option.payload?.to ?? option.id) === id,
                   );
                   if (!match) {
                     setSelectedOptionId(undefined);
@@ -326,7 +327,9 @@ const GameViewContainer: React.FC<{
           )
         }
         boardView={snapshot?.view.board}
-        activeSystemId={typeof snapshot?.state.active_system === "string" ? snapshot.state.active_system : null}
+        activeSystemId={
+          typeof snapshot?.state.active_system === "string" ? snapshot.state.active_system : null
+        }
         playerSheet={
           snapshot ? (
             <PlayerSheet

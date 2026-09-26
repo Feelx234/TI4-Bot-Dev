@@ -7,4 +7,4 @@
 - ctrl + mouse wheel should zoom the map
 - public objectives with text
 - player sheet with technologies and faction power text
-- popout overviews should close if you click the trigger again (e.g. clicking again on the strategy card) 
+- popout overviews should close if you click the trigger again (e.g. clicking again on the strategy card)
