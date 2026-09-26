@@ -25,6 +25,7 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
         .with_galaxy(galaxy, tiles)
         .with_seat(host.clone(), SeatController::Human)
         .with_seat(guest, SeatController::Human);
+    let sequential_config = config.clone();
     let session = registry.create_game(config).unwrap();
     let token = session.seat_tokens()[&host].clone();
     for _ in 0..4 {
@@ -104,6 +105,7 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
             1
         );
         assert_eq!(session.decision_log(), original);
+        assert!(store.load_history("batch_probe").unwrap().is_none());
         let mut probe = request.clone();
         probe.request_id = "move_probe".into();
         probe.plan.steps = steps;
@@ -119,6 +121,21 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
                     2
                 }
         );
+        let sequential =
+            GameSession::start_recovered(sequential_config.clone(), original.clone(), vec![]);
+        for record in &moved.decision_log()[original.len()..] {
+            let (seat, nonce, version, _) = pending(&sequential);
+            assert_eq!(seat, record.player);
+            sequential
+                .submit_choice(&seat, &nonce, version, &record.chosen)
+                .unwrap();
+        }
+        let _ = pending(&sequential);
+        let _ = pending(&moved);
+        assert_eq!(moved.decision_log(), sequential.decision_log());
+        assert_eq!(moved.decision_hashes(), sequential.decision_hashes());
+        assert_eq!(moved.current_state(), sequential.current_state());
+        sequential.stop();
         registry
             .change_history(
                 "batch_probe",
@@ -185,11 +202,52 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
         .unwrap();
     let undone = registry.get_game("batch_probe").unwrap();
     assert_eq!(undone.decision_log(), original);
+    let before_failure = store.load_history("batch_probe").unwrap().unwrap();
+    let before_events = undone.event_log();
+    let before_status = undone.history_status();
+    let (seat, nonce, version, _) = pending(&undone);
+    assert_eq!(seat, host);
+    let blocked_write = store.game_dir("batch_probe").unwrap().join("history.tmp");
+    std::fs::create_dir(&blocked_write).unwrap();
+    let failed = registry.submit_batch(
+        "batch_probe",
+        &token,
+        BatchRequest {
+            request_id: "failed_write".into(),
+            expected_version: version,
+            nonce,
+            plan: MovementPlan {
+                kind: BatchKind::TacticalMovement,
+                destination: undone.current_state().active_system.unwrap().to_string(),
+                steps: vec![MovementStep::DoneMoving],
+            },
+        },
+    );
+    assert!(
+        failed.unwrap_err().reason.contains("storage error"),
+        "a failed atomic write must reject the batch"
+    );
+    std::fs::remove_dir(&blocked_write).unwrap();
+    let after_failure = registry.get_game("batch_probe").unwrap();
+    let _ = pending(&after_failure);
+    assert_eq!(after_failure.decision_log(), original);
+    assert_eq!(after_failure.event_log(), before_events);
+    assert_eq!(after_failure.history_status(), before_status);
+    assert_eq!(after_failure.batches().len(), 1);
+    assert_eq!(
+        serde_json::to_value(store.load_history("batch_probe").unwrap().unwrap()).unwrap(),
+        serde_json::to_value(before_failure).unwrap(),
+    );
+    let recovered_failure = store.recover_session("batch_probe").unwrap();
+    recovered_failure.wait_replayed().unwrap();
+    assert_eq!(recovered_failure.history_status(), before_status);
+    assert_eq!(recovered_failure.decision_log(), original);
+    recovered_failure.stop();
     registry
         .change_history(
             "batch_probe",
             &token,
-            undone.game_version(),
+            after_failure.game_version(),
             HistoryAction::RedoBatch,
         )
         .unwrap();
