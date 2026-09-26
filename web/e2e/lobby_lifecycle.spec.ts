@@ -67,7 +67,6 @@ test("reorders open positions, watches a running game, and revokes a disconnecte
   browser,
   request,
 }) => {
-  test.setTimeout(75_000);
   const hostContext = await browser.newContext();
   const host = await hostContext.newPage();
   failOnBrowserErrors(host);
@@ -112,7 +111,7 @@ test("reorders open positions, watches a running game, and revokes a disconnecte
   expect(await spectator.evaluate(() => Object.keys(sessionStorage))).toEqual([]);
 
   await guestContext.close();
-  // The host stays present through browser heartbeats; the absent guest becomes eligible after 30 s.
+  // The host stays present through browser heartbeats; the E2E server uses a short grace period.
   await expect
     .poll(
       async () => {
@@ -123,7 +122,7 @@ test("reorders open positions, watches a running game, and revokes a disconnecte
         expect(lobby.slots[1].connected).toBe(true);
         return lobby.slots[0].can_take_over;
       },
-      { timeout: 45_000, intervals: [1_000] },
+      { timeout: 10_000, intervals: [250] },
     )
     .toBe(true);
   const takeoverContext = await browser.newContext();

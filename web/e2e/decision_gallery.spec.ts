@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 import { fallbackCases, galleryCases } from "../src/dev/decisionGalleryCases.ts";
 
 test("all current workflow kinds open a rendered preview", async ({ page }) => {
+  await page.goto("/dev/decisions");
   for (const item of galleryCases) {
-    await page.goto("/dev/decisions");
     await page.getByRole("button", { name: new RegExp(`^${item.title}`) }).click();
     await expect(page.getByTestId("game-container")).toBeAttached();
     await page.getByText("Gallery debug details · synthetic fixture").click();
@@ -11,6 +11,7 @@ test("all current workflow kinds open a rendered preview", async ({ page }) => {
       `Workflow: ${item.workflow}`,
     );
     await expect(page.getByTestId("ti4-board-svg")).toBeAttached();
+    await page.getByRole("button", { name: "All decisions" }).click();
   }
 });
 
@@ -36,11 +37,12 @@ test("dev gallery exposes all workflows and an actionable empty-state fallback",
 });
 
 test("all fallback examples open with their boundary clearly labeled", async ({ page }) => {
+  await page.goto("/dev/decisions");
   for (const item of fallbackCases) {
-    await page.goto("/dev/decisions");
     await page.getByRole("button", { name: new RegExp(`^${item.title}`) }).click();
     await page.getByText("Gallery debug details · synthetic fixture").click();
     await expect(page.getByLabel("Gallery debug details")).toContainText(item.fallback!);
+    await page.getByRole("button", { name: "All decisions" }).click();
   }
 });
 

@@ -25,7 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let store = Arc::new(ti4_server::storage::FileGameStore::new(&data_dir)?);
-    let registry = Arc::new(GameRegistry::new().with_store(store));
+    let mut registry = GameRegistry::new().with_store(store);
+    if let Ok(millis) = std::env::var("TI4_DEV_PRESENCE_GRACE_MS") {
+        registry = registry.with_presence_grace(Duration::from_millis(millis.parse()?));
+    }
+    let registry = Arc::new(registry);
 
     // Print recovery results even when tracing has no RUST_LOG filter configured.
     let recovery = registry.recover_all_games_report()?;

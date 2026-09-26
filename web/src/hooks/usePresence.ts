@@ -1,5 +1,8 @@
 import { useEffect } from "react";
 
+const devHeartbeatMs = Number(import.meta.env.VITE_TI4_DEV_PRESENCE_HEARTBEAT_MS);
+const heartbeatMs = import.meta.env.DEV && devHeartbeatMs > 0 ? devHeartbeatMs : 10_000;
+
 /** Reports ephemeral presence; it does not renew the player session. */
 export function usePresence(
   gameId: string,
@@ -20,7 +23,7 @@ export function usePresence(
     const visible = () => void renew();
     void renew();
     document.addEventListener("visibilitychange", visible);
-    const timer = window.setInterval(() => void renew(), 10_000);
+    const timer = window.setInterval(() => void renew(), heartbeatMs);
     return () => {
       stopped = true;
       document.removeEventListener("visibilitychange", visible);

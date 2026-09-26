@@ -73,8 +73,8 @@ Runs real-server end-to-end tests in isolated browser contexts verifying:
 - Disconnect and clean reconnection to a live game session.
 
 ```bash
-# Headless run:
-npx playwright test
+# Headless run (builds/starts the Rust backend and Vite automatically):
+npm run test:e2e
 
 # Headed run (visible browser windows):
 npx playwright test --headed
@@ -82,6 +82,12 @@ npx playwright test --headed
 # Server startup diagnostics:
 DEBUG=pw:webserver npx playwright test --reporter=line
 ```
+
+The E2E servers use per-run ports and a short presence grace/heartbeat interval to keep
+takeover tests fast. Set `TI4_E2E_BACKEND_PORT` and `TI4_E2E_FRONTEND_PORT` to use
+specific ports. The backend's `TI4_DEV_PRESENCE_GRACE_MS` and Vite's
+`VITE_TI4_DEV_PRESENCE_HEARTBEAT_MS` are optional development overrides; ordinary
+server and UI startup retain the normal 30-second grace and 10-second heartbeat.
 
 ---
 
