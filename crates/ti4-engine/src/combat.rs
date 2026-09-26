@@ -2792,12 +2792,14 @@ impl CombatWindow {
         let (attacker_free, attacker_forced) = split(&sets[0], attacker_hits, &self.attacker);
         let (defender_free, defender_forced) = split(&sets[1], defender_hits, &self.defender);
 
-        state
-            .combat_round_hits
-            .insert(self.attacker.clone(), (attacker_free + attacker_forced) as u32);
-        state
-            .combat_round_hits
-            .insert(self.defender.clone(), (defender_free + defender_forced) as u32);
+        state.combat_round_hits.insert(
+            self.attacker.clone(),
+            (attacker_free + attacker_forced) as u32,
+        );
+        state.combat_round_hits.insert(
+            self.defender.clone(),
+            (defender_free + defender_forced) as u32,
+        );
 
         let mut round_dice = Vec::new();
         for (side, set) in [(&self.attacker, &sets[0]), (&self.defender, &sets[1])] {

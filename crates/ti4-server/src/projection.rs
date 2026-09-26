@@ -97,7 +97,11 @@ pub fn project_combat_view(
     }
 
     let attacker = state.active.clone().unwrap_or_else(|| {
-        ship_owners.iter().next().cloned().unwrap_or_else(|| PlayerId::new(""))
+        ship_owners
+            .iter()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| PlayerId::new(""))
     });
 
     let defender = ship_owners
@@ -381,7 +385,13 @@ pub fn project_initial_snapshot_with_map(
         game_id: game_id.to_owned(),
         game_version,
         viewer: viewer.clone(),
-        view: project_game_view_full(state, viewer, map_tiles, pending_choice.map(|(c, _)| c), &[]),
+        view: project_game_view_full(
+            state,
+            viewer,
+            map_tiles,
+            pending_choice.map(|(c, _)| c),
+            &[],
+        ),
         state: redacted_state(state, viewer),
         galaxy_layout: galaxy_layout.clone(),
         pending_choice: project_pending_choice(viewer, pending_choice),
@@ -438,7 +448,13 @@ pub fn project_state_update_with_map(
         game_id: game_id.to_owned(),
         game_version,
         viewer: viewer.clone(),
-        view: project_game_view_full(state, viewer, map_tiles, pending_choice.map(|(c, _)| c), &[]),
+        view: project_game_view_full(
+            state,
+            viewer,
+            map_tiles,
+            pending_choice.map(|(c, _)| c),
+            &[],
+        ),
         state: redacted_state(state, viewer),
         galaxy_layout: galaxy_layout.clone(),
         pending_choice: project_pending_choice(viewer, pending_choice),

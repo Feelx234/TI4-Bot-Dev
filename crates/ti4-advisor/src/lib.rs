@@ -372,11 +372,13 @@ impl Advisor {
         let sim_f64 = simulations as f64;
         let mut attacker_expected_survivors = BTreeMap::new();
         for (idx, name) in attacker_side.names().iter().enumerate() {
-            attacker_expected_survivors.insert(name.clone(), attacker_survivors[idx] as f64 / sim_f64);
+            attacker_expected_survivors
+                .insert(name.clone(), attacker_survivors[idx] as f64 / sim_f64);
         }
         let mut defender_expected_survivors = BTreeMap::new();
         for (idx, name) in defender_side.names().iter().enumerate() {
-            defender_expected_survivors.insert(name.clone(), defender_survivors[idx] as f64 / sim_f64);
+            defender_expected_survivors
+                .insert(name.clone(), defender_survivors[idx] as f64 / sim_f64);
         }
 
         Ok(BattleResponse {
@@ -422,9 +424,18 @@ fn resolve_side(
         ParticipantInput::Side(side) => (
             side.player.as_ref(),
             side.faction.as_deref(),
-            side.units.clone().map(UnitCounts::into_entries).unwrap_or_default(),
-            side.damaged.clone().map(UnitCounts::into_entries).unwrap_or_default(),
-            side.guns.clone().map(UnitCounts::into_entries).unwrap_or_default(),
+            side.units
+                .clone()
+                .map(UnitCounts::into_entries)
+                .unwrap_or_default(),
+            side.damaged
+                .clone()
+                .map(UnitCounts::into_entries)
+                .unwrap_or_default(),
+            side.guns
+                .clone()
+                .map(UnitCounts::into_entries)
+                .unwrap_or_default(),
         ),
     };
 
@@ -433,19 +444,19 @@ fn resolve_side(
     let mut guns: BTreeMap<String, usize> = BTreeMap::new();
 
     let faction: String = if let Some(pid) = player_id {
-        let game_state = state.ok_or_else(|| {
-            ApiError::bad_request("state is required when player is specified")
-        })?;
-        let seat = game_state.player(pid).ok_or_else(|| {
-            ApiError::bad_request(format!("player {pid} not found in state"))
-        })?;
+        let game_state = state
+            .ok_or_else(|| ApiError::bad_request("state is required when player is specified"))?;
+        let seat = game_state
+            .player(pid)
+            .ok_or_else(|| ApiError::bad_request(format!("player {pid} not found in state")))?;
         let player_faction = explicit_faction.unwrap_or(seat.faction.as_str());
 
         if let Some(sys) = system {
             let board = game_state.system_state(sys);
             for unit in &board.units {
                 if &unit.owner == pid
-                    && let Some(kind) = ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
+                    && let Some(kind) =
+                        ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
                     && kind.is_ship()
                 {
                     *fleet.entry(unit.type_id.to_string()).or_default() += 1;
@@ -456,7 +467,8 @@ fn resolve_side(
             }
             for unit in board.planet_units.values().flatten() {
                 if &unit.owner == pid
-                    && let Some(kind) = ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
+                    && let Some(kind) =
+                        ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
                     && kind.has_space_cannon()
                 {
                     *guns.entry(unit.type_id.to_string()).or_default() += 1;
@@ -466,16 +478,27 @@ fn resolve_side(
                 for adjacent_id in g.adjacent(sys.as_str()) {
                     let adj_sys = SystemId::new(adjacent_id);
                     let adj_board = game_state.system_state(&adj_sys);
-                    let adj_units = adj_board.planet_units.values().flatten().chain(&adj_board.units);
+                    let adj_units = adj_board
+                        .planet_units
+                        .values()
+                        .flatten()
+                        .chain(&adj_board.units);
                     for unit in adj_units {
                         if &unit.owner == pid {
-                            let reaches = matches!(unit.type_id.as_str(), "pds2" | "xxcha_mech" | "xxcha_flagship")
-                                || ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
-                                    .and_then(|k| k.record().text("ability"))
-                                    .is_some_and(|ability| {
-                                        let a = ability.to_ascii_lowercase();
-                                        a.contains("space cannon against ships that are") && a.contains("adjacent")
-                                    });
+                            let reaches = matches!(
+                                unit.type_id.as_str(),
+                                "pds2" | "xxcha_mech" | "xxcha_flagship"
+                            ) || ti4_content::units::unit_type(
+                                content,
+                                unit.type_id.as_str(),
+                                sources,
+                            )
+                            .and_then(|k| k.record().text("ability"))
+                            .is_some_and(|ability| {
+                                let a = ability.to_ascii_lowercase();
+                                a.contains("space cannon against ships that are")
+                                    && a.contains("adjacent")
+                            });
                             if reaches {
                                 *guns.entry(unit.type_id.to_string()).or_default() += 1;
                             }
@@ -502,26 +525,33 @@ fn resolve_side(
     // Validate unit IDs
     for (id, &count) in &fleet {
         if count > 0 && ti4_content::units::unit_type(content, id, sources).is_none() {
-            return Err(ApiError::bad_request(format!("unknown unit id in fleet: {id}")));
+            return Err(ApiError::bad_request(format!(
+                "unknown unit id in fleet: {id}"
+            )));
         }
     }
     for (id, &count) in &damaged {
         if count > 0 && ti4_content::units::unit_type(content, id, sources).is_none() {
-            return Err(ApiError::bad_request(format!("unknown unit id in damaged: {id}")));
+            return Err(ApiError::bad_request(format!(
+                "unknown unit id in damaged: {id}"
+            )));
         }
     }
     for (id, &count) in &guns {
         if count > 0 && ti4_content::units::unit_type(content, id, sources).is_none() {
-            return Err(ApiError::bad_request(format!("unknown unit id in guns: {id}")));
+            return Err(ApiError::bad_request(format!(
+                "unknown unit id in guns: {id}"
+            )));
         }
     }
 
-    let fleet_vec: Vec<(String, usize)> = fleet.clone().into_iter().filter(|(_, n)| *n > 0).collect();
+    let fleet_vec: Vec<(String, usize)> =
+        fleet.clone().into_iter().filter(|(_, n)| *n > 0).collect();
     let damaged_vec: Vec<(String, usize)> = damaged.into_iter().filter(|(_, n)| *n > 0).collect();
     let guns_vec: Vec<(String, usize)> = guns.into_iter().filter(|(_, n)| *n > 0).collect();
 
-    let side = Side::of(content, &fleet_vec, &damaged_vec, &faction, true)
-        .with_guns(content, &guns_vec);
+    let side =
+        Side::of(content, &fleet_vec, &damaged_vec, &faction, true).with_guns(content, &guns_vec);
 
     Ok((side, fleet))
 }
@@ -867,15 +897,27 @@ mod tests {
         let a_player = PlayerId::new("a");
         let b_player = PlayerId::new("b");
 
-        state.system_mut(&sys).units.push(
-            ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("cruiser"), a_player.clone()),
-        );
-        state.system_mut(&sys).units.push(
-            ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("cruiser"), a_player.clone()),
-        );
-        state.system_mut(&sys).units.push(
-            ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("destroyer"), b_player.clone()),
-        );
+        state
+            .system_mut(&sys)
+            .units
+            .push(ti4_model::units::Unit::new(
+                ti4_model::id::UnitTypeId::new("cruiser"),
+                a_player.clone(),
+            ));
+        state
+            .system_mut(&sys)
+            .units
+            .push(ti4_model::units::Unit::new(
+                ti4_model::id::UnitTypeId::new("cruiser"),
+                a_player.clone(),
+            ));
+        state
+            .system_mut(&sys)
+            .units
+            .push(ti4_model::units::Unit::new(
+                ti4_model::id::UnitTypeId::new("destroyer"),
+                b_player.clone(),
+            ));
 
         let request = BattleRequest {
             state: Some(state),

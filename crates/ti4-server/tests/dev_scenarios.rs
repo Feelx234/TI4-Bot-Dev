@@ -53,7 +53,9 @@ fn test_launch_tactical_scenario_and_flow() {
         .find(|o| o.id == "tactical")
         .expect("tactical action option");
 
-    let (_, nonce_1, ver_1) = session.current_pending_decision().expect("pending decision");
+    let (_, nonce_1, ver_1) = session
+        .current_pending_decision()
+        .expect("pending decision");
     let res = client.submit(&nonce_1, ver_1, &tactical_opt.id);
     assert!(res.is_ok(), "submit tactical action: {res:?}");
 
@@ -153,7 +155,10 @@ fn test_launch_space_combat_scenario_has_hostile_units() {
     assert!(
         initial_snapshot.view.players.iter().any(|player| {
             player.id == p1
-                && player.held_action_cards.iter().any(|card| card.as_str() == "dh1")
+                && player
+                    .held_action_cards
+                    .iter()
+                    .any(|card| card.as_str() == "dh1")
         }),
         "Player 1 must start the space_combat scenario holding Direct Hit"
     );
@@ -169,7 +174,11 @@ fn test_launch_space_combat_scenario_has_hostile_units() {
         .board
         .systems
         .values()
-        .find(|s| s.system_id.as_str() != "10" && s.system_id.as_str() != "01" && s.units.iter().any(|u| u.owner == letnev_id))
+        .find(|s| {
+            s.system_id.as_str() != "10"
+                && s.system_id.as_str() != "01"
+                && s.units.iter().any(|u| u.owner == letnev_id)
+        })
         .map(|s| s.system_id.clone())
         .expect("border system with Letnev units");
 
@@ -186,7 +195,11 @@ fn test_launch_space_combat_scenario_has_hostile_units() {
     // 3. Movement choice -> move ships then done_moving
     let mut choice = wait_for_choice(&client).expect("movement choice");
     // Advance movement and loading until space combat begins
-    while !choice.options.iter().any(|o| o.kind == "retreat" || o.kind == "sustain" || o.kind == "casualty") {
+    while !choice
+        .options
+        .iter()
+        .any(|o| o.kind == "retreat" || o.kind == "sustain" || o.kind == "casualty")
+    {
         let (_, nonce, ver) = session.current_pending_decision().unwrap();
         if let Some(load_opt) = choice.options.iter().find(|o| o.id.starts_with("load|0")) {
             client.submit(&nonce, ver, &load_opt.id).unwrap();
@@ -219,7 +232,10 @@ fn test_launch_space_combat_scenario_has_hostile_units() {
 
     // Board projection should contain combat view
     let snapshot = session.get_snapshot(&ViewerRole::Player(p1.clone()));
-    assert!(snapshot.view.board.combat.is_some(), "board combat must be projected");
+    assert!(
+        snapshot.view.board.combat.is_some(),
+        "board combat must be projected"
+    );
     let combat = snapshot.view.board.combat.unwrap();
     assert_eq!(combat.attacker, p1);
     assert_eq!(combat.defender, letnev_id);
@@ -242,8 +258,7 @@ async fn test_dev_scenarios_http_api() {
         .await
         .expect("get dev scenarios");
     assert_eq!(res.status(), reqwest::StatusCode::OK);
-    let list: Vec<ti4_server::dev::ScenarioSummary> =
-        res.json().await.expect("json scenario list");
+    let list: Vec<ti4_server::dev::ScenarioSummary> = res.json().await.expect("json scenario list");
     assert_eq!(list.len(), 3);
 
     let launch_res = client
@@ -262,7 +277,10 @@ async fn test_dev_scenarios_http_api() {
 
     // Verify snapshot endpoint works with token
     let snapshot_res = client
-        .get(format!("http://{addr}/api/games/{}/snapshot", launched.game_id))
+        .get(format!(
+            "http://{addr}/api/games/{}/snapshot",
+            launched.game_id
+        ))
         .header("x-ti4-player-session", &launched.player_session)
         .send()
         .await
@@ -271,7 +289,10 @@ async fn test_dev_scenarios_http_api() {
 
     // Verify lobby endpoint works with token
     let lobby_res = client
-        .get(format!("http://{addr}/api/games/{}/lobby", launched.game_id))
+        .get(format!(
+            "http://{addr}/api/games/{}/lobby",
+            launched.game_id
+        ))
         .header("x-ti4-player-session", &launched.player_session)
         .send()
         .await

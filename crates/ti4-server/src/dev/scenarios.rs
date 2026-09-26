@@ -192,8 +192,7 @@ fn advance_into_space_combat(
         } else {
             return Err(format!("unexpected choice in loop: {:?}", choice.prompt));
         }
-        choice = wait_for_choice(&client)
-            .ok_or_else(|| "timed out in loop".to_owned())?;
+        choice = wait_for_choice(&client).ok_or_else(|| "timed out in loop".to_owned())?;
     }
 
     Ok(())
@@ -392,7 +391,10 @@ fn build_tactical_scenario(
 
     // If there are planets in border_system, place 1 Hacan Infantry on the first planet
     if let Some(first_planet) = border_state.planet_units.keys().cloned().next() {
-        border_state.land(&first_planet, &[Unit::new(UnitTypeId::new("infantry"), p2.clone())]);
+        border_state.land(
+            &first_planet,
+            &[Unit::new(UnitTypeId::new("infantry"), p2.clone())],
+        );
         border_state.set_control(first_planet, p2.clone());
     }
 
