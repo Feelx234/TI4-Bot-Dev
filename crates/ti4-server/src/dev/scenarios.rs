@@ -75,7 +75,7 @@ pub fn available_scenarios() -> Vec<ScenarioSummary> {
             id: "ongoing_combat".to_owned(),
             title: "Ongoing Space Combat".to_owned(),
             category: "Combat".to_owned(),
-            description: "Space combat is already in progress between your Sol fleet and Letnev's armada in a contested sector. Experience immediate combat overlay resolution, live odds calculation, dice rolls, sustain damage, and casualty assignment without needing to set up movement first.".to_owned(),
+            description: "Space combat is already in progress between your Sol fleet and Letnev's armada in a contested sector. Play combat action cards such as Direct Hit and Shields Holding while resolving dice rolls, sustain damage, and casualties without setting up movement first.".to_owned(),
             player_count: 3,
             human_faction: "Federation of Sol".to_owned(),
             opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
@@ -164,16 +164,7 @@ fn advance_into_space_combat(
         let (_, nonce, ver) = session
             .current_pending_decision()
             .ok_or_else(|| "no pending decision in move/combat loop".to_owned())?;
-        if let Some(retreat_opt) = choice.options.iter().find(|o| o.kind == "retreat") {
-            let opt = choice
-                .options
-                .iter()
-                .find(|o| o.id == "decline")
-                .unwrap_or(retreat_opt);
-            client
-                .submit(&nonce, ver, &opt.id)
-                .map_err(|e| format!("submit retreat decline failed: {e:?}"))?;
-        } else if let Some(load_opt) = choice.options.iter().find(|o| o.id.starts_with("load|0")) {
+        if let Some(load_opt) = choice.options.iter().find(|o| o.id.starts_with("load|0")) {
             client
                 .submit(&nonce, ver, &load_opt.id)
                 .map_err(|e| format!("submit load failed: {e:?}"))?;
@@ -434,10 +425,14 @@ fn build_space_combat_scenario(
         setup_base_3p_game(seed, "dev_combat")?;
     let content = ContentStore::embedded();
 
-    // Give Sol a playable Direct Hit copy and enough fleet tokens for the fleet.
+    // Give Sol cards for the combat's different timing windows and enough fleet tokens.
     if let Some(sol) = config.state.player_mut(&p1) {
         sol.fleet_tokens = 4;
-        sol.action_cards.push(ActionCardId::new("dh1"));
+        sol.action_cards.extend(
+            ["dh1", "sh1", "courageous", "salvage"]
+                .into_iter()
+                .map(ActionCardId::new),
+        );
     }
     if let Some(letnev) = config.state.player_mut(&p3) {
         letnev.fleet_tokens = 4;

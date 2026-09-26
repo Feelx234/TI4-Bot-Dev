@@ -37,9 +37,11 @@ test.describe("Space Combat Overlay", () => {
     expect(initial.view.board.combat?.attacker).toBe(playerId);
     expect(initial.pending_choice).toBeDefined();
 
-    // Verify Sol has a playable Direct Hit copy in hand.
+    // Verify Sol has action cards for several stages of this battle.
     const solPlayer = initial.view.players.find((p) => p.id === playerId);
-    expect(solPlayer?.held_action_cards).toContain("dh1");
+    for (const card of ["dh1", "sh1", "courageous", "salvage"]) {
+      expect(solPlayer?.held_action_cards).toContain(card);
+    }
 
     // 3. Open the game in browser as active player
     await openPlayerGame(page, gameId, session);
@@ -67,7 +69,9 @@ test.describe("Space Combat Overlay", () => {
     await expect(page.getByTestId("defender-fleet-supply-gauge")).toBeVisible();
     await expect(page.getByTestId("defender-capacity-gauge")).toBeVisible();
 
-    await expect(attackerCard.getByTestId(`combat-cards-${playerId}`)).toContainText("Direct Hit");
+    for (const name of ["Direct Hit", "Shields Holding", "Courageous to the End", "Salvage"]) {
+      await expect(attackerCard.getByTestId(`combat-cards-${playerId}`)).toContainText(name);
+    }
     const opponent = initial.view.board.combat?.defender;
     if (opponent) {
       const count = initial.view.players.find((p) => p.id === opponent)?.action_cards_count;
@@ -162,7 +166,7 @@ test.describe("Space Combat Overlay", () => {
       .toBeGreaterThan(initial.game_version);
   });
 
-  test("can sustain damage after playing Direct Hit", async ({ page, request }) => {
+  test("can submit sustain damage after playing Direct Hit", async ({ page, request }) => {
     test.setTimeout(90_000);
     const launch = await request.post(`${backend}/api/dev/scenarios/launch`, {
       data: { scenario_id: "ongoing_combat", seed: 42 },
@@ -202,6 +206,16 @@ test.describe("Space Combat Overlay", () => {
     expect(dreadnoughts(after)).toBeLessThan(dreadnoughts(initial));
 
     await expect
+      .poll(async () =>
+        (await snapshot(request, gameId, session)).pending_choice?.choice.options.some((option) =>
+          option.id.endsWith(":HITS_TO_ASSIGN:when"),
+        ),
+      )
+      .toBe(true);
+    await page.getByRole("radio", { name: "Decline" }).click();
+    await page.getByRole("button", { name: "Confirm choice" }).click();
+
+    await expect
       .poll(
         async () =>
           (await snapshot(request, gameId, session)).pending_choice?.choice.context?.subtype,
@@ -220,11 +234,48 @@ test.describe("Space Combat Overlay", () => {
       .poll(async () => (await snapshot(request, gameId, session)).game_version)
       .toBeGreaterThan(sustainChoice.game_version);
     await expect(page.getByTestId("combat-error-banner")).toBeHidden();
-    const sustained = await snapshot(request, gameId, session);
+  });
+
+  test("plays Shields Holding to cancel incoming combat hits", async ({ page, request }) => {
+    test.setTimeout(90_000);
+    const launch = await request.post(`${backend}/api/dev/scenarios/launch`, {
+      data: { scenario_id: "ongoing_combat", seed: 42 },
+    });
+    expect(launch.ok()).toBe(true);
+    const { game_id: gameId, player_session: session, player_id: playerId } = await launch.json();
+    const initial = await snapshot(request, gameId, session);
     expect(
-      sustained.view.board.systems[systemId].units.some(
-        (unit) => unit.owner === playerId && unit.damaged,
-      ),
-    ).toBe(true);
+      initial.view.players.find((player) => player.id === playerId)?.held_action_cards,
+    ).toContain("sh1");
+    await openPlayerGame(page, gameId, session);
+    const stay = initial.pending_choice!.choice.options.find(
+      (option) => option.id === "stay" || option.id === "decline",
+    );
+    expect(stay).toBeDefined();
+    await page.getByTestId(`retreat-opt-${stay!.id}`).click();
+
+    // Remove the defender's sustained dreadnought, then respond to its return fire.
+    await expect(page.getByTestId("play-direct-hit-btn")).toBeVisible();
+    await page.getByTestId("play-direct-hit-btn").click();
+    await expect
+      .poll(async () =>
+        (await snapshot(request, gameId, session)).pending_choice?.choice.options.some((option) =>
+          option.id.endsWith(":HITS_TO_ASSIGN:when"),
+        ),
+      )
+      .toBe(true);
+    const before = await snapshot(request, gameId, session);
+    await page.getByRole("radio", { name: /reaction:.*:HITS_TO_ASSIGN:when/ }).click();
+    await page.getByRole("button", { name: "Confirm choice" }).click();
+
+    await expect
+      .poll(async () =>
+        (await snapshot(request, gameId, session)).view.players.find((p) => p.id === playerId)
+          ?.held_action_cards.includes("sh1"),
+      )
+      .toBe(false);
+    const after = await snapshot(request, gameId, session);
+    expect(after.game_version).toBeGreaterThan(before.game_version);
+    expect(after.view.board.combat).toBeDefined();
   });
 });

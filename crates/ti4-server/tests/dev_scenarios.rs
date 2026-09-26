@@ -324,20 +324,22 @@ fn test_launch_ongoing_combat_scenario_starts_in_combat() {
     let combat = snapshot.view.board.combat.unwrap();
     assert_eq!(combat.attacker, p1);
 
-    // Sol holds a playable Direct Hit action card
+    // Sol holds cards for several stages of space combat.
     let p1_player = snapshot
         .view
         .players
         .iter()
         .find(|p| p.id == p1)
         .expect("p1 player in snapshot");
-    assert!(
-        p1_player
-            .held_action_cards
-            .iter()
-            .any(|c| c.as_str() == "dh1"),
-        "Player 1 (Sol) must hold a Direct Hit action card"
-    );
+    for card in ["dh1", "sh1", "courageous", "salvage"] {
+        assert!(
+            p1_player
+                .held_action_cards
+                .iter()
+                .any(|c| c.as_str() == card),
+            "Player 1 (Sol) must hold {card}"
+        );
+    }
 
     // Both sides fielded a Dreadnought in the battle system
     let sys = snapshot
