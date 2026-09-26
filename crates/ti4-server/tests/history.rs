@@ -2,7 +2,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
-use ti4_model::id::PlayerId;
+use ti4_model::id::{PlayerId, SystemId, UnitTypeId};
+use ti4_model::units::Unit;
 use ti4_server::session::batch::{BatchKind, BatchRequest, MovementPlan, MovementStep};
 use ti4_server::session::registry::{HistoryAction, HistoryError};
 use ti4_server::session::{GameRegistry, GameSession, SeatController, SessionConfig};
@@ -282,6 +283,181 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
     recovered_branch.wait_replayed().unwrap();
     assert!(recovered_branch.batches().is_empty());
     recovered_branch.stop();
+    drop(registry);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn fiftieth_movement_step_failure_preserves_the_durable_redo_branch() {
+    let path = std::env::temp_dir().join(format!("ti4_batch_late_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&path).unwrap());
+    let registry = GameRegistry::new().with_store(store.clone());
+    let host = PlayerId::new("p1");
+    let guest = PlayerId::new("p2");
+    let players = vec![host.clone(), guest.clone()];
+    let (mut state, galaxy) =
+        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+    let origin = SystemId::new(galaxy.adjacent("22").into_iter().next().unwrap());
+    state
+        .system_mut(&origin)
+        .units
+        .extend((0..49).map(|_| Unit::new(UnitTypeId::new("destroyer"), host.clone())));
+    // Keep the setup legal when the baseline batch ends movement; otherwise the
+    // fleet-supply removal window interrupts replay before the redo branch is made.
+    state.player_mut(&host).unwrap().fleet_tokens = 100;
+    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let config = SessionConfig::new("late_batch", state)
+        .with_seed(42)
+        .with_player_ids(players)
+        .with_galaxy(galaxy, tiles)
+        .with_seat(host.clone(), SeatController::Human)
+        .with_seat(guest, SeatController::Human);
+    let session = registry.create_game(config).unwrap();
+    let token = session.seat_tokens()[&host].clone();
+    for _ in 0..4 {
+        let (seat, nonce, version, _) = pending(&session);
+        let choice = session
+            .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+                seat.clone(),
+            ))
+            .pending_choice
+            .unwrap()
+            .choice;
+        let option = choice
+            .options
+            .iter()
+            .find(|o| o.id == "tactical" || o.id == "22")
+            .unwrap_or(&choice.options[0]);
+        session
+            .submit_choice(&seat, &nonce, version, &option.id)
+            .unwrap();
+    }
+    let (seat, nonce, version, _) = pending(&session);
+    assert_eq!(seat, host);
+    assert_eq!(
+        session
+            .current_state()
+            .active_system
+            .as_ref()
+            .unwrap()
+            .as_str(),
+        "22"
+    );
+    let choice = session
+        .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+            host.clone(),
+        ))
+        .pending_choice
+        .unwrap()
+        .choice;
+    assert!(choice.options.iter().any(|option| {
+        option.kind == "move"
+            && option.payload["origin"] == origin.as_str()
+            && option.payload["unit"] == "destroyer"
+    }));
+    let done = BatchRequest {
+        request_id: "redo_boundary".into(),
+        expected_version: version,
+        nonce,
+        plan: MovementPlan {
+            kind: BatchKind::TacticalMovement,
+            destination: "22".into(),
+            steps: vec![MovementStep::DoneMoving],
+        },
+    };
+    registry.submit_batch("late_batch", &token, done).unwrap();
+    let committed = registry.get_game("late_batch").unwrap();
+    registry
+        .change_history(
+            "late_batch",
+            &token,
+            committed.game_version(),
+            HistoryAction::UndoBatch,
+        )
+        .unwrap();
+    let undone = registry.get_game("late_batch").unwrap();
+    let (seat, nonce, version, _) = pending(&undone);
+    assert_eq!(seat, host);
+    let before_decisions = undone.decision_log();
+    let before_events = undone.event_log();
+    let before_state = undone.current_state();
+    let before_status = undone.history_status();
+    let before_batches = serde_json::to_value(undone.batches()).unwrap();
+    let history_file = store.game_dir("late_batch").unwrap().join("history.json");
+    let before_file = std::fs::read(&history_file).unwrap();
+    assert_eq!(before_status.redo_count, 1);
+
+    let mut steps = vec![
+        MovementStep::Move {
+            origin: origin.to_string(),
+            unit: "destroyer".into(),
+            damaged: false,
+        };
+        49
+    ];
+    steps.push(MovementStep::Move {
+        origin: "missing".into(),
+        unit: "destroyer".into(),
+        damaged: false,
+    });
+    steps.push(MovementStep::DoneMoving);
+    let error = registry
+        .submit_batch(
+            "late_batch",
+            &token,
+            BatchRequest {
+                request_id: "late_step_50".into(),
+                expected_version: version,
+                nonce: nonce.clone(),
+                plan: MovementPlan {
+                    kind: BatchKind::TacticalMovement,
+                    destination: "22".into(),
+                    steps,
+                },
+            },
+        )
+        .unwrap_err();
+    assert_eq!(error.failed_step, 49, "{error:?}");
+    assert_eq!(error.reason, "option unavailable");
+    assert_eq!(
+        registry.get_game("late_batch").unwrap().game_version(),
+        version
+    );
+    assert_eq!(
+        undone.current_pending_decision(),
+        Some((host, nonce, version))
+    );
+    assert_eq!(undone.decision_log(), before_decisions);
+    assert_eq!(undone.event_log(), before_events);
+    assert_eq!(undone.current_state(), before_state);
+    assert_eq!(undone.history_status(), before_status);
+    assert_eq!(
+        serde_json::to_value(undone.batches()).unwrap(),
+        before_batches
+    );
+    assert_eq!(std::fs::read(&history_file).unwrap(), before_file);
+    let recovered = store.recover_session("late_batch").unwrap();
+    recovered.wait_replayed().unwrap();
+    assert_eq!(recovered.decision_log(), before_decisions);
+    assert_eq!(recovered.event_log(), before_events);
+    assert_eq!(recovered.current_state(), before_state);
+    assert_eq!(recovered.history_status(), before_status);
+    assert_eq!(
+        serde_json::to_value(recovered.batches()).unwrap(),
+        before_batches
+    );
+    recovered.stop();
+    registry
+        .change_history("late_batch", &token, version, HistoryAction::RedoBatch)
+        .unwrap();
+    assert_eq!(
+        registry
+            .get_game("late_batch")
+            .unwrap()
+            .history_status()
+            .redo_count,
+        0
+    );
     drop(registry);
     std::fs::remove_dir_all(path).unwrap();
 }
