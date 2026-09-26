@@ -408,9 +408,10 @@ fn ongoing_combat_can_undo_twice() {
                 .iter()
                 .find(|o| o.id.ends_with(":SUSTAIN_DAMAGE_USED:after"))
         {
-            session
+            let accepted = session
                 .submit_choice(&seat, &reaction.nonce, snapshot.game_version, &play.id)
                 .unwrap();
+            assert_eq!(accepted.option_id, play.id);
             break;
         }
         assert!(

@@ -33,6 +33,8 @@ pub struct PendingDecision {
     pub game_version: u64,
     pub choice: Choice,
     pub submission_state: PendingSubmissionState,
+    /// A step can resolve a bot's earlier decision before logging this human reaction.
+    pub submitted_option_id: Option<String>,
     pub reply_tx: Option<
         mpsc::Sender<
             Result<
@@ -798,10 +800,8 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                                 break 'worker;
                             }
                             if accepted_reply.is_none()
-                                && let Some(reply_tx) = lock
-                                    .pending_decision
-                                    .take()
-                                    .and_then(|pending| pending.reply_tx)
+                                && let Some(pending) = lock.pending_decision.take()
+                                && let Some(reply_tx) = pending.reply_tx
                             {
                                 accepted_reply = Some((
                                     reply_tx,
@@ -809,7 +809,9 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                                         protocol_version: PROTOCOL_VERSION,
                                         game_id: lock.game_id.clone(),
                                         game_version: version,
-                                        option_id: record.chosen.clone(),
+                                        option_id: pending
+                                            .submitted_option_id
+                                            .expect("reserved option"),
                                     },
                                 ));
                             }

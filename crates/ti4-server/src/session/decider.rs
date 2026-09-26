@@ -58,6 +58,7 @@ impl Decider for RemoteHumanDecider {
                 game_version: shared.game_version,
                 choice: choice.clone(),
                 submission_state: PendingSubmissionState::AwaitingSubmission,
+                submitted_option_id: None,
                 reply_tx: None,
             });
             shared.broadcast_pending_decision(choice, &nonce);
@@ -75,13 +76,13 @@ impl Decider for RemoteHumanDecider {
 
             // Submission identity and option validity were atomically reserved by GameSession.
             if let Some(opt) = choice.options.iter().find(|o| o.id == submission.option_id) {
-                self.shared
-                    .lock()
-                    .expect("shared lock")
+                let mut shared = self.shared.lock().expect("shared lock");
+                let pending = shared
                     .pending_decision
                     .as_mut()
-                    .expect("reserved pending decision")
-                    .reply_tx = Some(submission.reply_tx);
+                    .expect("reserved pending decision");
+                pending.submitted_option_id = Some(submission.option_id);
+                pending.reply_tx = Some(submission.reply_tx);
 
                 return Ok(opt.clone());
             }

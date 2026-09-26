@@ -575,6 +575,46 @@ describe("GameSessionClient ingress lifecycle", () => {
     },
   );
 
+  it.each(["ack-first", "choice-first"])(
+    "releases a confirmed submission when a newer pending choice arrives before its state update (%s)",
+    async (order) => {
+      const { client, socket, send } = await connectedPlayer();
+      const submitted = client.submitChoice("opt-4");
+      const accepted = () => send({ type: "action_accepted", game_version: 4, option_id: "opt-4" });
+      const nextChoice = () =>
+        send({
+          type: "pending_choice",
+          game_version: 5,
+          nonce: "nonce-5",
+          choice: {
+            player: "player_a",
+            prompt: "Sustain damage",
+            context: { subtype: "sustain_damage" },
+            options: [{ id: "sustain", kind: "sustain", label: "Sustain" }],
+          },
+          state: {},
+          galaxy_layout: snapshot.galaxy_layout,
+        });
+      if (order === "ack-first") accepted();
+      else nextChoice();
+      if (order === "ack-first") nextChoice();
+      else accepted();
+      await submitted;
+      expect(client.getState().snapshot?.game_version).toBe(4);
+      expect(client.getState().pendingChoice?.nonce).toBe("nonce-5");
+      const nextSubmission = client.submitChoice("sustain");
+      expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({
+        type: "submit_choice",
+        nonce: "nonce-5",
+        expected_version: 5,
+        option_id: "sustain",
+      });
+      const stopped = expect(nextSubmission).rejects.toThrow(/stopped/i);
+      client.stop();
+      await stopped;
+    },
+  );
+
   it("rejects an in-flight submission on disconnect and permits a fresh submission after reconnect", async () => {
     const { client, socket } = await connectedPlayer();
     vi.useFakeTimers();

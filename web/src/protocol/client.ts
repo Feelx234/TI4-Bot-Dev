@@ -542,10 +542,13 @@ export class GameSessionClient {
     }
     this.setState(reduceServerMessage(this.state, message));
     const submission = this.submission;
+    // The worker can announce the next choice at a newer version without sending
+    // a state update at that version. That choice is itself confirmation of progress.
     if (
       submission?.accepted &&
       this.state.gameVersion > submission.version &&
-      this.state.snapshot?.game_version === this.state.gameVersion &&
+      (this.state.snapshot?.game_version === this.state.gameVersion ||
+        this.state.pendingChoice !== null) &&
       this.state.pendingChoice?.nonce !== submission.nonce
     ) {
       this.submission = null;

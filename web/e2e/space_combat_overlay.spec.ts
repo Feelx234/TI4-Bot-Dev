@@ -162,7 +162,7 @@ test.describe("Space Combat Overlay", () => {
       .toBeGreaterThan(initial.game_version);
   });
 
-  test("plays Direct Hit when the opposing fleet sustains damage", async ({ page, request }) => {
+  test("can sustain damage after playing Direct Hit", async ({ page, request }) => {
     test.setTimeout(90_000);
     const launch = await request.post(`${backend}/api/dev/scenarios/launch`, {
       data: { scenario_id: "ongoing_combat", seed: 42 },
@@ -200,5 +200,31 @@ test.describe("Space Combat Overlay", () => {
       .toBeGreaterThan(initial.game_version);
     const after = await snapshot(request, gameId, session);
     expect(dreadnoughts(after)).toBeLessThan(dreadnoughts(initial));
+
+    await expect
+      .poll(
+        async () =>
+          (await snapshot(request, gameId, session)).pending_choice?.choice.context?.subtype,
+      )
+      .toBe("sustain_damage");
+    const sustainChoice = await snapshot(request, gameId, session);
+    expect(sustainChoice.pending_choice?.choice.player).toBe(playerId);
+    const sustain = sustainChoice.pending_choice!.choice.options.find(
+      (option) => option.id !== "decline" && option.kind !== "decline",
+    );
+    expect(sustain).toBeDefined();
+    const sustainButton = page.getByTestId(`sustain-opt-${sustain!.id}`);
+    await expect(sustainButton).toBeVisible();
+    await sustainButton.click();
+    await expect
+      .poll(async () => (await snapshot(request, gameId, session)).game_version)
+      .toBeGreaterThan(sustainChoice.game_version);
+    await expect(page.getByTestId("combat-error-banner")).toBeHidden();
+    const sustained = await snapshot(request, gameId, session);
+    expect(
+      sustained.view.board.systems[systemId].units.some(
+        (unit) => unit.owner === playerId && unit.damaged,
+      ),
+    ).toBe(true);
   });
 });
