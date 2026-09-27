@@ -11,6 +11,7 @@ export const DecisionHeader: React.FC<{
   titleTestId?: string;
   minimizeTestId?: string;
   minimizeLabel?: string;
+  minimizeIcon?: string;
 }> = ({
   title,
   instruction,
@@ -20,6 +21,7 @@ export const DecisionHeader: React.FC<{
   titleTestId,
   minimizeTestId,
   minimizeLabel = "Minimize decision",
+  minimizeIcon = "−",
 }) => {
   const display = usePlayerIdentity();
   const participant = display(actor);
@@ -39,7 +41,7 @@ export const DecisionHeader: React.FC<{
         title={minimizeLabel}
         onClick={onMinimize}
       >
-        −
+        {minimizeIcon}
       </button>
     </header>
   );

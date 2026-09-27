@@ -1352,10 +1352,6 @@ select:focus-visible,
   opacity: 0.8;
 }
 
-.combat-unit-row:has(.combat-unit-row__rolls) .combat-unit-row__count {
-  margin-right: auto;
-}
-
 .combat-unit-row--interactive {
   cursor: pointer;
   border-color: var(--color-border);
@@ -1386,11 +1382,65 @@ select:focus-visible,
 
 .combat-unit-row__damaged-badge {
   font-size: 11px;
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.15);
+  color: #F0E442;
+  background: rgba(240, 228, 66, 0.12);
   padding: 2px 6px;
   border-radius: 3px;
 }
+
+.combat-unit-row__loss {
+  color: #D55E00;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.combat-barrage-note {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid #E69F00;
+  border-radius: var(--radius-sm);
+  background: #142035;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.combat-barrage-note strong { color: #E69F00; }
+
+.combat-card-offer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  margin-bottom: 10px;
+}
+
+.combat-card-offer__body { flex: 1 1 230px; }
+.combat-card-offer__eyebrow {
+  display: block;
+  color: #E69F00;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  margin-bottom: 6px;
+}
+.combat-card-offer__title { display: block; font-size: 16px; color: var(--color-text); }
+.combat-card-offer__description {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  font-size: 13px;
+}
+.combat-card-offer .button { flex-shrink: 0; }
 
 .combat-unit-row__actions {
   display: flex;

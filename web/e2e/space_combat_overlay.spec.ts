@@ -19,6 +19,9 @@ async function snapshot(
 
 async function expectShipHitPills(page: Page, state: InitialSnapshotMsg) {
   const combat = state.view.board.combat!;
+  const rollsForStep = combat.phase === "barrage" ||
+    (combat.phase === "pre_roll" && combat.round === 1 && Object.keys(combat.barrage_hits ?? {}).length > 0)
+    ? combat.barrage_dice ?? [] : combat.dice_rolls ?? [];
   const units = state.view.board.systems[combat.system_id].units;
   for (const [side, seat] of [
     ["attacker", combat.attacker],
@@ -43,7 +46,7 @@ async function expectShipHitPills(page: Page, state: InitialSnapshotMsg) {
     expect(shipTypes.size, `${side} should have ships`).toBeGreaterThan(0);
     for (const unitType of shipTypes) {
       const type = getUnitBaseType(unitType);
-      const rolls = (combat.dice_rolls ?? []).filter(
+      const rolls = rollsForStep.filter(
         (die) => (die.player ?? combat.attacker) === seat && getUnitBaseType(die.unit) === type,
       );
       const hits = rolls.filter((die) => die.hit).length;
@@ -146,7 +149,7 @@ test.describe("Space Combat Overlay", () => {
       );
     }
 
-    const firstRoll = initial.view.board.combat?.dice_rolls?.[0];
+    const firstRoll = initial.view.board.combat?.barrage_dice?.[0] ?? initial.view.board.combat?.dice_rolls?.[0];
     if (firstRoll) {
       const seat = firstRoll.player ?? playerId;
       const card = seat === playerId ? attackerCard : defenderCard;
@@ -164,7 +167,7 @@ test.describe("Space Combat Overlay", () => {
     // Verify combat odds card
     const oddsCard = page.getByTestId("combat-odds-card");
     await expect(oddsCard).toBeVisible();
-    await expect(oddsCard.getByText("Combat Odds Analysis")).toBeVisible();
+    await expect(oddsCard.getByText("Combat Odds · Fleets only")).toBeVisible();
 
     // Verify round hits scorecard is visible
     const roundHits = page.getByTestId("combat-round-hits");

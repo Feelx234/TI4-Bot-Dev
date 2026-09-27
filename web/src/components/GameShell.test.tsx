@@ -87,7 +87,7 @@ describe("GameShell", () => {
         }}
       />,
     );
-    expect(screen.getByRole("button", { name: "play Shields Holding" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play Shields Holding" })).toBeInTheDocument();
     rerender(
       <ChoiceRendererDispatcher
         {...props}

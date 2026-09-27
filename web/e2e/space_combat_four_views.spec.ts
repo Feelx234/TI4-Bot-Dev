@@ -134,7 +134,8 @@ test("a complete human battle stays public in four independent views", async ({
         );
         if (combat.phase !== "pre_roll")
           await expect(pages[i].getByTestId("combat-odds-card")).toHaveCount(0);
-        if (combat.phase === "pre_roll")
+        if (combat.phase === "pre_roll" &&
+            !(combat.round === 1 && Object.keys(combat.barrage_hits ?? {}).length > 0))
           await expect(pages[i].getByTestId("combat-round-hits")).toHaveCount(0);
         if (id !== actor) {
           expect(viewer.pending_choice).toBeFalsy();
