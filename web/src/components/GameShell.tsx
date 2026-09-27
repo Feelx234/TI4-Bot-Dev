@@ -631,6 +631,10 @@ export const GameShell: React.FC<GameShellProps> = ({
     lastHistoryGeneration.current = history?.generation;
   }
 
+  useEffect(() => {
+    if (historyBusy) setProductionQueue(null);
+  }, [historyBusy]);
+
   // A build may open payment and placement decisions before the next production offer.
   // Keep the queue above the workflow renderer and resume only on a fresh legal offer.
   useEffect(() => {
@@ -672,7 +676,16 @@ export const GameShell: React.FC<GameShellProps> = ({
     const option = matching[0];
     submittedNonce.current = choice.nonce;
     productionSubmitting.current = true;
-    void onSubmitChoice(option.id)
+    // Submit a single authoritative build at a time. Its response includes the
+    // next decision, so payment can safely interrupt before we resume the queue.
+    const submit = onSubmitBasketBatch
+      ? onSubmitBasketBatch({
+          kind: "production",
+          destination: system,
+          steps: [{ kind: "produce", unit, count: Number(option.payload?.count ?? 1) }],
+        })
+      : onSubmitChoice(option.id);
+    void submit
       .then(() => {
         productionSubmitting.current = false;
         setProductionQueue((current) =>
@@ -687,7 +700,7 @@ export const GameShell: React.FC<GameShellProps> = ({
         setProductionQueue(null);
         submittedNonce.current = null;
       });
-  }, [choice, productionQueue, onSubmitChoice]);
+  }, [choice, productionQueue, onSubmitChoice, onSubmitBasketBatch]);
 
   const playersMap = React.useMemo<Record<string, PlayerView>>(() => {
     if (!players) return {};

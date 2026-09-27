@@ -172,14 +172,39 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       setBatchRunning(true);
       setBatchError(null);
       try {
+        // When only two payment options remain and the first does not settle the
+        // bill, the engine spends the sole remaining option without offering a
+        // second choice. Do not include that automatic spend in the batch plan.
+        const autoSpendsLast =
+          choice.options.filter((option) => option.kind !== "decline").length === 2 &&
+          selectedPlanetIds.length === 2 &&
+          tradeGoodsToSpend === 0 &&
+          (availablePlanets.find((planet) => planet.id === selectedPlanetIds[0])?.worth ?? 0) <
+            owed;
+        let remaining = owed;
+        const planetsToSubmit = (
+          autoSpendsLast ? selectedPlanetIds.slice(0, 1) : selectedPlanetIds
+        ).filter((id) => {
+          if (remaining <= 0) return false;
+          remaining -= availablePlanets.find((planet) => planet.id === id)?.worth ?? 0;
+          return true;
+        });
         await onSubmitBatch({
           kind: "payment",
           steps: [
-            ...selectedPlanetIds.map((id) => ({
+            ...planetsToSubmit.map((id) => ({
               kind: "exhaust" as const,
               planet: id.replace(/^exhaust\|/, ""),
             })),
-            ...Array.from({ length: tradeGoodsToSpend }, () => ({ kind: "trade_good" as const })),
+            ...Array.from(
+              {
+                length: Math.min(
+                  tradeGoodsToSpend,
+                  Math.ceil(Math.max(0, remaining) / tradeGoodWorth),
+                ),
+              },
+              () => ({ kind: "trade_good" as const }),
+            ),
           ],
         });
       } catch (error) {

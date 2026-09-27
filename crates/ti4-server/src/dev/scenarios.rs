@@ -66,6 +66,33 @@ pub fn available_scenarios() -> Vec<ScenarioSummary> {
             opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
         },
         ScenarioSummary {
+            id: "production_batch".to_owned(),
+            title: "Production Batch".to_owned(),
+            category: "Tactical".to_owned(),
+            description: "Sol is ready to produce at Jord with a free production use and another controlled planet.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
+        ScenarioSummary {
+            id: "production_payment_batch".to_owned(),
+            title: "Production Payment Batch".to_owned(),
+            category: "Tactical".to_owned(),
+            description: "Sol is ready to produce at Jord and can pay using multiple controlled planets.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
+        ScenarioSummary {
+            id: "production_payment_autospend".to_owned(),
+            title: "Production Payment Auto-spend".to_owned(),
+            category: "Tactical".to_owned(),
+            description: "Sol can pay with Jord and Wren Terra; the last payment option is spent automatically.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
+        ScenarioSummary {
             id: "space_combat".to_owned(),
             title: "Space Combat Encounter".to_owned(),
             category: "Combat".to_owned(),
@@ -132,6 +159,10 @@ pub fn launch_scenario(
     let (mut config, lobby_record, human_player, session_token, border_system) = match scenario_id {
         "tactical_action" => {
             let (c, l, p, t) = build_tactical_scenario(seed)?;
+            (c, l, p, t, String::new())
+        }
+        "production_batch" | "production_payment_batch" | "production_payment_autospend" => {
+            let (c, l, p, t) = build_production_scenario(seed, scenario_id)?;
             (c, l, p, t, String::new())
         }
         "space_combat" | "ongoing_combat" | "ongoing_combat_four_views" => {
@@ -249,6 +280,9 @@ pub fn launch_scenario(
     if scenario_id.starts_with("ongoing_invasion_") {
         advance_into_invasion(&session, &human_player, &border_system)?;
     }
+    if scenario_id.starts_with("production_") {
+        advance_into_production(&session, &human_player)?;
+    }
 
     Ok(LaunchScenarioResponse {
         game_id,
@@ -257,6 +291,117 @@ pub fn launch_scenario(
         scenario_id: scenario_id.to_owned(),
         test_seats,
     })
+}
+
+fn build_production_scenario(
+    seed: u64,
+    scenario: &str,
+) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String), String> {
+    let (mut config, lobby, player, token, galaxy, _, _) =
+        setup_base_3p_game(seed, "dev_production")?;
+    let content = ContentStore::embedded();
+    let planets: Vec<_> = galaxy
+        .system_ids()
+        .into_iter()
+        .filter(|system| *system != "01")
+        .filter_map(|system| {
+            ti4_content::galaxy::system(content, system, POK)?
+                .planets()
+                .into_iter()
+                .next()
+                .map(|planet| (system, planet))
+        })
+        .take(if scenario == "production_payment_autospend" {
+            0
+        } else {
+            2
+        })
+        .collect();
+    if scenario != "production_payment_autospend" && planets.len() != 2 {
+        return Err("production scenario needs two additional planets".to_owned());
+    }
+    for (system, planet) in planets {
+        config
+            .state
+            .system_mut(&SystemId::new(system))
+            .set_control(PlanetId::new(planet), player.clone());
+    }
+    if scenario == "production_payment_autospend" {
+        if !galaxy.system_ids().contains(&"10") {
+            return Err("production payment scenario needs Wren Terra's system".to_owned());
+        }
+        config
+            .state
+            .system_mut(&SystemId::new("10"))
+            .set_control(PlanetId::new("wrenterra"), player.clone());
+    }
+    if scenario == "production_batch" {
+        let sequence = config.state.production_seq;
+        config
+            .state
+            .player_mut(&player)
+            .expect("Sol seated")
+            .free_production_use = Some(sequence + 1);
+    }
+    Ok((config, lobby, player, token))
+}
+
+fn advance_into_production(session: &Arc<GameSession>, player: &PlayerId) -> Result<(), String> {
+    let client = MockClient::connect(session.clone(), ViewerRole::Player(player.clone()));
+    for _ in 0..20 {
+        let mut offered = None;
+        for _ in 0..150 {
+            if let Ok(ServerMessage::PendingChoice(message)) = client.try_recv() {
+                offered = Some(message.choice);
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let choice = offered
+            .or_else(|| {
+                client
+                    .snapshot()
+                    .pending_choice
+                    .map(|pending| pending.choice)
+            })
+            .ok_or("no production setup choice")?;
+        if choice
+            .context
+            .as_ref()
+            .is_some_and(|ctx| ctx.subtype == "produce_unit")
+        {
+            return Ok(());
+        }
+        let next = if choice.options.iter().any(|option| option.id == "tactical") {
+            "tactical"
+        } else if choice.options.iter().any(|option| option.id == "01") {
+            "01"
+        } else if choice
+            .options
+            .iter()
+            .any(|option| option.id == "done_loading")
+        {
+            "done_loading"
+        } else if choice
+            .options
+            .iter()
+            .any(|option| option.id == "done_moving")
+        {
+            "done_moving"
+        } else {
+            return Err(format!(
+                "unexpected production setup choice: {}",
+                choice.prompt
+            ));
+        };
+        let (_, nonce, version) = session
+            .current_pending_decision()
+            .ok_or("no pending production setup decision")?;
+        client
+            .submit(&nonce, version, next)
+            .map_err(|err| format!("production setup submission failed: {err:?}"))?;
+    }
+    Err("production setup exceeded 20 decisions".to_owned())
 }
 
 fn build_invasion_scenario(

@@ -264,8 +264,8 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                     <div className="production-drawer__footer">
                       {stagedBatches > 1 && (
                         <p className="text-muted">
-                          Builds submit one decision at a time. The queue pauses for payment or
-                          placement and stops if a later offer changes.
+                          Staged builds submit one decision at a time. The queue pauses for payment
+                          or placement and stops if a later offer changes.
                         </p>
                       )}
                       <button
@@ -281,7 +281,11 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                         className="button button--primary"
                         disabled={!stagedBatches || queued || isSubmitting || batchRunning}
                         onClick={async () => {
-                          if (onSubmitBatch) {
+                          // A build can open a payment or placement decision before
+                          // another build is offered. The shell's queue waits for that choice
+                          // to resolve instead of sending an invalid produce-only batch.
+                          const needsQueue = stagedBatches > 1 && onQueueProduction;
+                          if (onSubmitBatch && !needsQueue) {
                             setBatchRunning(true);
                             setBatchError(null);
                             try {

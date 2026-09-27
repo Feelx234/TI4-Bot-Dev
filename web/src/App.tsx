@@ -282,7 +282,6 @@ const GameViewContainer: React.FC<{
         </div>
       )}
       <GameShell
-        key={gameHistory.generation ?? 0}
         header={
           <div className="game-header">
             <TurnStatusBar

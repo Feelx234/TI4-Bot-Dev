@@ -12,14 +12,24 @@ use ti4_server::session::{GameRegistry, MockClient};
 #[test]
 fn test_available_scenarios_listing() {
     let scenarios = available_scenarios();
-    assert_eq!(scenarios.len(), 7);
-    assert_eq!(scenarios[0].id, "tactical_action");
-    assert_eq!(scenarios[1].id, "space_combat");
-    assert_eq!(scenarios[2].id, "ongoing_combat");
-    assert_eq!(scenarios[3].id, "ongoing_combat_four_views");
-    assert_eq!(scenarios[4].id, "ongoing_invasion_four_views");
-    assert_eq!(scenarios[5].id, "ongoing_invasion_coexistence");
-    assert_eq!(scenarios[6].id, "ongoing_invasion_parley");
+    assert_eq!(
+        scenarios
+            .iter()
+            .map(|scenario| scenario.id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "tactical_action",
+            "production_batch",
+            "production_payment_batch",
+            "production_payment_autospend",
+            "space_combat",
+            "ongoing_combat",
+            "ongoing_combat_four_views",
+            "ongoing_invasion_four_views",
+            "ongoing_invasion_coexistence",
+            "ongoing_invasion_parley",
+        ]
+    );
 }
 
 #[test]
@@ -323,7 +333,7 @@ async fn test_dev_scenarios_http_api() {
         .expect("get dev scenarios");
     assert_eq!(res.status(), reqwest::StatusCode::OK);
     let list: Vec<ti4_server::dev::ScenarioSummary> = res.json().await.expect("json scenario list");
-    assert_eq!(list.len(), 7);
+    assert_eq!(list.len(), available_scenarios().len());
 
     let launch_res = client
         .post(format!("http://{addr}/api/dev/scenarios/launch"))
