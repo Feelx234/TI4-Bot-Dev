@@ -254,11 +254,31 @@ pub fn project_board_view_full(
         );
     }
 
+    let invasion =
+        state
+            .active_invasion
+            .as_ref()
+            .map(|active| crate::protocol::view::InvasionView {
+                system_id: active.system.clone(),
+                invasion_seq: active.seq,
+                invader: active.invader.clone(),
+                phase: active.phase.clone(),
+                planets: systems.get(&active.system).map_or_else(
+                    Vec::new,
+                    |system: &crate::protocol::view::SystemView| {
+                        system.planets.keys().cloned().collect()
+                    },
+                ),
+                current_planet: active.planet.clone(),
+                defender: active.defender.clone(),
+                ground_round: active.ground_round,
+            });
     BoardView {
         systems,
         active_system: state.active_system.clone(),
         map_tiles: map_tiles.to_vec(),
         combat: project_combat_view(state, pending_choice, dice_rolls),
+        invasion,
     }
 }
 

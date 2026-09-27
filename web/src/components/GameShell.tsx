@@ -16,6 +16,8 @@ import { ReactionStatusBar } from "./ReactionStatusBar.tsx";
 import { ProductionBuilderDrawer } from "./ProductionBuilderDrawer.tsx";
 import { CargoLoadingTray } from "./CargoLoadingTray.tsx";
 import { InvasionLandingTray } from "./InvasionLandingTray.tsx";
+import type { Landing } from "./InvasionLandingTray.tsx";
+import { InvasionOverlay } from "./InvasionOverlay.tsx";
 import { SystemActivationBar } from "./SystemActivationBar.tsx";
 import { deriveChoiceRendererModel, ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { Dialog, overlayStack } from "../primitives/index.ts";
@@ -73,6 +75,8 @@ export interface ChoiceRendererDispatcherProps {
   tacticalPlan?: React.RefObject<ExecutionPlan>;
   tacticalStep?: number;
   onTacticalStep?: () => void;
+  landingDraft?: Landing[];
+  onLandingDraftChange?: (draft: Landing[]) => void;
 }
 
 type WorkflowRenderer = (
@@ -398,6 +402,8 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   tacticalPlan,
   tacticalStep,
   onTacticalStep,
+  landingDraft,
+  onLandingDraftChange,
 }) => {
   const present = useParticipantText();
   const derivedModel = useMemo(() => {
@@ -420,6 +426,12 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     workflow === "combat_sustain" ||
     workflow === "combat_casualty" ||
     workflow === "combat_retreat";
+
+  if (boardView?.invasion && !boardView.combat) {
+    return isMinimized ? <button type="button" className="button button--primary" onClick={() => onMinimizedChange(false)}>View invasion</button> : (
+      <InvasionOverlay board={boardView} choice={choice} players={players} viewerSeat={viewerSeat} onSubmit={onSubmit} onClose={() => onMinimizedChange(true)} lastError={lastError} landingDraft={landingDraft} onLandingDraftChange={onLandingDraftChange} />
+    );
+  }
 
   // If there is an active combat on the board without a pending choice, render combat overlay in spectator mode
   if (!choice && boardView?.combat) {
@@ -571,29 +583,14 @@ export const GameShell: React.FC<GameShellProps> = ({
     units: string[];
   } | null>(null);
   const [productionError, setProductionError] = useState<string | null>(null);
+  const [landingDraftState, setLandingDraftState] = useState<{ key: string; entries: Landing[] } | null>(null);
+  const landingKey = boardView?.invasion ? `${history?.generation ?? 0}:${boardView.invasion.system_id}:${boardView.invasion.invasion_seq}` : null;
   const submittedNonce = useRef<string | null>(null);
   const productionSubmitting = useRef(false);
   const tacticalPlan = useRef<ExecutionPlan>(emptyMovementPlan());
   const [tacticalStep, setTacticalStep] = useState(0);
   const lastHistoryGeneration = useRef(history?.generation);
   const pipelineRunner = useOwnedPipelineRunner(choice, onSubmitChoice);
-  const lastCombatBoard = useRef<BoardView | null>(null);
-  const [closedCombatKey, setClosedCombatKey] = useState<string | null>(null);
-  if (boardView?.combat) lastCombatBoard.current = boardView;
-  const lastCombat = lastCombatBoard.current?.combat;
-  const combatKey = lastCombat &&
-    `${lastCombat.system_id}:${lastCombat.attacker}:${lastCombat.defender}:${lastCombat.battle_seq ?? 0}`;
-  // The server removes board.combat when the victory reaction resolves. Keep the
-  // final public fleet visible for this mount, but never restore it on page reload.
-  const completedCombatBoard: BoardView | null = !boardView?.combat && lastCombat &&
-    combatKey !== closedCombatKey
-    ? {
-        ...lastCombatBoard.current!,
-        ...boardView,
-        systems: { ...lastCombatBoard.current!.systems, ...boardView?.systems },
-        combat: { ...lastCombat, phase: "complete" },
-      }
-    : null;
 
   // A restored timeline must not resume a movement plan from the old timeline.
   if (history?.generation !== lastHistoryGeneration.current) {
@@ -747,7 +744,8 @@ export const GameShell: React.FC<GameShellProps> = ({
 
       <div className="app-shell__overlays">
         <PipelineRunnerContext.Provider value={pipelineRunner}>
-          {!completedCombatBoard && <ChoiceRendererDispatcher
+          <ChoiceRendererDispatcher
+            key={`${history?.generation ?? 0}:${boardView?.invasion?.invasion_seq ?? "none"}`}
             choice={choice}
             viewerSeat={viewerSeat}
             players={playersMap}
@@ -767,6 +765,8 @@ export const GameShell: React.FC<GameShellProps> = ({
             onTacticalStep={() => setTacticalStep((step) => step + 1)}
             productionQueue={productionQueue?.units}
             productionError={productionError}
+            landingDraft={landingKey && landingDraftState?.key === landingKey ? landingDraftState.entries : []}
+            onLandingDraftChange={(entries) => { if (landingKey) setLandingDraftState({ key: landingKey, entries }); }}
             onQueueProduction={(units) => {
               if (!choice || productionQueue?.units.length) return;
               const system =
@@ -777,18 +777,7 @@ export const GameShell: React.FC<GameShellProps> = ({
               submittedNonce.current = null;
               setProductionQueue({ actor: choice.actor, system, units });
             }}
-          />}
-          {completedCombatBoard && (
-            <SpaceCombatOverlay
-              choice={null}
-              viewerSeat={viewerSeat}
-              onSubmit={onSubmitChoice}
-              isOpen
-              onClose={() => setClosedCombatKey(combatKey!)}
-              board={completedCombatBoard}
-              players={playersMap}
-            />
-          )}
+          />
         </PipelineRunnerContext.Provider>
       </div>
     </div>

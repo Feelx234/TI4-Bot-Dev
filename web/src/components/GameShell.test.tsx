@@ -102,7 +102,7 @@ describe("GameShell", () => {
     expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
   });
 
-  it("keeps the final fleets open after combat until X, then hands off the next decision", () => {
+  it("hands off the next decision immediately after combat", () => {
     const activeBoard: BoardView = {
       systems: {
         "18": {
@@ -151,16 +151,10 @@ describe("GameShell", () => {
     expect(screen.getByTestId("combat-resolution-modal")).toBeInTheDocument();
 
     rerender(<GameShell {...props} choice={choice} boardView={nextBoard} />);
-    expect(screen.getByTestId("combat-resolution-modal")).toBeInTheDocument();
-    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent("Combat complete");
-    expect(screen.getByTestId("combat-complete-notice")).toHaveTextContent("Combat complete");
-    expect(screen.getByTestId("attacker-fleet-card")).toHaveTextContent("Dreadnought");
-    expect(screen.getByTestId("defender-fleet-card")).toHaveTextContent("No ships remaining");
-    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("combat-resolution-modal")).not.toBeInTheDocument();
+    expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
 
     rerender(<GameShell {...props} choice={{ ...choice, nonce: "next-choice" }} boardView={nextBoard} />);
-    expect(screen.getByTestId("combat-resolution-modal")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close combat" }));
     expect(screen.queryByTestId("combat-resolution-modal")).not.toBeInTheDocument();
     expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
   });
@@ -176,7 +170,7 @@ describe("GameShell", () => {
     };
     const { rerender, unmount } = render(<GameShell {...props} boardView={board} />);
     rerender(<GameShell {...props} boardView={{ ...board, combat: undefined }} />);
-    expect(screen.getByTestId("combat-resolution-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("combat-resolution-modal")).not.toBeInTheDocument();
     unmount();
     render(<GameShell {...props} boardView={{ ...board, combat: undefined }} />);
     expect(screen.queryByTestId("combat-resolution-modal")).not.toBeInTheDocument();

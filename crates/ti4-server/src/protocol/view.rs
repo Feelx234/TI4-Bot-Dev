@@ -156,6 +156,20 @@ pub struct CombatView {
     pub dice_rolls: Vec<CombatDieRoll>,
 }
 
+/// Public invasion identity and current planet-local progress.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvasionView {
+    pub system_id: SystemId,
+    pub invasion_seq: u64,
+    pub invader: PlayerId,
+    pub phase: String,
+    pub planets: Vec<PlanetId>,
+    pub current_planet: Option<PlanetId>,
+    pub defender: Option<PlayerId>,
+    pub ground_round: u32,
+}
+
 /// Redacted view of the galaxy board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -167,6 +181,8 @@ pub struct BoardView {
     pub map_tiles: Vec<BoardTileView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub combat: Option<CombatView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invasion: Option<InvasionView>,
 }
 
 /// Public table state: objectives, laws, strategy card goods.

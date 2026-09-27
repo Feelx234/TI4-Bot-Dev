@@ -7,6 +7,33 @@ use ti4_server::projection::project_combat_view;
 use ti4_server::projection::{project_initial_snapshot, project_state_update};
 
 #[test]
+fn invasion_boundary_is_public_even_during_an_unrelated_nested_offer() {
+    let mut game = create_sample_game();
+    let system = SystemId::new("18");
+    game.active_invasion = Some(ti4_model::state::ActiveInvasion {
+        system: system.clone(),
+        invader: PlayerId::new("seat_a"),
+        seq: 7,
+        phase: "ground_battle".to_owned(),
+        planet: Some(ti4_model::id::PlanetId::new("jord")),
+        defender: Some(PlayerId::new("seat_b")),
+        ground_round: 2,
+    });
+    let offer = create_sample_pending_choice();
+    for viewer in [
+        ViewerRole::Player(PlayerId::new("seat_a")),
+        ViewerRole::Player(PlayerId::new("seat_b")),
+        ViewerRole::Spectator,
+    ] {
+        let snapshot =
+            project_initial_snapshot("invasion", 1, &game, &viewer, Some((&offer, "nested")));
+        let json = serde_json::to_value(snapshot).expect("snapshot");
+        assert_eq!(json["view"]["board"]["invasion"]["invasion_seq"], 7);
+        assert_eq!(json["view"]["board"]["invasion"]["current_planet"], "jord");
+    }
+}
+
+#[test]
 fn combat_projection_follows_the_driver_not_contested_ships_or_the_last_survivor() {
     let mut game = create_sample_game();
     let system = SystemId::new("18");

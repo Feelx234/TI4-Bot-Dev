@@ -31,10 +31,11 @@ it("stages a single offered landing, submits once and retains the exact option i
       onClose={vi.fn()}
     />,
   );
-  expect(screen.getByRole("button", { name: "Land forces" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("radio"));
-  expect(screen.getByRole("button", { name: "Land forces" })).toBeEnabled();
-  fireEvent.click(screen.getByRole("button", { name: "Land forces" }));
+  expect(screen.getByRole("button", { name: "Confirm landings" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "jord" }));
+  fireEvent.click(screen.getByRole("button", { name: /Land infantry on Jord/ }));
+  expect(screen.getByRole("button", { name: "Confirm landings" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm landings" }));
   await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith("land|jord|infantry"));
 });
 
@@ -48,5 +49,21 @@ it("does not expose the actor landing options to another seat", () => {
       onClose={vi.fn()}
     />,
   );
-  expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "jord" })).not.toBeInTheDocument();
+});
+
+it("uses a fresh option for each staged copy and keeps the remainder when interrupted", async () => {
+  const onSubmit = vi.fn().mockResolvedValue(undefined);
+  const board = { ...galleryBoard, invasion: { system_id: "18", invasion_seq: 1, invader: actor, phase: "landing", planets: ["jord"], current_planet: null, defender: null, ground_round: 0 }, systems: { ...galleryBoard.systems, "18": { ...galleryBoard.systems["18"], units: [
+    { owner: actor, unit_type: "infantry", damaged: false },
+    { owner: actor, unit_type: "infantry", damaged: false },
+  ] } } };
+  const { rerender } = render(<InvasionLandingTray choice={choice} board={board} viewerSeat={actor} onSubmit={onSubmit} onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "jord" }));
+  fireEvent.click(screen.getByRole("button", { name: /Land infantry on Jord/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Land infantry on Jord/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm landings" }));
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledExactlyOnceWith("land|jord|infantry"));
+  rerender(<InvasionLandingTray choice={{ ...choice, nonce: "landing-2", options: [{ ...choice.options[0], id: "fresh-offer" }, choice.options[1]] }} board={board} viewerSeat={actor} onSubmit={onSubmit} onClose={vi.fn()} />);
+  await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(2, "fresh-offer"));
 });

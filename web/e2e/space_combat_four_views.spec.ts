@@ -342,8 +342,7 @@ test("a complete human battle stays public in four independent views", async ({
       }
       if (selected.payload?.card_name === "Salvage" && !after.view.board.combat) {
         for (const page of pages) {
-          await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
-          await expect(page.getByTestId("combat-phase")).toHaveAttribute("data-phase", "complete");
+          await expect(page.getByTestId("combat-resolution-modal")).toHaveCount(0);
         }
       }
       if (subtype === "sustain_damage" && selected.kind === "sustain") {

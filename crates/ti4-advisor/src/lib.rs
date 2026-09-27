@@ -21,7 +21,7 @@ use ti4_policy::critic::{CriticFeatures, critic_vector};
 use ti4_policy::progress::Baseline;
 use ti4_policy::vocabulary::Vocabulary;
 use ti4_server::map::GalaxyLayout;
-use ti4_training::battle_arena::{self, Side};
+use ti4_training::battle_arena::{self, GroundSide, Side};
 
 const MAX_OPTIONS: usize = 512;
 const MAX_PLACEMENTS: usize = 256;
@@ -123,6 +123,32 @@ pub struct BattleResponse {
     pub defender_expected_survivors: BTreeMap<String, f64>,
     pub attacker_fielded: BTreeMap<String, usize>,
     pub defender_fielded: BTreeMap<String, usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroundOddsSide {
+    pub faction: String,
+    pub units: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub damaged: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub guns: BTreeMap<String, usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroundOddsRequest {
+    pub attacker: GroundOddsSide,
+    pub defender: GroundOddsSide,
+    #[serde(default)]
+    pub simulations: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GroundOddsResponse {
+    pub simulations: usize,
+    pub attacker_win_rate: f64,
 }
 
 /// A parsed request to evaluate a single legal engine choice.
@@ -227,6 +253,7 @@ impl Advisor {
             .route("/evaluate", post(evaluate))
             .route("/battle", post(battle))
             .route("/battle_odds", post(battle))
+            .route("/ground_odds", post(ground_odds))
             .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
             .with_state(self)
     }
@@ -394,6 +421,74 @@ impl Advisor {
             defender_fielded,
         })
     }
+
+    pub fn ground_odds(&self, request: &GroundOddsRequest) -> Result<GroundOddsResponse, ApiError> {
+        let n = request.simulations.unwrap_or(DEFAULT_SIMULATIONS);
+        if n == 0 || n > MAX_SIMULATIONS {
+            return Err(ApiError::bad_request(
+                "simulations must be between 1 and 50000",
+            ));
+        }
+        if !request.attacker.guns.is_empty() {
+            return Err(ApiError::bad_request(
+                "only the defender has standing defense guns",
+            ));
+        }
+        let resolve = |side: &GroundOddsSide| -> Result<GroundSide, ApiError> {
+            if side.units.len() > MAX_PLACEMENTS
+                || side.guns.len() > MAX_PLACEMENTS
+                || side.units.values().any(|count| *count > MAX_PLACEMENTS)
+                || side.guns.values().any(|count| *count > MAX_PLACEMENTS)
+                || side.units.values().sum::<usize>() > MAX_PLACEMENTS
+                || side.guns.values().sum::<usize>() > MAX_PLACEMENTS
+            {
+                return Err(ApiError::bad_request("too many ground units"));
+            }
+            for (id, count) in &side.units {
+                if *count > 0
+                    && !ti4_content::units::unit_type(self.inner.content, id, POK)
+                        .is_some_and(|unit| unit.is_ground_force())
+                {
+                    return Err(ApiError::bad_request(format!("invalid ground force: {id}")));
+                }
+                if side.damaged.get(id).copied().unwrap_or(0) > *count {
+                    return Err(ApiError::bad_request("damaged count exceeds force count"));
+                }
+            }
+            if side.damaged.keys().any(|id| !side.units.contains_key(id)) {
+                return Err(ApiError::bad_request("damaged unit is not fielded"));
+            }
+            for id in side.guns.keys() {
+                if !ti4_content::units::unit_type(self.inner.content, id, POK)
+                    .is_some_and(|unit| unit.space_cannon_hits_on().is_some())
+                {
+                    return Err(ApiError::bad_request(format!("invalid defense gun: {id}")));
+                }
+            }
+            let forces: Vec<_> = side.units.iter().map(|(id, n)| (id.clone(), *n)).collect();
+            let damaged: Vec<_> = side
+                .damaged
+                .iter()
+                .map(|(id, n)| (id.clone(), *n))
+                .collect();
+            let guns: Vec<_> = side.guns.iter().map(|(id, n)| (id.clone(), *n)).collect();
+            Ok(
+                GroundSide::of(self.inner.content, &forces, &damaged, &side.faction)
+                    .with_defense_guns(self.inner.content, &guns),
+            )
+        };
+        let attacker = resolve(&request.attacker)?;
+        let defender = resolve(&request.defender)?;
+        let wins = (0..n)
+            .filter(|seed| {
+                battle_arena::ground_fight(&attacker, &defender, *seed as u64).winner == Some("a")
+            })
+            .count();
+        Ok(GroundOddsResponse {
+            simulations: n,
+            attacker_win_rate: wins as f64 / n as f64,
+        })
+    }
 }
 
 async fn evaluate(
@@ -408,6 +503,13 @@ async fn battle(
     Json(request): Json<BattleRequest>,
 ) -> Result<Json<BattleResponse>, ApiError> {
     advisor.battle(&request).map(Json)
+}
+
+async fn ground_odds(
+    State(advisor): State<Advisor>,
+    Json(request): Json<GroundOddsRequest>,
+) -> Result<Json<GroundOddsResponse>, ApiError> {
+    advisor.ground_odds(&request).map(Json)
 }
 
 #[allow(clippy::too_many_lines)]

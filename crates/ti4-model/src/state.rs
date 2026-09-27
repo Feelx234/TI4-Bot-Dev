@@ -970,6 +970,18 @@ impl TransientFlags {
     }
 }
 
+/// Public invasion boundary, independent of whichever nested choice is currently offered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActiveInvasion {
+    pub system: SystemId,
+    pub invader: PlayerId,
+    pub seq: u64,
+    pub phase: String,
+    pub planet: Option<PlanetId>,
+    pub defender: Option<PlayerId>,
+    pub ground_round: u32,
+}
+
 /// The whole game, as a value.
 ///
 /// `initiative_order` is derived from held strategy cards rather than stored, so it cannot
@@ -1243,6 +1255,9 @@ pub struct GameState {
     /// Cleared before the hand-off to invasion. Unlike ship ownership this is an explicit boundary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_space_combat: Option<(SystemId, PlayerId, PlayerId)>,
+    /// The tactical invasion currently running, including nested reaction windows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_invasion: Option<ActiveInvasion>,
     /// In-progress space combat hits produced in the current round by player. In-flight bookkeeping — not compared.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub combat_round_hits: BTreeMap<PlayerId, u32>,
@@ -1576,6 +1591,7 @@ impl GameState {
             last_combat_sides: None,
             action_card_plays: Vec::new(),
             active_space_combat: None,
+            active_invasion: None,
             combat_round_hits: BTreeMap::new(),
             combat_round_dice: Vec::new(),
             combat_presentation: CombatPresentation::default(),

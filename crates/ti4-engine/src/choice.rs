@@ -463,6 +463,11 @@ impl<'a> Observed<'a> {
         self.state.active_space_combat.clone()
     }
 
+    /// The public invasion boundary at this exact decision, including nested reactions.
+    pub fn invasion(&self) -> Option<ti4_model::state::ActiveInvasion> {
+        self.state.active_invasion.clone()
+    }
+
     /// Wrap a position. Public so tests and sibling crates can build one.
     #[must_use]
     pub const fn new(

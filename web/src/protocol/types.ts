@@ -238,6 +238,18 @@ export interface BoardView {
   active_system?: string | null;
   map_tiles?: BoardTileView[];
   combat?: CombatView | null;
+  invasion?: InvasionView | null;
+}
+
+export interface InvasionView {
+  system_id: string;
+  invasion_seq: number;
+  invader: string;
+  phase: string;
+  planets: string[];
+  current_planet: string | null;
+  defender: string | null;
+  ground_round: number;
 }
 
 export interface GameView {

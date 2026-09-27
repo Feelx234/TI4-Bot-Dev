@@ -117,11 +117,10 @@ impl Decider for RemoteHumanDecider {
         // A nested choice can pause a step before the worker publishes a new state.
         // Keep the public combat boundary current even while the rest of the state
         // waits for that step to finish (notably between victory and invasion).
-        self.shared
-            .lock()
-            .expect("session shared lock")
-            .latest_state
-            .active_space_combat = seen.space_battle();
+        let mut shared = self.shared.lock().expect("session shared lock");
+        shared.latest_state.active_space_combat = seen.space_battle();
+        shared.latest_state.active_invasion = seen.invasion();
+        drop(shared);
         self.choose(choice)
     }
 }

@@ -535,6 +535,15 @@ impl AftermathWindow {
                         .map_err(crate::combat::CombatError::from)?;
                     }
                     self.stage = if holds {
+                        state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                            system: self.system.clone(),
+                            invader: self.player.clone(),
+                            seq: u64::from(state.activation_seq),
+                            phase: "bombardment".to_owned(),
+                            planet: None,
+                            defender: None,
+                            ground_round: 0,
+                        });
                         // Two cards read "at the start of an invasion", so the window opens
                         // before the invasion does rather than after it has resolved.
                         let mut payload = BTreeMap::new();
@@ -579,6 +588,7 @@ impl AftermathWindow {
                         return Ok(());
                     }
                     window.settle(state, ctx);
+                    window.update_public_boundary(state);
                     if let Some((occurrence, combat)) = window.take_scoring_occurrence() {
                         self.pending_event_scoring = Some((
                             occurrence,
@@ -590,16 +600,23 @@ impl AftermathWindow {
                         ));
                         return Ok(());
                     }
-                    if window
-                        .pending_choice(state, ctx.content, ctx.sources)
-                        .is_some()
-                    {
+                    if let Some(offered) = window.pending_choice(state, ctx.content, ctx.sources) {
+                        if offered
+                            .context
+                            .as_ref()
+                            .is_some_and(|context| context.subtype == "commit_ground_forces")
+                        {
+                            if let Some(active) = state.active_invasion.as_mut() {
+                                active.phase = "landing".to_owned();
+                            }
+                        }
                         return Ok(());
                     }
                     if !window.is_done() {
                         return Ok(());
                     }
                     self.log.push("INVASION_RESOLVED".to_owned());
+                    state.active_invasion = None;
                     // The production window opens before the step makes its first choice, so a
                     // reaction (War Machine) can change this step rather than one that has
                     // already spent its budget.

@@ -786,6 +786,7 @@ fn commit_options(
                 )
                 .with("planet", planet.to_string())
                 .with("unit", unit.type_id.to_string())
+                .with("damaged", unit.sustained_damage)
                 .previewed(Preview::certain(vec![Delta::new(
                     Quantity::GroundForcesOnPlanet,
                     own_ground,
@@ -1398,6 +1399,50 @@ pub struct InvasionWindow {
 }
 
 impl InvasionWindow {
+    /// Keep the authoritative boundary current even when a reaction replaces the invasion offer.
+    pub(crate) fn update_public_boundary(&self, state: &mut GameState) {
+        let Some(active) = state.active_invasion.as_mut() else {
+            return;
+        };
+        let (phase, planet, defender) = match &self.stage {
+            Stage::Bombarding => (
+                "bombardment",
+                self.bombard_plan
+                    .get(self.bombard_index)
+                    .map(|p| p.planet.clone()),
+                None,
+            ),
+            Stage::ChoosingBombardment { planet, .. } => {
+                ("bombardment", Some(planet.clone()), None)
+            }
+            Stage::Custodians => ("custodians", None, None),
+            Stage::Committing => ("landing", None, None),
+            Stage::Fighting {
+                planets,
+                index,
+                defender,
+            } => (
+                "ground_battle",
+                planets.get(*index).cloned(),
+                Some(defender.clone()),
+            ),
+            Stage::Advancing { planets, index } => {
+                ("planet_result", planets.get(*index).cloned(), None)
+            }
+            Stage::ChoosingNextCombat { planet, .. } => {
+                ("next_defender", Some(planet.clone()), None)
+            }
+            Stage::FinalizingControl { planet, .. } => ("control", Some(planet.clone()), None),
+            Stage::Done => ("complete", None, None),
+        };
+        if active.planet != planet || active.defender != defender {
+            active.ground_round = 0;
+        }
+        active.phase = phase.to_owned();
+        active.planet = planet;
+        active.defender = defender;
+    }
+
     /// Open an invasion, rolling its bombardment immediately (49.1).
     #[must_use]
     pub fn new(
@@ -1794,6 +1839,13 @@ impl InvasionWindow {
     ) {
         let (content, sources) = (ctx.content, ctx.sources);
         let planet = planets[index].clone();
+        if let Some(active) = state.active_invasion.as_mut() {
+            if active.planet.as_ref() == Some(&planet)
+                && active.defender.as_ref() == Some(&defender)
+            {
+                active.ground_round += 1;
+            }
+        }
         // Letnev's Dunlain Reaper: "DEPLOY: At the start of a round of ground combat, you may spend
         // 2 resources to replace 1 of your infantry in that combat with 1 mech from your
         // reinforcements." Before the dice, so the mech fights the round it arrives for.

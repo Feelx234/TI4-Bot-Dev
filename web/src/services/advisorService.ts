@@ -73,6 +73,27 @@ export async function fetchBattleOdds(
   return (await response.json()) as BattleOddsResponse;
 }
 
+export interface GroundOddsSide {
+  faction: string;
+  units: Record<string, number>;
+  damaged: Record<string, number>;
+  guns?: Record<string, number>;
+}
+
+export interface GroundOddsRequest {
+  attacker: GroundOddsSide;
+  defender: GroundOddsSide;
+  simulations?: number;
+}
+
+export async function fetchGroundOdds(request: GroundOddsRequest, signal?: AbortSignal): Promise<{ attacker_win_rate: number; simulations: number }> {
+  const response = await fetch("/advisor/ground_odds", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request), signal,
+  });
+  if (!response.ok) throw new Error(`Ground odds unavailable: ${response.status}`);
+  return response.json();
+}
+
 /**
  * Constructs a BattleOddsRequest for combat in progress.
  */
