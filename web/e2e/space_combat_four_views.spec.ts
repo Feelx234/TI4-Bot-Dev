@@ -55,12 +55,58 @@ test("a complete human battle stays public in four independent views", async ({
     let checkedShieldHits = false;
     let checkedShieldCallout = false;
     let sawSustain = false;
+    const phases = new Set<string>();
+    let sawBarrage = false;
+    let sawNewDamage = false;
+    let sawDestroyed = false;
+    let sawReturnFire = false;
+    let sawNextRound = false;
     let finished = false;
     for (let step = 0; step < 180; step++) {
       const current = await snapshot(request, game, seats[sol]);
       if (!current.view.board.combat) {
         finished = true;
         break;
+      }
+      const combat = current.view.board.combat;
+      phases.add(combat.phase ?? "");
+      expect(combat.battle_seq).toBeGreaterThan(0);
+      if (combat.round > 1) {
+        sawNextRound = true;
+        if (combat.phase === "pre_roll") {
+          expect(combat.dice_rolls ?? []).toHaveLength(0);
+          expect(combat.attacker_hits).toBeFalsy();
+          expect(combat.defender_hits).toBeFalsy();
+        }
+      }
+      if (combat.barrage_dice?.length) {
+        sawBarrage = true;
+        expect(combat.barrage_dice.some((die) => die.unit.includes("destroyer"))).toBe(true);
+        expect(combat.barrage_hits?.[combat.attacker]).toBeGreaterThanOrEqual(0);
+      }
+      if (combat.phase === "resolving_hits") {
+        expect(combat.round_start?.length).toBeGreaterThan(0);
+        expect(combat.attacker_hits).toBeGreaterThanOrEqual(0);
+        expect(combat.defender_hits).toBeGreaterThanOrEqual(0);
+        const start = combat.round_start ?? [];
+        const now = current.view.board.systems[combat.system_id].units;
+        sawNewDamage ||= now.some(
+          (unit) =>
+            unit.damaged &&
+            !start.some(
+              (old) => old.owner === unit.owner && old.unit_type === unit.unit_type && old.damaged,
+            ),
+        );
+        sawDestroyed ||= start.some(
+          (unit) =>
+            start.filter((old) => old.owner === unit.owner && old.unit_type === unit.unit_type)
+              .length >
+            now.filter((live) => live.owner === unit.owner && live.unit_type === unit.unit_type)
+              .length,
+        );
+        sawReturnFire ||=
+          (combat.remaining_hits?.[combat.attacker] ?? 0) > 0 &&
+          (combat.remaining_hits?.[combat.defender] ?? 0) > 0;
       }
       const actor =
         current.turn_status.kind === "waiting_for_decision" ? current.turn_status.seat : undefined;
@@ -80,6 +126,16 @@ test("a complete human battle stays public in four independent views", async ({
         const id = ids[i];
         const viewer = await snapshot(request, game, id ? seats[id] : undefined);
         expect(viewer.view.board.combat?.system_id).toBe(current.view.board.combat.system_id);
+        expect(viewer.view.board.combat?.phase).toBe(combat.phase);
+        expect(viewer.view.board.combat?.round_start).toEqual(combat.round_start);
+        await expect(pages[i].getByTestId("combat-phase")).toHaveAttribute(
+          "data-phase",
+          combat.phase!,
+        );
+        if (combat.phase !== "pre_roll")
+          await expect(pages[i].getByTestId("combat-odds-card")).toHaveCount(0);
+        if (combat.phase === "pre_roll")
+          await expect(pages[i].getByTestId("combat-round-hits")).toHaveCount(0);
         if (id !== actor) {
           expect(viewer.pending_choice).toBeFalsy();
           expect(
@@ -289,7 +345,10 @@ test("a complete human battle stays public in four independent views", async ({
               .toBe(true);
             // The modal intercepts clicks outside it; dock it to inspect the live log.
             const modal = pages[i].getByTestId("combat-resolution-modal");
-            if (await modal.isVisible()) await modal.getByTestId("close-combat-modal").click();
+            await expect(async () => {
+              if (await modal.isVisible())
+                await modal.getByTestId("close-combat-modal").click({ timeout: 1_000 });
+            }).toPass();
             const generic = pages[i].getByTestId("pending-choice-dialog");
             if (await generic.isVisible())
               await generic.getByRole("button", { name: "Minimize decision" }).click();
@@ -328,12 +387,21 @@ test("a complete human battle stays public in four independent views", async ({
     expect(finished, "battle must end, including its victory window").toBe(true);
     expect(sawGroupedOpportunity, "the scenario must offer both copies together").toBe(true);
     expect(sawSustain, "the battle must exercise sustain damage").toBe(true);
+    expect(phases.has("pre_roll"), "the opening must show pre-roll fleets").toBe(true);
+    expect(phases.has("resolving_hits"), "normal rolls must reach hit resolution").toBe(true);
+    expect(sawBarrage, "the first round must show anti-fighter barrage dice").toBe(true);
+    expect(sawNewDamage, "sustain must mark a surviving ship damaged").toBe(true);
+    expect(sawDestroyed, "casualties must reduce ship counts").toBe(true);
+    expect(sawReturnFire, "both sides' hits must be queued together").toBe(true);
+    expect(sawNextRound, "the battle must show later rounds").toBe(true);
     expect(checkedShieldHits, "Shields Holding must cancel hits before assignment").toBe(true);
     expect(checkedShieldCallout, "Shields Holding must update the live hits callout").toBe(true);
     expect(played).toBeGreaterThan(0);
     const snapshots = await Promise.all(ids.map((id) => snapshot(request, game, seats[id])));
     snapshots.push(await snapshot(request, game));
     for (const page of pages) await page.reload();
+    for (const page of pages)
+      await expect(page.getByTestId("combat-resolution-modal")).toHaveCount(0);
     const watch = pages[3].getByRole("button", { name: "Watch" });
     await expect(watch).toBeVisible();
     await watch.click();
@@ -358,7 +426,7 @@ test("a complete human battle stays public in four independent views", async ({
     const holder = await snapshot(request, game, seats[sol]);
     for (const copy of ["sh1", "sh2"]) {
       expect(
-        holder.view.players.find((player) => player.id === sol)?.held_action_cards,
+        holder.view.players.find((player) => player.id === sol)?.held_action_cards ?? [],
       ).not.toContain(copy);
     }
     for (const id of ids.filter((id) => id !== sol)) {

@@ -908,6 +908,28 @@ pub struct CombatRollRecord {
     pub hit: bool,
 }
 
+/// Public, in-flight space combat evidence. `round_start` includes damage already present
+/// before this round; comparing it to the board reveals new damage and destroyed ships.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CombatPresentation {
+    pub battle_seq: u32,
+    pub phase: String,
+    pub round: u32,
+    pub round_start: Vec<Unit>,
+    pub barrage_start: Vec<Unit>,
+    pub barrage_hits: BTreeMap<PlayerId, u32>,
+    pub barrage_dice: Vec<CombatRollRecord>,
+    pub remaining_hits: BTreeMap<PlayerId, usize>,
+}
+
+impl CombatPresentation {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// Turn-flow flags set by a reaction card and consumed by the turn driver at the next
 /// boundary. A `u8` bitfield rather than bool fields: `GameState` is already at the three-
 /// bool limit the lints allow, and these four flags live and die together inside
@@ -1227,6 +1249,9 @@ pub struct GameState {
     /// In-progress space combat dice rolled in the current round. In-flight bookkeeping — not compared.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub combat_round_dice: Vec<CombatRollRecord>,
+    /// Public presentation facts for the current space battle; reset at each battle/round.
+    #[serde(default, skip_serializing_if = "CombatPresentation::is_empty")]
+    pub combat_presentation: CombatPresentation,
     /// The action card a `ACTION_CARD_DISCARDED` window is reacting to: the player who
     /// discarded it and the card's alias. The frame records it in the discard announcement
     /// itself, which is the one place that knows both, because the effect — Reverse Engineer
@@ -1553,6 +1578,7 @@ impl GameState {
             active_space_combat: None,
             combat_round_hits: BTreeMap::new(),
             combat_round_dice: Vec::new(),
+            combat_presentation: CombatPresentation::default(),
             last_action_discarded: None,
             pending_reflective_hits: None,
             last_strategy_choice: None,

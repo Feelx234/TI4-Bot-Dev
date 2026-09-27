@@ -102,7 +102,7 @@ describe("GameShell", () => {
     expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
   });
 
-  it("keeps the final round visible until docked and lets the next decision proceed", () => {
+  it("hands off to the next decision immediately after combat", () => {
     const activeBoard: BoardView = {
       systems: {
         "18": {
@@ -151,18 +151,8 @@ describe("GameShell", () => {
     expect(screen.getByTestId("combat-resolution-modal")).toBeInTheDocument();
 
     rerender(<GameShell {...props} choice={choice} boardView={nextBoard} />);
-    expect(screen.getByTestId("combat-resolution-modal")).toHaveTextContent("Battle complete");
-    expect(screen.getByTestId("attacker-round-hits")).toHaveTextContent("1");
-    expect(screen.getByTestId("combat-roll-group-p1-dreadnought")).toHaveTextContent("1 hit");
-    expect(screen.getByTestId("defender-units-list")).toHaveTextContent("No ships remaining");
-    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("close-combat-modal"));
-    expect(screen.getByTestId("combat-docked-pill")).toHaveTextContent("BATTLE RECAP");
+    expect(screen.queryByTestId("combat-resolution-modal")).not.toBeInTheDocument();
     expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("resume-combat-btn"));
-    expect(screen.getByTestId("combat-resolution-modal")).toHaveTextContent("Battle complete");
-    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
   });
 
   it.each([

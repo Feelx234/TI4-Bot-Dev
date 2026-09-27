@@ -114,7 +114,58 @@ pub fn project_combat_view(
 
     Some(crate::protocol::view::CombatView {
         system_id: sys_id,
-        round: state.combat_round_seq.max(1),
+        round: state.combat_presentation.round.max(1),
+        battle_seq: state.combat_presentation.battle_seq,
+        phase: state.combat_presentation.phase.clone(),
+        round_start: state
+            .combat_presentation
+            .round_start
+            .iter()
+            .map(|u| PlacedUnitView {
+                unit_type: u.type_id.clone(),
+                owner: u.owner.clone(),
+                planet: None,
+                damaged: u.sustained_damage,
+            })
+            .collect(),
+        barrage_start: state
+            .combat_presentation
+            .barrage_start
+            .iter()
+            .map(|u| PlacedUnitView {
+                unit_type: u.type_id.clone(),
+                owner: u.owner.clone(),
+                planet: None,
+                damaged: u.sustained_damage,
+            })
+            .collect(),
+        barrage_hits: state.combat_presentation.barrage_hits.clone(),
+        barrage_dice: state
+            .combat_presentation
+            .barrage_dice
+            .iter()
+            .map(|r| crate::protocol::view::CombatDieRoll {
+                player: Some(r.player.clone()),
+                unit: r.unit.clone(),
+                roll: r.roll,
+                target: r.target,
+                hit: r.hit,
+            })
+            .collect(),
+        remaining_hits: {
+            let mut remaining = state.combat_presentation.remaining_hits.clone();
+            if choice_ctx.is_some_and(|ctx| {
+                ctx.subtype.starts_with("reaction_") && ctx.subtype.ends_with("HITS_TO_ASSIGN")
+            }) {
+                if let Some(player) = active_player.as_ref() {
+                    if let Some(hits) = remaining.get_mut(player) {
+                        *hits = hits
+                            .saturating_sub(ti4_engine::combat::cancellable_hits(state, player));
+                    }
+                }
+            }
+            remaining
+        },
         attacker,
         defender,
         active_player,

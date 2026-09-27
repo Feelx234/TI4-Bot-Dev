@@ -216,6 +216,13 @@ export interface CombatDieRoll {
 export interface CombatView {
   system_id: string;
   round: number;
+  battle_seq?: number;
+  phase?: "pre_roll" | "barrage" | "resolving_hits" | "retreating" | "complete";
+  round_start?: PlacedUnitView[];
+  barrage_start?: PlacedUnitView[];
+  barrage_hits?: Record<string, number>;
+  barrage_dice?: CombatDieRoll[];
+  remaining_hits?: Record<string, number>;
   attacker: string;
   defender: string;
   active_player?: string | null;

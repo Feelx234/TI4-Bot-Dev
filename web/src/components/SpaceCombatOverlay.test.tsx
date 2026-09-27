@@ -127,9 +127,7 @@ describe("SpaceCombatOverlay", () => {
     // Damaged unit indicator on Carrier
     expect(screen.getByText(/1 damaged/i)).toBeInTheDocument();
 
-    // Mocked combat odds card
-    expect(screen.getByTestId("combat-odds-card")).toBeInTheDocument();
-    expect(screen.getByText(/Combat Odds Analysis/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("combat-odds-card")).not.toBeInTheDocument();
   });
 
   it("allows active player to sustain damage on eligible ship and handles submission", async () => {
@@ -339,7 +337,17 @@ describe("SpaceCombatOverlay", () => {
           isOpen={true}
           choice={sustainChoice}
           viewerSeat="seat_1"
-          board={sampleBoard}
+          board={{
+            ...sampleBoard,
+            combat: {
+              system_id: "18",
+              round: 1,
+              battle_seq: 1,
+              phase: "pre_roll",
+              attacker: "seat_1",
+              defender: "seat_2",
+            },
+          }}
           players={samplePlayers}
           onSubmit={vi.fn().mockResolvedValue(undefined)}
           onClose={vi.fn()}
@@ -365,7 +373,7 @@ describe("SpaceCombatOverlay", () => {
     );
   });
 
-  it("falls back to heuristic odds with offline tag when advisor fails", async () => {
+  it("shows unavailable odds instead of a heuristic when advisor fails", async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error("Advisor offline"));
 
     const sustainChoice: PendingChoiceDto = {
@@ -385,7 +393,17 @@ describe("SpaceCombatOverlay", () => {
           isOpen={true}
           choice={sustainChoice}
           viewerSeat="seat_1"
-          board={sampleBoard}
+          board={{
+            ...sampleBoard,
+            combat: {
+              system_id: "18",
+              round: 1,
+              battle_seq: 1,
+              phase: "pre_roll",
+              attacker: "seat_1",
+              defender: "seat_2",
+            },
+          }}
           players={samplePlayers}
           onSubmit={vi.fn().mockResolvedValue(undefined)}
           onClose={vi.fn()}
@@ -393,8 +411,115 @@ describe("SpaceCombatOverlay", () => {
       );
     });
 
-    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent("Estimated (Advisor Offline)");
+    expect(screen.getByTestId("combat-odds-status")).toHaveTextContent("Odds unavailable");
     expect(screen.getByTestId("combat-odds-card")).toBeInTheDocument();
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+  });
+
+  it("never displays late odds after rolls or for another round", async () => {
+    const replies: ((value: Response) => void)[] = [];
+    global.fetch = vi
+      .fn()
+      .mockImplementation(() => new Promise<Response>((resolve) => replies.push(resolve)));
+    const combat = {
+      system_id: "18",
+      round: 1,
+      battle_seq: 3,
+      phase: "pre_roll" as const,
+      attacker: "seat_1",
+      defender: "seat_2",
+    };
+    const props = {
+      isOpen: true,
+      choice: null,
+      viewerSeat: "seat_1",
+      players: samplePlayers,
+      onSubmit: vi.fn(),
+      onClose: vi.fn(),
+    };
+    const { rerender } = render(
+      <SpaceCombatOverlay {...props} board={{ ...sampleBoard, combat }} />,
+    );
+    expect(screen.getByTestId("combat-odds-status")).toHaveTextContent("Calculating odds");
+    rerender(
+      <SpaceCombatOverlay
+        {...props}
+        board={{ ...sampleBoard, combat: { ...combat, phase: "resolving_hits" } }}
+      />,
+    );
+    expect(screen.queryByTestId("combat-odds-card")).not.toBeInTheDocument();
+    rerender(
+      <SpaceCombatOverlay {...props} board={{ ...sampleBoard, combat: { ...combat, round: 2 } }} />,
+    );
+    expect(screen.getByTestId("combat-odds-status")).toHaveTextContent("Calculating odds");
+    await act(async () =>
+      replies[0]({ ok: true, json: async () => ({ attacker_win_rate: 0.9 }) } as Response),
+    );
+    expect(screen.queryByText("90%")).not.toBeInTheDocument();
+  });
+
+  it("compares damage and casualties to the round-start fleet without hiding survivors", () => {
+    const start = sampleBoard.systems["18"].units;
+    const combat = {
+      system_id: "18",
+      round: 2,
+      battle_seq: 5,
+      phase: "resolving_hits" as const,
+      attacker: "seat_1",
+      defender: "seat_2",
+      round_start: start,
+      attacker_hits: 2,
+      defender_hits: 1,
+    };
+    const board: BoardView = {
+      ...sampleBoard,
+      combat,
+      systems: {
+        "18": {
+          ...sampleBoard.systems["18"],
+          units: start
+            .filter((_, index) => index !== 2)
+            .map((unit) => (unit.unit_type === "dreadnought" ? { ...unit, damaged: true } : unit)),
+        },
+      },
+    };
+    const { rerender } = render(
+      <SpaceCombatOverlay
+        isOpen
+        choice={null}
+        board={board}
+        players={samplePlayers}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("combat-new-damage-seat_1-dreadnought")).toHaveTextContent(
+      "1 now damaged",
+    );
+    expect(screen.getByTestId("combat-destroyed-seat_1-fighter")).toHaveTextContent("1 destroyed");
+    expect(screen.getByTestId("unit-row-dreadnought")).toHaveTextContent("1 damaged");
+    rerender(
+      <SpaceCombatOverlay
+        isOpen
+        choice={null}
+        board={{
+          ...board,
+          combat: {
+            ...combat,
+            phase: "pre_roll",
+            round: 3,
+            round_start: board.systems["18"].units,
+            dice_rolls: [],
+          },
+        }}
+        players={samplePlayers}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("combat-new-damage-seat_1-dreadnought")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("combat-destroyed-seat_1-fighter")).not.toBeInTheDocument();
+    expect(screen.getByTestId("unit-row-dreadnought")).toHaveTextContent("1 damaged");
   });
 
   it("renders round hits scorecard displaying hits dealt by each player", () => {
@@ -403,6 +528,7 @@ describe("SpaceCombatOverlay", () => {
       combat: {
         system_id: "18",
         round: 2,
+        phase: "resolving_hits",
         attacker: "seat_1",
         defender: "seat_2",
         attacker_hits: 3,

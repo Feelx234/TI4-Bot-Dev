@@ -132,6 +132,14 @@ pub struct CombatDieRoll {
 pub struct CombatView {
     pub system_id: SystemId,
     pub round: u32,
+    pub battle_seq: u32,
+    pub phase: String,
+    pub round_start: Vec<PlacedUnitView>,
+    pub barrage_start: Vec<PlacedUnitView>,
+    pub barrage_hits: BTreeMap<PlayerId, u32>,
+    pub barrage_dice: Vec<CombatDieRoll>,
+    /// Hits still queued against each seat, including the other side's pending return fire.
+    pub remaining_hits: BTreeMap<PlayerId, usize>,
     pub attacker: PlayerId,
     pub defender: PlayerId,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -2566,6 +2566,28 @@ impl CombatWindow {
         let (content, sources) = (ctx.content, ctx.sources);
         {
             state.combat_round_seq = state.combat_round_seq.saturating_add(1);
+            state.combat_presentation.phase = "pre_roll".to_owned();
+            state.combat_presentation.round = round;
+            state.combat_presentation.remaining_hits.clear();
+            state.combat_round_hits.clear();
+            state.combat_round_dice.clear();
+            state.combat_presentation.round_start =
+                ships_of(state, content, sources, &self.attacker, &self.system)
+                    .into_iter()
+                    .chain(ships_of(
+                        state,
+                        content,
+                        sources,
+                        &self.defender,
+                        &self.system,
+                    ))
+                    .collect();
+            if round == 1 {
+                state.combat_presentation.barrage_start =
+                    state.combat_presentation.round_start.clone();
+                state.combat_presentation.barrage_hits.clear();
+                state.combat_presentation.barrage_dice.clear();
+            }
 
             // Announced before anything is rolled, because eight action cards read "at the start of
             // a combat round" and Morale Boost scopes its bonus to `combat_round_seq`. Emitting after
@@ -2619,6 +2641,7 @@ impl CombatWindow {
                 payload.insert("player".to_owned(), side.to_string().into());
                 payload.insert("round".to_owned(), i64::from(round).into());
                 let _ = ctx.emit(state, "ANTI_FIGHTER_BARRAGE_STARTED", payload);
+                state.combat_presentation.phase = "barrage".to_owned();
                 let _ = roll_barrage_side(
                     state,
                     content,
@@ -2631,6 +2654,27 @@ impl CombatWindow {
                 open_reroll_windows(state, ctx, &side);
                 if let Some(set) = state.reroll_staging.get(&side).cloned() {
                     let hits = staged_hits(&set);
+                    state
+                        .combat_presentation
+                        .barrage_hits
+                        .insert(side.clone(), hits as u32);
+                    for entry in &set.rolls {
+                        for (index, face) in entry.faces.iter().enumerate() {
+                            let target = entry.hits_on.unwrap_or(0);
+                            let adjusted = i64::from(*face)
+                                + i64::from(entry.deltas.get(&index).copied().unwrap_or(0));
+                            state
+                                .combat_presentation
+                                .barrage_dice
+                                .push(CombatRollRecord {
+                                    player: side.clone(),
+                                    unit: entry.unit.clone(),
+                                    roll: *face,
+                                    target,
+                                    hit: target > 0 && adjusted >= i64::from(target),
+                                });
+                        }
+                    }
                     if hits > 0 {
                         results.push((side.clone(), hits));
                     }
@@ -2638,6 +2682,7 @@ impl CombatWindow {
                 state.reroll_staging.remove(&side);
             }
             state.last_reroll_player = None;
+            state.combat_presentation.phase = "barrage".to_owned();
             let feat_players = apply_barrage(
                 state,
                 content,
@@ -2660,7 +2705,19 @@ impl CombatWindow {
                 self.stage = self.conclude(state, content, sources, round);
                 return Ok(());
             }
+            state.combat_presentation.phase = "pre_roll".to_owned();
         }
+        state.combat_presentation.round_start =
+            ships_of(state, content, sources, &self.attacker, &self.system)
+                .into_iter()
+                .chain(ships_of(
+                    state,
+                    content,
+                    sources,
+                    &self.defender,
+                    &self.system,
+                ))
+                .collect();
         self.stage = Stage::Announcing {
             round,
             asking: self.defender.clone(),
@@ -2681,6 +2738,18 @@ impl CombatWindow {
         round: u32,
     ) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
+        state.combat_presentation.phase = "resolving_hits".to_owned();
+        state.combat_presentation.round_start =
+            ships_of(state, content, sources, &self.attacker, &self.system)
+                .into_iter()
+                .chain(ships_of(
+                    state,
+                    content,
+                    sources,
+                    &self.defender,
+                    &self.system,
+                ))
+                .collect();
         // 78.5f: the attacker rolls everything first. 78.6: both sides' hits are computed
         // before either is absorbed. Each side's window opens before the next side's dice
         // are drawn, like the barrage's, so a reroll can empty a fleet mid-roll and end
@@ -2874,6 +2943,26 @@ impl CombatWindow {
     ) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         loop {
+            state.combat_presentation.phase = match &self.stage {
+                Stage::Opening { .. } | Stage::Announcing { .. } => "pre_roll",
+                Stage::RollingAfterBarrage { .. } => "barrage",
+                Stage::Sustaining { .. } | Stage::Assigning { .. } | Stage::Rolling { .. } => {
+                    "resolving_hits"
+                }
+                Stage::Retreating { .. } => "retreating",
+                Stage::Done(_) => "complete",
+            }
+            .to_owned();
+            state.combat_presentation.remaining_hits = match &self.stage {
+                Stage::Sustaining { queue, .. } | Stage::Assigning { queue, .. } => {
+                    let mut remaining = std::collections::BTreeMap::new();
+                    for pending in queue {
+                        *remaining.entry(pending.player.clone()).or_insert(0) += pending.hits;
+                    }
+                    remaining
+                }
+                _ => Default::default(),
+            };
             match self.stage.clone() {
                 Stage::Sustaining { queue, round } | Stage::Assigning { queue, round } => {
                     let Some(front) = queue.first().cloned() else {

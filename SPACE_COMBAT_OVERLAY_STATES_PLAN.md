@@ -67,3 +67,13 @@ Key/abort requests by battle identity, round, phase, and normalized odds input (
 `ti4-advisor` should not need a change for display timing; only consider it if the proposed odds contract requires new simulation inputs that the current `/battle` endpoint cannot represent.
 
 **Done when:** all viewers see the same public battle phase and hit outcomes; only the actor sees actionable private choices; odds appear only for the matching pre-roll state; persistent ship damage survives into later rounds; old roll/assignment markings do not; and the next game decision is available immediately when combat finishes.
+
+## Implementation progress (2026-09-27)
+
+- [x] Engine records a battle sequence, presentation phase, round-start fleet, separate first-round barrage results, and both seats' remaining hit queues. The server projects these public facts independently of the pending choice subtype; normal dice and hits reset at the next round.
+- [x] The overlay separates pre-roll odds, barrage/normal roll totals, live hit resolution (new damage and destroyed counts versus the round start), and post-hit retreat views. Damaged survivors stay visible, while round-only annotations disappear on the next round.
+- [x] Advisor requests run only in the pre-roll state, keyed by battle/round/input and aborted on changes; pending/failed responses show no percentage. The automatic completion recap no longer delays the next decision.
+- [x] The four-view dev scenario includes an attacking destroyer for anti-fighter barrage and stops at an opening combat reaction. The browser test checks matching public phases, barrage dice, simultaneous queues, damage, casualties, later rounds, private offers, completion, and undo/replay.
+- [x] Focused UI tests cover the phase display, hand-off, unavailable/late odds, and round-scoped damage markers.
+
+Verification: web unit suite, four-view browser spec, server suite, TypeScript typecheck, and scoped Rust checks pass. The full engine suite has an unrelated pre-existing `fingerprint::tests::the_participating_context_fields_are_pinned` failure (`space_battle` is declared but absent from the pinned V2 field set). Workspace-wide `cargo check` requires the unavailable libtorch headers for `torch-sys`; `cargo check -p ti4-server` succeeds.

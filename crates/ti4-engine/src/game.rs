@@ -279,6 +279,15 @@ impl AftermathWindow {
                 .clone();
             (system.clone(), attacker, defender)
         });
+        if state.active_space_combat.is_some() {
+            state.combat_presentation = ti4_model::state::CombatPresentation {
+                battle_seq: state.combat_round_seq.saturating_add(1),
+                phase: "pre_roll".to_owned(),
+                ..Default::default()
+            };
+            state.combat_round_hits.clear();
+            state.combat_round_dice.clear();
+        }
         if let Some(galaxy) = galaxy {
             window = window.with_galaxy(galaxy.clone());
         }

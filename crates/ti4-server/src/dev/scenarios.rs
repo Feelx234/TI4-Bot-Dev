@@ -131,6 +131,16 @@ pub fn launch_scenario(
             config.state.system_mut(&SystemId::new("01")).units.extend(
                 (0..2).map(|_| Unit::new(UnitTypeId::new("cruiser"), human_player.clone())),
             );
+            // The attacking fleet fires a first-round anti-fighter barrage before
+            // retreat announcements and ordinary combat rolls.
+            config
+                .state
+                .system_mut(&SystemId::new("01"))
+                .units
+                .push(Unit::new(
+                    UnitTypeId::new("destroyer"),
+                    human_player.clone(),
+                ));
             let seats = config
                 .seat_tokens
                 .iter()
@@ -160,7 +170,12 @@ pub fn launch_scenario(
     let session = registry.launch_dev_scenario(config, lobby_record)?;
 
     if scenario_id == "ongoing_combat" || scenario_id == "ongoing_combat_four_views" {
-        advance_into_space_combat(&session, &human_player, &border_system)?;
+        advance_into_space_combat(
+            &session,
+            &human_player,
+            &border_system,
+            scenario_id == "ongoing_combat_four_views",
+        )?;
     }
 
     Ok(LaunchScenarioResponse {
@@ -176,6 +191,7 @@ fn advance_into_space_combat(
     session: &Arc<GameSession>,
     human_player: &PlayerId,
     border_system: &str,
+    stop_at_opening: bool,
 ) -> Result<(), String> {
     let client = MockClient::connect(session.clone(), ViewerRole::Player(human_player.clone()));
     let wait_for_choice = |client: &MockClient| {
@@ -214,10 +230,15 @@ fn advance_into_space_combat(
     // rolling dice or opening a reaction to the bot's sustain damage.
     let mut choice = wait_for_choice(&client)
         .ok_or_else(|| "timed out waiting for movement choice".to_owned())?;
-    while !choice
-        .options
-        .iter()
-        .any(|o| o.kind == "retreat" || o.kind == "sustain" || o.kind == "casualty")
+    while !(stop_at_opening
+        && choice.context.as_ref().is_some_and(|ctx| {
+            ctx.subtype.contains("SPACE_COMBAT_STARTED")
+                || ctx.subtype.contains("COMBAT_ROUND_STARTED")
+        }))
+        && !choice
+            .options
+            .iter()
+            .any(|o| o.kind == "retreat" || o.kind == "sustain" || o.kind == "casualty")
     {
         let (_, nonce, ver) = session
             .current_pending_decision()
