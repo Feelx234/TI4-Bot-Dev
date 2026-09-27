@@ -377,7 +377,11 @@ test("undo during a Shields Holding reaction preserves a healthy, playable game"
     .toBe(true);
   const restored = (await health.json()) as InitialSnapshotMsg;
   expect(restored.history?.cursor).toBeLessThan(before.history!.cursor);
-  expect(restored.pending_choice?.choice).toBeDefined();
+  const restoredActor = restored.turn_status.kind === "waiting_for_decision"
+    ? restored.turn_status.seat : undefined;
+  expect(restoredActor).toBeTruthy();
+  expect((await snapshot(request, game, seats[restoredActor!])).pending_choice?.choice)
+    .toBeDefined();
   await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
   await expect(page.getByTestId("combat-error-banner")).toBeHidden();
   } finally {

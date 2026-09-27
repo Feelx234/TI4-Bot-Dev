@@ -657,7 +657,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     return;
                 }
             }
-            if game.table.log.records != prior_records {
+            if game.table.log.records.get(..prior_count) != Some(prior_records.as_slice()) {
                 worker_shared.lock().expect("shared lock").error =
                     Some("recovery replay records diverged".to_owned());
                 return;
@@ -666,7 +666,9 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
 
         let mut prev_round = game.state.round;
         let mut prev_phase = game.state.phase;
-        let mut prev_decision_count = game.table.log.records.len();
+        // A nested engine step can offer (and accept) live decisions before the
+        // replay step returns. They still need to be published and persisted.
+        let mut prev_decision_count = prior_count;
 
         'worker: loop {
             // Check stop signal

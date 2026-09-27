@@ -515,7 +515,9 @@ impl GameSession {
         lock.replay_complete
             && lock.error.is_none()
             && !lock.stopped
-            && lock.in_flight_submissions.is_empty()
+            // A nested reaction can still have submitted decisions waiting for the
+            // outer engine step to return. Rewinding stops that step and discards
+            // those unpublished decisions; the new offer must itself be unreserved.
             && (lock.finished
                 || lock.pending_decision.as_ref().is_some_and(|pending| {
                     pending.submission_state == PendingSubmissionState::AwaitingSubmission
