@@ -168,6 +168,7 @@ test.describe("Space Combat Overlay", () => {
     const oddsCard = page.getByTestId("combat-odds-card");
     await expect(oddsCard).toBeVisible();
     await expect(oddsCard.getByText("Combat Odds · Fleets only")).toBeVisible();
+    await expect(oddsCard.locator(".combat-odds-col__pct")).toHaveText([/\d+%/, /\d+%/]);
 
     // Verify round hits scorecard is visible
     const roundHits = page.getByTestId("combat-round-hits");

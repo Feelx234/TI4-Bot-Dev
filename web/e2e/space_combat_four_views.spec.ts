@@ -1,6 +1,7 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { openPlayerGame } from "./lobbyHelpers";
 import type { InitialSnapshotMsg, ChoiceOptionDto } from "../src/protocol/types";
+import { getUnitBaseType } from "../src/components/UnitIcon";
 
 const backend = `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? "8180"}`;
 
@@ -18,6 +19,52 @@ async function snapshot(
     `snapshot: ${response.status()} ${response.ok() ? "" : await response.text()}`,
   ).toBe(true);
   return response.json();
+}
+
+const shipTypes = new Set([
+  "warsun", "flagship", "dreadnought", "carrier", "cruiser", "destroyer", "fighter",
+]);
+
+async function expectFleetPills(page: Page, state: InitialSnapshotMsg, step: number) {
+  const combat = state.view.board.combat!;
+  const units = state.view.board.systems[combat.system_id].units;
+  const start = combat.phase === "barrage" ||
+    (combat.phase === "pre_roll" && combat.round === 1 && Object.keys(combat.barrage_hits ?? {}).length > 0)
+    ? combat.barrage_start : combat.phase === "resolving_hits" ? combat.round_start : undefined;
+  for (const [side, seat] of [["attacker", combat.attacker], ["defender", combat.defender]] as const) {
+    const groups = new Map<string, { count: number; damaged: number }>();
+    for (const unit of units) {
+      if (unit.owner !== seat || unit.planet || !shipTypes.has(getUnitBaseType(unit.unit_type))) continue;
+      const group = groups.get(unit.unit_type) ?? { count: 0, damaged: 0 };
+      group.count++;
+      if (unit.damaged) group.damaged++;
+      groups.set(unit.unit_type, group);
+    }
+    const card = page.getByTestId(`${side}-fleet-card`);
+    for (const [type, { count, damaged }] of groups) {
+      const row = card.getByTestId(`unit-row-${type}`);
+      await expect(row, `step ${step} ${side} ${type} count`).toContainText(`×${count}`);
+      const pill = row.locator(".combat-unit-row__damaged-badge");
+      if (damaged) {
+        const damagedAtStart = start?.filter(
+          (unit) => unit.owner === seat && unit.unit_type === type && unit.damaged,
+        ).length ?? 0;
+        const newDamage = start ? Math.max(0, damaged - damagedAtStart) : damaged;
+        await expect(pill, `step ${step} ${side} ${type} damage`).toHaveText(
+          `${damaged - newDamage} + ${newDamage} damaged`,
+        );
+      } else {
+        await expect(pill, `step ${step} ${side} ${type} undamaged`).toHaveCount(0);
+      }
+    }
+    for (const row of await card.locator('[data-testid^="unit-row-"]').all()) {
+      const type = (await row.getAttribute("data-testid"))?.replace(/^unit-row-(lost-)?/, "");
+      if (type && !groups.has(type)) {
+        await expect(row, `step ${step} ${side} ${type} destroyed`).toContainText("×0");
+        await expect(row.locator(".combat-unit-row__damaged-badge")).toHaveCount(0);
+      }
+    }
+  }
 }
 
 test("a complete human battle stays public in four independent views", async ({
@@ -132,8 +179,14 @@ test("a complete human battle stays public in four independent views", async ({
           "data-phase",
           combat.phase!,
         );
-        if (combat.phase !== "pre_roll")
+        await expectFleetPills(pages[i], viewer, step);
+        if (combat.phase === "pre_roll") {
+          const odds = pages[i].getByTestId("combat-odds-card");
+          await expect(odds, `step ${step}, viewer ${id ?? "spectator"}`).toBeVisible();
+          await expect(odds.locator(".combat-odds-col__pct")).toHaveText([/\d+%/, /\d+%/]);
+        } else {
           await expect(pages[i].getByTestId("combat-odds-card")).toHaveCount(0);
+        }
         if (combat.phase === "pre_roll" &&
             !(combat.round === 1 && Object.keys(combat.barrage_hits ?? {}).length > 0))
           await expect(pages[i].getByTestId("combat-round-hits")).toHaveCount(0);
@@ -271,6 +324,26 @@ test("a complete human battle stays public in four independent views", async ({
         .poll(async () => (await snapshot(request, game, seats[sol])).game_version)
         .toBeGreaterThan(current.game_version);
       const after = await snapshot(request, game, seats[sol]);
+      if (selected.payload?.card_name === "Salvage" && !after.view.board.combat) {
+        for (const page of pages) {
+          await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
+          await expect(page.getByTestId("combat-phase")).toHaveAttribute("data-phase", "complete");
+        }
+      }
+      if (subtype === "sustain_damage" && selected.kind === "sustain") {
+        const beforeUnits = current.view.board.systems[combat.system_id].units.filter(
+          (unit) => unit.owner === actor && !unit.planet,
+        );
+        const afterUnits = after.view.board.systems[combat.system_id].units.filter(
+          (unit) => unit.owner === actor && !unit.planet,
+        );
+        expect(afterUnits.length, `step ${step}: sustain keeps the ship`).toBe(beforeUnits.length);
+        expect(afterUnits.filter((unit) => unit.damaged).length, `step ${step}: exactly one ship sustains`)
+          .toBe(beforeUnits.filter((unit) => unit.damaged).length + 1);
+        if (after.view.board.combat) {
+          for (const page of pages) await expectFleetPills(page, after, step);
+        }
+      }
       if (
         selected.payload?.card_name === "Shields Holding" &&
         shieldHits !== undefined &&

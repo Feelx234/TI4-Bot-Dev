@@ -577,6 +577,23 @@ export const GameShell: React.FC<GameShellProps> = ({
   const [tacticalStep, setTacticalStep] = useState(0);
   const lastHistoryGeneration = useRef(history?.generation);
   const pipelineRunner = useOwnedPipelineRunner(choice, onSubmitChoice);
+  const lastCombatBoard = useRef<BoardView | null>(null);
+  const [closedCombatKey, setClosedCombatKey] = useState<string | null>(null);
+  if (boardView?.combat) lastCombatBoard.current = boardView;
+  const lastCombat = lastCombatBoard.current?.combat;
+  const combatKey = lastCombat &&
+    `${lastCombat.system_id}:${lastCombat.attacker}:${lastCombat.defender}:${lastCombat.battle_seq ?? 0}`;
+  // The server removes board.combat when the victory reaction resolves. Keep the
+  // final public fleet visible for this mount, but never restore it on page reload.
+  const completedCombatBoard: BoardView | null = !boardView?.combat && lastCombat &&
+    combatKey !== closedCombatKey
+    ? {
+        ...lastCombatBoard.current!,
+        ...boardView,
+        systems: { ...lastCombatBoard.current!.systems, ...boardView?.systems },
+        combat: { ...lastCombat, phase: "complete" },
+      }
+    : null;
 
   // A restored timeline must not resume a movement plan from the old timeline.
   if (history?.generation !== lastHistoryGeneration.current) {
@@ -730,7 +747,7 @@ export const GameShell: React.FC<GameShellProps> = ({
 
       <div className="app-shell__overlays">
         <PipelineRunnerContext.Provider value={pipelineRunner}>
-          <ChoiceRendererDispatcher
+          {!completedCombatBoard && <ChoiceRendererDispatcher
             choice={choice}
             viewerSeat={viewerSeat}
             players={playersMap}
@@ -760,7 +777,18 @@ export const GameShell: React.FC<GameShellProps> = ({
               submittedNonce.current = null;
               setProductionQueue({ actor: choice.actor, system, units });
             }}
-          />
+          />}
+          {completedCombatBoard && (
+            <SpaceCombatOverlay
+              choice={null}
+              viewerSeat={viewerSeat}
+              onSubmit={onSubmitChoice}
+              isOpen
+              onClose={() => setClosedCombatKey(combatKey!)}
+              board={completedCombatBoard}
+              players={playersMap}
+            />
+          )}
         </PipelineRunnerContext.Provider>
       </div>
     </div>

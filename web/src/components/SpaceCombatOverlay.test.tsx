@@ -413,7 +413,7 @@ describe("SpaceCombatOverlay", () => {
 
     expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent("Rough fleet estimate · advisor unavailable");
     expect(screen.getByTestId("combat-odds-card")).toBeInTheDocument();
-    expect(screen.getByTestId("combat-odds-card")).toHaveTextContent(/\d+%/);
+    expect(screen.getAllByText(/\d+%/)).toHaveLength(2);
   });
 
   it("never displays late odds after rolls or for another round", async () => {
@@ -440,7 +440,9 @@ describe("SpaceCombatOverlay", () => {
     const { rerender } = render(
       <SpaceCombatOverlay {...props} board={{ ...sampleBoard, combat }} />,
     );
-    expect(screen.getByTestId("combat-odds-status")).toHaveTextContent("Calculating odds");
+    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent("Rough fleet estimate · simulation pending");
+    expect(screen.getByTestId("combat-odds-card")).toHaveTextContent(/\d+%/);
+    expect(screen.getAllByText(/\d+%/)).toHaveLength(2);
     rerender(
       <SpaceCombatOverlay
         {...props}
@@ -451,7 +453,8 @@ describe("SpaceCombatOverlay", () => {
     rerender(
       <SpaceCombatOverlay {...props} board={{ ...sampleBoard, combat: { ...combat, round: 2 } }} />,
     );
-    expect(screen.getByTestId("combat-odds-status")).toHaveTextContent("Calculating odds");
+    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent("Rough fleet estimate · simulation pending");
+    expect(screen.getByTestId("combat-odds-card")).toHaveTextContent(/\d+%/);
     await act(async () =>
       replies[0]({ ok: true, json: async () => ({ attacker_win_rate: 0.9 }) } as Response),
     );
@@ -520,6 +523,44 @@ describe("SpaceCombatOverlay", () => {
     expect(screen.queryByTestId("combat-new-damage-seat_1-dreadnought")).not.toBeInTheDocument();
     expect(screen.queryByTestId("combat-destroyed-seat_1-fighter")).not.toBeInTheDocument();
     expect(screen.getByTestId("unit-row-dreadnought")).toHaveTextContent("1 damaged");
+  });
+
+  it("updates the pill after each sustain on two ships without changing the fleet count", () => {
+    const dreadnoughts = [
+      { unit_type: "dreadnought", owner: "seat_2", damaged: false },
+      { unit_type: "dreadnought", owner: "seat_2", damaged: false },
+    ];
+    const combat = {
+      system_id: "18", round: 1, battle_seq: 9, phase: "resolving_hits" as const,
+      attacker: "seat_1", defender: "seat_2", round_start: dreadnoughts,
+    };
+    const props = {
+      isOpen: true, choice: null, players: samplePlayers,
+      onSubmit: vi.fn(), onClose: vi.fn(),
+    };
+    const boardWith = (damaged: number): BoardView => ({
+      ...sampleBoard,
+      combat,
+      systems: {
+        "18": {
+          ...sampleBoard.systems["18"],
+          units: dreadnoughts.map((unit, index) => ({ ...unit, damaged: index < damaged })),
+        },
+      },
+    });
+    const { rerender } = render(<SpaceCombatOverlay {...props} board={boardWith(0)} />);
+    const row = screen.getByTestId("defender-fleet-card").querySelector('[data-testid="unit-row-dreadnought"]')!;
+    expect(row).toHaveTextContent("×2");
+    expect(row.querySelector(".combat-unit-row__damaged-badge")).not.toBeInTheDocument();
+
+    rerender(<SpaceCombatOverlay {...props} board={boardWith(1)} />);
+    expect(row).toHaveTextContent("×2");
+    expect(row.querySelector(".combat-unit-row__damaged-badge")).toHaveTextContent("0 + 1 damaged");
+
+    rerender(<SpaceCombatOverlay {...props} board={boardWith(2)} />);
+    expect(row).toHaveTextContent("×2");
+    expect(row.querySelector(".combat-unit-row__damaged-badge")).toHaveTextContent("0 + 2 damaged");
+    expect(screen.queryByTestId("combat-odds-card")).not.toBeInTheDocument();
   });
 
   it("keeps automatically assigned barrage losses visible in the same fleet view before rolls", () => {

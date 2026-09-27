@@ -69,7 +69,7 @@ export function requiresCapacity(unitType: string): boolean {
   return base === "fighter" || base === "infantry" || base === "mech";
 }
 
-// Fleet-only estimate used only when the advisor cannot be reached. It does not
+// Fleet-only estimate used while the advisor is pending or unavailable. It does not
 // account for technologies, cards or the outcome of already-rolled dice.
 function expectedHits(unitType: string): number {
   switch (getUnitBaseType(unitType)) {
@@ -341,7 +341,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     const attWinPct = Math.round(attacker / (attacker + defender) * 100);
     return {
       attWinPct, defWinPct: 100 - attWinPct, mutWinPct: 0,
-      attSub: "", defSub: "", avgRounds: "", tag: "Rough fleet estimate · advisor unavailable",
+      attSub: "", defSub: "", avgRounds: "", tag: "Rough fleet estimate · simulation pending",
       tagClass: "combat-odds-card__tag--offline",
     };
   }, [attackerStats, defenderStats]);
@@ -406,8 +406,10 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       };
     }
 
-    return battleKey && advisorResult?.key === battleKey && advisorResult.failed
-      ? fallbackOdds : null;
+    if (!battleKey) return null;
+    return advisorResult?.key === battleKey && advisorResult.failed
+      ? { ...fallbackOdds, tag: "Rough fleet estimate · advisor unavailable" }
+      : fallbackOdds;
   }, [advisorResult, battleKey, fallbackOdds]);
 
   // Gather dice feed
@@ -587,9 +589,15 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       );
       const destroyed = Math.max(0, started.length - group.count);
        const newlyDamaged = !start ? 0 : Math.max(
-        0,
-        group.damagedCount - started.filter((unit) => unit.damaged).length,
-      );
+         0,
+         group.damagedCount - started.filter((unit) => unit.damaged).length,
+       );
+       // The pill compares damage carried into this round with damage sustained
+       // during it. The total ship count (including undamaged ships) is shown by ×.
+       const previouslyDamaged = showAssignment && start
+         ? group.damagedCount - newlyDamaged
+         : 0;
+       const damageInPill = showAssignment && start ? newlyDamaged : group.damagedCount;
       // Casualty stage options for this group
       const matchingCasualties =
         isCurrentDecider && isCasualtyStage
@@ -656,8 +664,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
              </span>
            )}
            {(group.damagedCount > 0 || newlyDamaged > 0) && (
-             <span className="combat-unit-row__damaged-badge" data-testid={showAssignment && newlyDamaged > 0 ? `combat-new-damage-${seat}-${group.unitType}` : undefined} title={showAssignment && newlyDamaged > 0 ? `${newlyDamaged} newly damaged this step` : "Surviving ships damaged"}>
-               {group.count - group.damagedCount} + {group.damagedCount} damaged
+              <span className="combat-unit-row__damaged-badge" data-testid={showAssignment && newlyDamaged > 0 ? `combat-new-damage-${seat}-${group.unitType}` : undefined} title={showAssignment && start ? `${previouslyDamaged} previously damaged, ${newlyDamaged} newly damaged this step` : "Surviving ships damaged"}>
+                {previouslyDamaged} + {damageInPill} damaged
              </span>
            )}
           {hasRollResults && renderRollBadge(seat, group.unitType)}
@@ -965,11 +973,6 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                               </span>
                             )}
                           </div>
-                           {!displayedOdds && (
-                             <div data-testid="combat-odds-status">
-                               Calculating odds…
-                            </div>
-                          )}
                           {displayedOdds && (
                             <div className="combat-odds-card__bars">
                               <div className="combat-odds-col">
@@ -1334,23 +1337,33 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                       </div>
                     </div>
                   )}
-                  {isPreRoll && (
-                    <div className="combat-odds-card" data-testid="combat-odds-card">
-                      <div className="combat-odds-card__title">
-                         Combat Odds · Fleets only
-                      </div>
-                       {displayedOdds ? (
-                        <div data-testid="combat-odds-tag">
-                          {displayedOdds.tag}: {displayedOdds.attWinPct}% attacker ·{" "}
-                          {displayedOdds.defWinPct}% defender
-                        </div>
-                      ) : (
-                        <div data-testid="combat-odds-status">
-                           Calculating odds…
-                        </div>
-                      )}
-                    </div>
-                  )}
+                   {isPreRoll && (
+                     <div className="combat-odds-card" data-testid="combat-odds-card">
+                       <div className="combat-odds-card__title">
+                          Combat Odds · Fleets only
+                       </div>
+                       {displayedOdds && (
+                         <>
+                           <div className={`combat-odds-card__tag ${displayedOdds.tagClass}`} data-testid="combat-odds-tag">
+                             {displayedOdds.tag}
+                           </div>
+                           <div className="combat-odds-card__bars">
+                             <div className="combat-odds-col">
+                               <span className="combat-odds-col__pct">{displayedOdds.attWinPct}%</span>
+                             </div>
+                             <div className="combat-odds-bar">
+                               <div className="combat-odds-bar__att" style={{ width: `${displayedOdds.attWinPct}%` }} title={`Attacker Win: ${displayedOdds.attWinPct}%`} />
+                               {displayedOdds.mutWinPct > 0 && <div className="combat-odds-bar__mutual" style={{ width: `${displayedOdds.mutWinPct}%` }} title={`Mutual Destruction: ${displayedOdds.mutWinPct}%`} />}
+                               <div className="combat-odds-bar__def" style={{ width: `${displayedOdds.defWinPct}%` }} title={`Defender Win: ${displayedOdds.defWinPct}%`} />
+                             </div>
+                             <div className="combat-odds-col combat-odds-col--right">
+                               <span className="combat-odds-col__pct">{displayedOdds.defWinPct}%</span>
+                             </div>
+                           </div>
+                         </>
+                       )}
+                     </div>
+                   )}
                 </div>
 
                 <div className="combat-fleet-card" data-testid="defender-fleet-card">
@@ -1370,8 +1383,10 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                 </div>
               </div>
 
-              <div className="combat-spectator-waiting" data-testid="spectator-combat-notice">
-                Observing space combat in System {combatSystemId}...
+              <div className="combat-spectator-waiting" data-testid={phase === "complete" ? "combat-complete-notice" : "spectator-combat-notice"}>
+                {phase === "complete"
+                  ? "Combat complete"
+                  : `Observing space combat in System ${combatSystemId}...`}
               </div>
             </>
           )}
