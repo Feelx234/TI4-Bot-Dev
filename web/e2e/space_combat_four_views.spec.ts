@@ -102,6 +102,8 @@ test("a complete human battle stays public in four independent views", async ({
     let checkedShieldHits = false;
     let checkedShieldCallout = false;
     let sawSustain = false;
+    let firstShieldRound: number | undefined;
+    let sawTwoShieldsInOneWindow = false;
     const phases = new Set<string>();
     let sawBarrage = false;
     let sawNewDamage = false;
@@ -324,6 +326,20 @@ test("a complete human battle stays public in four independent views", async ({
         .poll(async () => (await snapshot(request, game, seats[sol])).game_version)
         .toBeGreaterThan(current.game_version);
       const after = await snapshot(request, game, seats[sol]);
+      if (selected.payload?.card_name === "Shields Holding" && actor === sol) {
+        const heldShields = hand.filter((alias) => alias === "sh1" || alias === "sh2").length;
+        if (heldShields === 2) {
+          firstShieldRound = combat.round;
+          const nextChoice = (await snapshot(request, game, seats[sol])).pending_choice?.choice;
+          expect(nextChoice?.context?.subtype).toContain("HITS_TO_ASSIGN");
+          expect(nextChoice?.options.some((option) => option.label === "Play Shields Holding"))
+            .toBe(true);
+          await expect(actorPage!.getByRole("button", { name: "Play Shields Holding" })).toBeVisible();
+        } else if (heldShields === 1 && firstShieldRound === combat.round) {
+          sawTwoShieldsInOneWindow = true;
+          expect(after.pending_choice?.choice.context?.subtype ?? "").not.toContain("HITS_TO_ASSIGN");
+        }
+      }
       if (selected.payload?.card_name === "Salvage" && !after.view.board.combat) {
         for (const page of pages) {
           await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
@@ -470,6 +486,7 @@ test("a complete human battle stays public in four independent views", async ({
     expect(sawNextRound, "the battle must show later rounds").toBe(true);
     expect(checkedShieldHits, "Shields Holding must cancel hits before assignment").toBe(true);
     expect(checkedShieldCallout, "Shields Holding must update the live hits callout").toBe(true);
+    expect(sawTwoShieldsInOneWindow, "both Shields Holding copies can resolve in one reaction window").toBe(true);
     expect(played).toBeGreaterThan(0);
     const snapshots = await Promise.all(ids.map((id) => snapshot(request, game, seats[id])));
     snapshots.push(await snapshot(request, game));

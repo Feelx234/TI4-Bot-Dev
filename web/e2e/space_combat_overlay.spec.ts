@@ -289,6 +289,8 @@ test.describe("Space Combat Overlay", () => {
           ),
         )
         .toBe(true);
+      const beforePass = await snapshot(request, gameId, session);
+      expect(beforePass.view.board.combat?.hits_to_assign).toBeGreaterThan(0);
       await expect(page.getByTestId("choice-error-banner")).toBeHidden();
       await page.getByTestId("pass-combat-reaction-btn").click();
 
@@ -302,6 +304,12 @@ test.describe("Space Combat Overlay", () => {
         .toBe("sustain_damage");
       const sustainChoice = await snapshot(request, gameId, session);
       expect(sustainChoice.pending_choice?.choice.player).toBe(playerId);
+      expect(sustainChoice.view.board.combat?.hits_to_assign).toBe(
+        beforePass.view.board.combat?.hits_to_assign,
+      );
+      await expect(page.getByTestId("pass-combat-reaction-btn")).toHaveCount(0);
+      await expect(page.getByTestId("combat-hits-callout").locator(".combat-hits-callout__count"))
+        .toHaveText(String(sustainChoice.view.board.combat?.hits_to_assign));
       await expectShipHitPills(page, sustainChoice);
       const sustain = sustainChoice.pending_choice!.choice.options.find(
         (option) => option.id !== "decline" && option.kind !== "decline",
@@ -345,6 +353,7 @@ test.describe("Space Combat Overlay", () => {
       )
       .toBe(true);
     const before = await snapshot(request, gameId, session);
+    expect(before.view.board.combat?.hits_to_assign).toBe(3);
     await page.getByRole("button", { name: "Play Shields Holding" }).click();
 
     await expect
@@ -360,6 +369,14 @@ test.describe("Space Combat Overlay", () => {
       after.events.filter((event) => event.detail?.includes("played Shields Holding")),
     ).toHaveLength(1);
     expect(after.view.board.combat).toBeDefined();
+    expect(after.view.board.combat?.hits_to_assign).toBe(1);
+    expect(after.pending_choice?.choice.context?.subtype).toBe("sustain_damage");
+    await expect(page.getByTestId("combat-hits-callout").locator(".combat-hits-callout__count"))
+      .toHaveText("1");
+    // The card has resolved this before-assignment window. The next action is to
+    // absorb the one remaining hit, not to pass through the same window again.
+    await expect(page.getByTestId("pass-combat-reaction-btn")).toHaveCount(0);
+    await expect(page.getByTestId("decline-sustain-btn")).toBeVisible();
     await expect(page.getByTestId("choice-error-banner")).toBeHidden();
   });
 });

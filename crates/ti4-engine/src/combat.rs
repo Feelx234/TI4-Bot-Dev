@@ -2281,6 +2281,9 @@ pub struct CombatWindow {
     galaxy: Option<ti4_content::galaxy::Galaxy>,
     /// Players who announced a retreat this round and will leave once it ends (78.7).
     pending_retreats: Vec<PlayerId>,
+    /// One before-assignment reaction window per seat and combat round, even when
+    /// a card cancels some (but not all) of that seat's incoming hits.
+    hit_reaction_offered: std::collections::BTreeSet<(u32, PlayerId)>,
     /// One identity spans the barrage and resolution of this combat (61.7).
     combat_occurrence: Option<FeatOccurrence>,
     /// A timing pause that the game driver has not yet opened a scoring window for.
@@ -2327,6 +2330,7 @@ impl CombatWindow {
                 }),
                 galaxy: None,
                 pending_retreats: Vec::new(),
+                hit_reaction_offered: Default::default(),
                 combat_occurrence: None,
                 pending_scoring_occurrence: None,
             };
@@ -2338,6 +2342,7 @@ impl CombatWindow {
             stage: Stage::Opening { round: 1 },
             galaxy: None,
             pending_retreats: Vec::new(),
+            hit_reaction_offered: Default::default(),
             combat_occurrence: None,
             pending_scoring_occurrence: None,
         }
@@ -3005,7 +3010,11 @@ impl CombatWindow {
                     // "Before you assign hits to your ships during a space combat." Emitted as the
                     // first of a player's hits is about to land: `front` still carries its full
                     // count here and the stage has consumed none of it.
-                    if matches!(self.stage, Stage::Sustaining { .. }) {
+                    if matches!(self.stage, Stage::Sustaining { .. })
+                        && self
+                            .hit_reaction_offered
+                            .insert((round, front.player.clone()))
+                    {
                         let mut payload = std::collections::BTreeMap::new();
                         payload.insert("system".to_owned(), self.system.to_string().into());
                         payload.insert("player".to_owned(), front.player.to_string().into());
