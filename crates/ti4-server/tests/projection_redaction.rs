@@ -1,7 +1,43 @@
 use ti4_model::id::PlayerId;
+use ti4_model::id::{SystemId, UnitTypeId};
+use ti4_model::units::Unit;
 use ti4_model::view::{HIDDEN, view_for};
 use ti4_server::fixtures::{create_sample_game, create_sample_pending_choice};
+use ti4_server::projection::project_combat_view;
 use ti4_server::projection::{project_initial_snapshot, project_state_update};
+
+#[test]
+fn combat_projection_follows_the_driver_not_contested_ships_or_the_last_survivor() {
+    let mut game = create_sample_game();
+    let system = SystemId::new("18");
+    let attacker = PlayerId::new("seat_a");
+    let defender = PlayerId::new("seat_b");
+    game.active_system = Some(system.clone());
+    game.system_mut(&system)
+        .units
+        .push(Unit::new(UnitTypeId::new("cruiser"), defender.clone()));
+    assert!(
+        project_combat_view(&game, None, &[]).is_none(),
+        "contested is not combat"
+    );
+    game.active_space_combat = Some((system.clone(), attacker.clone(), defender.clone()));
+    assert_eq!(
+        project_combat_view(&game, None, &[]).unwrap().defender,
+        defender
+    );
+    game.system_mut(&system)
+        .units
+        .retain(|unit| unit.owner == attacker);
+    assert!(
+        project_combat_view(&game, None, &[]).is_some(),
+        "victory reaction is still in combat"
+    );
+    game.active_space_combat = None;
+    assert!(
+        project_combat_view(&game, None, &[]).is_none(),
+        "invasion is outside combat"
+    );
+}
 use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::ViewerRole;
 use ti4_server::protocol::{EventVisibility, GameEvent, GameEventKind};

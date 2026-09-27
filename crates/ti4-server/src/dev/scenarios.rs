@@ -47,6 +47,9 @@ pub struct LaunchScenarioResponse {
     pub player_session: String,
     pub player_id: String,
     pub scenario_id: String,
+    /// Only returned by the dev-only four-view script launcher.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_seats: Option<BTreeMap<String, String>>,
 }
 
 /// List of all registered dev scenarios.
@@ -80,6 +83,15 @@ pub fn available_scenarios() -> Vec<ScenarioSummary> {
             human_faction: "Federation of Sol".to_owned(),
             opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
         },
+        ScenarioSummary {
+            id: "ongoing_combat_four_views".to_owned(),
+            title: "Four-view Space Combat".to_owned(),
+            category: "Combat".to_owned(),
+            description: "Human-controlled Sol, Letnev and Hacan; Sol holds combat cards and Letnev holds Sabotage.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
     ]
 }
 
@@ -90,19 +102,64 @@ pub fn launch_scenario(
     seed: Option<u64>,
 ) -> Result<LaunchScenarioResponse, String> {
     let seed = seed.unwrap_or_else(rand::random::<u64>);
-    let (config, lobby_record, human_player, session_token, border_system) = match scenario_id {
+    let (mut config, lobby_record, human_player, session_token, border_system) = match scenario_id {
         "tactical_action" => {
             let (c, l, p, t) = build_tactical_scenario(seed)?;
             (c, l, p, t, String::new())
         }
-        "space_combat" | "ongoing_combat" => build_space_combat_scenario(seed)?,
+        "space_combat" | "ongoing_combat" | "ongoing_combat_four_views" => {
+            build_space_combat_scenario(seed)?
+        }
         other => return Err(format!("Unknown scenario '{other}'")),
     };
 
+    let test_seats =
+        if scenario_id == "ongoing_combat_four_views" {
+            // Leave the winner with ships after the scripted return fire, so the
+            // immediate SPACE_COMBAT_WON Salvage window is exercised as well.
+            config
+                .state
+                .player_mut(&human_player)
+                .expect("Sol is seated")
+                .fleet_tokens = 8;
+            config
+                .state
+                .player_mut(&human_player)
+                .expect("Sol is seated")
+                .action_cards
+                .push(ActionCardId::new("sh2"));
+            config.state.system_mut(&SystemId::new("01")).units.extend(
+                (0..2).map(|_| Unit::new(UnitTypeId::new("cruiser"), human_player.clone())),
+            );
+            let seats = config
+                .seat_tokens
+                .iter()
+                .map(|(id, token)| (id.to_string(), token.clone()))
+                .collect();
+            for (seat, controller) in &mut config.seats {
+                *controller = SeatController::Human;
+                if seat != &human_player
+                    && config
+                        .state
+                        .player(seat)
+                        .is_some_and(|p| p.faction.as_str() == "letnev")
+                {
+                    config
+                        .state
+                        .player_mut(seat)
+                        .expect("Letnev is seated")
+                        .action_cards
+                        .push(ActionCardId::new("sabo1"));
+                }
+            }
+            Some(seats)
+        } else {
+            None
+        };
     let game_id = config.game_id.clone();
     let session = registry.launch_dev_scenario(config, lobby_record)?;
 
-    if scenario_id == "ongoing_combat" {
+    if scenario_id == "ongoing_combat" || scenario_id == "ongoing_combat_four_views" {
         advance_into_space_combat(&session, &human_player, &border_system)?;
     }
 
@@ -111,6 +168,7 @@ pub fn launch_scenario(
         player_session: session_token,
         player_id: human_player.to_string(),
         scenario_id: scenario_id.to_owned(),
+        test_seats,
     })
 }
 

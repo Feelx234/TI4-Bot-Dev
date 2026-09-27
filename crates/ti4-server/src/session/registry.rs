@@ -696,11 +696,12 @@ impl GameRegistry {
                 .and_then(|id| id.strip_prefix("action_"))
                 .and_then(|n| n.parse::<usize>().ok())
                 .and_then(|n| n.checked_sub(1));
-            let (detail, movement, seat_detail) = crate::protocol::server::decision_facts(
+            let (detail, movement, seat_detail) = crate::protocol::server::verified_decision_facts(
                 decision,
                 Some(offered),
                 (request.plan.kind == crate::session::batch::BatchKind::TacticalMovement)
                     .then_some(request.plan.destination.as_str()),
+                &boundary_state,
             );
             counter += 1;
             events.push(crate::protocol::server::GameEvent {

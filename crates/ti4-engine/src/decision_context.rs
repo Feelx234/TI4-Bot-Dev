@@ -47,6 +47,10 @@ use ti4_model::state::Phase;
 /// hash — would inherit that quietly.
 pub const CONTEXT_VERSION: u16 = 1;
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
 /// What raised this decision.
 ///
 /// Named rather than free text so a producer's identity survives rewording. `Rule` carries an LRR
@@ -151,6 +155,9 @@ pub struct DecisionContext {
     /// obligations, and a policy cannot tell those apart from an option list alone.
     pub optional: bool,
     pub target: Option<DecisionTarget>,
+    /// This decision belongs to the currently running space battle, not a separate cannon or invasion.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub space_battle: bool,
     /// Quantities still owed or available within a decision already under way.
     pub outstanding: Vec<OutstandingConstraint>,
 }
@@ -174,6 +181,7 @@ impl DecisionContext {
             round,
             optional: false,
             target: None,
+            space_battle: false,
             outstanding: Vec::new(),
         }
     }
@@ -187,6 +195,15 @@ impl DecisionContext {
     #[must_use]
     pub fn about(mut self, target: DecisionTarget) -> Self {
         self.target = Some(target);
+        self
+    }
+
+    #[must_use]
+    pub fn about_battle(mut self, state: &ti4_model::state::GameState) -> Self {
+        if let Some((system, _, _)) = &state.active_space_combat {
+            self.space_battle = true;
+            self.target = Some(DecisionTarget::System(system.clone()));
+        }
         self
     }
 
@@ -229,7 +246,7 @@ impl DecisionContext {
             .collect::<Vec<_>>()
             .join(",");
         format!(
-            "v{}|actor={}|source={:?}|subtype={}|phase={:?}|round={}|optional={}|target={:?}|owing=[{}]",
+            "v{}|actor={}|source={:?}|subtype={}|phase={:?}|round={}|optional={}|target={:?}|battle={}|owing=[{}]",
             self.version,
             self.actor,
             self.source,
@@ -238,6 +255,7 @@ impl DecisionContext {
             self.round,
             self.optional,
             self.target,
+            self.space_battle,
             owed
         )
     }
@@ -255,6 +273,7 @@ impl DecisionContext {
             ("round", Visibility::Public),
             ("optional", Visibility::Public),
             ("target", Visibility::Public),
+            ("space_battle", Visibility::Public),
             ("outstanding", Visibility::ActorOnly),
         ])
     }
@@ -408,6 +427,6 @@ mod tests {
             .iter()
             .filter(|(_, v)| **v == Visibility::Public)
             .count();
-        assert_eq!(public, 8, "every other field describes a public question");
+        assert_eq!(public, 9, "every other field describes a public question");
     }
 }

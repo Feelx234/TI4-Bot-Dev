@@ -775,13 +775,14 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                             .pop_front();
                         let offered = selected.as_ref();
                         let (detail, movement, seat_detail) =
-                            crate::protocol::server::decision_facts(
+                            crate::protocol::server::verified_decision_facts(
                                 record,
                                 offered,
                                 lock.latest_state
                                     .active_system
                                     .as_ref()
                                     .map(|id| id.as_str()),
+                                &lock.latest_state,
                             );
                         let event_error = lock
                             .record_and_broadcast_event(

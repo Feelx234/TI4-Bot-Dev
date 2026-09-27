@@ -78,6 +78,7 @@ export interface DecisionContextDto {
   phase?: string;
   round?: number;
   optional?: boolean;
+  space_battle?: boolean;
   target?: DecisionTargetDto | null;
   outstanding?: OutstandingConstraintDto[];
   kind?: string;

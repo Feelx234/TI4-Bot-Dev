@@ -168,7 +168,14 @@ export function reduceServerMessage(
         pendingChoice: pendingChoice({ nonce: message.nonce, choice: message.choice }),
       };
     case "turn_status":
-      return { ...state, gameVersion: message.game_version, turnStatus: message.status };
+      return {
+        ...state,
+        gameVersion: message.game_version,
+        turnStatus: message.status,
+        // The server sends TurnStatus instead of PendingChoice to every non-actor.
+        // A previous actor must not retain an actionable choice during a nested window.
+        pendingChoice: null,
+      };
     case "action_accepted":
       return { ...state, lastError: null };
     case "action_rejected":

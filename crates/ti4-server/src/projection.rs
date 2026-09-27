@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use ti4_engine::choice::Choice;
-use ti4_model::id::{PlanetId, PlayerId};
+use ti4_model::id::PlanetId;
 use ti4_model::state::{GameState, Player};
 use ti4_model::view::{HIDDEN, redact_player, view_for};
 
@@ -63,55 +63,8 @@ pub fn project_combat_view(
     dice_rolls: &[crate::protocol::view::CombatDieRoll],
 ) -> Option<crate::protocol::view::CombatView> {
     let choice_ctx = pending_choice.and_then(|c| c.context.as_ref());
-    let is_combat_choice = choice_ctx.is_some_and(|ctx| {
-        matches!(
-            ctx.subtype.as_str(),
-            "sustain_damage" | "assign_casualty" | "announce_retreat" | "retreat_to"
-        )
-    });
-
-    let system_id = if let Some(ctx) = choice_ctx {
-        if let Some(target) = &ctx.target {
-            match target {
-                ti4_engine::decision_context::DecisionTarget::System(sys) => Some(sys.clone()),
-                _ => state.active_system.clone(),
-            }
-        } else {
-            state.active_system.clone()
-        }
-    } else {
-        state.active_system.clone()
-    };
-
-    let sys_id = system_id?;
-    let sys_state = state.board.get(&sys_id)?;
-
-    // Check distinct ship owners in space
-    let mut ship_owners = BTreeSet::new();
-    for u in &sys_state.units {
-        ship_owners.insert(u.owner.clone());
-    }
-
-    if !is_combat_choice && ship_owners.len() < 2 {
-        return None;
-    }
-
-    let attacker = state.active.clone().unwrap_or_else(|| {
-        ship_owners
-            .iter()
-            .next()
-            .cloned()
-            .unwrap_or_else(|| PlayerId::new(""))
-    });
-
-    let defender = ship_owners
-        .into_iter()
-        .find(|p| *p != attacker)
-        .unwrap_or_else(|| {
-            pending_choice
-                .map(|c| c.player.clone())
-                .unwrap_or_else(|| PlayerId::new(""))
-        });
+    let (sys_id, attacker, defender) = state.active_space_combat.clone()?;
+    state.board.get(&sys_id)?;
 
     let active_player = pending_choice.map(|c| c.player.clone());
     let stage = choice_ctx.map(|ctx| ctx.subtype.clone());

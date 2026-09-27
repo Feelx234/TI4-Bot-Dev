@@ -220,8 +220,7 @@ test.describe("Space Combat Overlay", () => {
         )
         .toBe(true);
       await expect(page.getByTestId("choice-error-banner")).toBeHidden();
-      await page.getByRole("radio", { name: "Decline" }).click();
-      await page.getByRole("button", { name: "Confirm choice" }).click();
+       await page.getByTestId("pass-combat-reaction-btn").click();
 
       await expect(page.getByTestId("choice-error-banner")).toBeHidden();
 
@@ -275,8 +274,7 @@ test.describe("Space Combat Overlay", () => {
       )
       .toBe(true);
     const before = await snapshot(request, gameId, session);
-    await page.getByRole("radio", { name: /reaction:.*:HITS_TO_ASSIGN:when/ }).click();
-    await page.getByRole("button", { name: "Confirm choice" }).click();
+     await page.getByRole("button", { name: "Play Shields Holding" }).click();
 
     await expect
       .poll(async () =>
@@ -286,7 +284,8 @@ test.describe("Space Combat Overlay", () => {
       )
       .toBe(false);
     const after = await snapshot(request, gameId, session);
-    expect(after.game_version).toBeGreaterThan(before.game_version);
+     expect(after.game_version).toBeGreaterThan(before.game_version);
+     expect(after.events.filter((event) => event.detail?.includes("played Shields Holding"))).toHaveLength(1);
     expect(after.view.board.combat).toBeDefined();
     await expect(page.getByTestId("choice-error-banner")).toBeHidden();
   });

@@ -54,6 +54,34 @@ const state: GameSessionState = {
 };
 
 describe("GameSessionClient reducer", () => {
+  it("clears a stale card offer when a nested window moves to another seat", () => {
+    const previous = {
+      ...state,
+      gameVersion: 5,
+      pendingChoice: {
+        actor: "seat_a",
+        nonce: "old",
+        prompt: "Play Shields Holding",
+        options: [{ id: "reaction:seat_a:HITS_TO_ASSIGN:when", label: "Play Shields Holding" }],
+      },
+    };
+    const next = reduceServerMessage(previous, {
+      type: "turn_status",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      game_version: 6,
+      status: {
+        kind: "waiting_for_decision",
+        seat: "seat_b",
+        phase: "action",
+        round: 1,
+        stage: "Waiting for player",
+      },
+    });
+    expect(next.pendingChoice).toBeNull();
+    expect(next.turnStatus).toMatchObject({ seat: "seat_b" });
+  });
+
   it("does not display a truncated batch as a complete basket", () => {
     const events = Array.from({ length: 510 }, (_, index) => ({
       id: String(index),

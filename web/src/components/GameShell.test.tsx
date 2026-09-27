@@ -27,6 +27,81 @@ function renderShell(pendingChoice: PendingChoiceDto | null = null) {
 }
 
 describe("GameShell", () => {
+  it("routes only battle-associated reactions and their card selection into the overlay", async () => {
+    const board: BoardView = {
+      systems: {
+        "18": {
+          system_id: "18",
+          command_tokens: [],
+          planets: {},
+          units: [
+            { owner: "p1", unit_type: "cruiser", damaged: false },
+            { owner: "p2", unit_type: "cruiser", damaged: false },
+          ],
+        },
+      },
+      combat: { system_id: "18", round: 1, attacker: "p1", defender: "p2", dice_rolls: [] },
+    };
+    const submit = vi.fn().mockResolvedValue(undefined);
+    const offer: PendingChoiceDto = {
+      actor: "p2",
+      nonce: "outer",
+      prompt: "when HITS_TO_ASSIGN",
+      context: { subtype: "reaction_when_HITS_TO_ASSIGN", space_battle: true },
+      options: [
+        {
+          id: "reaction:p2:HITS_TO_ASSIGN:when",
+          kind: "ability",
+          label: "Play Shields Holding",
+          payload: { card: "sh1" },
+        },
+        { id: "decline", kind: "decline", label: "Decline" },
+      ],
+    };
+    const props = {
+      viewerSeat: "p2",
+      boardView: board,
+      onSubmit: submit,
+      isMinimized: false,
+      onMinimizedChange: vi.fn(),
+    };
+    const { rerender } = render(<ChoiceRendererDispatcher {...props} choice={offer} />);
+    expect(screen.getByTestId("combat-resolution-modal")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Play Shields Holding" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledWith(offer.options[0].id));
+    rerender(
+      <ChoiceRendererDispatcher
+        {...props}
+        choice={{
+          ...offer,
+          nonce: "inner",
+          context: { subtype: "play_reaction_when_HITS_TO_ASSIGN", space_battle: true },
+          options: [
+            {
+              id: "sh1",
+              kind: "action_card",
+              label: "play Shields Holding",
+              payload: { card: "sh1" },
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "play Shields Holding" })).toBeInTheDocument();
+    rerender(
+      <ChoiceRendererDispatcher
+        {...props}
+        choice={{
+          ...offer,
+          context: { subtype: "reaction_when_HITS_TO_ASSIGN", space_battle: false },
+        }}
+        boardView={{ ...board, combat: undefined }}
+      />,
+    );
+    expect(screen.queryByTestId("combat-resolution-modal")).not.toBeInTheDocument();
+    expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
+  });
+
   it("keeps the final round visible until docked and lets the next decision proceed", () => {
     const activeBoard: BoardView = {
       systems: {

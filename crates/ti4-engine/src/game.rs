@@ -265,6 +265,20 @@ impl AftermathWindow {
             notes_at_tactical_start.clone(),
         );
         let mut window = crate::combat::CombatWindow::new(state, ctx.content, ctx.sources, system);
+        let sides = crate::combat::combatants(state, ctx.content, ctx.sources, system);
+        state.active_space_combat = (sides.len() == 2).then(|| {
+            let attacker = state
+                .active
+                .clone()
+                .filter(|seat| sides.contains(seat))
+                .unwrap_or_else(|| sides[0].clone());
+            let defender = sides
+                .iter()
+                .find(|seat| **seat != attacker)
+                .expect("two sides")
+                .clone();
+            (system.clone(), attacker, defender)
+        });
         if let Some(galaxy) = galaxy {
             window = window.with_galaxy(galaxy.clone());
         }
@@ -478,6 +492,7 @@ impl AftermathWindow {
                         }
                         self.log.push("SPACE_COMBAT_RESOLVED".to_owned());
                     }
+                    state.active_space_combat = None;
                     // 16.3 at the moment the carrier dies, not at the end of the turn.
                     //
                     // A space combat that destroys a carrier strands whatever it was holding:

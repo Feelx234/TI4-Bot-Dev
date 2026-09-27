@@ -192,62 +192,64 @@ pub fn public_decision_facts(
         return (None, None);
     };
     let actor = &record.player;
-    let detail = combat_decision_detail(context, option, actor).or_else(|| {
-        match (
-            context.subtype.as_str(),
-            option.kind.as_str(),
-            option.id.as_str(),
-        ) {
-            ("pay_resources" | "pay_influence", "pay", "trade_good") => {
-                Some(format!("{actor} spent a trade good"))
-            }
-            ("pay_resources" | "pay_influence", "pay", id) => id
-                .strip_prefix("exhaust|")
-                .filter(|planet| !planet.is_empty())
-                .map(|planet| format!("{actor} exhausted {planet}")),
-            ("vote_exhaust_planet", _, "decline") => Some("Done voting".into()),
-            ("vote_exhaust_planet", "vote_planet", _) => {
-                Some(format!("{actor} exhausted {} to vote", option.id))
-            }
-            ("produce_unit", _, "done_producing") => Some("Done producing".into()),
-            ("produce_unit", "produce", _) => {
-                let unit = option
+    let detail = played_card_detail(context, option, actor)
+        .or_else(|| combat_decision_detail(context, option, actor))
+        .or_else(|| {
+            match (
+                context.subtype.as_str(),
+                option.kind.as_str(),
+                option.id.as_str(),
+            ) {
+                ("pay_resources" | "pay_influence", "pay", "trade_good") => {
+                    Some(format!("{actor} spent a trade good"))
+                }
+                ("pay_resources" | "pay_influence", "pay", id) => id
+                    .strip_prefix("exhaust|")
+                    .filter(|planet| !planet.is_empty())
+                    .map(|planet| format!("{actor} exhausted {planet}")),
+                ("vote_exhaust_planet", _, "decline") => Some("Done voting".into()),
+                ("vote_exhaust_planet", "vote_planet", _) => {
+                    Some(format!("{actor} exhausted {} to vote", option.id))
+                }
+                ("produce_unit", _, "done_producing") => Some("Done producing".into()),
+                ("produce_unit", "produce", _) => {
+                    let unit = option
+                        .payload
+                        .get("unit")
+                        .and_then(serde_json::Value::as_str);
+                    let count = option
+                        .payload
+                        .get("count")
+                        .and_then(serde_json::Value::as_u64);
+                    unit.zip(count)
+                        .map(|(unit, count)| format!("{actor} produced {count} {unit}"))
+                }
+                ("load_cargo", _, "done_loading") => Some("Done loading".into()),
+                ("load_cargo", "load", _) => option
                     .payload
                     .get("unit")
-                    .and_then(serde_json::Value::as_str);
-                let count = option
-                    .payload
-                    .get("count")
-                    .and_then(serde_json::Value::as_u64);
-                unit.zip(count)
-                    .map(|(unit, count)| format!("{actor} produced {count} {unit}"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(|unit| format!("{actor} loaded {unit}")),
+                ("movement_step", _, "done_moving") => Some("Done moving".into()),
+                ("movement_step", "move", _) => {
+                    let origin = option
+                        .payload
+                        .get("origin")
+                        .and_then(serde_json::Value::as_str);
+                    let unit = option
+                        .payload
+                        .get("unit")
+                        .and_then(serde_json::Value::as_str);
+                    origin
+                        .zip(unit)
+                        .zip(destination)
+                        .map(|((origin, unit), destination)| {
+                            format!("{actor} moved {unit} from #{origin} to #{destination}")
+                        })
+                }
+                _ => None,
             }
-            ("load_cargo", _, "done_loading") => Some("Done loading".into()),
-            ("load_cargo", "load", _) => option
-                .payload
-                .get("unit")
-                .and_then(serde_json::Value::as_str)
-                .map(|unit| format!("{actor} loaded {unit}")),
-            ("movement_step", _, "done_moving") => Some("Done moving".into()),
-            ("movement_step", "move", _) => {
-                let origin = option
-                    .payload
-                    .get("origin")
-                    .and_then(serde_json::Value::as_str);
-                let unit = option
-                    .payload
-                    .get("unit")
-                    .and_then(serde_json::Value::as_str);
-                origin
-                    .zip(unit)
-                    .zip(destination)
-                    .map(|((origin, unit), destination)| {
-                        format!("{actor} moved {unit} from #{origin} to #{destination}")
-                    })
-            }
-            _ => None,
-        }
-    });
+        });
     let movement = if context.subtype == "movement_step" && option.kind == "move" {
         option
             .payload
@@ -270,6 +272,29 @@ pub fn public_decision_facts(
         None
     };
     (detail, movement)
+}
+
+/// Only the card explicitly named by the engine's selected offer can become a public fact.
+/// A multi-card outer offer contains no card; its inner selected offer carries the alias.
+fn played_card_detail(
+    context: &ti4_engine::decision_context::DecisionContext,
+    option: &ChoiceOption,
+    actor: &ti4_model::id::PlayerId,
+) -> Option<String> {
+    if !(context.subtype.starts_with("reaction_when_")
+        || context.subtype.starts_with("reaction_after_")
+        || context.subtype.starts_with("play_reaction_"))
+        || !matches!(option.kind.as_str(), "ability" | "action_card")
+    {
+        return None;
+    }
+    let alias = option.payload.get("card")?.as_str()?;
+    let name = option.payload.get("card_name")?.as_str()?;
+    let actual = ti4_engine::action_cards::name_of(
+        ti4_content::ContentStore::embedded(),
+        &ti4_model::id::ActionCardId::new(alias),
+    );
+    (actual == name && actual != alias).then(|| format!("{actor} played {actual}"))
 }
 
 /// Combat choices are public board decisions. Use only known context/option pairs and
@@ -389,6 +414,41 @@ pub fn decision_facts(
     (detail, movement, private)
 }
 
+/// The shared live/batch commit path verifies a card was announced by the engine.
+/// Selecting an outer reaction is not sufficient evidence if resolution stops before `play`.
+#[must_use]
+pub fn verified_decision_facts(
+    record: &ti4_engine::choice::DecisionRecord,
+    offered: Option<&ChoiceOption>,
+    destination: Option<&str>,
+    state: &ti4_model::state::GameState,
+) -> (
+    Option<String>,
+    Option<MovementFact>,
+    Option<SeatDecisionDetail>,
+) {
+    let (mut detail, movement, private) = decision_facts(record, offered, destination);
+    if let Some(option) = offered
+        && let Some(context) = record.context.as_ref()
+        && played_card_detail(context, option, &record.player).is_some()
+    {
+        let announced = option
+            .payload
+            .get("card")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|alias| {
+                state
+                    .action_card_plays
+                    .iter()
+                    .any(|(seat, card)| seat == &record.player && card.as_str() == alias)
+            });
+        if !announced {
+            detail = None;
+        }
+    }
+    (detail, movement, private)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MovementFact {
@@ -420,6 +480,89 @@ mod fact_tests {
                 1,
             )),
         }
+    }
+
+    #[test]
+    fn card_play_facts_require_a_selected_engine_card_and_validate_its_identity() {
+        let sole = ChoiceOption::labelled(
+            "reaction:sol:HITS_TO_ASSIGN:when",
+            "ability",
+            "Play Shields Holding",
+        )
+        .with("card", "sh1")
+        .with("card_name", "Shields Holding");
+        let inner = ChoiceOption::labelled("sh1", "action_card", "play Shields Holding")
+            .with("card", "sh1")
+            .with("card_name", "Shields Holding");
+        for (subtype, option) in [
+            ("reaction_when_HITS_TO_ASSIGN", &sole),
+            ("play_reaction_when_HITS_TO_ASSIGN", &inner),
+        ] {
+            let decision = record(subtype, option);
+            assert_eq!(
+                public_decision_facts(&decision, Some(option), None)
+                    .0
+                    .as_deref(),
+                Some("p1 played Shields Holding")
+            );
+            assert_eq!(public_decision_facts(&decision, None, None).0, None);
+            assert_eq!(
+                public_decision_facts(&decision, Some(&ChoiceOption::decline()), None).0,
+                None
+            );
+        }
+        let multiple = ChoiceOption::labelled(
+            "reaction:sol:HITS_TO_ASSIGN:when",
+            "ability",
+            "Choose an action card…",
+        );
+        assert_eq!(
+            public_decision_facts(
+                &record("reaction_when_HITS_TO_ASSIGN", &multiple),
+                Some(&multiple),
+                None
+            )
+            .0,
+            None
+        );
+        let forged = sole.with("card_name", "Direct Hit");
+        assert_eq!(
+            public_decision_facts(
+                &record("reaction_when_HITS_TO_ASSIGN", &forged),
+                Some(&forged),
+                None
+            )
+            .0,
+            None
+        );
+    }
+
+    #[test]
+    fn selected_but_unannounced_card_is_not_a_public_play() {
+        let card = ChoiceOption::labelled("sh1", "action_card", "play Shields Holding")
+            .with("card", "sh1")
+            .with("card_name", "Shields Holding");
+        let decision = record("play_reaction_when_HITS_TO_ASSIGN", &card);
+        let mut state = ti4_model::state::GameState::new(
+            &[PlayerId::new("p1")],
+            &[],
+            std::collections::BTreeMap::new(),
+            None,
+            42,
+        );
+        assert_eq!(
+            verified_decision_facts(&decision, Some(&card), None, &state).0,
+            None
+        );
+        state
+            .action_card_plays
+            .push((PlayerId::new("p1"), ti4_model::id::ActionCardId::new("sh1")));
+        assert_eq!(
+            verified_decision_facts(&decision, Some(&card), None, &state)
+                .0
+                .as_deref(),
+            Some("p1 played Shields Holding")
+        );
     }
 
     #[test]

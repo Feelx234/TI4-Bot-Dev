@@ -412,16 +412,11 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     combatSubtype === "assign_casualty" ||
     combatSubtype === "announce_retreat" ||
     combatSubtype === "retreat_to";
-  const isDirectHitReaction = Boolean(
-    boardView?.combat &&
-    choice?.options.some(
-      (option) => option.id.endsWith(":SUSTAIN_DAMAGE_USED:after") && option.kind === "ability",
-    ),
-  );
+  const isBattleChoice = Boolean(boardView?.combat && choice?.context?.space_battle);
 
   const isCombatWorkflow =
     spectatorCombatWorkflow ||
-    isDirectHitReaction ||
+    isBattleChoice ||
     workflow === "combat_sustain" ||
     workflow === "combat_casualty" ||
     workflow === "combat_retreat";
@@ -460,7 +455,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   };
 
   const renderer =
-    isDirectHitReaction || (spectatorCombatWorkflow && !model)
+    isBattleChoice || (spectatorCombatWorkflow && !model)
       ? renderCombat
       : (workflowRenderers.get(workflow) ?? workflowRenderers.get("generic_selection")!);
   const wrappedWorkflow =

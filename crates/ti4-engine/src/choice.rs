@@ -457,6 +457,12 @@ pub struct Observed<'a> {
 }
 
 impl<'a> Observed<'a> {
+    /// The public battle boundary at this exact decision, including the victory window.
+    #[must_use]
+    pub fn space_battle(&self) -> Option<(SystemId, PlayerId, PlayerId)> {
+        self.state.active_space_combat.clone()
+    }
+
     /// Wrap a position. Public so tests and sibling crates can build one.
     #[must_use]
     pub const fn new(

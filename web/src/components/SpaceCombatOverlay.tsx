@@ -209,9 +209,23 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     subtype === "announce_retreat" ||
     subtype === "retreat_to" ||
     model?.workflow === "combat_retreat";
-  const directHitOption = choice?.options.find(
-    (option) => option.kind === "ability" && option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"),
+  const isReactionStage = Boolean(
+    choice?.context?.subtype.startsWith("reaction_") ||
+    choice?.context?.subtype.startsWith("play_reaction_"),
   );
+  const reactionTiming = subtype.includes("SUSTAIN_DAMAGE_USED")
+    ? "Your opponent sustained damage to cancel your hit."
+    : subtype.includes("HITS_TO_ASSIGN")
+      ? "Before assigning incoming hits"
+      : subtype.includes("ACTION_CARD_PLAYED")
+        ? "In response to an action card"
+        : subtype.includes("SPACE_COMBAT_WON")
+          ? "After winning space combat"
+          : subtype.includes("SPACE_COMBAT_STARTED")
+            ? "At the start of space combat"
+            : subtype.includes("COMBAT_ROUND_STARTED")
+              ? "At the start of this combat round"
+              : (choice?.prompt.replaceAll("_", " ") ?? "Choose a reaction");
 
   // Identify system where combat is taking place
   const combatSystemId =
@@ -1009,25 +1023,43 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
 
                   {/* Workflow Action Controls */}
                   <div className="combat-action-area">
-                    {isActor && directHitOption && (
+                    {isActor && isReactionStage && (
                       <div className="workflow-inline">
-                        <div className="combat-action-prompt">
-                          Your opponent sustained damage to cancel your hit.
-                        </div>
-                        <button
-                          type="button"
-                          className="button button--primary"
-                          data-testid="play-direct-hit-btn"
-                          disabled={isDirectSubmitting}
-                          onClick={() => void submitDirect(directHitOption.id)}
-                        >
-                          Play Direct Hit
-                        </button>
+                        <div className="combat-action-prompt">{reactionTiming}</div>
+                        {choice.options
+                          .filter((opt) => opt.kind !== "decline" && opt.id !== "decline")
+                          .map((opt) => {
+                            const alias =
+                              typeof opt.payload?.card === "string" ? opt.payload.card : null;
+                            const card = alias ? getActionCardMeta(alias) : null;
+                            return (
+                              <div key={opt.id} className="combat-card-offer">
+                                <button
+                                  type="button"
+                                  className="button button--primary"
+                                  data-testid={
+                                    card?.name === "Direct Hit"
+                                      ? "play-direct-hit-btn"
+                                      : `combat-reaction-${opt.id}`
+                                  }
+                                  disabled={isDirectSubmitting}
+                                  onClick={() => void submitDirect(opt.id)}
+                                >
+                                  {opt.label}
+                                </button>
+                                {card && <span>{card.description}</span>}
+                              </div>
+                            );
+                          })}
                         {declineOption && (
                           <button
                             type="button"
                             className="button button--secondary"
-                            data-testid="pass-direct-hit-btn"
+                            data-testid={
+                              subtype.includes("SUSTAIN_DAMAGE_USED")
+                                ? "pass-direct-hit-btn"
+                                : "pass-combat-reaction-btn"
+                            }
                             disabled={isDirectSubmitting}
                             onClick={() => void submitDirect(declineOption.id)}
                           >
@@ -1036,6 +1068,27 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                         )}
                       </div>
                     )}
+                    {isActor &&
+                      !isReactionStage &&
+                      !isSustainStage &&
+                      !isCasualtyStage &&
+                      !isRetreatStage && (
+                        <div className="workflow-inline" data-testid="combat-follow-up">
+                          <div className="combat-action-prompt">{choice.prompt}</div>
+                          {choice.options.map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              className="button button--secondary"
+                              data-testid={`combat-follow-up-${opt.id}`}
+                              disabled={isDirectSubmitting}
+                              onClick={() => void submitDirect(opt.id)}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     {/* Stage 1: Sustain Damage */}
                     {isActor && isSustainStage && (
                       <div className="workflow-inline">

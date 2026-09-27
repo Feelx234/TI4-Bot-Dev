@@ -632,6 +632,10 @@ pub fn announce(
     payload.insert("player".to_owned(), player.to_string().into());
     payload.insert("card".to_owned(), alias.to_string().into());
     let announced = context.event_sequence.next("ACTION_CARD_PLAYED", payload)?;
+    context
+        .state
+        .action_card_plays
+        .push((player.clone(), alias.clone()));
     let announced = resolver.emit_with_context(context, announced, |_, _| {})?;
     // The card is still spent when cancelled: 1.15 lets a WHEN ability cancel the event, not
     // un-spend the card — and a spent card is a discarded one, so the discard is announced on
@@ -743,6 +747,8 @@ fn reaction_card_options(
                 ACTION_CARD_KIND,
                 format!("play {}", crate::action_cards::name_of(content, &alias)),
             )
+            .with("card", alias.to_string())
+            .with("card_name", crate::action_cards::name_of(content, &alias))
         })
         .collect()
 }
@@ -780,17 +786,20 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                     ),
                     reaction_card_options(context.content, &options),
                 )
-                .contextualized(DecisionContext::new(
-                    owner.clone(),
-                    DecisionSource::Rule("22.1".to_owned()),
-                    format!(
-                        "play_reaction_{}_{}",
-                        relation_name(relation),
-                        event.event_type
-                    ),
-                    context.state.phase,
-                    context.state.round,
-                ));
+                .contextualized(
+                    DecisionContext::new(
+                        owner.clone(),
+                        DecisionSource::Rule("22.1".to_owned()),
+                        format!(
+                            "play_reaction_{}_{}",
+                            relation_name(relation),
+                            event.event_type
+                        ),
+                        context.state.phase,
+                        context.state.round,
+                    )
+                    .about_battle(context.state),
+                );
                 match context.ask_seeing(&choice) {
                     Ok(answer) => ActionCardId::new(answer.id),
                     Err(_) => return Ok(()),

@@ -1213,6 +1213,14 @@ pub struct GameState {
     /// reads the handoff instead. In-flight bookkeeping — not compared.
     #[serde(default)]
     pub last_combat_sides: Option<(SystemId, Vec<PlayerId>)>,
+    /// Authoritative announced card plays (including plays later cancelled by Sabotage).
+    /// Aliases here are public only after the card is played; unopened hands are not recorded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub action_card_plays: Vec<(PlayerId, ActionCardId)>,
+    /// Set by the combat driver while a space battle (including its victory window) is open.
+    /// Cleared before the hand-off to invasion. Unlike ship ownership this is an explicit boundary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_space_combat: Option<(SystemId, PlayerId, PlayerId)>,
     /// In-progress space combat hits produced in the current round by player. In-flight bookkeeping — not compared.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub combat_round_hits: BTreeMap<PlayerId, u32>,
@@ -1541,6 +1549,8 @@ impl GameState {
             last_ship_destroyed: None,
             last_control_gained: None,
             last_combat_sides: None,
+            action_card_plays: Vec::new(),
+            active_space_combat: None,
             combat_round_hits: BTreeMap::new(),
             combat_round_dice: Vec::new(),
             last_action_discarded: None,

@@ -66,6 +66,7 @@ impl Decider for RemoteHumanDecider {
                 submitted_option_id: None,
                 reply_tx: None,
             });
+            shared.broadcast_state_update();
             shared.broadcast_pending_decision(choice, &nonce);
         }
 
@@ -113,7 +114,14 @@ impl Decider for RemoteHumanDecider {
         choice: &Choice,
         seen: &SeatObservation<'_>,
     ) -> Result<ChoiceOption, IllegalChoice> {
-        let _ = seen;
+        // A nested choice can pause a step before the worker publishes a new state.
+        // Keep the public combat boundary current even while the rest of the state
+        // waits for that step to finish (notably between victory and invasion).
+        self.shared
+            .lock()
+            .expect("session shared lock")
+            .latest_state
+            .active_space_combat = seen.space_battle();
         self.choose(choice)
     }
 }
