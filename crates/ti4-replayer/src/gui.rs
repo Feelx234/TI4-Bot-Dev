@@ -37,6 +37,7 @@ use crate::app::{
 };
 use crate::fingerprint::FrameFingerprint;
 use crate::live::{AdvanceGoal, Gate, LiveBranch, LiveEvent, LiveState, ReplayRequest};
+use crate::net::{DEFAULT_PORT, NetHost};
 use crate::project::{ReplayInputs, SeatSetting};
 use crate::rebuild::{RebuildBounds, RebuildTarget};
 use crate::store::{self, Store};
@@ -91,6 +92,10 @@ pub struct Replayer {
     setup_open: bool,
     /// The window's current size, kept so that closing at 2560x1400 opens tomorrow at 2560x1400.
     window: [f32; 2],
+    /// The live table served to remote seats, while hosting.
+    host: Option<NetHost>,
+    /// The port typed into the bar, kept as text so a half-typed number is not a parse error.
+    host_port: String,
 }
 
 /// The profile table behind a remembered name, or the fallback when the name is not one this build
@@ -268,6 +273,8 @@ impl Replayer {
             // With nothing to look at, say what starting a table means instead of leaving a blank
             // window and a bar of buttons named after file formats.
             setup_open: settings.last_project.is_none(),
+            host: None,
+            host_port: DEFAULT_PORT.to_string(),
         }
     }
 
@@ -512,6 +519,16 @@ impl Replayer {
                             opened.app.record_frames(&ticks);
                         }
                     }
+                }
+                if let Some(host) = &self.host
+                    && opened.rebuilding.is_none()
+                {
+                    let branch = opened.app.current();
+                    host.sync(
+                        &gate,
+                        opened.store.session(branch),
+                        opened.store.frames(branch),
+                    );
                 }
                 animate = matches!(
                     opened.app.live_state(),
@@ -986,6 +1003,8 @@ impl Replayer {
                     self.persist();
                 }
                 ui.separator();
+                self.host_controls(ui, opened.is_some_and(|opened| opened.branch.is_some()));
+                ui.separator();
                 if let Some(opened) = opened {
                     let inputs = &opened.app.project().inputs;
                     let verification = opened.app.verification();
@@ -1017,6 +1036,89 @@ impl Replayer {
             });
             ui.label(&self.status);
         });
+    }
+
+    /// Say so when the waiting choice belongs to a seat somebody is playing online. The window must
+    /// not offer its buttons for it: the choice is theirs, and two answers racing is a click lost.
+    fn remote_waiting(
+        &self,
+        ui: &mut egui::Ui,
+        session: &ReviewSession,
+        pending: Option<&crate::PendingManualChoice>,
+    ) -> bool {
+        let (Some(pending), Some(host)) = (pending, self.host.as_ref()) else {
+            return false;
+        };
+        let Some((seat, name, connected)) = host
+            .remote_seats()
+            .into_iter()
+            .find(|(seat, _, _)| *seat == pending.actor)
+        else {
+            return false;
+        };
+        ui.heading(format!(
+            "{} is asked",
+            view::annotate(session, seat.as_str())
+        ));
+        ui.label(format!(
+            "{name} is playing this seat online{}. Their answer comes over the network; flip the seat to Auto below to let the policy take over.",
+            if connected { "" } else { " but is disconnected" }
+        ));
+        ui.separator();
+        true
+    }
+
+    /// Start or stop serving the live table, and say who has joined.
+    fn host_controls(&mut self, ui: &mut egui::Ui, live: bool) {
+        if let Some(host) = &self.host {
+            ui.label(format!("Hosting on port {} · code", host.address().port()));
+            let code = host.code().to_owned();
+            if ui
+                .add(egui::Label::new(egui::RichText::new(&code).monospace()).sense(Sense::click()))
+                .on_hover_text("Click to copy. Players join with: ti4-replayer join <your-address>:<port> --code <code>")
+                .clicked()
+            {
+                ui.ctx().copy_text(code);
+                "Join code copied.".clone_into(&mut self.status);
+            }
+            for (seat, name, connected) in host.remote_seats() {
+                ui.colored_label(
+                    view::player_color(&seat),
+                    format!("● {seat} {name}{}", if connected { "" } else { " (away)" }),
+                );
+            }
+            if ui.button("Stop hosting").clicked() {
+                self.host = None;
+                "Stopped hosting; remote seats were disconnected and stay on Manual."
+                    .clone_into(&mut self.status);
+            }
+            return;
+        }
+        ui.label("port");
+        ui.add(egui::TextEdit::singleline(&mut self.host_port).desired_width(52.0));
+        let button = ui.add_enabled(live, egui::Button::new("Host online"));
+        let _ = button
+            .clone()
+            .on_disabled_hover_text("Start a table first; hosting serves the live branch.");
+        if button.clicked() {
+            match self.host_port.trim().parse::<u16>() {
+                Ok(port) => {
+                    match NetHost::start(std::net::SocketAddr::from(([0, 0, 0, 0], port))) {
+                        Ok(host) => {
+                            self.status = format!(
+                                "Hosting on port {}. Remote players each take a free Auto seat, which turns Manual for them; seats you have on Manual stay yours. Your own window still shows every hand.",
+                                host.address().port()
+                            );
+                            self.host = Some(host);
+                        }
+                        Err(error) => {
+                            self.status = format!("Could not host on port {port}: {error}");
+                        }
+                    }
+                }
+                Err(_) => self.status = format!("{} is not a port number.", self.host_port),
+            }
+        }
     }
 
     /// The six seats, the run buttons, and Play.
@@ -1295,7 +1397,9 @@ impl Replayer {
             .show(root, |ui| {
                 *ui.visuals_mut() = egui::Visuals::light();
                 ui.visuals_mut().override_text_color = Some(PANEL_TEXT);
-                if let Some(pending) = pending {
+                if self.remote_waiting(ui, session, pending.as_ref()) {
+                    // A remote player answers this one; the window only says who.
+                } else if let Some(pending) = pending {
                     ui.heading(format!(
                         "{} is asked",
                         view::annotate(session, pending.actor.as_str())

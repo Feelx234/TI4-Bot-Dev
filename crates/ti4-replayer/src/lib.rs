@@ -39,6 +39,7 @@ pub mod decider;
 pub mod fingerprint;
 pub mod gui;
 pub mod live;
+pub mod net;
 pub mod persistence;
 pub mod project;
 pub mod rebuild;

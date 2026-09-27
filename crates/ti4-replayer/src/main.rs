@@ -18,7 +18,7 @@ fn main() {
     let first = Path::new(args.first().map_or("", String::as_str));
     if !matches!(
         args.first().map_or("", String::as_str),
-        "inspect" | "import"
+        "inspect" | "import" | "join"
     ) && first.exists()
     {
         return window(Some(first.to_path_buf()));
@@ -27,7 +27,7 @@ fn main() {
     // reciting a usage line at somebody who typed what they meant and simply has not recorded a game
     // under that name yet.
     let named = args.first().map_or("", String::as_str);
-    if !matches!(named, "inspect" | "import") && !named.starts_with('-') {
+    if !matches!(named, "inspect" | "import" | "join") && !named.starts_with('-') {
         eprintln!(
             "ti4-replayer: {named} is not there.\n\
              \n\
@@ -60,12 +60,13 @@ fn command(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("inspect") => inspect(args),
         Some("import") => import(args),
+        Some("join") => join(args),
         _ => Err(usage()),
     }
 }
 
 fn usage() -> String {
-    "usage: ti4-replayer [<session-or-project>] | [inspect <project>] | [import <session>              [--checkpoint P --map-pool P --out P]]"
+    "usage: ti4-replayer [<session-or-project>] | [inspect <project>] | [import <session>              [--checkpoint P --map-pool P --out P]] | [join [<host:port>] [--code C] [--seat S] [--name N]]"
         .to_owned()
 }
 
@@ -130,6 +131,23 @@ fn inspect(args: &[String]) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// Open the online-table window, connected to a host when the address and code are both given.
+fn join(args: &[String]) -> Result<(), String> {
+    let request = ti4_replayer::net::JoinRequest {
+        address: args
+            .get(1)
+            .filter(|arg| !arg.starts_with('-'))
+            .cloned()
+            .unwrap_or_default(),
+        code: flag(args, "--code").unwrap_or_default().to_owned(),
+        seat: flag(args, "--seat").map(ti4_model::id::PlayerId::new),
+        name: flag(args, "--name").unwrap_or("player").to_owned(),
+        resume: None,
+    };
+    ti4_replayer::net::remote_gui::run(request)
+        .map_err(|error| format!("the window failed: {error}"))
 }
 
 /// Turn an R01 session into a project file, reading the inputs off the session's own manifest.
