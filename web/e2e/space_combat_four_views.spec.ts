@@ -22,19 +22,35 @@ async function snapshot(
 }
 
 const shipTypes = new Set([
-  "warsun", "flagship", "dreadnought", "carrier", "cruiser", "destroyer", "fighter",
+  "warsun",
+  "flagship",
+  "dreadnought",
+  "carrier",
+  "cruiser",
+  "destroyer",
+  "fighter",
 ]);
 
 async function expectFleetPills(page: Page, state: InitialSnapshotMsg, step: number) {
   const combat = state.view.board.combat!;
   const units = state.view.board.systems[combat.system_id].units;
-  const start = combat.phase === "barrage" ||
-    (combat.phase === "pre_roll" && combat.round === 1 && Object.keys(combat.barrage_hits ?? {}).length > 0)
-    ? combat.barrage_start : combat.phase === "resolving_hits" ? combat.round_start : undefined;
-  for (const [side, seat] of [["attacker", combat.attacker], ["defender", combat.defender]] as const) {
+  const start =
+    combat.phase === "barrage" ||
+    (combat.phase === "pre_roll" &&
+      combat.round === 1 &&
+      Object.keys(combat.barrage_hits ?? {}).length > 0)
+      ? combat.barrage_start
+      : combat.phase === "resolving_hits"
+        ? combat.round_start
+        : undefined;
+  for (const [side, seat] of [
+    ["attacker", combat.attacker],
+    ["defender", combat.defender],
+  ] as const) {
     const groups = new Map<string, { count: number; damaged: number }>();
     for (const unit of units) {
-      if (unit.owner !== seat || unit.planet || !shipTypes.has(getUnitBaseType(unit.unit_type))) continue;
+      if (unit.owner !== seat || unit.planet || !shipTypes.has(getUnitBaseType(unit.unit_type)))
+        continue;
       const group = groups.get(unit.unit_type) ?? { count: 0, damaged: 0 };
       group.count++;
       if (unit.damaged) group.damaged++;
@@ -46,9 +62,9 @@ async function expectFleetPills(page: Page, state: InitialSnapshotMsg, step: num
       await expect(row, `step ${step} ${side} ${type} count`).toContainText(`×${count}`);
       const pill = row.locator(".combat-unit-row__damaged-badge");
       if (damaged) {
-        const damagedAtStart = start?.filter(
-          (unit) => unit.owner === seat && unit.unit_type === type && unit.damaged,
-        ).length ?? 0;
+        const damagedAtStart =
+          start?.filter((unit) => unit.owner === seat && unit.unit_type === type && unit.damaged)
+            .length ?? 0;
         const newDamage = start ? Math.max(0, damaged - damagedAtStart) : damaged;
         await expect(pill, `step ${step} ${side} ${type} damage`).toHaveText(
           `${damaged - newDamage} + ${newDamage} damaged`,
@@ -189,8 +205,10 @@ test("a complete human battle stays public in four independent views", async ({
         } else {
           await expect(pages[i].getByTestId("combat-odds-card")).toHaveCount(0);
         }
-        if (combat.phase === "pre_roll" &&
-            !(combat.round === 1 && Object.keys(combat.barrage_hits ?? {}).length > 0))
+        if (
+          combat.phase === "pre_roll" &&
+          !(combat.round === 1 && Object.keys(combat.barrage_hits ?? {}).length > 0)
+        )
           await expect(pages[i].getByTestId("combat-round-hits")).toHaveCount(0);
         if (id !== actor) {
           expect(viewer.pending_choice).toBeFalsy();
@@ -332,12 +350,17 @@ test("a complete human battle stays public in four independent views", async ({
           firstShieldRound = combat.round;
           const nextChoice = (await snapshot(request, game, seats[sol])).pending_choice?.choice;
           expect(nextChoice?.context?.subtype).toContain("HITS_TO_ASSIGN");
-          expect(nextChoice?.options.some((option) => option.label === "Play Shields Holding"))
-            .toBe(true);
-          await expect(actorPage!.getByRole("button", { name: "Play Shields Holding" })).toBeVisible();
+          expect(
+            nextChoice?.options.some((option) => option.label === "Play Shields Holding"),
+          ).toBe(true);
+          await expect(
+            actorPage!.getByRole("button", { name: "Play Shields Holding" }),
+          ).toBeVisible();
         } else if (heldShields === 1 && firstShieldRound === combat.round) {
           sawTwoShieldsInOneWindow = true;
-          expect(after.pending_choice?.choice.context?.subtype ?? "").not.toContain("HITS_TO_ASSIGN");
+          expect(after.pending_choice?.choice.context?.subtype ?? "").not.toContain(
+            "HITS_TO_ASSIGN",
+          );
         }
       }
       if (selected.payload?.card_name === "Salvage" && !after.view.board.combat) {
@@ -353,8 +376,10 @@ test("a complete human battle stays public in four independent views", async ({
           (unit) => unit.owner === actor && !unit.planet,
         );
         expect(afterUnits.length, `step ${step}: sustain keeps the ship`).toBe(beforeUnits.length);
-        expect(afterUnits.filter((unit) => unit.damaged).length, `step ${step}: exactly one ship sustains`)
-          .toBe(beforeUnits.filter((unit) => unit.damaged).length + 1);
+        expect(
+          afterUnits.filter((unit) => unit.damaged).length,
+          `step ${step}: exactly one ship sustains`,
+        ).toBe(beforeUnits.filter((unit) => unit.damaged).length + 1);
         if (after.view.board.combat) {
           for (const page of pages) await expectFleetPills(page, after, step);
         }
@@ -485,7 +510,10 @@ test("a complete human battle stays public in four independent views", async ({
     expect(sawNextRound, "the battle must show later rounds").toBe(true);
     expect(checkedShieldHits, "Shields Holding must cancel hits before assignment").toBe(true);
     expect(checkedShieldCallout, "Shields Holding must update the live hits callout").toBe(true);
-    expect(sawTwoShieldsInOneWindow, "both Shields Holding copies can resolve in one reaction window").toBe(true);
+    expect(
+      sawTwoShieldsInOneWindow,
+      "both Shields Holding copies can resolve in one reaction window",
+    ).toBe(true);
     expect(played).toBeGreaterThan(0);
     const snapshots = await Promise.all(ids.map((id) => snapshot(request, game, seats[id])));
     snapshots.push(await snapshot(request, game));
@@ -541,11 +569,11 @@ test("a complete human battle stays public in four independent views", async ({
       await page.getByTestId("event-log-toggle").click();
       for (const label of [/Round 1/, /Action phase/, /Tactical action/]) {
         const branch = page.getByRole("button", { name: label });
-        if (await branch.getAttribute("aria-expanded") === "false") await branch.click();
+        if ((await branch.getAttribute("aria-expanded")) === "false") await branch.click();
       }
       const stages = page.locator(".event-log__group--stage > .event-log__heading");
-      for (let stage = 0; stage < await stages.count(); stage++) {
-        if (await stages.nth(stage).getAttribute("aria-expanded") === "false")
+      for (let stage = 0; stage < (await stages.count()); stage++) {
+        if ((await stages.nth(stage).getAttribute("aria-expanded")) === "false")
           await stages.nth(stage).click();
       }
       for (const play of publicPlays) {

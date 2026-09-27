@@ -7,8 +7,13 @@ const PARTICIPANT_TOKEN = /(^|[^\w:/|.-])(player_[a-zA-Z0-9_]+)(?!\.[\w])(?=$|[^
 const GENERATED_ID = /^player_[a-f0-9]{64}$/;
 
 /** Split prose into literal text and resolvable participant references. */
-export function participantReferences(text: string, lobby: LobbyDto | null): (string | { id: string })[] {
-  const known = new Set(lobby?.slots.flatMap((slot) => (slot.occupant ? [slot.occupant] : [])) ?? []);
+export function participantReferences(
+  text: string,
+  lobby: LobbyDto | null,
+): (string | { id: string })[] {
+  const known = new Set(
+    lobby?.slots.flatMap((slot) => (slot.occupant ? [slot.occupant] : [])) ?? [],
+  );
   const parts: (string | { id: string })[] = [];
   let cursor = 0;
   for (const match of text.matchAll(PARTICIPANT_TOKEN)) {
@@ -28,7 +33,9 @@ export function participantText(
   lobby: LobbyDto | null,
   seatingOrder: readonly string[],
 ): string {
-  return participantReferences(text, lobby).map((part) =>
-    typeof part === "string" ? part : playerDisplay(lobby, seatingOrder, part.id).label,
-  ).join("");
+  return participantReferences(text, lobby)
+    .map((part) =>
+      typeof part === "string" ? part : playerDisplay(lobby, seatingOrder, part.id).label,
+    )
+    .join("");
 }

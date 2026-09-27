@@ -1,6 +1,12 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { GameLogEntry } from "../hooks/useGameSession.ts";
-import { BoardView, CurrentLogPath, HistoryStatus, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import {
+  BoardView,
+  CurrentLogPath,
+  HistoryStatus,
+  PendingChoiceDto,
+  PlayerView,
+} from "../protocol/types.ts";
 import { EventLog } from "./EventLog.tsx";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { PaymentDrawer } from "./PaymentDrawer.tsx";
@@ -430,8 +436,26 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     workflow === "combat_retreat";
 
   if (boardView?.invasion && !boardView.combat) {
-    return isMinimized ? <button type="button" className="button button--primary" onClick={() => onMinimizedChange(false)}>View invasion</button> : (
-      <InvasionOverlay board={boardView} choice={choice} players={players} viewerSeat={viewerSeat} onSubmit={onSubmit} onClose={() => onMinimizedChange(true)} lastError={lastError} landingDraft={landingDraft} onLandingDraftChange={onLandingDraftChange} />
+    return isMinimized ? (
+      <button
+        type="button"
+        className="button button--primary"
+        onClick={() => onMinimizedChange(false)}
+      >
+        View invasion
+      </button>
+    ) : (
+      <InvasionOverlay
+        board={boardView}
+        choice={choice}
+        players={players}
+        viewerSeat={viewerSeat}
+        onSubmit={onSubmit}
+        onClose={() => onMinimizedChange(true)}
+        lastError={lastError}
+        landingDraft={landingDraft}
+        onLandingDraftChange={onLandingDraftChange}
+      />
     );
   }
 
@@ -587,8 +611,13 @@ export const GameShell: React.FC<GameShellProps> = ({
     units: string[];
   } | null>(null);
   const [productionError, setProductionError] = useState<string | null>(null);
-  const [landingDraftState, setLandingDraftState] = useState<{ key: string; entries: Landing[] } | null>(null);
-  const landingKey = boardView?.invasion ? `${history?.generation ?? 0}:${boardView.invasion.system_id}:${boardView.invasion.invasion_seq}` : null;
+  const [landingDraftState, setLandingDraftState] = useState<{
+    key: string;
+    entries: Landing[];
+  } | null>(null);
+  const landingKey = boardView?.invasion
+    ? `${history?.generation ?? 0}:${boardView.invasion.system_id}:${boardView.invasion.invasion_seq}`
+    : null;
   const submittedNonce = useRef<string | null>(null);
   const productionSubmitting = useRef(false);
   const tacticalPlan = useRef<ExecutionPlan>(emptyMovementPlan());
@@ -771,8 +800,12 @@ export const GameShell: React.FC<GameShellProps> = ({
             onTacticalStep={() => setTacticalStep((step) => step + 1)}
             productionQueue={productionQueue?.units}
             productionError={productionError}
-            landingDraft={landingKey && landingDraftState?.key === landingKey ? landingDraftState.entries : []}
-            onLandingDraftChange={(entries) => { if (landingKey) setLandingDraftState({ key: landingKey, entries }); }}
+            landingDraft={
+              landingKey && landingDraftState?.key === landingKey ? landingDraftState.entries : []
+            }
+            onLandingDraftChange={(entries) => {
+              if (landingKey) setLandingDraftState({ key: landingKey, entries });
+            }}
             onQueueProduction={(units) => {
               if (!choice || productionQueue?.units.length) return;
               const system =

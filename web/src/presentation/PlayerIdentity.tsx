@@ -29,9 +29,10 @@ export function useParticipantText() {
 
 export function useParticipantParts() {
   const { lobby, seatingOrder } = useContext(PlayerContext);
-  return (text: string) => participantReferences(text, lobby).map((part) =>
-    typeof part === "string" ? part : playerDisplay(lobby, seatingOrder, part.id),
-  );
+  return (text: string) =>
+    participantReferences(text, lobby).map((part) =>
+      typeof part === "string" ? part : playerDisplay(lobby, seatingOrder, part.id),
+    );
 }
 
 /** The visible number and shape remain readable when color cannot be perceived. */

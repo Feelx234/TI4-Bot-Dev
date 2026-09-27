@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { fallbackCases, galleryCases } from "../src/dev/decisionGalleryCases.ts";
 
-test("synthetic log opens only the active path and allows browsing earlier stages and rounds", async ({ page }) => {
+test("synthetic log opens only the active path and allows browsing earlier stages and rounds", async ({
+  page,
+}) => {
   await page.goto("/dev/decisions");
   await page.getByRole("button", { name: new RegExp(`^${galleryCases[0].title}`) }).click();
   await page.getByTestId("event-log-toggle").click();

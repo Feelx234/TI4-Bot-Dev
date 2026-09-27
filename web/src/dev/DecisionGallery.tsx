@@ -244,8 +244,13 @@ export const DecisionGallery: React.FC = () => {
               playerSheet={
                 <div className="panel">Synthetic players: Alex (2 TG), Blair (1 TG)</div>
               }
-               events={galleryEventLog}
-               currentPath={{ round: 1, phase: "action", action_id: "action_1", stage: "production" }}
+              events={galleryEventLog}
+              currentPath={{
+                round: 1,
+                phase: "action",
+                action_id: "action_1",
+                stage: "production",
+              }}
               players={galleryPlayers}
               boardView={galleryBoard}
               choice={choice}

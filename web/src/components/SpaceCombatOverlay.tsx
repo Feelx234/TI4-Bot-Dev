@@ -73,13 +73,19 @@ export function requiresCapacity(unitType: string): boolean {
 // account for technologies, cards or the outcome of already-rolled dice.
 function expectedHits(unitType: string): number {
   switch (getUnitBaseType(unitType)) {
-    case "warsun": return 2.4;
-    case "flagship": return 1.2;
-    case "dreadnought": return 0.6;
-    case "cruiser": return 0.4;
+    case "warsun":
+      return 2.4;
+    case "flagship":
+      return 1.2;
+    case "dreadnought":
+      return 0.6;
+    case "cruiser":
+      return 0.4;
     case "destroyer":
-    case "fighter": return 0.2;
-    default: return 0;
+    case "fighter":
+      return 0.2;
+    default:
+      return 0;
   }
 }
 
@@ -213,7 +219,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
         : "pre_roll");
   const isPreRoll = phase === "pre_roll";
   const isResolving = phase === "resolving_hits" || phase === "barrage";
-  const showBarrageRecap = isPreRoll && board?.combat?.round === 1 &&
+  const showBarrageRecap =
+    isPreRoll &&
+    board?.combat?.round === 1 &&
     Object.keys(board.combat.barrage_hits ?? {}).length > 0;
   const showAssignment = isResolving || showBarrageRecap;
   const reactionTiming = subtype.includes("SUSTAIN_DAMAGE_USED")
@@ -332,16 +340,29 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   const fallbackOdds = useMemo(() => {
     const power = (stats: FleetStats) => {
       const hits = stats.units.reduce((sum, unit) => sum + expectedHits(unit.unit_type), 0);
-      const health = stats.units.reduce((sum, unit) => sum + (unit.damaged ? 1 :
-        ["dreadnought", "flagship", "warsun"].includes(getUnitBaseType(unit.unit_type)) ? 2 : 1), 0);
+      const health = stats.units.reduce(
+        (sum, unit) =>
+          sum +
+          (unit.damaged
+            ? 1
+            : ["dreadnought", "flagship", "warsun"].includes(getUnitBaseType(unit.unit_type))
+              ? 2
+              : 1),
+        0,
+      );
       return (hits + 0.1) * (health + 0.1);
     };
     const attacker = power(attackerStats);
     const defender = power(defenderStats);
-    const attWinPct = Math.round(attacker / (attacker + defender) * 100);
+    const attWinPct = Math.round((attacker / (attacker + defender)) * 100);
     return {
-      attWinPct, defWinPct: 100 - attWinPct, mutWinPct: 0,
-      attSub: "", defSub: "", avgRounds: "", tag: "Rough fleet estimate · simulation pending",
+      attWinPct,
+      defWinPct: 100 - attWinPct,
+      mutWinPct: 0,
+      attSub: "",
+      defSub: "",
+      avgRounds: "",
+      tag: "Rough fleet estimate · simulation pending",
       tagClass: "combat-odds-card__tag--offline",
     };
   }, [attackerStats, defenderStats]);
@@ -488,7 +509,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     : [];
 
   const attackerHitsDealt = useMemo(() => {
-    if (phase === "barrage" || showBarrageRecap) return board?.combat?.barrage_hits?.[attackerSeat] ?? 0;
+    if (phase === "barrage" || showBarrageRecap)
+      return board?.combat?.barrage_hits?.[attackerSeat] ?? 0;
     if (!isResolving) return 0;
     if (typeof board?.combat?.attacker_hits === "number") {
       return board.combat.attacker_hits;
@@ -498,7 +520,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   }, [board?.combat, activeDiceFeed, attackerSeat, phase, isResolving, showBarrageRecap]);
 
   const defenderHitsDealt = useMemo(() => {
-    if (phase === "barrage" || showBarrageRecap) return board?.combat?.barrage_hits?.[defenderSeat] ?? 0;
+    if (phase === "barrage" || showBarrageRecap)
+      return board?.combat?.barrage_hits?.[defenderSeat] ?? 0;
     if (!isResolving) return 0;
     if (typeof board?.combat?.defender_hits === "number") {
       return board.combat.defender_hits;
@@ -567,7 +590,10 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   ) => {
     const rolledTypes = rollsBySide.get(seat);
     const knownTypes = fleetRows.current.types.get(seat) ?? new Set<string>();
-    const start = phase === "barrage" || showBarrageRecap ? board?.combat?.barrage_start : board?.combat?.round_start;
+    const start =
+      phase === "barrage" || showBarrageRecap
+        ? board?.combat?.barrage_start
+        : board?.combat?.round_start;
     if (showAssignment)
       for (const unit of start ?? [])
         if (unit.owner === seat) knownTypes.add(getUnitBaseType(unit.unit_type));
@@ -588,16 +614,13 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           unit.owner === seat && unit.unit_type.toLowerCase() === group.unitType.toLowerCase(),
       );
       const destroyed = Math.max(0, started.length - group.count);
-       const newlyDamaged = !start ? 0 : Math.max(
-         0,
-         group.damagedCount - started.filter((unit) => unit.damaged).length,
-       );
-       // The pill compares damage carried into this round with damage sustained
-       // during it. The total ship count (including undamaged ships) is shown by ×.
-       const previouslyDamaged = showAssignment && start
-         ? group.damagedCount - newlyDamaged
-         : 0;
-       const damageInPill = showAssignment && start ? newlyDamaged : group.damagedCount;
+      const newlyDamaged = !start
+        ? 0
+        : Math.max(0, group.damagedCount - started.filter((unit) => unit.damaged).length);
+      // The pill compares damage carried into this round with damage sustained
+      // during it. The total ship count (including undamaged ships) is shown by ×.
+      const previouslyDamaged = showAssignment && start ? group.damagedCount - newlyDamaged : 0;
+      const damageInPill = showAssignment && start ? newlyDamaged : group.damagedCount;
       // Casualty stage options for this group
       const matchingCasualties =
         isCurrentDecider && isCasualtyStage
@@ -657,17 +680,33 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           <span className="combat-unit-row__name">
             {getUnitDisplayName(group.unitType, group.count)}
           </span>
-           <span className="combat-unit-row__count">×{group.count}</span>
-           {showAssignment && destroyed > 0 && (
-             <span className="combat-unit-row__loss" data-testid={`combat-destroyed-${seat}-${group.unitType}`} title={`${destroyed} destroyed this step`}>
-               −{destroyed}
-             </span>
-           )}
-           {(group.damagedCount > 0 || newlyDamaged > 0) && (
-              <span className="combat-unit-row__damaged-badge" data-testid={showAssignment && newlyDamaged > 0 ? `combat-new-damage-${seat}-${group.unitType}` : undefined} title={showAssignment && start ? `${previouslyDamaged} previously damaged, ${newlyDamaged} newly damaged this step` : "Surviving ships damaged"}>
-                {previouslyDamaged} + {damageInPill} damaged
-             </span>
-           )}
+          <span className="combat-unit-row__count">×{group.count}</span>
+          {showAssignment && destroyed > 0 && (
+            <span
+              className="combat-unit-row__loss"
+              data-testid={`combat-destroyed-${seat}-${group.unitType}`}
+              title={`${destroyed} destroyed this step`}
+            >
+              −{destroyed}
+            </span>
+          )}
+          {(group.damagedCount > 0 || newlyDamaged > 0) && (
+            <span
+              className="combat-unit-row__damaged-badge"
+              data-testid={
+                showAssignment && newlyDamaged > 0
+                  ? `combat-new-damage-${seat}-${group.unitType}`
+                  : undefined
+              }
+              title={
+                showAssignment && start
+                  ? `${previouslyDamaged} previously damaged, ${newlyDamaged} newly damaged this step`
+                  : "Surviving ships damaged"
+              }
+            >
+              {previouslyDamaged} + {damageInPill} damaged
+            </span>
+          )}
           {hasRollResults && renderRollBadge(seat, group.unitType)}
 
           {/* Integrated Casualty Actions */}
@@ -747,10 +786,17 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
             (start ?? []).some(
               (unit) => unit.owner === seat && getUnitBaseType(unit.unit_type) === type,
             ) && (
-              <span className="combat-unit-row__loss" data-testid={`combat-destroyed-${seat}-${type}`} title="Destroyed this step">
-                −{(start ?? []).filter(
-                  (unit) => unit.owner === seat && getUnitBaseType(unit.unit_type) === type,
-                ).length}
+              <span
+                className="combat-unit-row__loss"
+                data-testid={`combat-destroyed-${seat}-${type}`}
+                title="Destroyed this step"
+              >
+                −
+                {
+                  (start ?? []).filter(
+                    (unit) => unit.owner === seat && getUnitBaseType(unit.unit_type) === type,
+                  ).length
+                }
               </span>
             )}
           {hasRollResults && renderRollBadge(seat, type)}
@@ -817,7 +863,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           </Dialog.Title>
           <DecisionHeader
             title={`Space Combat · System ${combatSystemId} · Round ${board?.combat?.round ?? 1} · ${phase === "pre_roll" ? "Before rolls" : phase === "barrage" ? "Anti-fighter barrage" : phase === "resolving_hits" ? "Resolve hits" : phase === "retreating" ? "Retreat / next round" : "Combat complete"}`}
-            onMinimize={() => (phase === "complete" ? onClose() : onMinimize ? onMinimize(true) : onClose())}
+            onMinimize={() =>
+              phase === "complete" ? onClose() : onMinimize ? onMinimize(true) : onClose()
+            }
             minimizeLabel={phase === "complete" ? "Close combat" : "Minimize combat"}
             minimizeIcon={phase === "complete" ? "×" : "−"}
             titleTestId="combat-stage-title"
@@ -837,7 +885,10 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           {(phase === "barrage" || showBarrageRecap) && (
             <div className="combat-barrage-note" data-testid="combat-barrage-results">
               <strong>Anti-fighter barrage</strong>
-              <span>Hits automatically destroy opposing fighters. Waylay lets the defender assign hits to other ships instead.</span>
+              <span>
+                Hits automatically destroy opposing fighters. Waylay lets the defender assign hits
+                to other ships instead.
+              </span>
             </div>
           )}
 
@@ -926,7 +977,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                       {hasRollResults && (
                         <div className="combat-round-hits-card" data-testid="combat-round-hits">
                           <div className="combat-round-hits__header">
-                             {phase === "barrage" || showBarrageRecap
+                            {phase === "barrage" || showBarrageRecap
                               ? "Anti-fighter barrage"
                               : `Round ${board?.combat?.round ?? 1}`}{" "}
                             Hits Produced
@@ -963,7 +1014,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                       {isPreRoll && (
                         <div className="combat-odds-card" data-testid="combat-odds-card">
                           <div className="combat-odds-card__title">
-                             <span>Combat Odds · Fleets only</span>
+                            <span>Combat Odds · Fleets only</span>
                             {displayedOdds && (
                               <span
                                 className={`combat-odds-card__tag ${displayedOdds.tagClass}`}
@@ -979,7 +1030,11 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                                 <span className="combat-odds-col__pct">
                                   {displayedOdds.attWinPct}%
                                 </span>
-                                 {displayedOdds.attSub && <span className="combat-odds-col__exp">{displayedOdds.attSub}</span>}
+                                {displayedOdds.attSub && (
+                                  <span className="combat-odds-col__exp">
+                                    {displayedOdds.attSub}
+                                  </span>
+                                )}
                               </div>
                               <div className="combat-odds-bar">
                                 <div
@@ -1004,7 +1059,11 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                                 <span className="combat-odds-col__pct">
                                   {displayedOdds.defWinPct}%
                                 </span>
-                                 {displayedOdds.defSub && <span className="combat-odds-col__exp">{displayedOdds.defSub}</span>}
+                                {displayedOdds.defSub && (
+                                  <span className="combat-odds-col__exp">
+                                    {displayedOdds.defSub}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           )}
@@ -1102,7 +1161,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                   <div className="combat-action-area">
                     {isActor && isReactionStage && (
                       <div className="workflow-inline">
-                         <div className="combat-action-prompt">{reactionTiming}</div>
+                        <div className="combat-action-prompt">{reactionTiming}</div>
                         {choice.options
                           .filter((opt) => opt.kind !== "decline" && opt.id !== "decline")
                           .map((opt) => {
@@ -1110,13 +1169,21 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                               typeof opt.payload?.card === "string" ? opt.payload.card : null;
                             const card = alias ? getActionCardMeta(alias) : null;
                             return (
-                               <div key={opt.id} className="combat-card-offer">
-                                 <div className="combat-card-offer__body">
-                                   <span className="combat-card-offer__eyebrow">{card ? "ACTION CARD" : "REACTION"}</span>
-                                   <strong className="combat-card-offer__title">{card?.name ?? opt.label}</strong>
-                                   {card && <p className="combat-card-offer__description">{card.description}</p>}
-                                 </div>
-                                 <button
+                              <div key={opt.id} className="combat-card-offer">
+                                <div className="combat-card-offer__body">
+                                  <span className="combat-card-offer__eyebrow">
+                                    {card ? "ACTION CARD" : "REACTION"}
+                                  </span>
+                                  <strong className="combat-card-offer__title">
+                                    {card?.name ?? opt.label}
+                                  </strong>
+                                  {card && (
+                                    <p className="combat-card-offer__description">
+                                      {card.description}
+                                    </p>
+                                  )}
+                                </div>
+                                <button
                                   type="button"
                                   className="button button--primary"
                                   data-testid={
@@ -1127,8 +1194,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                                   disabled={isDirectSubmitting}
                                   onClick={() => void submitDirect(opt.id)}
                                 >
-                                   {card ? `Play ${card.name}` : opt.label}
-                                 </button>
+                                  {card ? `Play ${card.name}` : opt.label}
+                                </button>
                               </div>
                             );
                           })}
@@ -1305,7 +1372,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                   {hasRollResults && (
                     <div className="combat-round-hits-card" data-testid="combat-round-hits">
                       <div className="combat-round-hits__header">
-                         {phase === "barrage" || showBarrageRecap
+                        {phase === "barrage" || showBarrageRecap
                           ? "Anti-fighter barrage"
                           : `Round ${board?.combat?.round ?? 1}`}{" "}
                         Hits Produced
@@ -1337,33 +1404,52 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                       </div>
                     </div>
                   )}
-                   {isPreRoll && (
-                     <div className="combat-odds-card" data-testid="combat-odds-card">
-                       <div className="combat-odds-card__title">
-                          Combat Odds · Fleets only
-                       </div>
-                       {displayedOdds && (
-                         <>
-                           <div className={`combat-odds-card__tag ${displayedOdds.tagClass}`} data-testid="combat-odds-tag">
-                             {displayedOdds.tag}
-                           </div>
-                           <div className="combat-odds-card__bars">
-                             <div className="combat-odds-col">
-                               <span className="combat-odds-col__pct">{displayedOdds.attWinPct}%</span>
-                             </div>
-                             <div className="combat-odds-bar">
-                               <div className="combat-odds-bar__att" style={{ width: `${displayedOdds.attWinPct}%` }} title={`Attacker Win: ${displayedOdds.attWinPct}%`} />
-                               {displayedOdds.mutWinPct > 0 && <div className="combat-odds-bar__mutual" style={{ width: `${displayedOdds.mutWinPct}%` }} title={`Mutual Destruction: ${displayedOdds.mutWinPct}%`} />}
-                               <div className="combat-odds-bar__def" style={{ width: `${displayedOdds.defWinPct}%` }} title={`Defender Win: ${displayedOdds.defWinPct}%`} />
-                             </div>
-                             <div className="combat-odds-col combat-odds-col--right">
-                               <span className="combat-odds-col__pct">{displayedOdds.defWinPct}%</span>
-                             </div>
-                           </div>
-                         </>
-                       )}
-                     </div>
-                   )}
+                  {isPreRoll && (
+                    <div className="combat-odds-card" data-testid="combat-odds-card">
+                      <div className="combat-odds-card__title">Combat Odds · Fleets only</div>
+                      {displayedOdds && (
+                        <>
+                          <div
+                            className={`combat-odds-card__tag ${displayedOdds.tagClass}`}
+                            data-testid="combat-odds-tag"
+                          >
+                            {displayedOdds.tag}
+                          </div>
+                          <div className="combat-odds-card__bars">
+                            <div className="combat-odds-col">
+                              <span className="combat-odds-col__pct">
+                                {displayedOdds.attWinPct}%
+                              </span>
+                            </div>
+                            <div className="combat-odds-bar">
+                              <div
+                                className="combat-odds-bar__att"
+                                style={{ width: `${displayedOdds.attWinPct}%` }}
+                                title={`Attacker Win: ${displayedOdds.attWinPct}%`}
+                              />
+                              {displayedOdds.mutWinPct > 0 && (
+                                <div
+                                  className="combat-odds-bar__mutual"
+                                  style={{ width: `${displayedOdds.mutWinPct}%` }}
+                                  title={`Mutual Destruction: ${displayedOdds.mutWinPct}%`}
+                                />
+                              )}
+                              <div
+                                className="combat-odds-bar__def"
+                                style={{ width: `${displayedOdds.defWinPct}%` }}
+                                title={`Defender Win: ${displayedOdds.defWinPct}%`}
+                              />
+                            </div>
+                            <div className="combat-odds-col combat-odds-col--right">
+                              <span className="combat-odds-col__pct">
+                                {displayedOdds.defWinPct}%
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="combat-fleet-card" data-testid="defender-fleet-card">
@@ -1383,7 +1469,12 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                 </div>
               </div>
 
-              <div className="combat-spectator-waiting" data-testid={phase === "complete" ? "combat-complete-notice" : "spectator-combat-notice"}>
+              <div
+                className="combat-spectator-waiting"
+                data-testid={
+                  phase === "complete" ? "combat-complete-notice" : "spectator-combat-notice"
+                }
+              >
                 {phase === "complete"
                   ? "Combat complete"
                   : `Observing space combat in System ${combatSystemId}...`}

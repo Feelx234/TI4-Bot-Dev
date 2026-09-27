@@ -269,7 +269,14 @@ export interface InvasionStepView {
   round: number;
   before: PlacedUnitView[];
   after: PlacedUnitView[];
-  dice: { planet: string; player: string; group: string; face: number; target: number; hit: boolean }[];
+  dice: {
+    planet: string;
+    player: string;
+    group: string;
+    face: number;
+    target: number;
+    hit: boolean;
+  }[];
   hits: Record<string, number>;
   harrow_hits: number;
 }

@@ -78,8 +78,16 @@ pub fn decision_hash(version: CanonicalHashVersion, decision: &DecisionRecord) -
 /// `actor` participates too even though `DecisionRecord::player` already carries it, because the
 /// fingerprint should be checkable from the context alone rather than by knowing they agree.
 pub const V2_CONTEXT_FIELDS: [&str; 10] = [
-    "version", "actor", "source", "subtype", "phase", "round", "optional", "target",
-    "space_battle", "invasion_seq",
+    "version",
+    "actor",
+    "source",
+    "subtype",
+    "phase",
+    "round",
+    "optional",
+    "target",
+    "space_battle",
+    "invasion_seq",
 ];
 
 /// The one context field carrying values rather than identity, bound alongside the fields above.

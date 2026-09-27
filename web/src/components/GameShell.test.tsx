@@ -154,7 +154,9 @@ describe("GameShell", () => {
     expect(screen.queryByTestId("combat-resolution-modal")).not.toBeInTheDocument();
     expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
 
-    rerender(<GameShell {...props} choice={{ ...choice, nonce: "next-choice" }} boardView={nextBoard} />);
+    rerender(
+      <GameShell {...props} choice={{ ...choice, nonce: "next-choice" }} boardView={nextBoard} />,
+    );
     expect(screen.queryByTestId("combat-resolution-modal")).not.toBeInTheDocument();
     expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
   });
@@ -165,8 +167,12 @@ describe("GameShell", () => {
       combat: { system_id: "18", round: 1, attacker: "p1", defender: "p2" },
     };
     const props = {
-      header: <div>Header</div>, board: <div>Board</div>, playerSheet: <div>Player sheet</div>,
-      events: [], choice: null, onSubmitChoice: vi.fn().mockResolvedValue(undefined),
+      header: <div>Header</div>,
+      board: <div>Board</div>,
+      playerSheet: <div>Player sheet</div>,
+      events: [],
+      choice: null,
+      onSubmitChoice: vi.fn().mockResolvedValue(undefined),
     };
     const { rerender, unmount } = render(<GameShell {...props} boardView={board} />);
     rerender(<GameShell {...props} boardView={{ ...board, combat: undefined }} />);

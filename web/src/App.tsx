@@ -207,7 +207,11 @@ const GameViewContainer: React.FC<{
     submitBatch,
   } = useGameSession({ gameId, viewer });
   const logHistoryKey = useRef<unknown>(null);
-  if (snapshot?.type === "initial_snapshot" && snapshot.events && logHistoryKey.current !== snapshot.events)
+  if (
+    snapshot?.type === "initial_snapshot" &&
+    snapshot.events &&
+    logHistoryKey.current !== snapshot.events
+  )
     logHistoryKey.current = snapshot.events;
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);

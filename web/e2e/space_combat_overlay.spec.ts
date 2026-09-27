@@ -19,9 +19,13 @@ async function snapshot(
 
 async function expectShipHitPills(page: Page, state: InitialSnapshotMsg) {
   const combat = state.view.board.combat!;
-  const rollsForStep = combat.phase === "barrage" ||
-    (combat.phase === "pre_roll" && combat.round === 1 && Object.keys(combat.barrage_hits ?? {}).length > 0)
-    ? combat.barrage_dice ?? [] : combat.dice_rolls ?? [];
+  const rollsForStep =
+    combat.phase === "barrage" ||
+    (combat.phase === "pre_roll" &&
+      combat.round === 1 &&
+      Object.keys(combat.barrage_hits ?? {}).length > 0)
+      ? (combat.barrage_dice ?? [])
+      : (combat.dice_rolls ?? []);
   const units = state.view.board.systems[combat.system_id].units;
   for (const [side, seat] of [
     ["attacker", combat.attacker],
@@ -149,7 +153,8 @@ test.describe("Space Combat Overlay", () => {
       );
     }
 
-    const firstRoll = initial.view.board.combat?.barrage_dice?.[0] ?? initial.view.board.combat?.dice_rolls?.[0];
+    const firstRoll =
+      initial.view.board.combat?.barrage_dice?.[0] ?? initial.view.board.combat?.dice_rolls?.[0];
     if (firstRoll) {
       const seat = firstRoll.player ?? playerId;
       const card = seat === playerId ? attackerCard : defenderCard;
@@ -308,8 +313,9 @@ test.describe("Space Combat Overlay", () => {
         beforePass.view.board.combat?.hits_to_assign,
       );
       await expect(page.getByTestId("pass-combat-reaction-btn")).toHaveCount(0);
-      await expect(page.getByTestId("combat-hits-callout").locator(".combat-hits-callout__count"))
-        .toHaveText(String(sustainChoice.view.board.combat?.hits_to_assign));
+      await expect(
+        page.getByTestId("combat-hits-callout").locator(".combat-hits-callout__count"),
+      ).toHaveText(String(sustainChoice.view.board.combat?.hits_to_assign));
       await expectShipHitPills(page, sustainChoice);
       const sustain = sustainChoice.pending_choice!.choice.options.find(
         (option) => option.id !== "decline" && option.kind !== "decline",
@@ -371,8 +377,9 @@ test.describe("Space Combat Overlay", () => {
     expect(after.view.board.combat).toBeDefined();
     expect(after.view.board.combat?.hits_to_assign).toBe(1);
     expect(after.pending_choice?.choice.context?.subtype).toBe("sustain_damage");
-    await expect(page.getByTestId("combat-hits-callout").locator(".combat-hits-callout__count"))
-      .toHaveText("1");
+    await expect(
+      page.getByTestId("combat-hits-callout").locator(".combat-hits-callout__count"),
+    ).toHaveText("1");
     // The card has resolved this before-assignment window. The next action is to
     // absorb the one remaining hit, not to pass through the same window again.
     await expect(page.getByTestId("pass-combat-reaction-btn")).toHaveCount(0);

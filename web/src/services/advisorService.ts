@@ -87,9 +87,15 @@ export interface GroundOddsRequest {
   simulations?: number;
 }
 
-export async function fetchGroundOdds(request: GroundOddsRequest, signal?: AbortSignal): Promise<{ attacker_win_rate: number; simulations: number }> {
+export async function fetchGroundOdds(
+  request: GroundOddsRequest,
+  signal?: AbortSignal,
+): Promise<{ attacker_win_rate: number; simulations: number }> {
   const response = await fetch("/advisor/ground_odds", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request), signal,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+    signal,
   });
   if (!response.ok) throw new Error(`Ground odds unavailable: ${response.status}`);
   return response.json();

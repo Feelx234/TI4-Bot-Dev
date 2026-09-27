@@ -232,6 +232,10 @@ pub fn action_id_for(
 #[must_use]
 pub fn stage_for(subtype: &str) -> Option<&'static str> {
     Some(match subtype {
+        "draft_strategy_card" => "draft",
+        "score_objective" | "score_secret_objective" => "scoring",
+        "cast_vote" | "vote_exhaust_planet" | "vote_tiebreak" => "voting",
+        "propose_transaction" | "answer_transaction" => "transactions",
         "activate_system" => "activation",
         "movement_step" | "load_cargo" => "movement",
         "assign_casualty" | "sustain_damage" | "announce_retreat" | "retreat_to" => "combat",
@@ -256,14 +260,172 @@ pub fn stage_for(subtype: &str) -> Option<&'static str> {
         | "imperial_score_objective"
         | "warfare_free_tactical"
         | "construction_choose_ability" => "strategy",
+        "discard_over_hand_limit"
+        | "expedition_discard_action_card"
+        | "return_over_secret_hand_limit"
+        | "expedition_discard_secret"
+        | "legendary_galactic_council" => "hand management",
         s if s.starts_with("reaction_when_")
             || s.starts_with("reaction_after_")
             || s.starts_with("play_reaction_") =>
         {
             "reactions"
         }
-        _ => return None,
+        s if s.starts_with("leader_") => "leaders",
+        s if s.starts_with("legendary_") => "legendary abilities",
+        s if s.starts_with("relic_") => "relics",
+        s if s.starts_with("agenda_") => "agenda effects",
+        s if s.starts_with("explor") => "exploration",
+        s if s.starts_with("status_") => "status",
+        s if s.starts_with("technology_") || s.starts_with("research_") => "technology",
+        s if s.starts_with("trade_") => "trade",
+        s if s.starts_with("warfare_") => "warfare",
+        s if s.starts_with("politics_") => "politics",
+        s if s.starts_with("diplomacy_") => "diplomacy",
+        s if s.starts_with("construction_") => "construction",
+        _ => "effects",
     })
+}
+
+fn strategy_card_name(id: &str) -> Option<String> {
+    ti4_engine::strategy_cards::card_name(ti4_content::ContentStore::embedded(), id)
+}
+
+/// Name only verified public choices. Option labels can contain hidden cards or agendas.
+fn public_choice_detail(
+    context: &ti4_engine::decision_context::DecisionContext,
+    option: &ChoiceOption,
+    actor: &PlayerId,
+) -> Option<String> {
+    let id = option.id.as_str();
+    let detail = match context.subtype.as_str() {
+        "draft_strategy_card" if option.kind == "strategy_card" => {
+            format!("{actor} picked {}", strategy_card_name(id)?)
+        }
+        "activate_system" if option.kind == "activate" => format!("{actor} activated #{id}"),
+        "gain_command_token" if option.kind == "pool" => {
+            let pool = match id {
+                "tactic_tokens" => "tactic",
+                "fleet_tokens" => "fleet",
+                "strategic_tokens" => "strategy",
+                _ => return None,
+            };
+            format!("{actor} gained a {pool} command token")
+        }
+        "buy_token_with_influence" => match id {
+            "yes" => format!("{actor} bought a command token with influence"),
+            "no" => format!("{actor} stopped buying command tokens"),
+            _ => return None,
+        },
+        "research_technology" if option.kind == "research" => {
+            format!(
+                "{actor} researched {}",
+                ti4_engine::technology::name(
+                    ti4_content::ContentStore::embedded(),
+                    &ti4_model::id::TechnologyId::new(id)
+                )
+            )
+        }
+        "research_technology" if option.is_decline() => {
+            format!("{actor} declined to research a technology")
+        }
+        "ready_planet" if option.kind == "ready" => format!("{actor} readied {id}"),
+        "diplomacy_choose_system" if option.kind == "system" => {
+            format!("{actor} chose #{id} for Diplomacy")
+        }
+        "politics_choose_speaker" if option.kind == "speaker" => {
+            format!("{actor} chose {id} as speaker")
+        }
+        "trade_choose_replenish" if option.kind == "replenish" => {
+            format!("{actor} replenished {id}'s commodities")
+        }
+        "trade_choose_replenish" if option.is_decline() => {
+            format!("{actor} finished replenishing commodities")
+        }
+        "warfare_recall_token" if option.kind == "recall" => {
+            format!("{actor} recalled a command token from #{id}")
+        }
+        "warfare_free_tactical" if option.kind == "activate" => {
+            format!("{actor} chose a free tactical action in #{id}")
+        }
+        "place_structure" if option.kind == "build" => {
+            let mut parts = id.split('|');
+            let (Some(unit), Some(_system), Some(planet), None) =
+                (parts.next(), parts.next(), parts.next(), parts.next())
+            else {
+                return None;
+            };
+            format!("{actor} placed {unit} on {planet}")
+        }
+        "place_structure" if option.is_decline() => {
+            format!("{actor} declined to place a structure")
+        }
+        "cast_vote" if option.kind == "vote" => {
+            if matches!(id, "for" | "against") {
+                format!("{actor} voted {id}")
+            } else {
+                format!("{actor} voted for {id}")
+            }
+        }
+        "cast_vote" if option.is_decline() => format!("{actor} abstained from voting"),
+        "vote_tiebreak" if option.kind == "tiebreak" => {
+            format!("{actor} broke the tie in favor of {id}")
+        }
+        "propose_transaction" if option.is_decline() => format!("{actor} ended negotiations"),
+        "answer_transaction" => match id {
+            "accept" => format!("{actor} accepted the transaction"),
+            "refuse" => format!("{actor} refused the transaction"),
+            "counter" => format!("{actor} made a counteroffer"),
+            _ => return None,
+        },
+        "imperial_score_objective" if option.kind == "objective" => {
+            format!("{actor} scored public objective {id} with Imperial")
+        }
+        "imperial_score_objective" if option.is_decline() => {
+            format!("{actor} declined to score with Imperial")
+        }
+        "politics_place_agenda" if matches!(id, "top" | "bottom") => {
+            format!("{actor} arranged a looked-at agenda")
+        }
+        "discard_over_hand_limit" | "expedition_discard_action_card" => {
+            format!("{actor} discarded an action card")
+        }
+        "return_over_secret_hand_limit"
+        | "expedition_discard_secret"
+        | "legendary_galactic_council" => {
+            format!("{actor} returned an unscored secret objective")
+        }
+        "score_objective"
+        | "score_secret_objective"
+        | "movement_step"
+        | "load_cargo"
+        | "produce_unit"
+        | "pay_resources"
+        | "pay_influence"
+        | "vote_exhaust_planet"
+        | "assign_casualty"
+        | "assign_ground_casualty"
+        | "sustain_damage"
+        | "announce_retreat"
+        | "retreat_to"
+        | "fight_ground_combat_round"
+        | "start_next_ground_combat"
+        | "commit_ground_forces"
+        | "bombardment_target"
+        | "remove_custodians"
+        | "play_card" => return None,
+        s if s.starts_with("reaction_when_")
+            || s.starts_with("reaction_after_")
+            || s.starts_with("play_reaction_") =>
+        {
+            return None;
+        }
+        subtype => {
+            // The subtype identifies the public question; its selected option may be private.
+            format!("{actor} resolved {}", subtype.replace('_', " "))
+        }
+    };
+    Some(detail)
 }
 
 #[must_use]
@@ -311,9 +473,13 @@ pub fn decision_grouping(
         context.map(|c| c.phase),
         selected_type,
         selection.map(|r| r.player.clone()),
-        context
-            .and_then(|c| stage_for(&c.subtype))
-            .map(str::to_owned),
+        if record.prompt == "action phase" {
+            Some("action selection".to_owned())
+        } else {
+            context
+                .and_then(|c| stage_for(&c.subtype))
+                .map(str::to_owned)
+        },
     )
 }
 
@@ -389,7 +555,8 @@ pub fn public_decision_facts(
                 }
                 _ => None,
             }
-        });
+        })
+        .or_else(|| public_choice_detail(context, option, actor));
     let movement = if context.subtype == "movement_step" && option.kind == "move" {
         option
             .payload
@@ -595,7 +762,37 @@ pub fn verified_decision_facts(
     Option<MovementFact>,
     Option<SeatDecisionDetail>,
 ) {
-    let (mut detail, movement, private) = decision_facts(record, offered, destination);
+    let (mut detail, movement, mut private) = decision_facts(record, offered, destination);
+    if let Some(option) = offered.filter(|option| option.id == record.chosen)
+        && let Some(context) = record.context.as_ref()
+        && matches!(
+            context.subtype.as_str(),
+            "score_objective" | "score_secret_objective"
+        )
+        && option.kind == "score"
+        && state
+            .scored_objectives
+            .get(&record.player)
+            .is_some_and(|scored| scored.contains(&ti4_model::id::ObjectiveId::new(&option.id)))
+    {
+        // A scored secret is revealed; an offered but unscored secret is not.
+        detail = Some(format!("{} scored objective {}", record.player, option.id));
+        private = None;
+    }
+    if detail.is_none()
+        && record.prompt == "action phase"
+        && let Some(option) = offered.filter(|option| option.id == record.chosen)
+    {
+        detail = match option.id.as_str() {
+            "tactical" => Some(format!("{} began a tactical action", record.player)),
+            "pass" => Some(format!("{} passed their turn", record.player)),
+            id if id.starts_with("strategic|") => id
+                .strip_prefix("strategic|")
+                .and_then(strategy_card_name)
+                .map(|name| format!("{} played {name}", record.player)),
+            _ => Some(format!("{} began a component action", record.player)),
+        };
+    }
     if let Some(option) = offered
         && let Some(context) = record.context.as_ref()
         && played_card_detail(context, option, &record.player).is_some()
@@ -648,6 +845,154 @@ mod fact_tests {
                 1,
             )),
         }
+    }
+
+    #[test]
+    fn common_public_decisions_name_the_selected_outcome() {
+        let cases = [
+            (
+                "draft_strategy_card",
+                "strategy_card",
+                "pok1leadership",
+                "p1 picked Leadership",
+            ),
+            ("activate_system", "activate", "22", "p1 activated #22"),
+            (
+                "gain_command_token",
+                "pool",
+                "fleet_tokens",
+                "p1 gained a fleet command token",
+            ),
+            (
+                "buy_token_with_influence",
+                "strategy",
+                "yes",
+                "p1 bought a command token with influence",
+            ),
+            ("ready_planet", "ready", "jord", "p1 readied jord"),
+            (
+                "diplomacy_choose_system",
+                "system",
+                "22",
+                "p1 chose #22 for Diplomacy",
+            ),
+            ("cast_vote", "vote", "for", "p1 voted for"),
+            (
+                "cast_vote",
+                "decline",
+                "decline",
+                "p1 abstained from voting",
+            ),
+            (
+                "vote_tiebreak",
+                "tiebreak",
+                "against",
+                "p1 broke the tie in favor of against",
+            ),
+            (
+                "warfare_recall_token",
+                "recall",
+                "22",
+                "p1 recalled a command token from #22",
+            ),
+            (
+                "place_structure",
+                "build",
+                "pds|22|jord",
+                "p1 placed pds on jord",
+            ),
+        ];
+        for (subtype, kind, id, expected) in cases {
+            let option = ChoiceOption::new(id, kind);
+            let record = record(subtype, &option);
+            assert_eq!(
+                public_decision_facts(&record, Some(&option), None)
+                    .0
+                    .as_deref(),
+                Some(expected),
+                "{subtype}"
+            );
+            assert_eq!(
+                public_decision_facts(&record, None, None).0,
+                None,
+                "{subtype}"
+            );
+        }
+    }
+
+    #[test]
+    fn scoring_is_public_only_after_an_award_and_private_hands_stay_hidden() {
+        let score = ChoiceOption::new("hidden_objective", "score");
+        let selected = record("score_objective", &score);
+        let mut state = GameState::new(&[PlayerId::new("p1")], &[], BTreeMap::new(), None, 42);
+        let before = verified_decision_facts(&selected, Some(&score), None, &state);
+        assert_eq!(before.0, None);
+        assert_eq!(
+            before.2.unwrap().detail,
+            "Selected objective hidden_objective"
+        );
+        state.record_score(
+            &PlayerId::new("p1"),
+            ti4_model::id::ObjectiveId::new("hidden_objective"),
+        );
+        let after = verified_decision_facts(&selected, Some(&score), None, &state);
+        assert_eq!(
+            after.0.as_deref(),
+            Some("p1 scored objective hidden_objective")
+        );
+        assert_eq!(after.2, None);
+        let declined = ChoiceOption::decline();
+        for subtype in ["score_objective", "score_secret_objective"] {
+            assert_eq!(
+                verified_decision_facts(&record(subtype, &declined), Some(&declined), None, &state)
+                    .0,
+                None
+            );
+        }
+        for (subtype, id) in [
+            ("politics_place_agenda", "top"),
+            ("expedition_discard_action_card", "0"),
+            ("return_over_secret_hand_limit", "hidden_objective"),
+        ] {
+            let option = ChoiceOption::new(id, "private").with("card", "hidden_card");
+            let description = public_decision_facts(&record(subtype, &option), Some(&option), None)
+                .0
+                .unwrap();
+            assert!(!description.contains("hidden_objective"));
+            assert!(!description.contains("hidden_card"));
+            if subtype == "politics_place_agenda" {
+                assert!(!description.contains("top"));
+            }
+        }
+    }
+
+    #[test]
+    fn action_selections_and_uncategorized_effects_have_a_useful_path() {
+        let state = GameState::new(&[PlayerId::new("p1")], &[], BTreeMap::new(), None, 42);
+        let action = ChoiceOption::new("strategic|pok2diplomacy", "action");
+        let selection = DecisionRecord {
+            prompt: "action phase".into(),
+            context: None,
+            ..record("select_action", &action)
+        };
+        assert_eq!(
+            verified_decision_facts(&selection, Some(&action), None, &state)
+                .0
+                .as_deref(),
+            Some("p1 played Diplomacy")
+        );
+        assert_eq!(
+            decision_grouping(&selection, Some(&action), &[selection.clone()], 1)
+                .5
+                .as_deref(),
+            Some("action selection")
+        );
+        let effect = ChoiceOption::new("unknown", "effect").with("card", "hidden_card");
+        let detail = public_decision_facts(&record("activate_relic", &effect), Some(&effect), None)
+            .0
+            .unwrap();
+        assert_eq!(detail, "p1 resolved activate relic");
+        assert_eq!(stage_for("activate_relic"), Some("effects"));
     }
 
     #[test]

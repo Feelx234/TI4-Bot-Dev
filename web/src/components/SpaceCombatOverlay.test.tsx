@@ -411,7 +411,9 @@ describe("SpaceCombatOverlay", () => {
       );
     });
 
-    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent("Rough fleet estimate · advisor unavailable");
+    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent(
+      "Rough fleet estimate · advisor unavailable",
+    );
     expect(screen.getByTestId("combat-odds-card")).toBeInTheDocument();
     expect(screen.getAllByText(/\d+%/)).toHaveLength(2);
   });
@@ -440,7 +442,9 @@ describe("SpaceCombatOverlay", () => {
     const { rerender } = render(
       <SpaceCombatOverlay {...props} board={{ ...sampleBoard, combat }} />,
     );
-    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent("Rough fleet estimate · simulation pending");
+    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent(
+      "Rough fleet estimate · simulation pending",
+    );
     expect(screen.getByTestId("combat-odds-card")).toHaveTextContent(/\d+%/);
     expect(screen.getAllByText(/\d+%/)).toHaveLength(2);
     rerender(
@@ -453,7 +457,9 @@ describe("SpaceCombatOverlay", () => {
     rerender(
       <SpaceCombatOverlay {...props} board={{ ...sampleBoard, combat: { ...combat, round: 2 } }} />,
     );
-    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent("Rough fleet estimate · simulation pending");
+    expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent(
+      "Rough fleet estimate · simulation pending",
+    );
     expect(screen.getByTestId("combat-odds-card")).toHaveTextContent(/\d+%/);
     await act(async () =>
       replies[0]({ ok: true, json: async () => ({ attacker_win_rate: 0.9 }) } as Response),
@@ -531,12 +537,20 @@ describe("SpaceCombatOverlay", () => {
       { unit_type: "dreadnought", owner: "seat_2", damaged: false },
     ];
     const combat = {
-      system_id: "18", round: 1, battle_seq: 9, phase: "resolving_hits" as const,
-      attacker: "seat_1", defender: "seat_2", round_start: dreadnoughts,
+      system_id: "18",
+      round: 1,
+      battle_seq: 9,
+      phase: "resolving_hits" as const,
+      attacker: "seat_1",
+      defender: "seat_2",
+      round_start: dreadnoughts,
     };
     const props = {
-      isOpen: true, choice: null, players: samplePlayers,
-      onSubmit: vi.fn(), onClose: vi.fn(),
+      isOpen: true,
+      choice: null,
+      players: samplePlayers,
+      onSubmit: vi.fn(),
+      onClose: vi.fn(),
     };
     const boardWith = (damaged: number): BoardView => ({
       ...sampleBoard,
@@ -549,7 +563,9 @@ describe("SpaceCombatOverlay", () => {
       },
     });
     const { rerender } = render(<SpaceCombatOverlay {...props} board={boardWith(0)} />);
-    const row = screen.getByTestId("defender-fleet-card").querySelector('[data-testid="unit-row-dreadnought"]')!;
+    const row = screen
+      .getByTestId("defender-fleet-card")
+      .querySelector('[data-testid="unit-row-dreadnought"]')!;
     expect(row).toHaveTextContent("×2");
     expect(row.querySelector(".combat-unit-row__damaged-badge")).not.toBeInTheDocument();
 
@@ -571,15 +587,32 @@ describe("SpaceCombatOverlay", () => {
         "18": { ...sampleBoard.systems["18"], units: start.filter((_, index) => index !== 2) },
       },
       combat: {
-        system_id: "18", round: 1, battle_seq: 4, phase: "pre_roll",
-        attacker: "seat_1", defender: "seat_2",
-        barrage_start: start, barrage_hits: { seat_1: 0, seat_2: 1 },
+        system_id: "18",
+        round: 1,
+        battle_seq: 4,
+        phase: "pre_roll",
+        attacker: "seat_1",
+        defender: "seat_2",
+        barrage_start: start,
+        barrage_hits: { seat_1: 0, seat_2: 1 },
         barrage_dice: [{ player: "seat_2", unit: "destroyer", roll: 10, target: 9, hit: true }],
       },
     };
-    render(<SpaceCombatOverlay isOpen choice={null} board={board} onSubmit={vi.fn()} onClose={vi.fn()} />);
-    expect(screen.getByTestId("combat-barrage-results")).toHaveTextContent("automatically destroy opposing fighters");
-    expect(screen.getByTestId("combat-round-hits")).toHaveTextContent("Anti-fighter barrage Hits Produced");
+    render(
+      <SpaceCombatOverlay
+        isOpen
+        choice={null}
+        board={board}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("combat-barrage-results")).toHaveTextContent(
+      "automatically destroy opposing fighters",
+    );
+    expect(screen.getByTestId("combat-round-hits")).toHaveTextContent(
+      "Anti-fighter barrage Hits Produced",
+    );
     expect(screen.getByTestId("attacker-round-hits")).toHaveTextContent("0");
     expect(screen.getByTestId("defender-round-hits")).toHaveTextContent("1");
     expect(screen.getByTestId("unit-row-fighter")).toHaveTextContent("×1−1");
@@ -589,9 +622,25 @@ describe("SpaceCombatOverlay", () => {
   it("closes rather than minimizes when combat is complete", () => {
     const onClose = vi.fn();
     const onMinimize = vi.fn();
-    render(<SpaceCombatOverlay isOpen choice={null} board={{ ...sampleBoard, combat: {
-      system_id: "18", round: 1, phase: "complete", attacker: "seat_1", defender: "seat_2",
-    } }} onSubmit={vi.fn()} onClose={onClose} onMinimize={onMinimize} />);
+    render(
+      <SpaceCombatOverlay
+        isOpen
+        choice={null}
+        board={{
+          ...sampleBoard,
+          combat: {
+            system_id: "18",
+            round: 1,
+            phase: "complete",
+            attacker: "seat_1",
+            defender: "seat_2",
+          },
+        }}
+        onSubmit={vi.fn()}
+        onClose={onClose}
+        onMinimize={onMinimize}
+      />,
+    );
     const close = screen.getByRole("button", { name: "Close combat" });
     expect(close).toHaveTextContent("×");
     fireEvent.click(close);
@@ -601,14 +650,25 @@ describe("SpaceCombatOverlay", () => {
 
   it("presents a reaction card with a title, description and explicit play action", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    render(<SpaceCombatOverlay isOpen viewerSeat="seat_1" choice={{
-      actor: "seat_1", nonce: "reaction", prompt: "React to combat",
-      context: { subtype: "reaction_SPACE_COMBAT_STARTED", target: { System: "18" } },
-      options: [
-        { id: "play", label: "Card", kind: "reaction", payload: { card: "direct_hit" } },
-        { id: "decline", label: "Pass", kind: "decline" },
-      ],
-    }} board={sampleBoard} onSubmit={onSubmit} onClose={vi.fn()} />);
+    render(
+      <SpaceCombatOverlay
+        isOpen
+        viewerSeat="seat_1"
+        choice={{
+          actor: "seat_1",
+          nonce: "reaction",
+          prompt: "React to combat",
+          context: { subtype: "reaction_SPACE_COMBAT_STARTED", target: { System: "18" } },
+          options: [
+            { id: "play", label: "Card", kind: "reaction", payload: { card: "direct_hit" } },
+            { id: "decline", label: "Pass", kind: "decline" },
+          ],
+        }}
+        board={sampleBoard}
+        onSubmit={onSubmit}
+        onClose={vi.fn()}
+      />,
+    );
     const offer = screen.getByText("ACTION CARD").closest(".combat-card-offer");
     expect(offer).toHaveTextContent("Direct Hit");
     expect(offer?.querySelector(".combat-card-offer__description")).not.toBeEmptyDOMElement();
