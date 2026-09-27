@@ -131,14 +131,77 @@ html,
   border-bottom: 1px solid var(--color-border);
 }
 
+.event-log__toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 6px 16px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+.event-log__list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px 12px;
+  background: var(--color-surface);
+}
+.event-log__heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 27px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.event-log__heading:hover, .event-log__heading:focus-visible {
+  background: var(--color-surface-raised);
+}
+.event-log__group--round > .event-log__heading { font-weight: 700; }
+.event-log__group--stage > .event-log__heading { color: var(--color-text-muted); }
+.event-log__chevron { width: 12px; color: var(--color-text-faint); }
+.event-log__count, .event-log__owner, .event-log__meta { color: var(--color-text-faint); font-size: 11px; }
+.event-log__count { margin-left: 4px; }
+.event-log__actor {
+  position: relative;
+  flex-shrink: 0;
+  width: 17px;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1;
+  text-shadow: 0 0 1px #fff, 0 0 2px #fff;
+}
+.event-log__actor:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.event-log__actor:is(:hover, :focus-visible)::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 2;
+  bottom: 125%;
+  left: 0;
+  width: max-content;
+  max-width: 180px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 11px;
+  text-shadow: none;
+}
+.event-log__private { color: #f59e0b; font-size: 11px; }
+
 .event-log__entry {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding: 6px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
+  gap: 8px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  background: transparent;
   font-size: 12px;
   line-height: 1.5;
 }

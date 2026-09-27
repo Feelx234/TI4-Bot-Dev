@@ -41,7 +41,6 @@ export type BasketPlan =
       steps: ({ kind: "produce"; unit: string; count: number } | { kind: "done_producing" })[];
     };
 
-const MAX_EVENT_LOG_ENTRIES = 500;
 const HISTORY_RETRY_ATTEMPTS = 20;
 
 export interface GameSessionState {
@@ -74,30 +73,19 @@ const initialState: GameSessionState = {
   history: { cursor: 0, redo_count: 0 },
 };
 
-/** Keeps the rendered audit log server-authored while bounding client memory use. */
+/** Keep the complete authoritative history, including early rounds and batches. */
 export function serverEventLog(entries: readonly GameLogEntry[] | undefined): GameLogEntry[] {
-  if (!entries || entries.length <= MAX_EVENT_LOG_ENTRIES) return [...(entries ?? [])];
-  let start = entries.length - MAX_EVENT_LOG_ENTRIES;
-  // Discard the leading fragment of a batch instead of displaying a partial
-  // basket as if it were the full confirmation. A single batch has at most 100 steps.
-  const firstDecision = entries
-    .slice(start)
-    .find((entry) => entry.event.kind === "decision_resolved");
-  if (
-    firstDecision?.batch_id &&
-    (firstDecision.batch_start_cursor === undefined ||
-      firstDecision.decision_count !== firstDecision.batch_start_cursor + 1)
-  ) {
-    const id = firstDecision.batch_id;
-    while (
-      start < entries.length &&
-      (entries[start].batch_id === id ||
-        entries[start].decision_count === firstDecision.decision_count ||
-        entries[start].event.kind !== "decision_resolved")
-    )
-      start++;
+  return [...(entries ?? [])];
+}
+
+const eventIds = new WeakMap<GameLogEntry[], Set<string>>();
+function idsFor(entries: GameLogEntry[]): Set<string> {
+  let ids = eventIds.get(entries);
+  if (!ids) {
+    ids = new Set(entries.map((entry) => entry.id));
+    eventIds.set(entries, ids);
   }
-  return entries.slice(start);
+  return ids;
 }
 
 function rejectionMessage(message: Extract<ServerMessage, { type: "action_rejected" }>): string {
@@ -148,10 +136,12 @@ export function reduceServerMessage(
         history: message.history ?? state.history,
       };
     case "event":
-      if (state.events.some((entry) => entry.id === message.entry.id)) return state;
+      if (idsFor(state.events).has(message.entry.id)) return state;
+      const nextEvents = [...state.events, message.entry];
+      eventIds.set(nextEvents, idsFor(state.events).add(message.entry.id));
       return {
         ...state,
-        events: serverEventLog([...state.events, message.entry]),
+        events: nextEvents,
         history:
           message.entry.decision_count === undefined
             ? state.history

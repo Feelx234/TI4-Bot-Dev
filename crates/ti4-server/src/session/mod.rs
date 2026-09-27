@@ -368,7 +368,7 @@ impl GameSession {
             .as_ref()
             .map(|p| (&p.choice, p.nonce.as_str()));
 
-        crate::projection::project_initial_snapshot_with_map(
+        let mut snapshot = crate::projection::project_initial_snapshot_with_map(
             &self.game_id,
             lock.game_version,
             &lock.latest_state,
@@ -382,7 +382,13 @@ impl GameSession {
             lock.decision_log.len(),
             lock.redo_decisions.len(),
             lock.history_generation,
-        )
+        );
+        snapshot.current_path = crate::protocol::server::current_log_path(
+            &lock.latest_state,
+            pending.map(|(choice, _)| choice),
+            &lock.decision_log,
+        );
+        snapshot
     }
 
     /// Resolves an unguessable seat capability to its authorized viewer role.

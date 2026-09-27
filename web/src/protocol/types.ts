@@ -307,6 +307,12 @@ export type GameEvent = EventVisibility & {
   batch_end_cursor?: number;
   action_id?: string;
   action_start_cursor?: number;
+  actor?: string;
+  round?: number;
+  phase?: string;
+  action_type?: string;
+  action_actor?: string;
+  stage?: string;
   detail?: string;
   private_detail?: string;
   movement?: { actor: string; origin: string; destination: string; unit: string };
@@ -317,6 +323,13 @@ export interface HistoryStatus {
   cursor: number;
   redo_count: number;
   generation?: number;
+}
+
+export interface CurrentLogPath {
+  round: number;
+  phase: string;
+  action_id?: string;
+  stage?: string;
 }
 
 export interface GameEventMsg {
@@ -339,6 +352,7 @@ export interface InitialSnapshotMsg {
   turn_status: PublicTurnStatus;
   events?: GameEvent[];
   history?: HistoryStatus;
+  current_path?: CurrentLogPath;
 }
 
 export interface StateUpdateMsg {
@@ -353,6 +367,7 @@ export interface StateUpdateMsg {
   pending_choice?: PendingChoiceEnvelope | null;
   turn_status: PublicTurnStatus;
   history?: HistoryStatus;
+  current_path?: CurrentLogPath;
 }
 
 export interface PendingChoiceMsg {

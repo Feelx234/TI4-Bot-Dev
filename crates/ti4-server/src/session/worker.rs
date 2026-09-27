@@ -210,14 +210,38 @@ impl SessionShared {
         let id = format!("{}-{}", self.game_id, self.event_counter);
         let timestamp = current_utc_time_string();
         let action_id = (matches!(event, GameEventKind::DecisionResolved)
-            && self.latest_state.phase == ti4_model::state::Phase::Action)
-            .then(|| crate::protocol::server::action_id_for(&self.decision_log, decision_count))
-            .flatten();
+            && self
+                .decision_log
+                .get(decision_count.saturating_sub(1))
+                .is_some_and(|record| {
+                    record.prompt == "action phase"
+                        || record
+                            .context
+                            .as_ref()
+                            .is_some_and(|context| context.phase == ti4_model::state::Phase::Action)
+                }))
+        .then(|| crate::protocol::server::action_id_for(&self.decision_log, decision_count))
+        .flatten();
         let action_start_cursor = action_id
             .as_ref()
             .and_then(|id| id.strip_prefix("action_"))
             .and_then(|n| n.parse::<usize>().ok())
             .and_then(|n| n.checked_sub(1));
+        let grouping = matches!(event, GameEventKind::DecisionResolved)
+            .then(|| {
+                decision_count
+                    .checked_sub(1)
+                    .and_then(|i| self.decision_log.get(i))
+            })
+            .flatten()
+            .map(|record| {
+                crate::protocol::server::decision_grouping(
+                    record,
+                    None,
+                    &self.decision_log,
+                    decision_count,
+                )
+            });
         let entry = GameEvent {
             id,
             timestamp,
@@ -230,6 +254,12 @@ impl SessionShared {
             batch_end_cursor: None,
             action_id,
             action_start_cursor,
+            actor: grouping.as_ref().and_then(|g| g.0.clone()),
+            round: grouping.as_ref().and_then(|g| g.1),
+            phase: grouping.as_ref().and_then(|g| g.2),
+            action_type: grouping.as_ref().and_then(|g| g.3.clone()),
+            action_actor: grouping.as_ref().and_then(|g| g.4.clone()),
+            stage: grouping.as_ref().and_then(|g| g.5.clone()),
             detail,
             movement,
             seat_detail,
@@ -341,8 +371,13 @@ impl SessionShared {
         let self_decision_count = self.decision_log.len();
         let self_redo_count = self.redo_decisions.len();
         let self_generation = self.history_generation;
+        let path = crate::protocol::server::current_log_path(
+            &state,
+            pending.as_ref().map(|(choice, _)| choice),
+            &self.decision_log,
+        );
         self.publish(|viewer| {
-            let update = crate::projection::project_state_update_with_map(
+            let mut update = crate::projection::project_state_update_with_map(
                 &game_id,
                 version,
                 &state,
@@ -354,6 +389,7 @@ impl SessionShared {
                 &galaxy_layout,
             )
             .with_history(self_decision_count, self_redo_count, self_generation);
+            update.current_path = path.clone();
             ServerMessage::StateUpdate(update)
         });
     }

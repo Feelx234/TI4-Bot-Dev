@@ -539,6 +539,15 @@ test("a complete human battle stays public in four independent views", async ({
       if (await generic.isVisible())
         await generic.getByRole("button", { name: "Minimize decision" }).click();
       await page.getByTestId("event-log-toggle").click();
+      for (const label of [/Round 1/, /Action phase/, /Tactical action/]) {
+        const branch = page.getByRole("button", { name: label });
+        if (await branch.getAttribute("aria-expanded") === "false") await branch.click();
+      }
+      const stages = page.locator(".event-log__group--stage > .event-log__heading");
+      for (let stage = 0; stage < await stages.count(); stage++) {
+        if (await stages.nth(stage).getAttribute("aria-expanded") === "false")
+          await stages.nth(stage).click();
+      }
       for (const play of publicPlays) {
         await expect(page.getByTestId("event-log-container")).toContainText(
           play.detail!.split(" played ")[1],

@@ -63,3 +63,14 @@ Put a compact actor symbol beside **each decision leaf**, including reactions an
 - Any earlier round can be explored down to every recorded **player decision**, even beyond 500 entries, with correct ordering and undo cursor.
 - Every new decision identifies its actual decider with the assigned symbol/color and a name available on hover and focus, without leaking private choices.
 - Live play, batches, history restore, and reconnect group equivalent decisions the same way; older saved games remain usable.
+
+## Progress (implemented)
+
+- [x] Persist optional actor, round, phase, action type/owner and stage on manual and batch decision events. Stage identifiers come from an explicit allowlist of engine subtypes; unknown choices use the neutral **Other decisions** stage. The viewer projection still strips seat-only details for everyone else.
+- [x] Publish a current round/phase/action/stage path in both initial snapshots and state updates. An action-phase turn prompt does not reopen the previous action; finished games have no auto-open path.
+- [x] Replace flat batch rows with an ordered round/phase/action/stage-segment tree. The renderer unmounts collapsed descendants, de-duplicates same-cursor visible facts without losing private detail, and gives every eligible leaf its own cursor-based Undo. Legacy entries get neutral headings.
+- [x] Resolve actor badges from the live player roster, with seat symbols/colors and a name on hover and keyboard focus. Simplify the visual tree to indentation, compact rows and minimal borders.
+- [x] Keep complete event history beyond 500 entries with live ID indexing. Add a multi-round, multi-player dev gallery log and regression coverage for stage repetition, reactions, private facts, current-path expansion and long history.
+- [x] Validate with `cargo test -p ti4-server`, `npm test`, `npm run build` (TypeScript check included), and `npm run test:e2e`. The landing pipeline needed a small continuity fix when the pending offer briefly clears between steps.
+
+Follow-up: collect real long-game reconnect payload and tree-build timing before deciding whether server pagination is warranted.

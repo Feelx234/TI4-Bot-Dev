@@ -6,17 +6,29 @@ import { playerDisplay } from "./playerDisplay.ts";
 const PARTICIPANT_TOKEN = /(^|[^\w:/|.-])(player_[a-zA-Z0-9_]+)(?!\.[\w])(?=$|[^\w:/|-])/g;
 const GENERATED_ID = /^player_[a-f0-9]{64}$/;
 
+/** Split prose into literal text and resolvable participant references. */
+export function participantReferences(text: string, lobby: LobbyDto | null): (string | { id: string })[] {
+  const known = new Set(lobby?.slots.flatMap((slot) => (slot.occupant ? [slot.occupant] : [])) ?? []);
+  const parts: (string | { id: string })[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(PARTICIPANT_TOKEN)) {
+    const id = match[2];
+    if (!known.has(id) && !GENERATED_ID.test(id)) continue;
+    const start = match.index + match[1].length;
+    if (start > cursor) parts.push(text.slice(cursor, start));
+    parts.push({ id });
+    cursor = start + id.length;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
+}
+
 export function participantText(
   text: string,
   lobby: LobbyDto | null,
   seatingOrder: readonly string[],
 ): string {
-  const known = new Set(
-    lobby?.slots.flatMap((slot) => (slot.occupant ? [slot.occupant] : [])) ?? [],
-  );
-  return text.replace(PARTICIPANT_TOKEN, (whole, prefix: string, id: string) =>
-    known.has(id) || GENERATED_ID.test(id)
-      ? prefix + playerDisplay(lobby, seatingOrder, id).label
-      : whole,
-  );
+  return participantReferences(text, lobby).map((part) =>
+    typeof part === "string" ? part : playerDisplay(lobby, seatingOrder, part.id).label,
+  ).join("");
 }

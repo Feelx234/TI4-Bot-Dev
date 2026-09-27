@@ -1,81 +1,94 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { GameLogEntry } from "../protocol/client.ts";
-import { EventLog, foldLogEvents } from "./EventLog.tsx";
+import { EventLog, buildEventTree } from "./EventLog.tsx";
 import { PlayerIdentityProvider } from "../presentation/PlayerIdentity.tsx";
+import type { LobbyDto } from "../protocol/types.ts";
 
-const decision = (cursor: number, batch = "batch"): GameLogEntry => ({
-  id: `event-${cursor}`,
-  timestamp: "12:00",
-  visibility: "public",
-  decision_count: cursor,
-  batch_id: batch,
-  batch_start_cursor: 10,
-  batch_end_cursor: 14,
-  action_id: "action_11",
-  action_start_cursor: 10,
-  detail: `Choice ${cursor}`,
+const decision = (cursor: number, stage = "movement", actor = "p1"): GameLogEntry => ({
+  id: `event-${cursor}`, timestamp: "12:00", visibility: "public", decision_count: cursor,
+  round: 1, phase: "action", action_id: "action_1", action_type: "tactical",
+  actor, stage, detail: `Choice ${cursor}`, version: 3,
   event: { kind: "decision_resolved" },
 });
+const wrap = (events: GameLogEntry[], props: Partial<React.ComponentProps<typeof EventLog>> = {}) =>
+  <PlayerIdentityProvider lobby={null} seatingOrder={["p1", "p2"]}>
+    <EventLog events={events} isOpen onToggle={vi.fn()} cursor={100} {...props} />
+  </PlayerIdentityProvider>;
 
-describe("event log grouping", () => {
-  it("counts same-cursor details once and folds over private gaps and phase events", () => {
-    const entries: GameLogEntry[] = [
-      decision(11),
-      {
-        ...decision(11),
-        id: "private-11",
-        visibility: "seat",
-        seat: "p1",
-        private_detail: "Only P1",
-      },
-      {
-        ...decision(11),
-        id: "phase-11",
-        batch_id: undefined,
-        event: { kind: "phase_transition", phase: "action", round: 1 },
-      },
-      decision(13),
-      decision(14),
-    ];
-    const rows = foldLogEvents(entries);
-    expect(rows).toHaveLength(2);
-    expect(rows[0].map((event) => event.decision_count)).toEqual([11, 11, 13, 14]);
-    const restore = vi.fn();
-    render(
-      <PlayerIdentityProvider lobby={null} seatingOrder={[]}>
-        <EventLog events={entries} isOpen onToggle={vi.fn()} cursor={14} onRestore={restore} />
-      </PlayerIdentityProvider>,
-    );
-    expect(screen.getAllByTestId("event-log-entry")).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: /Undo from decision/ })).toHaveLength(3);
-    expect(screen.queryByText("⋯")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Undo from decision 11" }));
-    expect(restore).toHaveBeenCalledWith(10);
-    fireEvent.click(screen.getByRole("button", { name: "Undo from decision 13" }));
-    expect(restore).toHaveBeenCalledWith(12);
-    expect(screen.queryByRole("button", { name: /action start|batch start/i })).toBeNull();
+describe("hierarchical event log", () => {
+  it("preserves repeated stage order and merges same-cursor private facts", () => {
+    const entries = [decision(1), { ...decision(1), id: "private-1", visibility: "seat" as const,
+      seat: "p1", private_detail: "Only P1" }, decision(2, "combat", "p2"), decision(3)];
+    const tree = buildEventTree(entries);
+    const stages = tree[0].children[0].children[0].children;
+    expect(stages.map((stage) => stage.label)).toEqual(["Movement", "Combat", "Movement"]);
+    expect(tree[0].count).toBe(3);
+    expect(stages[0].children[0].entry?.private_detail).toBe("Only P1");
   });
 
-  it("shows one inline undo for an individual decision without hiding its event metadata", () => {
+  it("mounts only the current path; lets readers expand, collapse and undo real cursors", () => {
     const restore = vi.fn();
-    render(
-      <PlayerIdentityProvider lobby={null} seatingOrder={[]}>
-        <EventLog
-          events={[{ ...decision(5), batch_id: undefined, version: 3 }]}
-          isOpen
-          onToggle={vi.fn()}
-          cursor={5}
-          onRestore={restore}
-        />
-      </PlayerIdentityProvider>,
-    );
-    expect(screen.getByTestId("event-log-entry")).toHaveTextContent("12:00");
-    expect(screen.getByTestId("event-log-entry")).toHaveTextContent("v3");
-    expect(screen.getByTestId("event-log-entry")).toHaveTextContent("Choice 5");
-    const undo = screen.getByRole("button", { name: "Undo from decision 5" });
-    expect(undo).toHaveTextContent("Undo");
-    fireEvent.click(undo);
-    expect(restore).toHaveBeenCalledWith(4);
+    const entries = [
+      { ...decision(0), id: "start", event: { kind: "game_initialized" as const,
+        round: 1, phase: "action", speaker: "p1" } },
+      decision(1), decision(2, "combat", "p2"),
+      { ...decision(2), round: undefined, phase: undefined, id: "round2", event: { kind: "phase_transition" as const,
+        round: 2, phase: "strategy" } },
+      { ...decision(3), round: 2, phase: "strategy", action_id: undefined, stage: undefined },
+    ];
+    render(wrap(entries, { currentPath: { round: 1, phase: "action", action_id: "action_1", stage: "combat" }, onRestore: restore }));
+    expect(screen.getAllByText(/Round [12]/)).toHaveLength(2);
+    expect(screen.getAllByTestId("event-log-entry")).toHaveLength(2); // phase marker and combat leaf
+    expect(screen.queryByText("Choice 1")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Movement/ }));
+    expect(screen.getByText("Choice 1")).toBeInTheDocument();
+    const actor = screen.getByLabelText("Participant at position 1");
+    expect(actor).toHaveAttribute("title", "Participant at position 1");
+    fireEvent.click(screen.getByRole("button", { name: "Undo from decision 1" }));
+    expect(restore).toHaveBeenCalledWith(0);
+    fireEvent.click(screen.getByRole("button", { name: /Round 1/ }));
+    expect(screen.queryByText("Choice 1")).toBeNull();
+  });
+
+  it("colors participant names without repeating seat labels in decisions or symbol tooltips", () => {
+    const a = `player_${"a".repeat(64)}`;
+    const b = `player_${"b".repeat(64)}`;
+    const lobby: LobbyDto = {
+      game_id: "game", phase: "running", lobby_version: 1, host_player_id: a,
+      slots: [a, b].map((occupant, index) => ({
+        slot_id: `slot_${index + 1}`, position: index + 1, occupant, nickname: "az2",
+        ready: true, connected: true, can_take_over: false,
+      })),
+    };
+    const entries = [
+      { ...decision(0), id: "start", event: { kind: "game_initialized" as const,
+        round: 1, phase: "action", speaker: a } },
+      { ...decision(1, "movement", a), detail: `${a} landed sol_infantry on kraag` },
+      { ...decision(2, "movement", b), detail: `${b} supported ${a}` },
+    ];
+    render(<PlayerIdentityProvider lobby={lobby} seatingOrder={[a, b]}>
+      <EventLog events={entries} isOpen onToggle={vi.fn()}
+        currentPath={{ round: 1, phase: "action", action_id: "action_1", stage: "movement" }} />
+    </PlayerIdentityProvider>);
+    const rows = screen.getAllByTestId("event-log-entry");
+    expect(rows[1].querySelector(".event-log__body")).toHaveTextContent("az2 landed sol_infantry on kraag");
+    expect(rows[1].querySelector(".event-log__body")).not.toHaveTextContent("Position 1");
+    expect(rows[1].querySelector(".event-log__participant")).toHaveStyle({ color: "#E69F00" });
+    expect(rows[2].querySelectorAll(".event-log__participant")).toHaveLength(2);
+    expect(rows[2].querySelectorAll(".event-log__participant")[0]).toHaveStyle({ color: "#56B4E9" });
+    expect(rows[2].querySelectorAll(".event-log__participant")[1]).toHaveStyle({ color: "#E69F00" });
+    const symbol = rows[1].querySelector(".event-log__actor");
+    expect(symbol).toHaveAttribute("title", "az2 (● Position 1)");
+    expect(symbol).toHaveAttribute("aria-label", "az2 (● Position 1)");
+  });
+
+  it("retains unknown historical decisions and more than 500 events", () => {
+    const entries = Array.from({ length: 520 }, (_, i) => ({ ...decision(i + 1),
+      round: undefined, phase: undefined, action_id: undefined, stage: undefined }));
+    const tree = buildEventTree(entries);
+    expect(tree).toHaveLength(1);
+    expect(tree[0].count).toBe(520);
+    expect(tree[0].children[0].children).toHaveLength(520);
   });
 });

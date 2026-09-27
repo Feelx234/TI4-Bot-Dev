@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import type { BoardView, PendingChoiceDto, PlacedUnitView, PlayerView } from "../protocol/types.ts";
 import { InvasionLandingTray, type Landing } from "./InvasionLandingTray.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
@@ -14,8 +14,14 @@ export const InvasionOverlay: React.FC<{
   landingDraft?: Landing[];
   onLandingDraftChange?: (draft: Landing[]) => void;
 }> = ({ board, choice, players, viewerSeat, onSubmit, onClose, lastError, landingDraft, onLandingDraftChange }) => {
+  // A state update can briefly clear the offer between consecutive landings. Keep the
+  // tray mounted so its confirmation pipeline survives until the fresh nonce arrives.
+  const lastLandingChoice = useRef<PendingChoiceDto | null>(null);
   const invasion = board.invasion;
   if (!invasion) return null;
+  if (choice?.context?.subtype === "commit_ground_forces" && choice.actor === invasion.invader)
+    lastLandingChoice.current = choice;
+  const trayChoice = choice ?? lastLandingChoice.current;
   const system = board.systems[invasion.system_id];
   const landing = choice?.context?.subtype === "commit_ground_forces";
   const step = invasion.last_step;
@@ -48,8 +54,8 @@ export const InvasionOverlay: React.FC<{
       ))}
       {viewerSeat === invasion.invader && landingDraft?.length && (!landing || choice?.actor !== viewerSeat) ?
         <p data-testid="invasion-interrupted-draft">Landing paused · remaining draft: {landingDraft.map((item) => `${item.unit}${item.damaged ? " (damaged)" : ""} → ${item.planet}`).join(", ")}</p> : null}
-      {choice && viewerSeat === invasion.invader && <div hidden={!landing || choice.actor !== viewerSeat}>
-        <InvasionLandingTray choice={choice} board={board} players={players} viewerSeat={viewerSeat} onSubmit={onSubmit} onClose={onClose} lastError={lastError} draft={landingDraft} onDraftChange={onLandingDraftChange} />
+      {trayChoice && viewerSeat === invasion.invader && <div hidden={!landing || choice?.actor !== viewerSeat}>
+        <InvasionLandingTray choice={trayChoice} board={board} players={players} viewerSeat={viewerSeat} onSubmit={onSubmit} onClose={onClose} lastError={lastError} draft={landingDraft} onDraftChange={onLandingDraftChange} />
       </div>}
       {choice && landing && viewerSeat === choice.actor ? null : choice && viewerSeat === choice.actor ? (
         <WorkflowShell choice={choice} viewerSeat={viewerSeat} onSubmit={onSubmit} lastError={lastError} errorTestId="invasion-error">

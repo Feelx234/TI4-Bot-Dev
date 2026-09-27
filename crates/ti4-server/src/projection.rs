@@ -560,6 +560,7 @@ pub fn project_initial_snapshot_with_map(
             .filter_map(|event| event.for_viewer(viewer))
             .collect(),
         history: crate::protocol::server::HistoryStatus::default(),
+        current_path: None,
     }
 }
 
@@ -602,6 +603,7 @@ pub fn project_state_update_with_map(
 ) -> StateUpdateMsg {
     StateUpdateMsg {
         history: crate::protocol::server::HistoryStatus::default(),
+        current_path: None,
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.to_owned(),
         game_version,

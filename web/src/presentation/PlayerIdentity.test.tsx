@@ -117,6 +117,8 @@ it("renders player and spectator surfaces with current names, seat shapes and no
     </PlayerIdentityProvider>
   );
   const { container, rerender } = render(surfaces(lobby));
+  fireEvent.click(screen.getByRole("button", { name: /Unknown round/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Unknown phase/ }));
   expect(screen.getByText(/Active Turn: Sam \(▲ Position 2\)/)).toBeInTheDocument();
   expect(screen.getByText(/Game finished: Sam \(▲ Position 2\) wins/)).toBeInTheDocument();
   expect(screen.getByLabelText("Player positions")).toHaveTextContent("Sam (● Position 1)");

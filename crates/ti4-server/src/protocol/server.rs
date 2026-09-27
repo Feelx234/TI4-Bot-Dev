@@ -38,6 +38,45 @@ pub struct InitialSnapshotMsg {
     pub events: Vec<GameEvent>,
     #[serde(default, skip_serializing_if = "is_default_history")]
     pub history: HistoryStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_path: Option<CurrentLogPath>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CurrentLogPath {
+    pub round: u32,
+    pub phase: Phase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+}
+
+/// A pending action-phase prompt is a boundary, not part of the previous action.
+#[must_use]
+pub fn current_log_path(
+    state: &GameState,
+    pending: Option<&Choice>,
+    records: &[ti4_engine::choice::DecisionRecord],
+) -> Option<CurrentLogPath> {
+    if state.finished {
+        return None;
+    }
+    let action_id = pending
+        .filter(|choice| state.phase == Phase::Action && choice.prompt != "action phase")
+        .and_then(|_| action_id_for(records, records.len()));
+    let stage = pending
+        .and_then(|choice| choice.context.as_ref())
+        .and_then(|context| stage_for(&context.subtype))
+        .filter(|_| action_id.is_some())
+        .map(str::to_owned);
+    Some(CurrentLogPath {
+        round: state.round,
+        phase: state.phase,
+        action_id,
+        stage,
+    })
 }
 
 /// Public cursor counts decisions, not engine steps or wall-clock events.
@@ -129,6 +168,18 @@ pub struct GameEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_start_cursor: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<PlayerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<Phase>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_actor: Option<PlayerId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub movement: Option<MovementFact>,
@@ -175,6 +226,95 @@ pub fn action_id_for(
         .iter()
         .rposition(|record| record.prompt == "action phase")
         .map(|start| format!("action_{}", start + 1))
+}
+
+/// Public identifiers only. Unknown subtypes never turn into player-facing prose.
+#[must_use]
+pub fn stage_for(subtype: &str) -> Option<&'static str> {
+    Some(match subtype {
+        "activate_system" => "activation",
+        "movement_step" | "load_cargo" => "movement",
+        "assign_casualty" | "sustain_damage" | "announce_retreat" | "retreat_to" => "combat",
+        "assign_ground_casualty"
+        | "fight_ground_combat_round"
+        | "start_next_ground_combat"
+        | "commit_ground_forces"
+        | "bombardment_target"
+        | "remove_custodians" => "invasion",
+        "produce_unit" | "pay_resources" | "pay_influence" => "production",
+        "gain_command_token"
+        | "buy_token_with_influence"
+        | "research_technology"
+        | "ready_planet"
+        | "diplomacy_choose_system"
+        | "politics_choose_speaker"
+        | "politics_place_agenda"
+        | "place_structure"
+        | "trade_choose_replenish"
+        | "warfare_recall_token"
+        | "warfare_redistribute_tokens"
+        | "imperial_score_objective"
+        | "warfare_free_tactical"
+        | "construction_choose_ability" => "strategy",
+        s if s.starts_with("reaction_when_")
+            || s.starts_with("reaction_after_")
+            || s.starts_with("play_reaction_") =>
+        {
+            "reactions"
+        }
+        _ => return None,
+    })
+}
+
+#[must_use]
+pub fn decision_grouping(
+    record: &ti4_engine::choice::DecisionRecord,
+    offered: Option<&ChoiceOption>,
+    records: &[ti4_engine::choice::DecisionRecord],
+    cursor: usize,
+) -> (
+    Option<PlayerId>,
+    Option<u32>,
+    Option<Phase>,
+    Option<String>,
+    Option<PlayerId>,
+    Option<String>,
+) {
+    let context = record.context.as_ref();
+    let selection = records
+        .iter()
+        .take(cursor)
+        .rfind(|r| r.prompt == "action phase");
+    let selected_type = |id: &str| {
+        match id {
+            "tactical" => "tactical",
+            "pass" => "pass",
+            "strategic" => "strategic",
+            id if id.starts_with("strategic|") => "strategic",
+            _ => "component",
+        }
+        .to_owned()
+    };
+    let action_type = selection.map(|r| selected_type(&r.chosen));
+    let selected_type = if record.prompt == "action phase" {
+        // The recorded chosen ID came from the verified engine offer.
+        offered
+            .filter(|o| o.id == record.chosen)
+            .map(|o| selected_type(&o.id))
+            .or_else(|| action_type.clone())
+    } else {
+        action_type
+    };
+    (
+        Some(record.player.clone()),
+        context.map(|c| c.round),
+        context.map(|c| c.phase),
+        selected_type,
+        selection.map(|r| r.player.clone()),
+        context
+            .and_then(|c| stage_for(&c.subtype))
+            .map(str::to_owned),
+    )
 }
 
 /// Public facts derived from the engine's offered option, never from a submitted plan.
@@ -811,6 +951,12 @@ mod fact_tests {
             batch_end_cursor: None,
             action_id: None,
             action_start_cursor: None,
+            actor: None,
+            round: None,
+            phase: None,
+            action_type: None,
+            action_actor: None,
+            stage: None,
             detail: None,
             movement: None,
             seat_detail,
@@ -864,6 +1010,47 @@ mod fact_tests {
             Some("action_2")
         );
     }
+
+    #[test]
+    fn grouping_keeps_reaction_decider_separate_from_action_owner() {
+        let selected = ChoiceOption::new("tactical", "action");
+        let action = DecisionRecord {
+            prompt: "action phase".into(),
+            ..record("select_action", &selected)
+        };
+        let mut reaction = record("reaction_when_HITS_TO_ASSIGN", &ChoiceOption::decline());
+        reaction.player = PlayerId::new("p2");
+        let records = [action, reaction.clone()];
+        let grouping = decision_grouping(&reaction, None, &records, 2);
+        assert_eq!(grouping.0, Some(PlayerId::new("p2")));
+        assert_eq!(grouping.3.as_deref(), Some("tactical"));
+        assert_eq!(grouping.4, Some(PlayerId::new("p1")));
+        assert_eq!(grouping.5.as_deref(), Some("reactions"));
+    }
+
+    #[test]
+    fn pending_turn_prompt_never_reopens_the_previous_action() {
+        let player = PlayerId::new("p1");
+        let mut state = GameState::new(
+            &[player.clone()],
+            &[],
+            std::collections::BTreeMap::new(),
+            None,
+            42,
+        );
+        state.phase = Phase::Action;
+        let selected = ChoiceOption::new("tactical", "action");
+        let action = DecisionRecord {
+            prompt: "action phase".into(),
+            ..record("select_action", &selected)
+        };
+        let next_turn = Choice::new(player, "action phase", vec![selected]);
+        let path = current_log_path(&state, Some(&next_turn), &[action]).unwrap();
+        assert_eq!(path.action_id, None);
+        assert_eq!(path.round, state.round);
+        state.finished = true;
+        assert_eq!(current_log_path(&state, Some(&next_turn), &[]), None);
+    }
 }
 
 /// Server message carrying a new game event to all subscribers.
@@ -891,6 +1078,8 @@ pub struct StateUpdateMsg {
     pub turn_status: PublicTurnStatus,
     #[serde(default, skip_serializing_if = "is_default_history")]
     pub history: HistoryStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_path: Option<CurrentLogPath>,
 }
 
 impl StateUpdateMsg {

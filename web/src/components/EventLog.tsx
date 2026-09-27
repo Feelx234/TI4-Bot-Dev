@@ -1,7 +1,7 @@
-import React from "react";
-import { GameLogEntry } from "../hooks/useGameSession.ts";
-import { HistoryChange } from "../protocol/client.ts";
-import { useParticipantText, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import React, { useEffect, useMemo, useState } from "react";
+import { GameLogEntry, HistoryChange } from "../protocol/client.ts";
+import { CurrentLogPath } from "../protocol/types.ts";
+import { useParticipantParts, useParticipantText, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 
 export interface EventLogProps {
   events: GameLogEntry[];
@@ -12,309 +12,228 @@ export interface EventLogProps {
   cursor?: number;
   redoCount?: number;
   busy?: boolean;
+  currentPath?: CurrentLogPath;
+  historyKey?: unknown;
 }
 
-function eventPresentation(
-  event: GameLogEntry["event"],
-  label: (id: string) => string,
-): { color: string; text: string } {
-  switch (event.kind) {
-    case "decision_resolved":
-      return { color: "#38bdf8", text: "Decision resolved" };
-    case "game_initialized":
-      return {
-        color: "#e2e8f0",
-        text: `Game initialized: round ${event.round}, ${event.phase} phase, speaker ${label(event.speaker)}`,
-      };
-    case "phase_transition":
-      return {
-        color: "#c084fc",
-        text: `Phase transition: round ${event.round}, ${event.phase} phase`,
-      };
-    case "game_finished":
-      return {
-        color: "#34d399",
-        text: event.winner ? `Game finished: ${label(event.winner)} wins` : "Game finished: draw",
-      };
-    default:
-      return assertNever(event);
-  }
+export interface LogNode {
+  id: string;
+  kind: "round" | "phase" | "action" | "stage" | "decision" | "marker";
+  label: string;
+  children: LogNode[];
+  entry?: GameLogEntry;
+  count: number;
+  actor?: string;
+  stage?: string;
 }
 
-function assertNever(value: never): never {
-  throw new Error(`Unknown game event: ${JSON.stringify(value)}`);
-}
+const heading = (name: string) => name.replace(/_/g, " ").replace(/\b\w/g, (s) => s.toUpperCase());
+const node = (id: string, kind: LogNode["kind"], label: string): LogNode => ({
+  id, kind, label, children: [], count: 0,
+});
 
-function getVisibilityLabel(visibility: GameLogEntry): string | null {
-  switch (visibility.visibility) {
-    case "public":
-      return null;
-    case "seat":
-      return "Private";
-    case "referee":
-      return "Referee";
-  }
-}
-
-/** One batch can contain invisible decisions and multiple visible facts at one cursor. */
-export function foldLogEvents(events: readonly GameLogEntry[]): GameLogEntry[][] {
-  const rows: GameLogEntry[][] = [];
-  let activeBatch: { id: string; row: GameLogEntry[] } | null = null;
-  for (const event of events) {
-    if (event.event.kind !== "decision_resolved") {
-      rows.push([event]);
+/** Preserve stream order, including repeated stage segments and same-cursor boundary events. */
+export function buildEventTree(events: readonly GameLogEntry[]): LogNode[] {
+  const rounds: LogNode[] = [];
+  const roundByKey = new Map<string, LogNode>();
+  const phaseByKey = new Map<string, LogNode>();
+  const decisions = new Map<string, LogNode>();
+  let boundaryRound: number | undefined;
+  let boundaryPhase: string | undefined;
+  let lastAction: LogNode | undefined;
+  let lastStage: LogNode | undefined;
+  let lastStageParent: LogNode | undefined;
+  let lastParent: LogNode | undefined;
+  for (const entry of events) {
+    const event = entry.event;
+    if (event.kind === "game_initialized" || event.kind === "phase_transition") {
+      boundaryRound = event.round;
+      boundaryPhase = event.phase;
+    }
+    const round = event.kind === "decision_resolved" ? entry.round ?? boundaryRound : boundaryRound;
+    const phase = event.kind === "decision_resolved" ? entry.phase ?? boundaryPhase : boundaryPhase;
+    const roundKey = round === undefined ? "unknown" : String(round);
+    let roundNode = roundByKey.get(roundKey);
+    if (!roundNode) {
+      roundNode = node(`round:${roundKey}`, "round", round === undefined ? "Unknown round" : `Round ${round}`);
+      rounds.push(roundNode);
+      roundByKey.set(roundKey, roundNode);
+    }
+    const phaseKey = `${roundNode.id}:${phase ?? "unknown"}`;
+    let phaseNode = phaseByKey.get(phaseKey);
+    if (!phaseNode) {
+      phaseNode = node(phaseKey, "phase", phase ? `${heading(phase)} phase` : "Unknown phase");
+      roundNode.children.push(phaseNode);
+      phaseByKey.set(phaseKey, phaseNode);
+    }
+    if (event.kind !== "decision_resolved") {
+      const label = event.kind === "game_initialized" ? "Game initialized"
+        : event.kind === "phase_transition" ? "Phase began"
+        : event.winner ? `Game finished: ${event.winner} wins` : "Game finished: draw";
+      phaseNode.children.push({ ...node(`marker:${entry.id}`, "marker", label), entry });
+      lastAction = lastStage = lastStageParent = lastParent = undefined;
       continue;
     }
-    if (event.batch_id && activeBatch?.id === event.batch_id) {
-      activeBatch.row.push(event);
-    } else {
-      const row = [event];
-      rows.push(row);
-      activeBatch = event.batch_id ? { id: event.batch_id, row } : null;
+    const key = entry.decision_count === undefined ? entry.id : `${phaseNode.id}:cursor:${entry.decision_count}`;
+    const existing = decisions.get(key);
+    if (existing) {
+      const prior = existing.entry!;
+      existing.entry = {
+        ...prior,
+        detail: prior.detail ?? entry.detail,
+        movement: prior.movement ?? entry.movement,
+        private_detail: entry.private_detail ?? prior.private_detail,
+        actor: prior.actor ?? entry.actor,
+      };
+      continue;
     }
+    let parent = phaseNode;
+    if (entry.action_id) {
+      const id = `${phaseNode.id}:action:${entry.action_id}`;
+      if (lastAction?.id !== id || lastParent !== phaseNode) {
+        lastAction = node(id, "action", entry.action_type ? `${heading(entry.action_type)} action` : "Action");
+        lastAction.actor = entry.action_actor;
+        phaseNode.children.push(lastAction);
+        lastStage = undefined;
+        lastStageParent = undefined;
+      }
+      parent = lastAction;
+    } else {
+      lastAction = lastStage = lastStageParent = undefined;
+      if (phase === "action") {
+        parent = node(`${phaseNode.id}:unknown-action:${entry.id}`, "action", "Unknown action");
+        phaseNode.children.push(parent);
+      }
+    }
+    lastParent = phaseNode;
+    const actionNode = parent.kind === "action" ? parent : undefined;
+    if (entry.action_id || parent.kind === "action") {
+      const stage = entry.stage ?? "other";
+      if (lastStage?.stage !== stage || lastStageParent !== parent) {
+        lastStage = node(`${parent.id}:stage:${stage}:${entry.id}`, "stage",
+          stage === "other" ? "Other decisions" : heading(stage));
+        lastStage.stage = stage;
+        parent.children.push(lastStage);
+        lastStageParent = parent;
+      }
+      parent = lastStage;
+    }
+    const leaf = { ...node(`decision:${key}`, "decision", ""), entry, actor: entry.actor };
+    parent.children.push(leaf);
+    decisions.set(key, leaf);
+    roundNode.count++;
+    phaseNode.count++;
+    if (actionNode) actionNode.count++;
+    if (parent.kind === "stage") parent.count++;
   }
-  return rows;
+  return rounds;
 }
 
-export const EventLog: React.FC<EventLogProps> = ({
-  events,
-  isOpen,
-  onToggle,
-  onRestore,
-  onChangeHistory,
-  cursor = 0,
-  redoCount = 0,
-  busy = false,
-}) => {
+function openPath(tree: LogNode[], path?: CurrentLogPath): Set<string> {
+  const opened = new Set<string>();
+  if (!path) return opened;
+  const round = tree.find((n) => n.id === `round:${path.round}`);
+  if (!round) return opened;
+  opened.add(round.id);
+  const phase = round.children.find((n) => n.id === `${round.id}:${path.phase}`);
+  if (!phase) return opened;
+  opened.add(phase.id);
+  const action = phase.children.find((n) => n.id === `${phase.id}:action:${path.action_id}`);
+  if (!path.action_id || !action) return opened;
+  opened.add(action.id);
+  const stage = path.stage
+    ? [...action.children].reverse().find((n) => n.kind === "stage" && n.stage === path.stage)
+    : [...action.children].reverse().find((n) => n.kind === "stage");
+  if (stage) opened.add(stage.id);
+  return opened;
+}
+
+export const EventLog: React.FC<EventLogProps> = ({ events, isOpen, onToggle, onRestore,
+  onChangeHistory, cursor = 0, redoCount = 0, busy = false, currentPath, historyKey }) => {
   const display = usePlayerIdentity();
   const present = useParticipantText();
-  const rows = foldLogEvents(events);
-  return (
-    <div data-testid="event-log-container" className="event-log">
-      <button
-        id="event-log-toggle"
-        type="button"
-        data-testid="event-log-toggle"
-        onClick={onToggle}
-        aria-expanded={isOpen}
-        aria-controls="event-log-list"
-        className="button"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "6px 16px",
-          width: "100%",
-          textAlign: "left",
-          background: "var(--color-surface)",
-          fontWeight: 600,
-          color: "var(--color-text-muted)",
-          userSelect: "none",
-        }}
-      >
-        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span>Event Log</span>
-          <span
-            style={{
-              background: "#1e293b",
-              color: "#38bdf8",
-              padding: "1px 6px",
-              borderRadius: 10,
-              fontSize: 11,
-            }}
-          >
-            {events.length}
-          </span>
-        </span>
-        <span style={{ fontSize: 11 }}>{isOpen ? "▼ Hide" : "▲ Show"}</span>
+  const parts = useParticipantParts();
+  const tree = useMemo(() => buildEventTree(events), [events]);
+  const [expanded, setExpanded] = useState<Set<string>>(() => openPath(tree, currentPath));
+  const [manual, setManual] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setExpanded(openPath(tree, currentPath));
+    setManual(new Set());
+    // Only a new snapshot/history generation resets the reader's navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyKey]);
+  useEffect(() => {
+    if (!currentPath) return;
+    setExpanded((old) => {
+      const next = new Set(old);
+      for (const id of openPath(tree, currentPath)) if (!manual.has(id)) next.add(id);
+      return next;
+    });
+  }, [currentPath?.round, currentPath?.phase, currentPath?.action_id, currentPath?.stage, tree, manual]);
+  const toggle = (id: string) => {
+    setManual((old) => new Set(old).add(id));
+    setExpanded((old) => {
+      const next = new Set(old);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const renderNode = (item: LogNode, depth: number): React.ReactNode => {
+    if (item.kind === "decision" || item.kind === "marker") {
+      const entry = item.entry!;
+      const actor = entry.actor ? display(entry.actor) : null;
+      const actorTitle = actor ? actor.position && !/\bposition \d+\b/i.test(actor.label)
+        ? `${actor.label} · Position ${actor.position}` : actor.label : "Unknown participant";
+      const eventNumber = entry.id.match(/-(\d+)$/)?.[1];
+      const text = item.kind === "marker" ? item.label : entry.private_detail ?? entry.detail ??
+        (entry.movement ? `${display(entry.movement.actor).label} moved ${entry.movement.unit} from #${entry.movement.origin} to #${entry.movement.destination}` : "Decision resolved");
+      return <div key={item.id} className="event-log__entry" data-testid="event-log-entry" style={{ paddingLeft: depth * 14 }}>
+        <span className="event-log__index">{eventNumber ? `#${eventNumber}` : entry.decision_count === undefined ? "·" : `#${entry.decision_count}`}</span>
+        {item.kind === "decision" && <span className="event-log__actor" tabIndex={0}
+          title={actorTitle}
+          data-tooltip={actor?.label ?? "Unknown participant"}
+          aria-label={actorTitle}
+          style={{ color: actor?.color ?? "#94a3b8" }}>{actor?.symbol ?? "?"}</span>}
+        <span className="event-log__body">{item.kind === "marker" ? present(text) : parts(text).map((part, index) =>
+          typeof part === "string" ? part : <span key={index} className="event-log__participant"
+            style={{ color: part.color }}>{part.label.replace(/ \([●▲■◆★✚⬟◖] Position \d+\)$/, "")}</span>,
+        )}</span>
+        {entry.visibility !== "public" && <span className="event-log__private">{entry.visibility === "seat" ? "Private" : "Referee"}</span>}
+        {entry.timestamp && <time className="event-log__meta">{entry.timestamp}</time>}
+        {entry.version !== undefined && <span className="event-log__meta">v{entry.version}</span>}
+        {item.kind === "decision" && onRestore && entry.decision_count !== undefined && entry.decision_count <= cursor &&
+          <button type="button" className="event-log__undo" disabled={busy}
+            aria-label={`Undo from decision ${entry.decision_count}`}
+            onClick={() => onRestore(entry.decision_count! - 1)}>Undo</button>}
+      </div>;
+    }
+    const open = expanded.has(item.id);
+    return <div key={item.id} className={`event-log__group event-log__group--${item.kind}`}>
+      <button type="button" className="event-log__heading" style={{ paddingLeft: depth * 14 }}
+        aria-expanded={open} onClick={() => toggle(item.id)}>
+        <span className="event-log__chevron">{open ? "▾" : "▸"}</span>
+        {item.label}<span className="event-log__count">{item.count}</span>
+        {item.actor && <span className="event-log__owner">· {display(item.actor).label}</span>}
       </button>
-
-      {isOpen && (
-        <>
-          {onChangeHistory && redoCount > 0 && (
-            <div className="event-log__redo" aria-label="Redo history">
-              <span>
-                {redoCount} undone {redoCount === 1 ? "decision" : "decisions"}
-              </span>
-              <button
-                type="button"
-                className="button button--secondary button--sm"
-                disabled={busy}
-                onClick={() => onChangeHistory("redo")}
-              >
-                Redo one
-              </button>
-              <button
-                type="button"
-                className="button button--secondary button--sm"
-                disabled={busy}
-                onClick={() => onChangeHistory("redo_batch")}
-              >
-                Redo batch
-              </button>
-              <button
-                type="button"
-                className="button button--secondary button--sm"
-                disabled={busy}
-                onClick={() => onChangeHistory("redo_pipeline")}
-              >
-                Redo action
-              </button>
-            </div>
-          )}
-          <div
-            id="event-log-list"
-            role="region"
-            aria-labelledby="event-log-toggle"
-            data-testid="event-log-list"
-            style={{
-              maxHeight: 320,
-              overflowY: "auto",
-              padding: "10px 16px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-            }}
-          >
-            {events.length === 0 ? (
-              <div style={{ color: "#64748b" }}>No events recorded yet.</div>
-            ) : (
-              rows.map((group, i) => {
-                const ev = group[group.length - 1];
-                const first = group[0];
-                const unique = new Map<number, GameLogEntry>();
-                for (const entry of group.filter(
-                  (entry) => entry.event.kind === "decision_resolved",
-                )) {
-                  if (entry.decision_count === undefined) continue;
-                  const prior = unique.get(entry.decision_count);
-                  unique.set(
-                    entry.decision_count,
-                    prior
-                      ? {
-                          ...prior,
-                          detail: prior.detail ?? entry.detail,
-                          movement: prior.movement ?? entry.movement,
-                          private_detail: entry.private_detail ?? prior.private_detail,
-                        }
-                      : entry,
-                  );
-                }
-                const decisions = [...unique.values()];
-                const presentation = eventPresentation(ev.event, (id) => display(id).label);
-                const visibility = getVisibilityLabel(ev);
-                const details = decisions.map(
-                  (entry) => entry.private_detail ?? entry.detail ?? "Decision resolved",
-                );
-                const meaningful = details.filter(
-                  (detail) => detail !== "Done loading" && detail !== "Done moving",
-                );
-                const moves = decisions.flatMap((entry) =>
-                  entry.movement ? [entry.movement] : [],
-                );
-                const counts = new Map<string, number>();
-                for (const move of moves) {
-                  const key = `${move.unit}|${move.origin}|${move.destination}`;
-                  counts.set(key, (counts.get(key) ?? 0) + 1);
-                }
-                const heading = first.batch_id
-                  ? moves.length
-                    ? `${display(moves[0].actor).label} moved ${[...counts]
-                        .map(([key, count]) => {
-                          const [unit, origin, destination] = key.split("|");
-                          return `${count} ${unit}${count === 1 ? "" : "s"} from #${origin} to #${destination}`;
-                        })
-                        .join(", ")}`
-                    : meaningful.length
-                      ? meaningful.length === 1
-                        ? meaningful[0]
-                        : `${meaningful.length} choices: ${meaningful[0]}`
-                      : "Workflow finished"
-                  : (ev.private_detail ??
-                    ev.detail ??
-                    (ev.movement
-                      ? `${display(ev.movement.actor).label} moved ${ev.movement.unit} from #${ev.movement.origin} to #${ev.movement.destination}`
-                      : presentation.text));
-                return (
-                  <div key={group[0].id} data-testid="event-log-entry" className="event-log__entry">
-                    <span className="event-log__index">{i + 1}</span>
-                    {ev.timestamp && (
-                      <span style={{ color: "#64748b", fontSize: 11, flexShrink: 0 }}>
-                        {ev.timestamp}
-                      </span>
-                    )}
-                    {ev.version !== undefined && (
-                      <span
-                        style={{
-                          color: "#0284c7",
-                          fontSize: 10,
-                          background: "#0c4a6e",
-                          padding: "1px 4px",
-                          borderRadius: 3,
-                          flexShrink: 0,
-                        }}
-                      >
-                        v{ev.version}
-                      </span>
-                    )}
-                    {visibility && <span style={{ color: "#f59e0b" }}>{visibility}</span>}
-                    {first.batch_id ? (
-                      <details
-                        className="event-log__body"
-                        style={{ color: presentation.color, wordBreak: "break-word" }}
-                      >
-                        <summary>{present(heading)}</summary>
-                        <ul>
-                          {decisions.map((entry, index) => (
-                            <li key={entry.id}>
-                              {present(details[index])}
-                              {onRestore &&
-                                entry.decision_count !== undefined &&
-                                entry.decision_count <= cursor && (
-                                  <button
-                                    type="button"
-                                    className="event-log__detail-undo"
-                                    disabled={busy}
-                                    onClick={() => onRestore(entry.decision_count! - 1)}
-                                    aria-label={`Undo from decision ${entry.decision_count}`}
-                                  >
-                                    Undo
-                                  </button>
-                                )}
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    ) : (
-                      <span
-                        className="event-log__body"
-                        style={{ color: presentation.color, wordBreak: "break-word" }}
-                      >
-                        {present(heading)}
-                      </span>
-                    )}
-                    {onRestore &&
-                      decisions.length > 0 &&
-                      ev.decision_count !== undefined &&
-                      ev.decision_count <= cursor &&
-                      !first.batch_id && (
-                        <button
-                          type="button"
-                          className="event-log__undo"
-                          disabled={busy}
-                          onClick={() => onRestore(ev.decision_count! - 1)}
-                          aria-label={`Undo from decision ${ev.decision_count}`}
-                        >
-                          Undo
-                        </button>
-                      )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
+      {open && item.children.map((child) => renderNode(child, depth + 1))}
+    </div>;
+  };
+  return <div data-testid="event-log-container" className="event-log">
+    <button id="event-log-toggle" type="button" data-testid="event-log-toggle" onClick={onToggle}
+      aria-expanded={isOpen} aria-controls="event-log-list" className="button event-log__toggle">
+      <span>Event Log <span className="event-log__count">{events.length}</span></span>
+      <span>{isOpen ? "▾ Hide" : "▴ Show"}</span>
+    </button>
+    {isOpen && <>
+      {onChangeHistory && redoCount > 0 && <div className="event-log__redo" aria-label="Redo history">
+        <span>{redoCount} undone {redoCount === 1 ? "decision" : "decisions"}</span>
+        {(["redo", "redo_batch", "redo_pipeline"] as const).map((action, index) =>
+          <button key={action} type="button" className="button button--secondary button--sm"
+            disabled={busy} onClick={() => onChangeHistory(action)}>Redo { ["one", "batch", "action"][index] }</button>)}
+      </div>}
+      <div id="event-log-list" role="region" aria-labelledby="event-log-toggle" data-testid="event-log-list" className="event-log__list">
+        {tree.length ? tree.map((item) => renderNode(item, 0)) : <div>No events recorded yet.</div>}
+      </div>
+    </>}
+  </div>;
 };

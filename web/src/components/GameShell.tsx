@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { GameLogEntry } from "../hooks/useGameSession.ts";
-import { BoardView, HistoryStatus, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import { BoardView, CurrentLogPath, HistoryStatus, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import { EventLog } from "./EventLog.tsx";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { PaymentDrawer } from "./PaymentDrawer.tsx";
@@ -31,6 +31,8 @@ export interface GameShellProps {
   detail?: React.ReactNode;
   events: GameLogEntry[];
   history?: HistoryStatus;
+  currentPath?: CurrentLogPath;
+  logHistoryKey?: unknown;
   onChangeHistory?: (action: import("../protocol/client.ts").HistoryChange, steps?: number) => void;
   historyBusy?: boolean;
   choice: PendingChoiceDto | null;
@@ -560,6 +562,8 @@ export const GameShell: React.FC<GameShellProps> = ({
   detail,
   events,
   history,
+  currentPath,
+  logHistoryKey,
   onChangeHistory,
   historyBusy,
   choice,
@@ -728,6 +732,8 @@ export const GameShell: React.FC<GameShellProps> = ({
       >
         <EventLog
           events={events}
+          currentPath={currentPath}
+          historyKey={logHistoryKey}
           cursor={history?.cursor}
           redoCount={history?.redo_count}
           busy={historyBusy}

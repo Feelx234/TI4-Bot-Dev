@@ -1,7 +1,7 @@
 import React, { createContext, useContext } from "react";
 import type { LobbyDto } from "../protocol/types.ts";
 import { playerDisplay, seatStyle } from "./playerDisplay.ts";
-import { participantText } from "./participantText.ts";
+import { participantReferences, participantText } from "./participantText.ts";
 
 const PlayerContext = createContext<{ lobby: LobbyDto | null; seatingOrder: readonly string[] }>({
   lobby: null,
@@ -25,6 +25,13 @@ export function usePlayerIdentity() {
 export function useParticipantText() {
   const { lobby, seatingOrder } = useContext(PlayerContext);
   return (text: string) => participantText(text, lobby, seatingOrder);
+}
+
+export function useParticipantParts() {
+  const { lobby, seatingOrder } = useContext(PlayerContext);
+  return (text: string) => participantReferences(text, lobby).map((part) =>
+    typeof part === "string" ? part : playerDisplay(lobby, seatingOrder, part.id),
+  );
 }
 
 /** The visible number and shape remain readable when color cannot be perceived. */

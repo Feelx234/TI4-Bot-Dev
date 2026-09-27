@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ViewerRole } from "./protocol/types.ts";
 import { useGameSession } from "./hooks/useGameSession.ts";
 import { useLobbySession } from "./hooks/useLobbySession.ts";
@@ -206,6 +206,9 @@ const GameViewContainer: React.FC<{
     submitMovementBatch,
     submitBatch,
   } = useGameSession({ gameId, viewer });
+  const logHistoryKey = useRef<unknown>(null);
+  if (snapshot?.type === "initial_snapshot" && snapshot.events && logHistoryKey.current !== snapshot.events)
+    logHistoryKey.current = snapshot.events;
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const onChangeHistory = (action: import("./protocol/client.ts").HistoryChange, steps = 1) => {
@@ -350,6 +353,8 @@ const GameViewContainer: React.FC<{
           )
         }
         events={events}
+        currentPath={snapshot?.current_path}
+        logHistoryKey={logHistoryKey.current}
         history={gameHistory}
         historyBusy={historyBusy}
         onChangeHistory={userSeat === lobby.host_player_id ? onChangeHistory : undefined}

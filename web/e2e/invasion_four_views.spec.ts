@@ -161,7 +161,9 @@ test("Parley interrupts a non-atomic landing pipeline and preserves the remainin
     await expect.poll(async () => (await snapshot(request, game, seats[invader])).game_version).toBeGreaterThan(paused.game_version);
     await expect(tray).toBeVisible();
     await expect(tray).toContainText("Remaining draft: infantry");
-    expect((await snapshot(request, game, seats[invader])).pending_choice?.choice.context?.subtype).toBe("commit_ground_forces");
+    await expect.poll(async () =>
+      (await snapshot(request, game, seats[invader])).pending_choice?.choice.context?.subtype,
+    ).toBe("commit_ground_forces");
   } finally {
     await Promise.all(contexts.map((ctx) => ctx.close()));
   }

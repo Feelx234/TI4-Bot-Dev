@@ -15,16 +15,16 @@ describe("serverEventLog", () => {
     expect(serverEventLog([entry("server-1")])).toEqual([entry("server-1")]);
   });
 
-  it("keeps the latest bounded window of the authoritative event stream", () => {
+  it("keeps the complete authoritative event stream", () => {
     const events = Array.from({ length: 501 }, (_, index) => entry(`server-${index}`));
     const bounded = serverEventLog(events);
 
-    expect(bounded).toHaveLength(500);
-    expect(bounded[0]?.id).toBe("server-1");
+    expect(bounded).toHaveLength(501);
+    expect(bounded[0]?.id).toBe("server-0");
     expect(bounded.at(-1)?.id).toBe("server-500");
   });
 
-  it("discards a clipped batch even when the window begins on a same-cursor phase event", () => {
+  it("preserves a batch and same-cursor phase event beyond 500 entries", () => {
     const events = Array.from({ length: 504 }, (_, index): GameLogEntry => ({
       ...entry(`server-${index}`),
       decision_count: index,
@@ -38,7 +38,7 @@ describe("serverEventLog", () => {
     }));
     events[4] = { ...events[4], event: { kind: "phase_transition", phase: "action", round: 1 } };
     const bounded = serverEventLog(events);
-    expect(bounded[0].id).toBe("server-8");
-    expect(bounded.some((event) => event.batch_id === "batch")).toBe(false);
+    expect(bounded[0].id).toBe("server-0");
+    expect(bounded.filter((event) => event.batch_id === "batch")).toHaveLength(5);
   });
 });

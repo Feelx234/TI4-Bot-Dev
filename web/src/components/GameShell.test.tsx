@@ -402,6 +402,8 @@ describe("GameShell", () => {
     fireEvent.click(screen.getByTestId("event-log-toggle"));
     expect(screen.queryByRole("button", { name: /^Undo$/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Redo one" }));
+    fireEvent.click(screen.getByRole("button", { name: /Round 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Strategy phase/ }));
     fireEvent.click(screen.getByRole("button", { name: "Undo from decision 1" }));
     expect(change.mock.calls).toEqual([["redo"], [{ cursor: 0 }, 2]]);
     expect(screen.getByRole("button", { name: "Undo from decision 2" })).toBeTruthy();

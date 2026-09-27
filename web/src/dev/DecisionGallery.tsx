@@ -6,6 +6,7 @@ import { PlayerIdentityProvider } from "../presentation/PlayerIdentity.tsx";
 import { PROTOCOL_VERSION, type ClientMessage } from "../protocol/types.ts";
 import { galleryBoard, galleryLobby, galleryPlayers, gallerySeating } from "./galleryBoard.ts";
 import { fallbackCases, galleryCases, type GalleryCase } from "./decisionGalleryCases.ts";
+import { galleryEventLog } from "./galleryEventLog.ts";
 import "./DecisionGallery.css";
 
 /** Local, synthetic presentation only: submissions never contact a game server. */
@@ -243,7 +244,8 @@ export const DecisionGallery: React.FC = () => {
               playerSheet={
                 <div className="panel">Synthetic players: Alex (2 TG), Blair (1 TG)</div>
               }
-              events={[]}
+               events={galleryEventLog}
+               currentPath={{ round: 1, phase: "action", action_id: "action_1", stage: "production" }}
               players={galleryPlayers}
               boardView={galleryBoard}
               choice={choice}

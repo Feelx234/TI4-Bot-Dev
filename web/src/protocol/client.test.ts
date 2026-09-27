@@ -82,7 +82,7 @@ describe("GameSessionClient reducer", () => {
     expect(next.turnStatus).toMatchObject({ seat: "seat_b" });
   });
 
-  it("does not display a truncated batch as a complete basket", () => {
+  it("keeps the entire history including early batches", () => {
     const events = Array.from({ length: 510 }, (_, index) => ({
       id: String(index),
       timestamp: "",
@@ -92,8 +92,8 @@ describe("GameSessionClient reducer", () => {
       batch_id: index >= 5 && index < 20 ? "basket" : undefined,
     }));
     const visible = serverEventLog(events);
-    expect(visible[0].decision_count).toBe(21);
-    expect(visible).toHaveLength(490);
+    expect(visible[0].decision_count).toBe(1);
+    expect(visible).toHaveLength(510);
   });
   it("refuses malformed history cursors before they reach the UI", () => {
     expect(() =>
