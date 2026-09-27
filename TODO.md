@@ -1,0 +1,8 @@
+- technology tooltips and colors
+- overlays for map (ressource/influence/space units/ground combat units)
+- main game stats (total ressources/influence, remaining ressources/influence)
+- faction rules tooltips
+- test all strategy cards + secondaries
+- test scoring objectives
+- test winning the game
+- test agenda phase
