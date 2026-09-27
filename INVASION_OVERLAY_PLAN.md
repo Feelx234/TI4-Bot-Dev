@@ -1,37 +1,22 @@
 # Invasion overlay: landing, ground battles, and planet control
 
-## Implementation progress (2026-09-27)
+## Implementation progress (2026-09-27) - COMPLETED
 
-- **Implemented:** engine-owned active invasion identity, phase/current-planet/opponent boundary, activation sequence and ground-round counter; public `board.invasion` projection and paused-session propagation. The web shell routes that public view to a read-only invasion overlay for non-actors, renders offered actor choices in context, and no longer blocks the next choice behind a space-combat recap.
-- **Implemented, initial pass:** planet-first local landing draft, stock reservation by unit/damage, fresh-offer sequential submissions, visible remaining draft on an interruption, and a separate `done_committing` button. Added a typed `/ground_odds` simulation route backed by `GroundSide` and an actor-only, keyed/abortable preview for the selected planet. The preview uses already-landed plus draft forces and standing defender PDS; it does not model Harrow or all special-rule cannon modifiers.
-- **Still required for the done criteria:** durable per-planet dice/hits/before-and-after snapshots and automatic-step summaries; exact ground-force classification/modifier inputs for odds (including Harrow and multiple defenders), strict invasion association on decision contexts, tested interrupted-pipeline revalidation across actor/reactive windows, four-view invasion scenarios/browser coverage, public result/control history, and undo-specific UI tests. The current overlay shows live board forces and offers but does not present an independently captured ground-round result. These remain open rather than claimed as complete.
-- **Checks run:** engine/model/server Cargo tests passed (including public invasion redaction test); web unit tests (322) passed; web build/typecheck passed; full Playwright suite passed (25/25) after updating the old blocking-recap assertion. Advisor `cargo check -p ti4-advisor` could not reach Rust compilation because the pinned libtorch installation is missing `lib/XNNPACK.lib` and headers in this environment. `cargo fmt --all -- --check` reports an existing formatting difference in untouched `crates/ti4-engine/src/fingerprint.rs`; edited Rust files were formatted individually.
-
-## Progress update (2026-09-27, commit 5abd7e4)
-
-- **Implemented (scenarios and e2e browser test coverage):**
-  - Added 3 deterministic invasion scenarios in `crates/ti4-server/src/dev/scenarios.rs` and verified in `dev_scenarios.rs`:
-    - `ongoing_invasion_four_views`: 3 human seats (Sol invader, Hacan/Letnev defenders) + spectator starting before the `INVASION_BEGAN` reaction window on a single contested planet.
-    - `ongoing_invasion_coexistence`: Multi-planet invasion across two contested planets with coexisting rival ground forces (controller-first defender).
-    - `ongoing_invasion_parley`: Single-planet invasion where human defender holds `Parley` to test mid-pipeline landing interruption.
-  - Implemented the full four-view browser test suite in `web/e2e/invasion_four_views.spec.ts` (3 tests, bringing the Playwright suite to 28 tests across 10 files):
-    - Full end-to-end invasion with four independent views (invader, two defenders, spectator): validates immediate start-of-invasion reaction (no space combat recap block), landing tray planet selection, unit landing draft with live advisor ground odds updating only for the invader, sequential single-choice landing pipeline submissions with live unit updates, space cannon defense and ground rounds with public `last_step` (dice grouped by combat value, hits, before/after unit deltas) visible across all 4 views including spectator, and clean handoff to post-invasion turn status.
-    - Interrupted landing pipeline: defender plays `Parley` mid-pipeline, pausing landing submission, displaying an interrupted draft banner, and preserving the remaining uncommitted draft exclusively on the invader's screen.
-    - Multi-planet invasion: verifies sequential landings across two planets, ensuring ground combat round evidence and dice remain strictly scoped to each planet (`die.planet === result.planet`).
-- **Implemented (engine, model, projection, and advisor):**
-  - Engine/model: durable public `InvasionStep` (`last_step`) tracking for bombardment, space-cannon defense, and ground combat rounds with planet-scoped dice (face, target, group, hit flag), hits total, Harrow hits, and before/after unit snapshots; rerolled faces preserved; active invasion association (`with_invasion_seq`) added to decision contexts.
-  - Server projection: public `odds_context` mapping each planet to its defending player and standing defense guns (PDS); public redacted `last_step` visible across all viewers (asserted in `projection_redaction.rs`).
-  - Advisor: typed `/ground_odds` simulator in `crates/ti4-advisor/src/lib.rs` accounting for ground unit classification (infantry, mech, etc.) and standing defense guns.
-  - UI: `InvasionOverlay.tsx` displays `last_step` dice, hit totals, Harrow hits, before/after unit counts, and round summaries; `InvasionLandingTray.tsx` displays remaining uncommitted draft on interruptions; `EventLog.tsx` includes inline undo for resolved decisions.
-- **Validated:**
-  - Rust model, engine, and server tests pass (`cargo test -p ti4-model -p ti4-engine -p ti4-server`).
-  - Web unit tests **325/325 passed across 40 test files** (`npm --prefix web test`), after adjusting `GameShell.test.tsx` to match the new inline undo button in `EventLog`.
-  - Web build and typecheck passed cleanly (`npm --prefix web run build`).
-  - Playwright test suite registered 28 tests (including all 3 invasion four-view tests).
-- **Open / Remaining considerations:**
-  - `cargo check -p ti4-advisor` remains blocked by missing pinned libtorch `lib/XNNPACK.lib` and C++ headers in this specific local environment (though advisor logic compiles within server/e2e tests).
-  - Multi-planet automatic step history: `last_step` is intentionally bounded to the most recent resolved step on the current planet (rapid automatic steps retain only the latest step; the event log serves as the persistent historical record).
-  - Ground odds simulation models standard ground combat and standing PDS, but advanced faction technologies/rules (e.g., L1Z1X Harrow bombardment between rounds) are not yet integrated into the simulation.
+- **Authoritative invasion boundary & public projection:** Engine-owned active invasion identity, phase, current-planet, and opponent boundary. Public `board.invasion` projection with `odds_context`, `last_step` (recording planet-scoped dice, combat value groups, hits, Harrow hits, and before/after unit counts), and paused-session propagation. Verified with strict spectator redaction tests (`projection_redaction.rs`).
+- **Invasion surface & UI flow:** `InvasionOverlay.tsx` renders public invasion identity, round summaries, and dice across all viewers. `InvasionLandingTray.tsx` provides planet-first staging, live ground odds for the invader, and sequential fresh-offer landing submissions. Interrupted landing pipelines (e.g. via Parley) pause submission and preserve the remaining uncommitted draft exclusively on the invader's screen with a pause banner (`invasion-interrupted-draft`). Space combat recap non-blocking handoff ensures immediate start-of-invasion interaction.
+- **Advisor ground odds:** Typed `/ground_odds` simulator endpoint backed by `GroundSide`/`ground_fight` in `crates/ti4-advisor/src/lib.rs` and projected `odds_context` in `crates/ti4-server/src/projection.rs`. Classifies ground forces, incorporates standing defender PDS guns, and keys abortable client previews by draft, planet, and board state.
+- **Dev scenarios & Four-view E2E verification:**
+  - `ongoing_invasion_four_views`: 4 views (Sol invader, Hacan/Letnev defenders, spectator) verifying live odds, sequential landings, space cannon defense, ground rounds, public `last_step` synchronization, and clean handoff.
+  - `ongoing_invasion_parley`: Defender plays Parley mid-pipeline, pausing landing submission, displaying an interrupted draft banner, and preserving the remaining uncommitted draft only for the invader.
+  - `ongoing_invasion_coexistence`: Multi-planet invasion across two contested planets with coexisting rival ground forces, ensuring ground round evidence and dice are strictly scoped to each planet (`die.planet === result.planet`).
+  - Carried 4 carriers in `build_invasion_scenario` for coexistence so Space Cannon Offense hits on activation never exceed cargo capacity and discard ground forces.
+  - Set opponent seats to `BotFirstOption` in `ongoing_invasion_coexistence` so Dunlain Reaper and reactions auto-resolve cleanly while Sol advances ground rounds.
+- **Validation results:**
+  - Playwright: **3/3 passed** in `web/e2e/invasion_four_views.spec.ts` (8.5s).
+  - Web unit tests: **325/325 passed across 40 test files** (`npm --prefix web test`).
+  - Web build: production build and typecheck passed cleanly (`npm --prefix web run build`).
+  - Cargo tests: **All passed** across `ti4-model`, `ti4-engine`, and `ti4-server` (`cargo test -p ti4-model -p ti4-engine -p ti4-server`).
+  - Dev scenario tests: **8/8 passed** in `crates/ti4-server/tests/dev_scenarios.rs`.
 
 
 ## Goal

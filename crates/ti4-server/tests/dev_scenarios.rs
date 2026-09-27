@@ -66,6 +66,16 @@ fn invasion_scenarios_launch_with_public_boundary_and_dev_only_seat_tokens() {
                     .count()
                     >= 3
             }));
+            let system_units = &view.view.board.systems[&invasion.system_id].units;
+            let space_infantry = system_units
+                .iter()
+                .filter(|u| {
+                    u.owner.as_str() == launch.player_id
+                        && u.planet.is_none()
+                        && u.unit_type.as_str() == "infantry"
+                })
+                .count();
+            assert_eq!(space_infantry, 6);
         }
         assert!(view.pending_choice.is_none(), "spectator has no offer");
     }

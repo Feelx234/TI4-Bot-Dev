@@ -215,8 +215,10 @@ pub fn launch_scenario(
                     .action_cards
                     .push(ActionCardId::new("parley"));
             }
-            for controller in config.seats.values_mut() {
-                *controller = SeatController::Human;
+            if scenario_id != "ongoing_invasion_coexistence" {
+                for controller in config.seats.values_mut() {
+                    *controller = SeatController::Human;
+                }
             }
             Some(
                 config
@@ -291,12 +293,11 @@ fn build_invasion_scenario(
     board.units.clear();
     board.command_tokens.clear();
     board.planet_units.clear();
-    board
-        .units
-        .push(Unit::new(UnitTypeId::new("carrier"), invader.clone()));
-    board
-        .units
-        .push(Unit::new(UnitTypeId::new("carrier"), invader.clone()));
+    for _ in 0..(if coexistence { 4 } else { 3 }) {
+        board
+            .units
+            .push(Unit::new(UnitTypeId::new("carrier"), invader.clone()));
+    }
     for _ in 0..(if coexistence { 6 } else { 4 }) {
         board
             .units
