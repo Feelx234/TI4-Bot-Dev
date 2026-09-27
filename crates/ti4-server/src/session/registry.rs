@@ -1447,6 +1447,8 @@ impl GameRegistry {
                     None
                 };
                 if let Some(session) = session {
+                    let legacy_lobby = running_lobby_from_session(&session);
+                    state.lobbies.insert(game_id.to_owned(), legacy_lobby);
                     state.sessions.insert(game_id.to_owned(), session);
                 }
                 state.player_lobbies.insert(game_id.to_owned(), record);
@@ -1963,6 +1965,7 @@ impl GameRegistry {
                 player_ids: players,
                 initial_state,
                 map_tiles,
+                seats: Some(config.seats.clone()),
             }) {
                 // No valid init: recovery treats the lobby as unstarted.
                 let _ = self.save_player_lobby(lobby);
@@ -2313,9 +2316,23 @@ impl GameRegistry {
     }
 
     /// Creates and starts an authoritative dev scenario session with both player and legacy lobby registered.
+    ///
+    /// When persistence is enabled via `self.store`, all three required player records
+    /// (`player_sessions.json`, `init.json`, and `lobby.json`) are durably written before
+    /// starting the session or registering it in memory.
+    ///
+    /// # Failure and retry semantics
+    /// - If the target directory already exists, returns an error immediately to prevent overwriting
+    ///   or deleting an existing game's files on ID collision.
+    /// - Writes proceed in order:
+    ///   1. `player_sessions.json` (authoritative credentials)
+    ///   2. `init.json` (immutable engine initialization and seat controllers)
+    ///   3. `lobby.json` (running lobby record)
+    /// - If any write fails, all artifacts created by this launch are deleted and the session is
+    ///   neither registered in memory nor advertised. Retrying will generate a fresh game ID.
     pub fn launch_dev_scenario(
         &self,
-        config: SessionConfig,
+        mut config: SessionConfig,
         lobby_record: PlayerLobbyRecord,
     ) -> Result<Arc<GameSession>, String> {
         lobby_record.validate().map_err(|error| error.to_string())?;
@@ -2328,6 +2345,86 @@ impl GameRegistry {
             return Err(format!("Game session '{}' already exists", config.game_id));
         }
 
+        let running_lobby = if let Some(store) = &self.store {
+            let dir = store.game_dir(&config.game_id).map_err(|e| e.to_string())?;
+            if dir.exists() {
+                return Err(format!(
+                    "Game directory '{}' already exists",
+                    config.game_id
+                ));
+            }
+            std::fs::create_dir_all(&dir)
+                .map_err(|e| format!("Failed to create scenario directory: {e}"))?;
+
+            config.store.clone_from(&self.store);
+
+            let seed = config.seed.unwrap_or(lobby_record.seed);
+            let sessions_record = PlayerSessionsRecord {
+                schema_version: PLAYER_RECORD_VERSION,
+                game_id: config.game_id.clone(),
+                sessions: lobby_record
+                    .players
+                    .iter()
+                    .map(|(p, m)| (p.clone(), m.session.clone()))
+                    .collect(),
+                nicknames: lobby_record
+                    .players
+                    .iter()
+                    .map(|(id, member)| (id.clone(), member.nickname.clone()))
+                    .collect(),
+            };
+
+            let init_record = PlayerGameInitRecord {
+                schema_version: PLAYER_RECORD_VERSION,
+                game_id: config.game_id.clone(),
+                seed,
+                player_ids: config.player_ids.clone(),
+                initial_state: config.state.clone(),
+                map_tiles: config.map_tiles.clone(),
+                seats: Some(config.seats.clone()),
+            };
+
+            let mut running_lobby = lobby_record.clone();
+            running_lobby.game_id.clone_from(&config.game_id);
+            running_lobby.phase = PersistedLobbyPhase::Running;
+            running_lobby.seed = seed;
+            running_lobby.slots = config
+                .player_ids
+                .iter()
+                .enumerate()
+                .map(|(i, pid)| PlayerLobbySlot {
+                    slot_id: LobbySlotId(format!("slot_{}", i + 1)),
+                    occupant: Some(pid.clone()),
+                })
+                .collect();
+
+            let cleanup = || {
+                let _ = std::fs::remove_file(dir.join("lobby.json"));
+                let _ = std::fs::remove_file(dir.join("init.json"));
+                let _ = std::fs::remove_file(dir.join("player_sessions.json"));
+                let _ = std::fs::remove_dir(&dir);
+            };
+
+            if let Err(e) = store.save_player_sessions(&sessions_record) {
+                cleanup();
+                return Err(format!("Failed to save player sessions: {e}"));
+            }
+
+            if let Err(e) = store.save_player_init(&init_record) {
+                cleanup();
+                return Err(format!("Failed to save player init: {e}"));
+            }
+
+            if let Err(e) = store.save_player_lobby(&running_lobby) {
+                cleanup();
+                return Err(format!("Failed to save player lobby: {e}"));
+            }
+
+            running_lobby
+        } else {
+            lobby_record
+        };
+
         let legacy_lobby = running_lobby_from_session_config(&config);
         let session = Arc::new(GameSession::start(config));
         state
@@ -2335,7 +2432,7 @@ impl GameRegistry {
             .insert(legacy_lobby.game_id.clone(), legacy_lobby);
         state
             .player_lobbies
-            .insert(lobby_record.game_id.clone(), lobby_record);
+            .insert(running_lobby.game_id.clone(), running_lobby);
         state
             .sessions
             .insert(session.id().to_owned(), session.clone());

@@ -233,6 +233,11 @@ pub fn launch_scenario(
     let game_id = config.game_id.clone();
     let session = registry.launch_dev_scenario(config, lobby_record)?;
 
+    // Scripted scenarios advance the engine through initial decisions before returning
+    // the launch response. When persistence is enabled, these decisions are durably logged
+    // using the normal session store. If scripting fails, the error is returned and no
+    // launch response (URL/token) is advertised; the save remains recoverable at the last
+    // committed decision.
     if scenario_id == "ongoing_combat" || scenario_id == "ongoing_combat_four_views" {
         advance_into_space_combat(
             &session,
@@ -354,7 +359,9 @@ fn advance_into_invasion(
             }
             thread::sleep(Duration::from_millis(10));
         }
-        let choice = offer.ok_or("timed out entering invasion")?;
+        let choice = offer
+            .or_else(|| client.snapshot().pending_choice.map(|p| p.choice))
+            .ok_or("timed out entering invasion")?;
         if choice
             .context
             .as_ref()
@@ -417,6 +424,7 @@ fn advance_into_space_combat(
 
     // 1. Initial choice -> "tactical"
     let _ = wait_for_choice(&client)
+        .or_else(|| client.snapshot().pending_choice.map(|p| p.choice))
         .ok_or_else(|| "timed out waiting for initial choice".to_owned())?;
     let (_, nonce_1, ver_1) = session
         .current_pending_decision()

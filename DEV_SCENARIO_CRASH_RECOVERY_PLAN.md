@@ -1,5 +1,34 @@
 # Dev scenario crash recovery
 
+## Implementation Progress & Status (COMPLETED)
+
+- **Recoverable bot controllers in player init records:**
+  - Added optional, validated `seats: Option<BTreeMap<PlayerId, SeatController>>` (`#[serde(default, skip_serializing_if = "Option::is_none")]`) to `PlayerGameInitRecord` in [`crates/ti4-server/src/storage.rs`](file:///home/zibert/github/TI4-Bot-Dev/crates/ti4-server/src/storage.rs).
+  - Validated in `validate_player_init`: ensures the seat controller map exactly matches the verified player ID set without credentials, while remaining completely backwards-compatible with older records where `seats` is omitted.
+  - Updated `recover_player_session`: reconstructs `GameInitRecord` using `init.seats` when present, falling back to all-`Human` for legacy saves.
+- **Pre-publish durable dev scenario launch & failure semantics:**
+  - In `GameRegistry::launch_dev_scenario` ([`crates/ti4-server/src/session/registry.rs`](file:///home/zibert/github/TI4-Bot-Dev/crates/ti4-server/src/session/registry.rs)), when `self.store` is present, attached the store to `SessionConfig` and durably persisted:
+    1. `player_sessions.json` (authoritative credentials mapping)
+    2. `init.json` (immutable engine initialization, map tiles, seed, initial state, and seat controllers)
+    3. `lobby.json` (running player lobby record)
+  - Records are derived from the *final* scenario configuration (including all unit/card mutations and four-view seat adjustments).
+  - Directory collision protection: checks whether the target directory already exists; returns an error without deleting or modifying existing files.
+  - Atomic write failure cleanup: if any write fails, deletes only artifacts created by that failed launch (`lobby.json`, `init.json`, `player_sessions.json`, and the newly created directory) and returns an error without registering or advertising an in-memory session.
+  - In-memory sessions and lobbies are only started and registered once all required writes succeed.
+- **Durable scripted scenario startup:**
+  - Scripted scenario advancement (`advance_into_space_combat` and `advance_into_invasion` in [`crates/ti4-server/src/dev/scenarios.rs`](file:///home/zibert/github/TI4-Bot-Dev/crates/ti4-server/src/dev/scenarios.rs)) durably logs decisions and events to `decisions.jsonl` and `events.jsonl` via the attached store before the launch response succeeds.
+  - If scripting fails, the error is returned to the caller so no URL or token is advertised; the save on disk remains recoverable at the last committed decision.
+  - Eliminated subscription race in initial choice polling by checking `client.snapshot().pending_choice` if `try_recv()` has not yet buffered the initial offer.
+- **Verification & Acceptance:**
+  - Added dedicated integration tests in [`crates/ti4-server/tests/dev_scenario_recovery.rs`](file:///home/zibert/github/TI4-Bot-Dev/crates/ti4-server/tests/dev_scenario_recovery.rs):
+    - `dev_scenario_space_combat_crash_recovery_preserves_bots_and_play`: launches `space_combat` with store, moves fleet into combat, drops registry, restarts and recovers via `recover_all_games_report`, verifies public lobby and player session views, asserts matching decision hashes and current state, verifies bot seat controllers (`BotFirstOption`), and continues live play where human acts and bots respond automatically with new decisions logged to disk.
+    - `scripted_ongoing_combat_and_four_view_presets_recover_cleanly`: verifies scripted `ongoing_combat` (replaying scripted decisions and restoring bot controllers), `ongoing_combat_four_views` (retaining all-human seats), and an ordinary player lobby compatibility case.
+    - `launch_failure_cleanup_and_backwards_compatibility`: verifies directory collision safety, clean rollback on failed writes, omission of phantom lobbies on unstarted/broken sessions, and clean recovery of legacy `init.json` records omitting `seats`.
+  - All test suites in `cargo test -p ti4-server` pass.
+  - `cargo fmt --all --check` clean.
+
+---
+
 ## Goal
 
 A scenario launched from `/dev/scenarios` should remain playable at its original `/games/{game_id}` URL after the server restarts, with the same player credentials, current decision, history, and bot behavior. Preserve existing recovery behavior for ordinary games. This plan is for *future launches*; the existing `data/games/dev_combat_b7078f12de2eb695/` cannot be reconstructed from its lone `player_sessions.json`.

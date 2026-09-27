@@ -239,6 +239,8 @@ pub struct PlayerGameInitRecord {
     pub player_ids: Vec<PlayerId>,
     pub initial_state: GameState,
     pub map_tiles: Vec<BoardTileView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seats: Option<BTreeMap<PlayerId, SeatController>>,
 }
 
 /// Authoritative running-session credential mapping, atomically replaced on rotation.
@@ -786,16 +788,20 @@ impl FileGameStore {
         {
             return Err(StorageError::InvalidPlayerRecord("started sessions"));
         }
+        let seats = if let Some(seats) = init.seats {
+            seats
+        } else {
+            init.player_ids
+                .iter()
+                .map(|id| (id.clone(), SeatController::Human))
+                .collect()
+        };
         let record = GameInitRecord {
             game_id: init.game_id,
             seed: Some(init.seed),
             player_ids: init.player_ids.clone(),
             initial_state: init.initial_state,
-            seats: init
-                .player_ids
-                .iter()
-                .map(|id| (id.clone(), SeatController::Human))
-                .collect(),
+            seats,
             seat_tokens: sessions
                 .sessions
                 .into_iter()
@@ -965,6 +971,12 @@ fn validate_player_init(record: &PlayerGameInitRecord) -> Result<(), StorageErro
             != record.player_ids.len()
     {
         return Err(StorageError::InvalidPlayerRecord("game player order"));
+    }
+    if let Some(seats) = &record.seats
+        && (seats.len() != record.player_ids.len()
+            || record.player_ids.iter().any(|id| !seats.contains_key(id)))
+    {
+        return Err(StorageError::InvalidPlayerRecord("seat controllers"));
     }
     Ok(())
 }
@@ -1383,6 +1395,7 @@ mod player_record_tests {
             player_ids: vec![host.clone()],
             initial_state: crate::fixtures::create_sample_game(),
             map_tiles: Vec::new(),
+            seats: None,
         };
         store.save_player_init(&init).unwrap();
         let mut sessions = PlayerSessionsRecord {
