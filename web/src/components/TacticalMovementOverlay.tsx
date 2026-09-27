@@ -600,6 +600,29 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     if (onSubmitBatch && destinationSystemId) {
       const steps: MovementStep[] = [];
       const remaining = [...cargo];
+      const remainingCandidatesByOrigin: Record<string, number> = {};
+      for (const ship of ships) {
+        if (remainingCandidatesByOrigin[ship.origin] === undefined) {
+          let count = 0;
+          const units = board?.systems?.[ship.origin]?.units ?? [];
+          for (const u of units) {
+            if (u.owner !== choice?.actor) continue;
+            const base = getUnitBaseType(u.unit_type);
+            if (base === "infantry" || base === "mech" || base === "fighter") {
+              count++;
+            }
+          }
+          if (count === 0) {
+            for (const c of originCargoGroups) {
+              if (c.originSystemId === ship.origin) {
+                count += c.totalAvailable;
+              }
+            }
+          }
+          remainingCandidatesByOrigin[ship.origin] = count;
+        }
+      }
+
       for (const ship of ships) {
         steps.push({
           kind: "move",
@@ -607,6 +630,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
           unit: ship.unitType,
           damaged: ship.damaged,
         });
+        const candidatesBefore = remainingCandidatesByOrigin[ship.origin] ?? 0;
         let loaded = 0;
         while (loaded < ship.capacity) {
           const index = remaining.findIndex((item) => item.origin === ship.origin);
@@ -621,7 +645,16 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
           });
           loaded++;
         }
-        if (ship.capacity > 0) steps.push({ kind: "done_loading" });
+        remainingCandidatesByOrigin[ship.origin] = Math.max(0, candidatesBefore - loaded);
+
+        if (
+          ship.capacity > 0 &&
+          candidatesBefore > 0 &&
+          loaded < ship.capacity &&
+          loaded < candidatesBefore
+        ) {
+          steps.push({ kind: "done_loading" });
+        }
       }
       if (remaining.length) {
         planRef.current.active = false;

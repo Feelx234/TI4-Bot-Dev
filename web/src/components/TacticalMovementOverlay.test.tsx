@@ -61,7 +61,7 @@ const mockPlayer: PlayerView = {
 };
 
 describe("TacticalMovementOverlay Component", () => {
-  it("submits one atomic movement and cargo plan instead of individual choices", async () => {
+  it("submits one atomic movement and cargo plan without done_loading when all candidates are loaded", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
     render(
@@ -76,6 +76,49 @@ describe("TacticalMovementOverlay Component", () => {
                 planets: {},
                 units: [
                   { owner: "p1", unit_type: "carrier", damaged: false },
+                  { owner: "p1", unit_type: "infantry", planet: "jord", damaged: false },
+                ],
+              },
+            },
+          } as any
+        }
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={onSubmit}
+        onSubmitBatch={onSubmitBatch}
+        isOpen
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
+    fireEvent.click(screen.getByTestId("rally-inc-cargo-24-infantry-jord"));
+    fireEvent.click(screen.getByTestId("commit-moves-btn"));
+    await waitFor(() =>
+      expect(onSubmitBatch).toHaveBeenCalledExactlyOnceWith("18", [
+        { kind: "move", origin: "24", unit: "carrier", damaged: false },
+        { kind: "load", origin: "24", unit: "infantry", source: "jord", damaged: false },
+        { kind: "done_moving" },
+      ]),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("submits done_loading when carrier has remaining capacity and candidates remain at origin", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TacticalMovementOverlay
+        choice={mockMoveChoice}
+        board={
+          {
+            systems: {
+              "24": {
+                system_id: "24",
+                command_tokens: [],
+                planets: {},
+                units: [
+                  { owner: "p1", unit_type: "carrier", damaged: false },
+                  { owner: "p1", unit_type: "infantry", planet: "jord", damaged: false },
                   { owner: "p1", unit_type: "infantry", planet: "jord", damaged: false },
                 ],
               },

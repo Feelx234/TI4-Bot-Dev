@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { openPlayerGame } from "./lobbyHelpers";
+import { createStartedGame, gameSnapshot, openPlayerGame } from "./lobbyHelpers";
 import type { InitialSnapshotMsg } from "../src/protocol/types";
 
 const backend = `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? "8080"}`;
@@ -163,5 +163,154 @@ test.describe("Tactical fleet rally", () => {
         ).length;
       })
       .toBeGreaterThanOrEqual(4);
+  });
+
+  test("successfully moves fleet and cargo without workflow interruption when carrier is at full capacity", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { gameId, players } = await createStartedGame(request, 3, 42);
+    const [p1, p2, p3] = players;
+
+    const contextP1 = await browser.newContext();
+    const pageP1 = await contextP1.newPage();
+    await openPlayerGame(pageP1, gameId, p1.session);
+
+    const contextP2 = await browser.newContext();
+    const pageP2 = await contextP2.newPage();
+    await openPlayerGame(pageP2, gameId, p2.session);
+
+    const contextP3 = await browser.newContext();
+    const pageP3 = await contextP3.newPage();
+    await openPlayerGame(pageP3, gameId, p3.session);
+    const pages = [pageP1, pageP2, pageP3];
+
+    // Wait for all seats to load turn-status-bar
+    await expect(pageP1.locator('[data-testid="turn-status-bar"]')).toBeVisible();
+
+    // Strategy draft: resolve each pick until Action phase
+    while (true) {
+      const current = await gameSnapshot(request, gameId, p1.session);
+      if (current.view.phase.toLowerCase() === "action") break;
+      if (current.turn_status.kind !== "waiting_for_decision") break;
+      const index = players.findIndex((p) => p.id === current.turn_status.seat);
+      const actorPage = pages[index];
+      await expect(actorPage.getByTestId("pending-choice-dialog")).toBeVisible();
+      await expect(actorPage.getByTestId("submit-choice-button")).toBeEnabled();
+      await actorPage.getByTestId("submit-choice-button").click();
+      await actorPage.waitForTimeout(300);
+    }
+
+    // Now in Action phase, P1 (Sol) is active
+    await expect(pageP1.getByTestId("turn-status-bar")).toContainText("action Phase", {
+      ignoreCase: true,
+    });
+    const p1Action = await gameSnapshot(request, gameId, p1.session);
+    expect(p1Action.pending_choice?.choice.player).toBe(p1.id);
+
+    // Select tactical action
+    await expect(pageP1.getByTestId("pending-choice-dialog")).toBeVisible();
+    await pageP1.locator('[data-testid="choice-option"][data-option-id="tactical"]').click();
+    await expect(pageP1.getByTestId("submit-choice-button")).toBeEnabled();
+    await pageP1.getByTestId("submit-choice-button").click();
+
+    // Select an adjacent system at distance 1 from home system 01 to activate
+    await expect
+      .poll(async () => {
+        const snap = await gameSnapshot(request, gameId, p1.session);
+        return snap.pending_choice?.choice.context?.subtype;
+      })
+      .toBe("activate_system");
+    const activateState = await gameSnapshot(request, gameId, p1.session);
+    const tiles = activateState.view.board.map_tiles ?? [];
+    const homeTile = tiles.find((t) => t.system_id === "01")!;
+    const adjacent = tiles.find(
+      (t) =>
+        t.system_id !== "01" &&
+        Math.max(
+          Math.abs(t.q - homeTile.q),
+          Math.abs(t.r - homeTile.r),
+          Math.abs(-t.q - t.r - (-homeTile.q - homeTile.r)),
+        ) === 1 &&
+        activateState.pending_choice!.choice.options.some((o) => o.id === t.system_id),
+    )!;
+    const targetSys = adjacent.system_id;
+    await pageP1.getByTestId(`system-hex-${targetSys}`).click();
+    await pageP1.getByTestId("confirm-activation-btn").click();
+
+    // Tactical movement tray opens
+    const tray = pageP1.getByTestId("tactical-movement-tray");
+    await expect(tray).toBeVisible();
+
+    // Stage all ships in system 01: 2 carriers and 1 destroyer
+    const carrierInc = pageP1.getByTestId("rally-inc-01-sol_carrier");
+    await expect(carrierInc).toBeVisible();
+    await carrierInc.click();
+    await carrierInc.click();
+
+    const destroyerInc = pageP1.getByTestId("rally-inc-01-destroyer");
+    await expect(destroyerInc).toBeVisible();
+    await destroyerInc.click();
+
+    // Stage all 5 infantry on Jord
+    const infantryInc = pageP1.getByTestId("rally-inc-cargo-01-sol_infantry-jord");
+    await expect(infantryInc).toBeVisible();
+    for (let i = 0; i < 5; i++) {
+      await infantryInc.click();
+    }
+
+    // Stage 1 fighter from space so Carrier 1 capacity (6) is completely filled
+    const fighterCargoInc = pageP1.locator('[data-testid^="rally-inc-cargo-01-fighter"]');
+    await expect(fighterCargoInc).toBeVisible();
+    await fighterCargoInc.click();
+
+    // Verify fleet supply and capacity are within limits (no warning attributes)
+    await expect(pageP1.getByTestId("fleet-supply-gauge")).not.toHaveAttribute(
+      "data-warning",
+      "true",
+    );
+    await expect(pageP1.getByTestId("cargo-capacity-gauge-01")).toContainText("6 /");
+
+    // Commit moves and capture batch request/response
+    const batchRequestPromise = pageP1.waitForRequest((req) =>
+      req.url().endsWith(`/api/games/${gameId}/batches`),
+    );
+    await pageP1.getByTestId("commit-moves-btn").click();
+
+    const batchReq = await batchRequestPromise;
+    const batchRes = await pageP1.waitForResponse((res) => res.request() === batchReq);
+
+    // Confirm that the server accepted the batch without interruption
+    expect(batchRes.ok(), `batch response ${batchRes.status()}: ${await batchRes.text()}`).toBe(
+      true,
+    );
+
+    // Confirm that the tray closes and no error banner appears
+    await expect(tray).toHaveCount(0, { timeout: 35_000 });
+    await expect(pageP1.getByTestId("movement-error-banner")).toHaveCount(0);
+
+    // Verify units arrived in target system
+    await expect
+      .poll(async () => {
+        const snap = await gameSnapshot(request, gameId, p1.session);
+        const units = snap.view.board.systems[targetSys]?.units ?? [];
+        return {
+          carriers: units.filter((u) => u.owner === p1.id && u.unit_type === "sol_carrier").length,
+          destroyers: units.filter((u) => u.owner === p1.id && u.unit_type === "destroyer").length,
+          infantry: units.filter((u) => u.owner === p1.id && u.unit_type === "sol_infantry").length,
+          fighters: units.filter((u) => u.owner === p1.id && u.unit_type === "fighter").length,
+        };
+      })
+      .toEqual({
+        carriers: 2,
+        destroyers: 1,
+        infantry: 5,
+        fighters: 1,
+      });
+
+    await contextP1.close();
+    await contextP2.close();
+    await contextP3.close();
   });
 });

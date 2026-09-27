@@ -370,6 +370,12 @@ impl Decider for PrivateDecider {
                 })
             };
         }
+        while script.kind == BatchKind::TacticalMovement
+            && matches!(script.steps.get(script.next), Some(MovementStep::DoneLoading))
+            && choice.context.as_ref().is_some_and(|c| c.subtype == "movement_step")
+        {
+            script.next += 1;
+        }
         if script.next == script.steps.len() {
             script.finished = true;
             return Err(IllegalChoice::DeciderFailed {
