@@ -162,7 +162,7 @@ describe("SpaceCombatOverlay", () => {
       />,
     );
 
-    expect(screen.getByText(/Caution: Opponents holding "Direct Hit"/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Caution: Opponents holding "Direct Hit"/i)).not.toBeInTheDocument();
     const sustainBtn = screen.getByTestId("sustain-opt-sustain:dreadnought:1");
     expect(sustainBtn).toBeInTheDocument();
 
@@ -423,6 +423,9 @@ describe("SpaceCombatOverlay", () => {
     );
 
     expect(screen.getByTestId("combat-round-hits")).toBeInTheDocument();
+    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent(
+      "Space Combat · System 18 · Round 2",
+    );
     expect(screen.getByText("Round 2 Hits Produced")).toBeInTheDocument();
     expect(screen.getByTestId("attacker-round-hits")).toHaveTextContent("3");
     expect(screen.getByTestId("defender-round-hits")).toHaveTextContent("1");
@@ -564,6 +567,10 @@ describe("SpaceCombatOverlay", () => {
     const carrierRow = screen.getByTestId("unit-row-carrier");
     expect(carrierRow).toHaveClass("combat-unit-row--interactive");
     expect(carrierRow).toHaveTextContent("💥 Click to assign");
+    expect(screen.queryByText(/hits remaining.*Click a ship row/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Location: System 18/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Assign this hit/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Assign this hit:/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("combat-roll-group-seat_1-carrier"));
     expect(onSubmit).not.toHaveBeenCalled();
@@ -612,6 +619,10 @@ describe("SpaceCombatOverlay", () => {
     );
 
     expect(screen.getByTestId("direct-hit-threat-banner")).toBeInTheDocument();
-    expect(screen.getByText(/Opponent holds a "Direct Hit" action card/i)).toBeInTheDocument();
+    expect(screen.getByTestId("direct-hit-threat-banner")).toHaveTextContent(
+      "Opponent holds Direct Hit — sustained ships may be destroyed.",
+    );
+    expect(screen.queryByText(/Caution: Opponents holding/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("direct-hit-held-banner")).not.toBeInTheDocument();
   });
 });

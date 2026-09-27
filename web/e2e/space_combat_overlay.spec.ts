@@ -55,6 +55,28 @@ test.describe("Space Combat Overlay", () => {
     await expect(panel).toBeVisible();
     await expect(panel).toHaveCSS("background-color", "rgb(11, 18, 34)");
     await expect(modal).toHaveCSS("background-color", "rgb(7, 12, 22)");
+    await expect(page.getByTestId("combat-stage-title")).toContainText(
+      `Round ${initial.view.board.combat?.round}`,
+    );
+    const header = page.locator(".app-shell__header").boundingBox();
+    const dialog = modal.boundingBox();
+    expect((await dialog)?.y).toBeGreaterThanOrEqual(
+      (await header)!.y + (await header)!.height,
+    );
+    const actionArea = modal.locator(".combat-action-area");
+    await expect(actionArea).toBeVisible();
+    const actions = await actionArea.boundingBox();
+    const fleets = await modal.getByTestId("combat-arena-sides").boundingBox();
+    expect(actions!.y + actions!.height).toBeLessThanOrEqual(fleets!.y);
+    const panelBox = await panel.boundingBox();
+    expect(actions!.y + actions!.height).toBeLessThanOrEqual(panelBox!.y + panelBox!.height);
+    await page.setViewportSize({ width: 390, height: 740 });
+    const mobileHeader = await page.locator(".app-shell__header").boundingBox();
+    const mobileDialog = await modal.boundingBox();
+    const mobileActions = await actionArea.boundingBox();
+    expect(mobileDialog!.y).toBeGreaterThanOrEqual(mobileHeader!.y + mobileHeader!.height);
+    expect(mobileActions!.y + mobileActions!.height).toBeLessThanOrEqual(740);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // Verify both attacker and defender have Dreadnoughts
     const attackerCard = page.getByTestId("attacker-fleet-card");

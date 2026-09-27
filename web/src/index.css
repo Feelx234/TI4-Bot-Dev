@@ -87,6 +87,8 @@ html,
 
 .app-shell__content {
   display: grid;
+  grid-row: 2;
+  grid-column: 1;
   grid-template-columns: minmax(0, 1fr) 330px;
   min-height: 0;
   overflow: hidden;
@@ -1123,19 +1125,35 @@ select:focus-visible,
 
 /* Space Combat Arena Overlay */
 .combat-arena-dialog {
+  position: absolute;
   background: #070c16;
   backdrop-filter: none;
+}
+
+.app-shell__overlays:has(.combat-arena-dialog) {
+  position: relative;
+  grid-row: 2;
+  grid-column: 1;
+  min-height: 0;
 }
 
 .combat-arena-panel {
   width: min(1000px, calc(100vw - 32px));
   max-width: 1000px;
-  max-height: calc(100dvh - 32px);
+  max-height: calc(100% - 32px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
   background: #0b1222;
+}
+
+.combat-arena-panel:has(.combat-action-area) .combat-action-area {
+  order: 1;
+}
+
+.combat-arena-panel:has(.combat-action-area) .combat-arena-sides-grid {
+  order: 2;
 }
 
 .combat-arena-sides-grid {
@@ -1493,13 +1511,8 @@ select:focus-visible,
 }
 
 .combat-direct-hit-banner {
-  padding: 8px 12px;
-  border-radius: 4px;
-  background: rgba(245, 158, 11, 0.15);
-  border: 1px solid rgba(245, 158, 11, 0.4);
-  color: #fbbf24;
+  color: var(--color-text-muted);
   font-size: 12px;
-  margin-bottom: 8px;
 }
 
 .combat-arena-center {
@@ -1638,9 +1651,14 @@ select:focus-visible,
 }
 
 .combat-action-area {
-  margin-top: 8px;
-  padding-top: 14px;
-  border-top: 1px solid var(--color-border);
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: #142035;
+}
+
+.combat-action-area:empty {
+  display: none;
 }
 
 .combat-action-prompt {
@@ -1678,17 +1696,6 @@ select:focus-visible,
 
 .combat-decline-row {
   margin-top: 10px;
-}
-
-.combat-casualty-instruction {
-  font-size: 13px;
-  margin-bottom: 6px;
-}
-
-.combat-location-label {
-  font-size: 12px;
-  color: var(--color-text-muted);
-  margin-bottom: 8px;
 }
 
 .combat-casualty-options-grid {

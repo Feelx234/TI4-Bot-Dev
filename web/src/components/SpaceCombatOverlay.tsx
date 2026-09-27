@@ -486,6 +486,16 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   const casualtyOptions =
     choice?.options.filter((o) => o.id !== "decline" && o.kind !== "decline") ?? [];
 
+  const activeCasualtyStats = choice?.actor === attackerSeat ? attackerStats : defenderStats;
+  const unmatchedCasualties = isCasualtyStage
+    ? casualtyOptions.filter(
+        (opt) =>
+          !activeCasualtyStats.groupedUnits.some((group) =>
+            matchesUnitType(group.unitType, getCombatPayload(opt).unit, opt.label),
+          ),
+      )
+    : [];
+
   const attackerHitsDealt = useMemo(() => {
     if (typeof board?.combat?.attacker_hits === "number") {
       return board.combat.attacker_hits;
@@ -512,7 +522,6 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   const defenderHasDirectHit = hasDirectHit(defenderPlayer);
   const isAttackerDeciding = choice?.actor === attackerSeat;
   const opponentHasDirectHit = isAttackerDeciding ? defenderHasDirectHit : attackerHasDirectHit;
-  const activeHasDirectHit = isAttackerDeciding ? attackerHasDirectHit : defenderHasDirectHit;
 
   const renderActionCards = (seat: string) => {
     const player = playersMap[seat];
@@ -646,7 +655,12 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           {isCasualtyInteractive && (
             <div className="combat-unit-row__actions">
               {matchingCasualties.length === 1 ? (
-                <span className="combat-unit-row__click-hint">💥 Click to assign</span>
+                <span
+                  className="combat-unit-row__click-hint"
+                  data-testid={`casualty-opt-${matchingCasualties[0].id}`}
+                >
+                  💥 Click to assign
+                </span>
               ) : (
                 matchingCasualties.map((opt) => {
                   const payload = getCombatPayload(opt);
@@ -655,6 +669,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                     <button
                       key={opt.id}
                       type="button"
+                      data-testid={`casualty-opt-${opt.id}`}
                       disabled={isDirectSubmitting}
                       className={`combat-unit-row__action-btn ${isDamaged ? "combat-unit-row__action-btn--damaged" : ""}`}
                       onClick={(e) => {
@@ -776,13 +791,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
             Space Combat — System {combatSystemId}
           </Dialog.Title>
           <DecisionHeader
-            actor={choice?.actor || attackerSeat}
-            title={`Space Combat — System ${combatSystemId}`}
-            instruction={
-              isRecap
-                ? "Battle complete · Last round"
-                : choice?.prompt || "Space combat in progress"
-            }
+            title={`Space Combat · System ${combatSystemId} · Round ${board?.combat?.round ?? 1}${isRecap ? " · Recap" : ""}`}
             onMinimize={() => (onMinimize ? onMinimize(true) : onClose())}
             minimizeLabel={isRecap ? "Dock battle recap" : undefined}
             titleTestId="combat-stage-title"
@@ -1092,33 +1101,17 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                     {/* Stage 1: Sustain Damage */}
                     {isActor && isSustainStage && (
                       <div className="workflow-inline">
-                        <div className="combat-dialog__warning">
-                          ⚠️ Caution: Opponents holding "Direct Hit" action cards may react to
-                          destroy sustained ships!
-                        </div>
-
                         {opponentHasDirectHit && (
                           <div
                             className="combat-direct-hit-banner"
                             data-testid="direct-hit-threat-banner"
                           >
-                            ⚠️ Threat Alert: Opponent holds a "Direct Hit" action card! Any
-                            sustained ship can be immediately destroyed.
-                          </div>
-                        )}
-                        {activeHasDirectHit && (
-                          <div
-                            className="combat-direct-hit-banner"
-                            data-testid="direct-hit-held-banner"
-                          >
-                            🎯 Tactical Advantage: You hold "Direct Hit" in hand! You can target
-                            opponent ships if they sustain damage.
+                            Opponent holds Direct Hit — sustained ships may be destroyed.
                           </div>
                         )}
 
                         <div className="combat-action-prompt">
-                          Click 🛡️ Sustain on an eligible ship row above, or decline to take hits
-                          directly:
+                          Sustain on an eligible ship below, or take the hit.
                         </div>
 
                         {/* Fallback sustain buttons when no unit rows exist on board */}
@@ -1168,24 +1161,10 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                     )}
 
                     {/* Stage 2: Assign Casualty */}
-                    {isActor && isCasualtyStage && (
+                    {isActor && isCasualtyStage && unmatchedCasualties.length > 0 && (
                       <div className="workflow-inline">
-                        <p className="combat-casualty-instruction">
-                          {hitsOwed ? `${hitsOwed} hits remaining. ` : ""}Click a ship row above to
-                          assign a hit, or select below:
-                        </p>
-                        {choice.context?.target && (
-                          <p className="combat-location-label">
-                            Location:{" "}
-                            {"System" in choice.context.target
-                              ? `System ${choice.context.target.System}`
-                              : "Planet" in choice.context.target
-                                ? choice.context.target.Planet.planet
-                                : "Combat"}
-                          </p>
-                        )}
                         <div className="combat-casualty-options-grid">
-                          {casualtyOptions.map((opt) => (
+                          {unmatchedCasualties.map((opt) => (
                             <button
                               key={opt.id}
                               type="button"
@@ -1194,8 +1173,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                               disabled={isDirectSubmitting}
                               onClick={() => void submitDirect(opt.id)}
                             >
-                              Assign this hit: {opt.label}
-                              {getCombatPayload(opt).damaged ? " (damaged)" : ""}
+                              {opt.label}
                             </button>
                           ))}
                         </div>

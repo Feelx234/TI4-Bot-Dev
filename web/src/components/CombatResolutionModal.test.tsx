@@ -33,7 +33,7 @@ describe("CombatResolutionModal", () => {
     );
 
     expect(screen.getByTestId("combat-stage-title")).toHaveTextContent("Space Combat");
-    expect(screen.getByText(/Caution: Opponents holding "Direct Hit"/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Caution: Opponents holding "Direct Hit"/i)).not.toBeInTheDocument();
 
     const sustainBtn = screen.getByTestId("sustain-opt-sustain:dreadnought:1");
     expect(sustainBtn).toBeInTheDocument();
@@ -117,9 +117,9 @@ describe("CombatResolutionModal", () => {
     );
 
     expect(screen.getByTestId("combat-stage-title")).toHaveTextContent("Space Combat");
-    expect(screen.getByText(/2 hits remaining/)).toBeInTheDocument();
+    expect(screen.queryByText(/2 hits remaining/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("confirm-casualties-btn")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Assign this hit/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /destroy/i })).toHaveLength(2);
     await act(async () => {
       fireEvent.click(screen.getByTestId("casualty-opt-destroy|fighter"));
     });
@@ -171,7 +171,7 @@ describe("CombatResolutionModal", () => {
     );
 
     expect(screen.queryByTestId("auto-cheapest-btn")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Assign this hit/i })).toHaveLength(3);
+    expect(screen.getAllByRole("button", { name: /destroy/i })).toHaveLength(3);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
