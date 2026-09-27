@@ -454,17 +454,17 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
 
   const renderRollBadge = (seat: string, unitType: string) => {
     const type = getUnitBaseType(unitType);
-    const dice = rollsBySide.get(seat)?.get(type);
-    if (!dice?.length) return null;
+    const dice = rollsBySide.get(seat)?.get(type) ?? [];
     const hits = dice.filter((die) => die.hit).length;
     const name = getUnitDisplayName(type);
     const results = dice.map((die) => `${die.roll} (${die.target}+) ${die.hit ? "hit" : "miss"}`);
+    const rollSummary = `${name}: ${hits} hit${hits === 1 ? "" : "s"} from ${dice.length} roll${dice.length === 1 ? "" : "s"}.`;
     return (
       <span
         className="combat-unit-row__rolls"
         data-testid={`combat-roll-group-${seat}-${type}`}
         tabIndex={0}
-        aria-label={`${name}: ${hits} hit${hits === 1 ? "" : "s"} from ${dice.length} roll${dice.length === 1 ? "" : "s"}. ${results.join(", ")}`}
+        aria-label={`${rollSummary}${results.length ? ` ${results.join(", ")}` : ""}`}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >

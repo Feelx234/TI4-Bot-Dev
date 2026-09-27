@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { openPlayerGame } from "./lobbyHelpers";
 import type { InitialSnapshotMsg } from "../src/protocol/types";
 import { getUnitBaseType } from "../src/components/UnitIcon";
@@ -15,6 +15,44 @@ async function snapshot(
   });
   expect(response.ok(), `snapshot: ${response.status()}`).toBe(true);
   return response.json();
+}
+
+async function expectShipHitPills(page: Page, state: InitialSnapshotMsg) {
+  const combat = state.view.board.combat!;
+  const units = state.view.board.systems[combat.system_id].units;
+  for (const [side, seat] of [
+    ["attacker", combat.attacker],
+    ["defender", combat.defender],
+  ] as const) {
+    const shipTypes = new Set(
+      units
+        .filter((unit) => unit.owner === seat && !unit.planet)
+        .map((unit) => unit.unit_type)
+        .filter((unitType) =>
+          ["warsun", "flagship", "dreadnought", "carrier", "cruiser", "destroyer", "fighter"].includes(
+            getUnitBaseType(unitType),
+          ),
+        ),
+    );
+    expect(shipTypes.size, `${side} should have ships`).toBeGreaterThan(0);
+    for (const unitType of shipTypes) {
+      const type = getUnitBaseType(unitType);
+      const rolls = (combat.dice_rolls ?? []).filter(
+        (die) => (die.player ?? combat.attacker) === seat && getUnitBaseType(die.unit) === type,
+      );
+      const hits = rolls.filter((die) => die.hit).length;
+      const card = page.getByTestId(`${side}-fleet-card`);
+      const pill = card
+        .getByTestId(`unit-row-${unitType}`)
+        .getByTestId(`combat-roll-group-${seat}-${type}`);
+      await expect(pill).toBeVisible();
+      await expect(pill).toContainText(`${hits} hit${hits === 1 ? "" : "s"}`);
+      await expect(pill).toHaveAttribute(
+        "aria-label",
+        new RegExp(`${hits} hit(?:s)? from ${rolls.length} roll(?:s)?\\.`),
+      );
+    }
+  }
 }
 
 test.describe("Space Combat Overlay", () => {
@@ -90,6 +128,8 @@ test.describe("Space Combat Overlay", () => {
     await expect(defenderCard.getByTestId("unit-row-dreadnought")).toBeVisible();
     await expect(page.getByTestId("defender-fleet-supply-gauge")).toBeVisible();
     await expect(page.getByTestId("defender-capacity-gauge")).toBeVisible();
+
+    await expectShipHitPills(page, initial);
 
     for (const name of ["Direct Hit", "Shields Holding", "Courageous to the End", "Salvage"]) {
       await expect(attackerCard.getByTestId(`combat-cards-${playerId}`)).toContainText(name);
@@ -254,6 +294,7 @@ test.describe("Space Combat Overlay", () => {
         .toBe("sustain_damage");
       const sustainChoice = await snapshot(request, gameId, session);
       expect(sustainChoice.pending_choice?.choice.player).toBe(playerId);
+      await expectShipHitPills(page, sustainChoice);
       const sustain = sustainChoice.pending_choice!.choice.options.find(
         (option) => option.id !== "decline" && option.kind !== "decline",
       );

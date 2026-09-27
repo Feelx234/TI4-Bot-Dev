@@ -219,6 +219,11 @@ describe("SpaceCombatOverlay", () => {
     );
     expect(dreadnoughts.querySelectorAll(".combat-unit-row__roll-result")).toHaveLength(2);
     expect(screen.getByTestId("combat-roll-group-seat_1-carrier")).toHaveTextContent("1 hit");
+    expect(screen.getByTestId("combat-roll-group-seat_1-fighter")).toHaveAttribute(
+      "aria-label",
+      "Fighter: 0 hits from 0 rolls.",
+    );
+    expect(screen.getByTestId("combat-roll-group-seat_1-fighter")).toHaveTextContent("0 hits");
     expect(screen.getByTestId("combat-roll-group-seat_2-cruiser")).toHaveTextContent("1 hit");
     expect(screen.getByTestId("combat-roll-group-seat_2-destroyer")).toHaveTextContent("0 hits");
     expect(screen.queryByTestId("combat-dice-feed")).not.toBeInTheDocument();
