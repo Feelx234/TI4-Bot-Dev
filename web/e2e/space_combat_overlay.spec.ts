@@ -29,9 +29,15 @@ async function expectShipHitPills(page: Page, state: InitialSnapshotMsg) {
         .filter((unit) => unit.owner === seat && !unit.planet)
         .map((unit) => unit.unit_type)
         .filter((unitType) =>
-          ["warsun", "flagship", "dreadnought", "carrier", "cruiser", "destroyer", "fighter"].includes(
-            getUnitBaseType(unitType),
-          ),
+          [
+            "warsun",
+            "flagship",
+            "dreadnought",
+            "carrier",
+            "cruiser",
+            "destroyer",
+            "fighter",
+          ].includes(getUnitBaseType(unitType)),
         ),
     );
     expect(shipTypes.size, `${side} should have ships`).toBeGreaterThan(0);
@@ -98,9 +104,7 @@ test.describe("Space Combat Overlay", () => {
     );
     const header = page.locator(".app-shell__header").boundingBox();
     const dialog = modal.boundingBox();
-    expect((await dialog)?.y).toBeGreaterThanOrEqual(
-      (await header)!.y + (await header)!.height,
-    );
+    expect((await dialog)?.y).toBeGreaterThanOrEqual((await header)!.y + (await header)!.height);
     const actionArea = modal.locator(".combat-action-area");
     await expect(actionArea).toBeVisible();
     const actions = await actionArea.boundingBox();
@@ -282,7 +286,7 @@ test.describe("Space Combat Overlay", () => {
         )
         .toBe(true);
       await expect(page.getByTestId("choice-error-banner")).toBeHidden();
-       await page.getByTestId("pass-combat-reaction-btn").click();
+      await page.getByTestId("pass-combat-reaction-btn").click();
 
       await expect(page.getByTestId("choice-error-banner")).toBeHidden();
 
@@ -337,7 +341,7 @@ test.describe("Space Combat Overlay", () => {
       )
       .toBe(true);
     const before = await snapshot(request, gameId, session);
-     await page.getByRole("button", { name: "Play Shields Holding" }).click();
+    await page.getByRole("button", { name: "Play Shields Holding" }).click();
 
     await expect
       .poll(async () =>
@@ -347,8 +351,10 @@ test.describe("Space Combat Overlay", () => {
       )
       .toBe(false);
     const after = await snapshot(request, gameId, session);
-     expect(after.game_version).toBeGreaterThan(before.game_version);
-     expect(after.events.filter((event) => event.detail?.includes("played Shields Holding"))).toHaveLength(1);
+    expect(after.game_version).toBeGreaterThan(before.game_version);
+    expect(
+      after.events.filter((event) => event.detail?.includes("played Shields Holding")),
+    ).toHaveLength(1);
     expect(after.view.board.combat).toBeDefined();
     await expect(page.getByTestId("choice-error-banner")).toBeHidden();
   });
