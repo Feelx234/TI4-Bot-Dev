@@ -434,7 +434,7 @@ struct ReplayingDecider {
 /// decisions bypass this wrapper and already have their historical events.
 struct ObservedDecider {
     inner: Box<dyn Decider>,
-    selected: Arc<Mutex<VecDeque<ChoiceOption>>>,
+    selected: Arc<Mutex<VecDeque<(Choice, ChoiceOption)>>>,
 }
 
 impl Decider for ObservedDecider {
@@ -443,7 +443,7 @@ impl Decider for ObservedDecider {
         self.selected
             .lock()
             .expect("selected options lock")
-            .push_back(option.clone());
+            .push_back((choice.clone(), option.clone()));
         Ok(option)
     }
 
@@ -456,8 +456,25 @@ impl Decider for ObservedDecider {
         self.selected
             .lock()
             .expect("selected options lock")
-            .push_back(option.clone());
+            .push_back((choice.clone(), option.clone()));
         Ok(option)
+    }
+}
+
+fn selected_for(
+    selected: &mut VecDeque<(Choice, ChoiceOption)>,
+    record: &DecisionRecord,
+    remove: bool,
+) -> Option<ChoiceOption> {
+    let index = selected.iter().position(|(choice, option)| {
+        choice.player == record.player
+            && choice.prompt == record.prompt
+            && option.id == record.chosen
+    })?;
+    if remove {
+        selected.remove(index).map(|(_, option)| option)
+    } else {
+        selected.get(index).map(|(_, option)| option.clone())
     }
 }
 
@@ -518,6 +535,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     let prior_records = config.prior_decisions.clone();
     let prior_queue = Arc::new(Mutex::new(VecDeque::from(config.prior_decisions.clone())));
     let selected_options = Arc::new(Mutex::new(VecDeque::new()));
+    let published_count = Arc::new(Mutex::new(prior_count));
     let boundary_state = config.replay_boundary_state.clone().or_else(|| {
         (prior_count > 0)
             .then(|| {
@@ -615,6 +633,127 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             }
         }
 
+        // Nested combat windows can ask another human before `game.step()` returns. Publish
+        // the decisions already settled by the table at that boundary, with the actual board
+        // position seen by the next offer, rather than waiting for the entire step to unwind.
+        let offer_shared = worker_shared.clone();
+        let offer_selected = selected_options.clone();
+        let offer_published = published_count.clone();
+        table.on_observed_offer(move |records, state| {
+            let mut lock = offer_shared.lock().expect("shared lock");
+            let mut published = offer_published.lock().expect("published count lock");
+            if lock.stopped || records.len() <= *published {
+                return;
+            }
+            let start = *published;
+            let event_start = lock.event_log.len();
+            lock.latest_state = state.clone();
+            let mut replies = Vec::new();
+            for (index, record) in records[start..].iter().enumerate() {
+                let selected = selected_for(
+                    &mut offer_selected.lock().expect("selected options lock"),
+                    record,
+                    false,
+                );
+                // Another card may be played *inside* this card's timing window. Its outer
+                // choice has settled, but the announcement has not happened yet. Leave that
+                // choice for the next boundary instead of publishing an unverified play.
+                if record.context.as_ref().zip(selected.as_ref()).is_some_and(
+                    |(context, option)| {
+                        crate::protocol::server::played_card_detail(context, option, &record.player)
+                            .is_some()
+                            && !option
+                                .payload
+                                .get("card")
+                                .and_then(serde_json::Value::as_str)
+                                .is_some_and(|alias| {
+                                    state.action_card_plays.iter().any(|(seat, card)| {
+                                        seat == &record.player && card.as_str() == alias
+                                    })
+                                })
+                    },
+                ) {
+                    break;
+                }
+                let selected = selected_for(
+                    &mut offer_selected.lock().expect("selected options lock"),
+                    record,
+                    true,
+                );
+                lock.decision_log = records[..start + index + 1].to_vec();
+                let version = lock.game_version;
+                let (detail, movement, seat_detail) =
+                    crate::protocol::server::verified_decision_facts(
+                        record,
+                        selected.as_ref(),
+                        state.active_system.as_ref().map(|id| id.as_str()),
+                        state,
+                    );
+                if let Some(store) = &lock.store
+                    && !lock.history_active
+                {
+                    if let Err(error) = store.append_decision(&lock.game_id, record) {
+                        lock.error = Some(format!("failed to persist accepted decision: {error}"));
+                        return;
+                    }
+                }
+                if let Err(error) = lock.record_and_broadcast_event(
+                    EventVisibility::Public,
+                    GameEventKind::DecisionResolved,
+                    Some(version),
+                    start + index + 1,
+                    detail,
+                    movement,
+                    seat_detail,
+                ) {
+                    lock.error = Some(error);
+                    return;
+                }
+                *published += 1;
+                let in_flight = lock.in_flight_submissions.front().is_some_and(|pending| {
+                    pending.seat == record.player
+                        && pending.submitted_option_id.as_deref() == Some(&record.chosen)
+                });
+                let current = lock.pending_decision.as_ref().is_some_and(|pending| {
+                    pending.seat == record.player
+                        && pending.submitted_option_id.as_deref() == Some(&record.chosen)
+                });
+                let pending = if in_flight {
+                    lock.in_flight_submissions.pop_front()
+                } else if current {
+                    lock.pending_decision.take()
+                } else {
+                    None
+                };
+                if let Some(mut pending) = pending
+                    && let Some(reply) = pending.reply_tx.take()
+                {
+                    replies.push((
+                        reply,
+                        crate::protocol::server::ActionAcceptedMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            game_id: lock.game_id.clone(),
+                            game_version: version,
+                            option_id: pending.submitted_option_id.expect("reserved option"),
+                        },
+                    ));
+                }
+            }
+            if !lock.redo_decisions.is_empty() {
+                lock.redo_decisions.clear();
+                lock.redo_events.clear();
+                lock.batches.retain(|batch| batch.end_cursor <= start);
+            }
+            if let Err(error) = lock.persist_history() {
+                lock.error = Some(error);
+                return;
+            }
+            lock.publish_history_events_since(event_start);
+            for (reply, accepted) in replies {
+                let _ = reply.send(Ok(accepted));
+            }
+        });
+
         let mut game = Game::with_table(config.state, ContentStore::embedded(), table);
         if let Some(galaxy) = config.galaxy {
             game = game.with_galaxy(galaxy);
@@ -711,6 +850,8 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             // Record outcome
             {
                 let mut lock = worker_shared.lock().expect("shared lock");
+                prev_decision_count =
+                    prev_decision_count.max(*published_count.lock().expect("published count lock"));
                 // A rewind stops this worker at its last published decision. A step
                 // interrupted while waiting for a human may still let bots act before
                 // returning; those results belong to the discarded timeline.
@@ -771,10 +912,11 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                             break 'worker;
                         }
                         let version = lock.game_version;
-                        let selected = selected_options
-                            .lock()
-                            .expect("selected options lock")
-                            .pop_front();
+                        let selected = selected_for(
+                            &mut selected_options.lock().expect("selected options lock"),
+                            record,
+                            true,
+                        );
                         let offered = selected.as_ref();
                         let (detail, movement, seat_detail) =
                             crate::protocol::server::verified_decision_facts(
@@ -844,6 +986,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         }
                     }
                     prev_decision_count = game.table.log.records.len();
+                    *published_count.lock().expect("published count lock") = prev_decision_count;
                     if !lock.redo_decisions.is_empty() {
                         // Only an accepted decision forks history; autonomous engine
                         // steps between decisions leave redo available.

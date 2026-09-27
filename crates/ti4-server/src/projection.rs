@@ -92,13 +92,23 @@ pub fn project_combat_view(
         .map(|o| usize::try_from(o.amount).unwrap_or(0))
         .or_else(|| {
             active_player.as_ref().and_then(|p| {
-                if *p == attacker {
-                    defender_hits.map(|h| h as usize)
+                let produced = if *p == attacker {
+                    defender_hits
                 } else if *p == defender {
-                    attacker_hits.map(|h| h as usize)
+                    attacker_hits
                 } else {
                     None
-                }
+                }?;
+                // The HITS_TO_ASSIGN window is still open after Shields Holding resolves.
+                // The round's produced-hit total stays unchanged, but the player's pending
+                // cancellation grant must already be reflected in the live hit counter.
+                let cancelled = choice_ctx
+                    .filter(|ctx| {
+                        ctx.subtype.starts_with("reaction_")
+                            && ctx.subtype.ends_with("HITS_TO_ASSIGN")
+                    })
+                    .map_or(0, |_| ti4_engine::combat::cancellable_hits(state, p));
+                Some((produced as usize).saturating_sub(cancelled))
             })
         });
 

@@ -1850,6 +1850,7 @@ pub struct Table {
     deciders: BTreeMap<PlayerId, Box<dyn Decider>>,
     default: Box<dyn Decider>,
     pub log: DecisionLog,
+    observed_offer: Option<Box<dyn FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send>>,
 }
 
 impl Default for Table {
@@ -1858,6 +1859,7 @@ impl Default for Table {
             deciders: BTreeMap::new(),
             default: Box::new(FirstOption),
             log: DecisionLog::default(),
+            observed_offer: None,
         }
     }
 }
@@ -1879,6 +1881,14 @@ impl Table {
 
     pub fn seat(&mut self, player: PlayerId, decider: Box<dyn Decider>) {
         self.deciders.insert(player, decider);
+    }
+
+    /// Notify a session when a nested offer is reached, before its decider blocks.
+    pub fn on_observed_offer(
+        &mut self,
+        callback: impl FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send + 'static,
+    ) {
+        self.observed_offer = Some(Box::new(callback));
     }
 
     /// Put a choice to its actor, validate the answer, and record it.
@@ -1908,6 +1918,9 @@ impl Table {
         choice: &Choice,
         seen: &Observed<'_>,
     ) -> Result<ChoiceOption, IllegalChoice> {
+        if let Some(callback) = &mut self.observed_offer {
+            callback(&self.log.records, seen.state);
+        }
         let decider = self
             .deciders
             .get_mut(&choice.player)

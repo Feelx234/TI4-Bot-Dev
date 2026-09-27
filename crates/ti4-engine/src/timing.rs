@@ -781,8 +781,12 @@ impl Resolver {
                         event,
                         relation,
                     );
-                    if cards.len() == 1 {
-                        let card = &cards[0];
+                    if let Some(card) = cards.first().filter(|first| {
+                        cards.iter().all(|candidate| {
+                            crate::action_cards::name_of(context.content, candidate)
+                                == crate::action_cards::name_of(context.content, first)
+                        })
+                    }) {
                         let name = crate::action_cards::name_of(context.content, card);
                         option.label = format!("Play {name}");
                         option = option

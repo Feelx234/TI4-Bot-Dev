@@ -48,8 +48,10 @@ test("a complete human battle stays public in four independent views", async ({
     let played = 0;
     let sawGroupedOpportunity = false;
     let shieldHits: number | undefined;
+    let shieldRound: number | undefined;
     let shieldWasSabotaged = false;
     let checkedShieldHits = false;
+    let checkedShieldCallout = false;
     let sawSustain = false;
     let finished = false;
     for (let step = 0; step < 180; step++) {
@@ -104,6 +106,10 @@ test("a complete human battle stays public in four independent views", async ({
       }
       const options = choice!.options;
       const subtype = choice!.context?.subtype ?? "";
+      if (shieldHits !== undefined && current.view.board.combat?.round !== shieldRound) {
+        if (!shieldWasSabotaged && shieldHits <= 2) checkedShieldHits = true;
+        shieldHits = undefined;
+      }
       if (shieldHits !== undefined && (subtype === "sustain_damage" || subtype === "assign_casualty")) {
         if (!shieldWasSabotaged) {
           const remaining = Number(
@@ -114,6 +120,11 @@ test("a complete human battle stays public in four independent views", async ({
           );
           checkedShieldHits = true;
         }
+        shieldHits = undefined;
+      }
+      if (shieldHits !== undefined && shieldHits <= 2 && !shieldWasSabotaged &&
+          !subtype.startsWith("reaction_") && !subtype.startsWith("play_reaction_")) {
+        checkedShieldHits = true;
         shieldHits = undefined;
       }
       const card =
@@ -150,6 +161,7 @@ test("a complete human battle stays public in four independent views", async ({
       }
       if (selected.payload?.card_name === "Shields Holding") {
         shieldHits = current.view.board.combat?.hits_to_assign ?? undefined;
+        shieldRound = current.view.board.combat?.round;
         shieldWasSabotaged = false;
       }
       if (selected.payload?.card_name === "Sabotage" && shieldHits !== undefined) {
@@ -181,6 +193,26 @@ test("a complete human battle stays public in four independent views", async ({
         .poll(async () => (await snapshot(request, game, seats[sol])).game_version)
         .toBeGreaterThan(current.game_version);
       const after = await snapshot(request, game, seats[sol]);
+      if (selected.payload?.card_name === "Shields Holding" && shieldHits !== undefined &&
+          after.pending_choice?.choice.context?.subtype?.includes("HITS_TO_ASSIGN") &&
+          after.view.board.combat?.round === shieldRound) {
+        const expectedHits = Math.max(0, shieldHits - 2);
+        for (let i = 0; i < pages.length; i++) {
+          const id = ids[i];
+          const view = await snapshot(request, game, id ? seats[id] : undefined);
+          expect(view.view.board.combat?.hits_to_assign,
+            `Shields Holding must update incoming hits for ${id ?? "spectator"}`)
+            .toBe(expectedHits);
+          const callout = pages[i].getByTestId("combat-hits-callout");
+          if (expectedHits === 0) {
+            await expect(callout, `cancelled hits in view ${id ?? "spectator"}`).toBeHidden();
+          } else {
+            await expect(callout.locator(".combat-hits-callout__count"),
+              `remaining hits in view ${id ?? "spectator"}`).toHaveText(String(expectedHits));
+          }
+        }
+        checkedShieldCallout = true;
+      }
       if (sawGroupedOpportunity && subtype.startsWith("reaction_") &&
           subtype.includes("HITS_TO_ASSIGN") && selected.label === "Play Shields Holding") {
         const next = await snapshot(request, game, seats[sol]);
@@ -216,7 +248,15 @@ test("a complete human battle stays public in four independent views", async ({
           if (await generic.isVisible())
             await generic.getByRole("button", { name: "Minimize decision" }).click();
           const toggle = pages[i].getByTestId("event-log-toggle");
-          if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click();
+          if (await toggle.getAttribute("aria-expanded") === "false") {
+            // A new decision can open the actor's modal while the other views are checked.
+            await expect(async () => {
+              if (await modal.isVisible()) await modal.getByTestId("close-combat-modal").click();
+              if (await generic.isVisible())
+                await generic.getByRole("button", { name: "Minimize decision" }).click();
+              await toggle.click({ timeout: 1_000 });
+            }).toPass();
+          }
           await expect.soft(pages[i].getByTestId("event-log-list"),
             `live event log for ${id ?? "spectator"}`).toContainText(expectedDetail, { timeout: 1_000 });
           const resume = pages[i].getByTestId("resume-combat-btn");
@@ -238,7 +278,8 @@ test("a complete human battle stays public in four independent views", async ({
     expect(finished, "battle must end, including its victory window").toBe(true);
     expect(sawGroupedOpportunity, "the scenario must offer both copies together").toBe(true);
     expect(sawSustain, "the battle must exercise sustain damage").toBe(true);
-    expect(checkedShieldHits, "the battle must reach hit assignment after an uncancelled Shields Holding").toBe(true);
+    expect(checkedShieldHits, "Shields Holding must cancel hits before assignment").toBe(true);
+    expect(checkedShieldCallout, "Shields Holding must update the live hits callout").toBe(true);
     expect(played).toBeGreaterThan(0);
     const snapshots = await Promise.all(ids.map((id) => snapshot(request, game, seats[id])));
     snapshots.push(await snapshot(request, game));
@@ -337,11 +378,12 @@ test("undo during a Shields Holding reaction preserves a healthy, playable game"
     );
     if (shields && actor === host) {
       atShields = true;
-      // Keep the engine in the Shields Holding reaction while rewinding the host timeline.
+      // Resolve the grouped card offer before rewinding the host timeline.
       await page.getByTestId(`combat-reaction-${shields.id}`).click();
-      await expect.poll(async () =>
-        (await snapshot(request, game, seats[host])).pending_choice?.choice.context?.subtype,
-      ).toContain("play_reaction_");
+      await expect.poll(async () => (await snapshot(request, game, seats[host])).game_version)
+        .toBeGreaterThan(state.game_version);
+      expect((await snapshot(request, game, seats[host])).pending_choice?.choice.context?.subtype ?? "")
+        .not.toContain("play_reaction_");
       break;
     }
     const selected = choice!.options.find((option) => option.payload?.card_name === "Direct Hit") ??

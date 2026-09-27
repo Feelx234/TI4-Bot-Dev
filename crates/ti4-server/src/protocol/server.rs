@@ -276,7 +276,7 @@ pub fn public_decision_facts(
 
 /// Only the card explicitly named by the engine's selected offer can become a public fact.
 /// A multi-card outer offer contains no card; its inner selected offer carries the alias.
-fn played_card_detail(
+pub(crate) fn played_card_detail(
     context: &ti4_engine::decision_context::DecisionContext,
     option: &ChoiceOption,
     actor: &ti4_model::id::PlayerId,

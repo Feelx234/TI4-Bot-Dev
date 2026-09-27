@@ -774,7 +774,10 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
             let Some(first) = options.first().cloned() else {
                 return Ok(());
             };
-            let chosen = if options.len() == 1 {
+            let chosen = if options.iter().all(|card| {
+                crate::action_cards::name_of(context.content, card)
+                    == crate::action_cards::name_of(context.content, &first)
+            }) {
                 first
             } else {
                 let choice = crate::choice::Choice::new(

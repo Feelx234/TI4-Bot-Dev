@@ -2926,6 +2926,16 @@ impl CombatWindow {
                         );
                         payload.insert("round".to_owned(), i64::from(round).into());
                         let _ = ctx.emit(state, "HITS_TO_ASSIGN", payload);
+                        // The reaction window may have granted cancellations while `emit`
+                        // was waiting for its players. Apply them before offering sustain or
+                        // casualties; the earlier spend only covers grants from prior windows.
+                        let cancelled = spend_cancellations(state, &front.player, front.hits);
+                        if cancelled > 0 {
+                            let mut rest = queue.clone();
+                            rest[0].hits -= cancelled;
+                            self.stage = Stage::Sustaining { queue: rest, round };
+                            continue;
+                        }
                     }
                     // A sustain is only offered when something can take one.
                     if matches!(self.stage, Stage::Sustaining { .. })
