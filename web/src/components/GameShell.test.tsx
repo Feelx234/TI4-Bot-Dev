@@ -402,10 +402,9 @@ describe("GameShell", () => {
     fireEvent.click(screen.getByTestId("event-log-toggle"));
     expect(screen.queryByRole("button", { name: /^Undo$/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Redo one" }));
-    fireEvent.click(screen.getByLabelText("History actions for event 2"));
     fireEvent.click(screen.getByRole("button", { name: "Undo from decision 1" }));
     expect(change.mock.calls).toEqual([["redo"], [{ cursor: 0 }, 2]]);
-    expect(screen.getByLabelText("History actions for event 3")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Undo from decision 2" })).toBeTruthy();
   });
   it("resumes staged production after payment on a fresh legal nonce", async () => {
     const produce = (nonce: string): PendingChoiceDto => ({
