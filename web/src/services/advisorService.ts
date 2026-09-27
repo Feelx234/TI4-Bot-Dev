@@ -83,6 +83,7 @@ export interface GroundOddsSide {
 export interface GroundOddsRequest {
   attacker: GroundOddsSide;
   defender: GroundOddsSide;
+  harrow?: Record<string, number>;
   simulations?: number;
 }
 

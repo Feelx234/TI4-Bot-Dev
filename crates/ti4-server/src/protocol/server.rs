@@ -369,6 +369,34 @@ fn combat_decision_detail(
         ("start_next_ground_combat", "decline", "decline") => {
             Some(format!("{actor} declined another ground combat {location}"))
         }
+        ("commit_ground_forces", "commit", _) if option.id.starts_with("commit|") => {
+            let planet = option
+                .payload
+                .get("planet")
+                .and_then(serde_json::Value::as_str)?;
+            let unit = unit()?;
+            let damage = if option
+                .payload
+                .get("damaged")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            {
+                "damaged "
+            } else {
+                ""
+            };
+            Some(format!("{actor} landed {damage}{unit} on {planet}"))
+        }
+        ("commit_ground_forces", "decline", "done_committing") => {
+            Some(format!("{actor} finished landing {location}"))
+        }
+        ("bombardment_target", "bombardment_target", _) => Some(format!(
+            "{actor} targeted {} with bombardment {location}",
+            option.id
+        )),
+        ("remove_custodians", "custodians", "yes") => {
+            Some(format!("{actor} removed the custodians token {location}"))
+        }
         _ => None,
     }
 }
@@ -709,6 +737,36 @@ mod fact_tests {
             )
             .0,
             None
+        );
+    }
+
+    #[test]
+    fn invasion_landing_and_bombardment_facts_only_use_verified_offers() {
+        let landing = ChoiceOption::new("commit|0|jord", "commit")
+            .with("unit", "mech")
+            .with("damaged", true)
+            .with("planet", "jord");
+        let mut decision = record("commit_ground_forces", &landing);
+        decision.context.as_mut().unwrap().target =
+            Some(DecisionTarget::System(SystemId::new("22")));
+        assert_eq!(
+            public_decision_facts(&decision, Some(&landing), None)
+                .0
+                .as_deref(),
+            Some("p1 landed damaged mech on jord")
+        );
+        assert_eq!(public_decision_facts(&decision, None, None).0, None);
+        let target = ChoiceOption::new("p2", "bombardment_target");
+        let mut bombard = record("bombardment_target", &target);
+        bombard.context.as_mut().unwrap().target = Some(DecisionTarget::Planet {
+            system: SystemId::new("22"),
+            planet: ti4_model::id::PlanetId::new("jord"),
+        });
+        assert_eq!(
+            public_decision_facts(&bombard, Some(&target), None)
+                .0
+                .as_deref(),
+            Some("p1 targeted p2 with bombardment on jord")
         );
     }
 

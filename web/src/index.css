@@ -152,34 +152,11 @@ html,
   color: var(--color-text-faint);
   font-size: 11px;
 }
-.event-log__actions {
+.event-log__undo {
   margin-left: auto;
   flex-shrink: 0;
 }
-.event-log__actions > summary {
-  cursor: pointer;
-  list-style: none;
-  padding: 0 8px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  font-size: 18px;
-}
-.event-log__actions > summary:hover,
-.event-log__actions[open] > summary {
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-}
-.event-log__actions > summary::-webkit-details-marker {
-  display: none;
-}
-.event-log__action-list {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  padding: 6px 0;
-}
-.event-log__action-list button,
+.event-log__undo,
 .event-log__detail-undo {
   color: var(--color-text-muted);
   background: transparent;
@@ -190,12 +167,12 @@ html,
   font-size: 11px;
   padding: 4px 8px;
 }
-.event-log__action-list button:hover,
+.event-log__undo:hover,
 .event-log__detail-undo:hover {
   color: var(--color-accent);
   background: var(--color-surface-raised);
 }
-.event-log__action-list button:disabled,
+.event-log__undo:disabled,
 .event-log__detail-undo:disabled {
   opacity: 0.4;
   cursor: default;
@@ -210,6 +187,18 @@ html,
   inset: 0;
   z-index: var(--layer-modal);
   pointer-events: none;
+}
+
+.invasion-overlay {
+  position: fixed;
+  z-index: var(--layer-dialog);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  pointer-events: auto;
 }
 
 .choice-banner {

@@ -972,6 +972,33 @@ impl TransientFlags {
 
 /// Public invasion boundary, independent of whichever nested choice is currently offered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvasionDie {
+    pub planet: PlanetId,
+    pub player: PlayerId,
+    /// Ground pools are named by combat threshold, not by an individual unit.
+    pub group: String,
+    pub face: u32,
+    pub target: u32,
+    pub hit: bool,
+}
+
+/// The latest resolved, planet-local automatic step. Survives cleared reroll staging.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvasionStep {
+    pub planet: PlanetId,
+    pub kind: String,
+    pub round: u32,
+    pub before: Vec<Unit>,
+    pub after: Vec<Unit>,
+    pub dice: Vec<InvasionDie>,
+    pub hits: BTreeMap<PlayerId, usize>,
+    /// Additional end-of-round bombardment hits, separate from simultaneous ground rolls.
+    #[serde(default)]
+    pub harrow_hits: usize,
+}
+
+/// Public invasion boundary, independent of whichever nested choice is currently offered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActiveInvasion {
     pub system: SystemId,
     pub invader: PlayerId,
@@ -980,6 +1007,8 @@ pub struct ActiveInvasion {
     pub planet: Option<PlanetId>,
     pub defender: Option<PlayerId>,
     pub ground_round: u32,
+    #[serde(default)]
+    pub last_step: Option<InvasionStep>,
 }
 
 /// The whole game, as a value.

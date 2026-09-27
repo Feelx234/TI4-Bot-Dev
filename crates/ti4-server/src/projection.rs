@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use ti4_engine::choice::Choice;
-use ti4_model::id::PlanetId;
+use ti4_model::id::{PlanetId, PlayerId};
 use ti4_model::state::{GameState, Player};
 use ti4_model::view::{HIDDEN, redact_player, view_for};
 
@@ -254,25 +254,150 @@ pub fn project_board_view_full(
         );
     }
 
-    let invasion =
-        state
-            .active_invasion
-            .as_ref()
-            .map(|active| crate::protocol::view::InvasionView {
-                system_id: active.system.clone(),
-                invasion_seq: active.seq,
-                invader: active.invader.clone(),
-                phase: active.phase.clone(),
-                planets: systems.get(&active.system).map_or_else(
-                    Vec::new,
-                    |system: &crate::protocol::view::SystemView| {
-                        system.planets.keys().cloned().collect()
+    let invasion = state.active_invasion.as_ref().map(|active| {
+        let content = ti4_content::ContentStore::embedded();
+        let types = ti4_content::units::catalogue(content, ti4_model::content_types::POK);
+        let space = state.system_state(&active.system);
+        let mut odds_context = BTreeMap::new();
+        if let Some(system) = systems.get(&active.system) {
+            for planet in system.planets.keys() {
+                let ground_force_types: Vec<String> = space
+                    .on_planet(planet)
+                    .iter()
+                    .filter(|unit| {
+                        types
+                            .get(unit.type_id.as_str())
+                            .is_some_and(ti4_content::units::UnitType::is_ground_force)
+                    })
+                    .map(|unit| unit.type_id.to_string())
+                    .collect();
+                let owners: BTreeSet<PlayerId> = space
+                    .on_planet(planet)
+                    .iter()
+                    .filter(|unit| {
+                        unit.owner != active.invader
+                            && types
+                                .get(unit.type_id.as_str())
+                                .is_some_and(ti4_content::units::UnitType::is_ground_force)
+                    })
+                    .map(|unit| unit.owner.clone())
+                    .collect();
+                let opponent = space
+                    .planet_control
+                    .get(planet)
+                    .filter(|owner| owners.contains(*owner))
+                    .cloned()
+                    .or_else(|| owners.iter().next().cloned());
+                let mut additional_guns = BTreeMap::new();
+                let mut available = true;
+                if ti4_engine::entropic_scars::abilities_usable(
+                    content,
+                    ti4_model::content_types::POK,
+                    &active.system,
+                    Some(&active.system),
+                ) {
+                    for unit in space
+                        .on_planet(planet)
+                        .iter()
+                        .filter(|unit| unit.owner != active.invader)
+                    {
+                        let Some(kind) = types.get(unit.type_id.as_str()) else {
+                            continue;
+                        };
+                        if kind.space_cannon_hits_on().is_none() || kind.space_cannon_dice() == 0 {
+                            continue;
+                        }
+                        if kind.base_type() == "pds"
+                            && state.players.iter().any(|seat| {
+                                seat.id != unit.owner
+                                    && seat.disable_invasion.contains(&state.activation_seq)
+                            })
+                        {
+                            if opponent.as_ref() == Some(&unit.owner) && kind.is_ground_force() {
+                                available = false;
+                            }
+                            continue;
+                        }
+                        if opponent.as_ref() == Some(&unit.owner) && kind.is_ground_force() {
+                            continue;
+                        }
+                        *additional_guns.entry(unit.type_id.to_string()).or_insert(0) += 1;
+                    }
+                } else if space.on_planet(planet).iter().any(|unit| {
+                    opponent.as_ref() == Some(&unit.owner)
+                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                            kind.is_ground_force() && kind.space_cannon_hits_on().is_some()
+                        })
+                }) {
+                    available = false;
+                }
+                let mut harrow_units = BTreeMap::new();
+                if ti4_engine::faction_abilities::has(state, content, &active.invader, "harrow")
+                    && ti4_engine::invasion::bombardable(
+                        state,
+                        content,
+                        ti4_model::content_types::POK,
+                        &active.system,
+                        planet,
+                        &active.invader,
+                    )
+                {
+                    for unit in space.units_of(&active.invader) {
+                        if types
+                            .get(unit.type_id.as_str())
+                            .is_some_and(|kind| kind.has_bombardment() && kind.bombard_dice() > 0)
+                        {
+                            *harrow_units.entry(unit.type_id.to_string()).or_insert(0) += 1;
+                        }
+                    }
+                }
+                odds_context.insert(
+                    planet.clone(),
+                    crate::protocol::view::InvasionOddsContext {
+                        opponent,
+                        available,
+                        ground_force_types,
+                        additional_guns,
+                        harrow_units,
                     },
-                ),
-                current_planet: active.planet.clone(),
-                defender: active.defender.clone(),
-                ground_round: active.ground_round,
-            });
+                );
+            }
+        }
+        crate::protocol::view::InvasionView {
+            system_id: active.system.clone(),
+            invasion_seq: active.seq,
+            invader: active.invader.clone(),
+            phase: active.phase.clone(),
+            planets: systems.get(&active.system).map_or_else(
+                Vec::new,
+                |system: &crate::protocol::view::SystemView| {
+                    system.planets.keys().cloned().collect()
+                },
+            ),
+            current_planet: active.planet.clone(),
+            defender: active.defender.clone(),
+            ground_round: active.ground_round,
+            odds_context,
+            last_step: active.last_step.as_ref().map(|step| {
+                let placed = |unit: &ti4_model::units::Unit| PlacedUnitView {
+                    unit_type: unit.type_id.clone(),
+                    owner: unit.owner.clone(),
+                    planet: Some(step.planet.clone()),
+                    damaged: unit.sustained_damage,
+                };
+                crate::protocol::view::InvasionStepView {
+                    planet: step.planet.clone(),
+                    kind: step.kind.clone(),
+                    round: step.round,
+                    before: step.before.iter().map(placed).collect(),
+                    after: step.after.iter().map(placed).collect(),
+                    dice: step.dice.clone(),
+                    hits: step.hits.clone(),
+                    harrow_hits: step.harrow_hits,
+                }
+            }),
+        }
+    });
     BoardView {
         systems,
         active_system: state.active_system.clone(),

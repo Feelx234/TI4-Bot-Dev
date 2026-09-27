@@ -543,6 +543,7 @@ impl AftermathWindow {
                             planet: None,
                             defender: None,
                             ground_round: 0,
+                            last_step: None,
                         });
                         // Two cards read "at the start of an invasion", so the window opens
                         // before the invasion does rather than after it has resolved.

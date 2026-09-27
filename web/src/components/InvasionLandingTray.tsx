@@ -52,25 +52,27 @@ export const InvasionLandingTray: React.FC<{
   useEffect(() => {
     if (!planet || !board?.invasion || board.invasion.phase !== "landing" || viewerSeat !== choice.actor) { setOdds(null); return; }
     const local = units.filter((unit) => unit.planet === planet);
-    const defender = board.systems[system]?.planets[planet]?.controlled_by;
-    const opponents = [...new Set(local.filter((unit) => unit.owner !== choice.actor && (unit.unit_type.includes("infantry") || unit.unit_type.includes("mech") || unit.unit_type.startsWith("titans_pds"))).map((unit) => unit.owner))];
-    const opponent = defender && opponents.includes(defender) ? defender : opponents[0];
-    const mine = local.filter((unit) => unit.owner === choice.actor && (unit.unit_type.includes("infantry") || unit.unit_type.includes("mech") || unit.unit_type.startsWith("titans_pds")));
+    const context = board.invasion.odds_context?.[planet];
+    if (!context) { setOdds({ key: previewKey, value: "unavailable" }); return; }
+    const groundTypes = new Set(context.ground_force_types);
+    const opponent = context.opponent;
+    const mine = local.filter((unit) => unit.owner === choice.actor && groundTypes.has(unit.unit_type));
     const planned = draft.filter((item) => item.planet === planet);
+    if (mine.length + planned.length === 0) { setOdds(null); return; }
     if (!opponent) { setOdds({ key: previewKey, value: "no-battle" }); return; }
-    if (mine.length + planned.length === 0 || !players?.[choice.actor] || !players[opponent]) { setOdds(null); return; }
+    if (!context.available) { setOdds({ key: previewKey, value: "unavailable" }); return; }
+    if (!players?.[choice.actor] || !players[opponent]) { setOdds({ key: previewKey, value: "unavailable" }); return; }
     const count = (entries: { unit_type: string; damaged: boolean }[]) => {
       const units: Record<string, number> = {}, damaged: Record<string, number> = {};
       for (const entry of entries) { units[entry.unit_type] = (units[entry.unit_type] ?? 0) + 1; if (entry.damaged) damaged[entry.unit_type] = (damaged[entry.unit_type] ?? 0) + 1; }
       return { units, damaged };
     };
-    const defenderForces = local.filter((unit) => unit.owner === opponent && (unit.unit_type.includes("infantry") || unit.unit_type.includes("mech") || unit.unit_type.startsWith("titans_pds")));
-    const guns: Record<string, number> = {};
-    for (const unit of local.filter((unit) => unit.owner === opponent && unit.unit_type.includes("pds") && !unit.unit_type.startsWith("titans_pds"))) guns[unit.unit_type] = (guns[unit.unit_type] ?? 0) + 1;
+    const defenderForces = local.filter((unit) => unit.owner === opponent && groundTypes.has(unit.unit_type));
     const attack = count([...mine, ...planned.map((item) => ({ unit_type: item.unit, damaged: item.damaged }))]);
     const request: GroundOddsRequest = {
       attacker: { faction: normalizeFaction(players[choice.actor].faction), ...attack },
-      defender: { faction: normalizeFaction(players[opponent].faction), ...count(defenderForces), guns },
+      defender: { faction: normalizeFaction(players[opponent].faction), ...count(defenderForces), guns: context.additional_guns },
+      harrow: context.harrow_units,
       simulations: 2000,
     };
     const controller = new AbortController();
@@ -117,7 +119,7 @@ export const InvasionLandingTray: React.FC<{
           <div className="workflow-actions" aria-label="Landing destination">{planets.map((name) => <button key={name} type="button" className={planet === name ? "button button--primary" : "button button--secondary"} onClick={() => setPlanet(name)}>{name}</button>)}</div>
           {planet && <>
             <p>Already on {planet}: {board?.systems[system]?.units.filter((piece) => piece.owner === choice.actor && piece.planet === planet).length ?? 0} · Draft: {draft.filter((item) => item.planet === planet).length}</p>
-            {board?.invasion?.phase === "landing" && <p data-testid="invasion-odds">{visibleOdds === "no-battle" ? "No ground battle expected" : visibleOdds === "loading" ? "Calculating…" : visibleOdds === "unavailable" ? "Odds unavailable" : `Projected odds if these forces land: ${Math.round(visibleOdds * 100)}%`}</p>}
+            {board?.invasion?.phase === "landing" && <p data-testid="invasion-odds">{visibleOdds === "no-battle" ? "No ground battle expected" : visibleOdds === "loading" ? "Calculating…" : visibleOdds === "unavailable" ? "Odds unavailable" : `Projected odds if these forces land against ${board.invasion.odds_context?.[planet]?.opponent}: ${Math.round(visibleOdds * 100)}%`}</p>}
             {typeof visibleOdds === "number" && <p className="text-muted">Conditional preview for this planet and its immediate defender; excludes cards, Parley, optional deploy and unmodeled modifiers.</p>}
             <div className="decision-frame__options">{options.filter(({ landing }) => landing.planet === planet).map(({ option, landing }) => <button key={option.id} type="button" className="button button--secondary" disabled={running || available(landing) <= 0} onClick={() => { setError(null); setDraft((current) => [...current, landing]); }}>{option.label} · {Math.max(0, available(landing))} in space</button>)}</div>
           </>}

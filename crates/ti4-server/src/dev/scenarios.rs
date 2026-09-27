@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_model::content_types::POK;
-use ti4_model::id::{ActionCardId, PlayerId, StrategyCardId, SystemId, UnitTypeId};
+use ti4_model::id::{ActionCardId, PlanetId, PlayerId, StrategyCardId, SystemId, UnitTypeId};
 use ti4_model::units::Unit;
 
 use std::thread;
@@ -92,6 +92,33 @@ pub fn available_scenarios() -> Vec<ScenarioSummary> {
             human_faction: "Federation of Sol".to_owned(),
             opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
         },
+        ScenarioSummary {
+            id: "ongoing_invasion_four_views".to_owned(),
+            title: "Four-view Invasion".to_owned(),
+            category: "Combat".to_owned(),
+            description: "Three human seats and a spectator, starting before the invasion reaction on a single contested planet.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
+        ScenarioSummary {
+            id: "ongoing_invasion_coexistence".to_owned(),
+            title: "Multi-planet Invasion".to_owned(),
+            category: "Combat".to_owned(),
+            description: "Two contested planets with coexisting rival ground forces.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
+        ScenarioSummary {
+            id: "ongoing_invasion_parley".to_owned(),
+            title: "Interrupted Invasion Landing".to_owned(),
+            category: "Combat".to_owned(),
+            description: "Single-planet invasion with a human defender holding Parley to interrupt sequential landings.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
     ]
 }
 
@@ -109,6 +136,11 @@ pub fn launch_scenario(
         }
         "space_combat" | "ongoing_combat" | "ongoing_combat_four_views" => {
             build_space_combat_scenario(seed)?
+        }
+        "ongoing_invasion_four_views"
+        | "ongoing_invasion_coexistence"
+        | "ongoing_invasion_parley" => {
+            build_invasion_scenario(seed, scenario_id == "ongoing_invasion_coexistence")?
         }
         other => return Err(format!("Unknown scenario '{other}'")),
     };
@@ -163,6 +195,36 @@ pub fn launch_scenario(
                 }
             }
             Some(seats)
+        } else if scenario_id.starts_with("ongoing_invasion_") {
+            if scenario_id == "ongoing_invasion_parley" {
+                let defender = config
+                    .seats
+                    .keys()
+                    .find(|seat| {
+                        config
+                            .state
+                            .player(seat)
+                            .is_some_and(|player| player.faction.as_str() == "letnev")
+                    })
+                    .expect("Letnev seated")
+                    .clone();
+                config
+                    .state
+                    .player_mut(&defender)
+                    .expect("defender seated")
+                    .action_cards
+                    .push(ActionCardId::new("parley"));
+            }
+            for controller in config.seats.values_mut() {
+                *controller = SeatController::Human;
+            }
+            Some(
+                config
+                    .seat_tokens
+                    .iter()
+                    .map(|(id, token)| (id.to_string(), token.clone()))
+                    .collect(),
+            )
         } else {
             None
         };
@@ -177,6 +239,9 @@ pub fn launch_scenario(
             scenario_id == "ongoing_combat_four_views",
         )?;
     }
+    if scenario_id.starts_with("ongoing_invasion_") {
+        advance_into_invasion(&session, &human_player, &border_system)?;
+    }
 
     Ok(LaunchScenarioResponse {
         game_id,
@@ -185,6 +250,149 @@ pub fn launch_scenario(
         scenario_id: scenario_id.to_owned(),
         test_seats,
     })
+}
+
+fn build_invasion_scenario(
+    seed: u64,
+    coexistence: bool,
+) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String, String), String> {
+    let (mut config, lobby, invader, token, galaxy, third, defender) =
+        setup_base_3p_game(seed, "dev_invasion")?;
+    let content = ContentStore::embedded();
+    let mut candidates: Vec<&str> = galaxy.adjacent("01").into_iter().collect();
+    candidates.extend(galaxy.system_ids());
+    let system = candidates
+        .iter()
+        .copied()
+        .find(|id| {
+            ti4_content::galaxy::system(content, id, POK).is_some_and(|tile| {
+                !tile.is_supernova()
+                    && !tile.is_asteroid_field()
+                    && if coexistence {
+                        tile.planets().len() >= 2
+                    } else {
+                        tile.planets().len() == 1
+                    }
+            })
+        })
+        .ok_or_else(|| {
+            format!(
+                "no suitable invasion system: coexistence={coexistence} candidates={candidates:?}"
+            )
+        })?;
+    let planets: Vec<PlanetId> = ti4_content::galaxy::system(content, system, POK)
+        .expect("selected system exists")
+        .planets()
+        .into_iter()
+        .take(if coexistence { 2 } else { 1 })
+        .map(PlanetId::new)
+        .collect();
+    let board = config.state.system_mut(&SystemId::new(system));
+    board.units.clear();
+    board.command_tokens.clear();
+    board.planet_units.clear();
+    board
+        .units
+        .push(Unit::new(UnitTypeId::new("carrier"), invader.clone()));
+    board
+        .units
+        .push(Unit::new(UnitTypeId::new("carrier"), invader.clone()));
+    for _ in 0..(if coexistence { 6 } else { 4 }) {
+        board
+            .units
+            .push(Unit::new(UnitTypeId::new("infantry"), invader.clone()));
+    }
+    board
+        .units
+        .push(Unit::new(UnitTypeId::new("mech"), invader.clone()));
+    for planet in &planets {
+        board.set_control(planet.clone(), defender.clone());
+        board.planet_units.insert(
+            planet.clone(),
+            vec![
+                Unit::new(UnitTypeId::new("infantry"), defender.clone()),
+                Unit::new(UnitTypeId::new("infantry"), defender.clone()),
+                Unit::new(UnitTypeId::new("pds"), defender.clone()),
+            ],
+        );
+    }
+    if coexistence {
+        board
+            .planet_units
+            .get_mut(&planets[0])
+            .expect("first planet")
+            .push(Unit::new(UnitTypeId::new("infantry"), third.clone()));
+        board
+            .coexisting
+            .entry(planets[0].clone())
+            .or_default()
+            .insert(third);
+    }
+    // A real invasion-start card holds the primary scenario at the first public boundary.
+    config
+        .state
+        .player_mut(&invader)
+        .expect("invader seated")
+        .action_cards
+        .push(ActionCardId::new("blitz"));
+    Ok((config, lobby, invader, token, system.to_owned()))
+}
+
+fn advance_into_invasion(
+    session: &Arc<GameSession>,
+    invader: &PlayerId,
+    system: &str,
+) -> Result<(), String> {
+    let client = MockClient::connect(session.clone(), ViewerRole::Player(invader.clone()));
+    for _ in 0..30 {
+        let mut offer = None;
+        for _ in 0..150 {
+            if let Ok(ServerMessage::PendingChoice(message)) = client.try_recv() {
+                offer = Some(message.choice);
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let choice = offer.ok_or("timed out entering invasion")?;
+        if choice
+            .context
+            .as_ref()
+            .is_some_and(|ctx| ctx.invasion_seq.is_some())
+        {
+            return Ok(());
+        }
+        let (_, nonce, version) = session
+            .current_pending_decision()
+            .ok_or("no pending invasion setup decision")?;
+        let next = if choice.options.iter().any(|option| option.id == "tactical") {
+            "tactical"
+        } else if choice.options.iter().any(|option| option.id == system) {
+            system
+        } else if choice
+            .options
+            .iter()
+            .any(|option| option.id == "done_loading")
+        {
+            "done_loading"
+        } else if choice
+            .options
+            .iter()
+            .any(|option| option.id == "done_moving")
+        {
+            "done_moving"
+        } else {
+            choice
+                .options
+                .first()
+                .ok_or("empty invasion setup choice")?
+                .id
+                .as_str()
+        };
+        client
+            .submit(&nonce, version, next)
+            .map_err(|err| format!("invasion setup submission failed: {err:?}"))?;
+    }
+    Err("invasion setup exceeded 30 decisions".to_owned())
 }
 
 fn advance_into_space_combat(

@@ -48,13 +48,34 @@ describe("event log grouping", () => {
       </PlayerIdentityProvider>,
     );
     expect(screen.getAllByTestId("event-log-entry")).toHaveLength(2);
-    expect(screen.getAllByText("Undo from here")).toHaveLength(3);
-    fireEvent.click(screen.getByLabelText("History actions for event 1"));
-    fireEvent.click(screen.getByRole("button", { name: "Undo from batch start" }));
-    expect(restore).toHaveBeenCalledWith(10);
-    fireEvent.click(screen.getByRole("button", { name: "Undo from action start" }));
+    expect(screen.getAllByRole("button", { name: /Undo from decision/ })).toHaveLength(3);
+    expect(screen.queryByText("⋯")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Undo from decision 11" }));
     expect(restore).toHaveBeenCalledWith(10);
     fireEvent.click(screen.getByRole("button", { name: "Undo from decision 13" }));
     expect(restore).toHaveBeenCalledWith(12);
+    expect(screen.queryByRole("button", { name: /action start|batch start/i })).toBeNull();
+  });
+
+  it("shows one inline undo for an individual decision without hiding its event metadata", () => {
+    const restore = vi.fn();
+    render(
+      <PlayerIdentityProvider lobby={null} seatingOrder={[]}>
+        <EventLog
+          events={[{ ...decision(5), batch_id: undefined, version: 3 }]}
+          isOpen
+          onToggle={vi.fn()}
+          cursor={5}
+          onRestore={restore}
+        />
+      </PlayerIdentityProvider>,
+    );
+    expect(screen.getByTestId("event-log-entry")).toHaveTextContent("12:00");
+    expect(screen.getByTestId("event-log-entry")).toHaveTextContent("v3");
+    expect(screen.getByTestId("event-log-entry")).toHaveTextContent("Choice 5");
+    const undo = screen.getByRole("button", { name: "Undo from decision 5" });
+    expect(undo).toHaveTextContent("Undo");
+    fireEvent.click(undo);
+    expect(restore).toHaveBeenCalledWith(4);
   });
 });

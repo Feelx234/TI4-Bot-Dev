@@ -158,6 +158,9 @@ pub struct DecisionContext {
     /// This decision belongs to the currently running space battle, not a separate cannon or invasion.
     #[serde(default, skip_serializing_if = "is_false")]
     pub space_battle: bool,
+    /// Activation sequence of the invasion that owns this choice, including nested reactions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invasion_seq: Option<u64>,
     /// Quantities still owed or available within a decision already under way.
     pub outstanding: Vec<OutstandingConstraint>,
 }
@@ -182,6 +185,7 @@ impl DecisionContext {
             optional: false,
             target: None,
             space_battle: false,
+            invasion_seq: None,
             outstanding: Vec::new(),
         }
     }
@@ -203,6 +207,26 @@ impl DecisionContext {
         if let Some((system, _, _)) = &state.active_space_combat {
             self.space_battle = true;
             self.target = Some(DecisionTarget::System(system.clone()));
+        }
+        self
+    }
+
+    #[must_use]
+    pub fn about_invasion(mut self, state: &ti4_model::state::GameState) -> Self {
+        if !self.space_battle {
+            if let Some(active) = &state.active_invasion {
+                let in_system = match &self.target {
+                    Some(
+                        DecisionTarget::System(system)
+                        | DecisionTarget::Planet { system, .. }
+                        | DecisionTarget::Unit { system, .. },
+                    ) => system == &active.system,
+                    _ => true,
+                };
+                if in_system {
+                    self.invasion_seq = Some(active.seq);
+                }
+            }
         }
         self
     }
@@ -246,7 +270,7 @@ impl DecisionContext {
             .collect::<Vec<_>>()
             .join(",");
         format!(
-            "v{}|actor={}|source={:?}|subtype={}|phase={:?}|round={}|optional={}|target={:?}|battle={}|owing=[{}]",
+            "v{}|actor={}|source={:?}|subtype={}|phase={:?}|round={}|optional={}|target={:?}|battle={}|{}owing=[{}]",
             self.version,
             self.actor,
             self.source,
@@ -256,6 +280,8 @@ impl DecisionContext {
             self.optional,
             self.target,
             self.space_battle,
+            self.invasion_seq
+                .map_or_else(String::new, |seq| format!("invasion={seq}|")),
             owed
         )
     }
@@ -274,6 +300,7 @@ impl DecisionContext {
             ("optional", Visibility::Public),
             ("target", Visibility::Public),
             ("space_battle", Visibility::Public),
+            ("invasion_seq", Visibility::Public),
             ("outstanding", Visibility::ActorOnly),
         ])
     }
@@ -305,6 +332,46 @@ mod tests {
         )
         .optional(true)
         .owing(OutstandingConstraint::new(ConstraintKind::Influence, 3, 4))
+    }
+
+    #[test]
+    fn invasion_association_keeps_planet_target_and_rejects_other_systems() {
+        let content = ti4_content::ContentStore::embedded();
+        let mut state = crate::setup::start_game(
+            content,
+            &[PlayerId::new("a"), PlayerId::new("b")],
+            ti4_model::content_types::POK,
+            None,
+        )
+        .expect("setup");
+        state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+            system: SystemId::new("18"),
+            invader: PlayerId::new("a"),
+            seq: 9,
+            phase: "landing".to_owned(),
+            planet: None,
+            defender: None,
+            ground_round: 0,
+            last_step: None,
+        });
+        let target = DecisionTarget::Planet {
+            system: SystemId::new("18"),
+            planet: PlanetId::new("jord"),
+        };
+        let associated = context().about(target.clone()).about_invasion(&state);
+        assert_eq!(associated.invasion_seq, Some(9));
+        assert_eq!(associated.target, Some(target));
+        assert_eq!(
+            associated.visible_to(&PlayerId::new("b")).invasion_seq,
+            Some(9)
+        );
+        assert_eq!(
+            context()
+                .about(DecisionTarget::System(SystemId::new("19")))
+                .about_invasion(&state)
+                .invasion_seq,
+            None
+        );
     }
 
     #[test]
@@ -427,6 +494,6 @@ mod tests {
             .iter()
             .filter(|(_, v)| **v == Visibility::Public)
             .count();
-        assert_eq!(public, 9, "every other field describes a public question");
+        assert_eq!(public, 10, "every other field describes a public question");
     }
 }

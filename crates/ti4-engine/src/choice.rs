@@ -1923,6 +1923,11 @@ impl Table {
         choice: &Choice,
         seen: &Observed<'_>,
     ) -> Result<ChoiceOption, IllegalChoice> {
+        let mut associated = choice.clone();
+        if let Some(context) = associated.context.take() {
+            associated.context = Some(context.about_invasion(seen.state));
+        }
+        let choice = &associated;
         if let Some(callback) = &mut self.observed_offer {
             callback(&self.log.records, seen.state);
         }

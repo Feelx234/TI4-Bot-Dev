@@ -278,7 +278,7 @@ export const EventLog: React.FC<EventLogProps> = ({
                                     onClick={() => onRestore(entry.decision_count! - 1)}
                                     aria-label={`Undo from decision ${entry.decision_count}`}
                                   >
-                                    Undo from here
+                                    Undo
                                   </button>
                                 )}
                             </li>
@@ -296,43 +296,17 @@ export const EventLog: React.FC<EventLogProps> = ({
                     {onRestore &&
                       decisions.length > 0 &&
                       ev.decision_count !== undefined &&
-                      ev.decision_count <= cursor && (
-                        <details className="event-log__actions">
-                          <summary
-                            aria-label={`History actions for event ${i + 1}`}
-                            title="History actions"
-                          >
-                            ⋯
-                          </summary>
-                          <div className="event-log__action-list">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => onRestore(ev.decision_count! - 1)}
-                            >
-                              Undo from decision {ev.decision_count}
-                            </button>
-                            {first.batch_start_cursor !== undefined && (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => onRestore(first.batch_start_cursor!)}
-                              >
-                                Undo from batch start
-                              </button>
-                            )}
-                            {first.action_start_cursor !== undefined &&
-                              first.action_start_cursor < cursor && (
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => onRestore(first.action_start_cursor!)}
-                                >
-                                  Undo from action start
-                                </button>
-                              )}
-                          </div>
-                        </details>
+                      ev.decision_count <= cursor &&
+                      !first.batch_id && (
+                        <button
+                          type="button"
+                          className="event-log__undo"
+                          disabled={busy}
+                          onClick={() => onRestore(ev.decision_count! - 1)}
+                          aria-label={`Undo from decision ${ev.decision_count}`}
+                        >
+                          Undo
+                        </button>
                       )}
                   </div>
                 );

@@ -18,6 +18,26 @@ fn invasion_boundary_is_public_even_during_an_unrelated_nested_offer() {
         planet: Some(ti4_model::id::PlanetId::new("jord")),
         defender: Some(PlayerId::new("seat_b")),
         ground_round: 2,
+        last_step: Some(ti4_model::state::InvasionStep {
+            planet: ti4_model::id::PlanetId::new("jord"),
+            kind: "ground_round".to_owned(),
+            round: 2,
+            before: vec![Unit::new(
+                UnitTypeId::new("infantry"),
+                PlayerId::new("seat_a"),
+            )],
+            after: vec![],
+            dice: vec![ti4_model::state::InvasionDie {
+                planet: ti4_model::id::PlanetId::new("jord"),
+                player: PlayerId::new("seat_a"),
+                group: "combat value 8".to_owned(),
+                face: 9,
+                target: 8,
+                hit: true,
+            }],
+            hits: [(PlayerId::new("seat_a"), 1)].into_iter().collect(),
+            harrow_hits: 0,
+        }),
     });
     let offer = create_sample_pending_choice();
     for viewer in [
@@ -30,6 +50,11 @@ fn invasion_boundary_is_public_even_during_an_unrelated_nested_offer() {
         let json = serde_json::to_value(snapshot).expect("snapshot");
         assert_eq!(json["view"]["board"]["invasion"]["invasion_seq"], 7);
         assert_eq!(json["view"]["board"]["invasion"]["current_planet"], "jord");
+        let step = &json["view"]["board"]["invasion"]["last_step"];
+        assert_eq!(step["planet"], "jord");
+        assert_eq!(step["before"][0]["unit_type"], "infantry");
+        assert_eq!(step["dice"][0]["face"], 9);
+        assert_eq!(step["hits"]["seat_a"], 1);
     }
 }
 

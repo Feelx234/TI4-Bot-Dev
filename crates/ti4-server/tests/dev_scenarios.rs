@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -11,11 +12,63 @@ use ti4_server::session::{GameRegistry, MockClient};
 #[test]
 fn test_available_scenarios_listing() {
     let scenarios = available_scenarios();
-    assert_eq!(scenarios.len(), 4);
+    assert_eq!(scenarios.len(), 7);
     assert_eq!(scenarios[0].id, "tactical_action");
     assert_eq!(scenarios[1].id, "space_combat");
     assert_eq!(scenarios[2].id, "ongoing_combat");
     assert_eq!(scenarios[3].id, "ongoing_combat_four_views");
+    assert_eq!(scenarios[4].id, "ongoing_invasion_four_views");
+    assert_eq!(scenarios[5].id, "ongoing_invasion_coexistence");
+    assert_eq!(scenarios[6].id, "ongoing_invasion_parley");
+}
+
+#[test]
+fn invasion_scenarios_launch_with_public_boundary_and_dev_only_seat_tokens() {
+    for scenario in [
+        "ongoing_invasion_four_views",
+        "ongoing_invasion_coexistence",
+        "ongoing_invasion_parley",
+    ] {
+        let registry = Arc::new(GameRegistry::new());
+        let launch =
+            execute_launch_scenario(&registry, scenario, Some(42)).expect("launch invasion");
+        assert_eq!(launch.test_seats.as_ref().map(BTreeMap::len), Some(3));
+        let session = registry.get_game(&launch.game_id).expect("session");
+        let view = session.get_snapshot(&ViewerRole::Spectator);
+        let invasion = view.view.board.invasion.expect("active invasion");
+        assert_eq!(invasion.invader.as_str(), launch.player_id);
+        assert_eq!(
+            invasion.planets.len(),
+            if scenario.ends_with("coexistence") {
+                2
+            } else {
+                1
+            }
+        );
+        if scenario.ends_with("coexistence") {
+            let first = &invasion.planets[0];
+            let defender = view
+                .view
+                .players
+                .iter()
+                .find(|seat| seat.faction.as_str() == "letnev")
+                .unwrap();
+            assert_eq!(
+                invasion.odds_context[first].opponent.as_ref(),
+                Some(&defender.id),
+                "the controller fights first even with another ground-force owner present"
+            );
+            assert!(invasion.odds_context.values().any(|context| {
+                context
+                    .ground_force_types
+                    .iter()
+                    .filter(|id| *id == "infantry")
+                    .count()
+                    >= 3
+            }));
+        }
+        assert!(view.pending_choice.is_none(), "spectator has no offer");
+    }
 }
 
 #[test]
@@ -260,7 +313,7 @@ async fn test_dev_scenarios_http_api() {
         .expect("get dev scenarios");
     assert_eq!(res.status(), reqwest::StatusCode::OK);
     let list: Vec<ti4_server::dev::ScenarioSummary> = res.json().await.expect("json scenario list");
-    assert_eq!(list.len(), 4);
+    assert_eq!(list.len(), 7);
 
     let launch_res = client
         .post(format!("http://{addr}/api/dev/scenarios/launch"))

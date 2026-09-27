@@ -141,6 +141,9 @@ pub struct GroundOddsSide {
 pub struct GroundOddsRequest {
     pub attacker: GroundOddsSide,
     pub defender: GroundOddsSide,
+    /// Legal bombarding ships that fire Harrow after rounds (never before landing).
+    #[serde(default)]
+    pub harrow: BTreeMap<String, usize>,
     #[serde(default)]
     pub simulations: Option<usize>,
 }
@@ -434,6 +437,19 @@ impl Advisor {
                 "only the defender has standing defense guns",
             ));
         }
+        if request.harrow.len() > MAX_PLACEMENTS
+            || request.harrow.values().any(|count| *count > MAX_PLACEMENTS)
+            || request.harrow.values().sum::<usize>() > MAX_PLACEMENTS
+        {
+            return Err(ApiError::bad_request("too many Harrow units"));
+        }
+        for id in request.harrow.keys() {
+            if !ti4_content::units::unit_type(self.inner.content, id, POK)
+                .is_some_and(|unit| unit.has_bombardment() && unit.bombard_dice() > 0)
+            {
+                return Err(ApiError::bad_request(format!("invalid Harrow unit: {id}")));
+            }
+        }
         let resolve = |side: &GroundOddsSide| -> Result<GroundSide, ApiError> {
             if side.units.len() > MAX_PLACEMENTS
                 || side.guns.len() > MAX_PLACEMENTS
@@ -477,7 +493,13 @@ impl Advisor {
                     .with_defense_guns(self.inner.content, &guns),
             )
         };
-        let attacker = resolve(&request.attacker)?;
+        let harrow: Vec<_> = request
+            .harrow
+            .iter()
+            .map(|(id, count)| (id.clone(), *count))
+            .collect();
+        let attacker =
+            resolve(&request.attacker)?.with_bombardment(self.inner.content, &harrow, false, true);
         let defender = resolve(&request.defender)?;
         let wins = (0..n)
             .filter(|seed| {

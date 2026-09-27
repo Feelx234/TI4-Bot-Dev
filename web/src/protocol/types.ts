@@ -79,6 +79,7 @@ export interface DecisionContextDto {
   round?: number;
   optional?: boolean;
   space_battle?: boolean;
+  invasion_seq?: number;
   target?: DecisionTargetDto | null;
   outstanding?: OutstandingConstraintDto[];
   kind?: string;
@@ -250,6 +251,27 @@ export interface InvasionView {
   current_planet: string | null;
   defender: string | null;
   ground_round: number;
+  last_step?: InvasionStepView | null;
+  odds_context?: Record<string, InvasionOddsContext>;
+}
+
+export interface InvasionOddsContext {
+  opponent: string | null;
+  available: boolean;
+  ground_force_types: string[];
+  additional_guns: Record<string, number>;
+  harrow_units: Record<string, number>;
+}
+
+export interface InvasionStepView {
+  planet: string;
+  kind: string;
+  round: number;
+  before: PlacedUnitView[];
+  after: PlacedUnitView[];
+  dice: { planet: string; player: string; group: string; face: number; target: number; hit: boolean }[];
+  hits: Record<string, number>;
+  harrow_hits: number;
 }
 
 export interface GameView {

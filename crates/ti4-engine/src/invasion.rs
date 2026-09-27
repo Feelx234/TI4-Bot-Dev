@@ -9,7 +9,7 @@ use ti4_content::ContentStore;
 use ti4_content::units::{UnitType, catalogue};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
-use ti4_model::state::{Feat, FeatOccurrence, GameState};
+use ti4_model::state::{Feat, FeatOccurrence, GameState, InvasionDie, InvasionStep};
 use ti4_model::units::Unit;
 
 use crate::choice::{
@@ -178,6 +178,8 @@ pub fn bombardment(
 #[derive(Debug, Clone)]
 struct BombardPlan {
     planet: PlanetId,
+    before: Vec<Unit>,
+    dice: Vec<InvasionDie>,
     groups: Vec<usize>,
     held: usize,
     victims: std::collections::BTreeSet<PlayerId>,
@@ -485,6 +487,8 @@ fn roll_bombard_plan(
         let victims: std::collections::BTreeSet<PlayerId> =
             defenders.iter().map(|unit| unit.owner.clone()).collect();
         plan.push(BombardPlan {
+            before: state.system_state(system).on_planet(&planet).to_vec(),
+            dice: Vec::new(),
             planet,
             groups,
             held: defenders.len(),
@@ -1438,6 +1442,14 @@ impl InvasionWindow {
         if active.planet != planet || active.defender != defender {
             active.ground_round = 0;
         }
+        if active
+            .last_step
+            .as_ref()
+            .is_some_and(|step| Some(&step.planet) != planet.as_ref())
+            && planet.is_some()
+        {
+            active.last_step = None;
+        }
         active.phase = phase.to_owned();
         active.planet = planet;
         active.defender = defender;
@@ -1512,6 +1524,16 @@ impl InvasionWindow {
                 return;
             };
             if entry.groups.is_empty() {
+                let (planet, held, victims) =
+                    (entry.planet.clone(), entry.held, entry.victims.clone());
+                self.complete_bombard_plan(
+                    state,
+                    &planet,
+                    0,
+                    held,
+                    &victims,
+                    self.bombard_occurrence,
+                );
                 self.bombard_index += 1;
                 continue;
             }
@@ -1576,6 +1598,26 @@ impl InvasionWindow {
         victims: &std::collections::BTreeSet<PlayerId>,
         occurrence: FeatOccurrence,
     ) {
+        let after = state.system_state(&self.system).on_planet(planet).to_vec();
+        if let Some(active) = state.active_invasion.as_mut()
+            && let Some(plan) = self
+                .bombard_plan
+                .iter()
+                .find(|entry| &entry.planet == planet)
+        {
+            active.last_step = Some(InvasionStep {
+                planet: planet.clone(),
+                kind: "bombardment".to_owned(),
+                round: 0,
+                before: plan.before.clone(),
+                after,
+                dice: plan.dice.clone(),
+                hits: [(self.invader.clone(), plan.groups.iter().sum())]
+                    .into_iter()
+                    .collect(),
+                harrow_hits: 0,
+            });
+        }
         if taken == held
             && victims.len() == 1
             && state
@@ -1605,6 +1647,28 @@ impl InvasionWindow {
         crate::combat::open_reroll_windows(state, ctx, &self.invader);
         if let Some(set) = state.reroll_staging.get(&self.invader).cloned() {
             for entry in &mut self.bombard_plan {
+                entry.dice = set
+                    .rolls
+                    .iter()
+                    .filter(|roll| roll.planet.as_ref() == Some(&entry.planet))
+                    .flat_map(|roll| {
+                        let target = roll.hits_on.unwrap_or(u32::MAX);
+                        roll.faces
+                            .iter()
+                            .enumerate()
+                            .map(|(index, face)| InvasionDie {
+                                planet: entry.planet.clone(),
+                                player: self.invader.clone(),
+                                group: roll.unit.clone(),
+                                face: *face,
+                                target,
+                                hit: i64::from(*face)
+                                    + i64::from(roll.deltas.get(&index).copied().unwrap_or(0))
+                                    >= i64::from(target),
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
                 entry.groups = set
                     .rolls
                     .iter()
@@ -1852,6 +1916,7 @@ impl InvasionWindow {
         for who in [self.invader.clone(), defender.clone()] {
             dunlain_reaper(state, ctx, &who, &self.system, &planet);
         }
+        let before = state.system_state(&self.system).on_planet(&planet).to_vec();
         // 42.2: hits are simultaneous, so both sides roll before either loses anything.
         let attacker_hits = roll_ground(
             state,
@@ -1889,6 +1954,30 @@ impl InvasionWindow {
             &defender,
             defender_hits,
         );
+        let mut rolls = Vec::new();
+        for player in [&self.invader, &defender] {
+            if let Some(set) = state.reroll_staging.get(player) {
+                for roll in set
+                    .rolls
+                    .iter()
+                    .filter(|roll| roll.planet.as_ref() == Some(&planet))
+                {
+                    let target = roll.hits_on.unwrap_or(u32::MAX);
+                    for (index, face) in roll.faces.iter().enumerate() {
+                        let adjusted = i64::from(*face)
+                            + i64::from(roll.deltas.get(&index).copied().unwrap_or(0));
+                        rolls.push(InvasionDie {
+                            planet: planet.clone(),
+                            player: player.clone(),
+                            group: roll.unit.clone(),
+                            face: *face,
+                            target,
+                            hit: adjusted >= i64::from(target),
+                        });
+                    }
+                }
+            }
+        }
         state.reroll_staging.clear();
         state.last_reroll_player = None;
         remove_ground(
@@ -1911,7 +2000,7 @@ impl InvasionWindow {
         );
         // L1Z1X's Harrow: at the end of each round of ground combat, bombard the defender again.
         // A planetary shield stops it as it stops any bombardment (63.2).
-        if bombardable(
+        let harrow = if bombardable(
             state,
             content,
             sources,
@@ -1937,6 +2026,27 @@ impl InvasionWindow {
                 &defender,
                 harrow,
             );
+            harrow
+        } else {
+            0
+        };
+        let after = state.system_state(&self.system).on_planet(&planet).to_vec();
+        if let Some(active) = state.active_invasion.as_mut() {
+            active.last_step = Some(InvasionStep {
+                planet: planet.clone(),
+                kind: "ground_round".to_owned(),
+                round: active.ground_round,
+                before,
+                after,
+                dice: rolls,
+                hits: [
+                    (self.invader.clone(), attacker_hits),
+                    (defender.clone(), defender_hits),
+                ]
+                .into_iter()
+                .collect(),
+                harrow_hits: harrow,
+            });
         }
         self.finish_ground_round(state, ctx, planets, index, defender, &planet);
     }
@@ -2773,6 +2883,8 @@ fn space_cannon_defense(
         .filter(|unit| &unit.owner != invader)
         .cloned()
         .collect();
+    let before = state.system_state(system).on_planet(planet).to_vec();
+    let mut rolled = Vec::new();
     let mut hits = 0;
     for unit in guns {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
@@ -2799,9 +2911,40 @@ fn space_cannon_defense(
             Some(u32::try_from(value).unwrap_or(u32::MAX)),
         );
         hits += roll.hits();
+        for face in roll.faces {
+            rolled.push(InvasionDie {
+                planet: planet.clone(),
+                player: unit.owner.clone(),
+                group: unit.type_id.to_string(),
+                face,
+                target: u32::try_from(value).unwrap_or(u32::MAX),
+                hit: i64::from(face) >= value,
+            });
+        }
     }
     for _ in 0..hits {
         let _ = ground_hit(state, content, sources, system, planet, invader);
+    }
+    if !rolled.is_empty() {
+        let after = state.system_state(system).on_planet(planet).to_vec();
+        let mut produced = std::collections::BTreeMap::new();
+        for die in &rolled {
+            if die.hit {
+                *produced.entry(die.player.clone()).or_insert(0) += 1;
+            }
+        }
+        if let Some(active) = state.active_invasion.as_mut() {
+            active.last_step = Some(InvasionStep {
+                planet: planet.clone(),
+                kind: "space_cannon_defense".to_owned(),
+                round: 0,
+                before,
+                after,
+                dice: rolled,
+                hits: produced,
+                harrow_hits: 0,
+            });
+        }
     }
 }
 

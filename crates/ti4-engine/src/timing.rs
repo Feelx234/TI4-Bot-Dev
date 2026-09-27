@@ -110,7 +110,7 @@ impl TimingContext<'_> {
     ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
         let mut choice = choice.clone();
         if let Some(context) = choice.context.take() {
-            choice.context = Some(context.about_battle(self.state));
+            choice.context = Some(context.about_battle(self.state).about_invasion(self.state));
         }
         self.table.ask_seeing(
             &choice,

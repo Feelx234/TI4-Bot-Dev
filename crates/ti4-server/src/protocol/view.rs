@@ -168,6 +168,38 @@ pub struct InvasionView {
     pub current_planet: Option<PlanetId>,
     pub defender: Option<PlayerId>,
     pub ground_round: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_step: Option<InvasionStepView>,
+    /// Authoritative public classification and still-pending modifiers for landing previews.
+    #[serde(default)]
+    pub odds_context: BTreeMap<PlanetId, InvasionOddsContext>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvasionOddsContext {
+    pub opponent: Option<PlayerId>,
+    /// False when a live defense modifier cannot be represented in the advisor request.
+    pub available: bool,
+    pub ground_force_types: Vec<String>,
+    /// Guns not already carried by the immediate opponent's modeled ground forces.
+    pub additional_guns: BTreeMap<String, usize>,
+    /// Legal Harrow bombarders in the space area; bombardment already resolved.
+    pub harrow_units: BTreeMap<String, usize>,
+}
+
+/// Latest resolved automatic step, scoped to one planet and one ground round.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvasionStepView {
+    pub planet: PlanetId,
+    pub kind: String,
+    pub round: u32,
+    pub before: Vec<PlacedUnitView>,
+    pub after: Vec<PlacedUnitView>,
+    pub dice: Vec<ti4_model::state::InvasionDie>,
+    pub hits: BTreeMap<PlayerId, usize>,
+    pub harrow_hits: usize,
 }
 
 /// Redacted view of the galaxy board.
