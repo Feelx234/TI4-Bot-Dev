@@ -18,7 +18,10 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
-$profileArgs = if ($DebugBuild) { @() } else { @('--release') }
+# Built as a list explicitly: an `if` that yields one item yields a string, and splatting a string
+# hands cargo its characters one by one.
+[string[]]$profileArgs = @()
+if (-not $DebugBuild) { $profileArgs += '--release' }
 $bin = Join-Path $root ('target\' + $(if ($DebugBuild) { 'debug' } else { 'release' }))
 
 "Building the host (ti4-replayer)..."
