@@ -96,6 +96,17 @@ pub struct Replayer {
     host: Option<NetHost>,
     /// The port typed into the bar, kept as text so a half-typed number is not a parse error.
     host_port: String,
+    /// A join code fixed on the command line, instead of a fresh random one.
+    host_code: Option<String>,
+    /// Start hosting by itself as soon as a table is live (`--host` on the command line).
+    auto_host: bool,
+}
+
+/// Hosting asked for on the command line: `ti4-replayer --host <port> [--code <code>]`.
+#[derive(Clone, Debug)]
+pub struct HostPlan {
+    pub port: u16,
+    pub code: Option<String>,
 }
 
 /// The profile table behind a remembered name, or the fallback when the name is not one this build
@@ -224,6 +235,14 @@ pub fn run() -> eframe::Result<()> {
 /// Propagates eframe's own failure to open a window. The file itself is not read until the app is
 /// constructed, and a file that will not open is reported in the window's status line, not here.
 pub fn run_with(open: Option<PathBuf>) -> eframe::Result<()> {
+    run_hosting(open, None)
+}
+
+/// [`run_with`], and host the first live table on the planned port without a click.
+///
+/// # Errors
+/// Propagates eframe's own failure to open a window.
+pub fn run_hosting(open: Option<PathBuf>, plan: Option<HostPlan>) -> eframe::Result<()> {
     let settings = ReplaySettings::load(Path::new(SETTINGS_PATH));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -236,6 +255,11 @@ pub fn run_with(open: Option<PathBuf>) -> eframe::Result<()> {
         options,
         Box::new(move |context| {
             let mut app = Replayer::new(context, &settings);
+            if let Some(plan) = &plan {
+                app.host_port = plan.port.to_string();
+                app.host_code.clone_from(&plan.code);
+                app.auto_host = true;
+            }
             if let Some(path) = &open {
                 app.open_path(path);
             }
@@ -275,6 +299,8 @@ impl Replayer {
             setup_open: settings.last_project.is_none(),
             host: None,
             host_port: DEFAULT_PORT.to_string(),
+            host_code: None,
+            auto_host: false,
         }
     }
 
@@ -1100,10 +1126,14 @@ impl Replayer {
         let _ = button
             .clone()
             .on_disabled_hover_text("Start a table first; hosting serves the live branch.");
-        if button.clicked() {
+        // `--host` hosts the first live table by itself, once; after a failure it is the button's job.
+        if button.clicked() || (live && std::mem::take(&mut self.auto_host)) {
             match self.host_port.trim().parse::<u16>() {
                 Ok(port) => {
-                    match NetHost::start(std::net::SocketAddr::from(([0, 0, 0, 0], port))) {
+                    match NetHost::start_with_code(
+                        std::net::SocketAddr::from(([0, 0, 0, 0], port)),
+                        self.host_code.clone(),
+                    ) {
                         Ok(host) => {
                             self.status = format!(
                                 "Hosting on port {}. Remote players each take a free Auto seat, which turns Manual for them; seats you have on Manual stay yours. Your own window still shows every hand.",

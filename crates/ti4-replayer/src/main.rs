@@ -10,9 +10,26 @@ use std::path::Path;
 use ti4_replayer::gui;
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // `--host <port> [--code <code>]` goes with the window, never with a subcommand (`join` has its
+    // own `--code`): host the first live table without a click.
+    let subcommand = matches!(
+        args.first().map(String::as_str),
+        Some("inspect" | "import" | "join")
+    );
+    let plan = if subcommand {
+        None
+    } else {
+        match take_host_plan(&mut args) {
+            Ok(plan) => plan,
+            Err(error) => {
+                eprintln!("ti4-replayer: {error}");
+                std::process::exit(2);
+            }
+        }
+    };
     if args.is_empty() {
-        return window(None);
+        return window(None, plan);
     }
     // A path opens the window with that file in it. A subcommand does something at the terminal.
     let first = Path::new(args.first().map_or("", String::as_str));
@@ -21,7 +38,7 @@ fn main() {
         "inspect" | "import" | "join"
     ) && first.exists()
     {
-        return window(Some(first.to_path_buf()));
+        return window(Some(first.to_path_buf()), plan);
     }
     // A name that is not a subcommand and not a file says which of the two it expected, instead of
     // reciting a usage line at somebody who typed what they meant and simply has not recorded a game
@@ -48,9 +65,36 @@ fn main() {
     }
 }
 
+/// Remove `--host <port>` and `--code <code>` from the arguments, returning what they asked for.
+fn take_host_plan(args: &mut Vec<String>) -> Result<Option<gui::HostPlan>, String> {
+    let mut take = |name: &str| -> Result<Option<String>, String> {
+        let Some(index) = args.iter().position(|arg| arg == name) else {
+            return Ok(None);
+        };
+        if index + 1 >= args.len() {
+            return Err(format!("{name} needs a value"));
+        }
+        let value = args.remove(index + 1);
+        args.remove(index);
+        Ok(Some(value))
+    };
+    let port = take("--host")?;
+    let code = take("--code")?;
+    match port {
+        None if code.is_some() => Err("--code only makes sense with --host <port>".to_owned()),
+        None => Ok(None),
+        Some(port) => Ok(Some(gui::HostPlan {
+            port: port
+                .parse()
+                .map_err(|_| format!("--host {port}: not a port number"))?,
+            code,
+        })),
+    }
+}
+
 /// Open the window, optionally with a session or project already loaded.
-fn window(open: Option<std::path::PathBuf>) {
-    if let Err(error) = gui::run_with(open) {
+fn window(open: Option<std::path::PathBuf>, plan: Option<gui::HostPlan>) {
+    if let Err(error) = gui::run_hosting(open, plan) {
         eprintln!("ti4-replayer: the window failed: {error}");
         std::process::exit(2);
     }
@@ -66,7 +110,7 @@ fn command(args: &[String]) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: ti4-replayer [<session-or-project>] | [inspect <project>] | [import <session>              [--checkpoint P --map-pool P --out P]] | [join [<host:port>] [--code C] [--seat S] [--name N]]"
+    "usage: ti4-replayer [<session-or-project>] | [inspect <project>] | [import <session>              [--checkpoint P --map-pool P --out P]] | [join [<host:port>] [--code C] [--seat S] [--name N]] | [--host <port> [--code C]]"
         .to_owned()
 }
 

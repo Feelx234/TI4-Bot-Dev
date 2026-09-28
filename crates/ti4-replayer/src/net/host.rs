@@ -43,6 +43,9 @@ use super::{CLIENT_SILENCE, HANDSHAKE_TIMEOUT, MAX_CLIENTS, MAX_HANDSHAKES, PUMP
 use crate::control::{ChoiceFingerprint, SeatMode, SubmitOutcome};
 use crate::live::Gate;
 
+/// Shortest join code the host accepts when one is given to it.
+pub const MIN_CODE_CHARS: usize = 16;
+
 /// Messages a connection may have queued before the host gives up on it.
 const OUTBOX: usize = 64;
 
@@ -111,11 +114,35 @@ impl NetHost {
     /// # Errors
     /// The address could not be bound.
     pub fn start(bind: SocketAddr) -> io::Result<Self> {
+        Self::start_with_code(bind, None)
+    }
+
+    /// Listen on `bind` with the given join code, or a fresh one. A given code must be at least
+    /// [`MIN_CODE_CHARS`] letters and digits: it is the only thing keeping strangers out of a seat.
+    ///
+    /// # Errors
+    /// The code is too weak, or the address could not be bound.
+    pub fn start_with_code(bind: SocketAddr, code: Option<String>) -> io::Result<Self> {
+        let code = match code {
+            Some(code)
+                if code.len() >= MIN_CODE_CHARS
+                    && code.chars().all(|ch| ch.is_ascii_alphanumeric()) =>
+            {
+                code
+            }
+            Some(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("a join code needs at least {MIN_CODE_CHARS} letters and digits"),
+                ));
+            }
+            None => random_token(),
+        };
         let listener = TcpListener::bind(bind)?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
         let shared = Arc::new(Shared {
-            code: random_token(),
+            code,
             table: Mutex::new(Table::default()),
             shutdown: AtomicBool::new(false),
             handshakes: AtomicUsize::new(0),
@@ -724,6 +751,19 @@ mod tests {
         assert!(same_secret("abc", "abc"));
         assert!(!same_secret("abc", "abd"));
         assert!(!same_secret("abc", "abcd"));
+    }
+
+    #[test]
+    fn a_given_code_is_used_and_a_weak_one_refused() {
+        let local = SocketAddr::from(([127, 0, 0, 1], 0));
+        let host = NetHost::start_with_code(local, Some("abcdef0123456789".to_owned())).unwrap();
+        assert_eq!(host.code(), "abcdef0123456789");
+        for weak in ["short", "sixteen-but-dash", ""] {
+            let error = NetHost::start_with_code(local, Some(weak.to_owned()))
+                .err()
+                .unwrap();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{weak:?}");
+        }
     }
 
     #[test]
