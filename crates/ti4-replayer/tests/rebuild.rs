@@ -6,6 +6,9 @@
 //! what is validated is exactly what the engine asked. Inputs are the committed example bundle and
 //! map pool, so there is no skip path.
 
+// Every test here drives a live branch, which only the `host` build has.
+#![cfg(feature = "host")]
+
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 

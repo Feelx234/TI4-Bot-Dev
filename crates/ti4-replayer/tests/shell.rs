@@ -10,6 +10,9 @@
 //! What it does not do is prove the thing looks right. That is the operator's smoke pass, and this file
 //! says so rather than implying otherwise.
 
+// Every test here drives a live branch, which only the `host` build has.
+#![cfg(feature = "host")]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

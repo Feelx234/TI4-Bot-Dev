@@ -7,6 +7,9 @@
 //! invents an affordance, never forks by accident, and never goes silent about a button that does
 //! nothing.
 
+// Every test here drives a live branch, which only the `host` build has.
+#![cfg(feature = "host")]
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;

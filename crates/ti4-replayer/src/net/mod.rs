@@ -12,12 +12,14 @@
 use std::time::Duration;
 
 pub mod client;
+#[cfg(feature = "host")]
 pub mod host;
 pub mod protocol;
 pub mod redact;
 pub mod remote_gui;
 
 pub use client::{JoinRequest, NetClient, Remote};
+#[cfg(feature = "host")]
 pub use host::NetHost;
 
 /// Port the host listens on unless told otherwise.

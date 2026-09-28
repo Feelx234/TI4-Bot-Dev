@@ -6,6 +6,9 @@
 //! judged on. The last test is the opposite: it plays a real branch, persists it, reads it back, and
 //! rebuilds from the file, because a recipe that does not cook is not a recipe.
 
+// Every test here drives a live branch, which only the `host` build has.
+#![cfg(feature = "host")]
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};

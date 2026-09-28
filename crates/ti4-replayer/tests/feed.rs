@@ -8,6 +8,9 @@
 //! They run the real engine on the committed example inputs. Each one is a few seconds; the fork tests
 //! are the slow ones because they play a game twice, which is the whole point.
 
+// Every test here drives a live branch, which only the `host` build has.
+#![cfg(feature = "host")]
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

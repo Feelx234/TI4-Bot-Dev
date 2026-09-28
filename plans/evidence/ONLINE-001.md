@@ -44,3 +44,20 @@ branch `wp/online-multiplayer` in the shared checkout.
   summary (e.g. a transaction detail) is not caught.
 - Option policy scores are shown to remote players, as they are to the host.
 - The GUI windows were built but not driven by hand in this session.
+
+## ONLINE-001b — lean client package (2026-09-28)
+
+- `ti4-review` gets a default `simulate` feature (policy, map pool, rollout: everything that pulls
+  `tch`/libtorch). Without it the crate is the session format plus the board/panel painters.
+- `ti4-replayer` gets a default `host` feature; the `ti4-replayer` bin and every integration test
+  require it. New bin `ti4-join` (`src/join.rs`) builds with `--no-default-features`.
+- Hello now carries the build commit; the host refuses a client from a different commit.
+- `scripts/package_ti4_join.ps1` → `out/ti4-join-<commit>-windows-x64.zip` (exe, Install.cmd,
+  install.ps1, uninstall.ps1, README.txt). Refuses to package dirty client sources.
+
+| Check | Result |
+|---|---|
+| `cargo tree -p ti4-replayer --no-default-features` | no `tch`/torch |
+| release `ti4-join.exe` | 13.2 MB; starts with PATH = System32 only |
+| `cargo clippy -p ti4-replayer --no-default-features --all-targets` | clean |
+| `cargo test -p ti4-replayer --lib --test online`, `cargo test -p ti4-review --lib` | pass |

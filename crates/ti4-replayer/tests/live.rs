@@ -4,6 +4,9 @@
 //! inside `Table::ask` and an answer is validated by `Table::settle`. The inputs are the committed
 //! example bundle and map pool, so there is no skip path.
 
+// Every test here drives a live branch, which only the `host` build has.
+#![cfg(feature = "host")]
+
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};

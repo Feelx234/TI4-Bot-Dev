@@ -35,6 +35,9 @@ pub enum ClientMessage {
     /// The first message on a connection.
     Hello {
         protocol: String,
+        /// The engine commit the client was built from. Frames are the reviewer's session format,
+        /// which changes between commits, so host and client must be the same build.
+        build: String,
         /// The table's join code.
         code: String,
         /// The seat asked for; `None` takes the first free one.
@@ -154,6 +157,7 @@ mod tests {
     fn a_message_survives_the_round_trip() {
         let sent = ClientMessage::Hello {
             protocol: PROTOCOL.to_owned(),
+            build: "b".to_owned(),
             code: "abc".to_owned(),
             seat: Some(PlayerId::new("seat2")),
             name: "n".to_owned(),

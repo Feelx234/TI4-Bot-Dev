@@ -79,6 +79,7 @@ impl NetClient {
             &mut writer,
             &ClientMessage::Hello {
                 protocol: PROTOCOL.to_owned(),
+                build: ti4_review::ENGINE_COMMIT.to_owned(),
                 code: request.code.trim().to_owned(),
                 seat: request.seat.clone(),
                 name: request.name.clone(),

@@ -7,39 +7,57 @@
     clippy::too_many_lines
 )]
 
+#[cfg(feature = "simulate")]
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
+#[cfg(feature = "simulate")]
 use std::rc::Rc;
+#[cfg(feature = "simulate")]
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+#[cfg(feature = "simulate")]
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use ti4_content::ContentStore;
+#[cfg(feature = "simulate")]
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
+#[cfg(feature = "simulate")]
 use ti4_engine::game::Game;
+#[cfg(feature = "simulate")]
 use ti4_mlp::bot::{InferenceStatus, MlpBot};
+#[cfg(feature = "simulate")]
 use ti4_mlp::{Actor, FactionRow, SparseOption};
 use ti4_model::content_types::FULL;
-use ti4_model::id::{FactionId, PlayerId, SystemId};
+#[cfg(feature = "simulate")]
+use ti4_model::id::FactionId;
+use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::{GameState, Phase};
+#[cfg(feature = "simulate")]
 use ti4_policy::features::names_of;
+#[cfg(feature = "simulate")]
 use ti4_policy::inference::{LearnedBot, consider};
+#[cfg(feature = "simulate")]
 use ti4_policy::learned::{Profile, decision_head};
+#[cfg(feature = "simulate")]
 use ti4_policy::progress::Baseline;
+#[cfg(feature = "simulate")]
 use ti4_policy::vocabulary::Vocabulary;
+#[cfg(feature = "simulate")]
 use ti4_sim::MapPool;
+#[cfg(feature = "simulate")]
 use ti4_training::rollout::{
     OpeningMap, SimulationCapabilities, seated_faction,
     setup_game_with_capabilities_and_decider_factory,
 };
 
 pub mod diplomacy;
+#[cfg(feature = "simulate")]
 pub mod gui;
 pub mod panels;
 pub mod view;
@@ -410,6 +428,7 @@ pub struct AdvanceReport {
     pub reached_target: bool,
 }
 
+#[cfg(feature = "simulate")]
 struct TraceBot {
     /// The seat's real policy, possibly wrapped by the caller's [`PolicyHook`] first.
     inner: Box<dyn Decider>,
@@ -420,6 +439,7 @@ struct TraceBot {
     log: Rc<RefCell<Vec<DecisionDetail>>>,
 }
 
+#[cfg(feature = "simulate")]
 impl TraceBot {
     fn option_rows(choice: &Choice) -> Vec<OptionDetail> {
         choice
@@ -471,6 +491,7 @@ impl TraceBot {
     }
 }
 
+#[cfg(feature = "simulate")]
 impl Decider for TraceBot {
     fn choose(&mut self, choice: &Choice) -> std::result::Result<ChoiceOption, IllegalChoice> {
         let options = Self::option_rows(choice);
@@ -547,6 +568,7 @@ impl Decider for TraceBot {
     }
 }
 
+#[cfg(feature = "simulate")]
 struct MlpTraceBot {
     inner: Box<dyn Decider>,
     /// The bot's fleet decisions and planned answers (fact version 7), and how many were shown.
@@ -561,6 +583,7 @@ struct MlpTraceBot {
     log: Rc<RefCell<Vec<DecisionDetail>>>,
 }
 
+#[cfg(feature = "simulate")]
 impl MlpTraceBot {
     fn push(
         &self,
@@ -590,6 +613,7 @@ impl MlpTraceBot {
     }
 }
 
+#[cfg(feature = "simulate")]
 impl Decider for MlpTraceBot {
     fn choose(&mut self, choice: &Choice) -> std::result::Result<ChoiceOption, IllegalChoice> {
         let options = TraceBot::option_rows(choice);
@@ -755,6 +779,7 @@ impl Decider for MlpTraceBot {
     }
 }
 
+#[cfg(feature = "simulate")]
 enum LoadedPolicy {
     Linear(BTreeMap<String, Profile>),
     Mlp {
@@ -763,6 +788,7 @@ enum LoadedPolicy {
     },
 }
 
+#[cfg(feature = "simulate")]
 pub struct LiveReview {
     pub session: ReviewSession,
     game: Game<'static>,
@@ -803,8 +829,10 @@ struct StateTransition {
 /// records the decision, so a human choice shows the same scores, probabilities and feature
 /// projections the learned policy would have had, and the only thing the decorator changes is who
 /// answers. A hook is given the physical seat, which is the only thing control may be keyed by.
+#[cfg(feature = "simulate")]
 pub type PolicyHook<'a> = &'a dyn Fn(&PlayerId, Box<dyn Decider>) -> Box<dyn Decider>;
 
+#[cfg(feature = "simulate")]
 impl LiveReview {
     /// # Panics
     /// Panics only if the fixed six-seat setup fails to provide a configured faction.
@@ -1791,6 +1819,7 @@ fn append_transactions(details: &mut Vec<String>, decisions: &[DecisionDetail], 
     }
 }
 
+#[cfg(feature = "simulate")]
 fn load_policy(
     path: &Path,
     selection: ProfileTable,
@@ -1850,6 +1879,7 @@ fn load_policy(
     ))
 }
 
+#[cfg(feature = "simulate")]
 fn strings(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
@@ -1860,6 +1890,7 @@ fn strings(value: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
+#[cfg(feature = "simulate")]
 fn mlp_policy_summary(manifest: &Value, oov_registry_version: u32) -> PolicySummary {
     let trunk = manifest.get("trunk");
     let dimensions = [
@@ -1918,6 +1949,7 @@ fn mlp_policy_summary(manifest: &Value, oov_registry_version: u32) -> PolicySumm
     }
 }
 
+#[cfg(feature = "simulate")]
 fn linear_policy_summary(
     profiles: &BTreeMap<String, Profile>,
     selection: ProfileTable,
@@ -1944,6 +1976,7 @@ fn linear_policy_summary(
     }
 }
 
+#[cfg(feature = "simulate")]
 fn load_profiles(bytes: &[u8], selection: ProfileTable) -> Result<BTreeMap<String, Profile>> {
     let document: Value = serde_json::from_slice(bytes)
         .map_err(|error| ReviewError::Invalid(format!("checkpoint JSON: {error}")))?;
@@ -1975,6 +2008,7 @@ fn load_profiles(bytes: &[u8], selection: ProfileTable) -> Result<BTreeMap<Strin
     Ok(profiles)
 }
 
+#[cfg(feature = "simulate")]
 fn board_metadata(content: &ContentStore, galaxy: &ti4_content::galaxy::Galaxy) -> Vec<BoardTile> {
     let mut board: Vec<BoardTile> = galaxy
         .system_ids()
@@ -2022,6 +2056,7 @@ fn board_metadata(content: &ContentStore, galaxy: &ti4_content::galaxy::Galaxy) 
     board
 }
 
+#[cfg(feature = "simulate")]
 fn system_metadata(
     content: &ContentStore,
     id: &str,
@@ -2077,6 +2112,7 @@ fn system_metadata(
     })
 }
 
+#[cfg(feature = "simulate")]
 fn planet_catalog(content: &ContentStore) -> Vec<PlanetMeta> {
     ti4_content::galaxy::all_planets(content, FULL)
         .into_values()
@@ -2120,6 +2156,7 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>> {
     })
 }
 
+#[cfg(feature = "simulate")]
 fn sha256(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(64);
     for byte in Sha256::digest(bytes) {
@@ -2474,7 +2511,7 @@ pub fn export_html(path: &Path, session: &ReviewSession) -> Result<()> {
     replace_file(path, render_html(session)?.as_bytes())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "simulate"))]
 mod tests {
     use super::*;
 

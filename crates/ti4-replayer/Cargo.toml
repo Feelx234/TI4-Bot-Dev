@@ -4,10 +4,26 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[[bin]]
+name = "ti4-replayer"
+path = "src/main.rs"
+required-features = ["host"]
+
+[[bin]]
+name = "ti4-join"
+path = "src/join.rs"
+
+# `host` is the replayer proper: live branches, forks, rebuilds, projects, and serving a table. It
+# needs the reviewer's simulation and so libtorch. `ti4-join`, built with --no-default-features, is
+# the remote seat alone and needs neither.
+[features]
+default = ["host"]
+host = ["ti4-review/simulate", "dep:rfd", "dep:rand"]
+
 [dependencies]
 eframe.workspace = true
-rand.workspace = true
-rfd.workspace = true
+rand = { workspace = true, optional = true }
+rfd = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -16,7 +32,7 @@ zstd.workspace = true
 ti4-content.workspace = true
 ti4-engine.workspace = true
 ti4-model.workspace = true
-ti4-review.workspace = true
+ti4-review = { workspace = true, default-features = false }
 
 [lints]
 workspace = true

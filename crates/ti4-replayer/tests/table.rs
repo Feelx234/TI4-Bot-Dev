@@ -15,6 +15,9 @@
 //!
 //! Each test below is one of those, driven through the same calls `gui.rs` makes, in the same order.
 
+// Every test here drives a live branch, which only the `host` build has.
+#![cfg(feature = "host")]
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

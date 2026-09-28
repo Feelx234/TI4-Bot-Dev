@@ -4,6 +4,9 @@
 //! The host is driven the way the window drives it — drain the gate's feed, hand the frames to
 //! `NetHost::sync` — so what a client receives here is what a remote player would see.
 
+// Every test here drives a live branch, which only the `host` build has.
+#![cfg(feature = "host")]
+
 use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};

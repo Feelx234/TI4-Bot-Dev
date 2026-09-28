@@ -378,6 +378,7 @@ fn handshake(shared: &Arc<Shared>, stream: &TcpStream) -> Option<(u64, PlayerId,
     let refuse = |reason: &str| refuse(stream, reason);
     let Ok(ClientMessage::Hello {
         protocol,
+        build,
         code,
         seat,
         name,
@@ -388,6 +389,12 @@ fn handshake(shared: &Arc<Shared>, stream: &TcpStream) -> Option<(u64, PlayerId,
     };
     if protocol != PROTOCOL {
         return refuse(&format!("this host speaks {PROTOCOL}, not {protocol}"));
+    }
+    if build != ti4_review::ENGINE_COMMIT {
+        return refuse(&format!(
+            "the host runs build {}, this client is build {build}; both need the same one",
+            ti4_review::ENGINE_COMMIT
+        ));
     }
     if !same_secret(&code, &shared.code) {
         // Slows a guesser down; a 128-bit code is the real defence.
