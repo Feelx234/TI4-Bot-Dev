@@ -113,6 +113,8 @@ interface LobbyStatusProps {
   onTakeover: (playerId: string, nickname: string) => void;
   onReorder: (slotIds: string[]) => void;
   onWatch: () => void;
+  onAddBot?: (password: string, nickname?: string) => Promise<boolean | void>;
+  onRemoveBot?: (playerId: string) => Promise<boolean | void>;
   watching?: boolean;
   pendingAction?: string | null;
 }
@@ -132,6 +134,8 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   onTakeover,
   onReorder,
   onWatch,
+  onAddBot,
+  onRemoveBot,
   watching,
   pendingAction,
 }) => {
@@ -139,11 +143,41 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   const [copyState, setCopyState] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
   const copyingRef = useRef(false);
+  const [addBotPosition, setAddBotPosition] = useState<number | null>(null);
+  const [botPassword, setBotPassword] = useState(() => localStorage.getItem("ti4_bot_password") || "");
+  const [botNickname, setBotNickname] = useState("");
+  const [rememberBotPassword, setRememberBotPassword] = useState(true);
+  const [botError, setBotError] = useState<string | null>(null);
+  const [addingBot, setAddingBot] = useState(false);
   const viewer =
     playerId === null ? undefined : lobby.slots.find((slot) => slot.occupant === playerId);
   const isHost = playerId !== null && playerId === lobby.host_player_id;
   const canStart =
     lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant && slot.ready);
+  const handleAddBot = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!botPassword.trim()) {
+      setBotError("Password is required.");
+      return;
+    }
+    if (rememberBotPassword) {
+      localStorage.setItem("ti4_bot_password", botPassword);
+    } else {
+      localStorage.removeItem("ti4_bot_password");
+    }
+    setAddingBot(true);
+    setBotError(null);
+    try {
+      if (onAddBot) {
+        await onAddBot(botPassword, botNickname.trim() || undefined);
+      }
+      setAddBotPosition(null);
+    } catch (err) {
+      setBotError(String(err));
+    } finally {
+      setAddingBot(false);
+    }
+  };
   const copyUrl = async () => {
     if (copyingRef.current || pendingAction) return;
     copyingRef.current = true;
@@ -216,12 +250,43 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                       {slot.connected ? "● Connected" : "◇ Disconnected"}
                     </span>
                   </>
+                ) : isHost && lobby.phase === "lobby" && lobby.bot_service_enabled ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    Available
+                    <button
+                      type="button"
+                      className="button button--outline add-bot-button"
+                      data-testid={`add-bot-button-${slot.position}`}
+                      style={{ padding: "2px 8px", fontSize: "11px" }}
+                      disabled={!!pendingAction}
+                      onClick={() => {
+                        setBotNickname(`Bot ${slot.position}`);
+                        setAddBotPosition(slot.position);
+                        setBotError(null);
+                      }}
+                    >
+                      Add Bot 🤖
+                    </button>
+                  </span>
                 ) : (
                   "Available"
                 )}
               </span>
               {isHost && lobby.phase === "lobby" && (
                 <span className="lobby-reorder">
+                  {slot.occupant && slot.occupant !== lobby.host_player_id && onRemoveBot && (
+                    <button
+                      type="button"
+                      className="button button--outline button--icon remove-bot-button"
+                      data-testid={`remove-bot-button-${slot.position}`}
+                      aria-label={`Remove player at position ${slot.position}`}
+                      title={`Remove player at position ${slot.position}`}
+                      disabled={!!pendingAction}
+                      onClick={() => void onRemoveBot(slot.occupant!)}
+                    >
+                      ✕
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="button button--outline button--icon"
@@ -245,6 +310,88 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
             </div>
           ))}
         </div>
+        {addBotPosition !== null && (
+          <div
+            className="decision-modal"
+            data-testid="add-bot-modal"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(0, 0, 0, 0.75)",
+            }}
+          >
+            <div className="panel decision-modal__panel" style={{ width: "min(440px, 95vw)" }}>
+              <div className="decision-modal__header">
+                <h2>Add MLP Bot (Position {addBotPosition})</h2>
+                <button
+                  type="button"
+                  className="button button--outline button--icon"
+                  onClick={() => setAddBotPosition(null)}
+                  disabled={addingBot}
+                >
+                  ✕
+                </button>
+              </div>
+              <form onSubmit={handleAddBot} className="lobby-form">
+                <label className="field-label">
+                  Bot Nickname
+                  <input
+                    className="input"
+                    value={botNickname}
+                    disabled={addingBot}
+                    onChange={(e) => setBotNickname(e.target.value)}
+                  />
+                </label>
+                <label className="field-label">
+                  Server Bot Password
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="Enter server bot password"
+                    value={botPassword}
+                    disabled={addingBot}
+                    onChange={(e) => setBotPassword(e.target.value)}
+                  />
+                </label>
+                <label
+                  className="field-label"
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8, cursor: "pointer" }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={rememberBotPassword}
+                    disabled={addingBot}
+                    onChange={(e) => setRememberBotPassword(e.target.checked)}
+                  />
+                  Remember password on this device
+                </label>
+                {botError && (
+                  <p role="alert" style={{ color: "var(--color-danger, #ef4444)", margin: "4px 0" }}>
+                    {botError}
+                  </p>
+                )}
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  <button
+                    type="submit"
+                    className="button button--success"
+                    disabled={addingBot}
+                  >
+                    {addingBot ? "Adding bot…" : "Add Bot"}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button--outline"
+                    disabled={addingBot}
+                    onClick={() => setAddBotPosition(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
         {viewer && lobby.phase === "lobby" && (
           <button
             type="button"

@@ -72,6 +72,7 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
       connected: entry.connected,
       can_take_over: entry.can_take_over,
     })),
+    bot_service_enabled: Boolean(value.bot_service_enabled),
   } as LobbyDto;
 }
 

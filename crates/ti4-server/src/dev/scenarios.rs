@@ -146,6 +146,24 @@ pub fn available_scenarios() -> Vec<ScenarioSummary> {
             human_faction: "Federation of Sol".to_owned(),
             opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
         },
+        ScenarioSummary {
+            id: "endgame".to_owned(),
+            title: "Endgame to Victory".to_owned(),
+            category: "Endgame".to_owned(),
+            description: "Three seats near completion: bots pass final action turns, score status objectives, and reach Game Over.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
+        ScenarioSummary {
+            id: "full_game".to_owned(),
+            title: "Full Game Match".to_owned(),
+            category: "Match".to_owned(),
+            description: "Fresh 3-player match from Round 1 setup through to Game Over, with external agents or humans occupying all seats.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
     ]
 }
 
@@ -172,6 +190,14 @@ pub fn launch_scenario(
         | "ongoing_invasion_coexistence"
         | "ongoing_invasion_parley" => {
             build_invasion_scenario(seed, scenario_id == "ongoing_invasion_coexistence")?
+        }
+        "endgame" => {
+            let (c, l, p, t) = build_endgame_scenario(seed)?;
+            (c, l, p, t, String::new())
+        }
+        "full_game" => {
+            let (c, l, p, t) = build_full_game_scenario(seed)?;
+            (c, l, p, t, String::new())
         }
         other => return Err(format!("Unknown scenario '{other}'")),
     };
@@ -251,6 +277,14 @@ pub fn launch_scenario(
                     *controller = SeatController::Human;
                 }
             }
+            Some(
+                config
+                    .seat_tokens
+                    .iter()
+                    .map(|(id, token)| (id.to_string(), token.clone()))
+                    .collect(),
+            )
+        } else if scenario_id == "endgame" || scenario_id == "full_game" {
             Some(
                 config
                     .seat_tokens
@@ -402,6 +436,44 @@ fn advance_into_production(session: &Arc<GameSession>, player: &PlayerId) -> Res
             .map_err(|err| format!("production setup submission failed: {err:?}"))?;
     }
     Err("production setup exceeded 20 decisions".to_owned())
+}
+
+fn build_endgame_scenario(
+    seed: u64,
+) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String), String> {
+    let (mut config, lobby, p1, session1, _galaxy, p2, p3) =
+        setup_base_3p_game(seed, "dev_endgame")?;
+
+    config.state.player_mut(&p1).expect("Sol seated").victory_points = 9;
+    config.state.player_mut(&p2).expect("Hacan seated").victory_points = 9;
+    config.state.player_mut(&p3).expect("Letnev seated").victory_points = 8;
+
+    config.state.objective_deck.clear();
+    config.state.round = 5;
+
+    for seat in [&p1, &p2, &p3] {
+        if let Some(player) = config.state.player_mut(seat) {
+            player.tactic_tokens = 0;
+            player.strategic_tokens = 0;
+            player.strategy_cards.clear();
+        }
+        config.seats.insert(seat.clone(), SeatController::Human);
+    }
+
+    Ok((config, lobby, p1, session1))
+}
+
+fn build_full_game_scenario(
+    seed: u64,
+) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String), String> {
+    let (mut config, lobby, p1, session1, _galaxy, p2, p3) =
+        setup_base_3p_game(seed, "dev_full_game")?;
+
+    for seat in [&p1, &p2, &p3] {
+        config.seats.insert(seat.clone(), SeatController::Human);
+    }
+
+    Ok((config, lobby, p1, session1))
 }
 
 fn build_invasion_scenario(

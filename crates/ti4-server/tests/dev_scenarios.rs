@@ -28,6 +28,8 @@ fn test_available_scenarios_listing() {
             "ongoing_invasion_four_views",
             "ongoing_invasion_coexistence",
             "ongoing_invasion_parley",
+            "endgame",
+            "full_game",
         ]
     );
 }

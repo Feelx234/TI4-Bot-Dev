@@ -16,6 +16,7 @@ pub mod ws;
 pub use http::create_app;
 pub use protocol::*;
 pub use session::{
-    GameRegistry, GameSession, MockClient, RemoteHumanDecider, SeatController, SessionConfig,
+    BotServiceConfig, GameRegistry, GameSession, MockClient, RemoteHumanDecider, SeatController,
+    SessionConfig,
 };
 pub use storage::{FileGameStore, GameInitRecord, StorageError};

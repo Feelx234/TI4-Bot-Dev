@@ -263,6 +263,22 @@ pub struct PlayerLobbyView {
     pub host_player_id: PlayerId,
     pub slots: Vec<PlayerSlotView>,
     pub lobby_version: u64,
+    pub bot_service_enabled: bool,
+}
+
+/// Configuration for running bot agents on this server.
+#[derive(Debug, Clone)]
+pub struct BotServiceConfig {
+    pub password: String,
+    pub advisor_url: String,
+    pub bot_agent_bin: std::path::PathBuf,
+    pub server_port: u16,
+    pub max_active_bots: usize,
+}
+
+pub struct BotChild {
+    pub child: tokio::process::Child,
+    pub nickname: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -351,6 +367,7 @@ impl PlayerLobbyRecord {
                 })
                 .collect(),
             lobby_version: self.lobby_version,
+            bot_service_enabled: false,
         }
     }
 }
@@ -535,6 +552,8 @@ pub struct GameRegistry {
     lease_duration: Duration,
     started_at: Instant,
     presence_grace: Duration,
+    bot_config: Option<BotServiceConfig>,
+    active_bots: Mutex<BTreeMap<String, Vec<BotChild>>>,
 }
 
 impl Default for GameRegistry {
@@ -546,6 +565,8 @@ impl Default for GameRegistry {
             lease_duration: Duration::from_secs(30),
             started_at: Instant::now(),
             presence_grace: PRESENCE_GRACE,
+            bot_config: None,
+            active_bots: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -1183,8 +1204,45 @@ impl GameRegistry {
         self
     }
 
+    #[must_use]
+    pub fn with_bot_service(mut self, config: BotServiceConfig) -> Self {
+        self.bot_config = Some(config);
+        self
+    }
+
+    pub fn bot_service_enabled(&self) -> bool {
+        self.bot_config.is_some()
+    }
+
+    pub fn verify_bot_password(&self, password: &str) -> bool {
+        use sha2::{Digest, Sha256};
+        if let Some(ref config) = self.bot_config {
+            let input_hash = Sha256::digest(password.as_bytes());
+            let expected_hash = Sha256::digest(config.password.as_bytes());
+            input_hash == expected_hash
+        } else {
+            false
+        }
+    }
+
+    fn prune_dead_bots(&self) {
+        if let Ok(mut bots) = self.active_bots.lock() {
+            for bot_list in bots.values_mut() {
+                bot_list.retain_mut(|b| {
+                    match b.child.try_wait() {
+                        Ok(Some(_)) => false, // exited
+                        Ok(None) => true,     // still running
+                        Err(_) => false,
+                    }
+                });
+            }
+            bots.retain(|_, v| !v.is_empty());
+        }
+    }
+
     fn player_view(&self, state: &RegistryState, record: &PlayerLobbyRecord) -> PlayerLobbyView {
         let mut view = record.public_view();
+        view.bot_service_enabled = self.bot_config.is_some();
         for slot in &mut view.slots {
             if let Some(player) = &slot.occupant {
                 slot.connected = state
@@ -2004,6 +2062,152 @@ impl GameRegistry {
         Ok(view)
     }
 
+    pub async fn spawn_bot_for_lobby(
+        &self,
+        game_id: &str,
+        host_credential: &str,
+        nickname: Option<String>,
+        temperature: Option<f64>,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let config = self.bot_config.as_ref().ok_or_else(|| {
+            LobbyError::Storage("Bot service is not enabled on this server".to_owned())
+        })?;
+
+        let (server_port, default_nick) = {
+            let state = self.state.lock().expect("registry lock");
+            let lobby = state.player_lobbies.get(game_id).ok_or(LobbyError::NotFound)?;
+            if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+                return Err(LobbyError::AlreadyRunning);
+            }
+            if authenticate_player(lobby, host_credential)? != lobby.host_player_id {
+                return Err(LobbyError::HostRequired);
+            }
+            let position = lobby
+                .slots
+                .iter()
+                .position(|s| s.occupant.is_none())
+                .map(|idx| idx + 1)
+                .ok_or(LobbyError::SeatUnavailable)?;
+            (config.server_port, format!("Bot {position}"))
+        };
+
+        self.prune_dead_bots();
+        {
+            let bots_guard = self.active_bots.lock().expect("active bots lock");
+            let total_active: usize = bots_guard.values().map(Vec::len).sum();
+            if total_active >= config.max_active_bots {
+                return Err(LobbyError::SeatUnavailable);
+            }
+        }
+
+        let chosen_nick = nickname.unwrap_or(default_nick);
+        check_nickname(&chosen_nick)?;
+
+        let server_url = format!("ws://127.0.0.1:{server_port}");
+        let temp_val = temperature.unwrap_or(0.25);
+        if !temp_val.is_finite() || temp_val <= 0.0 {
+            return Err(LobbyError::InvalidNickname);
+        }
+
+        let child = tokio::process::Command::new(&config.bot_agent_bin)
+            .arg("--server")
+            .arg(&server_url)
+            .arg("--game")
+            .arg(game_id)
+            .arg("--advisor")
+            .arg(&config.advisor_url)
+            .arg("--nickname")
+            .arg(&chosen_nick)
+            .arg("--temperature")
+            .arg(temp_val.to_string())
+            .spawn()
+            .map_err(|e| LobbyError::Storage(format!("Cannot spawn bot agent: {e}")))?;
+
+        {
+            let mut bots_guard = self.active_bots.lock().expect("active bots lock");
+            bots_guard
+                .entry(game_id.to_owned())
+                .or_default()
+                .push(BotChild {
+                    child,
+                    nickname: chosen_nick.clone(),
+                });
+        }
+
+        let deadline = Instant::now() + Duration::from_millis(1500);
+        while Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let state = self.state.lock().expect("registry lock");
+            if let Some(lobby) = state.player_lobbies.get(game_id) {
+                if lobby.slots.iter().any(|s| {
+                    s.occupant
+                        .as_ref()
+                        .is_some_and(|id| lobby.players.get(id).map(|p| &p.nickname) == Some(&chosen_nick))
+                }) {
+                    return Ok(self.player_view(&state, lobby));
+                }
+            }
+        }
+
+        let state = self.state.lock().expect("registry lock");
+        let lobby = state.player_lobbies.get(game_id).ok_or(LobbyError::NotFound)?;
+        Ok(self.player_view(&state, lobby))
+    }
+
+    pub fn remove_bot_or_player_from_lobby(
+        &self,
+        game_id: &str,
+        host_credential: &str,
+        player_id: &PlayerId,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        if authenticate_player(lobby, host_credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        if player_id == &lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let nickname = lobby
+            .players
+            .get(player_id)
+            .map(|p| p.nickname.clone());
+
+        let mut updated = lobby.clone();
+        updated.players.remove(player_id);
+        if let Some(slot) = updated
+            .slots
+            .iter_mut()
+            .find(|slot| slot.occupant.as_ref() == Some(player_id))
+        {
+            slot.occupant = None;
+        } else {
+            return Err(LobbyError::NotFound);
+        }
+        updated.lobby_version += 1;
+        self.save_player_lobby(&updated)?;
+        *lobby = updated;
+        state.presence.remove(&(game_id.to_owned(), player_id.clone()));
+
+        if let Some(nick) = nickname {
+            let mut bots_guard = self.active_bots.lock().expect("active bots lock");
+            if let Some(bot_list) = bots_guard.get_mut(game_id) {
+                if let Some(pos) = bot_list.iter().position(|b| b.nickname == nick) {
+                    let mut b = bot_list.remove(pos);
+                    let _ = b.child.start_kill();
+                }
+            }
+        }
+
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
+    }
+
     /// Creates a pre-game lobby and persists it before returning capabilities.
     pub fn create_lobby(&self, config: LobbyConfig) -> Result<CreatedLobby, String> {
         crate::storage::validate_game_id(&config.game_id).map_err(|error| error.to_string())?;
@@ -2538,7 +2742,26 @@ impl GameRegistry {
         if let Some(session) = &session {
             session.stop();
         }
+        drop(state);
+        let mut bots_guard = self.active_bots.lock().expect("active bots lock");
+        if let Some(mut bot_list) = bots_guard.remove(game_id) {
+            for b in &mut bot_list {
+                let _ = b.child.start_kill();
+            }
+        }
         session
+    }
+}
+
+impl Drop for GameRegistry {
+    fn drop(&mut self) {
+        if let Ok(mut bots_guard) = self.active_bots.lock() {
+            for bot_list in bots_guard.values_mut() {
+                for b in bot_list {
+                    let _ = b.child.start_kill();
+                }
+            }
+        }
     }
 }
 

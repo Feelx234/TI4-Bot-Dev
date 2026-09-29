@@ -287,6 +287,57 @@ pub async fn start_lobby(
     ))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddBotRequest {
+    pub password: String,
+    pub nickname: Option<String>,
+    pub temperature: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemoveBotRequest {
+    pub player_id: PlayerId,
+}
+
+/// Handler for `POST /api/games/{game_id}/lobby/add-bot`.
+pub async fn add_bot_to_lobby(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<AddBotRequest>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    if !registry.bot_service_enabled() {
+        return Err((StatusCode::FORBIDDEN, "Bot service is not enabled on this server".to_owned()));
+    }
+    if !registry.verify_bot_password(&payload.password) {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid bot password".to_owned()));
+    }
+    Ok(Json(
+        registry
+            .spawn_bot_for_lobby(&game_id, token, payload.nickname, payload.temperature)
+            .await
+            .map_err(lobby_error)?,
+    ))
+}
+
+/// Handler for `POST /api/games/{game_id}/lobby/remove-bot`.
+pub async fn remove_bot_from_lobby(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<RemoveBotRequest>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    Ok(Json(
+        registry
+            .remove_bot_or_player_from_lobby(&game_id, token, &payload.player_id)
+            .map_err(lobby_error)?,
+    ))
+}
+
 fn player_session(headers: &HeaderMap) -> Result<Option<&str>, (StatusCode, String)> {
     headers
         .get("x-ti4-player-session")

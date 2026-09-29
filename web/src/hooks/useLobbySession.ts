@@ -15,6 +15,8 @@ export interface LobbySessionState {
   reorder: (slotIds: string[]) => Promise<void>;
   join: (nickname: string, playerId?: string) => Promise<string | undefined>;
   leave: () => Promise<boolean>;
+  addBot: (password: string, nickname?: string, temperature?: number) => Promise<boolean>;
+  removeBot: (playerId: string) => Promise<boolean>;
 }
 
 export function useLobbySession(gameId: string, playerSession?: string): LobbySessionState {
@@ -174,6 +176,58 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     );
   }, [base, gameId, playerSession, run]);
 
+  const addBot = useCallback(
+    async (password: string, nickname?: string, temperature?: number): Promise<boolean> => {
+      if (!playerSession) return false;
+      return run(
+        "add_bot",
+        async () => {
+          const response = await fetch(`${base}/add-bot`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...headers },
+            body: JSON.stringify({ password, nickname: nickname || undefined, temperature }),
+          });
+          if (!response.ok) {
+            const msg = await response.text();
+            throw new Error(`Add bot failed (${response.status}): ${msg}`);
+          }
+          const updated = decodeLobby(await response.json(), gameId);
+          setLobby(updated);
+          setError(null);
+          return true;
+        },
+        false,
+      );
+    },
+    [base, gameId, headers, playerSession, run],
+  );
+
+  const removeBot = useCallback(
+    async (targetPlayerId: string): Promise<boolean> => {
+      if (!playerSession) return false;
+      return run(
+        "remove_bot",
+        async () => {
+          const response = await fetch(`${base}/remove-bot`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...headers },
+            body: JSON.stringify({ player_id: targetPlayerId }),
+          });
+          if (!response.ok) {
+            const msg = await response.text();
+            throw new Error(`Remove bot failed (${response.status}): ${msg}`);
+          }
+          const updated = decodeLobby(await response.json(), gameId);
+          setLobby(updated);
+          setError(null);
+          return true;
+        },
+        false,
+      );
+    },
+    [base, gameId, headers, playerSession, run],
+  );
+
   return {
     lobby,
     playerId,
@@ -186,5 +240,7 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     reorder: (slot_ids) => mutate("reorder", { slot_ids }),
     join,
     leave,
+    addBot,
+    removeBot,
   };
 }

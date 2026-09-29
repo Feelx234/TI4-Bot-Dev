@@ -55,7 +55,7 @@ impl Drop for SessionSubscription {
 use serde::{Deserialize, Serialize};
 
 pub use decider::RemoteHumanDecider;
-pub use registry::GameRegistry;
+pub use registry::{BotServiceConfig, GameRegistry};
 pub use replay::{ReplayError, ReplayReport, replay_session};
 pub use transport::MockClient;
 

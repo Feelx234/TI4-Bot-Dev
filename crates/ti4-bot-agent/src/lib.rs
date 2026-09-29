@@ -34,6 +34,7 @@ pub struct BotConfig {
     pub sample_seed: Option<u64>,
     pub timeout: Duration,
     pub max_reconnects: u32,
+    pub player_session: Option<String>,
 }
 
 impl BotConfig {
@@ -49,7 +50,15 @@ impl BotConfig {
             sample_seed: None,
             timeout: DEFAULT_TIMEOUT,
             max_reconnects: DEFAULT_MAX_RECONNECTS,
+            player_session: None,
         }
+    }
+
+    /// Attaches a pre-authenticated player session credential.
+    #[must_use]
+    pub fn with_player_session(mut self, session: impl Into<String>) -> Self {
+        self.player_session = Some(session.into());
+        self
     }
 
     fn validate(&self) -> Result<(), BotError> {
@@ -197,6 +206,26 @@ async fn admit_with_selection(
     client: &reqwest::Client,
     selection: Option<PlayerId>,
 ) -> Result<Admission, BotError> {
+    if let Some(session) = &config.player_session {
+        let reply: JoinReply = request_lobby(
+            client
+                .post(config.lobby_url("/join"))
+                .header("x-ti4-player-session", session)
+                .json(&serde_json::json!({"kind": "new"}))
+                .send()
+                .await,
+        )
+        .await?
+        .json()
+        .await
+        .map_err(|e| BotError::Lobby(e.to_string()))?;
+        return Ok(Admission {
+            player: reply.player.id,
+            session: session.clone(),
+            phase: reply.lobby.phase,
+        });
+    }
+
     let lobby: LobbyView = request_lobby(client.get(config.lobby_url("")).send().await)
         .await?
         .json()
@@ -1261,5 +1290,265 @@ mod tests {
         .expect("bot should reconnect and finish");
         websocket_task.await.expect("websocket task");
         advisor_task.abort();
+    }
+
+    #[tokio::test]
+    async fn bots_play_against_each_other_to_game_over_with_mock_advisor() {
+        let advisor_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind advisor");
+        let advisor_address = advisor_listener.local_addr().expect("advisor address");
+        let advisor = Router::new().route(
+            "/evaluate",
+            post(|Json(req): Json<serde_json::Value>| async move {
+                let empty = Vec::new();
+                let options_slice = req["choice"]["options"]
+                    .as_array()
+                    .or_else(|| req["options"].as_array())
+                    .unwrap_or(&empty);
+                let options = options_slice
+                    .iter()
+                    .map(|opt| {
+                        let id = opt["id"]
+                            .as_str()
+                            .or_else(|| opt["option_id"].as_str())
+                            .unwrap_or("unknown");
+                        serde_json::json!({
+                            "option_id": id,
+                            "probability": 1.0,
+                            "logit": 0.0,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                Json(serde_json::json!({ "options": options }))
+            }),
+        );
+        let advisor_task = tokio::spawn(async move {
+            axum::serve(advisor_listener, advisor)
+                .await
+                .expect("serve advisor");
+        });
+
+        let registry = std::sync::Arc::new(ti4_server::session::GameRegistry::new());
+        let server_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind server");
+        let server_address = server_listener.local_addr().expect("server address");
+        let server_registry = registry.clone();
+        let server_task = tokio::spawn(async move {
+            axum::serve(server_listener, ti4_server::create_app(server_registry))
+                .await
+                .expect("serve server");
+        });
+
+        let client = reqwest::Client::new();
+        let launched = client
+            .post(format!("http://{server_address}/api/dev/scenarios/launch"))
+            .json(&serde_json::json!({ "scenario_id": "endgame", "seed": 4_242 }))
+            .send()
+            .await
+            .expect("launch request")
+            .error_for_status()
+            .expect("launch status")
+            .json::<serde_json::Value>()
+            .await
+            .expect("launch json");
+
+        let game_id = launched["game_id"].as_str().expect("game_id").to_owned();
+        let test_seats = launched["test_seats"].as_object().expect("test_seats");
+        let mut tokens: Vec<String> = test_seats
+            .values()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(tokens.len(), 3, "expected 3 seat tokens");
+        let p1_token = tokens.remove(0);
+        let p2_token = tokens.remove(0);
+        let p3_token = tokens.remove(0);
+
+        let mut b1 = BotConfig::new(
+            format!("ws://{server_address}"),
+            game_id.clone(),
+            format!("http://{advisor_address}"),
+            "Bot Sol".to_owned(),
+        )
+        .with_player_session(p1_token);
+        b1.timeout = Duration::from_secs(5);
+        b1.max_reconnects = 1;
+
+        let mut b2 = BotConfig::new(
+            format!("ws://{server_address}"),
+            game_id.clone(),
+            format!("http://{advisor_address}"),
+            "Bot Hacan".to_owned(),
+        )
+        .with_player_session(p2_token);
+        b2.timeout = Duration::from_secs(5);
+        b2.max_reconnects = 1;
+
+        let mut b3 = BotConfig::new(
+            format!("ws://{server_address}"),
+            game_id.clone(),
+            format!("http://{advisor_address}"),
+            "Bot Letnev".to_owned(),
+        )
+        .with_player_session(p3_token);
+        b3.timeout = Duration::from_secs(5);
+        b3.max_reconnects = 1;
+
+        let b1_task = tokio::spawn(run(b1));
+        let b2_task = tokio::spawn(run(b2));
+        let b3_task = tokio::spawn(run(b3));
+
+        let run_result = tokio::time::timeout(
+            Duration::from_secs(20),
+            async { tokio::try_join!(b1_task, b2_task, b3_task) },
+        )
+        .await;
+
+        advisor_task.abort();
+        server_task.abort();
+
+        let (r1, r2, r3) = run_result
+            .expect("game should complete within timeout")
+            .expect("bots joined successfully");
+        r1.expect("bot 1 finished with Ok(()) on GameOver");
+        r2.expect("bot 2 finished with Ok(()) on GameOver");
+        r3.expect("bot 3 finished with Ok(()) on GameOver");
+
+        let session = registry.get_game(&game_id).expect("session exists");
+        assert!(session.is_finished(), "session marked is_finished");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "on-demand full game simulation from round 1 to GameOver"]
+    async fn bots_play_full_game_start_to_finish_on_demand_with_mock_advisor() {
+        let advisor_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind advisor");
+        let advisor_address = advisor_listener.local_addr().expect("advisor address");
+        let advisor = axum::Router::new().route(
+            "/evaluate",
+            post(|Json(req): Json<serde_json::Value>| async move {
+                let empty = Vec::new();
+                let options_slice = req["choice"]["options"]
+                    .as_array()
+                    .or_else(|| req["options"].as_array())
+                    .unwrap_or(&empty);
+                let options = options_slice
+                    .iter()
+                    .map(|opt| {
+                        let id = opt["id"]
+                            .as_str()
+                            .or_else(|| opt["option_id"].as_str())
+                            .unwrap_or("unknown");
+                        serde_json::json!({
+                            "option_id": id,
+                            "probability": 1.0,
+                            "logit": 0.0,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                Json(serde_json::json!({ "options": options }))
+            }),
+        );
+        let advisor_task = tokio::spawn(async move {
+            axum::serve(advisor_listener, advisor)
+                .await
+                .expect("serve advisor");
+        });
+
+        let registry = std::sync::Arc::new(ti4_server::session::GameRegistry::new());
+        let server_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind server");
+        let server_address = server_listener.local_addr().expect("server address");
+        let server_registry = registry.clone();
+        let server_task = tokio::spawn(async move {
+            axum::serve(server_listener, ti4_server::create_app(server_registry))
+                .await
+                .expect("serve server");
+        });
+
+        let client = reqwest::Client::new();
+        let launched = client
+            .post(format!("http://{server_address}/api/dev/scenarios/launch"))
+            .json(&serde_json::json!({ "scenario_id": "full_game", "seed": 42 }))
+            .send()
+            .await
+            .expect("launch request")
+            .error_for_status()
+            .expect("launch status")
+            .json::<serde_json::Value>()
+            .await
+            .expect("launch json");
+
+        let game_id = launched["game_id"].as_str().expect("game_id").to_owned();
+        let test_seats = launched["test_seats"].as_object().expect("test_seats");
+        let mut tokens: Vec<String> = test_seats
+            .values()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(tokens.len(), 3, "expected 3 seat tokens");
+        let p1_token = tokens.remove(0);
+        let p2_token = tokens.remove(0);
+        let p3_token = tokens.remove(0);
+
+        let mut b1 = BotConfig::new(
+            format!("ws://{server_address}"),
+            game_id.clone(),
+            format!("http://{advisor_address}"),
+            "Bot Sol".to_owned(),
+        )
+        .with_player_session(p1_token);
+        b1.timeout = Duration::from_secs(5);
+        b1.max_reconnects = 1;
+
+        let mut b2 = BotConfig::new(
+            format!("ws://{server_address}"),
+            game_id.clone(),
+            format!("http://{advisor_address}"),
+            "Bot Hacan".to_owned(),
+        )
+        .with_player_session(p2_token);
+        b2.timeout = Duration::from_secs(5);
+        b2.max_reconnects = 1;
+
+        let mut b3 = BotConfig::new(
+            format!("ws://{server_address}"),
+            game_id.clone(),
+            format!("http://{advisor_address}"),
+            "Bot Letnev".to_owned(),
+        )
+        .with_player_session(p3_token);
+        b3.timeout = Duration::from_secs(5);
+        b3.max_reconnects = 1;
+
+        let b1_task = tokio::spawn(run(b1));
+        let b2_task = tokio::spawn(run(b2));
+        let b3_task = tokio::spawn(run(b3));
+
+        let run_result = tokio::time::timeout(
+            Duration::from_secs(60),
+            async { tokio::try_join!(b1_task, b2_task, b3_task) },
+        )
+        .await;
+
+        advisor_task.abort();
+        server_task.abort();
+
+        let (r1, r2, r3) = run_result
+            .expect("game should complete within timeout")
+            .expect("bots joined successfully");
+        r1.expect("bot 1 finished with Ok(()) on GameOver");
+        r2.expect("bot 2 finished with Ok(()) on GameOver");
+        r3.expect("bot 3 finished with Ok(()) on GameOver");
+
+        let session = registry.get_game(&game_id).expect("session exists");
+        assert!(session.is_finished(), "session marked is_finished");
+        assert!(
+            session.decision_log().len() > 10,
+            "full game should record many decisions: {}",
+            session.decision_log().len()
+        );
     }
 }

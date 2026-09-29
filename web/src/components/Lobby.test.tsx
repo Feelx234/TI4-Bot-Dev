@@ -223,4 +223,57 @@ describe("lobby UI", () => {
     resolve({ ok: false, status: 503, text: async () => "Unavailable" });
     await waitFor(() => expect(screen.getByTestId("create-game-button")).toBeEnabled());
   });
+
+  it("shows Add Bot button only for host when bot service is enabled", async () => {
+    const onAddBot = vi.fn().mockResolvedValue(true);
+    const lobbyWithBots: LobbyDto = {
+      ...lobby,
+      bot_service_enabled: true,
+    };
+
+    // Non-host viewer: no Add Bot button
+    const { rerender } = render(
+      <LobbyStatus lobby={lobbyWithBots} playerId={null} onAddBot={onAddBot} {...props} />,
+    );
+    expect(screen.queryByTestId("add-bot-button-3")).not.toBeInTheDocument();
+
+    // Host viewer: Add Bot button is visible on open slot (position 3)
+    rerender(
+      <LobbyStatus lobby={lobbyWithBots} playerId="player_a" onAddBot={onAddBot} {...props} />,
+    );
+    const addBtn = screen.getByTestId("add-bot-button-3");
+    expect(addBtn).toBeInTheDocument();
+
+    // Clicking opens modal
+    fireEvent.click(addBtn);
+    expect(screen.getByTestId("add-bot-modal")).toBeInTheDocument();
+
+    // Fill password and submit
+    fireEvent.change(screen.getByPlaceholderText("Enter server bot password"), {
+      target: { value: "secret123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add Bot" }));
+
+    await waitFor(() => {
+      expect(onAddBot).toHaveBeenCalledWith("secret123", "Bot 3");
+    });
+    expect(localStorage.getItem("ti4_bot_password")).toBe("secret123");
+  });
+
+  it("allows host to remove an occupied non-host seat", () => {
+    const onRemoveBot = vi.fn().mockResolvedValue(true);
+    render(
+      <LobbyStatus
+        lobby={lobby}
+        playerId="player_a"
+        onRemoveBot={onRemoveBot}
+        {...props}
+      />,
+    );
+
+    const removeBtn = screen.getByTestId("remove-bot-button-2");
+    expect(removeBtn).toBeInTheDocument();
+    fireEvent.click(removeBtn);
+    expect(onRemoveBot).toHaveBeenCalledWith("player_b");
+  });
 });

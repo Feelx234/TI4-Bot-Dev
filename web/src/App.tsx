@@ -123,6 +123,8 @@ const GameRoute: React.FC<{
     reorder,
     join,
     leave,
+    addBot,
+    removeBot,
   } = useLobbySession(gameId, token);
   const [watching, setWatching] = useState(false);
   const invalidate = useCallback(() => onCredentialInvalid(), [onCredentialInvalid]);
@@ -180,6 +182,8 @@ const GameRoute: React.FC<{
           onTakeover={(id, name) => void enter(name, id)}
           onReorder={(ids) => void reorder(ids)}
           onWatch={() => setWatching(true)}
+          onAddBot={(password, name) => addBot(password, name)}
+          onRemoveBot={(targetId) => removeBot(targetId)}
         />
       )}
     </>

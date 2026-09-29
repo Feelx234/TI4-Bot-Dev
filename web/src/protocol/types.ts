@@ -27,6 +27,7 @@ export interface LobbyDto {
   lobby_version: number;
   host_player_id: string;
   slots: LobbySlot[];
+  bot_service_enabled?: boolean;
 }
 
 export interface CreateGameResponse {
