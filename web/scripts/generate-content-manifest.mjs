@@ -48,7 +48,7 @@ function sortedCatalog(catalog) {
 }
 
 async function generate() {
-  const [manifest, strategyCards, secretObjectives, publicObjectives, actionCards, technologies] =
+  const [manifest, strategyCards, secretObjectives, publicObjectives, actionCards, technologies, explores] =
     await Promise.all([
       readJson("manifest.json"),
       readJson("strategy_cards.json"),
@@ -56,6 +56,7 @@ async function generate() {
       readJson("public_objectives.json"),
       readJson("action_cards.json"),
       readJson("technologies.json"),
+      readJson("explores.json"),
     ]);
 
   const strategyCatalog = {};
@@ -114,12 +115,31 @@ async function generate() {
     return catalog;
   };
 
+  const exploreCatalog = {};
+  for (const card of explores) {
+    const id = requiredString(card, "id", "explores");
+    addEntry(
+      exploreCatalog,
+      id,
+      {
+        id,
+        name: requiredString(card, "name", "explores"),
+        type: requiredString(card, "type", "explores"),
+        resolution: requiredString(card, "resolution", "explores"),
+        description: optionalString(card, "text"),
+        flavorText: optionalString(card, "flavorText") || optionalString(card, "flavourText") || undefined,
+      },
+      "explores",
+    );
+  }
+
   const catalogs = {
     strategyCards: sortedCatalog(strategyCatalog),
     secretObjectives: sortedCatalog(objectiveCatalog(secretObjectives, "secret_objectives")),
     publicObjectives: sortedCatalog(objectiveCatalog(publicObjectives, "public_objectives")),
     actionCards: sortedCatalog(cardCatalog(actionCards, "action_cards")),
     technologies: sortedCatalog(cardCatalog(technologies, "technologies")),
+    explorationCards: sortedCatalog(exploreCatalog),
   };
   const source = JSON.stringify(catalogs);
   const sourceDigest = createHash("sha256").update(source).digest("hex");
@@ -135,6 +155,7 @@ async function generate() {
         publicObjectives: publicObjectives.length,
         actionCards: actionCards.length,
         technologies: technologies.length,
+        explorationCards: explores.length,
       },
     },
     null,

@@ -436,14 +436,18 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     workflow === "combat_retreat";
 
   if (boardView?.invasion && !boardView.combat) {
+    const isActor = choice?.actor === viewerSeat;
     return isMinimized ? (
-      <button
-        type="button"
-        className="button button--primary"
-        onClick={() => onMinimizedChange(false)}
-      >
-        View invasion
-      </button>
+      <div className="choice-banner">
+        <button
+          type="button"
+          data-testid="resume-decision-btn"
+          className="button button--primary choice-minimized-pill"
+          onClick={() => onMinimizedChange(false)}
+        >
+          ⚔️ {isActor && choice ? `Resume: ${choice.prompt}` : `View invasion · System ${boardView.invasion.system_id}`}
+        </button>
+      </div>
     ) : (
       <InvasionOverlay
         board={boardView}

@@ -281,10 +281,720 @@ html,
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: min(720px, calc(100vw - 32px));
+  width: min(780px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
-  overflow: auto;
+  overflow-y: auto;
   pointer-events: auto;
+  background: linear-gradient(180deg, #0e1729 0%, #0a0f1d 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.invasion-overlay__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 16px;
+}
+
+.invasion-overlay__header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.invasion-overlay__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.invasion-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.invasion-badge--phase {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.invasion-badge--system {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.invasion-badge--status {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.invasion-overlay__title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #f8fafc;
+  letter-spacing: -0.01em;
+}
+
+.invasion-overlay__subtitle {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  flex-wrap: wrap;
+}
+
+.invasion-invader-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #f1f5f9;
+}
+
+.invasion-player-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background-color: var(--color-accent);
+}
+
+.invasion-sep {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.invasion-phase-text {
+  text-transform: capitalize;
+}
+
+.invasion-planets-nav {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0;
+}
+
+.invasion-planet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+  color: #cbd5e1;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.invasion-planet-chip__name {
+  font-weight: 600;
+  text-transform: capitalize;
+  color: #f8fafc;
+}
+
+.invasion-planet-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.invasion-planet-chip--selected {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: #38bdf8;
+  color: #f8fafc;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.25);
+}
+
+.invasion-planet-chip__target-tag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: #38bdf8;
+  color: #0f172a;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+
+.invasion-current-planet-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.invasion-current-planet-banner strong {
+  color: #f1f5f9;
+}
+
+.invasion-step-card {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.invasion-step-card__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.invasion-step-card__badge {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #eab308;
+  color: #0b1220;
+}
+
+.invasion-step-card__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.invasion-step-card__dice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.invasion-die-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.invasion-die-chip--hit {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  font-weight: 700;
+}
+
+.invasion-die-chip--miss {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+}
+
+.invasion-planets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.invasion-planet-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.invasion-planet-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.invasion-planet-card__name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f8fafc;
+  text-transform: capitalize;
+}
+
+.invasion-planet-card__count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.invasion-unit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.invasion-unit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  font-size: 12px;
+  color: #e2e8f0;
+}
+
+.invasion-unit-chip__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.invasion-unit-chip__damaged {
+  font-size: 10px;
+  font-weight: 700;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.invasion-draft-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.4);
+  border-radius: 8px;
+  color: #fef08a;
+  font-size: 13px;
+}
+
+/* Planet Invasion Effect Card */
+.invasion-effect-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border-radius: var(--radius-md, 10px);
+  background: #121c2e;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.invasion-effect-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--effect-accent, #38bdf8);
+}
+
+.invasion-effect-card--industrial {
+  --effect-accent: #10b981;
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(16, 185, 129, 0.12);
+}
+
+.invasion-effect-card--hazardous {
+  --effect-accent: #ef4444;
+  border-color: rgba(239, 68, 68, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(239, 68, 68, 0.12);
+}
+
+.invasion-effect-card--cultural {
+  --effect-accent: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(56, 189, 248, 0.12);
+}
+
+.invasion-effect-card--frontier {
+  --effect-accent: #c084fc;
+  border-color: rgba(192, 132, 252, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(192, 132, 252, 0.12);
+}
+
+.invasion-effect-card--action {
+  --effect-accent: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(245, 158, 11, 0.12);
+}
+
+.invasion-effect-card--combat {
+  --effect-accent: #f43f5e;
+  border-color: rgba(244, 63, 94, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(244, 63, 94, 0.12);
+}
+
+.invasion-effect-card--general {
+  --effect-accent: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.invasion-effect-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.invasion-effect-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.invasion-effect-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 9px;
+  border-radius: 4px;
+}
+
+.invasion-effect-badge--industrial {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.invasion-effect-badge--hazardous {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.invasion-effect-badge--cultural {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.invasion-effect-badge--frontier {
+  background: rgba(192, 132, 252, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(192, 132, 252, 0.4);
+}
+
+.invasion-effect-badge--action {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.invasion-effect-badge--combat {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fb7185;
+  border: 1px solid rgba(244, 63, 94, 0.4);
+}
+
+.invasion-effect-badge--general {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.invasion-effect-badge--planet {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  text-transform: capitalize;
+}
+
+.invasion-effect-card__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #f8fafc;
+  letter-spacing: -0.01em;
+}
+
+.invasion-effect-card__description {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #e2e8f0;
+}
+
+.invasion-effect-card__flavor {
+  margin: 0;
+  padding: 8px 14px;
+  border-left: 3px solid var(--effect-accent, rgba(255, 255, 255, 0.2));
+  font-style: italic;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 0 6px 6px 0;
+}
+
+.invasion-effect-card__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.invasion-effect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.invasion-effect-btn--primary {
+  background: var(--effect-accent, #38bdf8);
+  color: #0b1220 !important;
+  font-weight: 700;
+  border: 1px solid transparent;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.invasion-effect-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+
+.invasion-effect-btn--secondary {
+  background: rgba(30, 41, 59, 0.85);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.invasion-effect-btn--secondary:hover:not(:disabled) {
+  background: rgba(51, 65, 85, 0.95);
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.invasion-effect-card__waiting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #94a3b8;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+}
+
+.invasion-spinner-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--effect-accent, #38bdf8);
+  animation: invasion-pulse 1.4s infinite ease-in-out;
+}
+
+@keyframes invasion-pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+.invasion-waiting-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.invasion-waiting-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.invasion-landing-tray-embedded {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.invasion-landing-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.invasion-landing-instruction {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.invasion-landing-planets-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.invasion-planet-landing-card {
+  padding: 12px 14px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.invasion-planet-landing-card--active {
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.1);
+}
+
+.invasion-planet-landing-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.invasion-planet-landing-card__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.invasion-planet-select-btn {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: capitalize;
+  padding: 4px 12px;
+}
+
+.invasion-planet-landing-card__meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.invasion-planet-landing-card__odds {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.invasion-odds-badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #7dd3fc;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+}
+
+.invasion-landing-units-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.invasion-landing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  gap: 12px;
+}
+
+.invasion-landing-row__unit-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.invasion-landing-row__avail {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 1px;
+}
+
+.invasion-landing-row__stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.invasion-stepper-btn {
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.invasion-draft-summary {
+  margin: 0;
+  font-size: 12px;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
 }
 
 .choice-banner {

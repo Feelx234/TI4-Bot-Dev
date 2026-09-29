@@ -6,6 +6,7 @@ import {
   type GroundOddsRequest,
 } from "../services/advisorService.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 
 export type Landing = { planet: string; unit: string; damaged: boolean };
@@ -34,6 +35,7 @@ export const InvasionLandingTray: React.FC<{
   lastError?: string | null;
   draft?: Landing[];
   onDraftChange?: (draft: Landing[]) => void;
+  embedded?: boolean;
 }> = ({
   choice,
   board,
@@ -44,9 +46,9 @@ export const InvasionLandingTray: React.FC<{
   lastError,
   draft: controlledDraft,
   onDraftChange,
+  embedded = false,
 }) => {
   const system = board?.invasion?.system_id ?? board?.active_system ?? "";
-  const [planet, setPlanet] = useState<string | null>(null);
   const [localDraft, setLocalDraft] = useState<Landing[]>([]);
   const draft = controlledDraft ?? localDraft;
   const draftRef = useRef(draft);
@@ -77,6 +79,11 @@ export const InvasionLandingTray: React.FC<{
   const planets = [...new Set(options.map(({ landing }) => landing.planet))];
 
   const units = board?.systems[system]?.units ?? [];
+  const [planet, setPlanet] = useState<string | null>(planets[0] ?? null);
+  useEffect(() => {
+    if (!planet && planets[0]) setPlanet(planets[0]);
+  }, [planets, planet]);
+
   const previewKey = JSON.stringify([
     board?.invasion,
     planet,
@@ -84,6 +91,7 @@ export const InvasionLandingTray: React.FC<{
     draft,
     players && Object.values(players).map(({ id, faction }) => [id, faction]),
   ]);
+
   useEffect(() => {
     if (
       !planet ||
@@ -91,7 +99,6 @@ export const InvasionLandingTray: React.FC<{
       board.invasion.phase !== "landing" ||
       viewerSeat !== choice.actor
     ) {
-      setOdds(null);
       return;
     }
     const local = units.filter((unit) => unit.planet === planet);
@@ -102,9 +109,7 @@ export const InvasionLandingTray: React.FC<{
     }
     const groundTypes = new Set(context.ground_force_types);
     const opponent = context.opponent;
-    const mine = local.filter(
-      (unit) => unit.owner === choice.actor && groundTypes.has(unit.unit_type),
-    );
+    const mine = local.filter((unit) => unit.owner === choice.actor && groundTypes.has(unit.unit_type));
     const planned = draft.filter((item) => item.planet === planet);
     if (mine.length + planned.length === 0) {
       setOdds(null);
@@ -123,21 +128,16 @@ export const InvasionLandingTray: React.FC<{
       return;
     }
     const count = (entries: { unit_type: string; damaged: boolean }[]) => {
-      const units: Record<string, number> = {},
-        damaged: Record<string, number> = {};
+      const unitsMap: Record<string, number> = {};
+      const damagedMap: Record<string, number> = {};
       for (const entry of entries) {
-        units[entry.unit_type] = (units[entry.unit_type] ?? 0) + 1;
-        if (entry.damaged) damaged[entry.unit_type] = (damaged[entry.unit_type] ?? 0) + 1;
+        unitsMap[entry.unit_type] = (unitsMap[entry.unit_type] ?? 0) + 1;
+        if (entry.damaged) damagedMap[entry.unit_type] = (damagedMap[entry.unit_type] ?? 0) + 1;
       }
-      return { units, damaged };
+      return { units: unitsMap, damaged: damagedMap };
     };
-    const defenderForces = local.filter(
-      (unit) => unit.owner === opponent && groundTypes.has(unit.unit_type),
-    );
-    const attack = count([
-      ...mine,
-      ...planned.map((item) => ({ unit_type: item.unit, damaged: item.damaged })),
-    ]);
+    const defenderForces = local.filter((unit) => unit.owner === opponent && groundTypes.has(unit.unit_type));
+    const attack = count([...mine, ...planned.map((item) => ({ unit_type: item.unit, damaged: item.damaged }))]);
     const request: GroundOddsRequest = {
       attacker: { faction: normalizeFaction(players[choice.actor].faction), ...attack },
       defender: {
@@ -202,6 +202,7 @@ export const InvasionLandingTray: React.FC<{
   useEffect(() => {
     if (running && draft.length === 0) setRunning(false);
   }, [running, draft.length]);
+
   const stock = (unit: string, damaged: boolean) =>
     board?.systems[system]?.units.filter(
       (piece) =>
@@ -210,10 +211,223 @@ export const InvasionLandingTray: React.FC<{
         piece.unit_type === unit &&
         piece.damaged === damaged,
     ).length ?? 1;
+
   const visibleOdds = odds?.key === previewKey ? odds.value : "loading";
   const available = (landing: Landing) =>
     stock(landing.unit, landing.damaged) -
     draft.filter((item) => item.unit === landing.unit && item.damaged === landing.damaged).length;
+
+  const content = (
+    <WorkflowShell
+      choice={choice}
+      viewerSeat={viewerSeat}
+      onSubmit={onSubmit}
+      lastError={lastError}
+      errorTestId="invasion-error"
+    >
+      {({ isActor, isDirectSubmitting, submitDirect }) =>
+        isActor && (
+          <div className="invasion-landing-body">
+            <p className="invasion-landing-instruction">
+              Stage forces to planets with + and −. Only confirmed landings are public.
+            </p>
+
+            <div className="invasion-landing-planets-container">
+              {planets.map((name) => {
+                const planetUnitsAlready =
+                  board?.systems[system]?.units.filter(
+                    (piece) => piece.owner === choice.actor && piece.planet === name,
+                  ).length ?? 0;
+                const planetDraftCount = draft.filter((item) => item.planet === name).length;
+                const isCurrentSelected = planet === name;
+                const planetOptions = options.filter(({ landing }) => landing.planet === name);
+
+                return (
+                  <div
+                    key={name}
+                    className={`invasion-planet-landing-card ${isCurrentSelected ? "invasion-planet-landing-card--active" : ""}`}
+                  >
+                    <div className="invasion-planet-landing-card__header">
+                      <div className="invasion-planet-landing-card__title-row">
+                        <button
+                          type="button"
+                          className={`button ${isCurrentSelected ? "button--primary" : "button--secondary"} invasion-planet-select-btn`}
+                          aria-label={name}
+                          onClick={() => setPlanet(name)}
+                        >
+                          <span aria-hidden="true">🪐 </span>{name}
+                        </button>
+                        <span className="invasion-planet-landing-card__meta">
+                          Already on planet: {planetUnitsAlready} · Staged: {planetDraftCount}
+                        </span>
+                      </div>
+
+                      {isCurrentSelected && board?.invasion?.phase === "landing" && (
+                        <div data-testid="invasion-odds" className="invasion-planet-landing-card__odds">
+                          <span className="invasion-odds-badge">
+                            {visibleOdds === "no-battle"
+                              ? "No ground battle expected"
+                              : visibleOdds === "loading"
+                                ? "Calculating…"
+                                : visibleOdds === "unavailable"
+                                  ? "Odds unavailable"
+                                  : `Projected odds if these forces land against ${board.invasion.odds_context?.[name]?.opponent ?? "defender"}: ${Math.round(visibleOdds * 100)}%`}
+                          </span>
+                          {typeof visibleOdds === "number" && (
+                            <p className="text-muted" style={{ margin: "4px 0 0", fontSize: "11px" }}>
+                              Excludes cards, Parley, optional deploy and unmodeled modifiers.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {!isCurrentSelected && planets.length > 1 && (
+                        <button
+                          type="button"
+                          className="button button--secondary button--sm"
+                          style={{ alignSelf: "flex-start", fontSize: "11px", padding: "2px 8px" }}
+                          onClick={() => setPlanet(name)}
+                        >
+                          Select {name} for projected odds
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="decision-frame__options invasion-landing-units-list">
+                      {planetOptions.map(({ option, landing }) => {
+                        const count = draft.filter(
+                          (item) =>
+                            item.planet === name &&
+                            item.unit === landing.unit &&
+                            item.damaged === landing.damaged,
+                        ).length;
+                        const avail = available(landing);
+                        return (
+                          <div className="workflow-card invasion-landing-row" key={option.id}>
+                            <div className="invasion-landing-row__unit-info">
+                              <UnitIcon type={landing.unit} />
+                              <div>
+                                <strong>
+                                  {getUnitDisplayName(landing.unit)}
+                                  {landing.damaged ? " (damaged)" : ""}
+                                </strong>
+                                <div className="text-muted invasion-landing-row__avail">
+                                  {Math.max(0, avail)} in space
+                                </div>
+                              </div>
+                            </div>
+                            <div className="workflow-row invasion-landing-row__stepper">
+                              <button
+                                type="button"
+                                className="button button--secondary button--icon invasion-stepper-btn"
+                                aria-label={`Remove ${landing.unit} from ${name}`}
+                                disabled={count === 0 || running}
+                                onClick={() => {
+                                  setError(null);
+                                  setPlanet(name);
+                                  setDraft((current) => {
+                                    for (let i = current.length - 1; i >= 0; i--) {
+                                      if (same(current[i]!, landing)) {
+                                        return [...current.slice(0, i), ...current.slice(i + 1)];
+                                      }
+                                    }
+                                    return current;
+                                  });
+                                }}
+                              >
+                                −
+                              </button>
+                              <span className="workflow-count">{count}</span>
+                              <button
+                                type="button"
+                                className="button button--secondary button--icon invasion-stepper-btn"
+                                aria-label={`${option.label} · ${Math.max(0, avail)} in space`}
+                                disabled={running || avail <= 0}
+                                onClick={() => {
+                                  setError(null);
+                                  setPlanet(name);
+                                  setDraft((current) => [...current, landing]);
+                                }}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {draft.length > 0 && (
+              <p className="invasion-draft-summary">
+                Remaining draft:{" "}
+                {draft
+                  .map(
+                    (item) => `${item.unit}${item.damaged ? " (damaged)" : ""} → ${item.planet}`,
+                  )
+                  .join(", ")}
+              </p>
+            )}
+
+            {error && <p role="alert" className="workflow-error">{error}</p>}
+
+            <div className="workflow-actions">
+              <button
+                type="button"
+                className="button button--secondary"
+                disabled={running}
+                onClick={() => {
+                  setDraft([]);
+                  setError(null);
+                }}
+              >
+                Reset draft
+              </button>
+              <button
+                type="button"
+                className="button button--primary"
+                disabled={!draft.length || running}
+                onClick={() => {
+                  origin.current = { actor: choice.actor, system };
+                  submittedNonce.current = null;
+                  setError(null);
+                  setRunning(true);
+                }}
+              >
+                Confirm landings
+              </button>
+              {choice.options.some((option) => option.id === "done_committing") && (
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  disabled={running || isDirectSubmitting || draft.length > 0}
+                  onClick={() => void submitDirect("done_committing")}
+                >
+                  Done committing
+                </button>
+              )}
+            </div>
+            {running && <p className="text-muted">Submitting landings one at a time…</p>}
+          </div>
+        )
+      }
+    </WorkflowShell>
+  );
+
+  if (embedded) {
+    return (
+      <div
+        className="invasion-landing-tray-embedded"
+        data-testid="invasion-landing-tray"
+        aria-label="Ground force landing"
+      >
+        {content}
+      </div>
+    );
+  }
+
   return (
     <section
       className="panel decision-frame"
@@ -227,129 +441,7 @@ export const InvasionLandingTray: React.FC<{
         progress={system ? `Active system: ${system}` : undefined}
         onMinimize={onClose}
       />
-      <WorkflowShell
-        choice={choice}
-        viewerSeat={viewerSeat}
-        onSubmit={onSubmit}
-        lastError={lastError}
-        errorTestId="invasion-error"
-      >
-        {({ isActor, isDirectSubmitting, submitDirect }) =>
-          isActor && (
-            <>
-              <p>Choose a planet, then stage forces. Only confirmed landings are public.</p>
-              <div className="workflow-actions" aria-label="Landing destination">
-                {planets.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className={
-                      planet === name ? "button button--primary" : "button button--secondary"
-                    }
-                    onClick={() => setPlanet(name)}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-              {planet && (
-                <>
-                  <p>
-                    Already on {planet}:{" "}
-                    {board?.systems[system]?.units.filter(
-                      (piece) => piece.owner === choice.actor && piece.planet === planet,
-                    ).length ?? 0}{" "}
-                    · Draft: {draft.filter((item) => item.planet === planet).length}
-                  </p>
-                  {board?.invasion?.phase === "landing" && (
-                    <p data-testid="invasion-odds">
-                      {visibleOdds === "no-battle"
-                        ? "No ground battle expected"
-                        : visibleOdds === "loading"
-                          ? "Calculating…"
-                          : visibleOdds === "unavailable"
-                            ? "Odds unavailable"
-                            : `Projected odds if these forces land against ${board.invasion.odds_context?.[planet]?.opponent}: ${Math.round(visibleOdds * 100)}%`}
-                    </p>
-                  )}
-                  {typeof visibleOdds === "number" && (
-                    <p className="text-muted">
-                      Conditional preview for this planet and its immediate defender; excludes
-                      cards, Parley, optional deploy and unmodeled modifiers.
-                    </p>
-                  )}
-                  <div className="decision-frame__options">
-                    {options
-                      .filter(({ landing }) => landing.planet === planet)
-                      .map(({ option, landing }) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className="button button--secondary"
-                          disabled={running || available(landing) <= 0}
-                          onClick={() => {
-                            setError(null);
-                            setDraft((current) => [...current, landing]);
-                          }}
-                        >
-                          {option.label} · {Math.max(0, available(landing))} in space
-                        </button>
-                      ))}
-                  </div>
-                </>
-              )}
-              {draft.length > 0 && (
-                <p>
-                  Remaining draft:{" "}
-                  {draft
-                    .map(
-                      (item) => `${item.unit}${item.damaged ? " (damaged)" : ""} → ${item.planet}`,
-                    )
-                    .join(", ")}
-                </p>
-              )}
-              {error && <p role="alert">{error}</p>}
-              <div className="workflow-actions">
-                <button
-                  type="button"
-                  className="button button--secondary"
-                  disabled={running}
-                  onClick={() => {
-                    setDraft([]);
-                    setError(null);
-                  }}
-                >
-                  Reset draft
-                </button>
-                <button
-                  type="button"
-                  className="button button--primary"
-                  disabled={!draft.length || running}
-                  onClick={() => {
-                    origin.current = { actor: choice.actor, system };
-                    submittedNonce.current = null;
-                    setError(null);
-                    setRunning(true);
-                  }}
-                >
-                  Confirm landings
-                </button>
-                {choice.options.some((option) => option.id === "done_committing") && (
-                  <button
-                    type="button"
-                    className="button button--secondary"
-                    disabled={running || isDirectSubmitting || draft.length > 0}
-                    onClick={() => void submitDirect("done_committing")}
-                  >
-                    Done committing
-                  </button>
-                )}
-              </div>
-              {running && <p>Submitting landings one at a time…</p>}
-            </>
-          )
-        }
-      </WorkflowShell>
+      {content}
     </section>
   );
 };

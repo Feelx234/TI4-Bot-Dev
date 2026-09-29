@@ -4,13 +4,14 @@ export const CONTENT_PRESENTATION_PROVENANCE = {
   generatorVersion: 1,
   corpusSchemaVersion: "1.1.0",
   corpusUpstreamCommit: "8e90459d789fb767b9d5aff3a55bd7dd0b3e781b",
-  presentationSha256: "080fe35f4b65b6de1a0d2949e6e9b1dcec7a6894872b45f07b79a3f2896e22a7",
+  presentationSha256: "8b8984869bc405b611407733b9d566ad49ac8325b9ba3da382bc7a3f6d70dc80",
   recordCounts: {
     strategyCards: 12,
     secretObjectives: 40,
     publicObjectives: 40,
     actionCards: 142,
     technologies: 102,
+    explorationCards: 80,
   },
 } as const;
 
@@ -2274,6 +2275,693 @@ export const GENERATED_CONTENT_CATALOG = {
       name: "Yin Spinner Omega",
       description:
         "After you produce units, place up to 2 infantry from your reinforcements on any planet you control or in any space area that contains 1 or more of your ships.",
+    },
+  },
+  explorationCards: {
+    aw1: {
+      id: "aw1",
+      name: "Abandoned Warehouses",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 2 commodities, or you may convert up to 2 of your commodities to trade goods.",
+      flavorText:
+        '*"Looks like some smuggler hid their shipment of gerr root here and forgot to pick it up."*',
+    },
+    aw2: {
+      id: "aw2",
+      name: "Abandoned Warehouses",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 2 commodities, or you may convert up to 2 of your commodities to trade goods.",
+      flavorText:
+        "*Suffi An drifted into the derelict orbital and brushed her suited hand across the inner hatch controls. A light glowed, and she smiled. The statis seals were still operational.*",
+    },
+    aw3: {
+      id: "aw3",
+      name: "Abandoned Warehouses",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 2 commodities, or you may convert up to 2 of your commodities to trade goods.",
+      flavorText:
+        "*The storage silos had been half buried in sand dunes, sealed enviro-doors hiding the stockpiles within.*",
+    },
+    aw4: {
+      id: "aw4",
+      name: "Abandoned Warehouses",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 2 commodities, or you may convert up to 2 of your commodities to trade goods.",
+      flavorText:
+        "*Far beneath the storm-wracked seas, vast storage tanks drifted in the lightless depths.*",
+    },
+    biotic: {
+      id: "biotic",
+      name: "Biotic Research Facility",
+      type: "Industrial",
+      resolution: "Attach",
+      description:
+        "This planet has a green technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead.",
+    },
+    cm1: {
+      id: "cm1",
+      name: "Core Mine",
+      type: "Hazardous",
+      resolution: "Instant",
+      description:
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, gain 1 trade good.",
+      flavorText:
+        '*"If we don\'t seal it now, this mine is going to erupt and spew those metals you want so badly across the entire continent!"*',
+    },
+    cm2: {
+      id: "cm2",
+      name: "Core Mine",
+      type: "Hazardous",
+      resolution: "Instant",
+      description:
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, gain 1 trade good.",
+      flavorText:
+        "*The borehole was over a kilometer across. It seemed to stretch down forever, but Ilan could see a faint orange glow in its depths.*",
+    },
+    cm3: {
+      id: "cm3",
+      name: "Core Mine",
+      type: "Hazardous",
+      resolution: "Instant",
+      description:
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, gain 1 trade good.",
+      flavorText:
+        "*The borehole was over a kilometer across. It seemed to stretch down forever, but Ilan could see a faint orange glow in its depths.*",
+    },
+    crf1: {
+      id: "crf1",
+      name: "Cultural Relic Fragment",
+      type: "Cultural",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+    },
+    crf2: {
+      id: "crf2",
+      name: "Cultural Relic Fragment",
+      type: "Cultural",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+    },
+    crf3: {
+      id: "crf3",
+      name: "Cultural Relic Fragment",
+      type: "Cultural",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+    },
+    crf4: {
+      id: "crf4",
+      name: "Cultural Relic Fragment",
+      type: "Cultural",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+    },
+    crf5: {
+      id: "crf5",
+      name: "Cultural Relic Fragment",
+      type: "Cultural",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+    },
+    crf6: {
+      id: "crf6",
+      name: "Cultural Relic Fragment",
+      type: "Cultural",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+    },
+    crf7: {
+      id: "crf7",
+      name: "Cultural Relic Fragment",
+      type: "Cultural",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+    },
+    crf8: {
+      id: "crf8",
+      name: "Cultural Relic Fragment",
+      type: "Cultural",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+    },
+    crf9: {
+      id: "crf9",
+      name: "Cultural Relic Fragment",
+      type: "Cultural",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+    },
+    cybernetic: {
+      id: "cybernetic",
+      name: "Cybernetic Research Facility",
+      type: "Industrial",
+      resolution: "Attach",
+      description:
+        "This planet has a yellow technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead.",
+    },
+    dmz: {
+      id: "dmz",
+      name: "Demilitarized Zone",
+      type: "Cultural",
+      resolution: "Attach",
+      description:
+        "Return all structures on this planet to your reinforcements. Then, return all ground forces on this planet to the space area. Attach: Units cannot be committed to, produced on, or placed on this planet. During the agenda phase, this planet's planet card can be traded as part of a transaction.",
+    },
+    ds: {
+      id: "ds",
+      name: "Dyson Sphere",
+      type: "Cultural",
+      resolution: "Attach",
+      description:
+        "This planet's resource value is increased by 2 and its influence value is increased by 1.",
+    },
+    dv1: {
+      id: "dv1",
+      name: "Derelict Vessel",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Draw 1 secret objective.",
+      flavorText:
+        "The flickering ion storm illuminated the hulk, its hull rent and torn apart by some monstrous force.",
+    },
+    dv2: {
+      id: "dv2",
+      name: "Derelict Vessel",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Draw 1 secret objective.",
+      flavorText:
+        "*Missing for fifty years, the* Errasthua *was found drifting off the Celder Nebula with her drive dead and every crewmember vanished.*",
+    },
+    dw: {
+      id: "dw",
+      name: "Dead World",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Draw 1 relic.",
+      flavorText:
+        "*The* Best Guess *drifted through the debris. Layers of rock and...metal? It was all being held together by some kind of electric field—the same field that had hidden it from their scanners. With a growing sense of unease, they hastened their salvage.*",
+    },
+    ed1: {
+      id: "ed1",
+      name: "Enigmatic Device",
+      type: "Frontier",
+      resolution: "Instant",
+      description:
+        "Place this card faceup in your play area.\nACTION: You may spend 6 resource and purge this card to research 1 technology.",
+      flavorText:
+        "*A needle longer than a dreadnought but no wider than a landcar flew through the void, its surface glowing with a pale violet light.*",
+    },
+    ed2: {
+      id: "ed2",
+      name: "Enigmatic Device",
+      type: "Frontier",
+      resolution: "Instant",
+      description:
+        "Place this card faceup in your play area.\nACTION: You may spend 6 resource and purge this card to research 1 technology.",
+      flavorText:
+        "*The silver pinwheel spun slowly in the midst of the nebula, each kilometer-long blade glittering faintly with reflected starlight.*",
+    },
+    ent: {
+      id: "ent",
+      name: "Entropic Field",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Gain 1 command token and 2 trade goods.",
+      flavorText:
+        "*Several destroyers, a light cruiser, and even a pair of Eidolons patrolled the field during major extraction operations. One could never be too careful.*",
+    },
+    exp1: {
+      id: "exp1",
+      name: "Expedition",
+      type: "Hazardous",
+      resolution: "Instant",
+      description:
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, ready this planet.",
+      flavorText:
+        '*"These cave networks stretch for hundreds of kilometers. It may take months to properly map them."*',
+    },
+    exp2: {
+      id: "exp2",
+      name: "Expedition",
+      type: "Hazardous",
+      resolution: "Instant",
+      description:
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, ready this planet.",
+      flavorText: '*"We\'ve lost two companies of scouts to whatever is in those canyons."*',
+    },
+    exp3: {
+      id: "exp3",
+      name: "Expedition",
+      type: "Hazardous",
+      resolution: "Instant",
+      description:
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, ready this planet.",
+      flavorText:
+        "*The Eidolon screamed through the atmosphere, corrosive rain streaming harmlessly off the hull as it began its survey sweep.*",
+    },
+    fb1: {
+      id: "fb1",
+      name: "Functioning Base",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 1 commodity, or you may spend 1 trade good or 1 commodity to draw 1 action card.",
+      flavorText:
+        "*The Imperial Survey Corp outpost had been adandoned since the Twilight Wars, but the facilities had been built to last for millennia.*",
+    },
+    fb2: {
+      id: "fb2",
+      name: "Functioning Base",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 1 commodity, or you may spend 1 trade good or 1 commodity to draw 1 action card.",
+      flavorText:
+        "*The orbital distribution station proved easy to integrate into the fleet's growing logistical operation.*",
+    },
+    fb3: {
+      id: "fb3",
+      name: "Functioning Base",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 1 commodity, or you may spend 1 trade good or 1 commodity to draw 1 action card.",
+      flavorText:
+        "*The local defense forces abandoned their fortress as the first troop transports made planetfall, leaving it open to occupation.*",
+    },
+    fb4: {
+      id: "fb4",
+      name: "Functioning Base",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 1 commodity, or you may spend 1 trade good or 1 commodity to draw 1 action card.",
+      flavorText:
+        '*"Yes commander, the base appears completely abandoned. No sign of what happened to the garrison."*',
+    },
+    frln1: {
+      id: "frln1",
+      name: "Freelancers",
+      type: "Cultural",
+      resolution: "Instant",
+      description:
+        "You may produce 1 unit in this system. You may spend influence as if it were resources to produce this unit.",
+      flavorText:
+        "*The Vexis Howelers were well-equipped with transports, powered armor, and even logistical support—everything a fledgling outpost needed to survive.*",
+    },
+    frln2: {
+      id: "frln2",
+      name: "Freelancers",
+      type: "Cultural",
+      resolution: "Instant",
+      description:
+        "You may produce 1 unit in this system. You may spend influence as if it were resources to produce this unit.",
+      flavorText:
+        "*As part of the annexation agreement, local artisans would be well paid to lay the groundwork for military installations in the newly acquired territories.*",
+    },
+    frln3: {
+      id: "frln3",
+      name: "Freelancers",
+      type: "Cultural",
+      resolution: "Instant",
+      description:
+        "You may produce 1 unit in this system. You may spend influence as if it were resources to produce this unit.",
+      flavorText:
+        '*Overseer Flix was known for hiring hundreds of freelancers and then "forgetting" to pay them once the bulk of the work was complete.*',
+    },
+    gamma: {
+      id: "gamma",
+      name: "Gamma Relay",
+      type: "Frontier",
+      resolution: "Token",
+      description: "Place a gamma wormhole token in this system. Then, purge this card.",
+      flavorText:
+        "*Old spacers would tell stories of a black gateway in the deep space beyond the outer Oort Cloud.*",
+    },
+    gw: {
+      id: "gw",
+      name: "Gamma Wormhole",
+      type: "Cultural",
+      resolution: "Token",
+      description: "Place a gamma wormhole token in this system. Then, purge this card.",
+      flavorText:
+        "*The gravic sensors howled a warning. Ahead of the ship was a ring of twisted starlight, surrounding a sphere of utter darkness.*",
+    },
+    hrf1: {
+      id: "hrf1",
+      name: "Hazardous Relic Fragment",
+      type: "Hazardous",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your hazardous relic fragments to gain 1 relic.",
+    },
+    hrf2: {
+      id: "hrf2",
+      name: "Hazardous Relic Fragment",
+      type: "Hazardous",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your hazardous relic fragments to gain 1 relic.",
+    },
+    hrf3: {
+      id: "hrf3",
+      name: "Hazardous Relic Fragment",
+      type: "Hazardous",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your hazardous relic fragments to gain 1 relic.",
+    },
+    hrf4: {
+      id: "hrf4",
+      name: "Hazardous Relic Fragment",
+      type: "Hazardous",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your hazardous relic fragments to gain 1 relic.",
+    },
+    hrf5: {
+      id: "hrf5",
+      name: "Hazardous Relic Fragment",
+      type: "Hazardous",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your hazardous relic fragments to gain 1 relic.",
+    },
+    hrf6: {
+      id: "hrf6",
+      name: "Hazardous Relic Fragment",
+      type: "Hazardous",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your hazardous relic fragments to gain 1 relic.",
+    },
+    hrf7: {
+      id: "hrf7",
+      name: "Hazardous Relic Fragment",
+      type: "Hazardous",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your hazardous relic fragments to gain 1 relic.",
+    },
+    ion: {
+      id: "ion",
+      name: "Ion Storm",
+      type: "Frontier",
+      resolution: "Token",
+      description:
+        'Place the ion storm token in this system with either side faceup. Then, place this card in the common play area. At the end of the "Move Ships" or "Retreat" substep of a tactical action during which 1 or more of your ships use the ion storm wormhole, flip the ion storm token to its opposing side.',
+    },
+    irf1: {
+      id: "irf1",
+      name: "Industrial Relic Fragment",
+      type: "Industrial",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your industrial relic fragments to gain 1 relic.",
+    },
+    irf2: {
+      id: "irf2",
+      name: "Industrial Relic Fragment",
+      type: "Industrial",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your industrial relic fragments to gain 1 relic.",
+    },
+    irf3: {
+      id: "irf3",
+      name: "Industrial Relic Fragment",
+      type: "Industrial",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your industrial relic fragments to gain 1 relic.",
+    },
+    irf4: {
+      id: "irf4",
+      name: "Industrial Relic Fragment",
+      type: "Industrial",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your industrial relic fragments to gain 1 relic.",
+    },
+    irf5: {
+      id: "irf5",
+      name: "Industrial Relic Fragment",
+      type: "Industrial",
+      resolution: "Fragment",
+      description: "ACTION: Purge 3 of your industrial relic fragments to gain 1 relic.",
+    },
+    kel1: {
+      id: "kel1",
+      name: "Keleres Ship",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Gain 2 command tokens.",
+      flavorText:
+        "*The stranded Keleres were grateful for the resupply, and offered to assist the research team in any way that they could.*",
+    },
+    kel2: {
+      id: "kel2",
+      name: "Keleres Ship",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Gain 2 command tokens.",
+      flavorText:
+        "*The* Hinterlight *moved steadily toward the distress beacon, broadcasting their own response on all channels.*",
+    },
+    lc1: {
+      id: "lc1",
+      name: "Lost Crew",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Draw 2 action cards.",
+      flavorText:
+        '*"Mayday, mayday...this is the free trader* Hrothgar*...losing pressure fast...abandoning ship... Mayday..."*',
+    },
+    lc2: {
+      id: "lc2",
+      name: "Lost Crew",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Draw 2 action cards.",
+      flavorText:
+        "*Only two survivors were found aboard the derelict, and they had a harrowing tale to tell their saviors.*",
+    },
+    lf1: {
+      id: "lf1",
+      name: "Local Fabricators",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 1 commodity, or you may spend 1 trade good or 1 commodity to place 1 mech from your reinforcements on this planet.",
+      flavorText:
+        "*Edict 281: All indigenous production facilities are placed under control of the occupational authorities until further notice.*",
+    },
+    lf2: {
+      id: "lf2",
+      name: "Local Fabricators",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 1 commodity, or you may spend 1 trade good or 1 commodity to place 1 mech from your reinforcements on this planet.",
+      flavorText:
+        '*"These people\'s autofactories can turn out a new starfighter in less time than it takes me to order it!"*',
+    },
+    lf3: {
+      id: "lf3",
+      name: "Local Fabricators",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 1 commodity, or you may spend 1 trade good or 1 commodity to place 1 mech from your reinforcements on this planet.",
+      flavorText:
+        "*Though sub-standard, the locally produced munitions were enough to turn the tide of the war.*",
+    },
+    lf4: {
+      id: "lf4",
+      name: "Local Fabricators",
+      type: "Industrial",
+      resolution: "Instant",
+      description:
+        "You may gain 1 commodity, or you may spend 1 trade good or 1 commodity to place 1 mech from your reinforcements on this planet.",
+      flavorText:
+        "*Within months, bulk transports were arriving from the homeworld, reviving the local economy.*",
+    },
+    ls: {
+      id: "ls",
+      name: "Lazax Survivors",
+      type: "Hazardous",
+      resolution: "Attach",
+      description:
+        "This planet's resource value is increased by 1 and its influence value is increased by 2.",
+    },
+    majent: {
+      id: "majent",
+      name: "Major Entropic Field",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Gain 1 command token and 3 trade goods.",
+      flavorText:
+        "Jaset had worked the field for several months before the dreams began to bleed into waking hours. Voices. Flashes of red. Dust-filled caverns that went deep into the planet's core. He'd blink and rub his eyes and carry on with his work. Exhaustion, he told himself. Nothing more.",
+    },
+    minent: {
+      id: "minent",
+      name: "Minor Entropic Field",
+      type: "Frontier",
+      resolution: "Instant",
+      description: "Gain 1 command token and 1 trade good.",
+      flavorText:
+        "*After the Naaz-Rokha's discoveries in the wake of the Acheron event, various enterprising corporations quickly sought to stake their claims in areas well suited to entropic field harvesting.*",
+    },
+    mirage: {
+      id: "mirage",
+      name: "Mirage",
+      type: "Frontier",
+      resolution: "Token",
+      description:
+        "Place the Mirage planet token in this system. Gain the Mirage planet card and ready it. Then, purge this card.",
+      flavorText:
+        "*The star wasn't supposed to have a habitable planet, but one lay directly in the cruiser's path. And a cloud of starfighters was rising from the world's surface to greet it.*",
+    },
+    mo1: {
+      id: "mo1",
+      name: "Mercenary Outfit",
+      type: "Cultural",
+      resolution: "Instant",
+      description: "You may place 1 infantry from your reinforcements on this planet.",
+      flavorText:
+        '*"My mates and I used to be 4th Air Legion, but we figured we could make more money working freelance."*',
+    },
+    mo2: {
+      id: "mo2",
+      name: "Mercenary Outfit",
+      type: "Cultural",
+      resolution: "Instant",
+      description: "You may place 1 infantry from your reinforcements on this planet.",
+      flavorText:
+        "*The bar was full of scarred and dirty individuals from a dozen different species. But each one had a weapon, and looked completely comfortable with it.*",
+    },
+    mo3: {
+      id: "mo3",
+      name: "Mercenary Outfit",
+      type: "Cultural",
+      resolution: "Instant",
+      description: "You may place 1 infantry from your reinforcements on this planet.",
+      flavorText:
+        '*"Morse\'s Marauders are the most affordable soldiers of fortune on-planet. And trust me, you get exactly what you pay for."*',
+    },
+    ms1: {
+      id: "ms1",
+      name: "Merchant Station",
+      type: "Frontier",
+      resolution: "Instant",
+      description:
+        "You may replenish your commodities, or you may convert your commodities to trade goods.",
+      flavorText:
+        "*The deep space freeports tend to be infamous dens of criminals, but also valuable nodes in the interplanetary trade networks.*",
+    },
+    ms2: {
+      id: "ms2",
+      name: "Merchant Station",
+      type: "Frontier",
+      resolution: "Instant",
+      description:
+        "You may replenish your commodities, or you may convert your commodities to trade goods.",
+      flavorText:
+        '*"Unidentified vessel, this is Freeport Canopus. State your intentions before approaching."*',
+    },
+    mw: {
+      id: "mw",
+      name: "Mining World",
+      type: "Hazardous",
+      resolution: "Attach",
+      description: "This planet's resource value is increased by 2.",
+    },
+    propulsion: {
+      id: "propulsion",
+      name: "Propulsion Research Facility",
+      type: "Industrial",
+      resolution: "Attach",
+      description:
+        "This planet has a blue technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead.",
+    },
+    pw: {
+      id: "pw",
+      name: "Paradise World",
+      type: "Cultural",
+      resolution: "Attach",
+      description: "This planet's influence value is increased by 2.",
+    },
+    rw: {
+      id: "rw",
+      name: "Rich World",
+      type: "Hazardous",
+      resolution: "Attach",
+      description: "This planet's resource value is increased by 1.",
+    },
+    toe: {
+      id: "toe",
+      name: "Tomb of Emphidia",
+      type: "Cultural",
+      resolution: "Attach",
+      description:
+        'This planet\'s influence value is increased by 1. If the player who has the "Crown of Emphidia" relic has control of this planet, they can use that relic to gain 1 VP.',
+    },
+    urf1: {
+      id: "urf1",
+      name: "Unknown Relic Fragment",
+      type: "Frontier",
+      resolution: "Fragment",
+      description: "The card counts as a relic fragment of any type.",
+    },
+    urf2: {
+      id: "urf2",
+      name: "Unknown Relic Fragment",
+      type: "Frontier",
+      resolution: "Fragment",
+      description: "The card counts as a relic fragment of any type.",
+    },
+    urf3: {
+      id: "urf3",
+      name: "Unknown Relic Fragment",
+      type: "Frontier",
+      resolution: "Fragment",
+      description: "The card counts as a relic fragment of any type.",
+    },
+    vfs1: {
+      id: "vfs1",
+      name: "Volatile Fuel Source",
+      type: "Hazardous",
+      resolution: "Instant",
+      description:
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, gain 1 command token.",
+      flavorText:
+        "*It turned out that the continuous lightning storms were an unlimited source of power, which was little consolation to those assigned to build the collection towers.*",
+    },
+    vfs2: {
+      id: "vfs2",
+      name: "Volatile Fuel Source",
+      type: "Hazardous",
+      resolution: "Instant",
+      description:
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, gain 1 command token.",
+      flavorText:
+        "*Only by using retrofitted Scavenger walkers could they mine the radioactive Nyx crystals safely.*",
+    },
+    vfs3: {
+      id: "vfs3",
+      name: "Volatile Fuel Source",
+      type: "Hazardous",
+      resolution: "Instant",
+      description:
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, gain 1 command token.",
+      flavorText:
+        '*"With the extra fuel refined from the plasma clouds, our fleet can continue operations for months."*',
+    },
+    warfare: {
+      id: "warfare",
+      name: "Warfare Research Facility",
+      type: "Hazardous",
+      resolution: "Attach",
+      description:
+        "This planet has a red technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead.",
     },
   },
 } as const;

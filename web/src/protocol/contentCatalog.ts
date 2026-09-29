@@ -28,6 +28,7 @@ export const SECRET_OBJECTIVES = GENERATED_CONTENT_CATALOG.secretObjectives;
 export const PUBLIC_OBJECTIVES = GENERATED_CONTENT_CATALOG.publicObjectives;
 export const ACTION_CARDS = GENERATED_CONTENT_CATALOG.actionCards;
 export const TECHNOLOGIES = GENERATED_CONTENT_CATALOG.technologies;
+export const EXPLORATION_CARDS = GENERATED_CONTENT_CATALOG.explorationCards;
 
 export function humanizeId(id: string): string {
   return id.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -109,6 +110,43 @@ export function getTechnologyMeta(id: string): CardMeta {
       id,
       name: humanizeId(id),
       description: "Technology",
+    }
+  );
+}
+
+export interface ExplorationCardMeta {
+  id: string;
+  name: string;
+  type: string;
+  resolution: string;
+  description: string;
+  flavorText?: string;
+}
+
+export function findExplorationCardMeta(key: string): ExplorationCardMeta | undefined {
+  if (!key) return undefined;
+  const exact = (EXPLORATION_CARDS as Record<string, ExplorationCardMeta>)[key];
+  if (exact) return exact;
+  const norm = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!norm) return undefined;
+  for (const meta of Object.values(EXPLORATION_CARDS as Record<string, ExplorationCardMeta>)) {
+    if (meta.id.toLowerCase() === norm) return meta;
+    const cardNorm = meta.name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (norm.includes(cardNorm) || cardNorm.includes(norm)) {
+      return meta;
+    }
+  }
+  return undefined;
+}
+
+export function getExplorationCardMeta(key: string): ExplorationCardMeta {
+  return (
+    findExplorationCardMeta(key) ?? {
+      id: key,
+      name: humanizeId(key),
+      type: "Frontier",
+      resolution: "Instant",
+      description: "",
     }
   );
 }
