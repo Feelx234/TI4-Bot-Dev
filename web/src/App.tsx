@@ -346,6 +346,7 @@ const GameViewContainer: React.FC<{
               players={snapshot.view.players}
               userSeat={userSeat}
               revealedObjectives={snapshot.view.table.revealed_objectives}
+              board={snapshot.view.board}
               onInspectCard={(subject) => {
                 setSelectedSystemId(null);
                 setCardSubject(subject);

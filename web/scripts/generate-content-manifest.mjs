@@ -48,16 +48,27 @@ function sortedCatalog(catalog) {
 }
 
 async function generate() {
-  const [manifest, strategyCards, secretObjectives, publicObjectives, actionCards, technologies, explores] =
-    await Promise.all([
-      readJson("manifest.json"),
-      readJson("strategy_cards.json"),
-      readJson("secret_objectives.json"),
-      readJson("public_objectives.json"),
-      readJson("action_cards.json"),
-      readJson("technologies.json"),
-      readJson("explores.json"),
-    ]);
+  const [
+    manifest,
+    strategyCards,
+    secretObjectives,
+    publicObjectives,
+    actionCards,
+    technologies,
+    explores,
+    planets,
+    attachments,
+  ] = await Promise.all([
+    readJson("manifest.json"),
+    readJson("strategy_cards.json"),
+    readJson("secret_objectives.json"),
+    readJson("public_objectives.json"),
+    readJson("action_cards.json"),
+    readJson("technologies.json"),
+    readJson("explores.json"),
+    readJson("planets.json"),
+    readJson("attachments.json"),
+  ]);
 
   const strategyCatalog = {};
   for (const card of strategyCards) {
@@ -133,6 +144,38 @@ async function generate() {
     );
   }
 
+  const planetCatalog = {};
+  for (const planet of planets) {
+    const id = requiredString(planet, "id", "planets");
+    addEntry(
+      planetCatalog,
+      id,
+      {
+        id,
+        name: requiredString(planet, "name", "planets"),
+        resources: planet.resources ?? 0,
+        influence: planet.influence ?? 0,
+      },
+      "planets",
+    );
+  }
+
+  const attachmentCatalog = {};
+  for (const attachment of attachments) {
+    const id = requiredString(attachment, "id", "attachments");
+    addEntry(
+      attachmentCatalog,
+      id,
+      {
+        id,
+        name: optionalString(attachment, "name") || id,
+        resourcesModifier: attachment.resourcesModifier ?? 0,
+        influenceModifier: attachment.influenceModifier ?? 0,
+      },
+      "attachments",
+    );
+  }
+
   const catalogs = {
     strategyCards: sortedCatalog(strategyCatalog),
     secretObjectives: sortedCatalog(objectiveCatalog(secretObjectives, "secret_objectives")),
@@ -140,6 +183,8 @@ async function generate() {
     actionCards: sortedCatalog(cardCatalog(actionCards, "action_cards")),
     technologies: sortedCatalog(cardCatalog(technologies, "technologies")),
     explorationCards: sortedCatalog(exploreCatalog),
+    planets: sortedCatalog(planetCatalog),
+    attachments: sortedCatalog(attachmentCatalog),
   };
   const source = JSON.stringify(catalogs);
   const sourceDigest = createHash("sha256").update(source).digest("hex");
@@ -156,6 +201,8 @@ async function generate() {
         actionCards: actionCards.length,
         technologies: technologies.length,
         explorationCards: explores.length,
+        planets: planets.length,
+        attachments: attachments.length,
       },
     },
     null,

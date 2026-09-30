@@ -125,4 +125,103 @@ describe("PlayerSheet Component & Human Readable Metadata", () => {
     render(<CardDetails subject={{ kind: "strategy", id: "pok1leadership" }} onClose={vi.fn()} />);
     expect(screen.getByTestId("detail-panel")).toHaveTextContent("Gain 3 command tokens");
   });
+
+  it("renders dense additional player stats with icons and tooltips", () => {
+    const mockBoard: import("../protocol/types.ts").BoardView = {
+      map_tiles: [
+        {
+          system_id: "1",
+          label: "Jord",
+          q: 0,
+          r: 0,
+          planets: [{ id: "jord", label: "Jord", resources: 4, influence: 2 }],
+        },
+      ],
+      systems: {
+        "1": {
+          system_id: "1",
+          command_tokens: [],
+          planets: {
+            jord: { planet_id: "jord", controlled_by: "p1", exhausted: false },
+          },
+          units: [
+            { owner: "p1", unit_type: "carrier", damaged: false },
+            { owner: "p1", unit_type: "space_dock", planet: "jord", damaged: false },
+          ],
+        },
+      },
+    };
+
+    render(<PlayerSheet players={mockPlayers} userSeat="p1" board={mockBoard} />);
+
+    // Stats rows rendered for players
+    const statsRows = screen.getAllByTestId("player-stats-row");
+    expect(statsRows).toHaveLength(2);
+
+    // p1 stats (controls Jord: 4 res, 2 inf; 1 system, 1 planet; dock on Jord: 4 + 2 = 6 production)
+    const p1Card = screen.getAllByTestId("player-card")[0];
+
+    const resBadge = p1Card.querySelector('[data-testid="player-resources"]');
+    expect(resBadge).toBeInTheDocument();
+    expect(resBadge).toHaveTextContent("4/4");
+    expect(resBadge).toHaveAttribute("title", "Resources: 4 ready / 4 total");
+    expect(resBadge?.querySelector("svg")).toBeInTheDocument();
+
+    const infBadge = p1Card.querySelector('[data-testid="player-influence"]');
+    expect(infBadge).toBeInTheDocument();
+    expect(infBadge).toHaveTextContent("2/2");
+    expect(infBadge).toHaveAttribute("title", "Influence: 2 ready / 2 total");
+    expect(infBadge?.querySelector("svg")).toBeInTheDocument();
+
+    const sysBadge = p1Card.querySelector('[data-testid="player-controlled-systems"]');
+    expect(sysBadge).toBeInTheDocument();
+    expect(sysBadge).toHaveTextContent("1");
+    expect(sysBadge).toHaveAttribute("title", "Controlled Systems: 1");
+    expect(sysBadge?.querySelector("svg")).toBeInTheDocument();
+
+    const planetBadge = p1Card.querySelector('[data-testid="player-controlled-planets"]');
+    expect(planetBadge).toBeInTheDocument();
+    expect(planetBadge).toHaveTextContent("1");
+    expect(planetBadge).toHaveAttribute("title", "Controlled Planets: 1");
+    expect(planetBadge?.querySelector("svg")).toBeInTheDocument();
+
+    const prodBadge = p1Card.querySelector('[data-testid="player-production-capacity"]');
+    expect(prodBadge).toBeInTheDocument();
+    expect(prodBadge).toHaveTextContent("6/6");
+    expect(prodBadge).toHaveAttribute("title", "Production Capacity: 6 available / 6 total");
+    expect(prodBadge?.querySelector("svg")).toBeInTheDocument();
+  });
+
+  it("shows 0 available production capacity when system has player command token", () => {
+    const mockBoard: import("../protocol/types.ts").BoardView = {
+      map_tiles: [
+        {
+          system_id: "1",
+          label: "Jord",
+          q: 0,
+          r: 0,
+          planets: [{ id: "jord", label: "Jord", resources: 4, influence: 2 }],
+        },
+      ],
+      systems: {
+        "1": {
+          system_id: "1",
+          command_tokens: ["p1"], // Activated by p1
+          planets: {
+            jord: { planet_id: "jord", controlled_by: "p1", exhausted: false },
+          },
+          units: [
+            { owner: "p1", unit_type: "space_dock", planet: "jord", damaged: false },
+          ],
+        },
+      },
+    };
+
+    render(<PlayerSheet players={mockPlayers} userSeat="p1" board={mockBoard} />);
+    const p1Card = screen.getAllByTestId("player-card")[0];
+    const prodBadge = p1Card.querySelector('[data-testid="player-production-capacity"]');
+    expect(prodBadge).toBeInTheDocument();
+    expect(prodBadge).toHaveTextContent("0/6");
+    expect(prodBadge).toHaveAttribute("title", "Production Capacity: 0 available / 6 total");
+  });
 });

@@ -252,6 +252,8 @@ describe("Frontend Invariants & Property-based Checks", () => {
       actionCards: 142,
       technologies: 102,
       explorationCards: 80,
+      planets: 159,
+      attachments: 22,
     });
 
     // Strategy-card names are not lookup aliases: a malformed ID must not select a card.

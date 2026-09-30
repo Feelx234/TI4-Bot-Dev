@@ -29,6 +29,8 @@ export const PUBLIC_OBJECTIVES = GENERATED_CONTENT_CATALOG.publicObjectives;
 export const ACTION_CARDS = GENERATED_CONTENT_CATALOG.actionCards;
 export const TECHNOLOGIES = GENERATED_CONTENT_CATALOG.technologies;
 export const EXPLORATION_CARDS = GENERATED_CONTENT_CATALOG.explorationCards;
+export const PLANETS = GENERATED_CONTENT_CATALOG.planets;
+export const ATTACHMENTS = GENERATED_CONTENT_CATALOG.attachments;
 
 export function humanizeId(id: string): string {
   return id.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -149,4 +151,26 @@ export function getExplorationCardMeta(key: string): ExplorationCardMeta {
       description: "",
     }
   );
+}
+
+export interface PlanetStaticMeta {
+  id: string;
+  name: string;
+  resources: number;
+  influence: number;
+}
+
+export interface AttachmentStaticMeta {
+  id: string;
+  name: string;
+  resourcesModifier: number;
+  influenceModifier: number;
+}
+
+export function findPlanetMeta(id: string): PlanetStaticMeta | undefined {
+  return exactLookup(PLANETS, id);
+}
+
+export function findAttachmentMeta(id: string): AttachmentStaticMeta | undefined {
+  return exactLookup(ATTACHMENTS, id);
 }
