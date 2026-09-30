@@ -370,6 +370,42 @@ pub struct BranchNode {
     pub fork_frame: Option<u64>,
 }
 
+/// One answered offer, identified by *instance* and not merely by shape.
+///
+/// [`ChoiceFingerprint`] binds actor, prompt, ordered options and context, and deliberately excludes
+/// the frame and the ask ordinal — that is what lets a rebuild match a recorded answer to the offer
+/// it was made against. The consequence is that two genuinely different asks can share a
+/// fingerprint: a seat six units over capacity is asked "remove a unit: over capacity in 14" six
+/// times in one step, every time with the single option `remove|0` and no context.
+///
+/// Suppressing the panel on the fingerprint alone therefore hid the second and later asks: the
+/// window said "No seat is waiting" while the engine sat parked inside `ask`, which is a frozen game
+/// with nothing on screen to explain it. The frame and the ask ordinal are what separate one
+/// instance from the next, and `PendingManualChoice` already carries both.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Answered {
+    fingerprint: ChoiceFingerprint,
+    frame: u64,
+    ask: u32,
+}
+
+impl Answered {
+    /// Whether this is the very offer that was answered, rather than one that merely looks like it.
+    fn is(&self, pending: &PendingManualChoice) -> bool {
+        self.fingerprint == pending.fingerprint
+            && self.frame == pending.frame
+            && self.ask == pending.ask
+    }
+
+    fn of(pending: &PendingManualChoice) -> Self {
+        Self {
+            fingerprint: pending.fingerprint.clone(),
+            frame: pending.frame,
+            ask: pending.ask,
+        }
+    }
+}
+
 /// The application state: a project, a viewed frame, an optional live branch, and the rebuild that
 /// may be running in the background.
 #[derive(Debug)]
@@ -383,7 +419,7 @@ pub struct ReplayApp<H> {
     viewed: std::collections::BTreeMap<BranchId, usize>,
     rebuild: RebuildStatus,
     /// The choice the reader has already answered, so a second click cannot pretend otherwise.
-    answered: Option<ChoiceFingerprint>,
+    answered: Option<Answered>,
     /// The last thing the app did, for the status line.
     notice: Option<String>,
 }
@@ -523,7 +559,11 @@ impl<H: BranchHandle> ReplayApp<H> {
     #[must_use]
     pub fn pending(&self) -> Option<PendingManualChoice> {
         let pending = self.handle.as_ref()?.snapshot().pending?;
-        if self.answered.as_ref() == Some(&pending.fingerprint) {
+        if self
+            .answered
+            .as_ref()
+            .is_some_and(|answered| answered.is(&pending))
+        {
             None
         } else {
             Some(pending)
@@ -612,14 +652,26 @@ impl<H: BranchHandle> ReplayApp<H> {
             self.notice = Some("Nothing is running to answer".to_owned());
             return SubmitOutcome::NoPendingChoice;
         };
-        if self.answered.as_ref() == Some(&submission.fingerprint) {
+        // The offer on the gate right now, which is what says *which instance* this click is for.
+        // Comparing the submission's fingerprint alone would refuse a fresh ask that happens to look
+        // identical to the last one answered.
+        let offered = handle.snapshot().pending;
+        // Answering clears the gate's panel, so a second click usually arrives with nothing pending
+        // at all — that case still has to be refused here, before the branch is asked. What must
+        // *not* be refused is a fresh ask that merely shares the fingerprint: if something is
+        // pending and it is a different instance, this is a new question.
+        let already_answered = self.answered.as_ref().is_some_and(|answered| {
+            answered.fingerprint == submission.fingerprint
+                && offered.as_ref().is_none_or(|pending| answered.is(pending))
+        });
+        if already_answered {
             self.notice = Some("That choice was already answered".to_owned());
             return SubmitOutcome::Duplicate;
         }
         let outcome = handle.submit(submission);
         match &outcome {
             SubmitOutcome::Accepted { option_id } => {
-                self.answered = Some(submission.fingerprint.clone());
+                self.answered = offered.as_ref().map(Answered::of);
                 self.notice = Some(format!("Answered {option_id}"));
             }
             SubmitOutcome::Stale { .. } => {

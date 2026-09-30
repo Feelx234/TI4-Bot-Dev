@@ -290,14 +290,31 @@ fn nested_asks_inside_one_engine_step_each_get_their_own_panel() {
             "asks within frame {frame} are numbered from 0 in the order they were raised"
         );
     }
-    let distinct: BTreeMap<_, _> = asks
-        .iter()
-        .map(|pending| (pending.fingerprint.clone(), pending.actor.clone()))
-        .collect();
+    // What must hold is that each ask got its *own* panel, and the ask ordinal is what says so: the
+    // gate's clock increments once per ask within a frame, so a gate that republished one offer
+    // several times instead of parking again would repeat an ordinal. That is checked above and
+    // again here as a set.
+    //
+    // This deliberately does *not* assert that the fingerprints differ, which it used to. A
+    // fingerprint binds actor, prompt, ordered options and context and excludes the frame and
+    // ordinal on purpose, because that is what lets a rebuild match a recorded answer to the offer
+    // it was made against. The engine legitimately raises asks that are identical in all of those
+    // fields: a seat six units over capacity is asked "remove a unit: over capacity in 14" six times
+    // in one step, every time with the single option `remove|0` and no context, so seven asks
+    // collapsed to two distinct fingerprints and the old assertion failed on correct behaviour.
+    // The real defect that hid behind it - the app suppressing every ask after the first, leaving a
+    // parked engine with no panel on screen - is fixed in `ReplayApp` and pinned by
+    // `app.rs::an_identical_looking_ask_at_the_next_ordinal_is_a_new_question`.
+    let ordinals: std::collections::BTreeSet<u32> =
+        asks.iter().map(|pending| pending.ask).collect();
     assert_eq!(
-        distinct.len(),
+        ordinals.len(),
         asks.len(),
-        "asks raised in the same step are distinguishable, not a repeat of one panel"
+        "each ask in frame {frame} got its own panel, rather than one panel being republished"
+    );
+    assert!(
+        asks.iter().all(|pending| pending.frame == frame),
+        "every ask grouped under frame {frame} reports that frame"
     );
     assert!(driven.frames > 1, "the branch advanced through them");
 

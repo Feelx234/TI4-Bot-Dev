@@ -841,3 +841,59 @@ fn frames_arriving_grow_the_branch_the_project_knows_about() {
     app.plan_play(Vec::new())
         .expect("a frame the branch has reached can be forked from");
 }
+
+/// Two consecutive asks that look identical are two questions, not one answered twice.
+///
+/// `ChoiceFingerprint` excludes the frame and the ask ordinal on purpose, so it cannot separate
+/// them: a seat six units over capacity is asked "remove a unit: over capacity in 14" six times in
+/// one engine step, each time with the single option `remove|0` and no context. Suppressing the
+/// panel on the fingerprint alone hid every ask after the first — the window said "No seat is
+/// waiting" while the engine sat parked inside `ask`, a frozen game with nothing on screen. What
+/// identifies an instance is `(fingerprint, frame, ask)`.
+#[test]
+fn an_identical_looking_ask_at_the_next_ordinal_is_a_new_question() {
+    let mut app = app_with(10);
+    let fake = Fake::default();
+    app.attach(fake.clone(), ticks(10));
+
+    let first = choice(SEATS[0], 7, 1);
+    fake.park(first.clone());
+    let offered = app.pending().expect("the first ask is shown");
+    assert_eq!(offered.ask, 1);
+    assert_eq!(
+        app.submit(&submission_for(&first, 0)),
+        SubmitOutcome::Accepted {
+            option_id: first.options[0].id.clone()
+        }
+    );
+    assert!(
+        app.pending().is_none(),
+        "the answered offer is not shown again while it is still the pending one"
+    );
+
+    // The same offer, one ordinal later: same actor, prompt, options and context, so the same
+    // fingerprint. It is still a question nobody has answered.
+    let second = choice(SEATS[0], 7, 2);
+    assert_eq!(
+        second.fingerprint, first.fingerprint,
+        "the fixture has to reproduce the collision, or this test proves nothing"
+    );
+    fake.park(second.clone());
+    let shown = app
+        .pending()
+        .expect("an ask at the next ordinal must reach the panel");
+    assert_eq!(shown.ask, 2);
+    assert_eq!(
+        app.submit(&submission_for(&second, 0)),
+        SubmitOutcome::Accepted {
+            option_id: second.options[0].id.clone()
+        },
+        "and it must be answerable, not refused as a duplicate"
+    );
+
+    // A genuine double click on the offer still on screen is still refused.
+    assert_eq!(
+        app.submit(&submission_for(&second, 0)),
+        SubmitOutcome::Duplicate
+    );
+}
