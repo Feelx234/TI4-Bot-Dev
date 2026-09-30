@@ -1,5 +1,33 @@
 //! Behavioral distribution suite for the authored bot (M08-021).
 //!
+//! # RETIRED 2026-09-30
+//!
+//! The gate test below carries `#[ignore]`. **Nothing this project runs plays the authored bot**, so
+//! the claim made two paragraphs down — that it is "the comparison baseline every cross-time VP
+//! measurement depends on" — is no longer true, and reading it as current cost a reviewer two hours
+//! on 2026-09-30. Measured that day:
+//!
+//! - `ti4-mlp`, `ti4-training` and `ti4-policy` contain no use of `crate::run` or [`Seats`] at all.
+//!   Learned policies are measured by `ti4-mlp`'s `clearance_eval` and `crossplay_eval` against
+//!   checkpoint bundles, on a path that never touches this module.
+//! - `ti4_policy::bot::ScoredBot`'s only non-example consumers are this crate's own harness and
+//!   `ti4_training::rollout::play_rotated_pool_batch_authored`, whose only caller is the one-off
+//!   `ti4-training/examples/ceiling.rs`.
+//! - `plans/M08_AUTHORED_BOTS.md` records rows 001–017 as superseded, and Python parity stopped
+//!   being an acceptance criterion on 2026-08-21.
+//!
+//! What was genuinely lost by retiring it, stated plainly: six deterministic bots playing thirty
+//! fixed games is a cheap **engine** event-drift detector, and the action-mix metrics count engine
+//! events rather than bot judgement — which is why it caught seven metrics moving at v45. That value
+//! was incidental to the design, not its purpose, and a random-seat or learned-seat harness would
+//! serve it without claiming to be a VP baseline. If engine event-drift is worth watching, it wants
+//! its own suite with an honest label rather than this one revived.
+//!
+//! Nothing is deleted. The harness, the committed seed set, the bootstrap and the v45 intervals are
+//! intact; `cargo test -p ti4-sim --lib -- --ignored` runs it, and deleting one attribute restores
+//! it to the normal suite. The v45 re-baseline that preceded this retirement is recorded in
+//! `plans/evidence/M08-021.md`, including the seven-metric move whose attribution was never done.
+//!
 //! The authored bot is the comparison baseline every cross-time VP measurement depends on
 //! (SD-1, `plans/M08_AUTHORED_BOTS.md`). Determinism pins catch *run-to-run* drift; this suite
 //! catches *version-to-version* behavioral drift: it plays a fixed seed set twice, asserts
@@ -1189,8 +1217,14 @@ mod tests {
 
     /// The suite's gate: two runs from the same seed set must be per-seed identical (the
     /// determinism precondition — a flaky bound could otherwise hide an engine nondeterminism
-    /// regression), and every batch metric must sit inside its recorded v1 bounds.
+    /// regression), and every batch metric must sit inside its recorded bounds.
+    ///
+    /// **Retired 2026-09-30 — see the retirement note in the module documentation.** Run it with
+    /// `cargo test -p ti4-sim --lib -- --ignored` when the authored bot is deliberately being
+    /// worked on. It is not deleted: the harness, the fixed seed set and the v45 intervals are all
+    /// still here, so reviving it is removing one attribute.
     #[test]
+    #[ignore = "retired: the authored bot has no downstream consumer; see the module retirement note"]
     fn the_suite_reproduces_and_stays_within_the_recorded_bounds() {
         let content = ContentStore::embedded();
 
