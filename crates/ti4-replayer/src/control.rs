@@ -253,6 +253,46 @@ impl SeatControl {
 #[serde(transparent)]
 pub struct ChoiceFingerprint(String);
 
+/// One occurrence of an offer, as distinct from every other — including offers that look identical.
+///
+/// [`ChoiceFingerprint`] says what an offer *is*: actor, prompt, ordered options and typed context.
+/// It deliberately says nothing about *which* occurrence, because a rebuild has to match a recorded
+/// answer to the offer it was made against. But the engine does ask identical-looking questions in
+/// succession: a seat six units over capacity is asked "remove a unit: over capacity in 14" six times
+/// in one engine step, each time with the single option `remove|0` and no context. The fingerprint
+/// cannot say which of those a click was aimed at, and a click aimed at the first was accepted
+/// against the second and consumed it (reproduced in review, 2026-09-30,
+/// `examples/astra_stale_submission_20260930.rs`).
+///
+/// Allocated from a process-wide counter when the offer is constructed and never reused within a
+/// process, so a new ask, a new branch and a new table all get fresh ones: a stale click cannot land
+/// on a later offer however alike the two look. It is captured by whoever *draws* the offer and
+/// carried by the click, and it is checked under the gate's lock. It is not part of the fingerprint
+/// and plays no part in replay matching. Zero is never allocated.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct OfferId(u64);
+
+impl OfferId {
+    /// The next unused occurrence id in this process.
+    fn next() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// The raw value, for logs and diagnostics.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+impl fmt::Display for OfferId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "offer#{}", self.0)
+    }
+}
+
 impl ChoiceFingerprint {
     /// Fingerprint an offer from its identity-bearing parts.
     ///
@@ -373,10 +413,13 @@ impl OfferedOption {
 
 /// The choice a manual seat is being asked to answer right now.
 ///
-/// Identity (`branch`, `frame`, `ask`) says where this panel belongs; the fingerprint says what it
-/// is. The two are kept apart on purpose — see [`ChoiceFingerprint`].
+/// `offer` says *which occurrence* this is, and is what a click must carry to be accepted; `branch`,
+/// `frame` and `ask` say where the panel belongs, for display; the fingerprint says what the offer
+/// is, for replay. The three are kept apart on purpose — see [`OfferId`] and [`ChoiceFingerprint`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PendingManualChoice {
+    /// This occurrence, as distinct from every other offer in the process.
+    pub offer: OfferId,
     /// Branch whose engine is paused.
     pub branch: BranchId,
     /// Frame the pause happened at — the step boundary the engine is stopped on.
@@ -426,6 +469,7 @@ impl PendingManualChoice {
             .and_then(|context| serde_json::to_value(context).ok());
         let fingerprint = ChoiceFingerprint::from_choice(choice);
         Ok(Self {
+            offer: OfferId::next(),
             branch,
             frame,
             ask,
@@ -452,9 +496,13 @@ impl PendingManualChoice {
             .collect()
     }
 
-    /// Check a submission against this exact offer: same fingerprint, then an offered id.
+    /// Check a submission against this exact offer: the same occurrence and the same shape, then an
+    /// offered id.
+    ///
+    /// The occurrence is what matters. A click aimed at an earlier offer is stale even when that
+    /// offer looked exactly like this one — which is precisely the case the fingerprint cannot see.
     fn validate(&self, submission: &ManualSubmission) -> SubmitOutcome {
-        if submission.fingerprint != self.fingerprint {
+        if submission.offer != self.offer || submission.fingerprint != self.fingerprint {
             return SubmitOutcome::Stale {
                 current: self.fingerprint.clone(),
             };
@@ -472,10 +520,29 @@ impl PendingManualChoice {
 }
 
 /// A human's answer, bound to the choice it was aimed at.
+///
+/// Build it with [`ManualSubmission::to`] from the offer that was *drawn*. Capturing the occurrence
+/// when the panel is shown, rather than reading whatever is pending when the click arrives, is the
+/// whole point: by then a newer, identical-looking offer may be on screen, and binding to it would
+/// answer a question the person never saw.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ManualSubmission {
+    /// The occurrence the click was made on.
+    pub offer: OfferId,
     pub fingerprint: ChoiceFingerprint,
     pub option_id: String,
+}
+
+impl ManualSubmission {
+    /// A click on `option_id` of the offer on screen, bound to that exact occurrence.
+    #[must_use]
+    pub fn to(offer: &PendingManualChoice, option_id: impl Into<String>) -> Self {
+        Self {
+            offer: offer.offer,
+            fingerprint: offer.fingerprint.clone(),
+            option_id: option_id.into(),
+        }
+    }
 }
 
 /// What happened to a submission. Every refusal leaves the pending choice in place.
@@ -507,7 +574,9 @@ pub enum SubmitOutcome {
 pub struct ManualControl {
     seats: SeatControl,
     pending: Option<PendingManualChoice>,
-    answered: Option<ChoiceFingerprint>,
+    /// The last occurrence answered. Keyed on [`OfferId`], not the fingerprint: identical-looking
+    /// offers in succession are separate questions, and must not read as already answered.
+    answered: Option<OfferId>,
 }
 
 impl ManualControl {
@@ -543,16 +612,23 @@ impl ManualControl {
     }
 
     /// Accept a human answer, returning the accepted option id for the engine to validate.
+    ///
+    /// While an offer is up, a click for any other occurrence is [`SubmitOutcome::Stale`] and consumes
+    /// nothing — including a click aimed at an earlier offer that looked exactly like the current one.
+    /// `Stale` is preferred to `Duplicate` whenever something is pending because it names the current
+    /// offer, which is what lets a panel that drew an old question redraw the new one. `Duplicate` is
+    /// for the case with nothing up: a second click on the occurrence just answered.
     pub fn submit(&mut self, submission: &ManualSubmission) -> SubmitOutcome {
         let Some(pending) = self.pending.as_ref() else {
-            return match &self.answered {
-                Some(answered) if *answered == submission.fingerprint => SubmitOutcome::Duplicate,
-                _ => SubmitOutcome::NoPendingChoice,
+            return if self.answered == Some(submission.offer) {
+                SubmitOutcome::Duplicate
+            } else {
+                SubmitOutcome::NoPendingChoice
             };
         };
         let outcome = pending.validate(submission);
         if let SubmitOutcome::Accepted { .. } = outcome {
-            self.answered = Some(pending.fingerprint.clone());
+            self.answered = Some(pending.offer);
             self.pending = None;
         }
         outcome
@@ -560,8 +636,13 @@ impl ManualControl {
 
     /// Answer the pending choice with the policy instead, keeping the seat manual.
     ///
-    /// Returns the seat whose panel just closed, or `None` when no human was waiting.
-    pub fn delegate_pending_once(&mut self) -> Option<PlayerId> {
+    /// Only for the occurrence named: a delegation made on one panel must not land on a later one
+    /// that happened to replace it. Returns the seat whose panel just closed, or `None` when that
+    /// offer is not the one waiting — nothing is delegated and the pending offer stays up.
+    pub fn delegate_pending_once(&mut self, offer: OfferId) -> Option<PlayerId> {
+        if self.pending.as_ref().map(|pending| pending.offer) != Some(offer) {
+            return None;
+        }
         let actor = self.pending.take().map(|pending| pending.actor)?;
         self.seats.delegate_once(&actor);
         Some(actor)
@@ -772,6 +853,7 @@ mod tests {
 
     fn submission(pending: &PendingManualChoice, option: &str) -> ManualSubmission {
         ManualSubmission {
+            offer: pending.offer,
             fingerprint: pending.fingerprint.clone(),
             option_id: option.to_owned(),
         }
@@ -784,6 +866,164 @@ mod tests {
         let second = pending("seat0", &ids);
         assert_eq!(first.fingerprint, second.fingerprint);
         assert_eq!(first.fingerprint.as_hex().len(), 64);
+        // And the complement, which is the whole reason `OfferId` exists: the same shape twice is two
+        // occurrences. Replay matches on the first property; a click is bound by the second.
+        assert_ne!(
+            first.offer, second.offer,
+            "identical offers are still distinct occurrences"
+        );
+    }
+
+    // ---- Occurrence identity (review 2026-09-30, P1). Every case below uses two offers that are
+    // identical in shape - same actor, prompt, options and context, so the same fingerprint - which
+    // is exactly what the engine produces for a seat over capacity asked "remove a unit" repeatedly.
+
+    /// Regressions 1-3: the second of two identical offers is answerable; replaying the first click
+    /// against it is refused and consumes nothing; a fresh click on it is accepted.
+    #[test]
+    fn an_old_click_does_not_answer_the_next_identical_offer() {
+        let ids = [("remove|0", "remove")];
+        let first = pending("seat0", &ids);
+        let second = pending("seat0", &ids);
+        assert_eq!(
+            first.fingerprint, second.fingerprint,
+            "the collision is real"
+        );
+        let old_click = submission(&first, "remove|0");
+
+        let mut control = ManualControl::new(SeatControl::all_auto());
+        control.publish(first);
+        assert_eq!(
+            control.submit(&old_click),
+            SubmitOutcome::Accepted {
+                option_id: "remove|0".to_owned()
+            }
+        );
+
+        control.publish(second.clone());
+        let replayed = control.submit(&old_click);
+        assert!(
+            matches!(
+                replayed,
+                SubmitOutcome::Duplicate | SubmitOutcome::Stale { .. }
+            ),
+            "a click made on the first offer must not answer the second: {replayed:?}"
+        );
+        assert_eq!(
+            control.pending().map(|pending| pending.offer),
+            Some(second.offer),
+            "and the refused click consumed nothing - the second offer is still up"
+        );
+
+        assert_eq!(
+            control.submit(&submission(&second, "remove|0")),
+            SubmitOutcome::Accepted {
+                option_id: "remove|0".to_owned()
+            },
+            "a click made on the second offer answers it"
+        );
+        assert!(control.pending().is_none());
+    }
+
+    /// A click for an offer answered *two* questions ago is not the last answered, so it is not a
+    /// duplicate — it has to be refused as stale instead, still without consuming the current one.
+    #[test]
+    fn an_older_click_is_stale_and_consumes_nothing() {
+        let ids = [("remove|0", "remove")];
+        let (first, second, third) = (
+            pending("seat0", &ids),
+            pending("seat0", &ids),
+            pending("seat0", &ids),
+        );
+        let first_click = submission(&first, "remove|0");
+        let mut control = ManualControl::new(SeatControl::all_auto());
+        for (offer, click) in [
+            (first, first_click.clone()),
+            (second.clone(), submission(&second, "remove|0")),
+        ] {
+            control.publish(offer);
+            assert!(matches!(
+                control.submit(&click),
+                SubmitOutcome::Accepted { .. }
+            ));
+        }
+        control.publish(third.clone());
+        assert!(
+            matches!(control.submit(&first_click), SubmitOutcome::Stale { .. }),
+            "two offers late, the first click is stale"
+        );
+        assert_eq!(
+            control.pending().map(|pending| pending.offer),
+            Some(third.offer)
+        );
+    }
+
+    /// Regression 4: a click from an earlier table cannot land on a new table's offer, even when the
+    /// new table asks exactly the same question. A branch id alone would not be enough here: a new
+    /// table starts its branch numbering again.
+    #[test]
+    fn a_click_from_a_replaced_table_is_refused() {
+        let ids = [("tactical", "action"), ("pass", "action")];
+        let old_table_offer = pending("seat0", &ids);
+        let old_click = submission(&old_table_offer, "pass");
+
+        let mut new_table = ManualControl::new(SeatControl::all_auto());
+        let new_offer = pending("seat0", &ids);
+        assert_eq!(
+            new_offer.branch, old_table_offer.branch,
+            "same branch numbering"
+        );
+        assert_eq!(
+            new_offer.fingerprint, old_table_offer.fingerprint,
+            "same shape"
+        );
+        new_table.publish(new_offer.clone());
+
+        assert!(
+            matches!(new_table.submit(&old_click), SubmitOutcome::Stale { .. }),
+            "the old table's click is refused"
+        );
+        assert_eq!(
+            new_table.pending().map(|pending| pending.offer),
+            Some(new_offer.offer)
+        );
+    }
+
+    /// Delegation is bound to the occurrence too: the policy answers the offer the button was drawn
+    /// on, and a delegation aimed at an earlier offer does not take over a later identical one.
+    #[test]
+    fn a_delegation_for_an_old_offer_does_not_delegate_the_new_one() {
+        let actor = seat("seat3");
+        let ids = [("remove|0", "remove")];
+        let first = pending("seat3", &ids);
+        let second = pending("seat3", &ids);
+        let mut control =
+            ManualControl::new(SeatControl::from_changes([("seat3", SeatMode::Manual)]));
+
+        control.publish(first.clone());
+        assert!(matches!(
+            control.submit(&submission(&first, "remove|0")),
+            SubmitOutcome::Accepted { .. }
+        ));
+        control.publish(second.clone());
+
+        assert_eq!(
+            control.delegate_pending_once(first.offer),
+            None,
+            "a delegation drawn on the first offer is refused"
+        );
+        assert_eq!(
+            control.pending().map(|pending| pending.offer),
+            Some(second.offer),
+            "and nothing was taken"
+        );
+        assert!(
+            !control.seats().has_delegation(&actor),
+            "and no one-shot delegation was left queued behind it"
+        );
+
+        assert_eq!(control.delegate_pending_once(second.offer), Some(actor));
+        assert!(control.pending().is_none());
     }
 
     #[test]
@@ -940,6 +1180,8 @@ mod tests {
         );
         assert_eq!(
             control.submit(&ManualSubmission {
+                // An occurrence that was never published anywhere.
+                offer: OfferId::next(),
                 fingerprint: ChoiceFingerprint::compute(&seat("seat9"), "never offered", &[], None),
                 option_id: "pass".to_owned(),
             }),
@@ -995,9 +1237,13 @@ mod tests {
         let wait = pending("seat3", &[("tactical", "action")]);
         let mut control =
             ManualControl::new(SeatControl::from_changes([("seat3", SeatMode::Manual)]));
+        let occurrence = wait.offer;
         control.publish(wait);
 
-        assert_eq!(control.delegate_pending_once(), Some(actor.clone()));
+        assert_eq!(
+            control.delegate_pending_once(occurrence),
+            Some(actor.clone())
+        );
         assert!(!control.requires_human());
         assert_eq!(control.seats().mode(&actor), SeatMode::Manual);
         assert!(control.take_delegation(&actor));

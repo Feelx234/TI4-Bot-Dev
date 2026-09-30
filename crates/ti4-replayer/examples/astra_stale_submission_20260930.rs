@@ -14,6 +14,7 @@ fn main() {
     let first = PendingManualChoice::new(BranchId::SOURCE, 7, 1, None, &choice).unwrap();
     let second = PendingManualChoice::new(BranchId::SOURCE, 7, 2, None, &choice).unwrap();
     let old_click = ManualSubmission {
+        offer: first.offer,
         fingerprint: first.fingerprint.clone(),
         option_id: "a".into(),
     };

@@ -395,6 +395,7 @@ fn a_fork_replays_the_answers_a_person_gave() {
             .id
             .clone();
         let outcome = table.app.submit(&ManualSubmission {
+            offer: pending.offer,
             fingerprint: pending.fingerprint.clone(),
             option_id,
         });

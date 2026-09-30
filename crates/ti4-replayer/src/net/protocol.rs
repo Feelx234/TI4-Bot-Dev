@@ -12,10 +12,15 @@ use serde::{Deserialize, Serialize};
 use ti4_model::id::PlayerId;
 use ti4_review::{ReviewFrame, ReviewSession};
 
-use crate::control::{ChoiceFingerprint, ManualSubmission, PendingManualChoice};
+use crate::control::{ManualSubmission, PendingManualChoice};
 
 /// Protocol name and version. A client from another version is refused at hello.
-pub const PROTOCOL: &str = "ti4-online-v1";
+///
+/// v2: a pending offer carries an occurrence id ([`crate::control::OfferId`]), and `Submit` and
+/// `Delegate` must name the occurrence they were made on. In v1 both named only the offer's
+/// fingerprint, which identical-looking successive offers share, so a delayed click could be accepted
+/// against the next one.
+pub const PROTOCOL: &str = "ti4-online-v2";
 
 /// Largest compressed message accepted.
 pub const MAX_WIRE_BYTES: u32 = 16 * 1024 * 1024;
@@ -48,8 +53,9 @@ pub enum ClientMessage {
     },
     /// Answer the choice this seat is being asked.
     Submit(ManualSubmission),
-    /// Let the policy answer this one choice; the seat stays with the player.
-    Delegate { fingerprint: ChoiceFingerprint },
+    /// Let the policy answer this one choice; the seat stays with the player. `offer` is the
+    /// occurrence the button was drawn on — a later offer is not delegated in its place.
+    Delegate { offer: crate::control::OfferId },
     /// Keep-alive. The host drops a client it has not heard from in [`super::CLIENT_SILENCE`].
     Ping,
 }

@@ -22,7 +22,8 @@ use ti4_replayer::app::{
     SETTINGS_PATH, SetupDefaults,
 };
 use ti4_replayer::control::{
-    ManualSubmission, ModeEffect, PendingManualChoice, SeatControl, SeatMode, SubmitOutcome,
+    ManualSubmission, ModeEffect, OfferId, PendingManualChoice, SeatControl, SeatMode,
+    SubmitOutcome,
 };
 use ti4_replayer::live::{AdvanceGoal, FrameTick, LiveError, LiveState, Snapshot};
 use ti4_replayer::project::{MAX_TOTAL_FRAMES, ReplayInputs, SourceTimeline, Verification};
@@ -144,8 +145,13 @@ impl BranchHandle for Fake {
         self.state.lock().expect("unlocked").stops += 1;
     }
 
-    fn delegate_pending(&self) -> Result<PlayerId, LiveError> {
+    fn delegate_pending(&self, offer: OfferId) -> Result<PlayerId, LiveError> {
         let mut state = self.state.lock().expect("unlocked");
+        // Mirrors the gate: only the named occurrence may be delegated, and a mismatch consumes
+        // nothing.
+        if state.pending.as_ref().map(|pending| pending.offer) != Some(offer) {
+            return Err(LiveError::NotRunnable(LiveState::Ready));
+        }
         let pending = state
             .pending
             .take()
@@ -181,6 +187,7 @@ fn option(id: &str, kind: &str, label: &str) -> ChoiceOption {
 
 fn submission_for(pending: &PendingManualChoice, option: usize) -> ManualSubmission {
     ManualSubmission {
+        offer: pending.offer,
         fingerprint: pending.fingerprint.clone(),
         option_id: pending.options[option].id.clone(),
     }
@@ -375,10 +382,11 @@ fn a_click_aimed_at_a_choice_that_moved_is_refused_and_the_panel_redraws() {
 fn a_seat_can_let_the_policy_answer_just_this_once() {
     let mut app = app_with(10);
     let fake = Fake::default();
-    fake.park(choice("seat3", 9, 0));
+    let parked = choice("seat3", 9, 0);
+    fake.park(parked.clone());
     app.attach(fake, ticks(10));
     assert_eq!(
-        app.delegate_pending().expect("one-shot"),
+        app.delegate_pending(parked.offer).expect("one-shot"),
         PlayerId::new("seat3")
     );
     assert!(app.pending().is_none());

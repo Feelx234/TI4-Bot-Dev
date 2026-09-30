@@ -67,6 +67,7 @@ pub use control::MAX_OFFERED_OPTIONS;
 pub use control::ManualControl;
 pub use control::ManualSubmission;
 pub use control::ModeEffect;
+pub use control::OfferId;
 pub use control::OfferedOption;
 pub use control::PendingManualChoice;
 pub use control::Provenance;

@@ -317,6 +317,7 @@ fn a_hand_answered_decision_survives_the_save() {
     );
     let option = parked.options[0].id.clone();
     let outcome = app.submit(&ManualSubmission {
+        offer: parked.offer,
         fingerprint: parked.fingerprint.clone(),
         option_id: option.clone(),
     });
@@ -330,6 +331,7 @@ fn a_hand_answered_decision_survives_the_save() {
     );
     assert_eq!(
         app.submit(&ManualSubmission {
+            offer: parked.offer,
             fingerprint: parked.fingerprint,
             option_id: option.clone(),
         }),

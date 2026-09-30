@@ -17,7 +17,7 @@ use super::protocol::{
     ClientMessage, PROTOCOL, SeatStatus, ServerMessage, read_message, write_message,
 };
 use super::{CLIENT_PING, HANDSHAKE_TIMEOUT};
-use crate::control::{ChoiceFingerprint, ManualSubmission, PendingManualChoice};
+use crate::control::{ManualSubmission, OfferId, PendingManualChoice};
 
 /// Frames a client keeps. A game is well under this; a host sending more is misbehaving.
 pub const MAX_CLIENT_FRAMES: usize = 20_000;
@@ -149,23 +149,22 @@ impl NetClient {
         self.remote.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Answer the choice on screen.
+    /// Answer the offer that was drawn, naming that exact occurrence.
     ///
     /// # Errors
     /// The connection is gone.
-    pub fn submit(&self, fingerprint: ChoiceFingerprint, option_id: String) -> io::Result<()> {
-        self.write(&ClientMessage::Submit(ManualSubmission {
-            fingerprint,
-            option_id,
-        }))
+    pub fn submit(&self, drawn: &PendingManualChoice, option_id: String) -> io::Result<()> {
+        self.write(&ClientMessage::Submit(ManualSubmission::to(
+            drawn, option_id,
+        )))
     }
 
-    /// Let the policy answer the choice on screen.
+    /// Let the policy answer the offer that was drawn, and no later one.
     ///
     /// # Errors
     /// The connection is gone.
-    pub fn delegate(&self, fingerprint: ChoiceFingerprint) -> io::Result<()> {
-        self.write(&ClientMessage::Delegate { fingerprint })
+    pub fn delegate(&self, offer: OfferId) -> io::Result<()> {
+        self.write(&ClientMessage::Delegate { offer })
     }
 
     fn write(&self, message: &ClientMessage) -> io::Result<()> {

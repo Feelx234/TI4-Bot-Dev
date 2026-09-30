@@ -730,8 +730,8 @@ impl Replayer {
         self.status = describe_submission(&outcome);
     }
 
-    fn delegate(&mut self, opened: &mut Opened) {
-        self.status = match opened.app.delegate_pending() {
+    fn delegate(&mut self, opened: &mut Opened, offer: crate::OfferId) {
+        self.status = match opened.app.delegate_pending(offer) {
             Ok(actor) => format!("{actor} answers this one from the policy."),
             Err(error) => format!("Nothing to delegate: {error}"),
         };
@@ -1464,7 +1464,11 @@ impl Replayer {
                     {
                         ui.small(view::policy_odds_legend(session.manifest.temperature));
                     }
-                    let fingerprint = pending.fingerprint.clone();
+                    // The occurrence this panel is drawing, captured now. Both buttons below answer
+                    // *this* offer and no other: by the time a click is handled a newer offer that
+                    // looks exactly like it may already be up, and binding the click to whatever is
+                    // pending then would answer a question the person never saw.
+                    let drawn = pending.clone();
                     let mut chosen: Option<String> = None;
                     // Half the panel at most, and never less than a few rows: the options are the
                     // thing being clicked, and the step sheet below them is the thing being read.
@@ -1525,16 +1529,10 @@ impl Replayer {
                             }
                         });
                     if let Some(option_id) = chosen {
-                        self.submit(
-                            opened,
-                            &ManualSubmission {
-                                fingerprint,
-                                option_id,
-                            },
-                        );
+                        self.submit(opened, &ManualSubmission::to(&drawn, option_id));
                     }
                     if ui.button("Let the policy answer this one").clicked() {
-                        self.delegate(opened);
+                        self.delegate(opened, drawn.offer);
                     }
                     ui.separator();
                 } else {

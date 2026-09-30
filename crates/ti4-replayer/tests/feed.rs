@@ -267,6 +267,7 @@ fn the_feed_keeps_feeding_across_a_pause_and_an_answer() {
         .id
         .clone();
     let outcome = branch.gate().submit(&ManualSubmission {
+        offer: parked.offer,
         fingerprint: parked.fingerprint.clone(),
         option_id: chosen.clone(),
     });
