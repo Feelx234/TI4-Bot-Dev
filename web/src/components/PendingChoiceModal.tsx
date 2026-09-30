@@ -403,7 +403,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                       ? "Activate system"
                       : choice.context?.subtype === "commit_ground_forces"
                         ? "Land forces"
-                        : choice.context?.subtype?.startsWith("score_")
+                        : choice.context?.subtype?.includes("score_")
                           ? "Confirm score"
                           : "Confirm choice"}
               </button>

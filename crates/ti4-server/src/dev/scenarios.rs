@@ -6,7 +6,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_model::content_types::POK;
-use ti4_model::id::{ActionCardId, PlanetId, PlayerId, StrategyCardId, SystemId, UnitTypeId};
+use ti4_model::id::{
+    ActionCardId, ObjectiveId, PlanetId, PlayerId, StrategyCardId, SystemId, UnitTypeId,
+};
 use ti4_model::units::Unit;
 
 use std::thread;
@@ -165,6 +167,24 @@ pub fn available_scenarios() -> Vec<ScenarioSummary> {
             opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
         },
         ScenarioSummary {
+            id: "score_objective_status".to_owned(),
+            title: "Score Objective (Status Phase)".to_owned(),
+            category: "Status".to_owned(),
+            description: "Player 1 (Federation of Sol) is in the Status Phase with multiple scoreable public objectives (Lead From the Front and Negotiate Trade Routes) that have not been scored yet. Choose which public objective to score.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
+        ScenarioSummary {
+            id: "score_objective_imperial".to_owned(),
+            title: "Score Objective (Imperial)".to_owned(),
+            category: "Strategy".to_owned(),
+            description: "Player 1 (Federation of Sol) plays the Imperial strategy card primary ability, allowing them to score a public objective immediately during the Action Phase. Choose which public objective to score.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
+        ScenarioSummary {
             id: "full_game".to_owned(),
             title: "Full Game Match".to_owned(),
             category: "Match".to_owned(),
@@ -190,6 +210,14 @@ pub fn launch_scenario(
         }
         "research_tech_skips" => {
             let (c, l, p, t) = build_research_scenario(seed)?;
+            (c, l, p, t, String::new())
+        }
+        "score_objective_status" => {
+            let (c, l, p, t) = build_score_objective_status_scenario(seed)?;
+            (c, l, p, t, String::new())
+        }
+        "score_objective_imperial" => {
+            let (c, l, p, t) = build_score_objective_imperial_scenario(seed)?;
             (c, l, p, t, String::new())
         }
         "production_batch" | "production_payment_batch" | "production_payment_autospend" => {
@@ -333,6 +361,12 @@ pub fn launch_scenario(
     if scenario_id == "research_tech_skips" {
         advance_into_research(&session, &human_player)?;
     }
+    if scenario_id == "score_objective_status" {
+        wait_for_decision_subtype(&session, &human_player, "score_objective")?;
+    }
+    if scenario_id == "score_objective_imperial" {
+        advance_into_imperial_scoring(&session, &human_player)?;
+    }
 
     Ok(LaunchScenarioResponse {
         game_id,
@@ -459,6 +493,141 @@ fn advance_into_research(session: &Arc<GameSession>, player: &PlayerId) -> Resul
         }
     }
     Err("advance_into_research exceeded 20 iterations".to_owned())
+}
+
+fn build_score_objective_status_scenario(
+    seed: u64,
+) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String), String> {
+    let (mut config, lobby, player, token, _galaxy, _, _) =
+        setup_base_3p_game(seed, "dev_status_score")?;
+
+    config.state.phase = ti4_model::state::Phase::Status;
+    config.state.active = None;
+    config.state.revealed_objectives = vec![
+        ObjectiveId::new("lead"),
+        ObjectiveId::new("trade_routes"),
+        ObjectiveId::new("corner"),
+    ];
+    config.state.scored_objectives.clear();
+
+    if let Some(sol) = config.state.player_mut(&player) {
+        sol.tactic_tokens = 2;
+        sol.strategic_tokens = 2; // total 4 tokens >= 3 for Lead From the Front
+        sol.trade_goods = 6;      // 6 trade goods >= 5 for Negotiate Trade Routes
+        sol.victory_points = 2;
+    }
+
+    Ok((config, lobby, player, token))
+}
+
+fn build_score_objective_imperial_scenario(
+    seed: u64,
+) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String), String> {
+    let (mut config, lobby, player, token, _galaxy, _, _) =
+        setup_base_3p_game(seed, "dev_imperial_score")?;
+
+    let strat_imperial = StrategyCardId::new("pok8imperial");
+    if let Some(sol) = config.state.player_mut(&player) {
+        sol.strategy_cards = vec![strat_imperial.clone()];
+        sol.tactic_tokens = 2;
+        sol.strategic_tokens = 2;
+        sol.trade_goods = 6;
+        sol.victory_points = 2;
+    }
+    config
+        .state
+        .unclaimed_strategy_cards
+        .retain(|c| c != &strat_imperial);
+    config
+        .state
+        .unclaimed_strategy_cards
+        .push(StrategyCardId::new("leadership"));
+
+    config.state.revealed_objectives = vec![
+        ObjectiveId::new("lead"),
+        ObjectiveId::new("trade_routes"),
+        ObjectiveId::new("corner"),
+    ];
+    config.state.scored_objectives.clear();
+    config.state.active = Some(player.clone());
+
+    Ok((config, lobby, player, token))
+}
+
+fn advance_into_imperial_scoring(
+    session: &Arc<GameSession>,
+    player: &PlayerId,
+) -> Result<(), String> {
+    let client = MockClient::connect(session.clone(), ViewerRole::Player(player.clone()));
+    for _ in 0..20 {
+        let mut offered = None;
+        for _ in 0..150 {
+            if let Ok(ServerMessage::PendingChoice(message)) = client.try_recv() {
+                offered = Some(message.choice);
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let choice = offered
+            .or_else(|| {
+                client
+                    .snapshot()
+                    .pending_choice
+                    .map(|envelope| envelope.choice)
+            })
+            .ok_or_else(|| "timed out waiting for initial choice in advance_into_imperial_scoring".to_owned())?;
+
+        if choice
+            .context
+            .as_ref()
+            .is_some_and(|ctx| ctx.subtype == "imperial_score_objective")
+        {
+            return Ok(());
+        }
+
+        let Some((_, nonce, version)) = session.current_pending_decision() else {
+            return Err("no current pending decision in advance_into_imperial_scoring".to_owned());
+        };
+
+        if let Some(strat_opt) = choice.options.iter().find(|o| o.id.starts_with("strategic|") || o.id == "strategic") {
+            client
+                .submit(&nonce, version, &strat_opt.id)
+                .map_err(|e| format!("submit imperial card failed: {e:?}"))?;
+        } else if choice.options.iter().any(|o| o.id == "decline") {
+            client
+                .submit(&nonce, version, "decline")
+                .map_err(|e| format!("submit decline failed: {e:?}"))?;
+        } else {
+            return Err(format!(
+                "unexpected choice in advance_into_imperial_scoring: {:?}, options: {:?}",
+                choice.prompt,
+                choice.options.iter().map(|o| &o.id).collect::<Vec<_>>()
+            ));
+        }
+    }
+    Err("advance_into_imperial_scoring exceeded 20 iterations".to_owned())
+}
+
+fn wait_for_decision_subtype(
+    session: &Arc<GameSession>,
+    player: &PlayerId,
+    wanted_subtype: &str,
+) -> Result<(), String> {
+    let client = MockClient::connect(session.clone(), ViewerRole::Player(player.clone()));
+    for _ in 0..150 {
+        if let Some(pending) = client.snapshot().pending_choice {
+            if pending
+                .choice
+                .context
+                .as_ref()
+                .is_some_and(|ctx| ctx.subtype == wanted_subtype)
+            {
+                return Ok(());
+            }
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    Err(format!("timed out waiting for {wanted_subtype} decision"))
 }
 
 fn build_production_scenario(

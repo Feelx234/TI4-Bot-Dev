@@ -107,18 +107,15 @@ describe("PlayerSheet Component & Human Readable Metadata", () => {
     expect(screen.getAllByText(/Action Cards:/i)).toHaveLength(2);
   });
 
-  it("opens public objectives and only the owner’s private cards", () => {
+  it("opens only the owner’s private cards", () => {
     const onInspectCard = vi.fn();
     render(
       <PlayerSheet
         players={mockPlayers}
         userSeat="p1"
-        revealedObjectives={["corner"]}
         onInspectCard={onInspectCard}
       />,
     );
-    fireEvent.click(screen.getByTestId("public-objective-corner"));
-    expect(onInspectCard).toHaveBeenCalledWith({ kind: "publicObjective", id: "corner" });
     fireEvent.click(screen.getByTestId("action-card-item-direct_hit").querySelector("button")!);
     expect(onInspectCard).toHaveBeenCalledWith({ kind: "action", id: "direct_hit" });
     expect(screen.queryByTestId("action-card-item-nonexistent")).not.toBeInTheDocument();

@@ -769,7 +769,7 @@ describe("GameShell", () => {
     );
     expect(screen.getByTestId("production-builder-drawer")).toBeInTheDocument();
 
-    // 7. Objective scoring uses the generic selection modal.
+    // 7. Objective scoring uses the dedicated objectives matrix modal.
     rerender(
       <GameShell
         header={<div>Header</div>}
@@ -787,7 +787,7 @@ describe("GameShell", () => {
         onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
       />,
     );
-    expect(screen.getByTestId("pending-choice-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("objectives-modal")).toBeInTheDocument();
   });
 
   it("uses a supplied workflow model when selecting a registered renderer", () => {

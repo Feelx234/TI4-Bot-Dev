@@ -30,6 +30,8 @@ fn test_available_scenarios_listing() {
             "ongoing_invasion_coexistence",
             "ongoing_invasion_parley",
             "endgame",
+            "score_objective_status",
+            "score_objective_imperial",
             "full_game",
         ]
     );
@@ -537,3 +539,77 @@ fn test_launch_research_tech_skips_scenario() {
         Some("research_technology")
     );
 }
+
+#[test]
+fn test_launch_score_objective_status_scenario() {
+    let registry = Arc::new(GameRegistry::new());
+    let launched = execute_launch_scenario(&registry, "score_objective_status", Some(42))
+        .expect("launch scenario succeeds");
+
+    let session = registry.get_game(&launched.game_id).expect("game exists");
+    let seat = ti4_model::id::PlayerId::new(&launched.player_id);
+    let snapshot = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+    let pending = snapshot.pending_choice.expect("pending choice exists");
+    assert_eq!(
+        pending.choice.context.as_ref().map(|c| c.subtype.as_str()),
+        Some("score_objective")
+    );
+    let option_ids: Vec<&str> = pending.choice.options.iter().map(|o| o.id.as_str()).collect();
+    assert!(option_ids.contains(&"lead"), "should offer lead");
+    assert!(option_ids.contains(&"trade_routes"), "should offer trade_routes");
+    assert!(option_ids.contains(&"decline"), "should offer decline");
+
+    let nonce = pending.nonce;
+    let version = snapshot.game_version;
+    session
+        .submit_choice(&seat, &nonce, version, "trade_routes")
+        .expect("submit trade_routes scoring");
+
+    let mut updated = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while updated.view.players.iter().find(|p| p.id == seat).unwrap().victory_points < 3 {
+        assert!(std::time::Instant::now() < deadline, "waiting for VP update");
+        thread::sleep(Duration::from_millis(10));
+        updated = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+    }
+
+    let scored = updated.view.table.scored_objectives.get(&seat);
+    assert!(scored.is_some_and(|objs| objs.contains(&ti4_model::id::ObjectiveId::new("trade_routes"))));
+}
+
+#[test]
+fn test_launch_score_objective_imperial_scenario() {
+    let registry = Arc::new(GameRegistry::new());
+    let launched = execute_launch_scenario(&registry, "score_objective_imperial", Some(42))
+        .expect("launch scenario succeeds");
+
+    let session = registry.get_game(&launched.game_id).expect("game exists");
+    let seat = ti4_model::id::PlayerId::new(&launched.player_id);
+    let snapshot = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+    let pending = snapshot.pending_choice.expect("pending choice exists");
+    assert_eq!(
+        pending.choice.context.as_ref().map(|c| c.subtype.as_str()),
+        Some("imperial_score_objective")
+    );
+    let option_ids: Vec<&str> = pending.choice.options.iter().map(|o| o.id.as_str()).collect();
+    assert!(option_ids.contains(&"lead"), "should offer lead");
+    assert!(option_ids.contains(&"trade_routes"), "should offer trade_routes");
+
+    let nonce = pending.nonce;
+    let version = snapshot.game_version;
+    session
+        .submit_choice(&seat, &nonce, version, "lead")
+        .expect("submit lead scoring");
+
+    let mut updated = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while updated.view.players.iter().find(|p| p.id == seat).unwrap().victory_points < 3 {
+        assert!(std::time::Instant::now() < deadline, "waiting for VP update");
+        thread::sleep(Duration::from_millis(10));
+        updated = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+    }
+
+    let scored = updated.view.table.scored_objectives.get(&seat);
+    assert!(scored.is_some_and(|objs| objs.contains(&ti4_model::id::ObjectiveId::new("lead"))));
+}
+

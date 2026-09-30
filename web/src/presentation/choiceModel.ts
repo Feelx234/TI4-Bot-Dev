@@ -307,7 +307,11 @@ export function deriveChoiceRendererModel(
 
   // Objective scoring uses the generic selection UI but remains distinct for
   // workflow-level presentation and future scoring-specific enhancements.
-  if (subtype === "score_objective" || subtype === "score_secret_objective") {
+  if (
+    subtype === "score_objective" ||
+    subtype === "score_secret_objective" ||
+    subtype === "imperial_score_objective"
+  ) {
     return {
       workflow: "objective_scoring",
       selectionMode: { mode: "single" },

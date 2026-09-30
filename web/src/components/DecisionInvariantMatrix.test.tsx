@@ -349,7 +349,7 @@ describe("INV-03 decision invariant matrix", () => {
     {
       subtype: "score_objective",
       options: [{ id: "objective", label: "Score" }],
-      region: "pending-choice-dialog",
+      region: "objectives-modal",
     },
     {
       subtype: "other_choice",

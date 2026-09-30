@@ -124,6 +124,44 @@
         "develop_weaponry"
       ],
       "scored_objectives": {},
+      "objective_progress": {
+        "seat_a": {
+          "corner_the_market": {
+            "have": 0,
+            "threshold": 4,
+            "satisfied": false
+          },
+          "develop_weaponry": {
+            "have": 0,
+            "threshold": 2,
+            "satisfied": false
+          }
+        },
+        "seat_b": {
+          "corner_the_market": {
+            "have": 0,
+            "threshold": 4,
+            "satisfied": false
+          },
+          "develop_weaponry": {
+            "have": 0,
+            "threshold": 2,
+            "satisfied": false
+          }
+        },
+        "seat_c": {
+          "corner_the_market": {
+            "have": 0,
+            "threshold": 4,
+            "satisfied": false
+          },
+          "develop_weaponry": {
+            "have": 0,
+            "threshold": 2,
+            "satisfied": false
+          }
+        }
+      },
       "unclaimed_strategy_cards": [],
       "strategy_card_goods": {},
       "laws": {}

@@ -217,12 +217,23 @@ pub struct BoardView {
     pub invasion: Option<InvasionView>,
 }
 
+/// Exact progress towards a public objective requirement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectiveProgressView {
+    pub have: u32,
+    pub threshold: u32,
+    pub satisfied: bool,
+}
+
 /// Public table state: objectives, laws, strategy card goods.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TableView {
     pub revealed_objectives: Vec<ObjectiveId>,
     pub scored_objectives: BTreeMap<PlayerId, BTreeSet<ObjectiveId>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub objective_progress: BTreeMap<PlayerId, BTreeMap<ObjectiveId, ObjectiveProgressView>>,
     pub unclaimed_strategy_cards: Vec<StrategyCardId>,
     pub strategy_card_goods: BTreeMap<StrategyCardId, i32>,
     pub laws: BTreeMap<String, String>,

@@ -6,10 +6,12 @@ import {
   HistoryStatus,
   PendingChoiceDto,
   PlayerView,
+  ObjectiveProgressView,
 } from "../protocol/types.ts";
 import { EventLog } from "./EventLog.tsx";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { TechnologyModal } from "./TechnologyModal.tsx";
+import { ObjectivesModal } from "./ObjectivesModal.tsx";
 import { PaymentDrawer } from "./PaymentDrawer.tsx";
 import {
   TacticalMovementOverlay,
@@ -57,6 +59,9 @@ export interface GameShellProps {
   players?: Record<string, PlayerView> | PlayerView[];
   boardView?: BoardView;
   activeSystemId?: string | null;
+  revealedObjectives?: readonly string[];
+  scoredObjectives?: Record<string, string[]>;
+  objectiveProgress?: Record<string, Record<string, ObjectiveProgressView>>;
   productionQueue?: readonly string[];
   productionError?: string | null;
   onQueueProduction?: (units: string[]) => void;
@@ -78,6 +83,9 @@ export interface ChoiceRendererDispatcherProps {
   players?: Record<string, PlayerView>;
   boardView?: BoardView;
   activeSystemId?: string | null;
+  revealedObjectives?: readonly string[];
+  scoredObjectives?: Record<string, string[]>;
+  objectiveProgress?: Record<string, Record<string, ObjectiveProgressView>>;
   productionQueue?: readonly string[];
   productionError?: string | null;
   onQueueProduction?: (units: string[]) => void;
@@ -235,7 +243,7 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
     ),
   ],
   ["generic_selection", renderGeneric],
-  ["objective_scoring", renderGeneric],
+  ["objective_scoring", renderObjectiveScoring],
   ["strategy_card_draft", renderGeneric],
   [
     "system_activation",
@@ -289,6 +297,41 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
   ],
   ["technology_research", renderTechnologyResearch],
 ]);
+
+function renderObjectiveScoring({
+  choice,
+  model,
+  viewerSeat,
+  onSubmit,
+  isMinimized,
+  onMinimizedChange,
+  lastError,
+  players,
+  revealedObjectives,
+  scoredObjectives,
+  objectiveProgress,
+  selectedOptionId,
+  onSelectOption,
+}: Parameters<WorkflowRenderer>[0]) {
+  return (
+    <ObjectivesModal
+      isOpen={!isMinimized}
+      onClose={() => onMinimizedChange(true)}
+      revealedObjectives={revealedObjectives}
+      scoredObjectives={scoredObjectives}
+      objectiveProgress={objectiveProgress}
+      players={players}
+      viewerSeat={viewerSeat}
+      choice={choice}
+      model={model}
+      onSubmit={onSubmit}
+      lastError={lastError}
+      selectedOptionId={selectedOptionId}
+      onSelectOption={onSelectOption}
+      isScoringMode={true}
+    />
+  );
+}
 
 function renderTechnologyResearch({
   choice,
@@ -433,6 +476,9 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   players,
   boardView,
   activeSystemId,
+  revealedObjectives,
+  scoredObjectives,
+  objectiveProgress,
   productionQueue,
   productionError,
   onQueueProduction,
@@ -550,6 +596,9 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     players,
     boardView,
     activeSystemId,
+    revealedObjectives,
+    scoredObjectives,
+    objectiveProgress,
     productionQueue,
     productionError,
     onQueueProduction,
@@ -564,7 +613,6 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
       {isMinimized &&
         ![
           "generic_selection",
-          "objective_scoring",
           "strategy_card_draft",
           "system_activation",
           "combat_sustain",
@@ -575,11 +623,13 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
             <span className="choice-minimized-pill__prompt">
               {workflow === "technology_research"
                 ? "Research Technology"
-                : workflow === "tactical_movement" || visibleChoice.prompt === "movement"
-                  ? "Move Units"
-                  : workflow === "tactical_cargo" || visibleChoice.prompt === "load_cargo"
-                    ? "Load Cargo"
-                    : visibleChoice.prompt}
+                : workflow === "objective_scoring"
+                  ? "Score Objective"
+                  : workflow === "tactical_movement" || visibleChoice.prompt === "movement"
+                    ? "Move Units"
+                    : workflow === "tactical_cargo" || visibleChoice.prompt === "load_cargo"
+                      ? "Load Cargo"
+                      : visibleChoice.prompt}
             </span>
             <button
               type="button"
@@ -637,6 +687,9 @@ export const GameShell: React.FC<GameShellProps> = ({
   players,
   boardView,
   activeSystemId,
+  revealedObjectives,
+  scoredObjectives,
+  objectiveProgress,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<"events" | "players" | null>(null);
   const [isChoiceMinimized, setIsChoiceMinimized] = useState(false);
@@ -834,6 +887,9 @@ export const GameShell: React.FC<GameShellProps> = ({
             players={playersMap}
             boardView={boardView}
             activeSystemId={activeSystemId}
+            revealedObjectives={revealedObjectives}
+            scoredObjectives={scoredObjectives}
+            objectiveProgress={objectiveProgress}
             onSubmit={onSubmitChoice}
             onSubmitMovementBatch={onSubmitMovementBatch}
             onSubmitBasketBatch={onSubmitBasketBatch}

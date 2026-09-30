@@ -175,9 +175,16 @@ export interface PlayerView {
   leaders: Record<string, string>;
 }
 
+export interface ObjectiveProgressView {
+  have: number;
+  threshold: number;
+  satisfied: boolean;
+}
+
 export interface TableView {
   revealed_objectives: string[];
   scored_objectives: Record<string, string[]>;
+  objective_progress?: Record<string, Record<string, ObjectiveProgressView>>;
   unclaimed_strategy_cards: string[];
   strategy_card_goods: Record<string, number>;
   laws: Record<string, string>;

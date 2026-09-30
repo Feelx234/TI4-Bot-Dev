@@ -12,6 +12,7 @@ import { PlayerIdentityProvider } from "./presentation/PlayerIdentity.tsx";
 import { participantText } from "./presentation/participantText.ts";
 import { CardDetails, CardSubject } from "./components/CardDetails.tsx";
 import { TechnologyModal } from "./components/TechnologyModal.tsx";
+import { ObjectivesModal } from "./components/ObjectivesModal.tsx";
 
 const DevDecisionGallery = import.meta.env.DEV
   ? React.lazy(() =>
@@ -195,8 +196,8 @@ const GameViewContainer: React.FC<{
   gameId: string;
   lobby: import("./protocol/types.ts").LobbyDto;
   viewer: ViewerRole;
-  onLeave: () => void;
-}> = ({ gameId, lobby, viewer, onLeave }) => {
+  onLeave?: () => void;
+}> = ({ gameId, lobby, viewer }) => {
   const {
     status,
     gameVersion,
@@ -246,6 +247,7 @@ const GameViewContainer: React.FC<{
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
   const [cardSubject, setCardSubject] = useState<CardSubject | null>(null);
   const [isTechModalOpen, setIsTechModalOpen] = useState(false);
+  const [isObjectivesModalOpen, setIsObjectivesModalOpen] = useState(false);
   useEffect(() => setSelectedOptionId(undefined), [pendingChoice?.nonce]);
   const cardIsVisible =
     cardSubject &&
@@ -307,11 +309,12 @@ const GameViewContainer: React.FC<{
                 Technologies
               </button>
               <button
-                data-testid="leave-game-button"
-                onClick={onLeave}
-                className="button button--secondary game-header__exit"
+                type="button"
+                data-testid="objectives-modal-button"
+                onClick={() => setIsObjectivesModalOpen(true)}
+                className="button button--secondary"
               >
-                Exit Game
+                Objectives
               </button>
             </div>
           </div>
@@ -381,6 +384,9 @@ const GameViewContainer: React.FC<{
         choice={pendingChoice}
         viewerSeat={userSeat}
         players={snapshot?.view.players}
+        revealedObjectives={snapshot?.view.table.revealed_objectives}
+        scoredObjectives={snapshot?.view.table.scored_objectives}
+        objectiveProgress={snapshot?.view.table.objective_progress}
         onSubmitChoice={submitChoice}
         onSubmitMovementBatch={submitMovementBatch}
         onSubmitBasketBatch={submitBatch}
@@ -392,6 +398,23 @@ const GameViewContainer: React.FC<{
         isOpen={isTechModalOpen}
         onClose={() => setIsTechModalOpen(false)}
         players={snapshot?.view.players}
+      />
+      <ObjectivesModal
+        isOpen={
+          isObjectivesModalOpen &&
+          pendingChoice?.context?.subtype !== "score_objective" &&
+          pendingChoice?.context?.subtype !== "imperial_score_objective"
+        }
+        onClose={() => setIsObjectivesModalOpen(false)}
+        revealedObjectives={snapshot?.view.table.revealed_objectives}
+        scoredObjectives={snapshot?.view.table.scored_objectives}
+        objectiveProgress={snapshot?.view.table.objective_progress}
+        players={snapshot?.view.players}
+        viewerSeat={userSeat}
+        onInspectCard={(subject) => {
+          setSelectedSystemId(null);
+          setCardSubject(subject);
+        }}
       />
     </PlayerIdentityProvider>
   );

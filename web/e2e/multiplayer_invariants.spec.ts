@@ -321,7 +321,7 @@ test.describe("Multiplayer Online Flow & Invariant Suite", () => {
       .toBeGreaterThan(actorState.game_version);
 
     // Disconnect & Reconnect Invariant Test
-    await pageP1.locator('[data-testid="leave-game-button"]').click();
+    await pageP1.goto("/");
     await expect(pageP1.locator('[data-testid="lobby-container"]')).toBeVisible();
 
     // Rejoin as p1 with its tab-scoped current credential.

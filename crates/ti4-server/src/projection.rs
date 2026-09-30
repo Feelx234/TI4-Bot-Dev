@@ -1,8 +1,11 @@
 //! Pure projections transforming engine state and choices into redacted client views.
 
 use std::collections::{BTreeMap, BTreeSet};
+use ti4_content::ContentStore;
+use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::Choice;
-use ti4_model::id::{PlanetId, PlayerId};
+use ti4_model::content_types::{ContentType, POK};
+use ti4_model::id::{ObjectiveId, PlanetId, PlayerId};
 use ti4_model::state::{GameState, Player};
 use ti4_model::view::{HIDDEN, redact_player, view_for};
 
@@ -13,8 +16,8 @@ use crate::protocol::server::{
 };
 use crate::protocol::status::{PublicTurnStatus, ViewerRole};
 use crate::protocol::view::{
-    BoardTileView, BoardView, GameView, PlacedUnitView, PlanetView, PlayerView, SystemView,
-    TableView,
+    BoardTileView, BoardView, GameView, ObjectiveProgressView, PlacedUnitView, PlanetView,
+    PlayerView, SystemView, TableView,
 };
 
 /// Projects one player record that has already passed through the model's redaction boundary.
@@ -407,16 +410,89 @@ pub fn project_board_view_full(
     }
 }
 
-/// Projects table-level public objectives, laws, and strategy cards.
+fn canonical_objective_alias<'a>(content: &'a ContentStore, raw: &'a str) -> Option<&'a str> {
+    if content.get(ContentType::PublicObjectives, raw).is_some() {
+        return Some(raw);
+    }
+    for record in content.records(ContentType::PublicObjectives) {
+        if let Some(name) = record.text("name") {
+            let slug = name.to_ascii_lowercase().replace(' ', "_");
+            if slug == raw {
+                return record.id();
+            }
+        }
+    }
+    None
+}
+
+/// Projects table-level public objectives, laws, strategy cards, and objective progress.
 #[must_use]
-pub fn project_table_view(state: &GameState) -> TableView {
+pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView]) -> TableView {
+    let content = ContentStore::embedded();
+    let sources = POK;
+    let galaxy_opt = if !map_tiles.is_empty() {
+        let tiles: Vec<_> = map_tiles
+            .iter()
+            .map(|tile| (tile.system_id.as_str(), ti4_model::hex::Hex::new(tile.q, tile.r)))
+            .collect();
+        Galaxy::placed(content, &tiles, sources).ok()
+    } else {
+        None
+    };
+
+    let mut objective_progress = BTreeMap::new();
+    for player in &state.players {
+        let mut position = ti4_engine::objectives::Position::new(state, content, sources, &player.id);
+        if let Some(ref galaxy) = galaxy_opt {
+            position = position.with_galaxy(galaxy);
+        }
+        let mut player_progress = BTreeMap::new();
+        for raw_alias in &state.revealed_objectives {
+            let canonical = canonical_objective_alias(content, raw_alias.as_str())
+                .map(ObjectiveId::new)
+                .unwrap_or_else(|| raw_alias.clone());
+
+            if let Some(prog) = ti4_engine::objectives::counting_progress(&canonical, &position)
+                .or_else(|| ti4_engine::objectives::remaining_position_progress(&canonical, &position))
+            {
+                player_progress.insert(
+                    raw_alias.clone(),
+                    ObjectiveProgressView {
+                        have: u32::try_from(prog.have).unwrap_or(0),
+                        threshold: u32::try_from(prog.threshold).unwrap_or(0),
+                        satisfied: prog.satisfied(),
+                    },
+                );
+            } else if let Some(cost) = ti4_engine::objectives::bought_progress_at(&position, &canonical) {
+                player_progress.insert(
+                    raw_alias.clone(),
+                    ObjectiveProgressView {
+                        have: u32::try_from(cost.have.max(0)).unwrap_or(0),
+                        threshold: u32::try_from(cost.target.max(0)).unwrap_or(0),
+                        satisfied: cost.satisfied(),
+                    },
+                );
+            }
+        }
+        if !player_progress.is_empty() {
+            objective_progress.insert(player.id.clone(), player_progress);
+        }
+    }
+
     TableView {
         revealed_objectives: state.revealed_objectives.clone(),
         scored_objectives: state.scored_objectives.clone(),
+        objective_progress,
         unclaimed_strategy_cards: state.unclaimed_strategy_cards.clone(),
         strategy_card_goods: state.strategy_card_goods.clone(),
         laws: state.laws.clone(),
     }
+}
+
+/// Projects table-level public objectives, laws, and strategy cards.
+#[must_use]
+pub fn project_table_view(state: &GameState) -> TableView {
+    project_table_view_with_map(state, &[])
 }
 
 /// Projects the entire game state for a specific viewer role with static map tiles.
@@ -450,7 +526,7 @@ pub fn project_game_view_full(
         finished: redacted.finished,
         players,
         board: project_board_view_full(&redacted, map_tiles, pending_choice, dice_rolls),
-        table: project_table_view(&redacted),
+        table: project_table_view_with_map(&redacted, map_tiles),
     }
 }
 
@@ -646,3 +722,47 @@ pub fn project_state_update(
         },
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_model::id::{FactionId, ObjectiveId, PlayerId};
+    use ti4_model::state::GameState;
+
+    #[test]
+    fn project_table_view_calculates_objective_progress() {
+        let p1 = PlayerId::new("player_1");
+        let mut state = GameState::new(&[p1.clone()], &[], BTreeMap::new(), None, 1);
+        let mut player = Player::new(p1.clone());
+        player.faction = FactionId::new("hacan");
+        player.trade_goods = 7;
+        player.tactic_tokens = 2;
+        player.strategic_tokens = 2;
+        state.players = vec![player];
+
+        state.revealed_objectives = vec![
+            ObjectiveId::new("trade_routes"),
+            ObjectiveId::new("centralize_trade"),
+            ObjectiveId::new("lead"),
+        ];
+
+        let table = project_table_view(&state);
+        let p1_progress = table.objective_progress.get(&p1).expect("p1 progress");
+
+        let trade_routes = p1_progress.get(&ObjectiveId::new("trade_routes")).expect("trade_routes");
+        assert_eq!(trade_routes.have, 5);
+        assert_eq!(trade_routes.threshold, 5);
+        assert!(trade_routes.satisfied);
+
+        let centralize = p1_progress.get(&ObjectiveId::new("centralize_trade")).expect("centralize");
+        assert_eq!(centralize.have, 7);
+        assert_eq!(centralize.threshold, 10);
+        assert!(!centralize.satisfied);
+
+        let lead = p1_progress.get(&ObjectiveId::new("lead")).expect("lead");
+        assert_eq!(lead.have, 3);
+        assert_eq!(lead.threshold, 3);
+        assert!(lead.satisfied);
+    }
+}
+

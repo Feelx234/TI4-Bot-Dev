@@ -4,7 +4,6 @@ import {
   getStrategyCardMeta,
   getSecretObjectiveMeta,
   getActionCardMeta,
-  getPublicObjectiveMeta,
 } from "../protocol/contentCatalog.ts";
 import { CardSubject } from "./CardDetails.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
@@ -90,7 +89,7 @@ export interface PlayerSheetProps {
 export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   players,
   userSeat,
-  revealedObjectives = [],
+  revealedObjectives: _revealedObjectives = [],
   board,
   onInspectCard,
 }) => {
@@ -111,26 +110,6 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
       }}
     >
       <h2 style={{ fontSize: 16, fontWeight: "bold", margin: 0, color: "#94a3b8" }}>Players</h2>
-
-      {revealedObjectives.length > 0 && (
-        <section aria-label="Revealed public objectives" className="card" style={{ padding: 12 }}>
-          <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>Revealed Public Objectives</h3>
-          {revealedObjectives.map((id) => {
-            const meta = getPublicObjectiveMeta(id);
-            return (
-              <button
-                type="button"
-                key={id}
-                className="button button--secondary detail-trigger"
-                data-testid={`public-objective-${id}`}
-                onClick={() => onInspectCard?.({ kind: "publicObjective", id })}
-              >
-                {meta.name} · {meta.points} VP
-              </button>
-            );
-          })}
-        </section>
-      )}
 
       {players.map((player) => {
         const isSelf = userSeat === player.id;
