@@ -27,6 +27,10 @@ pub struct Roll {
     /// they now show — the Crown of Thalnos destroys "each of their units that did not
     /// produce a hit with its reroll", which is unanswerable from the faces alone.
     pub rerolled: BTreeSet<usize>,
+    /// The seat whose dice these are, when the roller said. Combat, barrage, space cannon,
+    /// bombardment and ground rolls say; a roll with no owner (a card's own die) leaves it `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 impl Roll {
@@ -133,8 +137,27 @@ impl Dice {
             faces,
             hits_on,
             rerolled: BTreeSet::new(),
+            by: None,
         };
         self.history.push(record.clone());
+        record
+    }
+
+    /// [`Dice::roll`], recording whose dice they are. The draw is identical; only the record
+    /// carries the seat, so a reader can say who rolled what.
+    pub fn roll_by(
+        &mut self,
+        rng: &mut GameRng,
+        count: usize,
+        reason: &str,
+        hits_on: Option<u32>,
+        by: &ti4_model::id::PlayerId,
+    ) -> Roll {
+        let mut record = self.roll(rng, count, reason, hits_on);
+        record.by = Some(by.to_string());
+        if let Some(last) = self.history.last_mut() {
+            last.by.clone_from(&record.by);
+        }
         record
     }
 
@@ -194,9 +217,20 @@ impl Dice {
             faces,
             hits_on: roll.hits_on,
             rerolled: replaced,
+            by: roll.by.clone(),
         };
         self.history.push(record.clone());
         record
+    }
+
+    /// Name the seat behind every roll recorded since `start` (a [`Dice::count`] taken before the
+    /// call), for a helper that rolls without knowing whose dice they are.
+    pub fn attribute_since(&mut self, start: usize, by: &ti4_model::id::PlayerId) {
+        for roll in self.history.iter_mut().skip(start) {
+            if roll.by.is_none() {
+                roll.by = Some(by.to_string());
+            }
+        }
     }
 
     /// Every roll made for one reason.
@@ -241,6 +275,7 @@ mod tests {
             faces: vec![1, 6, 7, 10],
             hits_on: Some(7),
             rerolled: BTreeSet::new(),
+            by: None,
         };
         assert_eq!(roll.hits(), 2, "7 and 10");
         assert_eq!(roll.missed(None), vec![0, 1]);
@@ -254,6 +289,7 @@ mod tests {
             faces: vec![10, 10],
             hits_on: None,
             rerolled: BTreeSet::new(),
+            by: None,
         };
         assert_eq!(roll.hits(), 0);
         assert!(roll.missed(None).is_empty());
@@ -266,6 +302,7 @@ mod tests {
             faces: vec![1, 9, 2],
             hits_on: Some(7),
             rerolled: BTreeSet::new(),
+            by: None,
         };
         assert_eq!(roll.missed(Some(&BTreeSet::from([0, 1]))), vec![0]);
     }
@@ -368,5 +405,28 @@ mod tests {
         let roll = dice.roll(&mut rng, 3, "combat", Some(7));
         let json = serde_json::to_string(&roll).unwrap();
         assert_eq!(serde_json::from_str::<Roll>(&json).unwrap(), roll);
+    }
+
+    /// OP-03: a roll made for a seat says so, in the returned roll and in the history, and a
+    /// reroll of it stays that seat's. The draw itself is the same as an unattributed roll's.
+    #[test]
+    fn a_roll_by_a_seat_is_recorded_as_theirs() {
+        let seat = ti4_model::id::PlayerId::new("seat2");
+        let mut plain = Dice::new();
+        let mut plain_rng = GameRng::new(11);
+        let unowned = plain.roll(&mut plain_rng, 3, "space combat", Some(7));
+
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(11);
+        let roll = dice.roll_by(&mut rng, 3, "space combat", Some(7), &seat);
+        assert_eq!(
+            roll.faces, unowned.faces,
+            "attribution does not touch the draw"
+        );
+        assert_eq!(roll.by.as_deref(), Some("seat2"));
+        assert_eq!(dice.history()[0].by.as_deref(), Some("seat2"));
+        let again = dice.reroll(&mut rng, &roll, [0], None);
+        assert_eq!(again.by.as_deref(), Some("seat2"));
+        assert_eq!(unowned.by, None);
     }
 }

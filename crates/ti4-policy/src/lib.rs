@@ -11,6 +11,7 @@
 pub mod battle;
 pub mod bot;
 pub mod critic;
+pub mod deal_value;
 pub mod features;
 pub mod fleet_strength;
 pub mod inference;

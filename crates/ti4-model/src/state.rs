@@ -437,6 +437,12 @@ pub struct Player {
     /// This seat may not retreat during the combat round numbered here (Intercept).
     #[serde(default)]
     pub retreat_barred_round: Option<u32>,
+    /// Spec Ops II destroyed and not yet rolled for ("after this unit is destroyed, roll 1 die").
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub spec_ops_destroyed: u32,
+    /// Spec Ops II waiting on the card for the start of this seat's next turn.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub spec_ops_card: u32,
     /// Evelyn `DeLouis` and Viscount Unlenn: the combat round in which one of this player's
     /// units rolls an extra die.
     pub extra_die_round: Option<u32>,
@@ -521,6 +527,9 @@ pub struct Player {
     /// the marker to it.
     #[serde(default)]
     pub lost_star: Vec<u32>,
+    /// Spatial Conduit Cylinders was exhausted for the activation numbered here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spatial_conduit: Option<u32>,
     /// The Dominus Orb: activations during which this player's command tokens do not pin their
     /// ships. Held per activation, like `lost_star`, because the card is purged into one tactical
     /// action and must not loosen the next one.
@@ -599,6 +608,8 @@ impl PartialEq for Player {
             && self.waylay_barrage_round == other.waylay_barrage_round
             && self.cancel_hits_round == other.cancel_hits_round
             && self.retreat_barred_round == other.retreat_barred_round
+            && self.spec_ops_destroyed == other.spec_ops_destroyed
+            && self.spec_ops_card == other.spec_ops_card
             && self.extra_die_round == other.extra_die_round
             && self.extra_die_unit == other.extra_die_unit
             && self.munitions_round == other.munitions_round
@@ -621,6 +632,7 @@ impl PartialEq for Player {
             && self.disable_invasion == other.disable_invasion
             && self.solar_flare == other.solar_flare
             && self.lost_star == other.lost_star
+            && self.spatial_conduit == other.spatial_conduit
             && self.dominus_orb == other.dominus_orb
             && self.stability == other.stability
             && self.duress_by == other.duress_by
@@ -675,6 +687,8 @@ impl Player {
             waylay_barrage_round: None,
             cancel_hits_round: None,
             retreat_barred_round: None,
+            spec_ops_destroyed: 0,
+            spec_ops_card: 0,
             extra_die_round: None,
             extra_die_unit: None,
             munitions_round: None,
@@ -697,6 +711,7 @@ impl Player {
             disable_invasion: Vec::new(),
             solar_flare: Vec::new(),
             lost_star: Vec::new(),
+            spatial_conduit: None,
             dominus_orb: Vec::new(),
             stability: false,
             duress_by: None,
@@ -976,7 +991,25 @@ pub struct GameState {
     pub strategy_cards_per_player: usize,
 
     // -- board ------------------------------------------------------------------
-    /// Space areas by system. Absent entries are empty systems. Not compared.
+    /// Space areas by system, for the systems something has *touched*.
+    ///
+    /// An absent entry is not an empty system. It is a system that exists on the map, with its
+    /// planets, its tokens, its anomalies and its wormholes, in which nothing has happened yet: no
+    /// unit has entered, nothing has been captured, no token has been taken. Reading this map is
+    /// correct for one question only — *which systems contain things* — and it is quietly wrong for
+    /// the two neighbours of that question, which rules ask constantly:
+    ///
+    /// * *which planets satisfy X* — an uninhabited planet is exactly what a "select a planet with a
+    ///   resource" effect wants, and it is absent here;
+    /// * *which systems/tokens/anomalies are on the map* — same reason, one level up.
+    ///
+    /// Both belong to [`Galaxy`], which is the map, not to this map, which is the ledger of what has
+    /// happened on it. Maxis Central Control was shipped iterating this field for years and could
+    /// only ever offer planets somebody had already visited, which is the bug the `galaxy`
+    /// parameter to `legendary::maxis_candidates` exists to fix.
+    ///
+    /// Connectivity is not affected either way: movement routes through `Galaxy::adjacent`, so a
+    /// system absent from here is still on every path through it. Not compared.
     pub board: BTreeMap<SystemId, SystemState>,
     /// The system activated by the tactical action in progress (LRR 89.1a).
     pub active_system: Option<SystemId>,
@@ -1001,6 +1034,10 @@ pub struct GameState {
     pub exploration_decks: BTreeMap<String, Vec<String>>,
     /// Attachments stuck to each planet (LRR 35.8). Not compared.
     pub planet_attachments: BTreeMap<PlanetId, Vec<String>>,
+    /// Every exploration card drawn, in order, and what came of it (UI-01). History for viewers;
+    /// no rule reads it, so it is not compared.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exploration_log: Vec<ExplorationRecord>,
     pub relic_deck: Vec<RelicId>,
     pub agenda_deck: Vec<String>,
     pub action_card_deck: Vec<ActionCardId>,
@@ -1120,6 +1157,12 @@ pub struct GameState {
     /// Cleared when a round begins, because the card counts *this* round's deals.
     #[serde(default)]
     pub transactions_this_round: Vec<(PlayerId, PlayerId)>,
+    /// Negotiations (diplomatic contacts and transactions) each player has initiated during the
+    /// current action, and during the current round (operator limits, 2026-09-22).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub negotiations_this_action: BTreeMap<PlayerId, u8>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub negotiations_this_round: BTreeMap<PlayerId, u8>,
     /// Increments whenever an action-phase turn actually passes to a player. It does *not*
     /// increment between Fleet Logistics' first and second actions, because those are
     /// explicitly the same turn.
@@ -1484,6 +1527,7 @@ impl GameState {
             finished: false,
             exploration_decks: BTreeMap::new(),
             planet_attachments: BTreeMap::new(),
+            exploration_log: Vec::new(),
             relic_deck: Vec::new(),
             agenda_deck: Vec::new(),
             action_card_deck: Vec::new(),
@@ -1512,6 +1556,8 @@ impl GameState {
             activation_seq: 0,
             agenda_seq: 0,
             transactions_this_round: Vec::new(),
+            negotiations_this_action: BTreeMap::new(),
+            negotiations_this_round: BTreeMap::new(),
             turn_seq: 0,
             feat_occurrence_seq: 0,
             scored_feat_occurrences: BTreeSet::new(),
@@ -1711,6 +1757,34 @@ impl GameState {
     }
 
     // -- transactions (LRR 94) ----------------------------------------------------
+
+    /// Whether `player` may initiate another negotiation (a contact or a transaction): at most
+    /// [`MAX_NEGOTIATIONS_PER_ACTION`] per action and [`MAX_NEGOTIATIONS_PER_ROUND`] per round.
+    #[must_use]
+    pub fn may_initiate_negotiation(&self, player: &PlayerId) -> bool {
+        self.negotiations_this_action
+            .get(player)
+            .copied()
+            .unwrap_or(0)
+            < MAX_NEGOTIATIONS_PER_ACTION
+            && self
+                .negotiations_this_round
+                .get(player)
+                .copied()
+                .unwrap_or(0)
+                < MAX_NEGOTIATIONS_PER_ROUND
+    }
+
+    /// Count one negotiation `player` initiated.
+    pub fn note_negotiation(&mut self, player: &PlayerId) {
+        for tally in [
+            &mut self.negotiations_this_action,
+            &mut self.negotiations_this_round,
+        ] {
+            let count = tally.entry(player.clone()).or_default();
+            *count = count.saturating_add(1);
+        }
+    }
 
     #[must_use]
     pub fn transacted_with(&self, player: &PlayerId) -> BTreeSet<PlayerId> {
@@ -2595,3 +2669,30 @@ mod tests {
         );
     }
 }
+
+/// Serde: leave a zero counter out, so a save that never used it is byte-for-byte what it was.
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if signature"
+)]
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
+/// One exploration card drawn: who drew it, from which deck, for which planet, and the outcome.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExplorationRecord {
+    pub round: u32,
+    pub player: PlayerId,
+    pub deck: String,
+    pub card: String,
+    /// `None` for a frontier token.
+    pub planet: Option<PlanetId>,
+    /// `fragment`, `attached:<attachment>`, `resolved`, `unresolved` (no handler) or `discarded`.
+    pub outcome: String,
+}
+
+/// Negotiations one player may initiate during one action (operator limit, 2026-09-22).
+pub const MAX_NEGOTIATIONS_PER_ACTION: u8 = 2;
+/// Negotiations one player may initiate during one game round (operator limit, 2026-09-22).
+pub const MAX_NEGOTIATIONS_PER_ROUND: u8 = 6;

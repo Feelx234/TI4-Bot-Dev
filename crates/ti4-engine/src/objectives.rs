@@ -416,7 +416,9 @@ impl<'a> Position<'a> {
             .collect();
         self.controlled()
             .iter()
-            .filter(|planet| planet.name().is_some_and(|name| !real.contains(name)))
+            // By id: a planet's `name` is its display name ("Abyz"), which never equals an id, so
+            // matching on it counted every held planet as newly gained.
+            .filter(|planet| !real.contains(planet.id()))
             .map(|planet| match kind {
                 crate::production::Spend::Resources => planet.resources(),
                 crate::production::Spend::Influence => planet.influence(),
@@ -800,7 +802,17 @@ fn tech_specialties_count(position: &Position<'_>) -> usize {
     position
         .controlled()
         .iter()
-        .filter(|planet| !planet.tech_specialties().is_empty())
+        .filter(|planet| {
+            !planet.tech_specialties().is_empty()
+                // A research facility gives a planet without a specialty its specialty.
+                || !crate::planets::tech_specialties_now(
+                    position.state,
+                    position.content,
+                    position.sources,
+                    &ti4_model::id::PlanetId::new(planet.id()),
+                )
+                .is_empty()
+        })
         .count()
 }
 
@@ -2288,6 +2300,33 @@ mod tests {
 
     use super::*;
     use crate::setup::start_game;
+
+    /// Planets already held are not "imagined". The filter compared display names to ids, which
+    /// never match, so every held planet was added again as if the option would gain it.
+    #[test]
+    fn only_planets_an_option_would_gain_add_spending() {
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a"]);
+        state
+            .system_mut(&SystemId::new("109"))
+            .set_control(PlanetId::new("bellatrix"), player.clone());
+        let real = Position::new(&state, content, ALL_SOURCES, &player);
+        assert_eq!(
+            real.imagined_spending_bonus(crate::production::Spend::Resources),
+            0
+        );
+
+        let gained = [PlanetId::new("abyz")];
+        let imagined = Position::imagining(&state, content, ALL_SOURCES, &player, &gained);
+        let abyz = ti4_content::galaxy::planet(content, "abyz", ALL_SOURCES)
+            .expect("abyz is printed")
+            .resources();
+        assert_eq!(
+            imagined.imagined_spending_bonus(crate::production::Spend::Resources),
+            abyz
+        );
+    }
 
     fn game(players: &[PlayerId]) -> GameState {
         start_game(ContentStore::embedded(), players, POK, None).unwrap()

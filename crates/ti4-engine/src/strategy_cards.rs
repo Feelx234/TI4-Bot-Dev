@@ -557,6 +557,18 @@ fn doctor_sucaban(
     if answer.is_decline() || !crate::leaders::exhaust(state, &owner, &agent) {
         return Ok(cost);
     }
+    // Exhausted for another seat's research: a promise to use this agent for them is kept here.
+    if &owner != player {
+        crate::diplomacy::evaluate_event(
+            state,
+            &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
+                user: owner.clone(),
+                leader: agent.to_string(),
+                beneficiary: player.clone(),
+            },
+        )
+        .expect("validated diplomacy promises settle deterministically");
+    }
 
     let mut reduced = cost;
     while reduced > 0 {
@@ -2215,6 +2227,60 @@ mod tests {
             state.player(&researcher).unwrap().trade_goods,
             0,
             "and no resources were spent"
+        );
+    }
+
+    /// A promise to use Doctor Sucaban for another seat is kept when the agent is exhausted for
+    /// that seat's research (operator, 2026-09-23: agent use should be tradeable).
+    #[test]
+    fn doctor_sucaban_for_another_seat_keeps_a_promise_to_them() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let (researcher, owner) = (PlayerId::new("a"), PlayerId::new("b"));
+        let mut state = game(&["a", "b"]);
+        let system = SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+        state.board.entry(system.clone()).or_default();
+        crate::fixtures::put(&mut state, &system, "infantry", &researcher, 4);
+        if let Some(seat) = state.player_mut(&researcher) {
+            seat.trade_goods = 0;
+        }
+        if let Some(seat) = state.player_mut(&owner) {
+            seat.leaders.insert(
+                ti4_model::id::LeaderId::new("jolnaragent"),
+                ti4_model::state::LeaderStatus::Readied,
+            );
+        }
+        state.diplomacy = ti4_model::DiplomacyState::for_players(&state.seating_order, true);
+        let promise = ti4_model::DealTerm::UseLeaderFor {
+            leader: "jolnaragent".to_owned(),
+            beneficiary: researcher.clone(),
+            deadline_round: state.round.max(1),
+        };
+        let revision =
+            ti4_model::DealRevision::new(0, owner.clone(), vec![promise], vec![], state.round)
+                .unwrap();
+        let id = state
+            .diplomacy
+            .create_deal(owner.clone(), researcher.clone(), state.round, revision)
+            .unwrap();
+        state.diplomacy.active_deals.get_mut(&id).unwrap().status = ti4_model::DealStatus::Active;
+
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        secondary(
+            &mut state,
+            content,
+            sources,
+            None,
+            &mut table,
+            &researcher,
+            &card("Technology"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            state.diplomacy.history.first().map(|deal| deal.status),
+            Some(ti4_model::DealStatus::Fulfilled),
+            "the promised use happened, so the deal is kept"
         );
     }
 

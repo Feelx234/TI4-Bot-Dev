@@ -707,6 +707,43 @@ impl Actor {
         });
     }
 
+    /// Gradient masks, one per [`Self::main_parameters`] tensor without the value readout, that
+    /// leave trainable only head `head`'s readout (shared row and every faction's residual) and the
+    /// input-table rows `rows`. Everything else is multiplied by zero.
+    ///
+    /// For training one decision family without touching the rest: with `rows` the columns only
+    /// that family's options carry, no other decision's logits can move.
+    #[must_use]
+    pub fn head_and_rows_masks(&self, head: i64, rows: &[i64]) -> Vec<Tensor> {
+        let input = self.input.zeros_like();
+        for row in rows {
+            let _ = input.get(*row).fill_(1.0);
+        }
+        let w_shared = self.w_shared.zeros_like();
+        let _ = w_shared.get(head).fill_(1.0);
+        let b_shared = self.b_shared.zeros_like();
+        let _ = b_shared.get(head).fill_(1.0);
+        let delta = self.delta.zeros_like();
+        let _ = delta.select(1, head).fill_(1.0);
+        let b_delta = self.b_delta.zeros_like();
+        let _ = b_delta.select(1, head).fill_(1.0);
+        let mut masks = vec![
+            input,
+            self.b1.zeros_like(),
+            self.hidden.zeros_like(),
+            self.b2.zeros_like(),
+            w_shared,
+            b_shared,
+            delta,
+            b_delta,
+            self.embedding.zeros_like(),
+        ];
+        for block in &self.blocks {
+            masks.extend(block.tensors().map(Tensor::zeros_like));
+        }
+        masks
+    }
+
     pub(crate) fn main_parameters(&self, include_value: bool) -> Vec<Tensor> {
         let mut parameters = vec![
             self.input.shallow_clone(),

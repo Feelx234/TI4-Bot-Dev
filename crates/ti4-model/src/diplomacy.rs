@@ -9,7 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 pub const DIPLOMACY_RULES_V1: &str = "diplomacy-rules-v1";
-pub const MAX_TERMS_PER_SIDE: usize = 3;
+/// A safety bound, not a rule: LRR 94 limits only promissory notes (one per player per
+/// transaction). Every other kind of item appears at most once per side, amounts included in it.
+pub const MAX_TERMS_PER_SIDE: usize = 12;
 pub const MAX_COUNTERS: u8 = 2;
 pub const MAX_TERMINAL_HISTORY: usize = 32;
 
@@ -939,7 +941,13 @@ mod tests {
             deadline_round: 1,
         };
         assert_eq!(
-            DealRevision::new(0, pid("a"), vec![term.clone(); 4], vec![], 1),
+            DealRevision::new(
+                0,
+                pid("a"),
+                vec![term.clone(); MAX_TERMS_PER_SIDE + 1],
+                vec![],
+                1
+            ),
             Err(DiplomacyError::TooManyTerms)
         );
         assert_eq!(

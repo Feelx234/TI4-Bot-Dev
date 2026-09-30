@@ -42,7 +42,9 @@ fn controlled_total(
     state
         .controlled_planets(player)
         .into_iter()
-        .map(|(_, planet)| crate::production::planet_value(content, sources, planet, kind))
+        .map(|(_, planet)| {
+            crate::production::planet_value_now(state, content, sources, planet, kind)
+        })
         .sum()
 }
 
@@ -380,15 +382,33 @@ pub fn usable(state: &GameState, content: &ContentStore, player: &PlayerId) -> V
 
 /// Whether this leader's printed window is the action phase — usable as a component action on
 /// its owner's turn.
+///
+/// The corpus spells two things as the action phase: `"ACTION:"`, and — for the Prophecy of Kings
+/// agents — `"During the action phase:"`. Both carry the trailing colon the card frame prints, so
+/// the comparison drops it first. Until this file trimmed it, `eq_ignore_ascii_case("during the
+/// action phase")` matched nothing in the corpus, so a Prophecy of Kings agent printed for the
+/// action phase was never offered; see `the_hacan_agent_is_offered_on_its_own_turn`.
 fn is_action_window(content: &ContentStore, leader: &LeaderId) -> bool {
     content
         .get(ContentType::Leaders, leader.as_str())
         .is_some_and(|record| {
             record.text("abilityWindow").is_some_and(|window| {
-                window.starts_with("ACTION")
-                    || window.eq_ignore_ascii_case("during the action phase")
+                let printed = window.trim().trim_end_matches(':').trim_end();
+                printed.starts_with("ACTION")
+                    || printed.eq_ignore_ascii_case("during the action phase")
             })
         })
+}
+
+/// Whether using this leader is a component action that takes the turn (`"ACTION:"`), or an
+/// ability usable during the action phase that does not (`"During the action phase:"`, the Prophecy
+/// of Kings agents such as Carth of Golden Sands). Only the first ends the turn (OP-07).
+#[must_use]
+pub fn uses_the_action(content: &ContentStore, leader: &LeaderId) -> bool {
+    content
+        .get(ContentType::Leaders, leader.as_str())
+        .and_then(|record| record.text("abilityWindow"))
+        .is_some_and(|window| window.trim().starts_with("ACTION"))
 }
 
 /// Action-phase leaders whose effects this engine actually delivers.
@@ -396,17 +416,23 @@ fn is_action_window(content: &ContentStore, leader: &LeaderId) -> bool {
 /// Offering a leader with no delivery path would be an option that can never resolve, and legal
 /// actions are generated rather than rejected late. The set grows as packages deliver more
 /// windows; everything else stays out of the offer until it has one.
+///
+/// A list rather than a `matches!` so `every_delivered_action_leader_prints_an_action_window` can
+/// hold the two halves of the offer — "we deliver it" and "the corpus says it is an action" —
+/// against each other. Membership alone was never proof of delivery: Hacan's agent was in the
+/// `matches!` from LEADER-FIX-001 and still never reached a table.
+const DELIVERED_ACTION_LEADERS: [&str; 7] = [
+    "xxchaagent",
+    "hacanagent",
+    "solhero",
+    "letnevhero",
+    "jolnarhero",
+    "l1z1xhero",
+    "xxchahero-te",
+];
+
 fn action_leader_delivered(leader: &LeaderId) -> bool {
-    matches!(
-        leader.as_str(),
-        "xxchaagent"
-            | "hacanagent"
-            | "solhero"
-            | "letnevhero"
-            | "jolnarhero"
-            | "l1z1xhero"
-            | "xxchahero-te"
-    )
+    DELIVERED_ACTION_LEADERS.contains(&leader.as_str())
 }
 
 /// Cheap preconditions for offering an action-phase leader: only what is checkable without a map.
@@ -419,6 +445,13 @@ fn can_resolve_action(
     match leader.as_str() {
         // "Ready any planet" needs a planet to be readying.
         "xxchaagent" => !state.exhausted_planets.is_empty(),
+        // "Gain 2 commodities or replenish another player's commodities" — with every hand at its
+        // cap neither branch can change anything, and offering a use that burns the agent for
+        // nothing is a dead button, not an option.
+        "hacanagent" => state.players.iter().any(|seat| {
+            ti4_content::factions::get(content, seat.faction.as_str())
+                .is_none_or(|faction| seat.commodities < faction.commodities())
+        }),
         // Already active this round: re-using it would change nothing, so it is not offered twice.
         "letnevhero" => state
             .player(player)
@@ -615,7 +648,10 @@ pub fn end_of_round(state: &mut GameState) -> Vec<(PlayerId, LeaderId)> {
 #[must_use]
 pub fn modifiers() -> std::collections::BTreeMap<&'static str, &'static str> {
     [
-        ("xxchacommander", "leaders::vote_bonus, read by vote::cast"),
+        (
+            "xxchacommander",
+            "leaders::elder_qanoj, read by vote::VoteWindow",
+        ),
         ("hacancommander", "leaders::vote_bonus, read by vote::cast"),
         (
             "xxchahero",
@@ -647,11 +683,23 @@ pub fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
         .iter()
         .filter(|(_, status)| **status == LeaderStatus::Unlocked)
         .map(|(leader, _)| match leader.as_str() {
-            // Xxcha's Elder Qanoj and Hacan's Gila the Silvertongue both add votes.
-            "xxchacommander" | "hacancommander" => 3,
+            // Hacan's Gila the Silvertongue. Not yet as printed (spend trade goods, two votes
+            // each); a flat three stands in until that choice exists.
+            "hacancommander" => 3,
             _ => 0,
         })
         .sum()
+}
+
+/// Elder Qanoj, Xxcha's commander: "Each planet you exhaust to cast votes provides 1 additional
+/// vote. Game effects cannot prevent you from voting on an agenda."
+#[must_use]
+pub fn elder_qanoj(state: &GameState, player: &PlayerId) -> bool {
+    state.player(player).is_some_and(|seat| {
+        seat.leaders.iter().any(|(leader, status)| {
+            leader.as_str() == "xxchacommander" && *status == LeaderStatus::Unlocked
+        })
+    })
 }
 
 /// Whether this player's units ignore a planetary shield when bombarding.
@@ -943,6 +991,31 @@ pub fn use_leader(
             }
             // All choices are settled; now the position changes, atomically.
             context.state.exhausted_planets.remove(&planet);
+            // Readying someone else's planet is a favour: a promise to use this agent for them is
+            // kept here.
+            let controller = context
+                .state
+                .players
+                .iter()
+                .map(|seat| seat.id.clone())
+                .find(|seat| {
+                    context
+                        .state
+                        .controlled_planets(seat)
+                        .iter()
+                        .any(|(_, owned)| **owned == planet)
+                });
+            if let Some(helped) = controller.filter(|helped| helped != player) {
+                crate::diplomacy::evaluate_event(
+                    context.state,
+                    &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
+                        user: player.clone(),
+                        leader: "xxchaagent".to_owned(),
+                        beneficiary: helped,
+                    },
+                )
+                .expect("validated diplomacy promises settle deterministically");
+            }
             if removal {
                 let types = ti4_content::units::catalogue(context.content, context.sources);
                 for board in context.state.board.values_mut() {
@@ -1965,11 +2038,19 @@ mod tests {
         let mut state = game(&["a"]);
         assert_eq!(vote_bonus(&state, &player()), 0);
 
-        holding(&mut state, "xxchacommander", LeaderStatus::Locked);
+        holding(&mut state, "hacancommander", LeaderStatus::Locked);
         assert_eq!(vote_bonus(&state, &player()), 0, "locked is not unlocked");
 
-        holding(&mut state, "xxchacommander", LeaderStatus::Unlocked);
+        holding(&mut state, "hacancommander", LeaderStatus::Unlocked);
         assert_eq!(vote_bonus(&state, &player()), 3);
+
+        holding(&mut state, "xxchacommander", LeaderStatus::Unlocked);
+        assert!(elder_qanoj(&state, &player()));
+        assert_eq!(
+            vote_bonus(&state, &player()),
+            3,
+            "Elder Qanoj counts per planet, in the vote, not as a flat bonus"
+        );
     }
 
     #[test]
@@ -1988,7 +2069,7 @@ mod tests {
         let missing = unimplemented(ContentStore::embedded(), &["xxcha"]);
         assert!(
             !missing.contains(&LeaderId::new("xxchacommander")),
-            "its effect lives in vote_bonus"
+            "its effect lives in elder_qanoj"
         );
         assert!(
             !missing.contains(&LeaderId::new("xxchahero")),
@@ -2503,6 +2584,82 @@ mod tests {
             state.player(&other).unwrap().commodities,
             limit,
             "replenished to their own cap"
+        );
+    }
+
+    /// The offer path, not the use path: `component_actions` is what a seat sees on its turn, and
+    /// it filters on the printed window before it looks at anything else.
+    #[test]
+    fn the_hacan_agent_is_offered_on_its_own_turn() {
+        // "During the action phase:" is what the card prints, colon and all. `is_action_window`
+        // compared that with `eq_ignore_ascii_case` to "during the action phase", so this — the
+        // only action-phase agent among the in-scope factions, every other one of which prints
+        // "ACTION:" — never reached an offer list. LEADER-FIX-001 (`16f389a`) put `hacanagent` in
+        // the delivered set and proved `use_leader` resolves it; nothing proved the offer, and the
+        // offer is the half the window predicate governs.
+        let mut state = game(&["a", "b"]);
+        state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        holding(&mut state, "hacanagent", LeaderStatus::Readied);
+
+        let offered: Vec<String> = component_actions(&state, ContentStore::embedded(), &player())
+            .into_iter()
+            .map(|option| option.id)
+            .collect();
+        assert!(
+            offered.iter().any(|id| id == "component|leader|hacanagent"),
+            "Carth of Golden Sands was not on the offer list: {offered:?}"
+        );
+    }
+
+    #[test]
+    fn every_delivered_action_leader_prints_an_action_window() {
+        // The delivered set and the corpus have to agree. Membership says the engine can resolve
+        // the use; the printed window says a seat can ever be asked. Either half on its own is how
+        // "leaders are delivered" and "the Hacan agent is never offered" were both true at once.
+        let content = ContentStore::embedded();
+        for leader in DELIVERED_ACTION_LEADERS {
+            let record = content
+                .get(ContentType::Leaders, leader)
+                .unwrap_or_else(|| panic!("{leader} is not in the corpus"));
+            assert!(
+                is_action_window(content, &LeaderId::new(leader)),
+                "{leader} is in the delivered action-leader set, but its printed window {:?} is not an action window — it can never be offered",
+                record.text("abilityWindow")
+            );
+        }
+    }
+
+    #[test]
+    fn an_agent_with_no_commodities_to_gain_is_not_offered() {
+        // Both branches of Carth are commodity-shaped. With every seat at its cap, the use would
+        // exhaust the card and change nothing.
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        for name in ["a", "b"] {
+            let seat = state.player_mut(&PlayerId::new(name)).unwrap();
+            seat.faction = ti4_model::id::FactionId::new("hacan");
+            seat.commodities = ti4_content::factions::get(content, "hacan")
+                .expect("Hacan exists")
+                .commodities();
+        }
+        holding(&mut state, "hacanagent", LeaderStatus::Readied);
+
+        let offered: Vec<String> = component_actions(&state, content, &player())
+            .into_iter()
+            .map(|option| option.id)
+            .collect();
+        assert!(
+            !offered.iter().any(|id| id.ends_with("hacanagent")),
+            "a use that can do nothing was offered: {offered:?}"
+        );
+
+        // One seat below its cap and it is a live option again.
+        state.player_mut(&PlayerId::new("b")).unwrap().commodities -= 1;
+        assert!(
+            component_actions(&state, content, &player())
+                .iter()
+                .any(|option| option.id.ends_with("hacanagent")),
+            "somebody can still be replenished"
         );
     }
 

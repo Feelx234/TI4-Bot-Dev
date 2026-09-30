@@ -17,6 +17,15 @@ use crate::decision_context::{DecisionContext, DecisionSource};
 /// `UNITUPGRADE` is deliberately absent.
 pub const COLOURS: [&str; 4] = ["BIOTIC", "CYBERNETIC", "PROPULSION", "WARFARE"];
 
+/// Plasma Scoring: "When 1 or more of your units use BOMBARDMENT or SPACE CANNON, 1 of those units
+/// may roll 1 additional die." Read where those dice are rolled (reported 2026-09-23 as missing).
+#[must_use]
+pub fn plasma_scoring(state: &GameState, player: &PlayerId) -> bool {
+    state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("ps")))
+}
+
 /// Technologies in the authoritative current PoK/Codex deck.
 ///
 /// The raw corpus deliberately contains original and replacement printings together.  The oracle
@@ -156,7 +165,6 @@ pub fn start_turn(
         .player(player)
         .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("pa")))
     {
-        let planets = ti4_content::galaxy::all_planets(content, sources);
         loop {
             let candidates: Vec<PlanetId> = state
                 .controlled_planets(player)
@@ -164,9 +172,8 @@ pub fn start_turn(
                 .map(|(_, planet)| planet.clone())
                 .filter(|planet| !state.exhausted_planets.contains(planet))
                 .filter(|planet| {
-                    planets
-                        .get(planet.as_str())
-                        .is_some_and(|record| !record.tech_specialties().is_empty())
+                    !crate::planets::tech_specialties_now(state, content, sources, planet)
+                        .is_empty()
                 })
                 .collect();
             if candidates.is_empty() {
@@ -434,16 +441,13 @@ pub fn end_turn(
     if state.player(player).is_some_and(|seat| {
         seat.technologies.contains(&bio_stims) && !seat.exhausted_technologies.contains(&bio_stims)
     }) {
-        let planets = ti4_content::galaxy::all_planets(content, sources);
         let mut options: Vec<ChoiceOption> = state
             .controlled_planets(player)
             .into_iter()
             .map(|(_, planet)| planet.clone())
             .filter(|planet| state.exhausted_planets.contains(planet))
             .filter(|planet| {
-                planets
-                    .get(planet.as_str())
-                    .is_some_and(|record| !record.tech_specialties().is_empty())
+                !crate::planets::tech_specialties_now(state, content, sources, planet).is_empty()
             })
             .map(|planet| {
                 ChoiceOption::labelled(
@@ -858,13 +862,9 @@ pub fn specialties(
     sources: SourceSet,
     player: &PlayerId,
 ) -> BTreeMap<&'static str, usize> {
-    let catalogue = ti4_content::galaxy::all_planets(content, sources);
     let mut found = BTreeMap::new();
     for (_, planet) in state.controlled_planets(player) {
-        let Some(record) = catalogue.get(planet.as_str()) else {
-            continue;
-        };
-        for specialty in record.tech_specialties() {
+        for specialty in crate::planets::tech_specialties_now(state, content, sources, planet) {
             let upper = specialty.to_ascii_uppercase();
             if let Some(colour) = COLOURS.iter().find(|c| **c == upper) {
                 *found.entry(*colour).or_insert(0) += 1;
@@ -915,7 +915,42 @@ pub fn can_research(
     if replaced_for_faction(content, seat.faction.as_str(), alias) {
         return false;
     }
+    prerequisites_met(state, content, sources, player, alias)
+        || inheritance_systems_ready(state, content, sources, player)
+}
 
+/// Inheritance Systems (L1Z1X): "You may exhaust this card and spend 2 resources when you research
+/// a technology; ignore all of that technology's prerequisites." Ready, and 2 resources affordable.
+fn inheritance_systems_ready(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> bool {
+    let card = TechnologyId::new("is");
+    state.player(player).is_some_and(|seat| {
+        seat.technologies.contains(&card) && !seat.exhausted_technologies.contains(&card)
+    }) && crate::payment::affordable(
+        state,
+        content,
+        sources,
+        player,
+        INHERITANCE_SYSTEMS_COST,
+        crate::production::Spend::Resources,
+    )
+}
+
+/// What Inheritance Systems charges to ignore a technology's prerequisites.
+pub const INHERITANCE_SYSTEMS_COST: i64 = 2;
+
+/// Whether this player meets `alias`'s prerequisites, with every standing waiver counted.
+fn prerequisites_met(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) -> bool {
     let held = owned_colours(state, content, player);
     let specialties = specialties(state, content, sources, player);
     // A faction may waive whole prerequisite slots — Jol-Nar's Brilliant on anything, Analytical
@@ -1058,6 +1093,29 @@ pub fn research(
     if !can_research(state, content, sources, player, alias) {
         return false;
     }
+    // Researchable only through Inheritance Systems: exhaust it and pay its 2 resources now, with
+    // the cheapest plan (this path has no table to ask which planets; the plans are minimal).
+    if !prerequisites_met(state, content, sources, player, alias) {
+        let Some(plan) = crate::payment::plans(
+            state,
+            content,
+            sources,
+            player,
+            INHERITANCE_SYSTEMS_COST,
+            crate::production::Spend::Resources,
+        )
+        .into_iter()
+        .next() else {
+            return false;
+        };
+        for planet in plan.planets {
+            state.exhaust_planet(planet);
+        }
+        if let Some(seat) = state.player_mut(player) {
+            seat.trade_goods -= plan.trade_goods;
+            seat.exhausted_technologies.insert(TechnologyId::new("is"));
+        }
+    }
     grant(state, player, alias);
     // 90.8: the upgrade covers the unit on the faction sheet, so units already on the board
     // become the new version too -- not only the ones built after this.
@@ -1086,6 +1144,34 @@ pub fn research(
 
 #[cfg(test)]
 mod tests {
+
+    /// A seat that has researched nothing is offered only what needs nothing.
+    ///
+    /// Written after the operator reported non-Euclidean shielding offered to a Letnev seat - a faction
+    /// with no prerequisite waiver of any kind - and Space Dock II offered to Jol-Nar without two yellow.
+    /// Their table might have had planetary specialties, Research Team laws or a legitimate waiver in it;
+    /// this pins the clean case, where there is one right answer: with no technologies, no specialties
+    /// and no laws, a prerequisite is a wall and nothing gets offered through it.
+    #[test]
+    fn a_seat_with_nothing_researched_is_offered_only_prerequisite_free_technologies() {
+        let content = ContentStore::embedded();
+        let state = crate::fixtures::game(&["a"]);
+        let player = ti4_model::id::PlayerId::new("a");
+        let offered = researchable(&state, content, ti4_model::content_types::FULL, &player);
+        assert!(
+            !offered.is_empty(),
+            "a fresh seat can still research something, or the fixture is not comparable to a game"
+        );
+        let offenders: Vec<String> = offered
+            .iter()
+            .filter(|alias| !prerequisites(content, alias).is_empty())
+            .map(ToString::to_string)
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "offered to a seat with nothing, though they need prerequisites: {offenders:?}"
+        );
+    }
 
     /// 90.7/90.8: a unit upgrade replaces the unit, on the board and in what you build.
     ///
@@ -1867,6 +1953,75 @@ mod tests {
         assert!(
             can_research(&state, ContentStore::embedded(), POK, &player(), &target),
             "the specialty covers the prerequisite"
+        );
+    }
+
+    /// Inheritance Systems: exhaust it and pay 2 resources to ignore every prerequisite. Once
+    /// exhausted, prerequisites are a wall again until the status phase readies it.
+    #[test]
+    fn inheritance_systems_buys_past_the_prerequisites_once() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        let seat = state.player_mut(&player()).unwrap();
+        seat.faction = ti4_model::id::FactionId::new("l1z1x");
+        seat.technologies.insert(TechnologyId::new("is"));
+        seat.trade_goods = 2;
+        let (war_sun, dreadnought) = (TechnologyId::new("ws"), TechnologyId::new("dn2"));
+        assert!(!prerequisites(content, &war_sun).is_empty());
+        assert!(can_research(&state, content, POK, &player(), &war_sun));
+        assert!(research(&mut state, content, POK, &player(), &war_sun));
+        let seat = state.player(&player()).unwrap();
+        assert!(seat.technologies.contains(&war_sun));
+        assert!(
+            seat.exhausted_technologies
+                .contains(&TechnologyId::new("is"))
+        );
+        assert_eq!(seat.trade_goods, 0, "the 2 resources were paid");
+        assert!(
+            !can_research(&state, content, POK, &player(), &dreadnought),
+            "exhausted, it waives nothing more"
+        );
+
+        // Without the 2 resources it cannot be used at all.
+        let mut broke = game(&["a"]);
+        let seat = broke.player_mut(&player()).unwrap();
+        seat.faction = ti4_model::id::FactionId::new("l1z1x");
+        seat.technologies.insert(TechnologyId::new("is"));
+        seat.trade_goods = 1;
+        assert!(!can_research(&broke, content, POK, &player(), &war_sun));
+    }
+
+    /// A research facility on a planet without a specialty gives it one (LRR 35.8), and that
+    /// specialty stands in for a prerequisite like a printed one.
+    #[test]
+    fn an_attached_specialty_stands_in_for_a_prerequisite() {
+        let mut state = game(&["a"]);
+        let target = TechnologyId::new("gd"); // one propulsion
+        let (id, record) = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK)
+            .into_iter()
+            .find(|(_, record)| {
+                record.tech_specialties().is_empty() && !record.is_placed_during_play()
+            })
+            .expect("a planet without a specialty");
+        let planet = ti4_model::id::PlanetId::new(id);
+        let system = ti4_model::id::SystemId::new(record.system_id().unwrap_or("18"));
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        assert!(!can_research(
+            &state,
+            ContentStore::embedded(),
+            POK,
+            &player(),
+            &target
+        ));
+
+        state
+            .planet_attachments
+            .insert(planet, vec!["propulsion".to_owned()]);
+        assert!(
+            can_research(&state, ContentStore::embedded(), POK, &player(), &target),
+            "the facility's specialty covers the prerequisite"
         );
     }
 

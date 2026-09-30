@@ -357,6 +357,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Wrath of Kenara: how many near-miss dice to buy +1 on, or decline.
+        module: "combat.rs",
+        function: "wrath_of_kenara",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "combat.rs",
         function: "choose_casualty",
         count: 1,
@@ -421,6 +428,41 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Nullification Field: use (exhaust + a strategy token, end the turn) or decline.
+        module: "faction_techs.rs",
+        function: "offer_nullification_field",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Quantum Datahub Node: (partner, card given, card taken), or decline.
+        module: "faction_techs.rs",
+        function: "offer_quantum_datahub",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Scanlink Drone Network: which planet to explore, or none.
+        module: "faction_techs.rs",
+        function: "offer_scanlink",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Spatial Conduit Cylinders: use (exhaust, link the active system) or decline.
+        module: "faction_techs.rs",
+        function: "offer_spatial_conduit",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Production Biomes: which other player gains the 2 trade goods.
+        module: "faction_abilities.rs",
+        function: "production_biomes",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "faction_abilities.rs",
         function: "space_combat_round_started",
         count: 1,
@@ -449,8 +491,23 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The seat's action-phase turn: strategic, tactical, component, pass, contacts.
         module: "game.rs",
-        function: "action_options",
+        function: "turn_options",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step"),
+    },
+    Producer {
+        // OP-08: the aftermath's pause before invasion or production: continue, or a contact.
+        module: "game.rs",
+        function: "pending_choice",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath"),
+    },
+    Producer {
+        // OP-08: end the turn, or do what does not take an action (and Fleet Logistics' second).
+        module: "game.rs",
+        function: "closing_options",
         count: 1,
         delivery: Delivery::ObservedVia("game.rs::step"),
     },
@@ -619,6 +676,20 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         module: "reactions.rs",
         function: "slot",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Instinct Training: use (exhaust + a strategy token, cancel the card) or decline.
+        module: "reactions.rs",
+        function: "instinct_training",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // I48S, the L1Z1X agent, after a system is activated: exhaust or decline.
+        module: "reactions.rs",
+        function: "l1z1x_agent",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -855,7 +926,14 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         module: "window.rs",
         function: "pending_choice",
-        count: 2,
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_diplomacy"),
+    },
+    Producer {
+        // The deal builder: offer items, ask items, amounts, review (TRADE_REWORK_2026-09-22).
+        module: "window.rs",
+        function: "building_choice",
+        count: 1,
         delivery: Delivery::ObservedVia("game.rs::step_diplomacy"),
     },
     Producer {
@@ -895,10 +973,16 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "heart_ixth", 1),
     ("combat.rs", "offer_sustain", 1),
     ("combat.rs", "roll_round", 1),
+    ("combat.rs", "wrath_of_kenara", 1),
     ("exploration.rs", "ask", 1),
     ("faction_abilities.rs", "perform_component", 2),
+    ("faction_abilities.rs", "production_biomes", 1),
     ("faction_abilities.rs", "space_combat_round_started", 1),
     ("faction_abilities.rs", "strategy_resolved", 1),
+    ("faction_techs.rs", "offer_nullification_field", 1),
+    ("faction_techs.rs", "offer_quantum_datahub", 1),
+    ("faction_techs.rs", "offer_scanlink", 1),
+    ("faction_techs.rs", "offer_spatial_conduit", 1),
     ("fleet.rs", "remove_one", 1),
     ("game.rs", "step", 1),
     ("game.rs", "step_aftermath", 1),
@@ -923,6 +1007,8 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("production.rs", "produce_one", 2),
     ("production.rs", "resolve", 1),
     ("production.rs", "sling_relay", 2),
+    ("reactions.rs", "instinct_training", 1),
+    ("reactions.rs", "l1z1x_agent", 1),
     ("reactions.rs", "slot", 1),
     ("relics.rs", "codex", 1),
     ("relics.rs", "crown_of_emphidia_explore", 1),

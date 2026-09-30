@@ -54,7 +54,7 @@ $allowed = @(
     'strategy-diversity-weight', 'styx-bonus', 'tech-weight', 'temperature',
     'opponent', 'trade-goods-hoard-weight', 'unit-weight', 'updates', 'vp-weight',
     'waste-penalties',
-    'waste-penalty', 'zero-fleet-penalty', 'diag', 'capture-batch'
+    'waste-penalty', 'zero-fleet-penalty', 'diag', 'capture-batch', 'seeds-per-update', 'rotations'
 )
 
 $unknown = @($flags.Keys | Where-Object { $_ -notin $allowed })

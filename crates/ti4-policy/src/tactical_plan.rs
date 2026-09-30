@@ -429,8 +429,11 @@ impl Setting<'_, '_> {
                 }
             }
         }
-        if let Some(predictor) = self.predictor {
-            if !ground.is_empty() && predictor.has_ground() {
+        if let Some(predictor) = self.predictor
+            && !ground.is_empty()
+            && predictor.has_ground()
+        {
+            {
                 let landing = tally(ground.iter().cloned());
                 let mut hardest: Option<f64> = None;
                 for (planet, _) in &self.targets {
@@ -1073,14 +1076,28 @@ impl Execution {
                 self.state = PlanState::Complete;
                 return Some("done_moving".to_owned());
             };
-            let found = choice.options.iter().find(|option| {
+            let same_ship = |option: &&ti4_engine::choice::ChoiceOption| {
                 option.kind == ti4_engine::tactical::MOVE_KIND
                     && text(option, "origin") == Some(wanted.origin.as_str())
                     && text(option, "unit") == Some(wanted.unit.as_str())
                     && flag(option, "damaged") == wanted.damaged
-                    && flag(option, "gravity_drive") == wanted.gravity_drive
-                    && flag(option, "ionian") == wanted.ionian
-            });
+            };
+            // The planned boosts, or fewer: an earlier move can lend the rest of the fleet its
+            // movement (Gravleash), so a ship that needed a boost at activation may not now.
+            let found = choice
+                .options
+                .iter()
+                .filter(same_ship)
+                .find(|option| {
+                    flag(option, "gravity_drive") == wanted.gravity_drive
+                        && flag(option, "ionian") == wanted.ionian
+                })
+                .or_else(|| {
+                    choice.options.iter().filter(same_ship).find(|option| {
+                        (!flag(option, "gravity_drive") || wanted.gravity_drive)
+                            && (!flag(option, "ionian") || wanted.ionian)
+                    })
+                });
             return if let Some(option) = found {
                 self.loading = Some(self.next_move);
                 self.next_move += 1;

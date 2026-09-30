@@ -1607,6 +1607,15 @@ pub trait Decider {
         let _ = seen;
         self.choose(choice)
     }
+
+    /// The policy's `(score, probability)` per option of the choice about to be asked, in
+    /// `choice.options` order, handed down by a scoring wrapper before it delegates.
+    ///
+    /// Presentation only: a decider that answers in the policy's place (a manual seat) shows them
+    /// to the person choosing. The default ignores them, and nothing may let them change an answer.
+    fn stage_scores(&mut self, scores: Vec<(Option<f64>, Option<f64>)>) {
+        let _ = scores;
+    }
 }
 
 /// Always take the first option. Deterministic; the default in tests.

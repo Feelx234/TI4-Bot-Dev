@@ -63,3 +63,66 @@ next-door guns, which the first version missed); unreachable destinations skippe
 engine's reachability search memoised on the observation, which the ordinary activation features
 and the generator both ask. Generation alone: 2.7 ms per activation decision. Above the 10%
 engineering budget; left there for the pilot, where inference and the critic take a larger share.
+
+## Phase 4 — arm B: the fleet decision and its plan (fact version 7)
+
+After the model answers an activation, a version-7 bot builds the destination's menu, scores it as
+an ordinary movement-head decision (the candidates, plus "build the fleet step by step") and
+samples one. The choice is recorded as its own PPO step, so the two levels factor as
+P(system) x P(fleet | system) and a destination with more candidates gets no extra weight. The
+chosen fleet then answers the engine's movement and cargo prompts; those answers are not recorded
+as policy steps.
+
+**Notes and records.** `ppo_update` used to rebuild its per-decision notes from the engine's
+prompts and required one note per recorded step. A fleet decision has no engine prompt and a
+planned step has no record, so the notes now come from the bot (`MlpBot::ppo_notes`), pushed with
+each record. A fleet decision's note is a movement note, declined when the fleet moves nothing, so
+the wasted-activation charge keeps working.
+
+**Likelihood check** (`ppo_update --check-likelihood`, one update, 96 games, temperature 2.5,
+rescored on a CPU inference copy like the rollouts):
+
+| bundle | steps | max abs(log p - recorded) | steps by head |
+|---|---|---|---|
+| arena-v6 (arm A) | 37,516 | **0.0** | movement 1,350 · cargo 2,366 · landing 1,331 |
+| arena-v7 (arm B) | 31,343 | **0.0** | movement 947 (fleet decisions included) · cargo 369 · landing 594 |
+
+Rollout time was 22.1s (arm A) and 21.2s (arm B) for the same 96 games.
+
+**Plan execution in play** (`arena_migration_check`, 6 seeds x 4 rounds, near-greedy): 274 fleet
+decisions, 1,195 prompts answered by plans, **0 plans stopped**. The first run stopped 2 plans, both
+a boosted move that was no longer offered: an earlier move can lend the rest of the fleet its
+movement (Gravleash), so the executor now accepts the same ship needing fewer boosts than planned.
+
+**Reviewer.** A fleet decision appears as its own entry ("fleet decision") with the menu, each
+candidate's facts and its probability; prompts the plan answered are marked "planned". One
+near-greedy game: 56 fleet decisions, 218 planned prompts.
+
+**Starting behaviour.** The new rows are zero, so a freshly migrated arm B picks uniformly among
+the candidates (and almost never "step by step"). Arm B therefore starts from a real change in
+play, unlike arms 0 and A, whose migrations are identical to the source.
+
+## Phase 5 — the three pilots (50 updates each)
+
+Same seeds, pool, frozen opponents (plain 212544), VP-only reward, 4 rounds, 96 games per update.
+Evaluated against the champion (`checkpoint-19280-diplomacy-v11`), 20 seed blocks, 4 rounds, on one
+evaluator build.
+
+| arm | learner | VP | margin | lead | cleared | final checkpoint |
+|---|---|---:|---:|---:|---:|---|
+| start | checkpoint-212544 | 3.12 | −1.52 | 12.2% | 94.0% | — |
+| 0 (corrected facts) | arena-v5 | 3.15 | −1.66 | 11.7% | 86.9% | checkpoint-1812 |
+| **A (information)** | arena-v6 | **3.43** | **−1.28** | **16.4%** | 88.6% | checkpoint-1804 |
+| B (packages) | arena-v7 | 2.74 | −1.98 | 9.3% | 91.7% | checkpoint-1768 |
+
+95% seed-block intervals on the margin: arm 0 −1.85 to −1.48, arm A −1.45 to −1.12, arm B −2.08 to
+−1.88. Arm A's interval clears arm 0's and the start's; arm B's is below both.
+
+**Cost.** Wall time per update: arm 0 25.4s, arm A 25.5s, arm B 25.8s — within 2%, so the
+generator disappears into the rollout even though a near-greedy check measured x1.12.
+
+**Reading.** Telling the model what could be sent, while it still moves ship by ship, is what pays
+at this budget. Choosing the whole fleet does not, and the pilot cannot separate the action space
+from its start: arm B's fleet rows begin at zero, so it opens by picking uniformly among a
+destination's candidates, while arms 0 and A open exactly as 212544 played. Screening only, one
+seed base, 50 updates.

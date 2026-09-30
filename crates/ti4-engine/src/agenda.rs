@@ -32,8 +32,6 @@ pub struct RevealedAgenda {
 pub struct AgendaPhaseReport {
     /// Agendas drawn from the deck, in reveal order.
     pub agendas: Vec<RevealedAgenda>,
-    /// Exhausted planets readied after both agenda slots at LRR 8.4.
-    pub readied_planets: Vec<PlanetId>,
 }
 
 /// An agenda phase was requested when it cannot legally occur.
@@ -49,8 +47,9 @@ pub enum AgendaPhaseError {
 ///
 /// Each available agenda is removed from the deck and exposes speaker-clockwise voting order.
 /// It is recorded [`AgendaResolution::Deferred`] instead of inventing a vote, tie-break, law,
-/// directive effect, or timing window. The phase still readies planets once its two agenda slots
-/// have been processed, including when the deck is empty.
+/// directive effect, or timing window. Readying (8.4) is [`ready_after_agenda_phase`], which the
+/// game calls once both agendas are resolved: readying here, at the reveal, left every planet
+/// exhausted to vote still exhausted in the next round (reported 2026-09-23).
 ///
 /// # Errors
 /// [`AgendaPhaseError::WrongPhase`] unless `state` is in [`Phase::Agenda`], or
@@ -80,9 +79,13 @@ pub fn resolve_agenda_phase(state: &mut GameState) -> Result<AgendaPhaseReport, 
         });
     }
 
-    // 8.4 is after both slots, not after each individual agenda.
-    // Checks and Balances (Against): "Each player readies only 3 of their planets at the end of
-    // this agenda phase." 8.4 readies everything otherwise.
+    Ok(report)
+}
+
+/// 8.4: after both agendas are resolved, every player readies their planets, and returns what was
+/// readied. Checks and Balances (Against): "Each player readies only 3 of their planets at the end
+/// of this agenda phase."
+pub fn ready_after_agenda_phase(state: &mut GameState) -> Vec<PlanetId> {
     if let Some(limit) = crate::laws::agenda_ready_limit(state) {
         let seats: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
         let mut readied = Vec::new();
@@ -99,12 +102,11 @@ pub fn resolve_agenda_phase(state: &mut GameState) -> Result<AgendaPhaseReport, 
                 readied.push(planet);
             }
         }
-        report.readied_planets = readied;
-        return Ok(report);
+        return readied;
     }
-    report.readied_planets = state.exhausted_planets.iter().cloned().collect();
+    let readied = state.exhausted_planets.iter().cloned().collect();
     state.ready_all_planets();
-    Ok(report)
+    readied
 }
 
 #[cfg(test)]
@@ -132,6 +134,11 @@ mod tests {
         state.exhaust_planet(PlanetId::new("jord"));
 
         let report = resolve_agenda_phase(&mut state).unwrap();
+        assert!(
+            !state.exhausted_planets.is_empty(),
+            "revealing readies nothing: planets exhausted to vote must stay exhausted until 8.4"
+        );
+        let readied = ready_after_agenda_phase(&mut state);
 
         assert_eq!(report.agendas.len(), 2);
         assert!(report.agendas.iter().all(|agenda| {
@@ -144,7 +151,7 @@ mod tests {
                 .iter()
                 .all(|agenda| agenda.resolution == AgendaResolution::Deferred)
         );
-        assert_eq!(report.readied_planets, vec![PlanetId::new("jord")]);
+        assert_eq!(readied, vec![PlanetId::new("jord")]);
         assert!(state.exhausted_planets.is_empty());
     }
 
@@ -158,9 +165,10 @@ mod tests {
         state.exhaust_planet(PlanetId::new("jord"));
 
         let report = resolve_agenda_phase(&mut state).unwrap();
+        let readied = ready_after_agenda_phase(&mut state);
 
         assert!(report.agendas.is_empty());
-        assert_eq!(report.readied_planets, vec![PlanetId::new("jord")]);
+        assert_eq!(readied, vec![PlanetId::new("jord")]);
         assert!(state.exhausted_planets.is_empty());
     }
 

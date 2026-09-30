@@ -261,6 +261,41 @@ pub fn partners(
     neighbours(state, galaxy, player)
 }
 
+/// Whether these two seats may transact with each other: neighbours, or either side able to reach
+/// past adjacency - Guild Ships for Hacan, the Trade Convoys note for whoever holds it.
+///
+/// Both directions count. The ability belongs to whoever holds it, and a negotiation has two parties,
+/// so a far Hacan being dealt with is that Hacan negotiating too: Xxcha, not Hacan's neighbour, may
+/// still trade notes and goods with Hacan. Offering and legality both ask this, so what a contact
+/// offers and what settlement accepts are the same question.
+#[must_use]
+pub fn may_transact(
+    state: &GameState,
+    content: &ContentStore,
+    galaxy: &Galaxy,
+    proposer: &PlayerId,
+    partner: &PlayerId,
+) -> bool {
+    are_neighbours(state, galaxy, proposer, partner)
+        || partners(state, content, galaxy, proposer).contains(partner)
+        || partners(state, content, galaxy, partner).contains(proposer)
+}
+
+/// The key a relic fragment is held under: its trait upper-cased, as exploration stores it
+/// (`CULTURAL`), with the diplomacy asset's `unknown` meaning the frontier deck's `FRONTIER`.
+///
+/// Diplomacy transfers name fragments in lower case and the legacy window in the stored case, and
+/// comparing them exactly made every diplomacy deal with a fragment "cannot pay what they offered".
+#[must_use]
+pub fn fragment_key(trait_name: &str) -> String {
+    let upper = trait_name.to_ascii_uppercase();
+    if upper == "UNKNOWN" {
+        "FRONTIER".to_owned()
+    } else {
+        upper
+    }
+}
+
 /// Whether a player holds what they offered.
 #[must_use]
 pub fn can_pay(
@@ -289,7 +324,7 @@ pub fn can_pay(
     }
     let mut held = seat.relic_fragments.clone();
     for trait_name in &terms.fragments {
-        let entry = held.entry(trait_name.clone()).or_insert(0);
+        let entry = held.entry(fragment_key(trait_name)).or_insert(0);
         if *entry <= 0 {
             return false;
         }
@@ -329,8 +364,14 @@ pub fn why_illegal(
     }
     // Neighbours bound transactions during a turn; during the agenda phase any two players may
     // transact (94), which is when votes are bought.
+    //
+    // The reach test is `may_transact`, not bare `are_neighbours`, and that difference is Hacan's Guild
+    // Ships ("You can negotiate transactions with players who are not your neighbor") and the Trade
+    // Convoys note. Checking adjacency here while the offer list asked `partners` meant a Hacan seat was
+    // offered a partner across the board and refused the moment it accepted - a legal action rejected
+    // late, which from a seat is indistinguishable from a broken button.
     if state.phase != ti4_model::state::Phase::Agenda
-        && !are_neighbours(state, galaxy, &offer.proposer, &offer.partner)
+        && !may_transact(state, content, galaxy, &offer.proposer, &offer.partner)
     {
         return Some(OfferError::NotNeighbours(
             offer.proposer.clone(),
@@ -407,7 +448,7 @@ fn take(state: &mut GameState, player: &PlayerId, terms: &Terms) {
     seat.trade_goods -= terms.trade_goods;
     seat.commodities -= terms.commodities;
     for trait_name in &terms.fragments {
-        if let Some(held) = seat.relic_fragments.get_mut(trait_name) {
+        if let Some(held) = seat.relic_fragments.get_mut(&fragment_key(trait_name)) {
             *held -= 1;
         }
     }
@@ -434,7 +475,10 @@ fn give(state: &mut GameState, content: &ContentStore, player: &PlayerId, terms:
     // else, which is what makes a deal worth making.
     seat.trade_goods += terms.trade_goods + terms.commodities;
     for trait_name in &terms.fragments {
-        *seat.relic_fragments.entry(trait_name.clone()).or_insert(0) += 1;
+        *seat
+            .relic_fragments
+            .entry(fragment_key(trait_name))
+            .or_insert(0) += 1;
     }
     if let Some(note) = terms.promissory.clone() {
         // Support is worth a victory point the moment it arrives, which is the whole reason the
@@ -524,7 +568,7 @@ fn action_card_shape(
     let arbiters_at_table = trades_action_cards(state, content, proposer)
         || trades_action_cards(state, content, partner);
     let black_market = state.transient_flags.has(TransientFlags::BLACK_MARKET);
-    if (black_market || arbiters_at_table) && their_goods >= 1 {
+    if black_market || arbiters_at_table {
         // `min` is the sorted head: ActionCardId orders by alias exactly like Python's sorted().
         if let Some(card) = state
             .player(proposer)
@@ -533,11 +577,29 @@ fn action_card_shape(
             let card = card.as_str();
             let mut payload = BTreeMap::new();
             payload.insert("action_card".to_owned(), Value::String(card.to_owned()));
-            shapes.push((
-                format!("ac{card}:1"),
-                format!("sell the action card {card} for 1 trade good"),
-                payload,
-            ));
+            if their_goods >= 1 {
+                shapes.push((
+                    format!("ac{card}:1"),
+                    format!("sell the action card {card} for 1 trade good"),
+                    payload.clone(),
+                ));
+            }
+            // A card is worth one good and a note two to four, so a partner holding no goods but a
+            // note could previously be offered nothing at all: the one price this card had was one
+            // they did not hold. Paying in paper is the deal the operator looked for and could not
+            // find -- "hacan cant sell action cards for promissory notes".
+            for note in crate::promissory::available_notes(state, content, partner)
+                .into_iter()
+                .take(3)
+            {
+                let mut payload = payload.clone();
+                payload.insert("promissory".to_owned(), Value::String(note.clone()));
+                shapes.push((
+                    format!("cn{card}>{note}"),
+                    format!("give the action card {card} for the note {note}"),
+                    payload,
+                ));
+            }
         }
     }
 }
@@ -649,12 +711,15 @@ pub fn available_actions(
     galaxy: &Galaxy,
     player: &PlayerId,
 ) -> Vec<crate::choice::ChoiceOption> {
-    if state.diplomacy.enabled {
+    if state.diplomacy.enabled || !state.may_initiate_negotiation(player) {
         return Vec::new();
     }
     let already = state.transacted_with(player);
-    partners(state, content, galaxy, player)
-        .into_iter()
+    state
+        .seating_order
+        .iter()
+        .filter(|other| *other != player && may_transact(state, content, galaxy, player, other))
+        .cloned()
         .filter(|other| !already.contains(other))
         .map(|other| {
             let name = faction_name(state, &other);
@@ -864,7 +929,215 @@ pub fn offer_options(
         ));
     }
 
+    partner_assets(state, content, proposer, partner, &mut shapes);
     priced(state, content, proposer, partner, shapes)
+}
+
+/// The asks that take something *from* the partner, as generated by [`partner_assets`].
+///
+/// `None` for every id this is not, so a caller tries it in the middle of a prefix chain and falls
+/// through. Note ids contain `:` themselves (`ra:jolnar`), so a price is whatever follows the
+/// *last* colon; the two-asset shapes are split on `>` because neither `:` nor `|` can divide a
+/// pair of note ids.
+fn ask_terms(id: &str, proposer: &PlayerId, partner: &PlayerId) -> Option<Offer> {
+    let goods = |n: i32| Terms {
+        trade_goods: n,
+        ..Terms::default()
+    };
+    let commodities = |n: i32| Terms {
+        commodities: n,
+        ..Terms::default()
+    };
+    let deal = |given: Terms, received: Terms| {
+        Some(Offer {
+            proposer: proposer.clone(),
+            partner: partner.clone(),
+            given,
+            received,
+        })
+    };
+
+    if let Some(rest) = id.strip_prefix("np") {
+        // `np{note}:{price}` — note ids carry a colon, so the price is after the last one.
+        let (note, price) = rest.rsplit_once(':')?;
+        return deal(
+            goods(price.parse().ok()?),
+            Terms {
+                promissory: Some(note.to_owned()),
+                ..Terms::default()
+            },
+        );
+    }
+    if let Some(rest) = id.strip_prefix("cp") {
+        let (note, price) = rest.rsplit_once(':')?;
+        return deal(
+            commodities(price.parse().ok()?),
+            Terms {
+                promissory: Some(note.to_owned()),
+                ..Terms::default()
+            },
+        );
+    }
+    if let Some(rest) = id.strip_prefix("pc") {
+        // `pc{mine}:{price}` — my note, for their commodities.
+        let (note, price) = rest.rsplit_once(':')?;
+        return deal(
+            Terms {
+                promissory: Some(note.to_owned()),
+                ..Terms::default()
+            },
+            commodities(price.parse().ok()?),
+        );
+    }
+    if let Some(rest) = id.strip_prefix("nn") {
+        // `nn{mine}>{theirs}`. Neither half can be a `|` (option-token separator) and a `:` cannot
+        // divide them, because both halves are note ids.
+        let (owed, want) = rest.split_once('>')?;
+        return deal(
+            Terms {
+                promissory: Some(owed.to_owned()),
+                ..Terms::default()
+            },
+            Terms {
+                promissory: Some(want.to_owned()),
+                ..Terms::default()
+            },
+        );
+    }
+    if let Some(rest) = id.strip_prefix("cn") {
+        let (card, note) = rest.split_once('>')?;
+        return deal(
+            Terms {
+                action_card: Some(ActionCardId::new(card)),
+                ..Terms::default()
+            },
+            Terms {
+                promissory: Some(note.to_owned()),
+                ..Terms::default()
+            },
+        );
+    }
+    None
+}
+
+/// The asks that take something *from* the partner, paid in goods, commodities or paper.
+///
+/// Every shape the generator originally produced carried something to the partner and took payment
+/// back: a note sold (`pn`), a card sold under Arbiters (`ac`), commodities swapped (`cc`, `ct`,
+/// `tc`), support exchanged (`ss`). Nothing in the set asked for an asset the partner was holding,
+/// so "will you sell me your Research Agreement" was not a rude offer — it was unsayable. Hacan
+/// made that loudest, because the note worth having is the one across the table and the only price
+/// its card had was one the partner might not hold.
+///
+/// Prices are not invented here. Each is the posted price that the same note carries when it is the
+/// thing being sold (`note_option_price`), which is what lets the payer substitute the currency they
+/// actually have — that half of the report was "deals often want trade goods as payment although
+/// commodities would be available".
+///
+/// * `np{note}:{g}` — `g` of my trade goods for their note;
+/// * `cp{note}:{c}` — the same price paid in my commodities;
+/// * `pc{note}:{c}` — my note for `c` of their commodities, the same ask from the other chair;
+/// * `nn{mine}>{theirs}` — one of my notes for one of theirs;
+/// * `cn{card}>{note}` — an action card for their note, under the same 94.3 Arbiters gate as the
+///   card sale (added in [`action_card_shape`], not here).
+///
+/// `>` separates the halves of a two-asset id. Token matching splits an option id on `|`, and `:`
+/// already carries a price — and a note id contains `:` itself (`ra:jolnar`), so neither can divide
+/// `nn` without making the note unreadable. This is also why commodities-for-a-note is `cp` and not
+/// `pnc`: `pnc…` would be eaten by the `pn` branch above, which is a prefix test and not a grammar.
+///
+/// The note pairs are capped: both chairs can hold several notes and every ordered pair buries the
+/// rest of the window in near-duplicates, so the four best nets go on the table in a fixed order.
+fn partner_assets(
+    state: &GameState,
+    content: &ContentStore,
+    proposer: &PlayerId,
+    partner: &PlayerId,
+    shapes: &mut Vec<(String, String, BTreeMap<String, Value>)>,
+) {
+    let (my_goods, my_commodities) = holdings(state, proposer);
+    let (_, their_commodities) = holdings(state, partner);
+    let mine = crate::promissory::available_notes(state, content, proposer);
+    let theirs = crate::promissory::available_notes(state, content, partner);
+    let asking = |given: Option<&str>, want: &str| {
+        let mut payload = BTreeMap::new();
+        if let Some(given) = given {
+            payload.insert("promissory".to_owned(), Value::String(given.to_owned()));
+        }
+        payload.insert(
+            "received_promissory".to_owned(),
+            Value::String(want.to_owned()),
+        );
+        payload
+    };
+    for note in &theirs {
+        let price = note_option_price(note);
+        if price > 0 && my_goods >= price {
+            shapes.push((
+                format!("np{note}:{price}"),
+                format!("pay {price} trade goods for the note {note}"),
+                asking(None, note),
+            ));
+        }
+        if price > 0 && my_commodities >= price {
+            shapes.push((
+                format!("cp{note}:{price}"),
+                format!("pay {price} commodities for the note {note}"),
+                asking(None, note),
+            ));
+        }
+    }
+    // Their commodities for my note, at the note's own posted price or whatever of it they hold.
+    // This one is a function of the card I give and not of anything across the table, so it is
+    // generated once per note of mine: emitting it inside the loop above wrote the same id again
+    // for every note the partner held, and `no_deal_shape_is_written_twice` says one shape may not
+    // appear twice in a window.
+    for owed in &mine {
+        let paid = their_commodities.min(note_option_price(owed).max(1));
+        if paid <= 0 {
+            continue;
+        }
+        let mut payload = BTreeMap::new();
+        payload.insert("promissory".to_owned(), Value::String(owed.clone()));
+        payload.insert(
+            "alias".to_owned(),
+            Value::String(crate::promissory::alias_of(owed).to_owned()),
+        );
+        shapes.push((
+            format!("pc{owed}:{paid}"),
+            format!("give the note {owed} for {paid} commodity"),
+            payload,
+        ));
+    }
+    // Note for note: different promises only, best net first, ties broken by the card given away so
+    // the list does not depend on which chair happened to hold what.
+    let mut pairs = mine
+        .iter()
+        .flat_map(|owed| {
+            theirs.iter().filter_map(move |want| {
+                (crate::promissory::alias_of(want) != crate::promissory::alias_of(owed))
+                    .then_some((owed, want))
+            })
+        })
+        .filter_map(|(owed, want)| {
+            let net = note_worth(state, content, want) - note_cost(state, content, owed);
+            (net >= 0.0).then_some((net, owed, want))
+        })
+        .collect::<Vec<(f64, &String, &String)>>();
+    pairs.sort_by(|left, right| {
+        right
+            .0
+            .total_cmp(&left.0)
+            .then_with(|| left.1.cmp(right.1))
+            .then_with(|| left.2.cmp(right.2))
+    });
+    for (_, owed, want) in pairs.into_iter().take(4) {
+        shapes.push((
+            format!("nn{owed}>{want}"),
+            format!("give the note {owed} for the note {want}"),
+            asking(Some(owed), want),
+        ));
+    }
 }
 
 /// Price every shape and build the option list.
@@ -981,6 +1254,12 @@ pub fn offer_from(
             },
             goods(price.parse().ok()?),
         );
+    }
+    // The asks that take something from the partner: `np`, `cp`, `pc`, `nn`, `cn`. Delegated rather
+    // than inline because a shape this file cannot read has to fall through to the commodity and
+    // goods branches untouched, and `offer_from` was already at the edge of being readable.
+    if let Some(ask) = ask_terms(id, proposer, partner) {
+        return Some(ask);
     }
     if let Some(rest) = id.strip_prefix("so") {
         // `so{secret}:{price}` — Black Market Dealings puts an unscored secret objective on
@@ -1461,6 +1740,47 @@ mod tests {
         assert!(state.identical(&before), "nothing changed hands");
     }
 
+    /// Guild Ships: "You can negotiate transactions with players who are not your neighbor."
+    ///
+    /// The offer path honoured this (`partners`) and the legality check did not (`are_neighbours`), so a
+    /// Hacan seat was offered a partner across the board and refused the instant it accepted - reported
+    /// by the operator as "straight up guild ships not working", and reproducible in fifteen lines. When
+    /// generation and legality disagree, what the reader experiences is a dead button.
+    #[test]
+    fn guild_ships_let_a_hacan_seat_deal_with_a_stranger() {
+        let hub = plain_hub();
+        let mut state = game(&["a", "b"]);
+        let far = hub.across(&hub.outer[0]);
+        put(
+            &mut state,
+            &SystemId::new(hub.outer[0].clone()),
+            "cruiser",
+            &a(),
+            1,
+        );
+        put(&mut state, &SystemId::new(far), "cruiser", &b(), 1);
+        state.player_mut(&a()).unwrap().trade_goods = 5;
+        state.player_mut(&a()).unwrap().faction = FactionId::new("hacan");
+        assert!(
+            !are_neighbours(&state, &hub.galaxy, &a(), &b()),
+            "the fixture has to be strangers, or this proves nothing"
+        );
+
+        let offer = Offer {
+            proposer: a(),
+            partner: b(),
+            given: goods(2),
+            received: Terms::default(),
+        };
+        let outcome = resolve(&mut state, ContentStore::embedded(), &hub.galaxy, &offer);
+        assert!(
+            outcome.is_ok(),
+            "Guild Ships reaches across the board; got {outcome:?}"
+        );
+        assert_eq!(state.player(&a()).unwrap().trade_goods, 3);
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 2);
+    }
+
     #[test]
     fn a_deal_nobody_can_pay_changes_nothing() {
         let hub = plain_hub();
@@ -1505,6 +1825,36 @@ mod tests {
             Err(OfferError::CannotPay(a())),
             "a holds nothing, so cannot give two whatever b is sending"
         );
+    }
+
+    /// Diplomacy names fragments in lower case (`cultural`, `unknown`); they are held upper case
+    /// (`CULTURAL`, and `FRONTIER` for an unknown fragment). The two must meet.
+    #[test]
+    fn diplomacy_fragment_names_match_the_held_keys() {
+        let hub = plain_hub();
+        let mut state = game(&["a", "b"]);
+        let centre = SystemId::new(hub.centre.clone());
+        put(&mut state, &centre, "cruiser", &a(), 1);
+        put(&mut state, &centre, "cruiser", &b(), 1);
+        crate::exploration::gain_fragment(&mut state, &a(), "CULTURAL");
+        crate::exploration::gain_fragment(&mut state, &a(), "FRONTIER");
+        let offer = Offer {
+            proposer: a(),
+            partner: b(),
+            given: Terms {
+                fragments: vec!["cultural".to_owned(), "unknown".to_owned()],
+                ..Terms::default()
+            },
+            received: Terms::default(),
+        };
+        assert_eq!(
+            resolve(&mut state, ContentStore::embedded(), &hub.galaxy, &offer),
+            Ok(())
+        );
+        let b_holds = &state.player(&b()).unwrap().relic_fragments;
+        assert_eq!(b_holds.get("CULTURAL"), Some(&1));
+        assert_eq!(b_holds.get("FRONTIER"), Some(&1));
+        assert!(state.player(&a()).unwrap().relic_fragments.is_empty());
     }
 
     #[test]
@@ -1818,6 +2168,198 @@ mod tests {
             .find(|option| option.id == "pncf:hacan:2")
             .expect("the ceasefire is on the table");
         assert_eq!(cf.label, "sell cf:hacan for 2 trade goods");
+    }
+
+    /// Strike the deal the option names and say so loudly if the engine would not.
+    ///
+    /// Every new offer shape needs this, not just a parse test: an option that lists, parses, and
+    /// then refuses at execution is the failure the operator actually experiences.
+    fn struck(
+        state: &mut GameState,
+        hub: &crate::fixtures::Hub,
+        proposer: &PlayerId,
+        partner: &PlayerId,
+        option: &ChoiceOption,
+    ) {
+        let mut window = TradeWindow::open(state, proposer, partner);
+        window.resolve(state, ContentStore::embedded(), &hub.galaxy, option);
+        let outcome = window.resolve(
+            state,
+            ContentStore::embedded(),
+            &hub.galaxy,
+            &ChoiceOption::labelled("accept", ANSWER_KIND, ""),
+        );
+        assert_eq!(
+            outcome,
+            Traded::Resolved,
+            "{} was not settleable",
+            option.id
+        );
+    }
+
+    /// "cant ask for opponent held promissory notes during transactions"
+    #[test]
+    fn a_note_can_be_bought_off_the_partner() {
+        let (hub, mut state) = trading_partners();
+        // b (jolnar) buys a ceasefire note out of a's hand. Ceasefire posts at 2 and the fixture
+        // seat holds 2 goods, so the ask is affordable as soon as one more arrives: an ask the
+        // payer cannot cover must not be on the table either, which is the other half of this.
+        state.player_mut(&b()).unwrap().trade_goods = 5;
+        let offers = offer_options(&state, ContentStore::embedded(), &b(), &a());
+        let buy = offers
+            .iter()
+            .find(|option| option.id == "npcf:hacan:2")
+            .cloned()
+            .expect("the partner's note is on the table");
+        let deal = offer_from(&state, &buy.id, &b(), &a()).expect("the id parses back");
+        assert_eq!(
+            deal.given.trade_goods, 2,
+            "the posted price, not an invented one"
+        );
+        assert_eq!(deal.received.promissory.as_deref(), Some("cf:hacan"));
+
+        struck(&mut state, &hub, &b(), &a(), &buy);
+        assert_eq!(state.promissory_notes.get("cf:hacan"), Some(&b()));
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 3);
+        assert!(
+            !crate::promissory::available_notes(&state, ContentStore::embedded(), &a())
+                .contains(&"cf:hacan".to_owned()),
+            "and a is left holding nothing of it",
+        );
+    }
+
+    /// "deals often want tradegoods as payment although commodities would be available"
+    #[test]
+    fn a_note_can_be_paid_for_in_commodities() {
+        let (hub, mut state) = trading_partners();
+        let seat = state.player_mut(&b()).unwrap();
+        seat.trade_goods = 0;
+        seat.commodities = 4;
+        let offers = offer_options(&state, ContentStore::embedded(), &b(), &a());
+        // Ceasefire posts at 2, and b holds 4 commodities, so the paper is buyable in commodities
+        // even though b cannot buy a paperclip in goods.
+        let buy = offers
+            .iter()
+            .find(|option| option.id == "cpcf:hacan:2")
+            .cloned()
+            .or_else(|| {
+                offers
+                    .iter()
+                    .find(|option| option.id.starts_with("cp"))
+                    .cloned()
+            })
+            .expect("a commodity-priced ask is on the table");
+        let deal = offer_from(&state, &buy.id, &b(), &a()).expect("the id parses back");
+        assert!(deal.given.commodities > 0, "paid in commodities");
+        assert_eq!(deal.given.trade_goods, 0);
+        assert!(deal.received.promissory.is_some(), "and a note comes back");
+
+        let before = state.player(&a()).unwrap().trade_goods;
+        struck(&mut state, &hub, &b(), &a(), &buy);
+        assert_eq!(
+            state.player(&b()).unwrap().commodities,
+            4 - deal.given.commodities
+        );
+        assert_eq!(
+            state.player(&a()).unwrap().trade_goods,
+            before + deal.given.commodities,
+            "21.5: their commodities land as trade goods",
+        );
+    }
+
+    /// BUG-03: "Note for note impossible, any faction"
+    #[test]
+    fn notes_trade_for_one_another() {
+        let (hub, mut state) = trading_partners();
+        let offers = offer_options(&state, ContentStore::embedded(), &b(), &a());
+        let swap = offers
+            .iter()
+            .find(|option| option.id.starts_with("nn"))
+            .cloned()
+            .expect("a note-for-note shape is offered");
+        let (owed, want) = swap.id[2..].split_once('>').expect("two note ids");
+        assert_ne!(owed, want, "a promise is not traded for itself");
+        let deal = offer_from(&state, &swap.id, &b(), &a()).expect("the id parses back");
+        assert_eq!(deal.given.promissory.as_deref(), Some(owed));
+        assert_eq!(deal.received.promissory.as_deref(), Some(want));
+
+        struck(&mut state, &hub, &b(), &a(), &swap);
+        assert_eq!(state.promissory_notes.get(want), Some(&b()));
+        assert_eq!(state.promissory_notes.get(owed), Some(&a()));
+    }
+
+    /// "hacan cant sell action cards for promissory notes"
+    #[test]
+    fn an_action_card_buys_a_note_across_the_table() {
+        let (hub, mut state) = trading_partners();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .action_cards
+            .push(ActionCardId::new("shutdown"));
+        // A partner with no goods at all: the card's old one-good price was unreachable, so this is
+        // the table where the missing shape is the only deal available.
+        state.player_mut(&b()).unwrap().trade_goods = 0;
+        let offers = offer_options(&state, ContentStore::embedded(), &a(), &b());
+        let sell = offers
+            .iter()
+            .find(|option| option.id.starts_with("cn"))
+            .cloned()
+            .expect("a card-for-note shape is offered under Arbiters");
+        let deal = offer_from(&state, &sell.id, &a(), &b()).expect("the id parses back");
+        assert_eq!(
+            deal.given
+                .action_card
+                .as_ref()
+                .map(|card| card.as_str().to_owned()),
+            Some("shutdown".to_owned()),
+        );
+        assert!(deal.received.promissory.is_some());
+
+        struck(&mut state, &hub, &a(), &b(), &sell);
+        assert!(
+            !state.player(&a()).is_some_and(|seat| seat
+                .action_cards
+                .iter()
+                .any(|card| card.as_str() == "shutdown")),
+            "the card left hacan's hand",
+        );
+        assert!(
+            state.player(&b()).is_some_and(|seat| seat
+                .action_cards
+                .iter()
+                .any(|card| card.as_str() == "shutdown")),
+            "and arrived across the table",
+        );
+    }
+
+    /// Every ask the generator can name must be a deal the engine accepts, with both hands paying
+    /// something. A shape that lists but cannot settle is worse than a missing shape: it reads as
+    /// available right up to the moment it fails.
+    #[test]
+    fn every_ask_parses_into_a_deal_with_two_sides() {
+        let (_hub, mut state) = trading_partners();
+        state.player_mut(&b()).unwrap().trade_goods = 6;
+        state.player_mut(&a()).unwrap().trade_goods = 6;
+        let mut seen = 0;
+        for (proposer, partner) in [(a(), b()), (b(), a())] {
+            for option in offer_options(&state, ContentStore::embedded(), &proposer, &partner) {
+                if !(option.id.starts_with("np")
+                    || option.id.starts_with("cp")
+                    || option.id.starts_with("pc")
+                    || option.id.starts_with("nn")
+                    || option.id.starts_with("cn"))
+                {
+                    continue;
+                }
+                seen += 1;
+                let deal = offer_from(&state, &option.id, &proposer, &partner)
+                    .unwrap_or_else(|| panic!("{} does not parse", option.id));
+                assert!(!deal.given.is_empty(), "{} gives nothing", option.id);
+                assert!(!deal.received.is_empty(), "{} takes nothing", option.id);
+            }
+        }
+        assert!(seen > 0, "the asks were never generated at all");
     }
 
     #[test]

@@ -116,8 +116,10 @@ pub fn fulfill_payment(
             received: Terms::default(),
         },
     )?;
-    state.record_transaction(promiser, &beneficiary);
-    let _ = state.diplomacy.consume_initiation(promiser, &beneficiary);
+    // Neither the transaction record nor the initiation budget moves here. This is the fulfilment
+    // of a promise both sides already made, not a new contact: recording it used to mean that
+    // paying one due forbade paying the next one to the same player, and forbade trading with them
+    // at all. Whatever the pair agreed at signing is not re-priced by the act of honouring it.
     settle_term(
         state,
         deal_id,
