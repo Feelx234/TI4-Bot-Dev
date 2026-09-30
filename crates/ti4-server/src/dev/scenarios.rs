@@ -57,6 +57,15 @@ pub struct LaunchScenarioResponse {
 pub fn available_scenarios() -> Vec<ScenarioSummary> {
     vec![
         ScenarioSummary {
+            id: "research_tech_skips".to_owned(),
+            title: "Technology Research & Skips".to_owned(),
+            category: "Strategy".to_owned(),
+            description: "Player 1 (Federation of Sol) has played the Technology strategy card. Choose technologies to research, toggle ready tech specialty planets for skips, and pay for a second technology.".to_owned(),
+            player_count: 3,
+            human_faction: "Federation of Sol".to_owned(),
+            opponent_factions: vec!["Emirates of Hacan".to_owned(), "Barony of Letnev".to_owned()],
+        },
+        ScenarioSummary {
             id: "tactical_action".to_owned(),
             title: "Tactical Action & Movement".to_owned(),
             category: "Tactical".to_owned(),
@@ -177,6 +186,10 @@ pub fn launch_scenario(
     let (mut config, lobby_record, human_player, session_token, border_system) = match scenario_id {
         "tactical_action" => {
             let (c, l, p, t) = build_tactical_scenario(seed)?;
+            (c, l, p, t, String::new())
+        }
+        "research_tech_skips" => {
+            let (c, l, p, t) = build_research_scenario(seed)?;
             (c, l, p, t, String::new())
         }
         "production_batch" | "production_payment_batch" | "production_payment_autospend" => {
@@ -317,6 +330,9 @@ pub fn launch_scenario(
     if scenario_id.starts_with("production_") {
         advance_into_production(&session, &human_player)?;
     }
+    if scenario_id == "research_tech_skips" {
+        advance_into_research(&session, &human_player)?;
+    }
 
     Ok(LaunchScenarioResponse {
         game_id,
@@ -325,6 +341,124 @@ pub fn launch_scenario(
         scenario_id: scenario_id.to_owned(),
         test_seats,
     })
+}
+
+fn build_research_scenario(
+    seed: u64,
+) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String), String> {
+    let (mut config, lobby, player, token, galaxy, _, _) =
+        setup_base_3p_game(seed, "dev_tech")?;
+    let content = ContentStore::embedded();
+
+    let strat_tech = StrategyCardId::new("pok7technology");
+    if let Some(sol) = config.state.player_mut(&player) {
+        sol.strategy_cards = vec![strat_tech.clone()];
+        sol.trade_goods = 6;
+        sol.technologies = [
+            ti4_model::id::TechnologyId::new("amd"),
+            ti4_model::id::TechnologyId::new("nm"),
+        ]
+        .into_iter()
+        .collect();
+    }
+    config
+        .state
+        .unclaimed_strategy_cards
+        .retain(|c| c != &strat_tech);
+    config
+        .state
+        .unclaimed_strategy_cards
+        .push(StrategyCardId::new("leadership"));
+
+    let all_planets = ti4_content::galaxy::all_planets(content, POK);
+    let mut ready_assigned = false;
+    let mut exhausted_assigned = false;
+
+    for system_id in galaxy.system_ids() {
+        if system_id == "01" {
+            continue;
+        }
+        if let Some(tile) = ti4_content::galaxy::system(content, system_id, POK) {
+            for planet in tile.planets() {
+                if let Some(rec) = all_planets.get(planet) {
+                    if !rec.tech_specialties().is_empty() {
+                        let pid = PlanetId::new(planet);
+                        config
+                            .state
+                            .system_mut(&SystemId::new(system_id))
+                            .set_control(pid.clone(), player.clone());
+                        if !ready_assigned {
+                            ready_assigned = true;
+                        } else if !exhausted_assigned {
+                            config.state.exhaust_planet(pid);
+                            exhausted_assigned = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if ready_assigned && exhausted_assigned {
+            break;
+        }
+    }
+
+    Ok((config, lobby, player, token))
+}
+
+fn advance_into_research(session: &Arc<GameSession>, player: &PlayerId) -> Result<(), String> {
+    let client = MockClient::connect(session.clone(), ViewerRole::Player(player.clone()));
+    for _ in 0..20 {
+        let mut offered = None;
+        for _ in 0..150 {
+            if let Ok(ServerMessage::PendingChoice(message)) = client.try_recv() {
+                offered = Some(message.choice);
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let choice = offered
+            .or_else(|| {
+                client
+                    .snapshot()
+                    .pending_choice
+                    .map(|envelope| envelope.choice)
+            })
+            .ok_or_else(|| "timed out waiting for initial choice in advance_into_research".to_owned())?;
+
+        if choice
+            .context
+            .as_ref()
+            .is_some_and(|ctx| ctx.subtype == "research_technology")
+        {
+            return Ok(());
+        }
+
+        let Some((_, nonce, version)) = session.current_pending_decision() else {
+            return Err("no current pending decision in advance_into_research".to_owned());
+        };
+
+        if let Some(strat_opt) = choice.options.iter().find(|o| o.id.starts_with("strategic|")) {
+            client
+                .submit(&nonce, version, &strat_opt.id)
+                .map_err(|e| format!("submit strategic card failed: {e:?}"))?;
+        } else if choice.options.iter().any(|o| o.id == "strategic") {
+            client
+                .submit(&nonce, version, "strategic")
+                .map_err(|e| format!("submit strategic action failed: {e:?}"))?;
+        } else if choice.options.iter().any(|o| o.id == "decline") {
+            client
+                .submit(&nonce, version, "decline")
+                .map_err(|e| format!("submit decline failed: {e:?}"))?;
+        } else {
+            return Err(format!(
+                "unexpected choice in advance_into_research: {:?}, options: {:?}",
+                choice.prompt,
+                choice.options.iter().map(|o| &o.id).collect::<Vec<_>>()
+            ));
+        }
+    }
+    Err("advance_into_research exceeded 20 iterations".to_owned())
 }
 
 fn build_production_scenario(

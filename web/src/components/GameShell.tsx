@@ -9,6 +9,7 @@ import {
 } from "../protocol/types.ts";
 import { EventLog } from "./EventLog.tsx";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
+import { TechnologyModal } from "./TechnologyModal.tsx";
 import { PaymentDrawer } from "./PaymentDrawer.tsx";
 import {
   TacticalMovementOverlay,
@@ -286,7 +287,35 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
         />
       ),
   ],
+  ["technology_research", renderTechnologyResearch],
 ]);
+
+function renderTechnologyResearch({
+  choice,
+  model,
+  viewerSeat,
+  onSubmit,
+  isMinimized,
+  onMinimizedChange,
+  lastError,
+  boardView,
+  players,
+}: Parameters<WorkflowRenderer>[0]) {
+  return (
+    <TechnologyModal
+      isOpen={!isMinimized}
+      onClose={() => onMinimizedChange(true)}
+      choice={choice}
+      model={model}
+      viewerSeat={viewerSeat}
+      onSubmit={onSubmit}
+      board={boardView}
+      players={players}
+      isResearchMode={true}
+      lastError={lastError}
+    />
+  );
+}
 
 function renderCombat({
   choice,
@@ -544,11 +573,13 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
         ].includes(workflow) && (
           <div className="choice-banner choice-minimized-pill" data-testid="choice-minimized-pill">
             <span className="choice-minimized-pill__prompt">
-              {workflow === "tactical_movement" || visibleChoice.prompt === "movement"
-                ? "Move Units"
-                : workflow === "tactical_cargo" || visibleChoice.prompt === "load_cargo"
-                  ? "Load Cargo"
-                  : visibleChoice.prompt}
+              {workflow === "technology_research"
+                ? "Research Technology"
+                : workflow === "tactical_movement" || visibleChoice.prompt === "movement"
+                  ? "Move Units"
+                  : workflow === "tactical_cargo" || visibleChoice.prompt === "load_cargo"
+                    ? "Load Cargo"
+                    : visibleChoice.prompt}
             </span>
             <button
               type="button"

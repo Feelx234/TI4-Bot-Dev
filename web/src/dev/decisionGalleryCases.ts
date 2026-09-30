@@ -203,6 +203,15 @@ const cases = {
     options: [option("option_a", "Option A"), option("option_b", "Option B")],
     note: "An unknown decision uses the offered labels.",
   },
+  technology_research: {
+    subtype: "research_technology",
+    options: [
+      option("amd", "Antimass Deflectors", "research"),
+      option("nm", "Neural Motivator", "research"),
+      option("st", "Sarween Tools", "research"),
+    ],
+    note: "Technology modal with skips and color tracks.",
+  },
 } satisfies Record<
   ChoiceWorkflowKind,
   {
@@ -242,6 +251,7 @@ export const galleryCases: GalleryCase[] = (Object.keys(cases) as ChoiceWorkflow
             action_card_reaction: "Respond to the action card",
             objective_scoring: "Score an objective",
             strategy_card_draft: "Choose a strategy card",
+            technology_research: "Research a technology",
             generic_selection: "Choose an option",
           } satisfies Record<ChoiceWorkflowKind, string>
         )[workflow],

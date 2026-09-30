@@ -34,6 +34,7 @@ export type ChoiceWorkflowKind =
   | "action_card_reaction"
   | "objective_scoring"
   | "strategy_card_draft"
+  | "technology_research"
   | "generic_selection";
 
 export interface ChoiceRendererModel {
@@ -327,6 +328,42 @@ export function deriveChoiceRendererModel(
     return {
       workflow: "strategy_card_draft",
       selectionMode: { mode: "single" },
+      prompt: choice.prompt,
+      actor: choice.actor,
+      nonce: choice.nonce,
+      isOptional,
+      contextTarget: choice.context?.target ?? null,
+      options: choice.options,
+      outstanding: choice.context?.outstanding ?? [],
+      declineOption,
+      optionsByKind,
+      optionsByTarget,
+    };
+  }
+
+  // Technology Research
+  if (
+    subtype === "research_technology" ||
+    (choice.options.length > 0 && choice.options.some((o) => o.kind === "research"))
+  ) {
+    const isPrimary =
+      choice.context?.source &&
+      typeof choice.context.source === "object" &&
+      "StrategyCard" in choice.context.source &&
+      (choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
+        .StrategyCard?.card === "Technology" &&
+      !(choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
+        .StrategyCard?.secondary;
+
+    const min = constraints?.min_selection ?? (isOptional ? 0 : 1);
+    const max = constraints?.max_selection ?? (isPrimary ? 2 : 1);
+
+    return {
+      workflow: "technology_research",
+      selectionMode:
+        max > 1
+          ? { mode: "multi", min, max }
+          : { mode: "single" },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,

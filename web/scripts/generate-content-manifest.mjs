@@ -126,6 +126,25 @@ async function generate() {
     return catalog;
   };
 
+  const technologyCatalog = (records) => {
+    const catalog = {};
+    for (const record of records) {
+      const id = requiredString(record, "alias", "technologies");
+      const meta = {
+        id,
+        name: requiredString(record, "name", "technologies"),
+        types: Array.isArray(record.types) ? record.types : [],
+        requirements: optionalString(record, "requirements") || undefined,
+        faction: optionalString(record, "faction") || undefined,
+        source: optionalString(record, "source") || undefined,
+        baseUpgrade: optionalString(record, "baseUpgrade") || undefined,
+        description: optionalString(record, "text"),
+      };
+      addEntry(catalog, id, meta, "technologies");
+    }
+    return catalog;
+  };
+
   const exploreCatalog = {};
   for (const card of explores) {
     const id = requiredString(card, "id", "explores");
@@ -155,6 +174,7 @@ async function generate() {
         name: requiredString(planet, "name", "planets"),
         resources: planet.resources ?? 0,
         influence: planet.influence ?? 0,
+        techSpecialties: Array.isArray(planet.techSpecialties) ? planet.techSpecialties : [],
       },
       "planets",
     );
@@ -181,7 +201,7 @@ async function generate() {
     secretObjectives: sortedCatalog(objectiveCatalog(secretObjectives, "secret_objectives")),
     publicObjectives: sortedCatalog(objectiveCatalog(publicObjectives, "public_objectives")),
     actionCards: sortedCatalog(cardCatalog(actionCards, "action_cards")),
-    technologies: sortedCatalog(cardCatalog(technologies, "technologies")),
+    technologies: sortedCatalog(technologyCatalog(technologies)),
     explorationCards: sortedCatalog(exploreCatalog),
     planets: sortedCatalog(planetCatalog),
     attachments: sortedCatalog(attachmentCatalog),

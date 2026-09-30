@@ -11,6 +11,7 @@ import { usePresence } from "./hooks/usePresence.ts";
 import { PlayerIdentityProvider } from "./presentation/PlayerIdentity.tsx";
 import { participantText } from "./presentation/participantText.ts";
 import { CardDetails, CardSubject } from "./components/CardDetails.tsx";
+import { TechnologyModal } from "./components/TechnologyModal.tsx";
 
 const DevDecisionGallery = import.meta.env.DEV
   ? React.lazy(() =>
@@ -244,6 +245,7 @@ const GameViewContainer: React.FC<{
   const [selectedOptionId, setSelectedOptionId] = useState<string>();
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
   const [cardSubject, setCardSubject] = useState<CardSubject | null>(null);
+  const [isTechModalOpen, setIsTechModalOpen] = useState(false);
   useEffect(() => setSelectedOptionId(undefined), [pendingChoice?.nonce]);
   const cardIsVisible =
     cardSubject &&
@@ -295,13 +297,23 @@ const GameViewContainer: React.FC<{
               connectionStatus={status}
               userSeat={userSeat}
             />
-            <button
-              data-testid="leave-game-button"
-              onClick={onLeave}
-              className="button button--secondary game-header__exit"
-            >
-              Exit Game
-            </button>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <button
+                type="button"
+                data-testid="technology-modal-button"
+                onClick={() => setIsTechModalOpen(true)}
+                className="button button--secondary"
+              >
+                Technologies
+              </button>
+              <button
+                data-testid="leave-game-button"
+                onClick={onLeave}
+                className="button button--secondary game-header__exit"
+              >
+                Exit Game
+              </button>
+            </div>
           </div>
         }
         board={
@@ -375,6 +387,11 @@ const GameViewContainer: React.FC<{
         lastError={lastError}
         selectedOptionId={selectedOptionId}
         onSelectOption={setSelectedOptionId}
+      />
+      <TechnologyModal
+        isOpen={isTechModalOpen}
+        onClose={() => setIsTechModalOpen(false)}
+        players={snapshot?.view.players}
       />
     </PlayerIdentityProvider>
   );

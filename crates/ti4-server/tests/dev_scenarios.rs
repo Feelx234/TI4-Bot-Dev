@@ -18,6 +18,7 @@ fn test_available_scenarios_listing() {
             .map(|scenario| scenario.id.as_str())
             .collect::<Vec<_>>(),
         [
+            "research_tech_skips",
             "tactical_action",
             "production_batch",
             "production_payment_batch",
@@ -519,4 +520,20 @@ fn ongoing_combat_can_undo_twice() {
         );
         assert!(result.is_ok(), "undo {attempt} failed: {result:?}");
     }
+}
+
+#[test]
+fn test_launch_research_tech_skips_scenario() {
+    let registry = Arc::new(GameRegistry::new());
+    let launched = execute_launch_scenario(&registry, "research_tech_skips", Some(42))
+        .expect("launch scenario succeeds");
+
+    let session = registry.get_game(&launched.game_id).expect("game exists");
+    let seat = ti4_model::id::PlayerId::new(&launched.player_id);
+    let snapshot = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+    let pending = snapshot.pending_choice.expect("pending choice exists");
+    assert_eq!(
+        pending.choice.context.as_ref().map(|c| c.subtype.as_str()),
+        Some("research_technology")
+    );
 }

@@ -304,9 +304,9 @@ describe("choiceModel", () => {
     it("classifies bounded multi-selection fallback", () => {
       const multiChoice: PendingChoiceDto = {
         ...baseChoice,
-        prompt: "select 2 technologies",
+        prompt: "select 2 items",
         context: {
-          subtype: "research_technology",
+          subtype: "custom_unhandled_selection",
           outstanding: [
             {
               min_selection: 2,
@@ -315,15 +315,33 @@ describe("choiceModel", () => {
           ],
         },
         options: [
-          { id: "tech1", label: "Tech 1" },
-          { id: "tech2", label: "Tech 2" },
-          { id: "tech3", label: "Tech 3" },
+          { id: "item1", label: "Item 1" },
+          { id: "item2", label: "Item 2" },
+          { id: "item3", label: "Item 3" },
         ],
       };
 
       const model = deriveChoiceRendererModel(multiChoice, "seat_1");
       expect(model?.workflow).toBe("generic_selection");
       expect(model?.selectionMode).toEqual({ mode: "multi", min: 2, max: 2 });
+    });
+
+    it("classifies research_technology workflow", () => {
+      const researchChoice: PendingChoiceDto = {
+        ...baseChoice,
+        prompt: "Research a technology",
+        context: {
+          subtype: "research_technology",
+        },
+        options: [
+          { id: "gd", label: "Gravity Drive", kind: "research" },
+          { id: "decline", label: "Decline", kind: "decline" },
+        ],
+      };
+
+      const model = deriveChoiceRendererModel(researchChoice, "seat_1");
+      expect(model?.workflow).toBe("technology_research");
+      expect(model?.isOptional).toBe(true);
     });
   });
 

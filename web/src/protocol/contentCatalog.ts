@@ -102,15 +102,24 @@ export function getActionCardMeta(id: string): CardMeta {
   );
 }
 
-export function findTechnologyMeta(id: string): CardMeta | undefined {
-  return exactLookup(TECHNOLOGIES, id);
+export interface TechnologyMeta extends CardMeta {
+  types?: readonly string[];
+  requirements?: string;
+  faction?: string;
+  source?: string;
+  baseUpgrade?: string;
 }
 
-export function getTechnologyMeta(id: string): CardMeta {
+export function findTechnologyMeta(id: string): TechnologyMeta | undefined {
+  return exactLookup(TECHNOLOGIES, id) as TechnologyMeta | undefined;
+}
+
+export function getTechnologyMeta(id: string): TechnologyMeta {
   return (
     findTechnologyMeta(id) ?? {
       id,
       name: humanizeId(id),
+      types: [],
       description: "Technology",
     }
   );
@@ -158,6 +167,7 @@ export interface PlanetStaticMeta {
   name: string;
   resources: number;
   influence: number;
+  techSpecialties?: readonly string[];
 }
 
 export interface AttachmentStaticMeta {
