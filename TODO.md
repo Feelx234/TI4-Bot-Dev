@@ -3,7 +3,7 @@
 - [x] main game stats (total ressources/influence, remaining ressources/influence)
 - faction rules tooltips
 - test all strategy cards + secondaries
-- test scoring objectives
+- [x] test scoring objectives
 - test winning the game
 - test agenda phase
 
@@ -19,9 +19,6 @@ These fields already arrive from the server in PlayerView and TableView, but hav
   • Galactic Laws in Play (Agendas Passed):
       • Engine / Protocol: TableView.laws: Record<string, string>.
       • Web UI: Not rendered anywhere. Players cannot see which laws (e.g., Minister of War, Wormhole Research) are active in the galaxy.
-  • Scored Public Objectives Matrix (Who Scored What):
-      • Engine / Protocol: TableView.scored_objectives: Record<string, string[]> file:///home/zibert/github/TI4-Bot-Dev/web/src/protocol/types.ts#L180.
-      • Web UI: PlayerSheet.tsx:115-133 shows which public objectives are revealed, but does not indicate which players have scored them (no player scoring markers/tokens on the cards).
   • Unclaimed Strategy Cards & Accumulated Trade Goods:
       • Engine / Protocol: TableView.unclaimed_strategy_cards and TableView.strategy_card_goods.
       • Web UI: Neither the unpicked strategy cards nor the bonus trade goods placed on them are displayed.
@@ -58,7 +55,7 @@ These fields already arrive from the server in PlayerView and TableView, but hav
   ──────
   ### Suggested Priorities After the Tech Overview
   
-  1. Scored Public Objectives Grid: Marking which players scored each revealed public objective on PlayerSheet.tsx (the backend data is already in TableView.scored_objectives).
+  1. [x] Scored Public Objectives Grid: Marking which players scored each revealed public objective on PlayerSheet.tsx (the backend data is already in TableView.scored_objectives).
   2. Leaders & Relics Tray: Adding a collapsible section or badges to PlayerSheet.tsx using PlayerView.leaders and PlayerView.relics.
   3. Face-Up Promissory Notes (Support for the Throne / Alliance): Projecting public promissory notes in TableView / PlayerView so table alliances and VP sources are transparent.
   4. Active Laws Panel: Displaying TableView.laws near the public objectives.
