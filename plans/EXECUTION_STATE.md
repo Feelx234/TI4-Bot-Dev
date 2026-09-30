@@ -9911,3 +9911,40 @@ Queue unchanged and untouched by this session's remaining context: **BUG-08** (r
 paying the due is not), **BUG-09**, **OP-03** dice rolls (check the recording before the renderer),
 **BUG-07**, **UI-06**, **BUG-10**, **OP-05**. Start at BUG-08 with a failing test that both answers
 exist at a due; nothing here needs the operator except BUG-04's A/B/C and the two BLOCKED saved games.
+
+## 2026-09-30 — independent review of Claude's pending main integration
+
+Objective: answer `ASTRA_REVIEW_REQUEST_2026-09-30.md`; no migration package or milestone advanced.
+Response: `plans/ASTRA_REVIEW_RESPONSE_2026-09-30.md`. Evidence and exact commands:
+`plans/evidence/ASTRA-MERGE-REVIEW-2026-09-30.md`.
+
+Branch/HEAD remain `wp/online-multiplayer` / `3f92016dabdd737212fc974d66187bbc11597aec`.
+Local main remains `b1143a5b8e047dca236d07f3f9981c623b6b89d1`; both committed trees are
+`54dcd09370e33d2506f4d56255f1e34147009a11`. No commit, ref movement, checkout, worktree, push,
+reset, clean, prune, or historical Python access. Recommendation: **hold the push**.
+
+Measured: all 30 behavioral seeds end cleanly; seven metrics breach v44, including every event share
+and VP pace. Invasion starts/resolutions match per seed (2,120 each). `TURN_CLOSING` from `75f1d94a`
+accounts for part of the denominator effect; remaining attribution is open. No rebaseline approval.
+ManualControl independently reproduces a stale ask-1 submission accepted at identical ask 2; probe
+exits 101 intentionally. Host pending deduplication has the same fingerprint-only identity defect
+by inspection. App/live tests pass (21 + 9); reviewer identity-hook test passes (1). Stage-1 exact
+one-seed diagnostic has 399 decisions and zero weights; the reference plan's 16-seed sample has
+6,752 decisions, zero errors, and 32,329 named nonzero weights. Hashing did not remove named schema-4
+weights. Preserve that test contract and repair its learning fixture.
+
+Working tree intentionally remains dirty. All inherited changes were preserved: 16 staged bridge
+goldens; capture_offline_pilot/offline_bc; app.rs and app/live tests; review board/decision tests;
+rollout.rs formatting; INDEX.md; publish_and_train_stopped_corpus.ps1; the review request, two resume
+psd1 files, and target-cuda-repack/. Review additions are only three diagnostic examples named
+`astra_*_20260930.rs` in ti4-sim/ti4-training/ti4-replayer, response/evidence docs, this append, and
+ignored `out/astra-review-20260930/` logs/hash manifest. Existing fixtures and fixes are still not in
+either committed tree. The full status/diff is preserved under that ignored evidence directory.
+
+Next safe action: scope the typed live-choice instance fix across submission/delegation and host
+pending delivery, keeping replay's shape hash stable; retain the red stale-click probe. Then finish
+behavior attribution and fixture/golden repairs as specified in the response, commit scoped changes,
+and qualify the exact forward-integrated candidate with `cargo test --workspace -j 4 --no-fail-fast`.
+No full workspace rerun or overall 127-commit/security sign-off was performed by this reviewer.
+All review-owned commands completed; no background worker was left running. Read this checkpoint,
+the request, response, evidence, and current Git state before resuming.

@@ -175,13 +175,13 @@ impl eframe::App for RemoteTable {
             self.table(root, &remote)
         };
         match action {
-            Some(Action::Submit(fingerprint, option)) => {
-                if let Err(error) = client.submit(fingerprint, option) {
+            Some(Action::Submit(drawn, option)) => {
+                if let Err(error) = client.submit(&drawn, option) {
                     self.status = format!("The answer did not reach the host: {error}");
                 }
             }
-            Some(Action::Delegate(fingerprint)) => {
-                if let Err(error) = client.delegate(fingerprint) {
+            Some(Action::Delegate(offer)) => {
+                if let Err(error) = client.delegate(offer) {
                     self.status = format!("The request did not reach the host: {error}");
                 }
             }
@@ -191,9 +191,10 @@ impl eframe::App for RemoteTable {
     }
 }
 
+/// A click on the panel, bound to the occurrence that was drawn when it was made.
 enum Action {
-    Submit(crate::control::ChoiceFingerprint, String),
-    Delegate(crate::control::ChoiceFingerprint),
+    Submit(Box<crate::control::PendingManualChoice>, String),
+    Delegate(crate::control::OfferId),
 }
 
 fn top_bar(root: &mut egui::Ui, remote: &MutexGuard<'_, Remote>, status: &str) {
@@ -372,10 +373,7 @@ fn choice(
                         .wrap_mode(egui::TextWrapMode::Wrap),
                 );
                 if button.clicked() {
-                    action = Some(Action::Submit(
-                        pending.fingerprint.clone(),
-                        option.id.clone(),
-                    ));
+                    action = Some(Action::Submit(Box::new(pending.clone()), option.id.clone()));
                 }
                 let terms = ti4_review::diplomacy::payload_lines(&tip.state, &option.payload);
                 ui.indent(("terms", option.id.clone()), |ui| {
@@ -387,7 +385,7 @@ fn choice(
             }
         });
     if ui.button("Let the policy answer this one").clicked() {
-        action = Some(Action::Delegate(pending.fingerprint.clone()));
+        action = Some(Action::Delegate(pending.offer));
     }
     ui.separator();
     action

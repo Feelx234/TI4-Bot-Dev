@@ -20,7 +20,7 @@ use ti4_model::id::PlayerId;
 
 use crate::BranchId;
 use crate::control::{
-    ChoiceFingerprint, ManualSubmission, ModeEffect, PendingManualChoice, SeatControl, SeatMode,
+    ManualSubmission, ModeEffect, OfferId, PendingManualChoice, SeatControl, SeatMode,
     SubmitOutcome,
 };
 use crate::live::{AdvanceGoal, FrameTick, Gate, LiveError, LiveState, Snapshot};
@@ -173,12 +173,13 @@ pub trait BranchHandle {
     fn pause(&self);
     /// Stop the branch for good.
     fn stop(&self);
-    /// Let the policy answer the parked decision, once, for a manual seat.
+    /// Let the policy answer the parked decision, once, for a manual seat — only if `offer` is the
+    /// occurrence still waiting.
     ///
     /// # Errors
     ///
-    /// Whatever the branch refuses with when nothing is parked or the parked seat is not manual.
-    fn delegate_pending(&self) -> Result<PlayerId, LiveError>;
+    /// Whatever the branch refuses with when that offer is not the one parked.
+    fn delegate_pending(&self, offer: OfferId) -> Result<PlayerId, LiveError>;
 }
 
 /// A handle behind the reference counter a window keeps it in.
@@ -210,8 +211,8 @@ impl<H: BranchHandle + ?Sized> BranchHandle for std::sync::Arc<H> {
         (**self).stop();
     }
 
-    fn delegate_pending(&self) -> Result<PlayerId, LiveError> {
-        (**self).delegate_pending()
+    fn delegate_pending(&self, offer: OfferId) -> Result<PlayerId, LiveError> {
+        (**self).delegate_pending(offer)
     }
 }
 
@@ -240,8 +241,8 @@ impl BranchHandle for Gate {
         Gate::stop(self);
     }
 
-    fn delegate_pending(&self) -> Result<PlayerId, LiveError> {
-        Gate::delegate_pending(self)
+    fn delegate_pending(&self, offer: OfferId) -> Result<PlayerId, LiveError> {
+        Gate::delegate_pending(self, offer)
     }
 }
 
@@ -370,42 +371,6 @@ pub struct BranchNode {
     pub fork_frame: Option<u64>,
 }
 
-/// One answered offer, identified by *instance* and not merely by shape.
-///
-/// [`ChoiceFingerprint`] binds actor, prompt, ordered options and context, and deliberately excludes
-/// the frame and the ask ordinal — that is what lets a rebuild match a recorded answer to the offer
-/// it was made against. The consequence is that two genuinely different asks can share a
-/// fingerprint: a seat six units over capacity is asked "remove a unit: over capacity in 14" six
-/// times in one step, every time with the single option `remove|0` and no context.
-///
-/// Suppressing the panel on the fingerprint alone therefore hid the second and later asks: the
-/// window said "No seat is waiting" while the engine sat parked inside `ask`, which is a frozen game
-/// with nothing on screen to explain it. The frame and the ask ordinal are what separate one
-/// instance from the next, and `PendingManualChoice` already carries both.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct Answered {
-    fingerprint: ChoiceFingerprint,
-    frame: u64,
-    ask: u32,
-}
-
-impl Answered {
-    /// Whether this is the very offer that was answered, rather than one that merely looks like it.
-    fn is(&self, pending: &PendingManualChoice) -> bool {
-        self.fingerprint == pending.fingerprint
-            && self.frame == pending.frame
-            && self.ask == pending.ask
-    }
-
-    fn of(pending: &PendingManualChoice) -> Self {
-        Self {
-            fingerprint: pending.fingerprint.clone(),
-            frame: pending.frame,
-            ask: pending.ask,
-        }
-    }
-}
-
 /// The application state: a project, a viewed frame, an optional live branch, and the rebuild that
 /// may be running in the background.
 #[derive(Debug)]
@@ -418,8 +383,14 @@ pub struct ReplayApp<H> {
     frames: std::collections::BTreeMap<BranchId, Vec<FrameTick>>,
     viewed: std::collections::BTreeMap<BranchId, usize>,
     rebuild: RebuildStatus,
-    /// The choice the reader has already answered, so a second click cannot pretend otherwise.
-    answered: Option<Answered>,
+    /// The occurrence the reader last answered, so a second click cannot pretend otherwise.
+    ///
+    /// Keyed on [`OfferId`], never on the fingerprint. Identical-looking offers in succession are
+    /// separate questions — a seat over capacity is asked "remove a unit" several times in one step,
+    /// each with the single option `remove|0` — and keying on shape hid every one after the first,
+    /// leaving the engine parked with no panel on screen. An occurrence id is never reused, so a
+    /// match means this very offer and nothing else.
+    answered: Option<OfferId>,
     /// The last thing the app did, for the status line.
     notice: Option<String>,
 }
@@ -559,11 +530,7 @@ impl<H: BranchHandle> ReplayApp<H> {
     #[must_use]
     pub fn pending(&self) -> Option<PendingManualChoice> {
         let pending = self.handle.as_ref()?.snapshot().pending?;
-        if self
-            .answered
-            .as_ref()
-            .is_some_and(|answered| answered.is(&pending))
-        {
+        if self.answered == Some(pending.offer) {
             None
         } else {
             Some(pending)
@@ -652,30 +619,20 @@ impl<H: BranchHandle> ReplayApp<H> {
             self.notice = Some("Nothing is running to answer".to_owned());
             return SubmitOutcome::NoPendingChoice;
         };
-        // The offer on the gate right now, which is what says *which instance* this click is for.
-        // Comparing the submission's fingerprint alone would refuse a fresh ask that happens to look
-        // identical to the last one answered.
-        let offered = handle.snapshot().pending;
-        // Answering clears the gate's panel, so a second click usually arrives with nothing pending
-        // at all — that case still has to be refused here, before the branch is asked. What must
-        // *not* be refused is a fresh ask that merely shares the fingerprint: if something is
-        // pending and it is a different instance, this is a new question.
-        let already_answered = self.answered.as_ref().is_some_and(|answered| {
-            answered.fingerprint == submission.fingerprint
-                && offered.as_ref().is_none_or(|pending| answered.is(pending))
-        });
-        if already_answered {
+        // The click carries the occurrence it was drawn on, so no snapshot of the gate is needed to
+        // tell a double click from a fresh question: a match on the id is this very offer, and an
+        // identical-looking later offer has a different id. The gate checks it again under its lock.
+        if self.answered == Some(submission.offer) {
             self.notice = Some("That choice was already answered".to_owned());
             return SubmitOutcome::Duplicate;
         }
         let outcome = handle.submit(submission);
         match &outcome {
             SubmitOutcome::Accepted { option_id } => {
-                self.answered = offered.as_ref().map(Answered::of);
+                self.answered = Some(submission.offer);
                 self.notice = Some(format!("Answered {option_id}"));
             }
             SubmitOutcome::Stale { .. } => {
-                self.answered = None;
                 self.notice = Some("That choice had already changed".to_owned());
             }
             SubmitOutcome::NotOffered { .. } => {
@@ -683,7 +640,6 @@ impl<H: BranchHandle> ReplayApp<H> {
             }
             SubmitOutcome::Duplicate => self.notice = Some("Already answered".to_owned()),
             SubmitOutcome::NoPendingChoice => {
-                self.answered = None;
                 self.notice = Some("Nothing was waiting for a human".to_owned());
             }
         }
@@ -696,12 +652,13 @@ impl<H: BranchHandle> ReplayApp<H> {
     ///
     /// [`LiveError::ThreadLost`] with nothing attached, and the branch's own refusal when nothing is
     /// parked or the parked seat is not manual.
-    pub fn delegate_pending(&mut self) -> Result<PlayerId, LiveError> {
+    pub fn delegate_pending(&mut self, offer: OfferId) -> Result<PlayerId, LiveError> {
         let Some(handle) = &self.handle else {
             return Err(LiveError::ThreadLost);
         };
-        let actor = handle.delegate_pending()?;
-        self.answered = None;
+        let actor = handle.delegate_pending(offer)?;
+        // Delegating answers this occurrence; a later click on the same panel is a duplicate.
+        self.answered = Some(offer);
         self.notice = Some(format!("{actor} answers this one from the policy"));
         Ok(actor)
     }

@@ -127,6 +127,7 @@ fn drive(branch: &LiveBranch, goal: AdvanceGoal) -> Driven {
                 .id
                 .clone();
             let outcome = branch.gate().submit(&ManualSubmission {
+                offer: pending.offer,
                 fingerprint: pending.fingerprint.clone(),
                 option_id: option_id.clone(),
             });
@@ -243,6 +244,7 @@ fn a_manual_seat_parks_before_any_mutation_and_play_resumes_when_answered() {
         .clone();
     assert_eq!(
         branch.gate().submit(&ManualSubmission {
+            offer: pending.offer,
             fingerprint: pending.fingerprint.clone(),
             option_id: answer.clone(),
         }),
@@ -345,6 +347,7 @@ fn a_stale_or_invented_answer_is_refused_and_the_panel_stays_up() {
     let first = park(&branch);
     assert!(branch.gate().snapshot().pending.is_some());
     branch.gate().submit(&ManualSubmission {
+        offer: first.offer,
         fingerprint: first.fingerprint.clone(),
         option_id: first.options.first().expect("an option").id.clone(),
     });
@@ -357,6 +360,7 @@ fn a_stale_or_invented_answer_is_refused_and_the_panel_stays_up() {
     // A click aimed at the panel that was already answered.
     assert_eq!(
         branch.gate().submit(&ManualSubmission {
+            offer: first.offer,
             fingerprint: first.fingerprint.clone(),
             option_id: first.options.first().expect("an option").id.clone(),
         }),
@@ -367,6 +371,7 @@ fn a_stale_or_invented_answer_is_refused_and_the_panel_stays_up() {
     );
     // An invented option on the current panel.
     let refused = branch.gate().submit(&ManualSubmission {
+        offer: second.offer,
         fingerprint: second.fingerprint.clone(),
         option_id: "an-option-nobody-offered".to_owned(),
     });
@@ -391,6 +396,7 @@ fn a_stale_or_invented_answer_is_refused_and_the_panel_stays_up() {
     let answer = second.options.first().expect("an option").id.clone();
     assert_eq!(
         branch.gate().submit(&ManualSubmission {
+            offer: second.offer,
             fingerprint: second.fingerprint.clone(),
             option_id: answer.clone(),
         }),
@@ -480,7 +486,10 @@ fn delegating_answers_one_decision_and_keeps_the_seat_manual() {
     let actor = pending.actor.clone();
 
     assert_eq!(
-        branch.gate().delegate_pending().expect("a panel was open"),
+        branch
+            .gate()
+            .delegate_pending(pending.offer)
+            .expect("a panel was open"),
         actor,
         "delegation answers the panel that is open"
     );

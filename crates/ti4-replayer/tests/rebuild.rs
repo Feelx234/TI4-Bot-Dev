@@ -117,6 +117,7 @@ fn record_with(goal: AdvanceGoal, manual: &[&str]) -> Recording {
                 .clone();
             assert_eq!(
                 branch.gate().submit(&ManualSubmission {
+                    offer: pending.offer,
                     fingerprint: pending.fingerprint,
                     option_id: option_id.clone(),
                 }),

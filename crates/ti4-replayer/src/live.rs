@@ -764,7 +764,7 @@ impl Gate {
             _ => None,
         };
         if let (Some(option_id), Some(pending)) = (accepted.as_ref(), offered.as_ref())
-            && pending.fingerprint == submission.fingerprint
+            && pending.offer == submission.offer
         {
             drop(guard);
             self.record_pending(pending, option_id);
@@ -801,13 +801,17 @@ impl Gate {
 
     /// Let the policy answer *this* decision and keep the seat manual.
     ///
+    /// `offer` is the occurrence the button was drawn on, and it is checked here, under the same lock
+    /// that holds the pending offer. Checking it first and delegating afterwards under a second
+    /// acquisition would let a newer offer arrive in between and be delegated in its place.
+    ///
     /// # Errors
-    /// [`LiveError::NotRunnable`] when no panel is open. There is nothing to delegate until the
-    /// engine has actually asked, and quietly queueing a delegation for a decision that may never
-    /// come would let a stray click answer a later one.
-    pub fn delegate_pending(&self) -> Result<PlayerId, LiveError> {
+    /// [`LiveError::NotRunnable`] when that offer is not the one waiting — no panel is open, or it has
+    /// already been answered or replaced. There is nothing to delegate until the engine has actually
+    /// asked, and quietly delegating whatever is up now would let a stray click answer a later one.
+    pub fn delegate_pending(&self, offer: crate::control::OfferId) -> Result<PlayerId, LiveError> {
         let mut guard = self.lock();
-        let Some(actor) = guard.control.delegate_pending_once() else {
+        let Some(actor) = guard.control.delegate_pending_once(offer) else {
             return Err(LiveError::NotRunnable(guard.state));
         };
         guard.answer = Some(Answer::Delegated);
@@ -1013,7 +1017,7 @@ impl Gate {
             );
             return GateDecision::Policy { delegated: false };
         }
-        self.park(seat, choice, &fingerprint, frame, ask, scores)
+        self.park(seat, choice, frame, ask, scores)
     }
 
     /// Answer this ask from the replay prefix, if one is installed and not yet exhausted.
@@ -1050,7 +1054,6 @@ impl Gate {
         &self,
         seat: &PlayerId,
         choice: &Choice,
-        fingerprint: &crate::control::ChoiceFingerprint,
         frame: u64,
         ask: u32,
         scores: Option<Vec<(Option<f64>, Option<f64>)>>,
@@ -1082,6 +1085,9 @@ impl Gate {
                 return GateDecision::Policy { delegated: false };
             }
         };
+        // This park waits for *this* occurrence to be answered, released or shut down. Waiting on the
+        // fingerprint instead would treat a later identical-looking offer as still being this one.
+        let occurrence = offer.offer;
         {
             let mut guard = self.lock();
             guard.answer = None;
@@ -1097,7 +1103,7 @@ impl Gate {
                 && guard
                     .control
                     .pending()
-                    .is_some_and(|pending| &pending.fingerprint == fingerprint)
+                    .is_some_and(|pending| pending.offer == occurrence)
             {
                 guard = self
                     .answered

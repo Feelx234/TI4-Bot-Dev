@@ -40,7 +40,7 @@ use super::protocol::{
 };
 use super::redact::{frame_for, header_for};
 use super::{CLIENT_SILENCE, HANDSHAKE_TIMEOUT, MAX_CLIENTS, MAX_HANDSHAKES, PUMP_TICK};
-use crate::control::{ChoiceFingerprint, SeatMode, SubmitOutcome};
+use crate::control::{OfferId, PendingManualChoice, SeatMode, SubmitOutcome};
 use crate::live::Gate;
 
 /// Shortest join code the host accepts when one is given to it.
@@ -89,7 +89,9 @@ struct Client {
     generation: u64,
     header_sent: bool,
     frames_sent: usize,
-    pending_sent: Option<ChoiceFingerprint>,
+    /// The occurrence last sent to this client as its panel, or `None` for "nothing is waiting".
+    /// Keyed on [`OfferId`]: see [`pending_changed`].
+    pending_sent: Option<OfferId>,
 }
 
 struct Claim {
@@ -348,16 +350,17 @@ fn serve_connection(shared: &Arc<Shared>, stream: &TcpStream) {
                     },
                 );
             }
-            ClientMessage::Delegate { fingerprint } => {
+            ClientMessage::Delegate { offer } => {
                 let mut table = shared.lock();
+                // The seat check is for the message; the occurrence is checked by the gate, under the
+                // lock that holds the pending offer. Checking it here and then delegating would leave a
+                // gap for a newer offer to arrive and be delegated in this one's place.
                 let answer = match table.gate.clone().and_then(|gate| {
                     gate.pending()
-                        .filter(|pending| {
-                            pending.actor == seat && pending.fingerprint == fingerprint
-                        })
+                        .filter(|pending| pending.actor == seat)
                         .map(|_| gate)
                 }) {
-                    Some(gate) => match gate.delegate_pending() {
+                    Some(gate) => match gate.delegate_pending(offer) {
                         Ok(_) => (true, "the policy answered this one".to_owned()),
                         Err(error) => (false, format!("{error:?}")),
                     },
@@ -681,6 +684,16 @@ fn pump_frames(shared: &Arc<Shared>) {
     }
 }
 
+/// Whether a client has to be told about its panel again.
+///
+/// By occurrence, not by shape. The pump runs every [`super::PUMP_TICK`]; an offer answered and replaced
+/// by an identical-looking one inside a single interval never passes through `None` from the pump's
+/// point of view. Comparing fingerprints, the second offer looked like the first, was never sent, and
+/// the client kept a panel for a question that was already over.
+pub(crate) fn pending_changed(sent: Option<OfferId>, now: Option<&PendingManualChoice>) -> bool {
+    sent != now.map(|pending| pending.offer)
+}
+
 /// Relay the pending choice to the seat it is for, and the table status to everybody.
 fn pump_status(shared: &Arc<Shared>) {
     let mut table = shared.lock();
@@ -701,11 +714,11 @@ fn pump_status(shared: &Arc<Shared>) {
         let mine = pending
             .as_ref()
             .filter(|pending| pending.actor == client.seat && caught_up);
-        let fingerprint = mine.map(|pending| pending.fingerprint.clone());
-        if fingerprint != client.pending_sent {
+        if pending_changed(client.pending_sent, mine) {
             let message = ServerMessage::Pending(mine.cloned().map(Box::new));
+            let offer = mine.map(|pending| pending.offer);
             if let Some(client) = table.clients.get_mut(&id) {
-                client.pending_sent = fingerprint;
+                client.pending_sent = offer;
             }
             send(&mut table, id, message);
         }
@@ -745,6 +758,47 @@ fn pump_status(shared: &Arc<Shared>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn offer(seat: &str) -> PendingManualChoice {
+        let choice = ti4_engine::choice::Choice::new(
+            ti4_model::id::PlayerId::new(seat),
+            "remove a unit: over capacity in 14",
+            vec![ti4_engine::choice::ChoiceOption::new("remove|0", "remove")],
+        );
+        PendingManualChoice::new(crate::control::BranchId::SOURCE, 107, 1, None, &choice)
+            .expect("a one-option offer")
+    }
+
+    /// Regression 5 (review 2026-09-30, P1): an offer answered and replaced by an identical-looking one
+    /// inside one pump interval is still news to the client. The pump never sees the `None` between
+    /// them, and deduplicating by fingerprint left the client holding a panel for a finished question.
+    #[test]
+    fn a_replaced_identical_offer_is_sent_without_an_intervening_none() {
+        let (first, second) = (offer("seat0"), offer("seat0"));
+        assert_eq!(
+            first.fingerprint, second.fingerprint,
+            "the collision is real"
+        );
+
+        let sent = Some(first.offer);
+        assert!(
+            !pending_changed(sent, Some(&first)),
+            "the same occurrence is not resent every tick"
+        );
+        assert!(
+            pending_changed(sent, Some(&second)),
+            "a new occurrence is sent even though it looks exactly like the last one"
+        );
+        assert!(
+            pending_changed(sent, None),
+            "a closed panel is sent as closed"
+        );
+        assert!(
+            !pending_changed(None, None),
+            "nothing waiting, nothing to say"
+        );
+        assert!(pending_changed(None, Some(&first)), "a first offer is sent");
+    }
 
     #[test]
     fn secrets_compare_by_value_and_length() {

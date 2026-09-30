@@ -261,10 +261,15 @@ fn run_until_a_remote_seat_answers(
         Some(pending.fingerprint.clone()),
         "the client sees exactly the offer the engine is parked on"
     );
+    // The occurrence has to survive the wire, because the client's click carries it back and the gate
+    // accepts nothing else. A client that lost or rewrote it could never answer anything.
+    assert_eq!(
+        gate.pending().map(|parked| parked.offer),
+        Some(pending.offer),
+        "the client holds the very occurrence the engine is parked on, not a lookalike"
+    );
 
-    asked
-        .submit(pending.fingerprint.clone(), "no-such-option".to_owned())
-        .unwrap();
+    asked.submit(&pending, "no-such-option".to_owned()).unwrap();
     window.pump_until("the refusal", gate, host, || {
         asked.remote().answer.is_some()
     });
@@ -278,7 +283,7 @@ fn run_until_a_remote_seat_answers(
     );
     asked.remote().answer = None;
     asked
-        .submit(pending.fingerprint.clone(), pending.options[0].id.clone())
+        .submit(&pending, pending.options[0].id.clone())
         .unwrap();
     window.pump_until("the acceptance", gate, host, || {
         asked.remote().answer.is_some()
