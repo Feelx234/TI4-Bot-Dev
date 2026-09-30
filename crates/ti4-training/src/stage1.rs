@@ -1004,27 +1004,55 @@ mod tests {
         assert_eq!(uninterrupted.profiles, resumed.profiles);
     }
 
+    /// One generation of the reference plan grows named, nonzero weights.
+    ///
+    /// The seed count is the reference plan's own default (16) and is deliberately not reduced. With
+    /// `train_seeds = 1` this fixture credited every decision alike: 399 decisions, zero errors, a
+    /// return spread of zero, an update norm of zero, and therefore **no weights at all** in any of
+    /// the three profiles. The named-weight assertion then failed not because names had become
+    /// hashes but because there were no names to look at, which is an uninformative learning fixture
+    /// rather than a lost contract (Astra, 2026-09-30, plans/ASTRA_REVIEW_RESPONSE_2026-09-30.md).
+    ///
+    /// The contract this protects is real and must not be weakened: stage 1 fits the *explicit*
+    /// schema, whose weights are stored and scored by name. `f7b2716c` keyed feature vectors by FNV
+    /// `FeatureKey` internally and preserved those stored names; `learned::bucket`'s `h{index:04}`
+    /// spelling is the legacy hashed path and is not what this schema writes.
     #[test]
     fn faction_training_starts_sparse_and_grows_named_weights() {
         let mut plan = FactionPlan::python_reference();
         plan.generations = 1;
-        plan.train_seeds = 1;
         let run = train_factions(ContentStore::embedded(), &plan);
         assert_eq!(run.generations.len(), 1);
-        assert_eq!(run.generations[0].errors, 0);
-        assert!(run.generations[0].decisions > 0);
+        let generation = &run.generations[0];
+        assert_eq!(generation.errors, 0);
+        assert!(generation.decisions > 0);
+        // Zero spread means every decision was credited alike, so no weight could move whatever the
+        // learning rate was; zero movement means none did. Either makes the assertions below vacuous.
+        assert!(
+            generation.best_spread() > 0.0,
+            "the batch has to separate good decisions from bad ones to learn anything: spread {}",
+            generation.best_spread()
+        );
+        assert!(
+            generation.movement() > 0.0,
+            "one generation has to move the weights: movement {}",
+            generation.movement()
+        );
         for profile in run.profiles.values() {
             assert_eq!(profile.schema, ti4_policy::learned::STAGE1_EXPLICIT_SCHEMA);
             assert!(profile.validate(Some(&profile.faction)).is_ok());
         }
-        assert!(run.profiles.values().any(|profile| {
-            profile
-                .learned
-                .heads
-                .values()
-                .flat_map(|head| head.weights.keys())
-                .any(|name| !name.starts_with('h'))
-        }));
+        let named_nonzero = run
+            .profiles
+            .values()
+            .flat_map(|profile| profile.learned.heads.values())
+            .flat_map(|head| head.weights.iter())
+            .filter(|(name, weight)| !name.starts_with('h') && **weight != 0.0)
+            .count();
+        assert!(
+            named_nonzero > 0,
+            "the explicit schema stores weights by name, and training must grow some: {named_nonzero}"
+        );
     }
 
     #[test]
