@@ -356,4 +356,289 @@ describe("Board Component", () => {
     expect(vectorLine).toHaveAttribute("marker-end", "url(#vector-arrow)");
     expect(vectorLine.parentElement?.querySelector("text")).toHaveTextContent("2"); // 2 units available to move
   });
+
+  describe("Map Overlays", () => {
+    const overlayBoard: BoardView = {
+      map_tiles: [
+        {
+          system_id: "201",
+          label: "Alpha System",
+          q: 0,
+          r: 0,
+          planets: [
+            {
+              id: "planet_alpha",
+              label: "Alpha Planet",
+              resources: 3,
+              influence: 1,
+              tech_specialties: ["cybernetic"],
+            },
+          ],
+        },
+        {
+          system_id: "202",
+          label: "Beta System",
+          q: 1,
+          r: 0,
+          planets: [
+            {
+              id: "planet_beta",
+              label: "Beta Planet",
+              resources: 1,
+              influence: 3,
+            },
+          ],
+        },
+      ],
+      systems: {
+        "201": {
+          system_id: "201",
+          planets: {
+            planet_alpha: {
+              planet_id: "planet_alpha",
+              controlled_by: "p1",
+              exhausted: false,
+            },
+          },
+          units: [
+            { unit_type: "dreadnought", owner: "p1", damaged: false },
+            { unit_type: "cruiser", owner: "p1", damaged: false },
+            { unit_type: "infantry", owner: "p1", planet: "planet_alpha", damaged: false },
+            { unit_type: "mech", owner: "p1", planet: "planet_alpha", damaged: false },
+            { unit_type: "pds", owner: "p1", planet: "planet_alpha", damaged: false },
+          ],
+          command_tokens: [],
+        },
+        "202": {
+          system_id: "202",
+          planets: {
+            planet_beta: {
+              planet_id: "planet_beta",
+              controlled_by: "p2",
+              exhausted: true,
+            },
+          },
+          units: [{ unit_type: "destroyer", owner: "p2", damaged: false }],
+          command_tokens: [],
+        },
+      },
+    };
+
+    it("toggles the economy overlay and displays ready vs exhausted resources/influence with planets hidden", () => {
+      render(<Board board={overlayBoard} seatingOrder={["p1", "p2"]} />);
+
+      expect(screen.queryByTestId("economy-overlay-201")).not.toBeInTheDocument();
+      expect(screen.getByTestId("planet-planet_alpha")).toBeInTheDocument();
+
+      // Click Economy overlay button
+      fireEvent.click(screen.getByTestId("overlay-btn-economy"));
+
+      // Planets are dropped in economy view to maximize hex focus
+      expect(screen.queryByTestId("planet-planet_alpha")).not.toBeInTheDocument();
+
+      // System 201 has ready 3 resources and 1 influence
+      const eco201 = screen.getByTestId("economy-overlay-201");
+      expect(eco201).toBeInTheDocument();
+      expect(eco201).toHaveTextContent("3");
+      expect(eco201).toHaveTextContent("1");
+
+      // System 202 has exhausted planet (1 resource / 3 influence printed, 0 ready)
+      const eco202 = screen.getByTestId("economy-overlay-202");
+      expect(eco202).toBeInTheDocument();
+      expect(eco202).toHaveTextContent("0/1");
+      expect(eco202).toHaveTextContent("0/3");
+    });
+
+    it("displays space combat units, average hits per round, and sustain damage with planets hidden", () => {
+      render(
+        <Board board={overlayBoard} seatingOrder={["p1", "p2"]} overlayMode="space_combat" />,
+      );
+
+      // Planets are dropped in space combat view
+      expect(screen.queryByTestId("planet-planet_alpha")).not.toBeInTheDocument();
+
+      // System 201 has 1 dreadnought + 1 cruiser in space -> 2 ships, 0.6 + 0.4 = 1.0 hits, 1 sustain
+      expect(screen.getByTestId("space-combat-overlay-201")).toBeInTheDocument();
+      const fleetP1 = screen.getByTestId("space-combat-fleet-201-p1");
+      expect(fleetP1).toHaveTextContent("🚀2");
+      expect(fleetP1).toHaveTextContent("1.0");
+      expect(fleetP1).toHaveTextContent("🛡️1");
+
+      // System 202 has 1 destroyer -> 1 ship, 0.2 hits, 0 sustain
+      expect(screen.getByTestId("space-combat-overlay-202")).toBeInTheDocument();
+      const fleetP2 = screen.getByTestId("space-combat-fleet-202-p2");
+      expect(fleetP2).toHaveTextContent("🚀1");
+      expect(fleetP2).toHaveTextContent("0.2");
+      expect(fleetP2).not.toHaveTextContent("🛡️");
+    });
+
+    it("marks the hex with a big fight symbol when two players coexist in space combat", () => {
+      const contestedBoard: BoardView = {
+        map_tiles: [
+          {
+            system_id: "401",
+            label: "Battle Zone",
+            q: 0,
+            r: 0,
+            planets: [],
+          },
+        ],
+        systems: {
+          "401": {
+            system_id: "401",
+            planets: {},
+            units: [
+              { unit_type: "cruiser", owner: "p1", damaged: false },
+              { unit_type: "cruiser", owner: "p2", damaged: false },
+            ],
+            command_tokens: [],
+          },
+        },
+      };
+
+      render(
+        <Board board={contestedBoard} seatingOrder={["p1", "p2"]} overlayMode="space_combat" />,
+      );
+
+      expect(screen.getByTestId("space-combat-battle-401")).toBeInTheDocument();
+      expect(screen.getByTestId("space-combat-battle-401")).toHaveTextContent("⚔️");
+      expect(screen.getByTestId("space-combat-battle-401")).toHaveTextContent("BATTLE");
+    });
+
+    it("displays ground combat forces, average hits, and planetary shield on planets", () => {
+      render(
+        <Board board={overlayBoard} seatingOrder={["p1", "p2"]} overlayMode="ground_combat" />,
+      );
+
+      // Planets are preserved in ground combat view
+      expect(screen.getByTestId("planet-planet_alpha")).toBeInTheDocument();
+
+      // planet_alpha has 1 infantry (0.3) + 1 mech (0.5) = 2 defenders, 0.8 hits, and PDS planetary shield
+      const groundAlpha = screen.getByTestId("ground-combat-overlay-planet_alpha");
+      expect(groundAlpha).toBeInTheDocument();
+      expect(groundAlpha).toHaveTextContent("2");
+      expect(groundAlpha).toHaveTextContent("0.8");
+      expect(groundAlpha).toHaveTextContent("🛡️");
+
+      // planet_beta has 0 ground forces
+      const groundBeta = screen.getByTestId("ground-combat-overlay-planet_beta");
+      expect(groundBeta).toBeInTheDocument();
+      expect(groundBeta).toHaveTextContent("0");
+    });
+
+    it("staggers multi-planet systems in ground combat so planets do not overlap", () => {
+      const multiPlanetBoard: BoardView = {
+        map_tiles: [
+          {
+            system_id: "301",
+            label: "Dual System",
+            q: 0,
+            r: 0,
+            planets: [
+              { id: "p_left", label: "Left Planet", resources: 2, influence: 0 },
+              { id: "p_right", label: "Right Planet", resources: 0, influence: 2 },
+            ],
+          },
+        ],
+        systems: {
+          "301": {
+            system_id: "301",
+            planets: {
+              p_left: { planet_id: "p_left", controlled_by: "p1", exhausted: false },
+              p_right: { planet_id: "p_right", controlled_by: "p2", exhausted: false },
+            },
+            units: [
+              { unit_type: "infantry", owner: "p1", planet: "p_left", damaged: false },
+              { unit_type: "infantry", owner: "p2", planet: "p_right", damaged: false },
+            ],
+            command_tokens: [],
+          },
+        },
+      };
+
+      render(
+        <Board board={multiPlanetBoard} seatingOrder={["p1", "p2"]} overlayMode="ground_combat" />,
+      );
+
+      const overlayLeft = screen.getByTestId("ground-combat-overlay-p_left");
+      const overlayRight = screen.getByTestId("ground-combat-overlay-p_right");
+
+      expect(overlayLeft).toBeInTheDocument();
+      expect(overlayRight).toBeInTheDocument();
+
+      const planetLeft = screen.getByTestId("planet-p_left");
+      const planetRight = screen.getByTestId("planet-p_right");
+      const circleLeft = planetLeft.querySelector("circle");
+      const circleRight = planetRight.querySelector("circle");
+
+      expect(circleLeft).toBeInTheDocument();
+      expect(circleRight).toBeInTheDocument();
+
+      const cxLeft = parseFloat(circleLeft?.getAttribute("cx") ?? "0");
+      const cyLeft = parseFloat(circleLeft?.getAttribute("cy") ?? "0");
+      const cxRight = parseFloat(circleRight?.getAttribute("cx") ?? "0");
+      const cyRight = parseFloat(circleRight?.getAttribute("cy") ?? "0");
+
+      // Verify that planets have distinct X and Y coordinates (staggered diagonal)
+      expect(cxLeft).not.toEqual(cxRight);
+      expect(cyLeft).not.toEqual(cyRight);
+      // Both numbers are written cleanly inside each planet
+      expect(overlayLeft).toHaveTextContent("1");
+      expect(overlayRight).toHaveTextContent("1");
+    });
+
+    it("displays tech benefits on specialty planets without top system summary", () => {
+      const boardWithUpperTech: BoardView = {
+        ...overlayBoard,
+        map_tiles: [
+          {
+            system_id: "201",
+            label: "Alpha System",
+            q: 0,
+            r: 0,
+            planets: [
+              {
+                id: "planet_alpha",
+                label: "Alpha Planet",
+                resources: 3,
+                influence: 1,
+                tech_specialties: ["CYBERNETIC"], // Uppercase test
+              },
+            ],
+          },
+        ],
+      };
+
+      render(
+        <Board board={boardWithUpperTech} seatingOrder={["p1", "p2"]} overlayMode="tech_benefits" />,
+      );
+
+      // System-level summary is removed as requested
+      expect(screen.queryByTestId("tech-benefit-system-201")).not.toBeInTheDocument();
+
+      // planet_alpha has cybernetic specialty badge on planet
+      const techAlpha = screen.getByTestId("tech-benefit-planet-planet_alpha");
+      expect(techAlpha).toBeInTheDocument();
+      expect(techAlpha).toHaveTextContent("Cybernetic");
+      expect(techAlpha).toHaveTextContent("🟡");
+
+      // planet_beta has no tech specialty
+      expect(screen.queryByTestId("tech-benefit-planet-planet_beta")).not.toBeInTheDocument();
+    });
+
+    it("displays overlay section in hover tooltip when an overlay is active", () => {
+      render(<Board board={overlayBoard} seatingOrder={["p1", "p2"]} overlayMode="economy" />);
+
+      // Hover over system 201
+      const sysHex = screen.getByTestId("system-hex-201");
+      fireEvent.mouseEnter(sysHex);
+
+      const tooltip = screen.getByTestId("system-tooltip");
+      expect(tooltip).toBeInTheDocument();
+
+      const overlayTooltip = screen.getByTestId("system-tooltip-overlay");
+      expect(overlayTooltip).toHaveTextContent("Economy Overlay");
+      expect(overlayTooltip).toHaveTextContent("Ready: 3 Res / 1 Inf");
+    });
+  });
 });

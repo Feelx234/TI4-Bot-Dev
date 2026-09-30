@@ -15,6 +15,11 @@ import { UnitIcon, getUnitBaseType, getUnitDisplayName } from "./UnitIcon.tsx";
 import { BattleOddsResponse } from "../protocol/advisorTypes.ts";
 import { fetchBattleOdds, buildBattleRequest } from "../services/advisorService.ts";
 import { getActionCardMeta } from "../protocol/contentCatalog.ts";
+import {
+  getExpectedSpaceHits,
+  hasSustainDamage,
+  canParticipateInSpaceCombat,
+} from "../presentation/mapOverlays.ts";
 
 export interface SpaceCombatOverlayProps {
   choice: PendingChoiceDto | null;
@@ -69,24 +74,10 @@ export function requiresCapacity(unitType: string): boolean {
   return base === "fighter" || base === "infantry" || base === "mech";
 }
 
-// Fleet-only estimate used while the advisor is pending or unavailable. It does not
-// account for technologies, cards or the outcome of already-rolled dice.
-function expectedHits(unitType: string): number {
-  switch (getUnitBaseType(unitType)) {
-    case "warsun":
-      return 2.4;
-    case "flagship":
-      return 1.2;
-    case "dreadnought":
-      return 0.6;
-    case "cruiser":
-      return 0.4;
-    case "destroyer":
-    case "fighter":
-      return 0.2;
-    default:
-      return 0;
-  }
+// Fleet estimate used while the advisor is pending or unavailable.
+// Uses canonical combat hit probabilities and public player context (factions, tech upgrades).
+function expectedHits(unitType: string, player?: PlayerView | null): number {
+  return getExpectedSpaceHits(unitType, player);
 }
 
 export interface FleetStats {
@@ -338,22 +329,28 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       : null;
 
   const fallbackOdds = useMemo(() => {
-    const power = (stats: FleetStats) => {
-      const hits = stats.units.reduce((sum, unit) => sum + expectedHits(unit.unit_type), 0);
-      const health = stats.units.reduce(
+    const power = (stats: FleetStats, player?: PlayerView | null) => {
+      const combatUnits = stats.units.filter((unit) =>
+        canParticipateInSpaceCombat(unit.unit_type, player),
+      );
+      const hits = combatUnits.reduce(
+        (sum, unit) => sum + expectedHits(unit.unit_type, player),
+        0,
+      );
+      const health = combatUnits.reduce(
         (sum, unit) =>
           sum +
           (unit.damaged
             ? 1
-            : ["dreadnought", "flagship", "warsun"].includes(getUnitBaseType(unit.unit_type))
+            : hasSustainDamage(unit.unit_type, player)
               ? 2
               : 1),
         0,
       );
       return (hits + 0.1) * (health + 0.1);
     };
-    const attacker = power(attackerStats);
-    const defender = power(defenderStats);
+    const attacker = power(attackerStats, attackerSeat ? playersMap[attackerSeat] : null);
+    const defender = power(defenderStats, defenderSeat ? playersMap[defenderSeat] : null);
     const attWinPct = Math.round((attacker / (attacker + defender)) * 100);
     return {
       attWinPct,

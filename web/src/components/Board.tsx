@@ -4,14 +4,19 @@ import {
   buildBoardPresentationModel,
   getPlayerColor,
   PLAYER_PALETTE,
-  TilePresentation,
 } from "../presentation/boardPresentation.ts";
 import { SystemInspector } from "./SystemInspector.tsx";
-import { Tooltip, SvgButton } from "../primitives/index.ts";
+import { Tooltip } from "../primitives/index.ts";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { seatStyle } from "../presentation/playerDisplay.ts";
+import { MapOverlayMode } from "../presentation/mapOverlays.ts";
+import { MapOverlayToolbar } from "./MapOverlayToolbar.tsx";
+import { BoardTile } from "./board/BoardTile.tsx";
+import { BoardTooltip, HoveredTileInfo } from "./board/BoardTooltip.tsx";
+import { MovementVectorsOverlay } from "./board/MovementVectorsOverlay.tsx";
 
 export { getPlayerColor, PLAYER_PALETTE };
+export type { MapOverlayMode };
 
 export interface BoardProps {
   board: BoardView;
@@ -23,6 +28,8 @@ export interface BoardProps {
   onSelectSystem?: (systemId: string | null) => void;
   onSelectTarget?: (systemId: string, planetId?: string) => void;
   onSelectOptionId?: (optionId: string) => void;
+  overlayMode?: MapOverlayMode;
+  onOverlayModeChange?: (mode: MapOverlayMode) => void;
 }
 
 export const Board: React.FC<BoardProps> = ({
@@ -35,6 +42,8 @@ export const Board: React.FC<BoardProps> = ({
   onSelectSystem,
   onSelectTarget,
   onSelectOptionId,
+  overlayMode: controlledOverlayMode,
+  onOverlayModeChange,
 }) => {
   const display = usePlayerIdentity();
   const [uncontrolledSelectedSystemId, setUncontrolledSelectedSystemId] = useState<string | null>(
@@ -51,15 +60,17 @@ export const Board: React.FC<BoardProps> = ({
     onSelectSystem?.(id);
   };
 
-  const [hoveredTile, setHoveredTile] = useState<{
-    systemId: string;
-    label: string;
-    anomalies?: string[];
-    wormholes?: string[];
-    planets: { label: string; resources?: number; influence?: number; owner?: string | null }[];
-    unitsCount: number;
-    tokensCount: number;
-  } | null>(null);
+  const [uncontrolledOverlayMode, setUncontrolledOverlayMode] = useState<MapOverlayMode>("none");
+  const activeOverlay =
+    controlledOverlayMode !== undefined ? controlledOverlayMode : uncontrolledOverlayMode;
+  const handleSelectOverlay = (mode: MapOverlayMode) => {
+    if (controlledOverlayMode === undefined) {
+      setUncontrolledOverlayMode(mode);
+    }
+    onOverlayModeChange?.(mode);
+  };
+
+  const [hoveredTile, setHoveredTile] = useState<HoveredTileInfo | null>(null);
 
   // Pan and zoom state
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
@@ -101,14 +112,6 @@ export const Board: React.FC<BoardProps> = ({
     setViewTransform((prev) => ({ ...prev, scale: Math.max(prev.scale / 1.25, 0.5) }));
   const resetView = () => setViewTransform({ x: 0, y: 0, scale: 1 });
 
-  const handleTileClick = (tile: TilePresentation) => {
-    onSelectTarget?.(tile.systemId);
-    if (!tile.isCandidateTarget) {
-      onSelectOptionId?.("");
-    }
-    setSelectedSystemId(tile.systemId);
-  };
-
   return (
     <div
       className="board-container"
@@ -126,47 +129,56 @@ export const Board: React.FC<BoardProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      {/* Pan / Zoom Control Overlay */}
+      {/* Pan / Zoom Control Overlay & Map Overlay Selector */}
       <div
         className="board-controls"
         style={{
           display: "flex",
-          gap: 6,
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
         }}
       >
-        <Tooltip content="Zoom In">
-          <button
-            type="button"
-            onClick={zoomIn}
-            title="Zoom In"
-            className="button button--secondary button--icon"
-            style={{ fontSize: 16 }}
-          >
-            +
-          </button>
-        </Tooltip>
-        <Tooltip content="Zoom Out">
-          <button
-            type="button"
-            onClick={zoomOut}
-            title="Zoom Out"
-            className="button button--secondary button--icon"
-            style={{ fontSize: 16 }}
-          >
-            −
-          </button>
-        </Tooltip>
-        <Tooltip content="Reset Pan & Zoom">
-          <button
-            type="button"
-            onClick={resetView}
-            title="Reset Pan & Zoom"
-            className="button button--secondary button--icon"
-            style={{ fontSize: 14 }}
-          >
-            ⟲
-          </button>
-        </Tooltip>
+        <div style={{ display: "flex", gap: 6 }}>
+          <Tooltip content="Zoom In">
+            <button
+              type="button"
+              onClick={zoomIn}
+              title="Zoom In"
+              className="button button--secondary button--icon"
+              style={{ fontSize: 16 }}
+            >
+              +
+            </button>
+          </Tooltip>
+          <Tooltip content="Zoom Out">
+            <button
+              type="button"
+              onClick={zoomOut}
+              title="Zoom Out"
+              className="button button--secondary button--icon"
+              style={{ fontSize: 16 }}
+            >
+              −
+            </button>
+          </Tooltip>
+          <Tooltip content="Reset Pan & Zoom">
+            <button
+              type="button"
+              onClick={resetView}
+              title="Reset Pan & Zoom"
+              className="button button--secondary button--icon"
+              style={{ fontSize: 14 }}
+            >
+              ⟲
+            </button>
+          </Tooltip>
+        </div>
+
+        <MapOverlayToolbar
+          activeMode={activeOverlay}
+          onSelectMode={handleSelectOverlay}
+        />
       </div>
 
       <div className="board-seat-legend" aria-label="Player positions">
@@ -221,424 +233,40 @@ export const Board: React.FC<BoardProps> = ({
             if (e.target === e.currentTarget) setSelectedSystemId(null);
           }}
         >
-          {presentation.tiles.map((tile, idx) => {
-            const sysId = tile.systemId;
-            const isSelected = selectedSystemId === sysId;
-
-            return (
-              <SvgButton
-                key={`hex-${sysId}-${idx}`}
-                data-testid={`system-hex-${sysId}`}
-                data-system-id={sysId}
-                data-target-candidate={tile.isCandidateTarget ? "true" : undefined}
-                data-context-subject={tile.isContextSubject ? "true" : undefined}
-                data-system-selected={isSelected ? "true" : undefined}
-                isInteractive
-                label={`${tile.isCandidateTarget ? "Target" : "Inspect"} system ${tile.label} #${sysId}`}
-                onActivate={() => handleTileClick(tile)}
-                onMouseEnter={() => {
-                  setHoveredTile({
-                    systemId: sysId,
-                    label: tile.label,
-                    anomalies: tile.anomalies,
-                    wormholes: tile.wormholes.map((w) => w.kind),
-                    planets: tile.planets.map((p) => ({
-                      label: p.label,
-                      resources: p.resources,
-                      influence: p.influence,
-                      owner: p.controlledBy,
-                    })),
-                    unitsCount: tile.totalUnits,
-                    tokensCount: tile.commandTokens.length,
-                  });
-                }}
-                onMouseLeave={() => setHoveredTile(null)}
-                style={{
-                  cursor: "pointer",
-                  outline: "none",
-                }}
-              >
-                {/* Hexagon Tile */}
-                <polygon
-                  points={tile.points}
-                  fill={tile.fillColor}
-                  stroke={
-                    isSelected ? "#facc15" : tile.isCandidateTarget ? "#38bdf8" : tile.strokeColor
-                  }
-                  strokeWidth={isSelected ? 4 : tile.isCandidateTarget ? 3.5 : tile.strokeWidth}
-                  strokeDasharray={tile.strokeDashArray}
-                  filter={tile.isCandidateTarget ? "url(#target-glow)" : undefined}
-                />
-
-                {/* Candidate target soft glow fill */}
-                {tile.isCandidateTarget && presentation.targets.isActivationMode && (
-                  <polygon
-                    points={tile.points}
-                    fill="rgba(56, 189, 248, 0.15)"
-                    pointerEvents="none"
-                  />
-                )}
-
-                {/* Candidate target highlight animation ring */}
-                {tile.isCandidateTarget && (
-                  <polygon
-                    points={tile.innerPoints}
-                    fill="none"
-                    stroke="#38bdf8"
-                    strokeWidth={2}
-                    strokeDasharray="5 3"
-                    className="target-pulse-ring"
-                  />
-                )}
-
-                {/* Activation Mode Target Reticle */}
-                {tile.isCandidateTarget && presentation.targets.isActivationMode && (
-                  <g data-testid="activation-target-reticle" style={{ pointerEvents: "none" }}>
-                    <circle
-                      cx={tile.center.x}
-                      cy={tile.center.y}
-                      r={26}
-                      fill="none"
-                      stroke="#38bdf8"
-                      strokeWidth={2}
-                      strokeDasharray="4 2"
-                    />
-                    <line
-                      x1={tile.center.x - 32}
-                      y1={tile.center.y}
-                      x2={tile.center.x - 16}
-                      y2={tile.center.y}
-                      stroke="#38bdf8"
-                      strokeWidth={2}
-                    />
-                    <line
-                      x1={tile.center.x + 16}
-                      y1={tile.center.y}
-                      x2={tile.center.x + 32}
-                      y2={tile.center.y}
-                      stroke="#38bdf8"
-                      strokeWidth={2}
-                    />
-                    <line
-                      x1={tile.center.x}
-                      y1={tile.center.y - 32}
-                      x2={tile.center.x}
-                      y2={tile.center.y - 16}
-                      stroke="#38bdf8"
-                      strokeWidth={2}
-                    />
-                    <line
-                      x1={tile.center.x}
-                      y1={tile.center.y + 16}
-                      x2={tile.center.x}
-                      y2={tile.center.y + 32}
-                      stroke="#38bdf8"
-                      strokeWidth={2}
-                    />
-                    <rect
-                      x={tile.center.x - 24}
-                      y={tile.center.y - 36}
-                      width={48}
-                      height={13}
-                      rx={3}
-                      fill="#0f172a"
-                      stroke="#38bdf8"
-                      strokeWidth={1}
-                    />
-                    <text
-                      x={tile.center.x}
-                      y={tile.center.y - 27}
-                      textAnchor="middle"
-                      fill="#38bdf8"
-                      fontSize="8"
-                      fontWeight="bold"
-                      letterSpacing="1"
-                    >
-                      TARGET
-                    </text>
-                  </g>
-                )}
-
-                {/* Blocked by player's command token overlay */}
-                {tile.commandTokens.some((ct) => ct.owner === viewerSeat) && (
-                  <g
-                    data-testid={`blocked-token-${tile.systemId}`}
-                    style={{ pointerEvents: "none" }}
-                  >
-                    <polygon points={tile.points} fill="rgba(15, 23, 42, 0.4)" />
-                    <rect
-                      x={tile.center.x - 32}
-                      y={tile.center.y - 36}
-                      width={64}
-                      height={13}
-                      rx={3}
-                      fill="#1e293b"
-                      stroke="#64748b"
-                      strokeWidth={1}
-                    />
-                    <text
-                      x={tile.center.x}
-                      y={tile.center.y - 27}
-                      textAnchor="middle"
-                      fill="#94a3b8"
-                      fontSize="8"
-                      fontWeight="bold"
-                      letterSpacing="0.5"
-                    >
-                      ACTIVATED
-                    </text>
-                  </g>
-                )}
-
-                {/* Tile Label / System Number */}
-                <text
-                  x={tile.center.x}
-                  y={tile.center.y - 48}
-                  textAnchor="middle"
-                  fill="#cbd5e1"
-                  fontSize="11"
-                  fontWeight="bold"
-                  pointerEvents="none"
-                >
-                  {sysId === "18"
-                    ? "Mecatol Rex"
-                    : tile.label
-                      ? tile.label.startsWith("#")
-                        ? tile.label
-                        : `#${sysId}`
-                      : `#${sysId}`}
-                </text>
-
-                {/* Anomaly badge text */}
-                {tile.anomalyLabel && (
-                  <text
-                    x={tile.center.x}
-                    y={tile.center.y - 36}
-                    textAnchor="middle"
-                    fill="#fef08a"
-                    fontSize="8"
-                    fontWeight="bold"
-                    pointerEvents="none"
-                  >
-                    {tile.anomalyLabel}
-                  </text>
-                )}
-
-                {/* Printed Wormholes */}
-                {tile.wormholes.map((wh, wIdx) => {
-                  const wX = tile.center.x - 38 + wIdx * 20;
-                  const wY = tile.center.y - 18;
-                  return (
-                    <g key={`wh-${wh.kind}-${wIdx}`}>
-                      <circle
-                        cx={wX}
-                        cy={wY}
-                        r="8"
-                        fill="#08111d"
-                        stroke={wh.color}
-                        strokeWidth="2"
-                      />
-                      <text
-                        x={wX}
-                        y={wY + 3.5}
-                        textAnchor="middle"
-                        fill={wh.color}
-                        fontSize="9"
-                        fontWeight="bold"
-                        pointerEvents="none"
-                      >
-                        {wh.symbol}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                {/* Planets Representation */}
-                {tile.planets.map((p, pIdx) => {
-                  const pCount = tile.planets.length;
-                  const pX = tile.center.x + (pCount === 1 ? 0 : (pIdx - (pCount - 1) / 2) * 36);
-                  const pY = tile.center.y + 16;
-                  const isControlled = Boolean(p.controlledBy);
-
-                  return (
-                    <SvgButton
-                      key={p.id}
-                      data-testid={`planet-${p.id}`}
-                      data-target-candidate={p.isCandidateTarget ? "true" : undefined}
-                      isInteractive={p.isCandidateTarget}
-                      label={`Target planet ${p.label}`}
-                      onActivate={() => {
-                        if (p.isCandidateTarget) {
-                          onSelectTarget?.(sysId, p.id);
-                          setSelectedSystemId(sysId);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (p.isCandidateTarget && (e.key === "Enter" || e.key === " "))
-                          e.stopPropagation();
-                      }}
-                      onClick={(e) => {
-                        if (p.isCandidateTarget) {
-                          e.stopPropagation();
-                          onSelectTarget?.(sysId, p.id);
-                          setSelectedSystemId(sysId);
-                        }
-                      }}
-                      style={{ cursor: p.isCandidateTarget ? "pointer" : "inherit" }}
-                    >
-                      <circle
-                        cx={pX}
-                        cy={pY}
-                        r="14"
-                        fill={isControlled ? p.controllerColor : "#334155"}
-                        stroke={
-                          p.isCandidateTarget
-                            ? "#38bdf8"
-                            : p.exhausted
-                              ? "#ef4444"
-                              : isControlled
-                                ? "#f8fafc"
-                                : "#64748b"
-                        }
-                        strokeWidth={p.isCandidateTarget ? 3 : 2}
-                      />
-                      {p.controlledBy && (
-                        <text
-                          x={pX + 12}
-                          y={pY - 11}
-                          textAnchor="middle"
-                          fill="#fff"
-                          stroke="#0b1220"
-                          strokeWidth="0.6"
-                          paintOrder="stroke"
-                          fontSize="12"
-                          pointerEvents="none"
-                        >
-                          {display(p.controlledBy).symbol}
-                        </text>
-                      )}
-                      {/* Planet Abbreviation */}
-                      <text
-                        x={pX}
-                        y={pY - 2}
-                        textAnchor="middle"
-                        fill="#f8fafc"
-                        fontSize="8"
-                        fontWeight="bold"
-                        pointerEvents="none"
-                      >
-                        {p.id.substring(0, 3).toUpperCase()}
-                      </text>
-                      {/* Resources / Influence fraction */}
-                      {p.resources !== undefined && p.influence !== undefined && (
-                        <text
-                          x={pX}
-                          y={pY + 8}
-                          textAnchor="middle"
-                          fill="#fef08a"
-                          fontSize="7"
-                          fontWeight="bold"
-                          pointerEvents="none"
-                        >
-                          {p.resources}/{p.influence}
-                        </text>
-                      )}
-                    </SvgButton>
-                  );
-                })}
-
-                {/* Units Badge */}
-                {tile.totalUnits > 0 && (
-                  <g>
-                    <rect
-                      x={tile.center.x - 26}
-                      y={tile.center.y + 36}
-                      width="52"
-                      height="16"
-                      rx="4"
-                      fill="rgba(15, 23, 42, 0.9)"
-                      stroke="#475569"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={tile.center.x}
-                      y={tile.center.y + 48}
-                      textAnchor="middle"
-                      fill="#e2e8f0"
-                      fontSize="9"
-                      fontWeight="bold"
-                      pointerEvents="none"
-                    >
-                      {tile.totalUnits} units
-                    </text>
-                  </g>
-                )}
-
-                {/* Command Tokens */}
-                {tile.commandTokens.map((ct, cIdx) => (
-                  <g key={`cmd-${cIdx}`}>
-                    <title>{display(ct.owner).label} command token</title>
-                    <circle
-                      cx={tile.center.x - 42 + cIdx * 12}
-                      cy={tile.center.y + 56}
-                      r="6"
-                      fill={ct.color}
-                      stroke="#f8fafc"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={tile.center.x - 42 + cIdx * 12}
-                      y={tile.center.y + 59}
-                      textAnchor="middle"
-                      fill={display(ct.owner).position === 8 ? "#fff" : "#0b1220"}
-                      fontSize="8"
-                      pointerEvents="none"
-                    >
-                      {display(ct.owner).symbol}
-                    </text>
-                  </g>
-                ))}
-              </SvgButton>
-            );
-          })}
+          {presentation.tiles.map((tile, idx) => (
+            <BoardTile
+              key={`hex-${tile.systemId}-${idx}`}
+              tile={tile}
+              isSelected={selectedSystemId === tile.systemId}
+              activeOverlay={activeOverlay}
+              viewerSeat={viewerSeat}
+              isActivationMode={presentation.targets.isActivationMode}
+              players={players}
+              onSelectTarget={onSelectTarget}
+              onSelectOptionId={onSelectOptionId}
+              onSelectSystem={setSelectedSystemId}
+              onMouseEnter={() => {
+                setHoveredTile({
+                  systemId: tile.systemId,
+                  label: tile.label,
+                  anomalies: tile.anomalies,
+                  wormholes: tile.wormholes.map((w) => w.kind),
+                  planets: tile.planets.map((p) => ({
+                    label: p.label,
+                    resources: p.resources,
+                    influence: p.influence,
+                    owner: p.controlledBy,
+                  })),
+                  unitsCount: tile.totalUnits,
+                  tokensCount: tile.commandTokens.length,
+                });
+              }}
+              onMouseLeave={() => setHoveredTile(null)}
+            />
+          ))}
 
           {/* Movement Vector Overlays */}
-          {presentation.targets.movementVectors.map((vec) => (
-            <g key={`vec-${vec.fromSystemId}-${vec.toSystemId}`}>
-              <line
-                data-testid="movement-vector-line"
-                x1={vec.fromCenter.x}
-                y1={vec.fromCenter.y}
-                x2={vec.toCenter.x}
-                y2={vec.toCenter.y}
-                stroke="#4ade80"
-                strokeWidth={3}
-                strokeDasharray="8 5"
-                markerEnd="url(#vector-arrow)"
-                style={{ opacity: 0.85, pointerEvents: "none" }}
-              />
-              <circle
-                cx={(vec.fromCenter.x + vec.toCenter.x) / 2}
-                cy={(vec.fromCenter.y + vec.toCenter.y) / 2}
-                r={10}
-                fill="#0f172a"
-                stroke="#4ade80"
-                strokeWidth={1.5}
-                style={{ pointerEvents: "none" }}
-              />
-              <text
-                x={(vec.fromCenter.x + vec.toCenter.x) / 2}
-                y={(vec.fromCenter.y + vec.toCenter.y) / 2 + 4}
-                textAnchor="middle"
-                fill="#4ade80"
-                fontSize="10"
-                fontWeight="bold"
-                style={{ pointerEvents: "none" }}
-              >
-                {vec.unitCount}
-              </text>
-            </g>
-          ))}
+          <MovementVectorsOverlay vectors={presentation.targets.movementVectors} />
         </g>
       </svg>
 
@@ -652,59 +280,13 @@ export const Board: React.FC<BoardProps> = ({
 
       {/* Hover Info Tooltip */}
       {hoveredTile && !presentation.selectedSystem && (
-        <div
-          role="tooltip"
-          aria-live="polite"
-          data-testid="system-tooltip"
-          className="board-tooltip panel"
-          style={{
-            border: "1px solid #38bdf8",
-            padding: "10px 14px",
-            fontSize: 13,
-            pointerEvents: "none",
-            maxWidth: 320,
-          }}
-        >
-          <div style={{ fontWeight: "bold", color: "#38bdf8", marginBottom: 4 }}>
-            System #{hoveredTile.systemId} — {hoveredTile.label}
-          </div>
-          {hoveredTile.anomalies && hoveredTile.anomalies.length > 0 && (
-            <div style={{ color: "#fef08a", fontSize: 12 }}>
-              Anomaly: {hoveredTile.anomalies.join(", ")}
-            </div>
-          )}
-          {hoveredTile.wormholes && hoveredTile.wormholes.length > 0 && (
-            <div style={{ color: "#a78bfa", fontSize: 12 }}>
-              Wormholes: {hoveredTile.wormholes.join(", ")}
-            </div>
-          )}
-          <div style={{ marginTop: 4 }}>
-            <span style={{ fontWeight: "bold", color: "#cbd5e1" }}>Planets: </span>
-            {hoveredTile.planets.length > 0 ? (
-              hoveredTile.planets.map((p, i) => (
-                <div key={i} style={{ marginLeft: 6, fontSize: 12 }}>
-                  • {p.label}
-                  {p.resources !== undefined && ` (${p.resources} Res / ${p.influence} Inf)`}
-                  {p.owner && (
-                    <span style={{ color: getPlayerColor(p.owner, seatingOrder) }}>
-                      {" "}
-                      [
-                      {display(p.owner).position && (
-                        <SeatBadge position={display(p.owner).position!} />
-                      )}{" "}
-                      {display(p.owner).label}]
-                    </span>
-                  )}
-                </div>
-              ))
-            ) : (
-              <span style={{ fontSize: 12, color: "#94a3b8" }}>None</span>
-            )}
-          </div>
-          <div style={{ marginTop: 4, fontSize: 12 }}>
-            Units: {hoveredTile.unitsCount} | Command Tokens: {hoveredTile.tokensCount}
-          </div>
-        </div>
+        <BoardTooltip
+          hoveredTile={hoveredTile}
+          tilePresentation={presentation.tiles.find((t) => t.systemId === hoveredTile.systemId)}
+          activeOverlay={activeOverlay}
+          seatingOrder={seatingOrder}
+          players={players}
+        />
       )}
     </div>
   );
