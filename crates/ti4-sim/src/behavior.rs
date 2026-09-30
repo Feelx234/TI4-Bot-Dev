@@ -1065,15 +1065,51 @@ pub fn baseline_bounds() -> BTreeMap<String, (f64, f64)> {
     let mut bounds = BTreeMap::new();
     bounds.insert(
         "vp_pace".to_owned(),
-        (0.38765432098765423, 0.4493827160493827),
+        (0.4438271604938271, 0.5179012345679012),
     );
     // Degenerate on purpose: all games in every recorded baseline ended cleanly, so the bound
     // is the strict invariant "every game ends cleanly", not a statistical interval.
     bounds.insert("completion".to_owned(), (1.0, 1.0));
     bounds.insert(
         "score_spread".to_owned(),
-        (1.7469290304566525, 2.2226187705201847),
+        (1.7567102253052604, 2.2381514094078523),
     );
+    // v45 — 2026-09-30. **Every one of the ten intervals is re-derived, and the attribution is NOT
+    // done.** Recorded that way deliberately: the v43 note says "four metrics at once deserves a
+    // bisection rather than a story", and this is seven at once. The operator directed that this gate
+    // stop blocking the merge review and authorised removing the test outright; re-recording is the
+    // lesser action and keeps the detector alive for the next change, but it buys that at the cost of
+    // the evidence the discipline above asks for. Treat the v45 interval as a fresh reference point,
+    // not as a finding.
+    //
+    // What moved, measured (old -> now):
+    //   share_INVASION_RESOLVED      0.018557-0.019962 -> 0.015906
+    //   share_PRODUCTION_RESOLVED    0.034243-0.035447 -> 0.028446
+    //   share_SHIP_MOVED             0.044410-0.047578 -> 0.040317
+    //   share_SPACE_COMBAT_RESOLVED  0.004248-0.004945 -> 0.003462
+    //   share_SYSTEM_ACTIVATED       0.067735-0.070061 -> 0.056298
+    //   share_TACTICAL_ACTION_BEGAN  0.033491-0.034637 -> 0.027852
+    //   vp_pace                      0.387654-0.449383 -> 0.479630  (up, while the shares fall)
+    // completion, faction_differentiation and score_spread stay inside v44 but are re-derived too,
+    // because the protocol-integrity check under this map is strict.
+    //
+    // What is known, and what is not:
+    //   - Not a lost completion event. INVASION_BEGAN and INVASION_RESOLVED are equal at 2,120 each
+    //     across the 30 seeds; every invasion that starts finishes. All 30 games end cleanly.
+    //   - Part of the fall is denominator growth. The stream carries 133,040 events including 6,237
+    //     TURN_CLOSING, a label git attributes to 75f1d94a. Removing only that label from each
+    //     denominator moves the invasion share 0.015906 -> 0.016689, which does not reach the v44
+    //     floor. That is a bookkeeping contribution, not a causal ablation.
+    //   - 40 engine commits landed since the v43/v44 baseline (cb7c559 era), six of them on combat
+    //     lethality (48e9ef39 Assault Cannon, b0693082 Graviton Laser, f75dd74f Duranium Armor,
+    //     f952b278 X-89, 0fc085e1 Hyper Metabolism et al., db3829f9 L1Z1X agent / Plasma Scoring)
+    //     and others on turn and trade behaviour. None is attributed to any metric here.
+    //   - The rising VP pace is not explained by a dilution story at all and is the loose end most
+    //     worth pulling if anybody returns to this.
+    // Independent review: plans/ASTRA_REVIEW_RESPONSE_2026-09-30.md section 1, which declines to
+    // approve any bounds and sets out the attribution it would want. plans/evidence/M08-021.md
+    // carries the side-by-side record.
+    //
     // V3: the spec's across-faction quantity — re-deriven with the same baseline run.
     //
     // v44 — 2026-09-21. One metric moves, and it moves the way a fix should: `faction_differentiation`
@@ -1092,31 +1128,31 @@ pub fn baseline_bounds() -> BTreeMap<String, (f64, f64)> {
     // strict check exists to catch.
     bounds.insert(
         "faction_differentiation".to_owned(),
-        (0.548_201_323_747_056_3, 1.101_079_717_009_571),
+        (0.502_370_921_939_035_7, 1.166_296_237_488_678),
     );
     bounds.insert(
         "share_INVASION_RESOLVED".to_owned(),
-        (0.018557398105767956, 0.01996169871417233),
+        (0.015450145238948618, 0.01637068296879844),
     );
     bounds.insert(
         "share_PRODUCTION_RESOLVED".to_owned(),
-        (0.03424312152473616, 0.035446678203117636),
+        (0.02779015375336437, 0.029061887188504158),
     );
     bounds.insert(
         "share_SHIP_MOVED".to_owned(),
-        (0.04440951672092693, 0.04757771765767625),
+        (0.03885380549232535, 0.041846989151593204),
     );
     bounds.insert(
         "share_SPACE_COMBAT_RESOLVED".to_owned(),
-        (0.004247960542862018, 0.004944546934263645),
+        (0.0031806834552516134, 0.0037562752435148085),
     );
     bounds.insert(
         "share_SYSTEM_ACTIVATED".to_owned(),
-        (0.06773490941954607, 0.07006122508954206),
+        (0.0549943146528177, 0.05750128937511879),
     );
     bounds.insert(
         "share_TACTICAL_ACTION_BEGAN".to_owned(),
-        (0.033491157736432034, 0.03463710552478524),
+        (0.027212608859304592, 0.028446572959487597),
     );
     bounds
 }
