@@ -66,6 +66,14 @@ pub fn draw(
     count: usize,
 ) -> Result<Vec<ActionCardId>, IllegalChoice> {
     let mut drawn = Vec::new();
+    // Yssaril Scheming: "When you draw 1 or more action cards, draw 1 additional action card."
+    // Asked once, before the first card leaves the deck, and only for a real draw.
+    let count = if count == 0 {
+        0
+    } else {
+        count
+            + crate::factions::hooks_economy::action_card_draw_bonus(state, content, player, count)
+    };
     for _ in 0..count {
         if state.action_card_deck.is_empty() {
             break;
@@ -76,7 +84,43 @@ pub fn draw(
         }
         drawn.push(top);
     }
+    if count > 0 {
+        // Scheming's "Then, choose and discard 1 action card from your hand", before the limit is
+        // enforced so the discard may be what keeps the hand legal.
+        crate::factions::hooks_economy::action_cards_drawn(state, content, table, player, &drawn)?;
+    }
     enforce_hand_limit(state, content, table, player)?;
+    Ok(drawn)
+}
+
+/// [`draw`], announced: after the cards are drawn, emit `ACTION_CARDS_DRAWN` with the player, the
+/// number actually drawn (extra draws included) and `source` (a short label such as
+/// `"strategy_card"`, `"exploration"`, `"status_phase"`).
+///
+/// Emitted unconditionally (`factions::hooks_economy::emit`), like the combat and ground events.
+/// Abilities that change the draw itself (Scheming) use the `draw` hooks, not this event: the
+/// event is the "you drew" moment for everything else. Callers that hold a `Resolving` with a
+/// timing handle use this in place of `draw`; the other `draw` call sites (`exploration.rs`,
+/// `strategy_cards.rs`, `legendary.rs`, and the direct deck pops in `status.rs` and
+/// `agenda_effects.rs`) are outside this package and listed in the evidence.
+///
+/// # Errors
+/// [`IllegalChoice`] as [`draw`].
+pub fn draw_announced(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    count: usize,
+    source: &str,
+) -> Result<Vec<ActionCardId>, IllegalChoice> {
+    let drawn = draw(state, ctx.content, ctx.table, player, count)?;
+    if count > 0 {
+        let mut payload = BTreeMap::new();
+        payload.insert("player".to_owned(), player.to_string().into());
+        payload.insert("count".to_owned(), drawn.len().into());
+        payload.insert("source".to_owned(), source.into());
+        crate::factions::hooks_economy::emit(ctx, state, "ACTION_CARDS_DRAWN", payload);
+    }
     Ok(drawn)
 }
 
@@ -96,7 +140,17 @@ pub fn enforce_hand_limit(
             .map(|seat| seat.action_cards.clone())
             .unwrap_or_default();
         // Sanctions caps the hand at three; without it the printed seven applies.
-        if hand.len() <= crate::laws::action_card_limit(state, HAND_LIMIT) {
+        //
+        // Faction modules adjust the limit last, after the law cap: Yssaril Crafty ("any number of
+        // action cards ... Game effects cannot prevent you from using this ability") must beat
+        // Sanctions, which a module run before the law could not.
+        let limit = crate::factions::hooks_economy::action_card_limit(
+            state,
+            content,
+            player,
+            crate::laws::action_card_limit(state, HAND_LIMIT),
+        );
+        if hand.len() <= limit {
             return Ok(());
         }
 
@@ -4370,6 +4424,425 @@ pub fn place_units(
             None => context.state.system_mut(system).units.push(unit),
         }
     }
+}
+
+// -- placement from reinforcements, for faction cards (BF-00b-economy) ----------------------------
+//
+// `place_units` above places where it is told and says nothing about what happened. Faction
+// cards that say "place up to 2 infantry on any planet you control or in any space area that
+// contains 1 or more of your ships" (Yin Spinner), "place 1 infantry on any planet you control"
+// (Arborec Mitosis), "place 2 fighters or 1 destroyer in a system that contains 1 or more of your
+// war suns" (Muaat Star Forge) or "replace 1 of your infantry with 1 mech" (Saar/Arborec mechs)
+// need four more things: to know how many arrived, to have the player choose where, to stay
+// atomic, and to replace. The functions below are those four; none changes `place_units`.
+//
+// Unlike `place_units` they resolve the unit id through the player's unit upgrades (a player who
+// owns Infantry II places Infantry II, as production does).
+
+/// Where a faction effect may put units taken from reinforcements.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementTarget {
+    /// On any planet the player controls.
+    ControlledPlanet,
+    /// In the space area of any system that contains 1 or more of the player's ships.
+    ShipSpace,
+    /// Either of the above (Yin Spinner).
+    ControlledPlanetOrShipSpace,
+}
+
+/// The unit id a player places for a base type: their upgraded unit if they own the upgrade, else
+/// their faction's own unit, else the generic one.
+fn placed_unit_id(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    base_type: &str,
+) -> Option<ti4_model::id::UnitTypeId> {
+    let seat = state.player(player)?;
+    let faction = seat.faction.to_string();
+    let held: Vec<String> = seat
+        .technologies
+        .iter()
+        .map(|tech| tech.as_str().to_owned())
+        .collect();
+    ti4_content::units::unlocked_upgrade(content, sources, base_type, &faction, &held)
+        .or_else(|| ti4_content::units::faction_unit(content, &faction, base_type, sources))
+        .or_else(|| {
+            ti4_content::units::catalogue(content, sources)
+                .get(base_type)
+                .copied()
+        })
+        .map(|kind| ti4_model::id::UnitTypeId::new(kind.id().to_owned()))
+}
+
+/// Every spot `target` allows for this player, in board order: `(system, Some(planet))` for a
+/// planet, `(system, None)` for a space area. `within` limits the search to one system.
+///
+/// Planets under Demilitarized Zone are not spots. Whether the box still holds the unit is
+/// [`place_units_choosing`]'s question, not this one's.
+#[must_use]
+pub fn placement_spots(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    target: PlacementTarget,
+    within: Option<&ti4_model::id::SystemId>,
+) -> Vec<(ti4_model::id::SystemId, Option<ti4_model::id::PlanetId>)> {
+    let mut spots = Vec::new();
+    let types = ti4_content::units::catalogue(content, sources);
+    for (system, board) in &state.board {
+        if within.is_some_and(|only| only != system) {
+            continue;
+        }
+        if matches!(
+            target,
+            PlacementTarget::ControlledPlanet | PlacementTarget::ControlledPlanetOrShipSpace
+        ) {
+            for (planet, owner) in &board.planet_control {
+                if owner == player && !crate::laws::planet_is_demilitarized(state, planet) {
+                    spots.push((system.clone(), Some(planet.clone())));
+                }
+            }
+        }
+        if matches!(
+            target,
+            PlacementTarget::ShipSpace | PlacementTarget::ControlledPlanetOrShipSpace
+        ) && board.units_of(player).into_iter().any(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(ti4_content::units::UnitType::is_ship)
+        }) {
+            spots.push((system.clone(), None));
+        }
+    }
+    spots
+}
+
+/// Whether placement helpers respect the fleet pool and capacity (37, 16), not only the box (31.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementLimits {
+    /// A spot is offered only for as many units as leave the fleet pool and the space-area
+    /// capacity no worse than they are now (the default for any card that does not say otherwise).
+    Respect,
+    /// Place regardless: the card overrides the fleet pool and capacity, or the caller has already
+    /// checked. The unit is then subject to the usual enforcement at the end of the turn (37.3,
+    /// 16.3).
+    Ignore,
+}
+
+/// How many of `count` units of `base_type` may be placed at this spot without making the fleet
+/// pool (37.1) or the space-area capacity (16.1) worse than it is now: the largest `n <= count`
+/// for which [`crate::fleet::standing`] shows no new fleet excess and no new capacity excess.
+/// A planet spot adds no capacity load, so only ships and fighters/ground forces in space are ever
+/// cut. The box (31.4) is a separate limit, applied by the caller.
+#[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "state, content, sources, who, where (system, planet), what, how many"
+)]
+pub fn max_fit(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: Option<&ti4_model::id::PlanetId>,
+    base_type: &str,
+    count: usize,
+) -> usize {
+    let Some(type_id) = placed_unit_id(state, content, sources, player, base_type) else {
+        return 0;
+    };
+    let types = ti4_content::units::catalogue(content, sources);
+    let Some(kind) = types.get(type_id.as_str()).copied() else {
+        return 0;
+    };
+    let before = crate::fleet::standing(state, content, sources, player, system, None);
+    (1..=count)
+        .rev()
+        .find(|n| {
+            let after = crate::fleet::standing(
+                state,
+                content,
+                sources,
+                player,
+                system,
+                Some(crate::fleet::Arrival {
+                    kind,
+                    count: i64::try_from(*n).unwrap_or(i64::MAX),
+                    in_space: planet.is_none(),
+                }),
+            );
+            after.fleet_excess() <= before.fleet_excess()
+                && after.capacity_excess <= before.capacity_excess
+        })
+        .unwrap_or(0)
+}
+
+/// Put `count` units of `base_type` at one spot, capped by what the box holds (31.4), and return
+/// how many arrived. The spot is not validated: use [`placement_spots`] to choose it.
+pub fn place_units_counted(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: Option<&ti4_model::id::PlanetId>,
+    base_type: &str,
+    count: usize,
+) -> usize {
+    let Some(type_id) = placed_unit_id(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        base_type,
+    ) else {
+        return 0;
+    };
+    let count = crate::supply::allowed(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &type_id,
+        count,
+    );
+    for _ in 0..count {
+        let unit = ti4_model::units::Unit::new(type_id.clone(), player.clone());
+        match planet {
+            Some(planet) => context
+                .state
+                .system_mut(system)
+                .planet_units
+                .entry(planet.clone())
+                .or_default()
+                .push(unit),
+            None => context.state.system_mut(system).units.push(unit),
+        }
+    }
+    count
+}
+
+/// Each spot with how many units it takes under `limits`; spots that take none are dropped.
+fn fitting_spots(
+    context: &crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    base_type: &str,
+    wanted: usize,
+    spots: Vec<(ti4_model::id::SystemId, Option<ti4_model::id::PlanetId>)>,
+    limits: PlacementLimits,
+) -> (
+    Vec<(ti4_model::id::SystemId, Option<ti4_model::id::PlanetId>)>,
+    Vec<usize>,
+) {
+    spots
+        .into_iter()
+        .filter_map(|(system, planet)| {
+            let fit = match limits {
+                PlacementLimits::Ignore => wanted,
+                PlacementLimits::Respect => max_fit(
+                    context.state,
+                    context.content,
+                    context.sources,
+                    player,
+                    &system,
+                    planet.as_ref(),
+                    base_type,
+                    wanted,
+                ),
+            };
+            (fit > 0).then_some(((system, planet), fit))
+        })
+        .unzip()
+}
+
+/// Place up to `count` units of `base_type` from reinforcements where the player chooses among
+/// the spots `target` allows (within `within`, if given), and return how many arrived.
+///
+/// * One spot is not a decision and is not asked.
+/// * `optional` adds a decline ("you may"/"up to"); declining places nothing and returns `Ok(0)`.
+/// * Nothing is asked and nothing changes when there is no spot or the box holds none (31.4).
+/// * All `count` units go to the one chosen spot, as the cards read ("place up to 2 infantry on
+///   any planet you control"). A card that splits units across spots calls this once per unit.
+///
+/// `ability` names the card for the decision context (`DecisionSource::FactionAbility`).
+/// `limits` is [`PlacementLimits::Respect`] unless the card overrides the fleet pool/capacity: a
+/// spot that cannot take any unit without a new fleet or capacity excess is not offered, and a spot
+/// that can take only some takes only those.
+///
+/// # Errors
+/// [`IllegalChoice`] when a decider answers with something not offered; nothing has changed.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one placement question: who, what, how many, where, optional, which card"
+)]
+pub fn place_units_choosing(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    base_type: &str,
+    count: usize,
+    target: PlacementTarget,
+    within: Option<&ti4_model::id::SystemId>,
+    optional: bool,
+    ability: &str,
+    limits: PlacementLimits,
+) -> Result<usize, IllegalChoice> {
+    let Some(type_id) = placed_unit_id(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        base_type,
+    ) else {
+        return Ok(0);
+    };
+    let wanted = crate::supply::allowed(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &type_id,
+        count,
+    );
+    let spots = placement_spots(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        target,
+        within,
+    );
+    let (spots, fits) = fitting_spots(context, player, base_type, wanted, spots, limits);
+    if wanted == 0 || spots.is_empty() {
+        return Ok(0);
+    }
+    let chosen = if spots.len() == 1 && !optional {
+        (spots[0].clone(), fits[0])
+    } else {
+        let mut options: Vec<ChoiceOption> = spots
+            .iter()
+            .zip(&fits)
+            .map(|((system, planet), &wanted)| {
+                let id = planet.as_ref().map_or_else(
+                    || format!("{system}|space"),
+                    |planet| format!("{system}|{planet}"),
+                );
+                let place = planet
+                    .as_ref()
+                    .map_or_else(|| "space".to_owned(), ToString::to_string);
+                ChoiceOption::labelled(
+                    id,
+                    "place_unit",
+                    format!("place {wanted}x {base_type} on {place} in {system}"),
+                )
+                .with("system", system.to_string())
+                .with("count", i64::try_from(wanted).unwrap_or(i64::MAX))
+            })
+            .collect();
+        if optional {
+            options.push(ChoiceOption::decline());
+        }
+        let choice = Choice::new(
+            player.clone(),
+            format!(
+                "place up to {} {base_type}",
+                fits.iter().max().copied().unwrap_or(0)
+            ),
+            options,
+        )
+        .contextualized(DecisionContext::new(
+            player.clone(),
+            DecisionSource::FactionAbility(ability.to_owned()),
+            "place_units_from_reinforcements",
+            context.state.phase,
+            context.state.round,
+        ));
+        let answer = context.ask_seeing(&choice)?;
+        if answer.is_decline() {
+            return Ok(0);
+        }
+        let Some(position) = choice
+            .options
+            .iter()
+            .position(|option| option.id == answer.id)
+            .filter(|position| *position < spots.len())
+        else {
+            return Ok(0);
+        };
+        (spots[position].clone(), fits[position])
+    };
+    let ((system, planet), fit) = chosen;
+    Ok(place_units_counted(
+        context,
+        player,
+        &system,
+        planet.as_ref(),
+        base_type,
+        fit,
+    ))
+}
+
+/// Replace one `remove_base` unit **owned by `owner`** at a spot with one `place_base` unit of
+/// `placer`'s from reinforcements. `owner == placer` is "replace 1 of your infantry with 1 mech";
+/// `owner != placer` is Yin Indoctrination / Greyfire, which replace an opponent's infantry with
+/// the placer's own. Atomic: returns `false` and changes nothing when `owner` has no such unit at
+/// that spot or the box holds no `place_base` for `placer` (31.4); no board entry is created. The
+/// removed unit returns to its owner's reinforcements (nothing is tracked beyond "not on the
+/// board"). The first matching unit in board order goes, damaged or not. Fleet pool and capacity
+/// are not checked: a replacement on a planet changes neither.
+pub fn replace_unit(
+    context: &mut crate::timing::TimingContext<'_>,
+    placer: &PlayerId,
+    owner: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: Option<&ti4_model::id::PlanetId>,
+    remove_base: &str,
+    place_base: &str,
+) -> bool {
+    let types = ti4_content::units::catalogue(context.content, context.sources);
+    let Some(type_id) = placed_unit_id(
+        context.state,
+        context.content,
+        context.sources,
+        placer,
+        place_base,
+    ) else {
+        return false;
+    };
+    if crate::supply::allowed(
+        context.state,
+        context.content,
+        context.sources,
+        placer,
+        &type_id,
+        1,
+    ) == 0
+    {
+        return false;
+    }
+    let is_target = |unit: &ti4_model::units::Unit| {
+        &unit.owner == owner
+            && types
+                .get(unit.type_id.as_str())
+                .is_some_and(|kind| kind.base_type() == remove_base)
+    };
+    let Some(board) = context.state.board.get_mut(system) else {
+        return false;
+    };
+    let units = match planet {
+        Some(planet) => board.planet_units.get_mut(planet),
+        None => Some(&mut board.units),
+    };
+    let Some(units) = units else {
+        return false;
+    };
+    let Some(index) = units.iter().position(is_target) else {
+        return false;
+    };
+    units.remove(index);
+    units.push(ti4_model::units::Unit::new(type_id, placer.clone()));
+    true
 }
 
 /// Systems holding at least one ship of this player's.
@@ -9768,5 +10241,540 @@ mod ghost_squad_termination {
             "beta received those forces, so it must not ship them back; got {:?}",
             second.iter().map(|o| &o.id).collect::<Vec<_>>()
         );
+    }
+}
+
+#[cfg(test)]
+mod economy_hooks {
+    //! BF-00b-economy: draw / hand-limit / play-legality hooks, the draw event, and the
+    //! reinforcement placement helpers.
+    use std::sync::{Arc, Mutex};
+
+    use ti4_model::content_types::POK;
+    use ti4_model::id::{PlanetId, SystemId};
+
+    use super::*;
+    use crate::choice::{Scripted, Table};
+    use crate::factions::hooks_economy::{EconomyHooks, with_test_hooks};
+    use crate::fixtures::{a_placed_planet, game, put, put_on_planet, with_context};
+
+    fn me() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    fn deck(state: &mut GameState, count: usize) {
+        state.action_card_deck = (1..=count)
+            .map(|index| ActionCardId::new(format!("c{index}")))
+            .collect();
+        state.player_mut(&me()).unwrap().action_cards.clear();
+    }
+
+    /// Scheming: one extra card with the draw, then the module discards one before the limit.
+    #[test]
+    fn draw_hooks_add_a_card_and_then_let_a_module_discard() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        deck(&mut state, 5);
+        let mut table = Table::new();
+        let plain = draw(&mut state, content, &mut table, &me(), 1).unwrap();
+        assert_eq!(plain.len(), 1, "neutral with no hook");
+
+        let scheming = EconomyHooks {
+            action_card_draw_bonus: Some(|_, _, _, _| 1),
+            action_cards_drawn: Some(|state, _, _, player, drawn| {
+                assert_eq!(drawn.len(), 2, "the module sees the extra card too");
+                discard(state, player, 0);
+                Ok(())
+            }),
+            ..EconomyHooks::NONE
+        };
+        let mut state = game(&["a", "b"]);
+        deck(&mut state, 5);
+        with_test_hooks(scheming, || {
+            let drawn = draw(&mut state, content, &mut table, &me(), 1).unwrap();
+            assert_eq!(drawn.len(), 2, "one requested, one additional");
+            assert_eq!(state.action_card_deck.len(), 3);
+            assert_eq!(
+                state.player(&me()).unwrap().action_cards.len(),
+                1,
+                "then one was discarded"
+            );
+            let none = draw(&mut state, content, &mut table, &me(), 0).unwrap();
+            assert!(none.is_empty(), "no draw requested, no bonus");
+            assert_eq!(state.action_card_deck.len(), 3);
+        });
+    }
+
+    /// Crafty: a module limit is applied after Sanctions, so it also beats the law.
+    #[test]
+    fn a_hand_limit_hook_runs_after_the_law_cap() {
+        let content = ContentStore::embedded();
+        let fill = |state: &mut GameState| {
+            state.player_mut(&me()).unwrap().action_cards = (1..=9)
+                .map(|n| ActionCardId::new(format!("c{n}")))
+                .collect();
+        };
+        let mut state = game(&["a", "b"]);
+        state.enact_law("sanctions", "for");
+        fill(&mut state);
+        let mut table = Table::new();
+        enforce_hand_limit(&mut state, content, &mut table, &me()).unwrap();
+        assert_eq!(state.player(&me()).unwrap().action_cards.len(), 3);
+
+        let crafty = EconomyHooks {
+            action_card_limit: Some(|_, _, _, _| usize::MAX),
+            ..EconomyHooks::NONE
+        };
+        fill(&mut state);
+        with_test_hooks(crafty, || {
+            enforce_hand_limit(&mut state, content, &mut table, &me()).unwrap();
+        });
+        assert_eq!(state.player(&me()).unwrap().action_cards.len(), 9);
+    }
+
+    /// Transparasteel Plating: a hook that forbids play removes the card from the component-action
+    /// gate (`is_playable`) and from `laws::action_cards_forbidden`.
+    #[test]
+    fn a_play_forbidden_hook_closes_the_component_action_gate() {
+        let content = ContentStore::embedded();
+        let state = game(&["a", "b"]);
+        let alias = ActionCardId::new("anything");
+        assert!(is_playable(&state, content, POK, None, &me(), &alias));
+        let tp = EconomyHooks {
+            action_cards_forbidden: Some(|state, player| {
+                player.as_str() == "a" && state.round == 1
+            }),
+            ..EconomyHooks::NONE
+        };
+        with_test_hooks(tp, || {
+            assert!(crate::laws::action_cards_forbidden(&state, &me()));
+            assert!(!is_playable(&state, content, POK, None, &me(), &alias));
+            assert!(
+                !crate::laws::action_cards_forbidden(&state, &PlayerId::new("b")),
+                "the hook decides per player"
+            );
+        });
+    }
+
+    type Seen = Arc<Mutex<Vec<std::collections::BTreeMap<String, serde_json::Value>>>>;
+
+    /// The draw event carries the player, the number actually drawn and the source.
+    #[test]
+    fn draw_announced_emits_the_event_with_its_payload() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        deck(&mut state, 5);
+        let seen = Seen::default();
+        let sink = seen.clone();
+        let mut resolver = crate::timing::Resolver::new(vec![me()], Some(me()), Table::default());
+        resolver.register([crate::timing::Ability::new(
+            "test:drawn",
+            me(),
+            "ACTION_CARDS_DRAWN",
+            crate::timing::Relation::After,
+            Arc::new(move |event, _| {
+                sink.lock().unwrap().push(event.payload.clone());
+                Ok(())
+            }),
+        )]);
+        let mut sequence = crate::event::EventSequence::new();
+        let (mut dice, mut rng) = (crate::dice::Dice::new(), crate::rng::GameRng::new(0));
+        let mut table = Table::new();
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        let bonus = EconomyHooks {
+            action_card_draw_bonus: Some(|_, _, _, _| 1),
+            ..EconomyHooks::NONE
+        };
+        with_test_hooks(bonus, || {
+            let drawn = draw_announced(&mut state, &mut ctx, &me(), 2, "test").unwrap();
+            assert_eq!(drawn.len(), 3);
+        });
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0]["player"], "a");
+        assert_eq!(seen[0]["count"], 3, "extra draws are counted");
+        assert_eq!(seen[0]["source"], "test");
+    }
+
+    /// A planet and a ship in the same system: the two kinds of spot Yin Spinner names.
+    fn planet_and_ship() -> (GameState, SystemId, PlanetId) {
+        let mut state = game(&["a", "b"]);
+        let (system, planet) = a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), me());
+        put(&mut state, &system, "destroyer", &me(), 1);
+        (state, system, planet)
+    }
+
+    #[test]
+    fn placement_spots_list_controlled_planets_and_ship_spaces() {
+        let (state, system, planet) = planet_and_ship();
+        let content = ContentStore::embedded();
+        let both = placement_spots(
+            &state,
+            content,
+            POK,
+            &me(),
+            PlacementTarget::ControlledPlanetOrShipSpace,
+            None,
+        );
+        assert_eq!(
+            both,
+            vec![(system.clone(), Some(planet)), (system.clone(), None)]
+        );
+        let ships = placement_spots(
+            &state,
+            content,
+            POK,
+            &me(),
+            PlacementTarget::ShipSpace,
+            None,
+        );
+        assert_eq!(ships, vec![(system.clone(), None)]);
+        let other = SystemId::new("elsewhere");
+        assert!(
+            placement_spots(
+                &state,
+                content,
+                POK,
+                &me(),
+                PlacementTarget::ControlledPlanetOrShipSpace,
+                Some(&other)
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn the_player_chooses_where_reinforcements_go_and_decline_changes_nothing() {
+        let (mut state, system, planet) = planet_and_ship();
+        let before = state.board.clone();
+        let mut table = Table::with_default(Box::new(Scripted::new([
+            crate::choice::DECLINE_ID.to_owned(),
+            format!("{system}|{planet}"),
+        ])));
+        with_context(&mut state, POK, None, &mut table, |context| {
+            let none = place_units_choosing(
+                context,
+                &me(),
+                "infantry",
+                2,
+                PlacementTarget::ControlledPlanetOrShipSpace,
+                None,
+                true,
+                "yso",
+                PlacementLimits::Respect,
+            )
+            .unwrap();
+            assert_eq!(none, 0, "declined");
+            assert_eq!(context.state.board.len(), before.len());
+            let placed = place_units_choosing(
+                context,
+                &me(),
+                "infantry",
+                2,
+                PlacementTarget::ControlledPlanetOrShipSpace,
+                None,
+                true,
+                "yso",
+                PlacementLimits::Respect,
+            )
+            .unwrap();
+            assert_eq!(placed, 2);
+        });
+        let on_planet = &state.board[&system].planet_units[&planet];
+        assert_eq!(on_planet.len(), 2, "both went to the chosen planet");
+        assert_eq!(
+            state.board[&system].units.len(),
+            1,
+            "the space area still holds only the destroyer"
+        );
+    }
+
+    #[test]
+    fn a_single_spot_is_not_a_question_and_no_spot_changes_nothing() {
+        // A table that would fail the test if it were ever asked.
+        struct Never;
+        impl crate::choice::Decider for Never {
+            fn choose(&mut self, _: &crate::choice::Choice) -> Result<ChoiceOption, IllegalChoice> {
+                panic!("a lone spot must not be asked")
+            }
+        }
+        let mut state = game(&["a", "b"]);
+        let (system, planet) = a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), me());
+        let mut table = Table::with_default(Box::new(Never));
+        with_context(&mut state, POK, None, &mut table, |context| {
+            let placed = place_units_choosing(
+                context,
+                &me(),
+                "infantry",
+                1,
+                PlacementTarget::ControlledPlanet,
+                None,
+                false,
+                "mitosis",
+                PlacementLimits::Respect,
+            )
+            .unwrap();
+            assert_eq!(placed, 1);
+            let nowhere = place_units_choosing(
+                context,
+                &PlayerId::new("b"),
+                "infantry",
+                1,
+                PlacementTarget::ControlledPlanet,
+                None,
+                false,
+                "mitosis",
+                PlacementLimits::Respect,
+            )
+            .unwrap();
+            assert_eq!(nowhere, 0, "b controls nothing");
+        });
+        assert_eq!(state.board[&system].planet_units[&planet].len(), 1);
+    }
+
+    /// 31.4 caps the placement; "replace" is atomic and needs both the unit and the plastic.
+    #[test]
+    fn replacing_a_unit_needs_the_unit_and_the_plastic_and_is_atomic() {
+        let (mut state, system, planet) = planet_and_ship();
+        let mut table = Table::new();
+        let mechs = |state: &GameState| {
+            state.board[&system].planet_units[&planet]
+                .iter()
+                .filter(|unit| unit.type_id.as_str().contains("mech"))
+                .count()
+        };
+        put_on_planet(&mut state, &system, &planet, "infantry", &me(), 2);
+        with_context(&mut state, POK, None, &mut table, |context| {
+            assert!(replace_unit(
+                context,
+                &me(),
+                &me(),
+                &system,
+                Some(&planet),
+                "infantry",
+                "mech"
+            ));
+        });
+        assert_eq!(mechs(&state), 1);
+        assert_eq!(state.board[&system].planet_units[&planet].len(), 2);
+
+        // No such unit there: nothing happens.
+        let before = state.board[&system].planet_units[&planet].clone();
+        with_context(&mut state, POK, None, &mut table, |context| {
+            assert!(!replace_unit(
+                context,
+                &me(),
+                &me(),
+                &system,
+                Some(&planet),
+                "dreadnought",
+                "mech"
+            ));
+        });
+        assert_eq!(state.board[&system].planet_units[&planet], before);
+
+        // The box holds four mechs: with four on the board a fifth cannot be placed, so the
+        // infantry stays.
+        put_on_planet(&mut state, &system, &planet, "mech", &me(), 3);
+        let before = state.board[&system].planet_units[&planet].clone();
+        with_context(&mut state, POK, None, &mut table, |context| {
+            assert!(!replace_unit(
+                context,
+                &me(),
+                &me(),
+                &system,
+                Some(&planet),
+                "infantry",
+                "mech"
+            ));
+        });
+        assert_eq!(state.board[&system].planet_units[&planet], before);
+        assert_eq!(mechs(&state), 4);
+    }
+    /// Indoctrination / Greyfire: the placer replaces an OPPONENT's unit with their own.
+    #[test]
+    fn replacing_an_opponents_unit_checks_the_placers_supply_and_is_atomic() {
+        let (mut state, system, planet) = planet_and_ship();
+        let them = PlayerId::new("b");
+        put_on_planet(&mut state, &system, &planet, "infantry", &them, 1);
+        let mut table = Table::new();
+        let unknown = SystemId::new("nowhere");
+        let boards = state.board.len();
+        with_context(&mut state, POK, None, &mut table, |context| {
+            assert!(
+                !replace_unit(
+                    context,
+                    &me(),
+                    &them,
+                    &unknown,
+                    None,
+                    "infantry",
+                    "infantry"
+                ),
+                "no such system"
+            );
+            assert_eq!(context.state.board.len(), boards, "no board entry was made");
+            assert!(
+                !replace_unit(
+                    context,
+                    &me(),
+                    &me(),
+                    &system,
+                    Some(&planet),
+                    "infantry",
+                    "mech"
+                ),
+                "a has no infantry there: only b is replaced when b is named"
+            );
+            assert!(replace_unit(
+                context,
+                &me(),
+                &them,
+                &system,
+                Some(&planet),
+                "infantry",
+                "mech"
+            ));
+        });
+        let units = &state.board[&system].planet_units[&planet];
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].owner, me());
+        assert!(units[0].type_id.as_str().contains("mech"));
+
+        // The placer's box is empty of mechs: the opponent's infantry stays.
+        put_on_planet(&mut state, &system, &planet, "mech", &me(), 3);
+        put_on_planet(&mut state, &system, &planet, "infantry", &them, 1);
+        let before = state.board[&system].planet_units[&planet].clone();
+        with_context(&mut state, POK, None, &mut table, |context| {
+            assert!(!replace_unit(
+                context,
+                &me(),
+                &them,
+                &system,
+                Some(&planet),
+                "infantry",
+                "mech"
+            ));
+        });
+        assert_eq!(state.board[&system].planet_units[&planet], before);
+    }
+
+    /// Rules 16/33/57 via `fleet::standing`: a space spot that cannot take the unit without a new
+    /// capacity or fleet-pool excess is not offered, unless the caller opts out.
+    #[test]
+    fn placement_respects_capacity_and_the_fleet_pool_unless_told_not_to() {
+        let (mut state, system, _planet) = planet_and_ship();
+        let mut table = Table::new();
+        let space = |state: &GameState, kind: &str| {
+            state.board[&system]
+                .units
+                .iter()
+                .filter(|unit| unit.owner == me() && unit.type_id.as_str().contains(kind))
+                .count()
+        };
+        // Capacity: a lone destroyer carries nothing, so fighters do not fit in its space area.
+        with_context(&mut state, POK, None, &mut table, |context| {
+            let none = place_units_choosing(
+                context,
+                &me(),
+                "fighter",
+                2,
+                PlacementTarget::ShipSpace,
+                None,
+                false,
+                "yso",
+                PlacementLimits::Respect,
+            )
+            .unwrap();
+            assert_eq!(none, 0, "no capacity for fighters");
+        });
+        assert_eq!(space(&state, "fighter"), 0);
+        with_context(&mut state, POK, None, &mut table, |context| {
+            let forced = place_units_choosing(
+                context,
+                &me(),
+                "fighter",
+                2,
+                PlacementTarget::ShipSpace,
+                None,
+                false,
+                "yso",
+                PlacementLimits::Ignore,
+            )
+            .unwrap();
+            assert_eq!(forced, 2, "the explicit opt-out places them");
+        });
+        assert_eq!(space(&state, "fighter"), 2);
+
+        // Fleet pool: one token, one destroyer already there: a second ship does not fit.
+        let (mut state, system, _planet) = planet_and_ship();
+        state.player_mut(&me()).unwrap().fleet_tokens = 1;
+        with_context(&mut state, POK, None, &mut table, |context| {
+            let none = place_units_choosing(
+                context,
+                &me(),
+                "destroyer",
+                1,
+                PlacementTarget::ShipSpace,
+                None,
+                false,
+                "star_forge",
+                PlacementLimits::Respect,
+            )
+            .unwrap();
+            assert_eq!(none, 0, "the fleet pool is full");
+            let forced = place_units_choosing(
+                context,
+                &me(),
+                "destroyer",
+                1,
+                PlacementTarget::ShipSpace,
+                None,
+                false,
+                "star_forge",
+                PlacementLimits::Ignore,
+            )
+            .unwrap();
+            assert_eq!(forced, 1);
+        });
+        assert_eq!(state.board[&system].units.len(), 2);
+    }
+    /// Transparasteel Plating also closes reaction windows, without applying Political Censure.
+    #[test]
+    fn a_play_forbidden_hook_closes_reaction_windows() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        state.player_mut(&me()).unwrap().action_cards = vec![ActionCardId::new("fs1")];
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert("player".to_owned(), serde_json::Value::from("a"));
+        let activated = crate::event::Event::new(1, "SYSTEM_ACTIVATED", payload);
+        let after = crate::timing::Relation::After;
+        assert_eq!(
+            crate::reactions::playable_now(&state, content, &me(), &activated, after),
+            vec![ActionCardId::new("fs1")]
+        );
+        let tp = EconomyHooks {
+            action_cards_forbidden: Some(|_, player| player.as_str() == "a"),
+            ..EconomyHooks::NONE
+        };
+        with_test_hooks(tp, || {
+            assert!(
+                crate::reactions::playable_now(&state, content, &me(), &activated, after)
+                    .is_empty()
+            );
+        });
     }
 }

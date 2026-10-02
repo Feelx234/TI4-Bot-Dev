@@ -78,7 +78,12 @@ pub fn action_card_limit(state: &GameState, base: usize) -> usize {
 /// Political Censure: its elected owner cannot play action cards.
 #[must_use]
 pub fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bool {
-    active(state, "censure") && elected(state, "censure").is_some_and(|who| who == player.as_str())
+    (active(state, "censure") && elected(state, "censure").is_some_and(|who| who == player.as_str()))
+        // Faction cards that stop a player playing action cards (Yssaril Transparasteel
+        // Plating: "During your turn of the action phase, players that have passed cannot play
+        // action cards"). The component-action gate reads this; the reaction-window gate
+        // (`reactions::playable_now`) must read the same hook, see BF-00b-economy evidence.
+        || crate::factions::hooks_economy::action_cards_forbidden(state, player)
 }
 
 /// Shared Research makes nebulae passable.

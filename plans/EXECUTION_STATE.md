@@ -24,7 +24,14 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
   coordinator, ≤ 6 at once. Pi/Qwen is no longer the default implementer (AGENTS.md).
 - Branch `wp/base-factions` (from `main` 58986a6b). BF-00a (per-faction module seam, asset
   ledger, `leaders::for_faction` sheet fix) complete and reviewed: `plans/evidence/BF-00a.md`.
-- Next: BF-00l (hook batch for wave C), then wave B subsystems (≤ 3 parallel, disjoint files).
+- BF-00l (timing + per-unit combat hooks, area hook files, fixtures, `plans/BF_AGENT_GUIDE.md`)
+  complete and reviewed: `plans/evidence/BF-00l.md` (commit 85fa4155).
+- Wave B (BF-00c-space, BF-00c-ground, BF-00b-economy) complete, reviewed, verified, committed:
+  `plans/evidence/BF-wave-B.md`. `ti4-review` semantic_golden fails on `main` since 52066efa
+  (pre-existing; regeneration needs operator approval).
+- Blocked: typed status-phase events need `game.rs`, which carries another session's uncommitted
+  edits (Arborec `mitosis`/`bio`/mech).
+- After wave B: movement/wormholes (BF-00e), hidden hand (BF-00h), capture (BF-00d), then wave C.
 - Ledger report: `cargo test -p ti4-engine --lib print_faction_ledger -- --ignored --nocapture`.
 
 ### Structured diplomacy v2 continuation (2026-09-15)

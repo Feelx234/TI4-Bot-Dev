@@ -571,6 +571,12 @@ pub fn playable_now(
     let Some(seat) = state.player(player) else {
         return Vec::new();
     };
+    // A faction card that stops this player playing action cards (Yssaril Transparasteel
+    // Plating). Deliberately not `laws::action_cards_forbidden`: Political Censure is not enforced
+    // in reaction windows today and this must not start it.
+    if crate::factions::hooks_economy::action_cards_forbidden(state, player) {
+        return Vec::new();
+    }
     // Cards lying on Garbozia are played "as if they were in your hand", so they are read beside
     // it rather than through a path of their own -- every guard below applies to them unchanged.
     let salvaged = crate::legendary::salvaged(state, player);

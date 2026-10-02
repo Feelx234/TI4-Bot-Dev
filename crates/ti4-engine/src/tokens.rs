@@ -341,6 +341,46 @@ impl TokenRedistribution {
     }
 }
 
+// -- placing a token on the board from a reinforcements pile (BF-00b-economy) ----------------------
+
+/// Whether a command token of `owner` may be put in `system` now: the owner has one in
+/// reinforcements (20.4: "if a player would gain a command token but has none available in their
+/// reinforcements, that player cannot gain that command token" extends to placing one) and does
+/// not already have a token there (a system holds one token per player).
+#[must_use]
+pub fn can_place_command_token(
+    state: &GameState,
+    owner: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) -> bool {
+    state.player(owner).is_some()
+        && state.tokens_in_reinforcements(owner) > 0
+        && !state
+            .board
+            .get(system)
+            .is_some_and(|here| here.command_tokens.contains(owner))
+}
+
+/// Place one of `owner`'s command tokens from `owner`'s **reinforcements** (not from a command
+/// sheet pool) in `system`.
+///
+/// For Arborec Stymie: "You may place 1 command token from that player's reinforcements in any
+/// non-home system" -- `owner` is *that player*, the one who moved, and the card's holder is only
+/// the one who decides. The caller picks the system and checks any restriction on it (Stymie's
+/// non-home rule: `ti4_content::galaxy::is_home_system`); this checks only what the component
+/// pile allows. Returns `false` and changes nothing when [`can_place_command_token`] says no.
+pub fn place_command_token_from_reinforcements(
+    state: &mut GameState,
+    owner: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) -> bool {
+    if !can_place_command_token(state, owner, system) {
+        return false;
+    }
+    state.system_mut(system).place_token(owner.clone());
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use ti4_content::ContentStore;
@@ -728,6 +768,57 @@ mod tests {
         assert_eq!(
             window.resolve(&mut state, option),
             Err(RedistributeError::Complete)
+        );
+    }
+    #[test]
+    fn a_command_token_comes_from_the_owners_reinforcements() {
+        let (mut state, players) = game();
+        let system = ti4_model::id::SystemId::new("some_system");
+        // Fresh game: sixteen tokens in all, the sheet holds some, the rest are reinforcements.
+        let before = state.tokens_in_reinforcements(&players[1]);
+        assert!(before > 0, "the fixture leaves reinforcements");
+        let sheet = state.player(&players[1]).unwrap().total_tokens();
+
+        assert!(place_command_token_from_reinforcements(
+            &mut state,
+            &players[1],
+            &system
+        ));
+
+        assert!(state.board[&system].command_tokens.contains(&players[1]));
+        assert_eq!(state.tokens_in_reinforcements(&players[1]), before - 1);
+        assert_eq!(
+            state.player(&players[1]).unwrap().total_tokens(),
+            sheet,
+            "the command sheet is untouched"
+        );
+        assert!(
+            !place_command_token_from_reinforcements(&mut state, &players[1], &system),
+            "one token per player per system"
+        );
+        assert_eq!(state.tokens_in_reinforcements(&players[1]), before - 1);
+    }
+
+    #[test]
+    fn no_reinforcements_means_no_token_and_no_change() {
+        let (mut state, players) = game();
+        let system = ti4_model::id::SystemId::new("some_system");
+        let spare = state.tokens_in_reinforcements(&players[0]);
+        state.gain_token(&players[0], TokenPool::Fleet, spare);
+        assert_eq!(state.tokens_in_reinforcements(&players[0]), 0);
+
+        let snapshot = state.board.clone();
+        assert!(!place_command_token_from_reinforcements(
+            &mut state,
+            &players[0],
+            &system
+        ));
+        assert_eq!(state.board.len(), snapshot.len(), "no system was created");
+        assert!(
+            !state
+                .board
+                .get(&system)
+                .is_some_and(|here| here.command_tokens.contains(&players[0]))
         );
     }
 }

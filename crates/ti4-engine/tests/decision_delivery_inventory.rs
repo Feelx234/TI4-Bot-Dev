@@ -268,6 +268,12 @@ struct Producer {
 const PRODUCERS: &[Producer] = &[
     Producer {
         module: "action_cards.rs",
+        function: "place_units_choosing",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "action_cards.rs",
         function: "choose_crashlanding_ground",
         count: 1,
         delivery: Delivery::ObservedHere,
@@ -958,6 +964,8 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("action_cards.rs", "exchange_program", 1),
     ("action_cards.rs", "ghost_squad", 1),
     ("action_cards.rs", "in_the_silence_of_space", 1),
+    // BF-00b: placement from reinforcements by a faction effect; asks its own choice.
+    ("action_cards.rs", "place_units_choosing", 1),
     ("action_cards.rs", "pick", 1),
     ("action_cards.rs", "predicted_outcome", 1),
     ("action_cards.rs", "public_disgrace", 1),
@@ -1005,7 +1013,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("production.rs", "integrated_economy", 1),
     ("production.rs", "pay_with_observation_credit", 1),
     ("production.rs", "produce_one", 2),
-    ("production.rs", "resolve", 1),
+    // BF-00b: ability-driven production delivers `ProductionWindow::pending_choice` itself.
+    ("production.rs", "produce_by_ability", 1),
+    ("production.rs", "resolve_timed", 1),
     ("production.rs", "sling_relay", 2),
     ("reactions.rs", "instinct_training", 1),
     ("reactions.rs", "l1z1x_agent", 1),

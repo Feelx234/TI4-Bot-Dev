@@ -137,6 +137,87 @@ pub fn allowed(
     usize::try_from(left).unwrap_or(0).min(wanted)
 }
 
+// -- trade goods gained (BF-00b-economy) -----------------------------------------------------------
+//
+// The engine gains trade goods by `seat.trade_goods += n` at roughly 45 sites in 25 files (listed
+// in `plans/evidence/BF-00b-economy.md`); none can report "player X gained N" to a listener, and
+// most run with no resolver in reach (a `TimingContext` or a plain `&mut GameState`). Rewriting
+// them is outside this package. These helpers are the narrowest route: a call site that can reach
+// a resolver replaces its `+=` with one of them and the gain becomes the `TRADE_GOODS_GAINED`
+// event Mentak Pillage and the Mentak agent read. Neither changes how many goods are
+// gained.
+
+/// Give `player` `amount` trade goods and return how many were gained (`0` for a missing seat or a
+/// non-positive amount). The same arithmetic as `seat.trade_goods += amount`, named, so a site
+/// that cannot reach a resolver can still be found by grep when it gains one.
+pub fn gain_trade_goods(state: &mut GameState, player: &PlayerId, amount: i32) -> i32 {
+    if amount <= 0 {
+        return 0;
+    }
+    state.player_mut(player).map_or(0, |seat| {
+        seat.trade_goods += amount;
+        amount
+    })
+}
+
+fn goods_payload(
+    player: &PlayerId,
+    gained: i32,
+    source: &str,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut payload = std::collections::BTreeMap::new();
+    payload.insert("player".to_owned(), player.to_string().into());
+    payload.insert("amount".to_owned(), gained.into());
+    payload.insert("source".to_owned(), source.into());
+    payload
+}
+
+/// [`gain_trade_goods`], then announce it as `TRADE_GOODS_GAINED` (`player`, `amount`, `source`) in
+/// the caller's timing handle -- "after a player gains trade goods". `source` is a short label
+/// (`"trade_primary"`, `"action_card"`, `"exploration"`, ...). Nothing is emitted for a gain of
+/// zero; otherwise emission is unconditional.
+pub fn gain_trade_goods_announced(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    amount: i32,
+    source: &str,
+) -> i32 {
+    let gained = gain_trade_goods(state, player, amount);
+    if gained > 0 {
+        crate::factions::hooks_economy::emit(
+            ctx,
+            state,
+            "TRADE_GOODS_GAINED",
+            goods_payload(player, gained, source),
+        );
+    }
+    gained
+}
+
+/// [`gain_trade_goods_announced`] for a rule effect that holds a `TimingContext` and the
+/// `Resolver` (the shape of `reactions::announce`).
+///
+/// # Errors
+/// [`crate::timing::TimingError`] when the announcement cannot be resolved; the goods have already
+/// been gained.
+pub fn gain_trade_goods_via(
+    context: &mut crate::timing::TimingContext<'_>,
+    resolver: &mut crate::timing::Resolver,
+    player: &PlayerId,
+    amount: i32,
+    source: &str,
+) -> Result<i32, crate::timing::TimingError> {
+    let gained = gain_trade_goods(context.state, player, amount);
+    if gained > 0 {
+        let event = context
+            .event_sequence
+            .next("TRADE_GOODS_GAINED", goods_payload(player, gained, source))?;
+        resolver.emit_with_context(context, event, |_, _| {})?;
+    }
+    Ok(gained)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,6 +452,104 @@ mod tests {
             ),
             0,
             "held by somebody else, but still not in the box"
+        );
+    }
+    type Seen = std::sync::Arc<
+        std::sync::Mutex<Vec<std::collections::BTreeMap<String, serde_json::Value>>>,
+    >;
+
+    fn resolver_listening(seen: &Seen) -> crate::timing::Resolver {
+        let sink = seen.clone();
+        let mut resolver = crate::timing::Resolver::new(
+            vec![player()],
+            Some(player()),
+            crate::choice::Table::default(),
+        );
+        resolver.register([crate::timing::Ability::new(
+            "test:pillage",
+            player(),
+            "TRADE_GOODS_GAINED",
+            crate::timing::Relation::After,
+            std::sync::Arc::new(move |event, _| {
+                sink.lock().unwrap().push(event.payload.clone());
+                Ok(())
+            }),
+        )]);
+        resolver
+    }
+
+    #[test]
+    fn gaining_trade_goods_through_the_helper_emits_the_event_with_its_payload() {
+        let mut state = game(&["a"]);
+        state.player_mut(&player()).unwrap().trade_goods = 1;
+        let seen = Seen::default();
+        let mut resolver = resolver_listening(&seen);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut table = crate::choice::Table::default();
+        crate::fixtures::with_context(&mut state, POK, None, &mut table, |context| {
+            let gained =
+                gain_trade_goods_via(context, &mut resolver, &player(), 3, "test").unwrap();
+            assert_eq!(gained, 3);
+            assert_eq!(context.state.player(&player()).unwrap().trade_goods, 4);
+        });
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0]["player"], "a");
+        assert_eq!(seen[0]["amount"], 3);
+        assert_eq!(seen[0]["source"], "test");
+        drop(seen);
+
+        // The `Resolving` flavour announces the same event.
+        let seen2 = Seen::default();
+        let mut resolver = resolver_listening(&seen2);
+        let (mut dice, mut rng) = (crate::dice::Dice::new(), crate::rng::GameRng::new(0));
+        let mut ctx = crate::choice::Resolving {
+            content: ti4_content::ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        assert_eq!(
+            gain_trade_goods_announced(&mut state, &mut ctx, &player(), 2, "again"),
+            2
+        );
+        assert_eq!(state.player(&player()).unwrap().trade_goods, 6);
+        assert_eq!(seen2.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_zero_gain_emits_nothing_and_a_real_one_always_does() {
+        let mut state = game(&["a"]);
+        let mut resolver = crate::timing::Resolver::new(
+            vec![player()],
+            Some(player()),
+            crate::choice::Table::default(),
+        );
+        let mut table = crate::choice::Table::default();
+        crate::fixtures::with_context(&mut state, POK, None, &mut table, |context| {
+            assert_eq!(
+                gain_trade_goods_via(context, &mut resolver, &player(), 2, "quiet").unwrap(),
+                2
+            );
+            assert_eq!(
+                gain_trade_goods_via(context, &mut resolver, &player(), 0, "none").unwrap(),
+                0
+            );
+        });
+        assert_eq!(
+            resolver
+                .log()
+                .iter()
+                .filter(|line| line.starts_with("emit TRADE_GOODS_GAINED"))
+                .count(),
+            1,
+            "one emission, for the non-zero gain only"
         );
     }
 }
