@@ -680,7 +680,7 @@ do not claim an intermediate package is a deployable release.
   concurrency, recovery, and a real bot E2E with idle time past the presence
   grace period pass.
 - **Execution scope (2026-09-23):** P1, repository-only edits. Exact initial
-  writable paths: `PLAYER_IDENTITY_LOBBY_REFACTOR_PLAN.md`, `README.md`,
+  writable paths: `web/plans/2026-09-23-PLAYER_IDENTITY_LOBBY_REFACTOR_PLAN.md`, `README.md`,
   `web/README.md`, `web/playwright.config.ts`, `web/e2e/*.spec.ts`,
   `web/e2e/lobbyHelpers.ts`,
   `web/src/protocol/fixtures.test.ts`, `crates/ti4-server/fixtures/*.json`,
