@@ -1799,6 +1799,18 @@ pub fn append_facts(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn battle_factions_matches_the_seated_factions() {
+        // BF-00a: this list is ordered for its own artifacts and kept separate on purpose, but
+        // it must name the factions the engine seats. Widening `IN_SCOPE_FACTIONS` (BF-20) fails
+        // here until this list is decided too.
+        let mut ours: Vec<&str> = super::FACTIONS.iter().map(|entry| entry.0).collect();
+        let mut seated = ti4_engine::seating::IN_SCOPE_FACTIONS.to_vec();
+        ours.sort_unstable();
+        seated.sort_unstable();
+        assert_eq!(ours, seated);
+    }
+
     use super::*;
 
     fn side(units: &[(&str, usize)], damaged: &[(&str, usize)], modifier: i64) -> BattleSide {

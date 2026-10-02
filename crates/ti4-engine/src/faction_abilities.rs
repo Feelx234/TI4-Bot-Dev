@@ -44,7 +44,7 @@ pub fn blocked() -> BTreeMap<&'static str, &'static str> {
         ),
         (
             "telepathic",
-            "the agenda deck is not inspectable before it is revealed",
+            "the Naalu 0 token cannot override initiative order yet (BF-00i)",
         ),
         (
             "quash",
@@ -56,6 +56,8 @@ pub fn blocked() -> BTreeMap<&'static str, &'static str> {
         ),
     ]
     .into_iter()
+    // A per-faction module that implements one is no longer blocked by it.
+    .filter(|(ability, _)| !crate::factions::registered_abilities().contains(ability))
     .collect()
 }
 
@@ -96,10 +98,6 @@ pub fn combat_modifier(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
-    #[expect(
-        unused_variables,
-        reason = "space and ground differ for abilities not yet ported; the parameter is the                   contract, and dropping it would have every caller pass nothing and every                   future ability shift both"
-    )]
     context: &str,
 ) -> i64 {
     of_player(state, content, player)
@@ -112,7 +110,8 @@ pub fn combat_modifier(
             // The Titans' Coalescence and Sol's Orbital Drop do not shift dice.
             _ => 0,
         })
-        .sum()
+        .sum::<i64>()
+        + crate::factions::combat_modifier(state, content, player, context)
 }
 
 /// The limit on non-fighter ships in one system, adjusted by anything this player has.
@@ -123,13 +122,14 @@ pub fn fleet_supply(
     player: &PlayerId,
     base: i32,
 ) -> i32 {
-    of_player(state, content, player)
+    let limit = of_player(state, content, player)
         .iter()
         .fold(base, |limit, ability| match ability.as_str() {
             // Letnev's Armada: two more non-fighter ships than the fleet pool allows.
             "armada" => limit + 2,
             _ => limit,
-        })
+        });
+    crate::factions::fleet_supply(state, content, player, limit)
 }
 
 /// Command tokens gained in the status phase, adjusted.
@@ -155,9 +155,10 @@ pub fn status_tokens(
         seat.technologies
             .contains(&ti4_model::id::TechnologyId::new("hm"))
     });
-    count
+    let count = count
         + i32::from(hyper)
-        + i32::try_from(crate::promissory::held_foreign(state, player, "ce")).unwrap_or(0)
+        + i32::try_from(crate::promissory::held_foreign(state, player, "ce")).unwrap_or(0);
+    crate::factions::status_tokens(state, content, player, count)
 }
 
 /// Prerequisites this player may skip when researching `technology`.
@@ -170,10 +171,6 @@ pub fn status_tokens(
 pub fn waived_prerequisites(
     state: &GameState,
     content: &ContentStore,
-    #[expect(
-        unused_variables,
-        reason = "kept in the contract: an ability scoped to a source set is a question this                   will have to answer, and adding it later would touch every call site"
-    )]
     sources: SourceSet,
     player: &PlayerId,
     technology: &str,
@@ -194,7 +191,8 @@ pub fn waived_prerequisites(
             "analytical" if !is_upgrade => 1,
             _ => 0,
         })
-        .sum()
+        .sum::<usize>()
+        + crate::factions::waived_prerequisites(state, content, sources, player, technology)
 }
 
 /// Strategy-card secondaries this player resolves as the *primary* instead.
@@ -212,7 +210,7 @@ pub fn substitutes_primary(
 ) -> bool {
     of_player(state, content, player).iter().any(|ability| {
         matches!(ability.as_str(), "brilliant") && card.eq_ignore_ascii_case("technology")
-    })
+    }) || crate::factions::substitutes_primary(state, content, player, card)
 }
 
 /// Convert structures on a planet this player has just taken (L1Z1X's Assimilate).
@@ -229,6 +227,7 @@ pub fn control_gained(
     system: &ti4_model::id::SystemId,
     planet: &ti4_model::id::PlanetId,
 ) {
+    crate::factions::control_gained(state, content, sources, player, system, planet);
     if !has(state, content, player, "assimilate") {
         return;
     }
@@ -287,6 +286,7 @@ pub fn control_gained(
 pub fn trades_action_cards(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
     // Hacan's Arbiters.
     has(state, content, player, "arbiters")
+        || crate::factions::trades_action_cards(state, content, player)
 }
 
 /// Whether this player may transact with anybody, not only their neighbours.
@@ -294,6 +294,7 @@ pub fn trades_action_cards(state: &GameState, content: &ContentStore, player: &P
 pub fn ignores_neighbours(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
     // Hacan's Guild Ships.
     has(state, content, player, "guild_ships")
+        || crate::factions::ignores_neighbours(state, content, player)
 }
 
 /// Whether a strategy card's secondary costs this player no token.
@@ -310,7 +311,7 @@ pub fn secondary_is_free(
             "master_of_trade" => card.eq_ignore_ascii_case("trade"),
             _ => false,
         }
-    })
+    }) || crate::factions::secondary_is_free(state, content, player, card)
 }
 
 /// The kind of a faction component action.
@@ -351,6 +352,7 @@ pub fn component_actions(
             "Production Biomes: exhaust and spend a strategy token for 4 trade goods",
         ));
     }
+    options.extend(crate::factions::component_actions(state, content, player));
     options
 }
 
@@ -419,6 +421,9 @@ pub fn perform_component(
     player: &PlayerId,
     option: &crate::choice::ChoiceOption,
 ) -> bool {
+    if crate::factions::perform_component(context, player, option) {
+        return true;
+    }
     if option.id == "faction|production_biomes" {
         return production_biomes(context, player);
     }
@@ -630,6 +635,7 @@ pub fn strategy_resolved(
     player: &PlayerId,
     card: &str,
 ) {
+    crate::factions::strategy_resolved(context, player, card);
     if !has(context.state, context.content, player, "peace_accords")
         || !card.eq_ignore_ascii_case("diplomacy")
     {
@@ -746,8 +752,11 @@ pub fn ground_combat_round_ended(
     player: &PlayerId,
     system: &ti4_model::id::SystemId,
 ) -> usize {
+    let modules = crate::factions::ground_combat_round_ended(
+        state, content, sources, dice, rng, player, system,
+    );
     if !has(state, content, player, "harrow") {
-        return 0;
+        return modules;
     }
     let types = ti4_content::units::catalogue(content, sources);
     let mut hits = 0;
@@ -774,7 +783,7 @@ pub fn ground_combat_round_ended(
         );
         hits += roll.hits();
     }
-    hits
+    hits + modules
 }
 
 /// The cost of Munitions Reserves, paid at each combat round's opening window.
@@ -791,6 +800,7 @@ pub fn space_combat_round_started(
     table: &mut crate::choice::Table,
     player: &PlayerId,
 ) {
+    crate::factions::space_combat_round_started(state, content, sources, table, player);
     if !has(state, content, player, "munitions") {
         return;
     }
@@ -865,6 +875,9 @@ pub fn registered_mech_abilities() -> Vec<&'static str> {
         "sol_mech",    // ZS Thunderbolt M2: DEPLOY after Orbital Drop
         "xxcha_mech",  // Indomitus: SPACE CANNON into adjacent systems
     ]
+    .into_iter()
+    .chain(crate::factions::registered_units())
+    .collect()
 }
 
 /// Mechs of the given factions whose printed ability nothing here implements.
@@ -909,6 +922,9 @@ pub fn registered() -> Vec<&'static str> {
         "unrelenting",
         "versatile",
     ]
+    .into_iter()
+    .chain(crate::factions::registered_abilities())
+    .collect()
 }
 
 /// Printed abilities nothing here answers, excluding the ones [`blocked`] explains.

@@ -17,6 +17,16 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
 
 ## Current position
 
+### Base-faction completion (BF), 2026-10-02
+
+- Plan: `plans/BASE_FACTIONS_PLAN_2026-10-02.md` — 12 factions (10 remaining base + Argent +
+  Naaz-Rokha; Nekro deferred), full PoK + TE assets, Sonnet subagents orchestrated by a Claude
+  coordinator, ≤ 6 at once. Pi/Qwen is no longer the default implementer (AGENTS.md).
+- Branch `wp/base-factions` (from `main` 58986a6b). BF-00a (per-faction module seam, asset
+  ledger, `leaders::for_faction` sheet fix) complete and reviewed: `plans/evidence/BF-00a.md`.
+- Next: BF-00l (hook batch for wave C), then wave B subsystems (≤ 3 parallel, disjoint files).
+- Ledger report: `cargo test -p ti4-engine --lib print_faction_ledger -- --ignored --nocapture`.
+
 ### Structured diplomacy v2 continuation (2026-09-15)
 
 - Claude resume point: `plans/CLAUDE_HANDOVER_2026-09-16.md`.

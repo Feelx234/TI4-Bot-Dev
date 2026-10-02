@@ -140,7 +140,16 @@ pub fn commander_unlocked(
                     })
             })
         }
-        _ => return None,
+        other => {
+            return crate::factions::commander_unlocked(
+                state,
+                content,
+                sources,
+                galaxy,
+                player,
+                &LeaderId::new(other),
+            );
+        }
     };
     Some(met)
 }
@@ -176,12 +185,46 @@ pub fn for_faction(content: &ContentStore, sources: SourceSet, faction: &str) ->
         .iter()
         .filter_map(|record| record.text("homebrewReplacesID"))
         .collect();
+    // The faction sheet names its leaders. The corpus also carries alternates that sheet does not
+    // list -- unofficial variants filed under an official source (Creuss's `redcreuss*`) and
+    // superseded printings with no replacement link (Naalu's `naaluagent` beside the listed
+    // `naaluagent-te`) -- and dealing those gave a seat six leaders, or two agents. A record is
+    // kept if the sheet lists it, if it reprints one the sheet lists, or if it stands in for a
+    // listed leader of its type that `sources` does not reach.
+    let sheet: Vec<&str> = ti4_content::factions::get(content, faction)
+        .map(|record| record.leaders())
+        .unwrap_or_default();
+    let available: std::collections::BTreeSet<&str> = records
+        .iter()
+        .filter_map(|record| record_id(record))
+        .collect();
+    let missing_types: std::collections::BTreeSet<String> = sheet
+        .iter()
+        .filter(|listed| !available.contains(*listed))
+        .filter_map(|listed| kind_of(content, &LeaderId::new(*listed)))
+        .collect();
+    let on_sheet = |record: &&ti4_content::Record| {
+        sheet.is_empty()
+            || record_id(record).is_some_and(|id| sheet.contains(&id))
+            || record
+                .text("homebrewReplacesID")
+                .is_some_and(|original| sheet.contains(&original))
+            || record
+                .text("type")
+                .is_some_and(|kind| missing_types.contains(&kind.to_ascii_lowercase()))
+    };
     records
         .into_iter()
+        .filter(on_sheet)
         .filter_map(|record| record.text("id").or_else(|| record.text("alias")))
         .map(LeaderId::new)
         .filter(|leader| !replaced.contains(leader.as_str()))
         .collect()
+}
+
+/// A leader record's id.
+fn record_id(record: &ti4_content::Record) -> Option<&str> {
+    record.text("id").or_else(|| record.text("alias"))
 }
 
 /// 51.2a: a faction begins with its agents readied and everything else locked.
@@ -518,7 +561,7 @@ fn can_resolve_action(
                 })
             })
         }
-        _ => true,
+        _ => crate::factions::leader_action(state, content, player, leader).unwrap_or(true),
     }
 }
 
@@ -544,7 +587,10 @@ pub fn component_actions(
         })
         .map(|(leader, _)| leader.clone())
         .filter(|leader| is_action_window(content, leader))
-        .filter(action_leader_delivered)
+        .filter(|leader| {
+            action_leader_delivered(leader)
+                || crate::factions::leader_action(state, content, player, leader).is_some()
+        })
         .filter(|leader| can_resolve_action(state, content, player, leader))
         .map(|leader| {
             let label = content
@@ -688,7 +734,8 @@ pub fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
             "hacancommander" => 3,
             _ => 0,
         })
-        .sum()
+        .sum::<i64>()
+        + crate::factions::vote_bonus(state, player)
 }
 
 /// Elder Qanoj, Xxcha's commander: "Each planet you exhaust to cast votes provides 1 additional
@@ -749,6 +796,8 @@ pub fn registered_abilities() -> Vec<&'static str> {
         "hacanhero",
         "jolnaragent",
         "xxchahero",
+        // The Thunder's Edge reprint `for_faction` deals at DEFAULT; delivered by `use_leader`.
+        "xxchahero-te",
         "jolnarhero",
         "l1z1xagent",
         "l1z1xhero",
@@ -761,6 +810,9 @@ pub fn registered_abilities() -> Vec<&'static str> {
         "solhero",
         "xxchaagent",
     ]
+    .into_iter()
+    .chain(crate::factions::registered_leaders())
+    .collect()
 }
 
 /// Leaders of these factions that still do nothing, by any of the three routes.
@@ -1602,7 +1654,7 @@ pub fn use_leader(
             }
             true
         }
-        _ => false,
+        _ => crate::factions::use_leader(context, player, leader).unwrap_or(false),
     };
     if done {
         // An agent exhausts; a hero is purged once used (51.9, 51.10) — except Darktalon

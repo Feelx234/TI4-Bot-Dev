@@ -45,6 +45,9 @@ pub fn registered_aliases() -> Vec<&'static str> {
     vec![
         "hacanbt", "jolnarbt", "letnevbt", "solbt", "xxchabt", "l1z1xbt",
     ]
+    .into_iter()
+    .chain(crate::factions::registered_breakthroughs())
+    .collect()
 }
 
 /// Breakthroughs belonging to the trained factions whose abilities are not implemented.

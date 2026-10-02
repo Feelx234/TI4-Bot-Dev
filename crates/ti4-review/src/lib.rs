@@ -2513,6 +2513,18 @@ pub fn export_html(path: &Path, session: &ReviewSession) -> Result<()> {
 
 #[cfg(all(test, feature = "simulate"))]
 mod tests {
+    #[test]
+    fn factions_matches_the_seated_factions() {
+        // BF-00a: this list is ordered for its own artifacts and kept separate on purpose, but
+        // it must name the factions the engine seats. Widening `IN_SCOPE_FACTIONS` (BF-20) fails
+        // here until this list is decided too.
+        let mut ours: Vec<&str> = super::FACTIONS.to_vec();
+        let mut seated = ti4_engine::seating::IN_SCOPE_FACTIONS.to_vec();
+        ours.sort_unstable();
+        seated.sort_unstable();
+        assert_eq!(ours, seated);
+    }
+
     use super::*;
 
     #[test]

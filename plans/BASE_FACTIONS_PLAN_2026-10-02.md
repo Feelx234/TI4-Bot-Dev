@@ -64,6 +64,7 @@ review (tiers C/D: timing, legality, hidden information).
 | BF-00h | Action-card free-action window, hidden-hand inspection through typed views | Yssaril |
 | BF-00i | Initiative override token (Telepathic / Gift of Prescience) and out-of-turn movement on enemy activation | Naalu |
 | BF-00j | Mobile space dock (dock as ship cargo, production from space) | Saar |
+| BF-00l | Hook batch for wave C, one serial coordinator change before agents spawn: promissory-note play/effects, faction-tech behaviour, unit-ability, breakthrough behaviour, production, movement, turn start, action-card draw, status phase, start-of-combat, agenda windows; `vote_bonus` gets `&ContentStore` | all wave-C/D factions |
 
 `faction_abilities::blocked()` currently lists `telepathic` as "agenda deck not inspectable";
 Telepathic is the Naalu 0-token. BF-00a corrects that ledger entry before work starts.
@@ -111,6 +112,10 @@ one `target/` (cargo's lock serialises builds), and today every faction's code l
 modules (`faction_abilities.rs`, `leaders.rs`, `promissory.rs`, `breakthroughs.rs`, …) where six
 agents would collide.
 
+**As built (BF-00a, see `plans/evidence/BF-00a.md`):** the seam exists; the existing six were
+*not* migrated (no dependency on it). Agents write `factions/<alias>.rs` only, tests inline. New
+hook points are coordinator changes to `factions/mod.rs` + the shared call site.
+
 **Enabler (BF-00a, done serially before any wave):** move faction-specific code to one file per
 faction, `crates/ti4-engine/src/factions/<alias>.rs` (**new folder — needs operator approval**),
 each exposing a fixed `FactionModule` registration (abilities, techs, units, PN, leaders,
@@ -132,10 +137,10 @@ Folder `crates/ti4-engine/src/factions/` and branch `wp/base-factions` approved 
 
 | Rule | Why |
 |---|---|
-| Writable: `factions/<alias>.rs`, `tests/faction_<alias>.rs`, `plans/evidence/BF-<alias>*.md` only | Disjoint scopes = safe in one tree |
+| Writable: `factions/<alias>.rs` (unit tests inline), `plans/evidence/BF-<alias>*.md` only | Disjoint scopes = safe in one tree |
 | Needs a shared-module change → stop and report; coordinator does it | Shared seams stay single-writer |
 | Crate must compile at every save; unfinished hooks stay unregistered | One broken file blocks all six agents' builds |
-| Tests run filtered (`cargo test -p ti4-engine faction_<alias>`) | Shorter lock holds on the shared `target/` |
+| Tests run filtered (`cargo test -p ti4-engine --lib factions::<alias>`); a filter matching 0 tests is a failure | Shorter lock holds on the shared `target/` |
 | Agents never commit, switch branch, or touch `out/` | Coordinator commits each package by explicit path |
 | Each package gets a frontier (Opus) review before commit | AGENTS.md tiers C/D; Sonnet is implementer, not sole reviewer |
 
