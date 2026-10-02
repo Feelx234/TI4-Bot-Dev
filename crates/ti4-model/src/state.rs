@@ -1375,6 +1375,15 @@ pub struct GameState {
     /// Notes faceup in a play area rather than held in hand (LRR 69.3). Alliance and Trade
     /// Convoys work from the play area; the rest resolve from hand.
     pub promissory_faceup: BTreeSet<String>,
+    /// Small per-faction bookkeeping for faction modules (`ti4_engine::factions`): a card's
+    /// "once per round" use, a swapped planet value, a revealed hand. Keys are namespaced
+    /// `"<faction alias>:<card>:<detail>"`; values are the module's own encoding.
+    ///
+    /// Generic on purpose, so a faction package does not need a schema change for one flag; a
+    /// mark that several subsystems must read deserves a typed field instead. Skipped when empty,
+    /// so games without faction modules serialize and hash exactly as before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub faction_marks: BTreeMap<String, String>,
 }
 
 /// Equality over the declared, compared fields only — the oracle marks 20 of these maps
@@ -1593,6 +1602,7 @@ impl GameState {
             support_holders: BTreeMap::new(),
             promissory_notes: BTreeMap::new(),
             promissory_faceup: BTreeSet::new(),
+            faction_marks: BTreeMap::new(),
         }
     }
 

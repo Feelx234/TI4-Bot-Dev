@@ -45,9 +45,12 @@ pub struct CombatUnit<'a> {
 pub mod arborec;
 pub mod argent;
 pub mod ghost;
+pub mod hooks_cards;
 pub mod hooks_combat;
 pub mod hooks_economy;
 pub mod hooks_ground;
+pub mod hooks_movement;
+pub mod hooks_strategy;
 pub mod mentak;
 pub mod muaat;
 pub mod naalu;
@@ -220,6 +223,12 @@ pub struct Hooks {
     pub ground: hooks_ground::GroundHooks,
     /// Production, placement, payment and action-card hooks (`hooks_economy.rs`).
     pub economy: hooks_economy::EconomyHooks,
+    /// Movement and adjacency hooks (`hooks_movement.rs`).
+    pub movement: hooks_movement::MovementHooks,
+    /// Hidden-hand and card-window hooks (`hooks_cards.rs`).
+    pub cards: hooks_cards::CardHooks,
+    /// Strategy, initiative and unit-form hooks (`hooks_strategy.rs`).
+    pub strategy: hooks_strategy::StrategyHooks,
 }
 
 impl Hooks {
@@ -249,6 +258,9 @@ impl Hooks {
         combat: hooks_combat::CombatHooks::NONE,
         ground: hooks_ground::GroundHooks::NONE,
         economy: hooks_economy::EconomyHooks::NONE,
+        movement: hooks_movement::MovementHooks::NONE,
+        cards: hooks_cards::CardHooks::NONE,
+        strategy: hooks_strategy::StrategyHooks::NONE,
     };
 }
 
