@@ -19,6 +19,8 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
 
 ### Base-faction completion (BF), 2026-10-02
 
+- **Handover for Codex: `plans/HANDOVER_2026-10-03_BASE_FACTIONS_CODEX.md` — read it first.**
+
 - Plan: `plans/BASE_FACTIONS_PLAN_2026-10-02.md` — 12 factions (10 remaining base + Argent +
   Naaz-Rokha; Nekro deferred), full PoK + TE assets, Sonnet subagents orchestrated by a Claude
   coordinator, ≤ 6 at once. Pi/Qwen is no longer the default implementer (AGENTS.md).
