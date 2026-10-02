@@ -311,7 +311,7 @@ configuration. This step requires a security review before an internet-facing de
 ### 6. Complete the gameplay UI and add AI seats
 
 > [!NOTE]
-> Detailed UI implementation plan: [`plans/GAMEPLAY_UI_COMPLETION_PLAN.md`](GAMEPLAY_UI_COMPLETION_PLAN.md).
+> Detailed UI implementation plan: [`web/plans/2026-09-21-GAMEPLAY_UI_COMPLETION_PLAN.md`](2026-09-21-GAMEPLAY_UI_COMPLETION_PLAN.md).
 > Covers the Choice Renderer Model, constraint handling (`min_selection`/`max_selection`), and specialized workflow components (payments, tactical moves, combat, agenda voting, trade negotiation).
 
 Expand the browser UI from the vertical slice to all player-facing workflows: timing/reaction
@@ -344,7 +344,7 @@ choice and seat-bound observation it is entitled to see; it does not gain a priv
   choice or a false successful game completion.
 
 **Status: COMPLETED (GAMEPLAY UI WORKFLOWS & FRONTEND EXPERIENCE)**
-- **Completed Work Packages (`plans/GAMEPLAY_UI_COMPLETION_PLAN.md` UI-01 through UI-08)**:
+- **Completed Work Packages (`web/plans/2026-09-21-GAMEPLAY_UI_COMPLETION_PLAN.md` UI-01 through UI-08)**:
   - **UI-01 (Choice Renderer Model & Classifier)**: `deriveChoiceRendererModel` (`web/src/presentation/choiceModel.ts`) with typed payload decoders (payment, movement, trade) eliminating raw string parsing.
   - **UI-02 (Bounded Multi-Selection & Search)**: Accessible bounded checkbox cards (`min_selection` to `max_selection`), count badge, and option search filter (`web/src/components/PendingChoiceModal.tsx`).
   - **UI-03 (Economy & Payment Drawer)**: Modeless payment drawer (`web/src/components/PaymentDrawer.tsx`) with planet card toggles, trade good stepper, live debt/credit tally, and pipelined execution.

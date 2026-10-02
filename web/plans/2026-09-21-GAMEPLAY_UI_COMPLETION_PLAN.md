@@ -2,7 +2,7 @@
 
 ## 1. Overview & Context
 
-This document is the definitive specification and implementation plan for the Twilight Imperium 4 browser gameplay UI, fulfilling the frontend scope of **Step 6** of [`plans/ONLINE_MULTIPLAYER_ARCHITECTURE.md`](ONLINE_MULTIPLAYER_ARCHITECTURE.md).
+This document is the definitive specification and implementation plan for the Twilight Imperium 4 browser gameplay UI, fulfilling the frontend scope of **Step 6** of [`web/plans/2026-09-21-ONLINE_MULTIPLAYER_ARCHITECTURE.md`](2026-09-21-ONLINE_MULTIPLAYER_ARCHITECTURE.md).
 
 Per project instructions, this plan is strictly scoped to the **gameplay UI and browser client experience**. AI policy integration, neural network inference (`ti4-mlp`), and autonomous agent deciders are out of scope for this plan.
 
