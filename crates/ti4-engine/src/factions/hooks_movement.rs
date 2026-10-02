@@ -109,6 +109,13 @@ pub struct MovementHooks {
     ///
     /// Muaat Gashlai Physiology: "Your ships can move through supernovas."
     pub may_enter_supernova: Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId) -> bool>,
+    /// Whether `player` is barred from activating `system` (any module's `true` bars). Read by
+    /// `tactical::activatable`, so a barred system is never offered.
+    ///
+    /// Saar Chaos Mapping: "Other players cannot activate asteroid fields that contain 1 or more
+    /// of your ships."
+    pub cannot_activate:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId) -> bool>,
 }
 
 impl MovementHooks {
@@ -119,6 +126,7 @@ impl MovementHooks {
         move_bonus: None,
         may_move_through_ships: None,
         may_enter_supernova: None,
+        cannot_activate: None,
     };
 }
 
@@ -168,6 +176,19 @@ fn tables() -> impl Iterator<Item = MovementHooks> {
 /// does, which is what keeps games with empty modules identical.
 pub(crate) fn any(pick: impl Fn(&MovementHooks) -> bool) -> bool {
     tables().any(|table| pick(&table))
+}
+
+/// Whether any module bars `player` from activating `system`.
+pub(crate) fn cannot_activate(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    tables()
+        .filter_map(|table| table.cannot_activate)
+        .any(|barred| barred(state, content, sources, player, system))
 }
 
 /// Wormholes the modules' pieces put on the map, by system.
@@ -398,12 +419,8 @@ mod tests {
             DEFAULT,
             &a
         ));
-        // The real module table is empty too.
-        assert!(!any(|t| t.extra_wormholes.is_some()
-            || t.linked_systems.is_some()
-            || t.move_bonus.is_some()
-            || t.may_move_through_ships.is_some()
-            || t.may_enter_supernova.is_some()));
+        // (The real module table is no longer empty once faction packages land; their own
+        // tests prove a game without that faction is unchanged.)
     }
 
     #[test]

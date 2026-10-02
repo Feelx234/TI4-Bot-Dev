@@ -1362,6 +1362,9 @@ pub fn controls_home_system(position: &Position<'_>) -> bool {
     let Some(player) = position.state.player(position.player) else {
         return false;
     };
+    if crate::factions::hooks_strategy::scores_without_home(position.state, position.player) {
+        return true; // Saar Nomadic
+    }
     // No faction record, or a faction with no listed homeworlds (the neutral placeholder),
     // means there is no home system to lose.
     let Some(faction) = ti4_content::factions::get(position.content, player.faction.as_str())

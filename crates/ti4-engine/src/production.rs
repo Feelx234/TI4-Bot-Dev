@@ -11,7 +11,7 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_content::units::{UnitType, catalogue};
 use ti4_model::content_types::{ContentType, SourceSet};
-use ti4_model::id::{PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
+use ti4_model::id::{PlanetId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
@@ -283,16 +283,8 @@ pub fn spendable_planets(state: &GameState, player: &PlayerId) -> Vec<PlanetId> 
 /// every step of the payment loop.
 #[must_use]
 pub fn trade_good_worth(state: &GameState, player: &PlayerId) -> i64 {
-    let base = if state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("mc")))
-    {
-        2
-    } else {
-        1
-    };
-    // Faction modules adjust it last (Mentak `mc`, "each trade good is worth 2 resources or
-    // influence instead of 1"). Identity while no module has the hook.
+    // Mentak `mc` lives in `factions/mentak.rs` on the hook below; nothing is hard-coded here.
+    let base = 1;
     crate::factions::hooks_economy::trade_good_worth(state, player, base)
 }
 
@@ -3014,7 +3006,8 @@ mod tests {
         {
             let seat = state.player_mut(&player).unwrap();
             seat.trade_goods = 1;
-            seat.technologies.insert(TechnologyId::new("mc"));
+            seat.technologies
+                .insert(ti4_model::id::TechnologyId::new("mc"));
         }
         assert_eq!(
             available(

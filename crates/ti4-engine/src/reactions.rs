@@ -730,7 +730,7 @@ fn announce_discard(
 /// both a context and the resolver calls this after the hook returns. A staged discard becomes
 /// `ACTION_CARD_DISCARDED` exactly as a played card's does (the pile and
 /// `last_action_discarded` are set by [`announce_discard`]); a staged take becomes the new
-/// `ACTION_CARD_TAKEN` (`player` = taker, `from`, `card`). With nothing staged — every game
+/// `ACTION_CARD_TAKEN` (`player` = taker, `from`; deliberately no card id). With nothing staged — every game
 /// without a faction module — this does nothing at all.
 ///
 /// # Errors
@@ -750,11 +750,12 @@ pub fn announce_staged_card_events(
             StagedCardEvent::Discarded { player, card } => {
                 announce_discard(context, resolver, &player, &card)?;
             }
-            StagedCardEvent::Taken { player, from, card } => {
+            StagedCardEvent::Taken { player, from, .. } => {
                 let mut payload = BTreeMap::new();
                 payload.insert("player".to_owned(), player.to_string().into());
                 payload.insert("from".to_owned(), from.to_string().into());
-                payload.insert("card".to_owned(), card.to_string().into());
+                // No `card`: which card moved is known to the taker and the owner only, and
+                // a typed event is evaluated in every seat's window.
                 let taken = context.event_sequence.next("ACTION_CARD_TAKEN", payload)?;
                 resolver.emit_with_context(context, taken, |_, _| {})?;
             }

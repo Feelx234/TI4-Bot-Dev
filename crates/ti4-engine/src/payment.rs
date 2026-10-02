@@ -427,7 +427,10 @@ mod tests {
     /// `plans` behaves exactly as before while no module acts: the hard-coded `mc` technology is
     /// honoured by production payment only, not here (the Mentak package moves it onto the hook).
     #[test]
-    fn plans_ignore_the_hard_coded_mc_technology_as_before() {
+    fn mirror_computing_doubles_trade_goods_in_every_payment() {
+        // Mirror Computing (Mentak): "When you spend trade goods, each trade good is worth 2
+        // resources or influence instead of 1." Implemented once, by the Mentak module through the
+        // `trade_good_worth` hook, so production and every other payment agree.
         let mut state = game(&["a"]);
         {
             let seat = state.player_mut(&player()).unwrap();
@@ -436,16 +439,23 @@ mod tests {
                 .insert(ti4_model::id::TechnologyId::new("mc"));
         }
         let content = ContentStore::embedded();
+        let found = plans(&state, content, POK, &player(), 3, Spend::Influence);
+        assert!(!found.is_empty(), "two goods now pay up to four");
+        assert!(found.iter().all(|plan| plan.trade_goods <= 2));
+        let two = plans(&state, content, POK, &player(), 4, Spend::Influence);
+        assert!(
+            two.iter().any(|plan| plan.trade_goods == 2
+                && plan.worth_for(&state, content, POK, &player(), Spend::Influence) >= 4),
+            "two goods are worth four"
+        );
+        state
+            .player_mut(&player())
+            .unwrap()
+            .technologies
+            .remove(&ti4_model::id::TechnologyId::new("mc"));
         assert!(
             plans(&state, content, POK, &player(), 3, Spend::Influence).is_empty(),
-            "two goods still pay two"
-        );
-        let found = plans(&state, content, POK, &player(), 2, Spend::Influence);
-        assert_eq!(found[0].trade_goods, 2);
-        assert_eq!(
-            found[0].worth_for(&state, content, POK, &player(), Spend::Influence),
-            found[0].worth(&state, content, POK, Spend::Influence),
-            "worth_for equals worth with no module acting"
+            "without the technology two goods pay two"
         );
     }
 }

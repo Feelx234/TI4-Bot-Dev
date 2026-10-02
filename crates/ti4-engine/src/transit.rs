@@ -619,6 +619,8 @@ pub enum RelocateError {
     NotAdjacent { from: SystemId, to: SystemId },
     #[error("{0} holds another player's ships")]
     ForeignShips(SystemId),
+    #[error("ships cannot enter {0} (an anomaly or law bars it)")]
+    CannotEnter(SystemId),
     #[error("the arrival would put the fleet over its supply or capacity in {0}")]
     FleetOverflow(SystemId),
     #[error(transparent)]
@@ -698,6 +700,20 @@ pub fn relocate_ships(
             from: from.clone(),
             to: to.clone(),
         });
+    }
+    // 86.1, 11.1, 59.1: the destination must be enterable under the same rules a tactical move
+    // uses for this player (laws, technologies, faction effects).
+    let mut rules = crate::movement::MovementRules::with_laws(
+        galaxy,
+        content,
+        sources,
+        to.as_str(),
+        crate::movement::Board::for_player(state, content, sources, player),
+        Some(state),
+    );
+    crate::action_cards::apply_movement_effects(&mut rules, state, player);
+    if !rules.can_enter(to.as_str()) {
+        return Err(RelocateError::CannotEnter(to.clone()));
     }
     if relocation.forbid_foreign_ships_at_destination
         && state.board.get(to).is_some_and(|system| {
@@ -1501,6 +1517,37 @@ mod relocation_tests {
         assert_eq!(done.ships, vec!["cruiser".to_owned()]);
         assert_eq!(done.payload()["count"], serde_json::json!(1));
         assert_eq!(done.payload()["to"], serde_json::json!(to.to_string()));
+    }
+
+    #[test]
+    fn ships_cannot_be_relocated_into_a_supernova() {
+        // 86.1: an out-of-turn move (Foresight) obeys the same entry rules as a tactical move.
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        let supernova = crate::fixtures::a_system_where("supernova");
+        let plain: Vec<String> = crate::fixtures::plain_systems(12)
+            .into_iter()
+            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .take(5)
+            .collect();
+        let mut tiles = vec!["18", supernova.as_str()];
+        tiles.extend(plain.iter().map(String::as_str));
+        let galaxy = Galaxy::build(content, &tiles, DEFAULT, 2).unwrap();
+        let from = SystemId::new(plain[0].as_str());
+        let to = SystemId::new(supernova.as_str());
+        let player = a();
+        state.system_mut(&from).add(&[ship("cruiser", &player)]);
+        let before = state.clone();
+        let ships = [ship("cruiser", &player)];
+        let mut moving = relocation(&from, &ships, &to, &player);
+        moving.require_adjacent = false;
+        let refused = relocate_ships(&mut state, content, DEFAULT, &galaxy, &moving);
+        assert_eq!(refused.unwrap_err(), RelocateError::CannotEnter(to.clone()));
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            serde_json::to_value(&before).unwrap(),
+            "nothing moved"
+        );
     }
 
     #[test]

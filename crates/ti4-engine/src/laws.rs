@@ -648,6 +648,9 @@ pub fn apply_to_galaxy(state: &GameState, galaxy: &mut ti4_content::galaxy::Gala
             .or_default()
             .insert(face.clone());
     }
+    // Wormholes carried by faction pieces (the Creuss flagship's delta), after the token map is
+    // rebuilt so they are not cleared with it. Empty modules add nothing.
+    crate::factions::hooks_movement::apply_extra_wormholes(state, galaxy);
 }
 
 /// Laws this engine can enact but not enforce — the honest coverage gap.

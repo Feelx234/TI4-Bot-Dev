@@ -29,7 +29,7 @@
 //!
 //! | Event | Staged by | Announced by | Payload |
 //! |---|---|---|---|
-//! | `ACTION_CARD_TAKEN` | [`take_revealed_action_card`] | `reactions::announce_staged_card_events` | `player` (taker), `from` (previous holder), `card` |
+//! | `ACTION_CARD_TAKEN` | [`take_revealed_action_card`] | `reactions::announce_staged_card_events` | `player` (taker), `from` (previous holder); no card id (private to taker and owner) |
 //!
 //! `ACTION_CARD_DISCARDED` already exists (payload `player`, `card`); a staged discard is announced
 //! with the same payload, and only then does the card reach the discard pile and

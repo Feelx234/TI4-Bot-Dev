@@ -74,6 +74,12 @@ pub struct StrategyHooks {
     /// Called once, before the card's secondary is performed, after the choice is validated; no
     /// token has been spent.
     pub secondary_waived: Option<fn(&mut GameState, &ContentStore, &PlayerId, &PlayerId, &str)>,
+    /// Whether `player` may score objectives without controlling every planet in their home
+    /// system (LRR 61.16 lifted). Any module's `true` lifts it.
+    ///
+    /// Saar Nomadic: "You can score objectives even if you do not control the planets in your
+    /// home system."
+    pub scores_without_home: Option<fn(&GameState, &PlayerId) -> bool>,
 }
 
 impl StrategyHooks {
@@ -82,6 +88,7 @@ impl StrategyHooks {
         strategy_phase_ended: None,
         secondary_waivers: None,
         secondary_waived: None,
+        scores_without_home: None,
     };
 }
 
@@ -126,6 +133,13 @@ fn tables() -> impl Iterator<Item = StrategyHooks> {
         .iter()
         .map(|module| module.hooks.strategy)
         .chain(test_table())
+}
+
+/// Whether any module lets `player` score without their home system.
+pub(crate) fn scores_without_home(state: &GameState, player: &PlayerId) -> bool {
+    tables()
+        .filter_map(|table| table.scores_without_home)
+        .any(|lifted| lifted(state, player))
 }
 
 /// Let every module write its initiative overrides as the strategy phase ends.

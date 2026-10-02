@@ -1,7 +1,1830 @@
 //! The Mentak Coalition (`mentak`). See `factions/mod.rs` for the contract and
 //! `plans/BASE_FACTIONS_PLAN_2026-10-02.md` for scope.
+//!
+//! Implemented: Ambush, Pillage (on a trade-goods-gained event and on a resolved transaction),
+//! Mirror Computing (the only place the trade-good worth is decided), Salvage Operations, Promise
+//! of Protection (the Pillage bar and the return on activation), Fourth Moon, Moll Terminus, the
+//! Corsair's passage, Suffi An, S'ula Mentarion and Ipswitch. Not implemented (no route; see
+//! `plans/evidence/BF-mentak.md`): The Table's Grace, which must make the Corsair the unit a
+//! Mentak player with Cruiser II places.
 
-use super::FactionModule;
+use std::sync::Arc;
+
+use ti4_content::ContentStore;
+use ti4_model::content_types::SourceSet;
+use ti4_model::id::{LeaderId, PlayerId, SystemId, TechnologyId};
+use ti4_model::state::{GameState, LeaderStatus};
+
+use super::hooks_combat::{CombatHooks, CombatMoment, HitSite, ProducedHits};
+use super::hooks_economy::EconomyHooks;
+use super::hooks_ground::GroundHooks;
+use super::hooks_movement::{MovementHooks, PassSite};
+use super::{CombatUnit, FactionModule, Hooks};
+use crate::choice::{Choice, ChoiceOption, IllegalChoice};
+use crate::decision_context::{DecisionContext, DecisionSource};
+use crate::event::Event;
+use crate::production::Spend;
+use crate::timing::{Ability, Relation, TimingContext, TimingError};
 
 /// What this faction implements; grows package by package.
-pub const MODULE: FactionModule = FactionModule::empty("mentak");
+pub const MODULE: FactionModule = FactionModule {
+    alias: "mentak",
+    // Not claimed: `pillage` and `mentakagent` (the "gains trade goods" half has no live emitter),
+    // `mentak_cruiser3` (unreachable while `mentakbt` is blocked). See the evidence.
+    abilities: &["ambush"],
+    technologies: &["mc", "so"],
+    units: &["mentak_flagship", "mentak_mech"],
+    promissory: &["pop"],
+    leaders: &["mentakcommander", "mentakhero"],
+    breakthroughs: &[],
+    hooks: Hooks {
+        commander_unlocked: Some(commander_unlocked),
+        timing_abilities: Some(timing_abilities),
+        combat: CombatHooks {
+            produced_hits: Some(produced_hits),
+            may_sustain: Some(flagship_allows_sustain),
+            ..CombatHooks::NONE
+        },
+        ground: GroundHooks {
+            may_sustain: Some(mech_allows_sustain),
+            ..GroundHooks::NONE
+        },
+        economy: EconomyHooks {
+            trade_good_worth: Some(trade_good_worth),
+            ..EconomyHooks::NONE
+        },
+        movement: MovementHooks {
+            may_move_through_ships: Some(may_move_through_ships),
+            ..MovementHooks::NONE
+        },
+        ..Hooks::NONE
+    },
+};
+
+const FLAGSHIP: &str = "mentak_flagship";
+const MECH: &str = "mentak_mech";
+const CORSAIR: &str = "mentak_cruiser3";
+const AGENT: &str = "mentakagent";
+const COMMANDER: &str = "mentakcommander";
+const HERO: &str = "mentakhero";
+
+// -- small helpers -------------------------------------------------------------------------------
+
+fn is_mentak(state: &GameState, player: &PlayerId) -> bool {
+    state
+        .player(player)
+        .is_some_and(|seat| seat.faction.as_str() == "mentak")
+}
+
+fn owns_technology(state: &GameState, player: &PlayerId, technology: &str) -> bool {
+    state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(technology)))
+}
+
+fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
+    crate::leaders::status(state, player, &LeaderId::new(leader))
+}
+
+fn illegal(error: IllegalChoice) -> TimingError {
+    TimingError::IllegalChoice(error)
+}
+
+/// Put a question to `player`, with exactly these options.
+fn ask_among(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    prompt: String,
+    ability: &str,
+    subtype: &str,
+    options: Vec<ChoiceOption>,
+) -> Result<ChoiceOption, IllegalChoice> {
+    let choice = Choice::new(player.clone(), prompt, options).contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::FactionAbility(ability.to_owned()),
+        subtype,
+        context.state.phase,
+        context.state.round,
+    ));
+    context.ask_seeing(&choice)
+}
+
+/// [`ask_among`] with a decline added.
+fn ask_one(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    prompt: String,
+    ability: &str,
+    subtype: &str,
+    mut options: Vec<ChoiceOption>,
+) -> Result<ChoiceOption, IllegalChoice> {
+    options.push(ChoiceOption::decline());
+    ask_among(context, player, prompt, ability, subtype, options)
+}
+
+/// The base type of a unit type id.
+fn base_type_of(content: &ContentStore, sources: SourceSet, unit_type: &str) -> Option<String> {
+    ti4_content::units::catalogue(content, sources)
+        .get(unit_type)
+        .map(|kind| kind.base_type().to_owned())
+}
+
+/// Whether `system` holds a unit of `unit_type` (space area) owned by anyone but `except`.
+fn foreign_ship_in(
+    state: &GameState,
+    system: &SystemId,
+    unit_type: &str,
+    except: &PlayerId,
+) -> bool {
+    state
+        .system_state(system)
+        .units
+        .iter()
+        .any(|unit| unit.type_id.as_str() == unit_type && &unit.owner != except)
+}
+
+// -- Mirror Computing ----------------------------------------------------------------------------
+
+/// Mirror Computing: "When you spend trade goods, each trade good is worth 2 resources or
+/// influence instead of 1."
+///
+/// The only place this is decided: `production::trade_good_worth` and `payment::plans` both read
+/// the economy hook. `max` rather than a sum, so it stays "2 instead of 1" if another effect has
+/// already raised the worth.
+fn trade_good_worth(state: &GameState, player: &PlayerId, worth: i64) -> i64 {
+    if owns_technology(state, player, "mc") {
+        worth.max(2)
+    } else {
+        worth
+    }
+}
+
+// -- Fourth Moon and Moll Terminus ---------------------------------------------------------------
+
+/// Fourth Moon: "Other player's ships in this system cannot use SUSTAIN DAMAGE."
+fn flagship_allows_sustain(
+    state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> bool {
+    let Some(system) = unit.system else {
+        return true;
+    };
+    !foreign_ship_in(state, system, FLAGSHIP, unit.player)
+}
+
+/// Moll Terminus: "Other player's ground forces on this planet cannot use SUSTAIN DAMAGE."
+fn mech_allows_sustain(
+    state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> bool {
+    let (Some(system), Some(planet)) = (unit.system, unit.planet) else {
+        return true;
+    };
+    !state
+        .system_state(system)
+        .planet_units
+        .get(planet)
+        .is_some_and(|units| {
+            units
+                .iter()
+                .any(|other| other.type_id.as_str() == MECH && &other.owner != unit.player)
+        })
+}
+
+// -- Corsair -------------------------------------------------------------------------------------
+
+/// Corsair: "If the active system contains another player's non-fighter ships, this unit can move
+/// through systems that contain other players' ships."
+fn may_move_through_ships(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    site: &PassSite<'_>,
+) -> bool {
+    if site.ship_type != CORSAIR {
+        return false;
+    }
+    let types = ti4_content::units::catalogue(content, sources);
+    state.system_state(site.active).units.iter().any(|unit| {
+        &unit.owner != site.player
+            && types
+                .get(unit.type_id.as_str())
+                .is_some_and(|kind| kind.is_ship() && !kind.is_fighter())
+    })
+}
+
+// -- Ambush --------------------------------------------------------------------------------------
+
+/// Ambush: "At the start of a space combat: You may roll 1 die for each of up to 2 of your
+/// cruisers or destroyers in the system. For each result equal to or greater than that ship's
+/// combat value, produce 1 hit; your opponent must assign it to 1 of their ships."
+///
+/// One question: which (up to 2) ships roll, offered as every combination of the distinct types
+/// present. The die is rolled per ship against its printed combat value.
+fn produced_hits(
+    context: &mut TimingContext<'_>,
+    site: &HitSite<'_>,
+) -> Result<ProducedHits, IllegalChoice> {
+    let player = site.player;
+    if site.moment != CombatMoment::CombatStart || !is_mentak(context.state, player) {
+        return Ok(ProducedHits::NONE);
+    }
+    let types = ti4_content::units::catalogue(context.content, context.sources);
+    // Cruisers and destroyers by type, in type-id order, with how many of each.
+    let mut kinds: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for unit in crate::combat::ships_of(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        site.system,
+    ) {
+        let eligible = types.get(unit.type_id.as_str()).is_some_and(|kind| {
+            matches!(kind.base_type(), "cruiser" | "destroyer") && kind.combat_hits_on().is_some()
+        });
+        if eligible {
+            *kinds.entry(unit.type_id.to_string()).or_insert(0) += 1;
+        }
+    }
+    if kinds.is_empty() {
+        return Ok(ProducedHits::NONE);
+    }
+    let kinds: Vec<(String, usize)> = kinds.into_iter().collect();
+    let mut groups: Vec<Vec<String>> = Vec::new();
+    for (i, (first, first_count)) in kinds.iter().enumerate() {
+        groups.push(vec![first.clone()]);
+        if *first_count >= 2 {
+            groups.push(vec![first.clone(), first.clone()]);
+        }
+        for (second, _) in &kinds[i + 1..] {
+            groups.push(vec![first.clone(), second.clone()]);
+        }
+    }
+    let options = groups
+        .iter()
+        .map(|group| {
+            ChoiceOption::labelled(
+                group.join("+"),
+                "ambush_roll",
+                format!("Ambush: roll for {}", group.join(" and ")),
+            )
+        })
+        .collect();
+    let answer = ask_one(
+        context,
+        player,
+        "Ambush: choose up to 2 cruisers or destroyers to roll".to_owned(),
+        "ambush",
+        "ambush_roll",
+        options,
+    )?;
+    if answer.is_decline() {
+        return Ok(ProducedHits::NONE);
+    }
+    let Some(group) = groups.iter().find(|group| group.join("+") == answer.id) else {
+        return Ok(ProducedHits::NONE);
+    };
+    let mut hits = 0;
+    for kind in group {
+        let value = types
+            .get(kind.as_str())
+            .and_then(ti4_content::units::UnitType::combat_hits_on)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(u32::MAX);
+        let roll = context
+            .dice
+            .roll_by(context.rng, 1, "ambush", Some(value), player);
+        hits += roll.hits();
+    }
+    Ok(ProducedHits {
+        any_ship: hits,
+        ..ProducedHits::NONE
+    })
+}
+
+// -- Timing abilities ----------------------------------------------------------------------------
+
+fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    vec![
+        pillage(owner_name, seat, "TRADE_GOODS_GAINED"),
+        pillage(owner_name, seat, "TRANSACTION_RESOLVED"),
+        salvage_trade_good(owner_name, seat),
+        salvage_ship(owner_name, seat),
+        promise_of_protection(owner_name, seat),
+        commander(owner_name, seat),
+        hero_start(owner_name, seat),
+        hero_destroyed(owner_name, seat),
+        hero_end(owner_name, seat),
+    ]
+}
+
+// -- Pillage and Suffi An ------------------------------------------------------------------------
+
+/// Whether `target`'s faceup Promise of Protection bars `owner` from pillaging them.
+fn protected(state: &GameState, owner: &PlayerId, target: &PlayerId) -> bool {
+    let note = crate::promissory::note_id("pop", &crate::promissory::faction_name(state, owner));
+    state.promissory_notes.get(&note) == Some(target) && state.promissory_faceup.contains(&note)
+}
+
+/// Neighbours `owner` may pillage now, out of those the event concerns.
+///
+/// `TRADE_GOODS_GAINED` names the player who gained; a resolved transaction names no parties in
+/// its payload, so the two parties are the last one the engine recorded
+/// (`GameState::transactions_this_round`, pushed when a deal resolves).
+fn pillage_targets(
+    event: &Event,
+    state: &GameState,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    owner: &PlayerId,
+) -> Vec<PlayerId> {
+    if !is_mentak(state, owner) {
+        return Vec::new();
+    }
+    let concerned: Vec<PlayerId> = match event.event_type.as_str() {
+        "TRADE_GOODS_GAINED" => event
+            .text("player")
+            .map(PlayerId::new)
+            .into_iter()
+            .collect(),
+        "TRANSACTION_RESOLVED" => state
+            .transactions_this_round
+            .last()
+            .map(|(a, b)| vec![a.clone(), b.clone()])
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    let Some(galaxy) = galaxy else {
+        return Vec::new();
+    };
+    concerned
+        .into_iter()
+        .filter(|target| target != owner)
+        .filter(|target| crate::transactions::are_neighbours(state, galaxy, owner, target))
+        .filter(|target| {
+            state
+                .player(target)
+                .is_some_and(|seat| seat.trade_goods >= 3)
+        })
+        .filter(|target| !protected(state, owner, target))
+        .collect()
+}
+
+/// Pillage: "After 1 of your neighbors gains trade goods or resolves a transaction: If they have 3
+/// or more trade goods, you may take 1 of their trade goods or commodities."
+///
+/// The taken commodity becomes a trade good in the Mentak player's hands (21.5: a commodity
+/// becomes a trade good when it changes hands). Suffi An's window is "after the Pillage faction
+/// ability is used against another player"; no event marks that, so the agent is offered here,
+/// right after the take.
+fn pillage(owner_name: &str, seat: &PlayerId, event_type: &str) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("ability:{owner_name}:pillage:{event_type}:after"),
+        seat.clone(),
+        event_type,
+        Relation::After,
+        Arc::new(move |event, _resolver, context| pillage_effect(event, context, &owner)),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        !pillage_targets(event, context.state, context.galaxy, &condition_owner).is_empty()
+    }))
+}
+
+fn pillage_effect(
+    event: &Event,
+    context: &mut TimingContext<'_>,
+    owner: &PlayerId,
+) -> Result<(), TimingError> {
+    let targets = pillage_targets(event, context.state, context.galaxy, owner);
+    let mut options = Vec::new();
+    for target in &targets {
+        options.push(ChoiceOption::labelled(
+            format!("trade_good|{target}"),
+            "pillage",
+            format!("take 1 trade good from {target}"),
+        ));
+        if context
+            .state
+            .player(target)
+            .is_some_and(|seat| seat.commodities > 0)
+        {
+            options.push(ChoiceOption::labelled(
+                format!("commodity|{target}"),
+                "pillage",
+                format!("take 1 commodity from {target}"),
+            ));
+        }
+    }
+    let chosen = match options.len() {
+        0 => return Ok(()),
+        1 => options.remove(0),
+        _ => ask_among(
+            context,
+            owner,
+            "Pillage: take 1 trade good or commodity".to_owned(),
+            "pillage",
+            "pillage_take",
+            options,
+        )
+        .map_err(illegal)?,
+    };
+    let Some((kind, target)) = chosen.id.split_once('|') else {
+        return Ok(());
+    };
+    let target = PlayerId::new(target);
+    if !targets.contains(&target) {
+        return Ok(());
+    }
+    let before = context.state.clone();
+    let taken = {
+        let Some(seat) = context.state.player_mut(&target) else {
+            return Ok(());
+        };
+        if kind == "commodity" && seat.commodities > 0 {
+            seat.commodities -= 1;
+            true
+        } else if kind == "trade_good" && seat.trade_goods > 0 {
+            seat.trade_goods -= 1;
+            true
+        } else {
+            false
+        }
+    };
+    if !taken {
+        return Ok(());
+    }
+    crate::supply::gain_trade_goods(context.state, owner, 1);
+    if let Err(error) = suffi_an(context, owner, &target) {
+        *context.state = before;
+        return Err(error);
+    }
+    Ok(())
+}
+
+/// Suffi An: "After the Pillage faction ability is used against another player: You may exhaust
+/// this card: if you do, you and that player each draw 1 action card."
+fn suffi_an(
+    context: &mut TimingContext<'_>,
+    owner: &PlayerId,
+    target: &PlayerId,
+) -> Result<(), TimingError> {
+    if leader_status(context.state, owner, AGENT) != Some(LeaderStatus::Readied)
+        || context.state.action_card_deck.is_empty()
+    {
+        return Ok(());
+    }
+    let answer = ask_one(
+        context,
+        owner,
+        format!("Suffi An: exhaust to draw 1 action card each with {target}"),
+        "mentakagent",
+        "suffi_an",
+        vec![ChoiceOption::labelled(
+            "exhaust",
+            "agent",
+            "exhaust Suffi An: you and the pillaged player each draw 1 action card",
+        )],
+    )
+    .map_err(illegal)?;
+    if answer.is_decline() || !crate::leaders::exhaust(context.state, owner, &LeaderId::new(AGENT))
+    {
+        return Ok(());
+    }
+    for player in [owner, target] {
+        crate::action_cards::draw(context.state, context.content, context.table, player, 1)
+            .map_err(illegal)?;
+    }
+    Ok(())
+}
+
+// -- Salvage Operations --------------------------------------------------------------------------
+
+/// The player's destroyed-ship base types from a `SPACE_COMBAT_ENDED` event, in sorted order.
+fn destroyed_ship_types(event: &Event, content: &ContentStore, sources: SourceSet) -> Vec<String> {
+    let types = ti4_content::units::catalogue(content, sources);
+    let mut found = std::collections::BTreeSet::new();
+    if let Some(list) = event
+        .payload
+        .get("destroyed")
+        .and_then(serde_json::Value::as_array)
+    {
+        for entry in list {
+            if let Some(kind) = entry
+                .get("unit")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|id| types.get(id))
+                && kind.is_ship()
+            {
+                found.insert(kind.base_type().to_owned());
+            }
+        }
+    }
+    found.into_iter().collect()
+}
+
+fn took_part(event: &Event, player: &PlayerId) -> bool {
+    event.text("attacker") == Some(player.as_str())
+        || event.text("defender") == Some(player.as_str())
+}
+
+/// Salvage Operations, the mandatory half: "After you win or lose a space combat, gain 1 trade
+/// good". A draw (no winner) is neither a win nor a loss.
+fn salvage_trade_good(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("technology:{owner_name}:so:SPACE_COMBAT_ENDED:after"),
+        seat.clone(),
+        "SPACE_COMBAT_ENDED",
+        Relation::After,
+        Arc::new(move |_event, _resolver, context| {
+            crate::supply::gain_trade_goods(context.state, &owner, 1);
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        owns_technology(context.state, &condition_owner, "so")
+            && took_part(event, &condition_owner)
+            && event.text("winner").is_some()
+    }))
+}
+
+/// The ship base types Salvage Operations could produce now, with their unit ids and costs.
+fn salvage_options(
+    event: &Event,
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    owner: &PlayerId,
+) -> Vec<(String, String, i64)> {
+    if !owns_technology(state, owner, "so")
+        || event.text("winner") != Some(owner.as_str())
+        || !took_part(event, owner)
+    {
+        return Vec::new();
+    }
+    let destroyed = destroyed_ship_types(event, content, sources);
+    let types = ti4_content::units::catalogue(content, sources);
+    crate::production::buildable_for(state, content, sources, owner)
+        .into_iter()
+        .filter_map(|id| {
+            let kind = types.get(id.as_str())?;
+            let base = kind.base_type().to_owned();
+            // Resources: a fighter's half cost still takes 1 to make (67.2).
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "unit costs are small non-negative integers or halves"
+            )]
+            let cost = kind.cost().ceil() as i64;
+            (kind.is_ship()
+                && destroyed.contains(&base)
+                && crate::supply::allowed(
+                    state,
+                    content,
+                    sources,
+                    owner,
+                    &ti4_model::id::UnitTypeId::new(id.clone()),
+                    1,
+                ) > 0
+                && crate::payment::affordable(
+                    state,
+                    content,
+                    sources,
+                    owner,
+                    cost,
+                    Spend::Resources,
+                ))
+            .then_some((base, id, cost))
+        })
+        .collect()
+}
+
+/// Salvage Operations, the optional half: "if you won the combat, you may also produce 1 ship in
+/// that system of any ship type that was destroyed during the combat."
+///
+/// Produced here means the unit's cost is paid in resources and the ship placed in the system; the
+/// system's PRODUCTION value is not read (the card names no producer). See the evidence.
+fn salvage_ship(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("technology:{owner_name}:so:SPACE_COMBAT_ENDED:produce"),
+        seat.clone(),
+        "SPACE_COMBAT_ENDED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| salvage_effect(event, context, &owner)),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        !salvage_options(
+            event,
+            context.state,
+            context.content,
+            context.sources,
+            &condition_owner,
+        )
+        .is_empty()
+    }))
+}
+
+fn salvage_effect(
+    event: &Event,
+    context: &mut TimingContext<'_>,
+    owner: &PlayerId,
+) -> Result<(), TimingError> {
+    let found = salvage_options(
+        event,
+        context.state,
+        context.content,
+        context.sources,
+        owner,
+    );
+    let Some(system) = event.text("system").map(SystemId::new) else {
+        return Ok(());
+    };
+    if found.is_empty() {
+        return Ok(());
+    }
+    let options = found
+        .iter()
+        .map(|(base, id, cost)| {
+            ChoiceOption::labelled(
+                base.clone(),
+                "salvage",
+                format!("produce 1 {id} for {cost} resources"),
+            )
+            .with("cost", *cost)
+        })
+        .collect();
+    let answer = ask_one(
+        context,
+        owner,
+        "Salvage Operations: produce 1 ship of a type destroyed in the combat".to_owned(),
+        "so",
+        "salvage_produce",
+        options,
+    )
+    .map_err(illegal)?;
+    let Some((base, _, cost)) = found.iter().find(|(base, _, _)| *base == answer.id) else {
+        return Ok(());
+    };
+    let before = context.state.clone();
+    match crate::production::pay_seeing(
+        context.state,
+        context.content,
+        context.sources,
+        context.galaxy,
+        context.table,
+        owner,
+        *cost,
+        Spend::Resources,
+    ) {
+        Ok(true) => {}
+        Ok(false) => {
+            *context.state = before;
+            return Ok(());
+        }
+        Err(error) => {
+            *context.state = before;
+            return Err(illegal(error));
+        }
+    }
+    if crate::action_cards::place_units_counted(context, owner, &system, None, base, 1) == 0 {
+        *context.state = before;
+    }
+    Ok(())
+}
+
+// -- Promise of Protection -----------------------------------------------------------------------
+
+/// Promise of Protection, the return: "If you activate a system that contains 1 or more of the
+/// Mentak player's units, return this card to the Mentak player." The bar on Pillage is in
+/// [`pillage_targets`].
+///
+/// The note reaches a play area the moment it changes hands (`promissory::take`, 69.3), so the
+/// printed "ACTION: Place this card faceup" step is not a separate action here (see the evidence).
+fn pop_to_return(event: &Event, state: &GameState, holder: &PlayerId) -> Vec<String> {
+    if event.text("player") != Some(holder.as_str()) {
+        return Vec::new();
+    }
+    let Some(system) = event.text("system").map(SystemId::new) else {
+        return Vec::new();
+    };
+    let board = state.system_state(&system);
+    state
+        .promissory_notes
+        .iter()
+        .filter(|(note, who)| *who == holder && crate::promissory::alias_of(note) == "pop")
+        .filter(|(note, _)| state.promissory_faceup.contains(*note))
+        .filter(|(note, _)| {
+            crate::promissory::owner_of(note)
+                .and_then(|name| crate::promissory::seat_of(state, &name))
+                .is_some_and(|mentak| {
+                    mentak != *holder
+                        && (board.units.iter().any(|unit| unit.owner == mentak)
+                            || board
+                                .planet_units
+                                .values()
+                                .flatten()
+                                .any(|unit| unit.owner == mentak))
+                })
+        })
+        .map(|(note, _)| note.clone())
+        .collect()
+}
+
+fn promise_of_protection(owner_name: &str, seat: &PlayerId) -> Ability {
+    let holder = seat.clone();
+    let condition_holder = seat.clone();
+    Ability::stateful(
+        format!("promissory:{owner_name}:pop:SYSTEM_ACTIVATED:after"),
+        seat.clone(),
+        "SYSTEM_ACTIVATED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            for note in pop_to_return(event, context.state, &holder) {
+                crate::promissory::give_back(context.state, &note);
+            }
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        !pop_to_return(event, context.state, &condition_holder).is_empty()
+    }))
+}
+
+// -- S'ula Mentarion -----------------------------------------------------------------------------
+
+/// S'ula Mentarion, unlock: "Have 4 cruisers on the game board." A Corsair is a cruiser.
+fn commander_unlocked(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    _galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Option<bool> {
+    if leader.as_str() != COMMANDER {
+        return None;
+    }
+    let types = ti4_content::units::catalogue(content, sources);
+    let cruisers = state
+        .board
+        .values()
+        .flat_map(|board| board.units.iter())
+        .filter(|unit| &unit.owner == player)
+        .filter(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(|kind| kind.base_type() == "cruiser")
+        })
+        .count();
+    Some(cruisers >= 4)
+}
+
+/// Promissory notes in `player`'s hand: held and not faceup in a play area, plus their own
+/// Support for the Throne while it is still home (it lives in `support_holders`, not the note map).
+fn notes_in_hand(state: &GameState, player: &PlayerId) -> Vec<String> {
+    let mut notes: Vec<String> = crate::promissory::held_by(state, player)
+        .into_iter()
+        .filter(|note| !state.promissory_faceup.contains(note))
+        .collect();
+    notes.extend(crate::promissory::available_support(state, player));
+    notes
+}
+
+/// Opponents of the winner (from the `SPACE_COMBAT_WON` event) with a note in hand.
+fn commander_targets(event: &Event, state: &GameState, owner: &PlayerId) -> Vec<PlayerId> {
+    if event.text("player") != Some(owner.as_str())
+        || leader_status(state, owner, COMMANDER) != Some(LeaderStatus::Unlocked)
+    {
+        return Vec::new();
+    }
+    event
+        .payload
+        .get("opponents")
+        .and_then(serde_json::Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(PlayerId::new)
+                .filter(|opponent| opponent != owner && !notes_in_hand(state, opponent).is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// S'ula Mentarion: "After you win a space combat: You may force your opponent to give you 1
+/// promissory note from their hand." The opponent chooses which note; with several opponents the
+/// commander's owner chooses which of them gives. The take is not announced: it would show which
+/// note moved.
+fn commander(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("leader:{owner_name}:{COMMANDER}:SPACE_COMBAT_WON:after"),
+        seat.clone(),
+        "SPACE_COMBAT_WON",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            let targets = commander_targets(event, context.state, &owner);
+            let target = match targets.len() {
+                0 => return Ok(()),
+                1 => targets[0].clone(),
+                _ => {
+                    let options = targets
+                        .iter()
+                        .map(|who| {
+                            ChoiceOption::labelled(
+                                who.to_string(),
+                                "commander",
+                                format!("force {who} to give you a promissory note"),
+                            )
+                        })
+                        .collect();
+                    let answer = ask_among(
+                        context,
+                        &owner,
+                        "S'ula Mentarion: choose an opponent".to_owned(),
+                        COMMANDER,
+                        "commander_opponent",
+                        options,
+                    )
+                    .map_err(illegal)?;
+                    PlayerId::new(answer.id)
+                }
+            };
+            if !targets.contains(&target) {
+                return Ok(());
+            }
+            let hand = notes_in_hand(context.state, &target);
+            let options = hand
+                .iter()
+                .map(|note| ChoiceOption::labelled(note.clone(), "give_note", note.clone()))
+                .collect();
+            let answer = ask_among(
+                context,
+                &target,
+                format!("Give {owner} 1 promissory note from your hand"),
+                COMMANDER,
+                "commander_give_note",
+                options,
+            )
+            .map_err(illegal)?;
+            if hand.contains(&answer.id) {
+                if answer.id.starts_with(crate::promissory::SUPPORT_PREFIX) {
+                    // Support scores a point on arrival: the same path transactions use.
+                    crate::promissory::receive(context.state, &owner, &answer.id);
+                } else {
+                    crate::promissory::take(context.state, context.content, &owner, &answer.id);
+                }
+            }
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        !commander_targets(event, context.state, &condition_owner).is_empty()
+    }))
+}
+
+// -- Ipswitch, Loose Cannon ----------------------------------------------------------------------
+
+fn hero_mark(system: &SystemId) -> String {
+    format!("mentak:hero:{system}")
+}
+
+/// Ipswitch, the purge: "At the start of a space combat that you are participating in: You may
+/// purge this card. If you do, for each other player's ship that is destroyed during this combat,
+/// place 1 ship of that type from your reinforcements in the active system."
+///
+/// Purging records the combat's system in `faction_marks`; [`hero_destroyed`] places the ships as
+/// they are destroyed and [`hero_end`] clears the record when the combat ends.
+fn hero_start(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    let ready = move |event: &Event, state: &GameState, who: &PlayerId| {
+        took_part(event, who)
+            && leader_status(state, who, HERO) == Some(LeaderStatus::Unlocked)
+            && event.text("system").is_some()
+    };
+    Ability::stateful(
+        format!("leader:{owner_name}:{HERO}:SPACE_COMBAT_STARTED:after"),
+        seat.clone(),
+        "SPACE_COMBAT_STARTED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            if !ready(event, context.state, &owner) {
+                return Ok(());
+            }
+            let Some(system) = event.text("system").map(SystemId::new) else {
+                return Ok(());
+            };
+            if crate::leaders::purge(context.state, &owner, &LeaderId::new(HERO)) {
+                context
+                    .state
+                    .faction_marks
+                    .insert(hero_mark(&system), owner.to_string());
+            }
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        ready(event, context.state, &condition_owner)
+    }))
+}
+
+/// Ipswitch, the effect: one ship of the destroyed type per other player's ship destroyed.
+fn hero_destroyed(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    let live = |event: &Event, state: &GameState, who: &PlayerId| {
+        event
+            .text("player")
+            .is_some_and(|loser| loser != who.as_str())
+            && event.text("system").is_some_and(|system| {
+                state
+                    .faction_marks
+                    .get(&hero_mark(&SystemId::new(system)))
+                    .is_some_and(|holder| holder == who.as_str())
+            })
+    };
+    Ability::stateful(
+        format!("leader:{owner_name}:{HERO}:SHIP_DESTROYED:after"),
+        seat.clone(),
+        "SHIP_DESTROYED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            if !live(event, context.state, &owner) {
+                return Ok(());
+            }
+            let (Some(system), Some(unit)) = (event.text("system"), event.text("unit")) else {
+                return Ok(());
+            };
+            let Some(base) = base_type_of(context.content, context.sources, unit) else {
+                return Ok(());
+            };
+            crate::action_cards::place_units_counted(
+                context,
+                &owner,
+                &SystemId::new(system),
+                None,
+                &base,
+                1,
+            );
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        live(event, context.state, &condition_owner)
+    }))
+}
+
+/// Ends Ipswitch's effect with the combat.
+fn hero_end(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    let live = |event: &Event, state: &GameState, who: &PlayerId| {
+        event.text("system").is_some_and(|system| {
+            state
+                .faction_marks
+                .get(&hero_mark(&SystemId::new(system)))
+                .is_some_and(|holder| holder == who.as_str())
+        })
+    };
+    Ability::stateful(
+        format!("leader:{owner_name}:{HERO}:SPACE_COMBAT_ENDED:after"),
+        seat.clone(),
+        "SPACE_COMBAT_ENDED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            if let Some(system) = event.text("system")
+                && live(event, context.state, &owner)
+            {
+                context
+                    .state
+                    .faction_marks
+                    .remove(&hero_mark(&SystemId::new(system)));
+            }
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        live(event, context.state, &condition_owner)
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::choice::{Scripted, Table};
+    use crate::fixtures::{armed_resolver, put, put_on_planet, seated_game, with_context};
+    use ti4_model::content_types::DEFAULT;
+
+    fn a() -> PlayerId {
+        PlayerId::new("a")
+    }
+    fn b() -> PlayerId {
+        PlayerId::new("b")
+    }
+    fn arena() -> (GameState, SystemId) {
+        (
+            seated_game(&[("a", "mentak"), ("b", "sol")], DEFAULT),
+            SystemId::new("18"),
+        )
+    }
+    fn scripted(answers: &[&str]) -> Table {
+        Table::with_default(Box::new(Scripted::new(answers.iter().copied())))
+    }
+    fn give_tech(state: &mut GameState, player: &PlayerId, tech: &str) {
+        state
+            .player_mut(player)
+            .unwrap()
+            .technologies
+            .insert(TechnologyId::new(tech));
+    }
+    fn count(state: &GameState, system: &SystemId, kind: &str, owner: &PlayerId) -> usize {
+        state
+            .system_state(system)
+            .units
+            .iter()
+            .filter(|u| u.type_id.as_str() == kind && &u.owner == owner)
+            .count()
+    }
+    fn set_status(state: &mut GameState, player: &PlayerId, leader: &str, status: LeaderStatus) {
+        state
+            .player_mut(player)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(leader), status);
+    }
+    /// Emit one typed event through an armed resolver; the error (e.g. an unscripted question)
+    /// is returned so a "not offered" test can see none was asked.
+    fn emit(
+        state: &mut GameState,
+        answers: &[&str],
+        event_type: &str,
+        payload: &[(&str, serde_json::Value)],
+    ) -> Result<(), String> {
+        let mut resolver = armed_resolver(state);
+        let mut table = scripted(answers);
+        let galaxy = crate::fixtures::plain_hub().galaxy;
+        with_context(state, DEFAULT, Some(&galaxy), &mut table, |ctx| {
+            let payload = payload
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), value.clone()))
+                .collect();
+            let event = ctx
+                .event_sequence
+                .next(event_type, payload)
+                .expect("event id");
+            resolver
+                .emit_with_context(ctx, event, |_, _| {})
+                .map(|_| ())
+                .map_err(|error| format!("{error:?}"))
+        })
+    }
+    fn gained(who: &str) -> Vec<(&'static str, serde_json::Value)> {
+        vec![
+            ("player", who.into()),
+            ("amount", 1.into()),
+            ("source", "test".into()),
+        ]
+    }
+
+    // -- Mirror Computing ------------------------------------------------------------------------
+
+    #[test]
+    fn mirror_computing_doubles_trade_goods_through_both_payment_paths() {
+        let (mut state, _) = arena();
+        let content = ContentStore::embedded();
+        assert_eq!(crate::production::trade_good_worth(&state, &a()), 1);
+        give_tech(&mut state, &a(), "mc");
+        assert_eq!(crate::production::trade_good_worth(&state, &a()), 2);
+        assert_eq!(
+            crate::production::trade_good_worth(&state, &b()),
+            1,
+            "only the owner"
+        );
+        // The votes / objective-cost path reads the same hook.
+        state.player_mut(&a()).unwrap().trade_goods = 2;
+        let plans = crate::payment::plans(&state, content, DEFAULT, &a(), 3, Spend::Influence);
+        assert!(plans.iter().all(|plan| plan.trade_goods <= 2));
+    }
+
+    // -- Fourth Moon and Moll Terminus -----------------------------------------------------------
+
+    fn space_unit<'a>(player: &'a PlayerId, system: &'a SystemId) -> CombatUnit<'a> {
+        CombatUnit {
+            player,
+            system: Some(system),
+            planet: None,
+            unit_type: "dreadnought",
+            context: "space",
+        }
+    }
+
+    #[test]
+    fn fourth_moon_stops_other_players_ships_sustaining() {
+        let (mut state, system) = arena();
+        let content = ContentStore::embedded();
+        let (a, b) = (a(), b());
+        let sustain = |state: &GameState, who: &PlayerId, system: &SystemId| {
+            super::super::hooks_combat::may_sustain(
+                state,
+                content,
+                DEFAULT,
+                &space_unit(who, system),
+            )
+        };
+        assert!(sustain(&state, &b, &system), "no flagship, no bar");
+        put(&mut state, &system, FLAGSHIP, &a, 1);
+        assert!(
+            !sustain(&state, &b, &system),
+            "the other player's ships cannot"
+        );
+        assert!(sustain(&state, &a, &system), "its owner can");
+        assert!(
+            sustain(&state, &b, &SystemId::new("19")),
+            "another system's ships are untouched"
+        );
+    }
+
+    #[test]
+    fn moll_terminus_stops_other_ground_forces_on_its_planet_sustaining() {
+        let (mut state, _) = arena();
+        let content = ContentStore::embedded();
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let (a, b) = (a(), b());
+        let ask = |state: &GameState, who: &PlayerId, planet: &ti4_model::id::PlanetId| {
+            super::super::hooks_ground::may_sustain(
+                state,
+                content,
+                DEFAULT,
+                &CombatUnit {
+                    player: who,
+                    system: Some(&system),
+                    planet: Some(planet),
+                    unit_type: "mech",
+                    context: "ground",
+                },
+            )
+        };
+        assert!(ask(&state, &b, &planet), "no mech, no bar");
+        put_on_planet(&mut state, &system, &planet, MECH, &a, 1);
+        assert!(
+            !ask(&state, &b, &planet),
+            "the other player's ground forces cannot"
+        );
+        assert!(ask(&state, &a, &planet), "its owner's can");
+        assert!(
+            ask(&state, &b, &ti4_model::id::PlanetId::new("elsewhere")),
+            "a mech reaches only its own planet"
+        );
+    }
+
+    // -- Corsair ---------------------------------------------------------------------------------
+
+    #[test]
+    fn the_corsair_passes_blockades_only_towards_other_players_non_fighter_ships() {
+        use crate::movement::{Board, MovementRules};
+        let hub = crate::fixtures::plain_hub();
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let mut state = seated_game(&[("a", "mentak"), ("b", "sol")], DEFAULT);
+        let content = ContentStore::embedded();
+        let centre = SystemId::new(hub.centre.as_str());
+        let (origin, active) = (
+            SystemId::new(near_a.as_str()),
+            SystemId::new(near_b.as_str()),
+        );
+        put(&mut state, &origin, CORSAIR, &a(), 1);
+        put(&mut state, &centre, "destroyer", &b(), 1);
+        let route = |state: &GameState, ship: Option<&str>| {
+            let board = Board::for_player(state, content, DEFAULT, &a());
+            MovementRules::with_laws(&hub.galaxy, content, DEFAULT, &near_b, board, Some(state))
+                .path_from_ship(&near_a, 2, ship)
+        };
+        assert!(
+            route(&state, Some(CORSAIR)).is_none(),
+            "the active system holds no other player's ship"
+        );
+        put(&mut state, &active, "fighter", &b(), 2);
+        assert!(
+            route(&state, Some(CORSAIR)).is_none(),
+            "fighters do not count"
+        );
+        put(&mut state, &active, "destroyer", &b(), 1);
+        assert!(route(&state, Some(CORSAIR)).is_some(), "now it passes");
+        assert!(
+            route(&state, Some("cruiser")).is_none(),
+            "an ordinary cruiser does not"
+        );
+    }
+
+    // -- Ambush ----------------------------------------------------------------------------------
+
+    fn ambush(
+        state: &mut GameState,
+        system: &SystemId,
+        answers: &[&str],
+        faces: &[u32],
+    ) -> ProducedHits {
+        let mut table = scripted(answers);
+        let (a, b) = (a(), b());
+        let site = HitSite {
+            player: &a,
+            opponent: &b,
+            system,
+            round: 1,
+            moment: CombatMoment::CombatStart,
+        };
+        let mut dice = crate::dice::Dice::from_faces(faces.iter().copied());
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut context = TimingContext {
+            state,
+            content: ContentStore::embedded(),
+            sources: DEFAULT,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: None,
+        };
+        super::super::hooks_combat::produced_hits(&mut context, &site).expect("legal")
+    }
+
+    #[test]
+    fn ambush_rolls_each_chosen_ship_against_its_own_combat_value() {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &a(), 1);
+        put(&mut state, &system, "destroyer", &a(), 2);
+        put(&mut state, &system, "dreadnought", &a(), 1);
+        put(&mut state, &system, "carrier", &b(), 1);
+        // Cruiser hits on 7, destroyer on 9: a 7 hits the cruiser's die and misses the destroyer's.
+        let got = ambush(&mut state, &system, &["cruiser+destroyer"], &[7, 8]);
+        assert_eq!(got.any_ship, 1);
+        assert_eq!(got.total(), 1);
+        let got = ambush(&mut state, &system, &["destroyer+destroyer"], &[9, 10]);
+        assert_eq!(got.any_ship, 2);
+        let got = ambush(&mut state, &system, &["cruiser"], &[6]);
+        assert_eq!(got, ProducedHits::NONE, "a 6 misses a 7");
+    }
+
+    #[test]
+    fn ambush_declined_unavailable_or_not_mentak_changes_nothing() {
+        let (mut state, system) = arena();
+        // No cruiser or destroyer: nothing is asked (an unscripted ask would be an error).
+        put(&mut state, &system, "dreadnought", &a(), 1);
+        assert_eq!(ambush(&mut state, &system, &[], &[]), ProducedHits::NONE);
+        put(&mut state, &system, "cruiser", &a(), 1);
+        assert_eq!(
+            ambush(&mut state, &system, &["decline"], &[10]),
+            ProducedHits::NONE
+        );
+        // Another faction's cruiser is not offered Ambush.
+        let mut other = seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        put(&mut other, &system, "cruiser", &a(), 1);
+        assert_eq!(ambush(&mut other, &system, &[], &[]), ProducedHits::NONE);
+    }
+
+    // -- Pillage and Suffi An --------------------------------------------------------------------
+
+    /// Mentak (a) and Sol (b) share a system, so they are neighbours.
+    fn neighbours() -> (GameState, SystemId) {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "destroyer", &a(), 1);
+        put(&mut state, &system, "destroyer", &b(), 1);
+        (state, system)
+    }
+    const PILLAGE_GAIN: &str = "ability:mentak:pillage:TRADE_GOODS_GAINED:after";
+    const PILLAGE_TRADE: &str = "ability:mentak:pillage:TRANSACTION_RESOLVED:after";
+
+    #[test]
+    fn pillage_takes_a_trade_good_from_a_neighbour_with_three_or_more() {
+        let (mut state, _) = neighbours();
+        state.player_mut(&b()).unwrap().trade_goods = 3;
+        state.player_mut(&a()).unwrap().trade_goods = 0;
+        // No commodities to take: the only option is a trade good, so only the use/decline is asked.
+        state.player_mut(&b()).unwrap().commodities = 0;
+        emit(
+            &mut state,
+            &[PILLAGE_GAIN],
+            "TRADE_GOODS_GAINED",
+            &gained("b"),
+        )
+        .unwrap();
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 2);
+        assert_eq!(state.player(&a()).unwrap().trade_goods, 1);
+    }
+
+    #[test]
+    fn pillage_may_take_a_commodity_instead_and_it_becomes_a_trade_good() {
+        let (mut state, _) = neighbours();
+        state.player_mut(&b()).unwrap().trade_goods = 4;
+        state.player_mut(&b()).unwrap().commodities = 2;
+        emit(
+            &mut state,
+            &[PILLAGE_GAIN, "commodity|b"],
+            "TRADE_GOODS_GAINED",
+            &gained("b"),
+        )
+        .unwrap();
+        assert_eq!(state.player(&b()).unwrap().commodities, 1);
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 4);
+        assert_eq!(state.player(&a()).unwrap().trade_goods, 1);
+        assert_eq!(state.player(&a()).unwrap().commodities, 0);
+    }
+
+    #[test]
+    fn pillage_also_follows_a_resolved_transaction() {
+        let (mut state, _) = neighbours();
+        state.player_mut(&b()).unwrap().trade_goods = 3;
+        state.player_mut(&b()).unwrap().commodities = 0;
+        state
+            .transactions_this_round
+            .push((b(), PlayerId::new("c")));
+        emit(&mut state, &[PILLAGE_TRADE], "TRANSACTION_RESOLVED", &[]).unwrap();
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 2);
+        assert_eq!(state.player(&a()).unwrap().trade_goods, 1);
+    }
+
+    #[test]
+    fn pillage_needs_three_goods_a_neighbour_and_no_promise_of_protection() {
+        // Fewer than 3 trade goods: not offered (an unscripted question would be an error).
+        let (mut state, _) = neighbours();
+        state.player_mut(&b()).unwrap().trade_goods = 2;
+        emit(&mut state, &[], "TRADE_GOODS_GAINED", &gained("b")).unwrap();
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 2);
+        // Two systems apart (opposite sides of a hub) are not neighbours; adjacent ones are.
+        let hub = crate::fixtures::plain_hub();
+        let place = |state: &mut GameState, b_at: &str| {
+            state.board.clear();
+            put(
+                state,
+                &SystemId::new(hub.outer[0].as_str()),
+                "destroyer",
+                &a(),
+                1,
+            );
+            put(state, &SystemId::new(b_at), "destroyer", &b(), 1);
+            state.player_mut(&b()).unwrap().trade_goods = 5;
+            state.player_mut(&b()).unwrap().commodities = 0;
+        };
+        let (mut far, _) = arena();
+        place(&mut far, &hub.across(&hub.outer[0]));
+        emit(&mut far, &[], "TRADE_GOODS_GAINED", &gained("b")).unwrap();
+        assert_eq!(far.player(&b()).unwrap().trade_goods, 5);
+        let (mut near, _) = arena();
+        place(&mut near, &hub.centre);
+        emit(
+            &mut near,
+            &[PILLAGE_GAIN],
+            "TRADE_GOODS_GAINED",
+            &gained("b"),
+        )
+        .unwrap();
+        assert_eq!(
+            near.player(&b()).unwrap().trade_goods,
+            4,
+            "adjacent systems"
+        );
+        // The Mentak player's own gain is not a neighbour's.
+        let (mut own, _) = neighbours();
+        own.player_mut(&a()).unwrap().trade_goods = 5;
+        emit(&mut own, &[], "TRADE_GOODS_GAINED", &gained("a")).unwrap();
+        assert_eq!(own.player(&a()).unwrap().trade_goods, 5);
+        // A faceup Promise of Protection bars it.
+        let (mut state, _) = neighbours();
+        state.player_mut(&b()).unwrap().trade_goods = 5;
+        let note = crate::promissory::note_id("pop", "mentak");
+        crate::promissory::take(&mut state, ContentStore::embedded(), &b(), &note);
+        assert!(state.promissory_faceup.contains(&note), "a play-area note");
+        emit(&mut state, &[], "TRADE_GOODS_GAINED", &gained("b")).unwrap();
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 5);
+    }
+
+    #[test]
+    fn suffi_an_draws_an_action_card_each_after_pillage() {
+        let (mut state, _) = neighbours();
+        state.player_mut(&b()).unwrap().trade_goods = 3;
+        state.player_mut(&b()).unwrap().commodities = 0;
+        let (hand_a, hand_b) = (
+            state.player(&a()).unwrap().action_cards.len(),
+            state.player(&b()).unwrap().action_cards.len(),
+        );
+        emit(
+            &mut state,
+            &[PILLAGE_GAIN, "exhaust"],
+            "TRADE_GOODS_GAINED",
+            &gained("b"),
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new(AGENT)),
+            Some(&LeaderStatus::Exhausted)
+        );
+        assert_eq!(state.player(&a()).unwrap().action_cards.len(), hand_a + 1);
+        assert_eq!(state.player(&b()).unwrap().action_cards.len(), hand_b + 1);
+        // Declined, the agent stays ready and nobody draws.
+        let (mut state, _) = neighbours();
+        state.player_mut(&b()).unwrap().trade_goods = 3;
+        state.player_mut(&b()).unwrap().commodities = 0;
+        emit(
+            &mut state,
+            &[PILLAGE_GAIN, "decline"],
+            "TRADE_GOODS_GAINED",
+            &gained("b"),
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new(AGENT)),
+            Some(&LeaderStatus::Readied)
+        );
+        assert_eq!(state.player(&a()).unwrap().action_cards.len(), hand_a);
+    }
+
+    // -- Salvage Operations ----------------------------------------------------------------------
+
+    fn ended(system: &SystemId, winner: Option<&str>) -> Vec<(&'static str, serde_json::Value)> {
+        let mut payload = vec![
+            ("system", system.to_string().into()),
+            ("attacker", "a".into()),
+            ("defender", "b".into()),
+            (
+                "destroyed",
+                serde_json::json!([{"player": "b", "unit": "destroyer"}, {"player": "a", "unit": "cruiser"}]),
+            ),
+        ];
+        if let Some(winner) = winner {
+            payload.push(("winner", winner.into()));
+        }
+        payload
+    }
+
+    #[test]
+    fn salvage_gains_a_trade_good_for_winning_or_losing_and_may_rebuild_when_winning() {
+        let (mut state, system) = arena();
+        give_tech(&mut state, &a(), "so");
+        state.player_mut(&a()).unwrap().trade_goods = 1;
+        let cruisers_before = count(&state, &system, "cruiser", &a());
+        emit(
+            &mut state,
+            &[
+                "technology:mentak:so:SPACE_COMBAT_ENDED:produce",
+                "cruiser",
+                "trade_good",
+                "trade_good",
+            ],
+            "SPACE_COMBAT_ENDED",
+            &ended(&system, Some("a")),
+        )
+        .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(count(&state, &system, "cruiser", &a()), cruisers_before + 1);
+        // 1 held + 1 gained would be 2; the cruiser's cost was paid, in part from trade goods.
+        assert!(state.player(&a()).unwrap().trade_goods < 2);
+
+        // Losing still gains the trade good but offers no ship.
+        let (mut lost, system) = arena();
+        give_tech(&mut lost, &a(), "so");
+        lost.player_mut(&a()).unwrap().trade_goods = 0;
+        emit(
+            &mut lost,
+            &[],
+            "SPACE_COMBAT_ENDED",
+            &ended(&system, Some("b")),
+        )
+        .unwrap();
+        assert_eq!(lost.player(&a()).unwrap().trade_goods, 1);
+        assert_eq!(count(&lost, &system, "cruiser", &a()), 0);
+    }
+
+    #[test]
+    fn salvage_does_nothing_without_the_technology_or_after_a_draw() {
+        let (mut state, system) = arena();
+        state.player_mut(&a()).unwrap().trade_goods = 0;
+        emit(
+            &mut state,
+            &[],
+            "SPACE_COMBAT_ENDED",
+            &ended(&system, Some("a")),
+        )
+        .unwrap();
+        assert_eq!(state.player(&a()).unwrap().trade_goods, 0, "no technology");
+        give_tech(&mut state, &a(), "so");
+        emit(&mut state, &[], "SPACE_COMBAT_ENDED", &ended(&system, None)).unwrap();
+        assert_eq!(
+            state.player(&a()).unwrap().trade_goods,
+            0,
+            "a draw is neither"
+        );
+    }
+
+    // -- Promise of Protection -------------------------------------------------------------------
+
+    #[test]
+    fn promise_of_protection_returns_when_its_holder_activates_a_mentak_system() {
+        let (mut state, system) = arena();
+        let note = crate::promissory::note_id("pop", "mentak");
+        crate::promissory::take(&mut state, ContentStore::embedded(), &b(), &note);
+        let activate = |system: &SystemId| {
+            vec![
+                ("player", "b".into()),
+                ("system", system.to_string().into()),
+            ]
+        };
+        // A system with none of the Mentak player's units: the note stays.
+        emit(&mut state, &[], "SYSTEM_ACTIVATED", &activate(&system)).unwrap();
+        assert_eq!(state.promissory_notes.get(&note), Some(&b()));
+        // The Mentak player's units in that system: it goes home.
+        put(&mut state, &system, "destroyer", &a(), 1);
+        emit(&mut state, &[], "SYSTEM_ACTIVATED", &activate(&system)).unwrap();
+        assert_eq!(state.promissory_notes.get(&note), Some(&a()));
+        assert!(!state.promissory_faceup.contains(&note));
+        // The Mentak player activating their own system never returns anything.
+        crate::promissory::take(&mut state, ContentStore::embedded(), &b(), &note);
+        let own = vec![
+            ("player", "a".into()),
+            ("system", system.to_string().into()),
+        ];
+        emit(&mut state, &[], "SYSTEM_ACTIVATED", &own).unwrap();
+        assert_eq!(state.promissory_notes.get(&note), Some(&b()));
+    }
+
+    // -- S'ula Mentarion -------------------------------------------------------------------------
+
+    #[test]
+    fn the_commander_unlocks_with_four_cruisers_on_the_board() {
+        let (mut state, system) = arena();
+        let content = ContentStore::embedded();
+        let leader = LeaderId::new(COMMANDER);
+        let check =
+            |state: &GameState| commander_unlocked(state, content, DEFAULT, None, &a(), &leader);
+        // Start from an empty board so the count is the test's own.
+        state.board.clear();
+        assert_eq!(check(&state), Some(false));
+        put(&mut state, &system, "cruiser", &a(), 3);
+        assert_eq!(check(&state), Some(false), "three is not four");
+        put(&mut state, &system, "cruiser", &b(), 4);
+        assert_eq!(
+            check(&state),
+            Some(false),
+            "other players' cruisers do not count"
+        );
+        put(&mut state, &SystemId::new("19"), CORSAIR, &a(), 1);
+        assert_eq!(
+            check(&state),
+            Some(true),
+            "a Corsair in another system is a cruiser"
+        );
+        assert_eq!(
+            commander_unlocked(
+                &state,
+                content,
+                DEFAULT,
+                None,
+                &a(),
+                &LeaderId::new("solcommander")
+            ),
+            None
+        );
+    }
+
+    fn won(system: &SystemId) -> Vec<(&'static str, serde_json::Value)> {
+        vec![
+            ("player", "a".into()),
+            ("system", system.to_string().into()),
+            ("opponents", serde_json::json!(["b"])),
+        ]
+    }
+    const COMMANDER_WINDOW: &str = "leader:mentak:mentakcommander:SPACE_COMBAT_WON:after";
+
+    #[test]
+    fn the_commander_takes_a_note_the_opponent_chooses_from_their_hand() {
+        let (mut state, system) = arena();
+        crate::promissory::deal(&mut state, ContentStore::embedded(), DEFAULT);
+        set_status(&mut state, &a(), COMMANDER, LeaderStatus::Unlocked);
+        let note = crate::promissory::note_id("ps", "sol");
+        assert_eq!(state.promissory_notes.get(&note), Some(&b()));
+        emit(
+            &mut state,
+            &[COMMANDER_WINDOW, &note],
+            "SPACE_COMBAT_WON",
+            &won(&system),
+        )
+        .unwrap();
+        assert_eq!(state.promissory_notes.get(&note), Some(&a()));
+    }
+
+    #[test]
+    fn the_commander_can_take_support_for_the_throne_and_scores_it() {
+        let (mut state, system) = arena();
+        crate::promissory::deal(&mut state, ContentStore::embedded(), DEFAULT);
+        for note in crate::promissory::held_by(&state, &b()) {
+            state.promissory_faceup.insert(note);
+        }
+        set_status(&mut state, &a(), COMMANDER, LeaderStatus::Unlocked);
+        let support = crate::promissory::support("sol");
+        let vp = state.player(&a()).unwrap().victory_points;
+        emit(
+            &mut state,
+            &[COMMANDER_WINDOW, &support],
+            "SPACE_COMBAT_WON",
+            &won(&system),
+        )
+        .unwrap();
+        assert_eq!(state.support_holders.get(&b()), Some(&a()));
+        assert_eq!(state.player(&a()).unwrap().victory_points, vp + 1);
+    }
+
+    #[test]
+    fn the_commander_is_not_offered_locked_or_when_the_opponent_has_no_note_in_hand() {
+        let (mut state, system) = arena();
+        // Still locked.
+        emit(&mut state, &[], "SPACE_COMBAT_WON", &won(&system)).unwrap();
+        // Unlocked, but every note b holds is faceup in a play area.
+        crate::promissory::deal(&mut state, ContentStore::embedded(), DEFAULT);
+        set_status(&mut state, &a(), COMMANDER, LeaderStatus::Unlocked);
+        for note in crate::promissory::held_by(&state, &b()) {
+            state.promissory_faceup.insert(note);
+        }
+        // Their Support is lent out too.
+        state.support_holders.insert(b(), PlayerId::new("c"));
+        let before = state.clone();
+        emit(&mut state, &[], "SPACE_COMBAT_WON", &won(&system)).unwrap();
+        assert_eq!(state, before);
+    }
+
+    // -- Ipswitch --------------------------------------------------------------------------------
+
+    fn started(system: &SystemId) -> Vec<(&'static str, serde_json::Value)> {
+        vec![
+            ("system", system.to_string().into()),
+            ("attacker", "a".into()),
+            ("defender", "b".into()),
+            ("player", "a".into()),
+        ]
+    }
+    fn destroyed(
+        system: &SystemId,
+        owner: &str,
+        unit: &str,
+    ) -> Vec<(&'static str, serde_json::Value)> {
+        vec![
+            ("system", system.to_string().into()),
+            ("player", owner.into()),
+            ("unit", unit.into()),
+            ("last", false.into()),
+        ]
+    }
+
+    #[test]
+    fn ipswitch_replaces_each_other_players_destroyed_ship_for_the_combat() {
+        let (mut state, system) = arena();
+        set_status(&mut state, &a(), HERO, LeaderStatus::Unlocked);
+        emit(
+            &mut state,
+            &["leader:mentak:mentakhero:SPACE_COMBAT_STARTED:after"],
+            "SPACE_COMBAT_STARTED",
+            &started(&system),
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new(HERO)),
+            Some(&LeaderStatus::Purged)
+        );
+        emit(
+            &mut state,
+            &[],
+            "SHIP_DESTROYED",
+            &destroyed(&system, "b", "destroyer"),
+        )
+        .unwrap();
+        assert_eq!(
+            count(&state, &system, "destroyer", &a()),
+            1,
+            "one for theirs"
+        );
+        // Mentak's own loss is not replaced.
+        emit(
+            &mut state,
+            &[],
+            "SHIP_DESTROYED",
+            &destroyed(&system, "a", "cruiser"),
+        )
+        .unwrap();
+        assert_eq!(count(&state, &system, "cruiser", &a()), 0);
+        // The combat ends: later destructions are not replaced.
+        emit(
+            &mut state,
+            &[],
+            "SPACE_COMBAT_ENDED",
+            &ended(&system, Some("a")),
+        )
+        .unwrap();
+        assert!(!state.faction_marks.contains_key(&hero_mark(&system)));
+        emit(
+            &mut state,
+            &[],
+            "SHIP_DESTROYED",
+            &destroyed(&system, "b", "destroyer"),
+        )
+        .unwrap();
+        assert_eq!(count(&state, &system, "destroyer", &a()), 1);
+    }
+
+    #[test]
+    fn ipswitch_is_not_offered_locked_declined_or_to_a_non_participant() {
+        let (mut state, system) = arena();
+        // Locked.
+        emit(&mut state, &[], "SPACE_COMBAT_STARTED", &started(&system)).unwrap();
+        set_status(&mut state, &a(), HERO, LeaderStatus::Unlocked);
+        // Declined: not purged, nothing replaced afterwards.
+        emit(
+            &mut state,
+            &["decline"],
+            "SPACE_COMBAT_STARTED",
+            &started(&system),
+        )
+        .unwrap();
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new(HERO)),
+            Some(&LeaderStatus::Unlocked)
+        );
+        emit(
+            &mut state,
+            &[],
+            "SHIP_DESTROYED",
+            &destroyed(&system, "b", "destroyer"),
+        )
+        .unwrap();
+        assert_eq!(count(&state, &system, "destroyer", &a()), 0);
+        // Not a participant.
+        let mut elsewhere = vec![("system", system.to_string().into())];
+        elsewhere.push(("attacker", "b".into()));
+        elsewhere.push(("defender", "c".into()));
+        emit(&mut state, &[], "SPACE_COMBAT_STARTED", &elsewhere).unwrap();
+    }
+
+    // -- No Mentak seat --------------------------------------------------------------------------
+
+    #[test]
+    fn a_game_without_a_mentak_seat_is_offered_no_mentak_ability() {
+        let mut state = seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        let system = SystemId::new("18");
+        put(&mut state, &system, "destroyer", &a(), 1);
+        put(&mut state, &system, "destroyer", &b(), 1);
+        state.player_mut(&b()).unwrap().trade_goods = 5;
+        // Even a stray "mc" or leader row on a non-Mentak seat changes nothing but mc itself.
+        let before = state.clone();
+        let events: Vec<(&str, Vec<(&str, serde_json::Value)>)> = vec![
+            ("TRADE_GOODS_GAINED", gained("b")),
+            ("TRANSACTION_RESOLVED", vec![]),
+            ("SPACE_COMBAT_STARTED", started(&system)),
+            ("SPACE_COMBAT_ENDED", ended(&system, Some("a"))),
+            ("SPACE_COMBAT_WON", won(&system)),
+            (
+                "SYSTEM_ACTIVATED",
+                vec![("player", "a".into()), ("system", "18".into())],
+            ),
+            ("SHIP_DESTROYED", destroyed(&system, "b", "destroyer")),
+        ];
+        for (event, payload) in events {
+            // An unscripted question would be an error, so Ok(()) shows nothing was asked.
+            emit(&mut state, &[], event, &payload)
+                .unwrap_or_else(|error| panic!("{event}: {error}"));
+        }
+        assert_eq!(state, before);
+        let content = ContentStore::embedded();
+        assert_eq!(crate::production::trade_good_worth(&state, &a()), 1);
+        assert!(super::super::hooks_combat::may_sustain(
+            &state,
+            content,
+            DEFAULT,
+            &space_unit(&b(), &system)
+        ));
+    }
+}

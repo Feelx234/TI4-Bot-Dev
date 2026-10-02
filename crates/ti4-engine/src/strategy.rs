@@ -152,6 +152,39 @@ fn secondary_choice(
     )
 }
 
+/// Add any faction waivers to a follower's secondary choice. A follower who must pay a token and
+/// has none is offered the waiver instead of a "yes" the window would then refuse: legal options
+/// are generated, never rejected late.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the choice plus the window's identity"
+)]
+fn with_waivers(
+    state: &GameState,
+    content: &ContentStore,
+    mut choice: Choice,
+    player: &PlayerId,
+    primary_player: &PlayerId,
+    card: &StrategyCardId,
+    costs_token: bool,
+) -> Choice {
+    if !costs_token {
+        return choice;
+    }
+    let waivers = waiver_options(state, content, player, primary_player, card);
+    if waivers.is_empty() {
+        return choice;
+    }
+    let tokenless = state
+        .player(player)
+        .is_none_or(|seat| seat.strategic_tokens <= 0);
+    if tokenless {
+        choice.options.retain(|option| option.id != "yes");
+    }
+    choice.options.extend(waivers);
+    choice
+}
+
 /// Token-free ways for `follower` to follow `card` (faction waivers), as offered options.
 fn waiver_options(
     state: &GameState,
@@ -259,17 +292,16 @@ impl StrategySecondaryWindow {
             .map(|player_id| {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, player_id, &self.card);
-                let mut choice = secondary_choice(content, &self.card, player_id, costs_token);
-                if costs_token {
-                    choice.options.extend(waiver_options(
-                        state,
-                        content,
-                        player_id,
-                        &self.primary_player,
-                        &self.card,
-                    ));
-                }
-                choice
+                let choice = secondary_choice(content, &self.card, player_id, costs_token);
+                with_waivers(
+                    state,
+                    content,
+                    choice,
+                    player_id,
+                    &self.primary_player,
+                    &self.card,
+                    costs_token,
+                )
             })
     }
 
@@ -287,17 +319,16 @@ impl StrategySecondaryWindow {
             if self.eligible(state, content, sources, &player_id) {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, &player_id, &self.card);
-                let mut choice = secondary_choice(content, &self.card, &player_id, costs_token);
-                if costs_token {
-                    choice.options.extend(waiver_options(
-                        state,
-                        content,
-                        &player_id,
-                        &self.primary_player,
-                        &self.card,
-                    ));
-                }
-                return Some(choice);
+                let choice = secondary_choice(content, &self.card, &player_id, costs_token);
+                return Some(with_waivers(
+                    state,
+                    content,
+                    choice,
+                    &player_id,
+                    &self.primary_player,
+                    &self.card,
+                    costs_token,
+                ));
             }
             self.resolutions
                 .push((player_id, SecondaryResolution::Ineligible));
@@ -1495,17 +1526,25 @@ mod bf00d_tests {
                 begin_strategic_action(&mut state, content, &pid("a"), strategic.clone()).unwrap();
             let pending = window.pending_choice(&state, content, POK).unwrap();
             assert_eq!(pending.player, pid("b"), "tokenless but waived: offered");
-            assert_eq!(
-                pending.ids(),
-                vec!["no", "yes", "follow|waived|0|acq"],
-                "the waiver sits beside the ordinary option"
+            // The waiver id carries its module's position, which depends on how many real faction
+            // modules also answer this hook; find the test hook's option rather than assume it.
+            let ids = pending.ids();
+            assert_eq!(ids.first().copied(), Some("no"));
+            assert!(
+                !ids.contains(&"yes"),
+                "tokenless: the waiver replaces a \"yes\" that could not be paid"
             );
+            let waived = ids
+                .iter()
+                .find(|id| id.starts_with(WAIVED_SECONDARY_PREFIX) && id.ends_with("|acq"))
+                .map(|id| (*id).to_owned())
+                .expect("the waiver is offered");
             let resolved = window
                 .take_choice(
                     &mut state,
                     content,
                     POK,
-                    ChoiceOption::new("follow|waived|0|acq", STRATEGY_KIND),
+                    ChoiceOption::new(&waived, STRATEGY_KIND),
                 )
                 .unwrap();
             assert_eq!(resolved, SecondaryResolution::Followed);

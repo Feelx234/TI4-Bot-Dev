@@ -1019,10 +1019,17 @@ pub fn resolve_with(
                         .controlled_planets(&player)
                         .into_iter()
                         .find(|(system, _)| {
+                            // The seat's home first: Creuss's home (51) is not the tile its
+                            // faction record names (the Creuss Gate, 17).
                             state.player(&player).is_some_and(|seat| {
-                                ti4_content::factions::get(content, seat.faction.as_str())
-                                    .and_then(|faction| faction.home_system())
-                                    .is_some_and(|home| home == system.as_str())
+                                seat.home_system.as_ref().map_or_else(
+                                    || {
+                                        ti4_content::factions::get(content, seat.faction.as_str())
+                                            .and_then(|faction| faction.home_system())
+                                            .is_some_and(|home| home == system.as_str())
+                                    },
+                                    |home| home == *system,
+                                )
                             })
                         })
                         .map(|(system, planet)| (system.clone(), planet.clone()));

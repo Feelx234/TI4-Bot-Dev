@@ -31,9 +31,9 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
   (pre-existing; regeneration needs operator approval).
 - Scaffold f5bddcae: hook files movement/cards/strategy; `GameState::faction_marks`.
 - Wave B2 + Sardakk + Yin committed and reviewed (no blockers): `plans/evidence/BF-wave-B2.md`.
-- Next: BF-01 (coordinator) — review should-fixes S1–S5 and the seven game.rs changes (commit
-  only own hunks; game.rs carries another session's round-income experiment). Then wave C:
-  Mentak, Winnu, Arborec, Yssaril; wave D: Saar, Naalu, Muaat, Creuss, Argent, Naaz.
+- BF-01 + factions wave C/D committed and reviewed: `plans/evidence/BF-wave-C.md`. Ledger 92/145
+  over the 12 factions. Next: shared follow-up packages listed there; two items need operator
+  approval (typed SHIP_MOVED for no-cargo moves, typed SYSTEM_ACTIVATED for free tactical action).
 - Operator: ignore `ti4-review` semantic_golden.
 - Blocked: typed status-phase events need `game.rs`, which carries another session's uncommitted
   edits (Arborec `mitosis`/`bio`/mech).

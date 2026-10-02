@@ -1203,6 +1203,7 @@ impl<'a> Observed<'a> {
 
 /// Replace every seat's private holdings with markers except `keep`'s.
 fn redact_others(view: &mut GameState, keep: &PlayerId) {
+    ti4_model::view::redact_marks(view, keep);
     for seat in &mut view.players {
         if &seat.id != keep {
             seat.action_cards = seat

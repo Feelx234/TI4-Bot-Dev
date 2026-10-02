@@ -43,8 +43,29 @@ pub enum TacticalError {
 /// Systems this player may activate: any without *their own* command token (89.1, 89.1b).
 ///
 /// Another player's token is no obstacle — activating a system they hold is how you attack it.
+///
+/// Without faction modules this is [`activatable_with`] at any content scope; tests use it.
 #[must_use]
 pub fn activatable(state: &GameState, galaxy: &Galaxy, player: &PlayerId) -> Vec<SystemId> {
+    activatable_with(
+        state,
+        ContentStore::embedded(),
+        ti4_model::content_types::DEFAULT,
+        galaxy,
+        player,
+    )
+}
+
+/// [`activatable`] at the game's own content scope, which faction bars need to read the systems
+/// (Chaos Mapping asks whether a system is an asteroid field).
+#[must_use]
+pub fn activatable_with(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+) -> Vec<SystemId> {
     let held = state.systems_with_token(player);
     // The galaxy is the *printed map*; the board is what is actually in play. The Fracture adds
     // seven systems after setup and never touches the galaxy, so enumerating the galaxy alone
@@ -64,6 +85,11 @@ pub fn activatable(state: &GameState, galaxy: &Galaxy, player: &PlayerId) -> Vec
         if held.contains(&system) || !seen.insert(system.clone()) {
             continue;
         }
+        if crate::factions::hooks_movement::cannot_activate(
+            state, content, sources, player, &system,
+        ) {
+            continue; // a faction effect bars it (Chaos Mapping); never offered
+        }
         found.push(system);
     }
     found
@@ -75,6 +101,24 @@ pub fn activatable(state: &GameState, galaxy: &Galaxy, player: &PlayerId) -> Vec
 /// all rather than being offered one they cannot pay for.
 #[must_use]
 pub fn activation_options(state: &GameState, galaxy: &Galaxy, player: &PlayerId) -> Option<Choice> {
+    activation_options_with(
+        state,
+        ContentStore::embedded(),
+        ti4_model::content_types::DEFAULT,
+        galaxy,
+        player,
+    )
+}
+
+/// [`activation_options`] at the game's own content scope.
+#[must_use]
+pub fn activation_options_with(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+) -> Option<Choice> {
     let tactic_tokens = state
         .player(player)
         .map(|seat| seat.tactic_tokens)
@@ -88,7 +132,7 @@ pub fn activation_options(state: &GameState, galaxy: &Galaxy, player: &PlayerId)
         i64::from(tactic_tokens),
         i64::from(tactic_tokens - 1),
     )]);
-    let options: Vec<ChoiceOption> = activatable(state, galaxy, player)
+    let options: Vec<ChoiceOption> = activatable_with(state, content, sources, galaxy, player)
         .into_iter()
         .map(|system| {
             ChoiceOption::labelled(

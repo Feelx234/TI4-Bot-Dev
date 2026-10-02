@@ -27,7 +27,7 @@ use crate::strategy::{
     StrategySecondaryWindow, begin_strategic_action, strategic_action_options,
 };
 use crate::tactical::{
-    MoveSelection, TacticalError, activate, activation_options, movable, movement_options,
+    MoveSelection, TacticalError, activate, activation_options_with, movable, movement_options,
     read_move,
 };
 use crate::timing::{Resolver, TimingContext, TimingError};
@@ -87,6 +87,8 @@ pub enum GameError {
     Combat(#[from] crate::combat::CombatError),
     #[error(transparent)]
     Vote(#[from] VoteError),
+    #[error(transparent)]
+    MapEdit(#[from] crate::movement::MapEditError),
 }
 
 /// A bounded `run` stopped instead of silently looping forever.
@@ -1051,6 +1053,13 @@ impl<'a> Game<'a> {
         crate::legendary::settle_control_points(&mut self.state);
         if let Some(galaxy) = self.galaxy.as_mut() {
             crate::laws::apply_to_galaxy(&self.state, galaxy);
+            // Tiles a faction effect changed (Nova Seed), replayed onto the owned map. A recorded
+            // edit that no longer applies is a broken game, not a step to skip.
+            if let Err(error) =
+                crate::movement::replay_map_edits(&self.state, galaxy, self.content, self.sources)
+            {
+                self.blocked = Some(error.into());
+            }
         }
         // Spec Ops II destroyed during the last step roll to survive now, where the dice are.
         for (owner, survived) in
@@ -1403,7 +1412,7 @@ impl<'a> Game<'a> {
         let Some(galaxy) = self.galaxy.as_ref() else {
             return false;
         };
-        activation_options(&self.state, galaxy, player).is_some()
+        activation_options_with(&self.state, self.content, self.sources, galaxy, player).is_some()
     }
 
     #[allow(
@@ -1493,6 +1502,7 @@ impl<'a> Game<'a> {
                 // advances it whether or not the relic did anything worth having.
                 if answer.id.starts_with("faction|") {
                     let done = self.play_faction_action(&active, &answer);
+                    self.announce_staged_cards()?;
                     // Extreme Duress bites once the action is taken: the played card is
                     // already out of the hand, so only what is left gets discarded.
                     self.settle_extreme_duress(&active, false)?;
@@ -1516,6 +1526,7 @@ impl<'a> Game<'a> {
                     // it is only settled for a use that is one.
                     let takes_turn = crate::leaders::uses_the_action(self.content, &leader);
                     let done = self.perform_leader_action(&active, &leader);
+                    self.announce_staged_cards()?;
                     if takes_turn {
                         self.settle_extreme_duress(&active, false)?;
                     }
@@ -1897,7 +1908,13 @@ impl<'a> Game<'a> {
     fn tactical_choice(&self, window: &TacticalWindow) -> Option<Choice> {
         let galaxy = self.galaxy.as_ref()?;
         match &window.stage {
-            TacticalStage::Activating => activation_options(&self.state, galaxy, &window.player),
+            TacticalStage::Activating => activation_options_with(
+                &self.state,
+                self.content,
+                self.sources,
+                galaxy,
+                &window.player,
+            ),
             TacticalStage::Moving => {
                 let choice = movement_options(
                     &window.player,
@@ -2031,7 +2048,40 @@ impl<'a> Game<'a> {
             timing.emit_with_context(&mut context, event, |_, _| {})?
         };
         self.mirror_timing_log(logged);
+        // A faction effect resolved in that window may have staged card moves (a Scheming discard,
+        // a card taken); announce them now rather than at the next component action.
+        self.announce_staged_cards()?;
         Ok(!emitted.cancelled)
+    }
+
+    /// Announce card moves a faction effect staged (discards, takes) through the resolver, so
+    /// their windows open (`reactions::announce_staged_card_events`). A no-op when nothing is
+    /// staged, which is every game without a faction module that stages.
+    ///
+    /// # Errors
+    /// [`GameError`] when a window cannot be resolved.
+    fn announce_staged_cards(&mut self) -> Result<(), GameError> {
+        if !crate::factions::hooks_cards::has_staged(&self.state) {
+            return Ok(());
+        }
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.clone();
+        let logged = self.timing.log().len();
+        {
+            let mut context = TimingContext {
+                state: &mut self.state,
+                content,
+                sources,
+                table: &mut self.table,
+                dice: &mut self.dice,
+                rng: &mut self.rng,
+                event_sequence: &mut self.event_sequence,
+                galaxy: galaxy.as_ref(),
+            };
+            crate::reactions::announce_staged_card_events(&mut context, &mut self.timing)?;
+        }
+        self.mirror_timing_log(logged);
+        Ok(())
     }
 
     /// Play an action card as a component action, through the game's own timing context.
@@ -2378,7 +2428,7 @@ impl<'a> Game<'a> {
                     if let Some(destination) = self.state.active_system.clone() {
                         crate::exploration::flip_ion_storm(&mut self.state, &origin, &destination);
                     }
-                    self.note_arrival(&window.player, &outcome);
+                    self.note_arrival(&window.player, &origin, &ship, &outcome);
                     self.emit(match outcome {
                         MoveOutcome::Arrived { .. } => "SHIP_MOVED",
                         MoveOutcome::LostToGravityRift { .. } => "SHIP_LOST_TO_GRAVITY_RIFT",
@@ -2404,15 +2454,36 @@ impl<'a> Game<'a> {
     /// only for a player who owns the Dark Energy Tap technology or another game effect, and
     /// DET's own trigger fires when the tactical action ends (`close_tactical`), not on the
     /// move that landed the ship. The arrival here only emits the event other cards react to.
-    fn note_arrival(&mut self, player: &PlayerId, outcome: &MoveOutcome) {
+    fn note_arrival(
+        &mut self,
+        player: &PlayerId,
+        origin: &SystemId,
+        ship: &ti4_model::units::Unit,
+        outcome: &MoveOutcome,
+    ) {
         if !matches!(outcome, MoveOutcome::Arrived { .. }) {
             return;
         }
-        // Three printed windows read "after a player moves ships into" a system.
+        // Three printed windows read "after a player moves ships into" a system; Naalu Foresight
+        // also needs which system (always the active one) and where the ship came from.
         let mut payload = BTreeMap::new();
         payload.insert(
             "player".to_owned(),
             serde_json::Value::String(player.to_string()),
+        );
+        if let Some(system) = &self.state.active_system {
+            payload.insert(
+                "system".to_owned(),
+                serde_json::Value::String(system.to_string()),
+            );
+        }
+        payload.insert(
+            "origin".to_owned(),
+            serde_json::Value::String(origin.to_string()),
+        );
+        payload.insert(
+            "unit".to_owned(),
+            serde_json::Value::String(ship.type_id.to_string()),
         );
         let _ = self.emit_typed("SHIP_MOVED", payload);
     }
@@ -2422,6 +2493,10 @@ impl<'a> Game<'a> {
     /// The route is computed once, here, and carried through loading. Cargo cannot change which
     /// systems the ship passes, and recomputing the route after the hold was filled would risk
     /// rolling rifts for a different path than the one that was legal when the move was offered.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one ship's move: route, boosts and Gravleash in one atomic step"
+    )]
     fn begin_one_move(
         &mut self,
         mut window: TacticalWindow,
@@ -2455,16 +2530,20 @@ impl<'a> Game<'a> {
         let path = ti4_content::units::catalogue(self.content, self.sources)
             .get(ship.type_id.as_str())
             .and_then(|kind| {
-                rules.path_from(
+                // The same per-ship value and route the offer used (`tactical::movable_into`), so a
+                // ship a faction module lets move further or pass ships is not refused here.
+                rules.path_from_ship(
                     origin.as_str(),
-                    crate::tactical::effective_move_value_with_boosts(
+                    crate::tactical::effective_move_value_for_ship(
                         &self.state,
                         kind,
                         &window.player,
                         origin,
+                        Some(index),
                         gravity_drive,
                         ionian,
                     ),
+                    Some(ship.type_id.as_str()),
                 )
             })
             .ok_or_else(|| TacticalError::UnknownSystem(origin.clone()))?;
@@ -2496,7 +2575,18 @@ impl<'a> Game<'a> {
         {
             let own_move =
                 ti4_content::units::unit_type(self.content, ship.type_id.as_str(), self.sources)
-                    .map_or(0, |kind| i32::try_from(kind.move_value()).unwrap_or(0))
+                    .map_or(0, |kind| {
+                        i32::try_from(kind.move_value()).unwrap_or(0)
+                            + crate::factions::hooks_movement::move_bonus(
+                                &self.state,
+                                &crate::factions::hooks_movement::MoveSite {
+                                    player: &window.player,
+                                    origin,
+                                    index: Some(index),
+                                    ship: &kind,
+                                },
+                            )
+                    })
                     + crate::action_cards::move_bonus(
                         &self.state,
                         &window.player,
@@ -3467,6 +3557,11 @@ impl<'a> Game<'a> {
             self.emit(&format!("GENESIS_INFANTRY:{owner}:{system}"));
         }
         self.emit("STATUS_PHASE_RESOLVED");
+        // "At the end of the status phase" (Bioplasmosis). A new typed name: no reaction card maps
+        // a status-phase window, so this opens nothing unless a faction module listens.
+        if let Err(error) = self.emit_typed("STATUS_PHASE_ENDED", BTreeMap::new()) {
+            return self.result(false, Some(error));
+        }
         self.result(false, None)
     }
 
@@ -4317,10 +4412,26 @@ impl<'a> Game<'a> {
         if self.state.phase == Phase::Action && !self.state.all_passed() {
             return self.result(false, Some(GameError::MissingActivePlayer));
         }
+        // "At the end of the strategy phase" (Naalu Telepathic, Gift of Prescience): typed before
+        // the phase advances, while initiative can still be overridden for the action phase.
+        if self.state.phase == Phase::Strategy
+            && let Err(error) = self.emit_typed("STRATEGY_PHASE_ENDED", BTreeMap::new())
+        {
+            return self.result(false, Some(error));
+        }
         let outcome = advance_phase(&mut self.state);
         match outcome {
             PhaseOutcome::ActionBegan(_) => self.emit("ACTION_PHASE_BEGAN"),
-            PhaseOutcome::StatusBegan => self.emit("STATUS_PHASE_BEGAN"),
+            PhaseOutcome::StatusBegan => {
+                self.emit("STATUS_PHASE_BEGAN");
+                // "At the start of the status phase" (Mitosis). Typed for faction modules; no
+                // reaction card maps a status-phase window. The resolver learns the new phase
+                // first, so per-phase limits count in the status phase.
+                self.sync_timing_context();
+                if let Err(error) = self.emit_typed("STATUS_PHASE_BEGAN", BTreeMap::new()) {
+                    return self.result(false, Some(error));
+                }
+            }
             PhaseOutcome::AgendaBegan => {
                 self.emit("AGENDA_PHASE_BEGAN");
                 // Two cards read "at the start of the agenda phase".
@@ -4365,6 +4476,11 @@ impl<'a> Game<'a> {
             serde_json::Value::String(player.to_string()),
         );
         self.emit_typed("ACTION_COMPLETED", payload)?;
+        // Cards a faction effect showed "for this action" stop being visible with it.
+        crate::factions::hooks_cards::clear_reveals(
+            &mut self.state,
+            crate::factions::hooks_cards::RevealScope::Action,
+        );
         Ok(())
     }
 
