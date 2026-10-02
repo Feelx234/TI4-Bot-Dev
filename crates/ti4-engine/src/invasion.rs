@@ -214,7 +214,19 @@ pub fn ground_combat_value(
     {
         faction = 0;
     }
-    Some(printed - faction)
+    let module = crate::factions::unit_roll_modifier(
+        state,
+        content,
+        sources,
+        &crate::factions::CombatUnit {
+            player,
+            system: Some(system),
+            planet: Some(planet),
+            unit_type,
+            context: "ground",
+        },
+    );
+    Some(printed - faction - module)
 }
 
 /// Whether a Jol-Nar Shield Paling mech is on this planet, shielding its owner's infantry.
@@ -926,7 +938,19 @@ fn roll_ground(
         let slot = fighting
             .entry(value)
             .or_insert((0, std::collections::BTreeMap::new()));
-        slot.0 += kind.combat_dice();
+        slot.0 += crate::factions::unit_dice(
+            state,
+            content,
+            sources,
+            &crate::factions::CombatUnit {
+                player,
+                system: Some(system),
+                planet: Some(planet),
+                unit_type: unit.type_id.as_str(),
+                context: "ground",
+            },
+            kind.combat_dice(),
+        );
         *slot.1.entry(unit.type_id.to_string()).or_insert(0) += 1;
     }
     let mut set = ti4_model::state::RerollSet {

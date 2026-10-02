@@ -25,11 +25,29 @@ use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId};
 use ti4_model::state::GameState;
 
 use crate::choice::ChoiceOption;
-use crate::timing::TimingContext;
+use crate::timing::{Ability, TimingContext};
+
+/// One unit about to roll combat dice, for the per-unit combat hooks.
+#[derive(Debug, Clone, Copy)]
+pub struct CombatUnit<'a> {
+    /// Its owner.
+    pub player: &'a PlayerId,
+    /// The system the combat is in (the active system for space combat).
+    pub system: Option<&'a SystemId>,
+    /// The planet, for ground combat.
+    pub planet: Option<&'a PlanetId>,
+    /// Its unit type id, e.g. `sardakk_flagship`.
+    pub unit_type: &'a str,
+    /// "space" or "ground".
+    pub context: &'a str,
+}
 
 pub mod arborec;
 pub mod argent;
 pub mod ghost;
+pub mod hooks_combat;
+pub mod hooks_economy;
+pub mod hooks_ground;
 pub mod mentak;
 pub mod muaat;
 pub mod naalu;
@@ -173,6 +191,35 @@ pub struct Hooks {
     pub use_leader: Option<fn(&mut TimingContext<'_>, &PlayerId, &LeaderId) -> Option<bool>>,
     /// Extra votes this player casts.
     pub vote_bonus: Option<fn(&GameState, &PlayerId) -> i64>,
+    /// Timing abilities to register for one seat when the game is seated (`reactions::arm`).
+    ///
+    /// The general route to every window the engine emits as a typed event
+    /// (`reactions::EMITTED_EVENTS` and every other `emit_typed`/`Resolving::emit` call): turn
+    /// start, activation, movement, combat rounds, hits to assign, sustain, production, agenda
+    /// reveal, votes, transactions, action-card play/discard, planet control. Called for **every**
+    /// seat with `(state, owner_name, seat)`, since a card can change hands or be gained later and
+    /// the resolver has no late registration; the ability's condition limits it to whoever holds
+    /// the card. Ability ids must be unique per seat: `"<kind>:<owner_name>:<card>:<EVENT>:<rel>"`.
+    ///
+    /// The state passed is the one the game was constructed from: build the same abilities
+    /// whatever it says, and decide everything in the ability's condition and effect. The
+    /// resolver's frequency bookkeeping (`OncePerTurn`, `OncePerRound`) is **not** saved with the
+    /// game and resets when a game is restored or branched, so gate "once" on state (an exhausted
+    /// card, a flag on `GameState`), not on `Frequency`. Some emit sites ignore a WHEN cancel and
+    /// swallow errors (`let _ = ...emit(...)`): an effect must be complete or not happen.
+    pub timing_abilities: Option<fn(&GameState, &str, &PlayerId) -> Vec<Ability>>,
+    /// Shift to one unit's combat roll (positive = better), on top of `combat_modifier`.
+    pub unit_roll_modifier:
+        Option<fn(&GameState, &ContentStore, SourceSet, &CombatUnit<'_>) -> i64>,
+    /// One unit's combat dice, given the count so far. Adjust the count (add, multiply); an
+    /// effect that sets an absolute number must say why it overrides earlier modules.
+    pub unit_dice: Option<fn(&GameState, &ContentStore, SourceSet, &CombatUnit<'_>, i64) -> i64>,
+    /// Space-combat hooks (`hooks_combat.rs`).
+    pub combat: hooks_combat::CombatHooks,
+    /// Invasion and ground-combat hooks (`hooks_ground.rs`).
+    pub ground: hooks_ground::GroundHooks,
+    /// Production, placement, payment and action-card hooks (`hooks_economy.rs`).
+    pub economy: hooks_economy::EconomyHooks,
 }
 
 impl Hooks {
@@ -196,6 +243,12 @@ impl Hooks {
         leader_action: None,
         use_leader: None,
         vote_bonus: None,
+        timing_abilities: None,
+        unit_roll_modifier: None,
+        unit_dice: None,
+        combat: hooks_combat::CombatHooks::NONE,
+        ground: hooks_ground::GroundHooks::NONE,
+        economy: hooks_economy::EconomyHooks::NONE,
     };
 }
 
@@ -397,6 +450,41 @@ pub(crate) fn use_leader(
     hooks()
         .filter_map(|h| h.use_leader)
         .find_map(|f| f(context, player, leader))
+}
+
+pub(crate) fn timing_abilities(
+    state: &GameState,
+    owner_name: &str,
+    seat: &PlayerId,
+) -> Vec<Ability> {
+    hooks()
+        .filter_map(|h| h.timing_abilities)
+        .flat_map(|f| f(state, owner_name, seat))
+        .collect()
+}
+
+pub(crate) fn unit_roll_modifier(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> i64 {
+    hooks()
+        .filter_map(|h| h.unit_roll_modifier)
+        .map(|f| f(state, content, sources, unit))
+        .sum()
+}
+
+pub(crate) fn unit_dice(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &CombatUnit<'_>,
+    dice: i64,
+) -> i64 {
+    hooks()
+        .filter_map(|h| h.unit_dice)
+        .fold(dice, |dice, f| f(state, content, sources, unit, dice))
 }
 
 pub(crate) fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
@@ -710,6 +798,18 @@ mod tests {
             ids("ghost", DEFAULT),
             ["ghostagent", "ghostcommander", "ghosthero"]
         );
+    }
+
+    #[test]
+    fn every_planned_faction_seats_with_the_test_fixture() {
+        // The agents' tests start from `fixtures::seated_game`; it must work for every faction.
+        for module in MODULES {
+            let state = crate::fixtures::seated_game(&[("a", module.alias), ("b", "sol")], DEFAULT);
+            let seat = state.player(&PlayerId::new("a")).expect("seated");
+            assert_eq!(seat.faction.as_str(), module.alias);
+            assert!(seat.home_system.is_some(), "{}", module.alias);
+            assert_eq!(seat.leaders.len(), 3, "{} leaders", module.alias);
+        }
     }
 
     #[test]

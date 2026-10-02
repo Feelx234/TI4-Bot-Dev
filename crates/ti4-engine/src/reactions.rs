@@ -853,6 +853,13 @@ pub fn arm(resolver: &mut Resolver, state: &GameState) {
         resolver.register([instinct_training(&owner_name, &seat.id)]);
         // The same for a leader that acts in a window rather than as an action.
         resolver.register([l1z1x_agent(&owner_name, &seat.id)]);
+        // Per-faction modules (`crate::factions`), after the shared slots so existing ordering
+        // in every window is unchanged.
+        resolver.register(crate::factions::timing_abilities(
+            state,
+            &owner_name,
+            &seat.id,
+        ));
     }
 }
 

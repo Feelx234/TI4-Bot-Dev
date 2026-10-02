@@ -169,12 +169,26 @@ pub fn effective_hits_on(
         .and_then(|system| ti4_content::galaxy::system(content, system.as_str(), sources))
         .is_some_and(|system| system.is_nebula());
 
+    let module = crate::factions::unit_roll_modifier(
+        state,
+        content,
+        sources,
+        &crate::factions::CombatUnit {
+            player,
+            system: state.active_system.as_ref(),
+            planet: None,
+            unit_type: unit.type_id.as_str(),
+            context: "space",
+        },
+    );
+
     Some(
         threshold
             - i64::from(morale_is_current)
             - faction
             - fighter_bonus
-            - i64::from(nebula_defender),
+            - i64::from(nebula_defender)
+            - module,
     )
 }
 
@@ -949,7 +963,19 @@ fn fleet_groups(
         let Some(value) = effective_hits_on(state, content, sources, player, &unit) else {
             continue;
         };
-        let mut dice = kind.combat_dice();
+        let mut dice = crate::factions::unit_dice(
+            state,
+            content,
+            sources,
+            &crate::factions::CombatUnit {
+                player,
+                system: Some(system),
+                planet: None,
+                unit_type: unit.type_id.as_str(),
+                context: "space",
+            },
+            kind.combat_dice(),
+        );
         if !extra_die_added && extra_die.is_some_and(|selected| selected == &unit.type_id) {
             dice += 1;
             extra_die_added = true;
