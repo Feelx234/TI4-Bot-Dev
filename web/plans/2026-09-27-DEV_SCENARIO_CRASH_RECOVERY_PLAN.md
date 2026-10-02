@@ -11,7 +11,7 @@
     1. `player_sessions.json` (authoritative credentials mapping)
     2. `init.json` (immutable engine initialization, map tiles, seed, initial state, and seat controllers)
     3. `lobby.json` (running player lobby record)
-  - Records are derived from the *final* scenario configuration (including all unit/card mutations and four-view seat adjustments).
+  - Records are derived from the _final_ scenario configuration (including all unit/card mutations and four-view seat adjustments).
   - Directory collision protection: checks whether the target directory already exists; returns an error without deleting or modifying existing files.
   - Atomic write failure cleanup: if any write fails, deletes only artifacts created by that failed launch (`lobby.json`, `init.json`, `player_sessions.json`, and the newly created directory) and returns an error without registering or advertising an in-memory session.
   - In-memory sessions and lobbies are only started and registered once all required writes succeed.
@@ -31,7 +31,7 @@
 
 ## Goal
 
-A scenario launched from `/dev/scenarios` should remain playable at its original `/games/{game_id}` URL after the server restarts, with the same player credentials, current decision, history, and bot behavior. Preserve existing recovery behavior for ordinary games. This plan is for *future launches*; the existing `data/games/dev_combat_b7078f12de2eb695/` cannot be reconstructed from its lone `player_sessions.json`.
+A scenario launched from `/dev/scenarios` should remain playable at its original `/games/{game_id}` URL after the server restarts, with the same player credentials, current decision, history, and bot behavior. Preserve existing recovery behavior for ordinary games. This plan is for _future launches_; the existing `data/games/dev_combat_b7078f12de2eb695/` cannot be reconstructed from its lone `player_sessions.json`.
 
 ## Diagnosis
 
@@ -42,9 +42,9 @@ A scenario launched from `/dev/scenarios` should remain playable at its original
 
 ## Implementation
 
-1. **Persist an entire dev launch before publishing it.** In `GameRegistry::launch_dev_scenario`, when `self.store` exists, attach that store to `SessionConfig`, then save the versioned `PlayerLobbyRecord`, `PlayerSessionsRecord`, and `PlayerGameInitRecord` needed by the existing player-lobby recovery branch. Derive all records from the *final* scenario configuration (including the four-view mutations), not from the base setup. Use the exact launch roster, map tiles, seed, initial state, and credentials. Only start/register the session and return its URL/token once all required writes succeed. Keep the no-store registry path working for existing in-memory tests.
+1. **Persist an entire dev launch before publishing it.** In `GameRegistry::launch_dev_scenario`, when `self.store` exists, attach that store to `SessionConfig`, then save the versioned `PlayerLobbyRecord`, `PlayerSessionsRecord`, and `PlayerGameInitRecord` needed by the existing player-lobby recovery branch. Derive all records from the _final_ scenario configuration (including the four-view mutations), not from the base setup. Use the exact launch roster, map tiles, seed, initial state, and credentials. Only start/register the session and return its URL/token once all required writes succeed. Keep the no-store registry path working for existing in-memory tests.
 2. **Make bot controllers recoverable.** Add an optional, validated seat-controller map to the immutable player init record, with a backwards-compatible default of all-human for existing records; use it in `recover_player_session` when reconstructing `GameInitRecord`. Check that the map covers exactly the player IDs and does not contain credentials. Update every constructor/fixture for the init record. Confirm format/version and checksum handling remain compatible with previously valid saves.
-3. **Define failure and retry semantics.** The three launch files are separate atomic writes, not one transaction. If any write fails, do not advertise a playable in-memory game; clean up only artifacts *created by that failed launch* or ensure a subsequent startup reports the incomplete launch clearly and does not publish a phantom lobby. Never delete an existing game's records on a generated-ID collision. Ensure a retry generates a fresh game ID and cannot mistake a stale directory for an empty destination. Document the ordering and failure points alongside the launch code.
+3. **Define failure and retry semantics.** The three launch files are separate atomic writes, not one transaction. If any write fails, do not advertise a playable in-memory game; clean up only artifacts _created by that failed launch_ or ensure a subsequent startup reports the incomplete launch clearly and does not publish a phantom lobby. Never delete an existing game's records on a generated-ID collision. Ensure a retry generates a fresh game ID and cannot mistake a stale directory for an empty destination. Document the ordering and failure points alongside the launch code.
 4. **Check scripted scenario startup.** `ongoing_combat` and invasion presets advance the engine through scripted decisions after launch. With the store attached, these decisions must be durably logged using the same path as player/bot decisions before the launch response succeeds. If scripting fails, return an error and leave the save recoverable at the last committed decision (or explicitly clean up a new, unadvertised save); do not return a URL to a partially initialized scenario without documenting it.
 
 ## Verification / acceptance

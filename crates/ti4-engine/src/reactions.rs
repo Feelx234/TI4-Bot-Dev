@@ -139,6 +139,8 @@ fn direct_hit_guard(event: &Event, player: &PlayerId, state: &GameState) -> bool
         && event
             .text("producer")
             .is_some_and(|who| who == player.as_str())
+        // Dreadnought II and its kin cannot be destroyed by Direct Hit, so the card is not offered.
+        && event.boolean("direct_hittable") != Some(false)
 }
 
 /// "When another player plays an action card other than 'Sabotage'": the committer is
@@ -858,7 +860,171 @@ pub fn arm(resolver: &mut Resolver, state: &GameState) {
         for (event_type, relation) in &windows {
             resolver.register([slot(&owner_name, &seat.id, event_type, *relation)]);
         }
+        // Registered for every seat, because a technology can be gained mid-game and the resolver
+        // has no late registration; the condition is what limits it to the holder.
+        resolver.register([instinct_training(&owner_name, &seat.id)]);
+        // The same for a leader that acts in a window rather than as an action.
+        resolver.register([l1z1x_agent(&owner_name, &seat.id)]);
     }
+}
+
+/// Whether I48S can act on this activation: `owner` holds it readied, and the activating seat has
+/// an infantry on a planet in the active system and a mech it may still place.
+fn l1z1x_agent_ready(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    owner: &PlayerId,
+) -> bool {
+    let agent = ti4_model::id::LeaderId::new("l1z1xagent");
+    let readied = state.player(owner).is_some_and(|seat| {
+        seat.leaders.get(&agent) == Some(&ti4_model::state::LeaderStatus::Readied)
+    });
+    let (Some(system), Some(target)) = (state.active_system.as_ref(), state.active.as_ref()) else {
+        return false;
+    };
+    if !readied {
+        return false;
+    }
+    let faction = state
+        .player(target)
+        .map(|seat| seat.faction.to_string())
+        .unwrap_or_default();
+    let Some(mech) = ti4_content::units::faction_unit(content, &faction, "mech", sources)
+        .map(|kind| ti4_model::id::UnitTypeId::new(kind.id()))
+    else {
+        return false;
+    };
+    let types = ti4_content::units::catalogue(content, sources);
+    let has_infantry = state.board.get(system).is_some_and(|board| {
+        board.planet_units.values().flatten().any(|unit| {
+            &unit.owner == target
+                && types
+                    .get(unit.type_id.as_str())
+                    .is_some_and(|kind| kind.base_type() == "infantry")
+        })
+    });
+    has_infantry && crate::supply::allowed(state, content, sources, target, &mech, 1) > 0
+}
+
+/// I48S, the L1Z1X agent: "After a player activates a system: You may exhaust this card to allow
+/// that player to replace 1 of their infantry in the active system with 1 mech from their
+/// reinforcements." The effect was built but nothing offered it (reported 2026-09-23): an agent
+/// with a timing window needs a standing slot on that window, like a reaction card.
+fn l1z1x_agent(owner_name: &str, player: &PlayerId) -> Ability {
+    let owner = player.clone();
+    let condition_owner = player.clone();
+    Ability::stateful(
+        format!("leader:{owner_name}:l1z1xagent:SYSTEM_ACTIVATED:after"),
+        player.clone(),
+        "SYSTEM_ACTIVATED",
+        Relation::After,
+        Arc::new(move |_event, _resolver, context| {
+            let target = context
+                .state
+                .active
+                .clone()
+                .map_or_else(|| "the active player".to_owned(), |seat| seat.to_string());
+            let choice = crate::choice::Choice::new(
+                owner.clone(),
+                format!("I48S: exhaust to let {target} replace 1 infantry in the active system with a mech"),
+                vec![
+                    crate::choice::ChoiceOption::labelled(
+                        "use".to_owned(),
+                        "leader",
+                        "exhaust the agent".to_owned(),
+                    ),
+                    crate::choice::ChoiceOption::decline(),
+                ],
+            )
+            .contextualized(DecisionContext::new(
+                owner.clone(),
+                DecisionSource::Content("l1z1xagent".to_owned()),
+                "l1z1x_agent_swap",
+                context.state.phase,
+                context.state.round,
+            ));
+            let Ok(answer) = context.ask_seeing(&choice) else {
+                return Ok(());
+            };
+            if !answer.is_decline() {
+                crate::leaders::use_leader(
+                    context,
+                    &owner,
+                    &ti4_model::id::LeaderId::new("l1z1xagent"),
+                );
+            }
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |_event, _, context| {
+        l1z1x_agent_ready(context.state, context.content, context.sources, &condition_owner)
+    }))
+}
+
+/// Whether `player` can use Instinct Training now: holds it ready, with a strategy token.
+fn instinct_training_ready(state: &GameState, player: &PlayerId) -> bool {
+    let card = ti4_model::id::TechnologyId::new("it");
+    state.player(player).is_some_and(|seat| {
+        seat.technologies.contains(&card)
+            && !seat.exhausted_technologies.contains(&card)
+            && seat.strategic_tokens > 0
+    })
+}
+
+/// Instinct Training (Xxcha): "You may exhaust this card and spend 1 token from your strategy pool
+/// when another player plays an action card; cancel that action card." Unlike Sabotage it can
+/// cancel any card, Sabotage included. The card is still spent (1.15), as with Sabotage.
+fn instinct_training(owner_name: &str, player: &PlayerId) -> Ability {
+    let owner = player.clone();
+    let condition_owner = player.clone();
+    Ability::stateful(
+        format!("technology:{owner_name}:it:ACTION_CARD_PLAYED:when"),
+        player.clone(),
+        "ACTION_CARD_PLAYED",
+        Relation::When,
+        Arc::new(move |event, _resolver, context| {
+            let card = event.text("card").unwrap_or_default().to_owned();
+            let choice = crate::choice::Choice::new(
+                owner.clone(),
+                format!("Instinct Training: exhaust and spend a strategy token to cancel {card}"),
+                vec![
+                    crate::choice::ChoiceOption::labelled(
+                        "use".to_owned(),
+                        "technology",
+                        "cancel it".to_owned(),
+                    ),
+                    crate::choice::ChoiceOption::decline(),
+                ],
+            )
+            .contextualized(DecisionContext::new(
+                owner.clone(),
+                DecisionSource::Content("it".to_owned()),
+                "instinct_training_cancel",
+                context.state.phase,
+                context.state.round,
+            ));
+            let Ok(answer) = context.ask_seeing(&choice) else {
+                return Ok(());
+            };
+            if answer.is_decline() || !instinct_training_ready(context.state, &owner) {
+                return Ok(());
+            }
+            if let Some(seat) = context.state.player_mut(&owner) {
+                seat.strategic_tokens -= 1;
+                seat.exhausted_technologies
+                    .insert(ti4_model::id::TechnologyId::new("it"));
+            }
+            event.cancel();
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        actor_is_not(event, &condition_owner, context.state)
+            && instinct_training_ready(context.state, &condition_owner)
+    }))
 }
 
 /// Reaction cards whose printed window this table maps.

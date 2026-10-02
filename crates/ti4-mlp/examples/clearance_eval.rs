@@ -145,6 +145,8 @@ fn main() {
     // confidence interval on a *difference* between two policies: the pairing is by seat-game and
     // the correlation is by map, and both are gone by the time it is a percentage.
     let per_seat = argument("--per-seat");
+    // --diplomacy: structured diplomacy on, as the trainer plays it.
+    let diplomacy = std::env::args().any(|a| a == "--diplomacy");
     let rounds: u32 = argument("--rounds").map_or(1, |value| {
         value
             .parse()
@@ -223,50 +225,54 @@ fn main() {
                         )
                     })
                     .collect();
-                let rollout = ti4_training::rollout::play_with_decider_factory(
-                    content,
-                    &players,
-                    &seated,
-                    DEFAULT,
-                    seed,
-                    ti4_training::rollout::Horizon {
-                        rounds,
-                        steps: 10_000,
-                    },
-                    ti4_engine::opening::DEFAULT_REQUIREMENT,
-                    &ti4_training::rollout::OpeningMap::PythonPool {
-                        pool: Arc::clone(&pool),
-                        tile_seed_offset: TILE_SEED_OFFSET,
-                    },
-                    |baselines| {
-                        let mut deciders: BTreeMap<PlayerId, Box<dyn Decider>> = BTreeMap::new();
-                        for (index, player) in players.iter().enumerate() {
-                            let row = ti4_mlp::FactionRow::of(seated[player].as_str())
-                                .map_err(|error| format!("{player}: {error}"))?;
-                            let baseline = baselines
-                                .get(player)
-                                .copied()
-                                .ok_or_else(|| format!("{player} has no setup baseline"))?;
-                            let stream = seed
-                                .wrapping_mul(1_000_003)
-                                .wrapping_add(u64::try_from(index).unwrap_or(0));
-                            // No `recording_ppo`: an evaluation needs no importance-ratio data, and
-                            // recording it allocates the sparse features of every legal option at
-                            // every decision.
-                            let (decider, _status) = ti4_mlp::bot::MlpBot::sharing(
-                                &local,
-                                vocabulary.clone(),
-                                row,
-                                stream,
-                            )
-                            .at_temperature(temperature)
-                            .from_setup(baseline)
-                            .seat();
-                            deciders.insert(player.clone(), decider);
-                        }
-                        Ok(deciders)
-                    },
-                );
+                let (rollout, _) =
+                    ti4_training::rollout::play_with_capabilities_and_decider_factory_digest(
+                        content,
+                        &players,
+                        &seated,
+                        DEFAULT,
+                        seed,
+                        ti4_training::rollout::Horizon {
+                            rounds,
+                            steps: 10_000,
+                        },
+                        ti4_engine::opening::DEFAULT_REQUIREMENT,
+                        &ti4_training::rollout::OpeningMap::PythonPool {
+                            pool: Arc::clone(&pool),
+                            tile_seed_offset: TILE_SEED_OFFSET,
+                        },
+                        ti4_training::rollout::SimulationCapabilities { diplomacy },
+                        false,
+                        |baselines| {
+                            let mut deciders: BTreeMap<PlayerId, Box<dyn Decider>> =
+                                BTreeMap::new();
+                            for (index, player) in players.iter().enumerate() {
+                                let row = ti4_mlp::FactionRow::of(seated[player].as_str())
+                                    .map_err(|error| format!("{player}: {error}"))?;
+                                let baseline = baselines
+                                    .get(player)
+                                    .copied()
+                                    .ok_or_else(|| format!("{player} has no setup baseline"))?;
+                                let stream = seed
+                                    .wrapping_mul(1_000_003)
+                                    .wrapping_add(u64::try_from(index).unwrap_or(0));
+                                // No `recording_ppo`: an evaluation needs no importance-ratio data, and
+                                // recording it allocates the sparse features of every legal option at
+                                // every decision.
+                                let (decider, _status) = ti4_mlp::bot::MlpBot::sharing(
+                                    &local,
+                                    vocabulary.clone(),
+                                    row,
+                                    stream,
+                                )
+                                .at_temperature(temperature)
+                                .from_setup(baseline)
+                                .seat();
+                                deciders.insert(player.clone(), decider);
+                            }
+                            Ok(deciders)
+                        },
+                    );
                 if let Some(error) = &rollout.error {
                     return Err(format!("game {seed}/{rotation} failed: {error}"));
                 }

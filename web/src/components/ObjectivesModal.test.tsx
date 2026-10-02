@@ -138,9 +138,7 @@ describe("ObjectivesModal", () => {
 
     // p1 is Ready on "unify_colonies" (6/6)
     expect(screen.getByTestId("status-ready-unify_colonies-p1")).toBeInTheDocument();
-    expect(screen.getByTestId("status-ready-unify_colonies-p1")).toHaveTextContent(
-      "Ready (6/6)",
-    );
+    expect(screen.getByTestId("status-ready-unify_colonies-p1")).toHaveTextContent("Ready (6/6)");
 
     // p2 in progress on "unify_colonies" (2/6)
     expect(screen.getByTestId("status-progress-unify_colonies-p2")).toBeInTheDocument();
@@ -209,7 +207,9 @@ describe("ObjectivesModal", () => {
     expect(options.length).toBe(3); // lead, trade_routes, decline
 
     // Select trade_routes
-    const tradeOption = document.querySelector('[data-testid="choice-option"][data-option-id="trade_routes"]')!;
+    const tradeOption = document.querySelector(
+      '[data-testid="choice-option"][data-option-id="trade_routes"]',
+    )!;
     expect(tradeOption).not.toBeNull();
     fireEvent.click(tradeOption);
 
@@ -252,7 +252,9 @@ describe("ObjectivesModal", () => {
     );
 
     // Select second objective: trade_routes
-    const tradeOption = document.querySelector('[data-testid="choice-option"][data-option-id="trade_routes"]')!;
+    const tradeOption = document.querySelector(
+      '[data-testid="choice-option"][data-option-id="trade_routes"]',
+    )!;
     fireEvent.click(tradeOption);
 
     const footer = screen.getByTestId("objectives-scoring-footer");
@@ -281,4 +283,3 @@ describe("ObjectivesModal", () => {
     expect(footer).toHaveTextContent("Negotiate Trade Routes");
   });
 });
-

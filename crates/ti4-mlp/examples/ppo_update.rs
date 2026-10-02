@@ -142,6 +142,8 @@ const VALUE_FLAGS: &[&str] = &[
     "--rounds",
     "--secret-weight",
     "--seed-base",
+    "--seeds-per-update",
+    "--rotations",
     "--stage",
     "--strategy-diversity-weight",
     "--styx-bonus",
@@ -163,6 +165,7 @@ const VALUE_FLAGS: &[&str] = &[
 /// Every flag that stands alone.
 const BOOLEAN_FLAGS: &[&str] = &[
     "--no-checkpoint",
+    "--check-likelihood",
     "--diag-sync",
     "--hash-games",
     "--diplomacy",
@@ -427,12 +430,12 @@ fn reference_drift(
 ///
 /// Records what a seat did, and never changes it.
 ///
-/// Exists so a wasted activation can be charged to the decision that made it. The engine's event
-/// log carries names without an owner and cannot say whose activation it was; the seat's own
-/// decision stream can.
+/// With `--hash-games`, hashes every choice. The notes a wasted activation is charged against come
+/// from the bot itself (`MlpBot::ppo_notes`), one per recorded step, because a fleet decision has
+/// no engine prompt and a planned movement step has no record: notes rebuilt from the engine's
+/// prompts would no longer line up with the steps.
 struct Watching {
     inner: Box<dyn Decider>,
-    log: std::rc::Rc<std::cell::RefCell<Vec<ti4_mlp::positive_corpus::Note>>>,
     /// With `--hash-games`, a running hash of every choice this seat made.
     all: Option<Rc<RefCell<sha2::Sha256>>>,
 }
@@ -452,18 +455,6 @@ impl Watching {
             hasher.update(chosen.id.as_bytes());
             hasher.update([0x1e]);
         }
-        // Forced decisions are absent from `MlpBot::record` too, so the indices of this log and the
-        // recorded PPO steps line up. Counting them here and not there would shift every charge
-        // after the first forced decision onto the wrong decision.
-        if choice.options.len() < 2 {
-            return;
-        }
-        let head = ti4_mlp::capture_head(ti4_policy::learned::decision_head(choice));
-        self.log.borrow_mut().push(ti4_mlp::positive_corpus::Note {
-            head: head.to_owned(),
-            chosen: chosen.id.clone(),
-            declined: chosen.is_decline(),
-        });
     }
 }
 
@@ -616,9 +607,9 @@ fn play_one(
                     if learns && handles.insert(player.clone(), bot.ppo_records()).is_some() {
                         return Err(format!("{player} was seated twice"));
                     }
+                    let log = bot.ppo_notes();
                     let (decider, status) = bot.seat();
                     statuses.push(status);
-                    let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
                     let all = hash.then(|| {
                         let hasher = Rc::new(RefCell::new(<sha2::Sha256 as sha2::Digest>::new()));
                         choice_hashers.insert(player.clone(), Rc::clone(&hasher));
@@ -629,7 +620,6 @@ fn play_one(
                         player.clone(),
                         Box::new(Watching {
                             inner: decider,
-                            log,
                             all,
                         }),
                     );
@@ -1085,6 +1075,9 @@ fn main() {
     let diag_path = argument("--diag");
     let capture_path = argument("--capture-batch");
     let no_checkpoint = std::env::args().any(|a| a == "--no-checkpoint");
+    // Before any optimizer step, rescore every recorded step with the weights that played it: the
+    // recorded behaviour probability must come back, for fleet decisions as for engine prompts.
+    let check_likelihood = std::env::args().any(|a| a == "--check-likelihood");
     let hash_games = std::env::args().any(|a| a == "--hash-games");
     let diag_sync = std::env::args().any(|a| a == "--diag-sync");
     let diplomacy = std::env::args().any(|a| a == "--diplomacy");
@@ -1285,6 +1278,29 @@ fn main() {
             parsed
         },
     );
+    // How many games an update plays: `--seeds-per-update` seeds, each at `--rotations` rotations.
+    // The default is §6.3's 16 x 6. Rotations exist so that, against a frozen opponent, each
+    // faction is the learner once per seed; in self-play every seat trains in every game, so one
+    // rotation per seed buys a fresh map and seating for each game instead (operator, 2026-09-22).
+    let seeds_per_update: u64 = argument("--seeds-per-update").map_or(SEEDS_PER_UPDATE, |value| {
+        value
+            .parse()
+            .ok()
+            .filter(|seeds| *seeds > 0)
+            .unwrap_or_else(|| refuse("--seeds-per-update expects a positive integer"))
+    });
+    let rotations: usize = argument("--rotations").map_or(FACTIONS.len(), |value| {
+        value
+            .parse()
+            .ok()
+            .filter(|rotations| (1..=FACTIONS.len()).contains(rotations))
+            .unwrap_or_else(|| refuse(&format!("--rotations expects 1..={}", FACTIONS.len())))
+    });
+    if rotations != FACTIONS.len() && argument("--opponent").is_some() {
+        refuse(
+            "--rotations below the faction count leaves factions without a learner game against --opponent",
+        );
+    }
     let seed_base: u64 = argument("--seed-base").map_or(SEED_BASE, |value| {
         value
             .parse()
@@ -1308,10 +1324,10 @@ fn main() {
                     .unwrap_or_else(|_| refuse(&format!("{path}: {line:?} is not a u64")))
             })
             .collect();
-        let want = updates * SEEDS_PER_UPDATE as usize;
+        let want = updates * seeds_per_update as usize;
         if seeds.len() != want {
             refuse(&format!(
-                "{path}: {} seeds, expected updates({updates}) * SEEDS_PER_UPDATE({SEEDS_PER_UPDATE}) = {want}",
+                "{path}: {} seeds, expected updates({updates}) * seeds per update({seeds_per_update}) = {want}",
                 seeds.len()
             ));
         }
@@ -1449,7 +1465,7 @@ fn main() {
             "  learner     one rotating seat per game; only its decisions enter PPO, benchmark at temperature {OPPONENT_TEMPERATURE}"
         );
     }
-    println!("  seeds       {seed_base}.. ({SEEDS_PER_UPDATE} per update)");
+    println!("  seeds       {seed_base}.. ({seeds_per_update} per update)");
     println!("  critic mode {critic_mode:?}");
     println!(
         "  trunk       width {} | residual blocks {}",
@@ -1538,10 +1554,7 @@ fn main() {
             .collect::<Vec<_>>()
             .join("  ")
     );
-    println!(
-        "  update      {SEEDS_PER_UPDATE} seeds x {} rotations\n",
-        FACTIONS.len()
-    );
+    println!("  update      {seeds_per_update} seeds x {rotations} rotations\n",);
 
     let players: Vec<PlayerId> = (0..FACTIONS.len())
         .map(|index| PlayerId::new(format!("seat{index}")))
@@ -1624,17 +1637,17 @@ fn main() {
         // of one per core.
         let update_seeds: Vec<u64> = curriculum_seeds.as_ref().map_or_else(
             || {
-                let base = seed_base + SEEDS_PER_UPDATE * update as u64;
-                (base..base + SEEDS_PER_UPDATE).collect()
+                let base = seed_base + seeds_per_update * update as u64;
+                (base..base + seeds_per_update).collect()
             },
             |all| {
-                let start = update * SEEDS_PER_UPDATE as usize;
-                all[start..start + SEEDS_PER_UPDATE as usize].to_vec()
+                let start = update * seeds_per_update as usize;
+                all[start..start + seeds_per_update as usize].to_vec()
             },
         );
         let jobs: Vec<(u64, usize)> = update_seeds
             .into_iter()
-            .flat_map(|seed| (0..FACTIONS.len()).map(move |rotation| (seed, rotation)))
+            .flat_map(|seed| (0..rotations).map(move |rotation| (seed, rotation)))
             .collect();
         let workers = rayon::current_num_threads().max(1).min(jobs.len());
         let locals: Vec<(WorkerInference, Option<ti4_mlp::Actor>)> = match &rollout_backend {
@@ -1869,6 +1882,36 @@ fn main() {
                 refuse("the requested clean demonstration slice replayed empty");
             }
         }
+        if check_likelihood && update == 0 {
+            // Rollouts score on a CPU inference copy; rescore on the same kind of copy, so the check
+            // compares the recorded numbers with the same arithmetic rather than with the device's.
+            let scorer = actor.inference_copy().to_device(ti4_tensor::Device::Cpu);
+            let mut worst = 0.0f64;
+            let mut by_head: BTreeMap<&str, (usize, f64)> = BTreeMap::new();
+            for step in &steps {
+                let name = ti4_mlp::all_heads()
+                    .iter()
+                    .copied()
+                    .find(|name| actor.layout_head_index(name).ok() == Some(step.head))
+                    .unwrap_or_else(|| refuse(&format!("no head at index {}", step.head)));
+                let p = scorer
+                    .probabilities(&step.options, name, step.row, step.temperature)
+                    .unwrap_or_else(|error| refuse(&format!("rescoring: {error}")));
+                let gap = (p[step.chosen].ln() - step.behaviour_log_prob).abs();
+                worst = worst.max(gap);
+                let entry = by_head.entry(name).or_default();
+                entry.0 += 1;
+                entry.1 = entry.1.max(gap);
+            }
+            println!(
+                "  likelihood check: {} steps, max |log p - recorded| {worst:.3e}",
+                steps.len()
+            );
+            println!("  steps by head (count, max gap): {by_head:?}");
+            if worst > 1e-6 {
+                refuse("recorded behaviour probabilities do not reproduce");
+            }
+        }
         let freeze_started = Instant::now();
         let batch = Batch::freeze(steps, critic_mode)
             .unwrap_or_else(|error| refuse(&format!("freezing: {error}")));
@@ -1952,6 +1995,17 @@ fn main() {
             )
         }
         .unwrap_or_else(|error| refuse(&format!("update: {error}")));
+        // Every update uploads a batch of a different size, and libtorch keeps freed blocks
+        // reserved; without a release the reserve outgrew the card and spilled into shared system
+        // memory, where the optimise step ran 5-8x slower (2026-09-22). The update's tensors are
+        // gone by now, so this frees only what nothing uses.
+        let gpu_memory = if matches!(actor.device(), ti4_tensor::Device::Cuda(_)) {
+            let held = ti4_tensor::cuda_cache::memory(0);
+            ti4_tensor::cuda_cache::release_cached();
+            held.zip(ti4_tensor::cuda_cache::memory(0))
+        } else {
+            None
+        };
         let optimise_time = optimised.elapsed();
         let phases = ti4_mlp::perf::take_phases();
 
@@ -1964,6 +2018,16 @@ fn main() {
             optimise_time,
             rollout_time + optimise_time
         );
+        if let Some((before, after)) = gpu_memory {
+            #[expect(clippy::cast_precision_loss, reason = "bytes shown in GB")]
+            let gb = |bytes: i64| bytes as f64 / f64::from(1_u32 << 30);
+            println!(
+                "              gpu reserved {:.2} GB -> {:.2} GB after release  allocated {:.2} GB",
+                gb(before.reserved),
+                gb(after.reserved),
+                gb(after.allocated)
+            );
+        }
         println!(
             "              actor loss {:>9.5}  critic {:>9.5}  |log r| {:>7.5}  clipped {:>6.2}%",
             last.actor_loss,

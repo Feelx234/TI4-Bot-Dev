@@ -1,6 +1,9 @@
 import React from "react";
 import { TilePresentation } from "../../presentation/boardPresentation.ts";
-import { computeTileGroundCombat, OverlayTileGroundCombat } from "../../presentation/mapOverlays.ts";
+import {
+  computeTileGroundCombat,
+  OverlayTileGroundCombat,
+} from "../../presentation/mapOverlays.ts";
 import { SvgButton } from "../../primitives/index.ts";
 import { PlayerView } from "../../protocol/types.ts";
 
@@ -88,13 +91,7 @@ export const GroundCombatOverlay: React.FC<GroundCombatOverlayProps> = ({
               cy={pY}
               r={planetRadius}
               fill="#090d16"
-              stroke={
-                isCandidateTarget
-                  ? "#38bdf8"
-                  : isControlled
-                    ? p.controllerColor
-                    : "#64748b"
-              }
+              stroke={isCandidateTarget ? "#38bdf8" : isControlled ? p.controllerColor : "#64748b"}
               strokeWidth={3.5}
             />
 
@@ -171,7 +168,9 @@ export interface GroundCombatTooltipSectionProps {
   ground: OverlayTileGroundCombat;
 }
 
-export const GroundCombatTooltipSection: React.FC<GroundCombatTooltipSectionProps> = ({ ground }) => {
+export const GroundCombatTooltipSection: React.FC<GroundCombatTooltipSectionProps> = ({
+  ground,
+}) => {
   return (
     <div
       data-testid="system-tooltip-overlay"

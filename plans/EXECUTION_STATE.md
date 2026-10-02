@@ -8890,3 +8890,1061 @@ evaluation before promotion.
 - Review only: no engine/code fixes, replay, calibration rerun, training or commits.
   Does not qualify the proposed implementation or independently reproduce reported
   figures. Accepted lean-simulator user override and four-round objective preserved.
+
+## 2026-09-17 — activation rework, phases 0–5
+
+- Restore point `restore/pre-activation-rework-2026-09-17` (e392835).
+- Engine: carried mechs no longer sustain space hits; start-of-combat-round cards are for the two
+  combatants; Ceasefire denies movement for the whole activation (this was the repeated reviewer
+  frames). ti4-sim re-baselined to v42.
+- `ti4-policy::fleet_strength` and `ti4-policy::tactical_plan`: candidate fleets per destination,
+  jointly feasible, priced by the arena predictor; `package_legality` gate passes with 0 failures.
+- Fact versions 5 (ground forces vs structures), 6 (candidate summaries on activations) and 7 (the
+  bot samples the fleet and a plan carries it out). Bundles: checkpoint-212544-arena-v5/-v6/-v7.
+- Pilots at 50 updates each: arm A (information) wins on VP 3.43 / margin −1.28; arm 0 3.15 /
+  −1.66; arm B (packages) 2.74 / −1.98. Evidence in plans/evidence/ACTIVATION_REWORK_2026-09-17.md.
+
+## 2026-09-18 — R02 replayer starts: two decisions, R02-001 committed awaiting review
+
+- Reviewed `plans/R02_REPLAYER.md` against the code before implementing. Two operator decisions now
+  bind every R02 package, and they are **not** written into that plan file, whose text still
+  contradicts them in four places (listed in `plans/evidence/R02-001.md`):
+  1. **`crates/ti4-engine` is frozen.** No engine edits for any R02 package, including the
+     "one narrow engine invariant test" R02-004 had allowed itself, and no
+     `Game::legal_options()` change.
+  2. **Nested choices may be presented inside one engine-step window**, so pausing must work at
+     every decision rather than only at step boundaries.
+- Consequence: **one simulation thread owns `LiveReview`/`Game`**, and the R02 decider parks on a
+  rendezvous with the UI. `Game` never crosses the thread. Abort-and-retry is impossible: `Game` is
+  not `Clone` and its open windows, `prepared_turn_seq`, `event_sequence` and `galaxy` live on
+  `Game`, not in `GameState`, so a step cannot be undone and a saved frame cannot be resumed.
+  `Game::legal_options()` is a hint only — it never sees the open transaction window.
+- Measured from `out/reviews/pruned-diplomacy-seed11-t05.ti4review.json` (read-only): **670 settled
+  decisions across 602 engine steps; 37 steps (6.1%) settled more than one, maximum 8.** The plan's
+  "one engine step consumes at most one generated choice" invariant is false as written. Frame cost
+  is 115–183 KB of plain JSON, against a 1 GiB plain-session bound, so 128 branch-frames per project
+  cannot all carry state snapshots — open question for R02-005.
+- **R02-001 implemented, verified and committed** on `wp/r02-001-control-primitives` (subject
+  "R02-001 replayer choice identity and control primitives"): new lib-only crate
+  `crates/ti4-replayer` (`control.rs`: seat modes keyed by physical `PlayerId`,
+  `PendingManualChoice` with `frame` + `ask`, versioned length-prefixed `ChoiceFingerprint`, typed
+  submission outcomes where every refusal preserves the pending choice, `ReplayRecord`,
+  `Provenance`, 128-branch and 1024-option bounds) plus the workspace member entry and its 12-line
+  `Cargo.lock` entry (no new external crate).
+  Gate: `cargo fmt -p ti4-replayer -- --check` clean; `cargo test -p ti4-replayer` **13 passed,
+  0 failed**; `cargo clippy -p ti4-replayer --all-targets --no-deps -- -D warnings` exit 0. `--no-deps` is
+  needed because a trailing `-D warnings` also denies the 14 **pre-existing** warnings in
+  `ti4-model`/`ti4-engine`; with dependencies included none of them are in `crates/ti4-replayer`.
+  R01 measured unchanged: `cargo check -p ti4-review --lib` clean, `cargo test -p ti4-review`
+  **33 passed, 0 failed**.
+- **Review requirements are waived for R02.** Operator, 2026-09-18: "keep advancing the plan, I am
+  explicitly waiving the review requirements. compact now and after each work package. keep going
+  until you are done or really need help/input". This supersedes, for R02 only, both the independent
+  local-model review tier and R02-004's Tier-C/frontier review, and the "one package then stop for
+  review" cadence: work continues package to package, with `plans/EXECUTION_STATE.md` and the package
+  evidence written and a `/compact` requested at every package boundary. No review has been performed
+  on R02-001 and none is claimed; the compensating control is test evidence per package.
+- Working tree: branched from `codex/fix-six-faction-leaders` at `0586b92`. The operator's unrelated
+  uncommitted edits (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+  `crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+  `scripts/publish_and_train_stopped_corpus.ps1`) were deliberately left unstaged and untouched, and
+  so were `plans/R02_REPLAYER.md` (the operator's own plan document, still untracked) and
+  `target-cuda-repack/`.
+- Verify command for R02-001 if it ever needs re-running:
+  `cargo fmt -p ti4-replayer -- --check && cargo test -p ti4-replayer && cargo clippy -p ti4-replayer --all-targets --no-deps -- -D warnings`.
+
+## Next package to execute: R02-002 — additive controlled-decider injection
+
+```text
+ID and title        R02-002 — additive controlled-decider injection (plans/R02_REPLAYER.md)
+Milestone/deps      R02 program; R02-001 done (branch wp/r02-001-control-primitives @ 31445af)
+Objective           Let R02 wrap each seat's real policy in a ControlledDecider *under* the trace
+                    wrapper, while LiveReview::start keeps producing byte-identical behaviour.
+Normative sources   plans/R02_REPLAYER.md "Component contracts" (ControlledDecider paragraph) and
+                    "R02-002"; plans/R01_REVIEW_VIEWER.md for what must not change; engine is frozen.
+Acceptance tests    default vs identity-hook: identical manifest, frames, events, decisions, scores
+                    and outcome; one override traces normally; other seats unchanged.
+Allowed Rust edits  crates/ti4-review/src/lib.rs; crates/ti4-replayer/src/{lib.rs,control.rs,
+                    decider.rs}; tests in both crates. NO edits to crates/ti4-engine/**.
+Permission          P1. No network, no processes, no artifacts, no external state.
+Inputs              a schema-6 bundle + a map pool, both already on disk (see R01 settings paths).
+Outputs             R01 seam `LiveReview::start_with_control(config, hook)`; `ControlledDecider` in
+                    ti4-replayer; R01 semantic golden fixture(s) frozen BEFORE the seam.
+Invariants          trace wrapper stays outermost, so a human choice still carries the policy's own
+                    scores/probabilities; linear (LearnedBot/TraceBot) and MLP (MlpBot/MlpTraceBot)
+                    paths both wrap; no session-schema change; R01 CLI/HTML/GUI untouched.
+Non-goals           no stepping, no pausing, no persistence, no GUI, no branch tree, no R02-006 view
+                    extraction. Do not touch gui.rs in this package.
+Tests to add        R01: golden-comparison test (default path vs identity hook) over a fixed
+                    seed/rotation/bundle/pool at a bounded step count; hook called once per seat in
+                    setup order. R02: ControlledDecider answers from inner when Auto; answers a queued
+                    Manual id through the engine's own Table validation; one-shot delegation records
+                    DelegatedToPolicy; inner is invoked exactly once per ask in every mode; the
+                    wrapped decider's consider()/profile() passthrough returns what the inner bot
+                    returns so scores are unchanged.
+Commands            cargo fmt -p ti4-review -p ti4-replayer && cargo test -p ti4-review -p
+                    ti4-replayer && cargo clippy -p ti4-review -p ti4-replayer --all-targets
+                    --no-deps -- -D warnings && cargo test -p ti4-training
+Evidence            plans/evidence/R02-002.md with the golden's command, seed, bundle and hashes.
+Known traps         (1) crates/ti4-review/src/lib.rs:761 is `LiveReview::start`, not `new`; the
+                    factory closure builds a BTreeMap<PlayerId, Box<dyn Decider>> from
+                    setup_game_with_capabilities_and_decider_factory. (2) `TraceBot.inner` is a
+                    concrete `LearnedBot` whose choose_seeing calls inner.consider()/profile()/
+                    score_vector() directly — generalising it needs a small pass-through trait, and
+                    that is the one risky edit in the package. (3) `MlpBot::seat()` already returns a
+                    Box<dyn Decider> inner, so the MLP side is easier. (4) R01's decision trace mixes
+                    synthetic rows (`fleet decision`, `plan stopped`, ids `package|N`): never treat
+                    those as engine answers. (5) `-D warnings` propagates into path dependencies: 14
+                    warnings are pre-existing in ti4-model/ti4-engine, hence --no-deps.
+Definition of done  golden frozen and passing before/after the seam; both crates' suites green;
+                    strict clippy clean on both; evidence written; one focused commit; handover
+                    updated; /compact requested.
+```
+
+Defaults taken for the four questions the operator left open (proceed-without-input instruction;
+reverse any of these if they later disagree):
+
+1. **R02-005 frame/bounds:** branch frames are compact (engine step, ask/answer, provenance,
+   fingerprint) and full state snapshots are kept only for the live branch plus a bounded viewed
+   window; the 1,000,001-frame and 1 GiB bounds are enforced **per project across all branches**,
+   reported as exhaustion rather than silently trimmed.
+2. **Authoritative replay source:** the R02 project persists its own slices of `Game::table.log`
+   (`ReplayRecord`), and R01-import branching is best-effort from filtered `DecisionDetail` rows with
+   the limitation stated in the file format and in evidence.
+3. **R01 import:** the operator re-picks checkpoint and map pool in R02 and the manifest hashes are
+   verified; an `engine_commit` or `content_sha256` mismatch **refuses Play up front** with a typed
+   diagnostic instead of surfacing as mid-rebuild divergence.
+4. **Pre-R02 R01 semantic golden:** created and frozen by R02-002 as its first commit (R02-008
+   assumes it exists).
+
+## 2026-09-18 R02-002 additive controlled-decider injection: implemented, all gates green
+
+Evidence: `plans/evidence/R02-002.md`. Branch `wp/r02-002-controlled-decider`.
+
+- `LiveReview::start_with_control(config, hook)` applies
+  `PolicyHook = &dyn Fn(&PlayerId, Box<dyn Decider>) -> Box<dyn Decider>` once per seat on the
+  simulation thread where deciders are constructed; `start(config)` is that call with the identity
+  hook. The hook's output is wrapped by `TraceBot`/`MlpTraceBot`, so a human answer keeps the
+  policy's scores, probabilities and feature projections. No session-schema change; CLI/HTML/GUI
+  untouched.
+- `TraceBot` now holds `Box<dyn Decider>` + `Arc<Profile>` and scores through the new free
+  `ti4_policy::consider(profile, seen, choice, held)`, with `LearnedBot::consider` left as a delegate.
+  This was forced, not stylistic: `consider` returned `TrueSkillSignal`, whose fields are private and
+  which has no public constructor, so a caller outside `ti4-policy` cannot name the old return type.
+  `MlpTraceBot` already held `Box<dyn Decider>`; only hook application changed there.
+- `crates/ti4-replayer/src/decider.rs`: `ControlledDecider` plus `ManualInbox`, `AnswerLog` /
+  `AnsweredDecision`, `ManualFallbacks`. Auto delegates; a queued answer matching the offer's
+  `ChoiceFingerprint` is returned without consulting the policy; one-shot delegation records
+  `DelegatedToPolicy`; a stale answer is dropped and counted; a manual ask with nothing queued falls
+  back to the policy **counted** and `debug_assert`ed, because `IllegalChoice` is frozen and inventing
+  a refusal would poison the step.
+- Golden `crates/ti4-review/tests/semantic_golden.rs` + fixture
+  `crates/ti4-review/tests/golden/pre-r02-mlp-seed7777-rotation2.json` (1,033,808 bytes, sha256
+  `f727372e3ea8c426fe42fefad03a33ae54c0f13849217ebc580a13de27ae313b`): committed
+  `examples/reviewer/checkpoint-473312/slots.json` + `full_np8_12_holdout.json`, seed 7777, rotation
+  2, temperature 0.5, `ProfileTable::Learner`, 240 steps, **no skip path**. Projection = manifest
+  (digests, seed/tile seed, rotation, profile table, temperature, diplomacy, factions, initial
+  speaker, map arrangement, full policy identity) + every frame (index/engine step/turn/round/phase,
+  active players, viewpoint, plan status, event digests, and its decisions with prompt, ordered
+  offered options, chosen id, path, scores, probabilities) + outcome. Three tests: default path vs
+  golden; identity hook equals the default path and reports the first differing frame; an override
+  below the trace answers every real seat0 decision while every offered option keeps the policy's
+  score and probability, inner consulted zero times, no engine error.
+- Independent second proof: pre-seam vs post-seam `ti4-cli simulate` sessions are **byte-identical**
+  after removing the path/commit fields, on BOTH the committed example bundle and the real
+  `checkpoint-212544-arena-v7` (241 frames; 295 and 313 real decisions; 0 differing frames).
+- Gates: per-package fmt clean; `ti4-replayer` 19 passed; `ti4-review` 33 unit + 3 golden; `ti4-policy`
+  266; clippy on both crates `--no-deps -D warnings` exit 0; `cargo check --workspace --all-targets`
+  exit 0. `cargo fmt --all --check` reports pre-existing diffs in the operator's uncommitted
+  `crates/ti4-mlp/examples/*` - never reformat those; `ti4-policy` clippy's only warnings are
+  pre-existing ones in `battle.rs`/`projection.rs`.
+- Deviations recorded in evidence: counted fallback instead of an impossible engine error; hook keys
+  on `PlayerId` because `ReviewSeat` does not exist in R01; the subtractive alternative (caller-built
+  tracing) was rejected because the live trace wrapper produces frames during play;
+  `ControlledDecider::choose_seeing` cannot be unit-constructed (`SeatObservation::bind` is
+  `pub(crate)`), so both `Decider` methods share one private `decide()` and the bound path gets its
+  engine-driven test in R02-003.
+
+## 2026-09-18 R02-003 manual live controller: implemented, all gates green
+
+Evidence: `plans/evidence/R02-003.md`. Branch `wp/r02-003-manual-live-controller`.
+
+- `crates/ti4-replayer/src/live.rs`: `LiveBranch` (one thread owning `LiveReview`; `start`,
+  `with_gate`, `try_event`, `event`, `drain_events`, `wait_until_parked`, `wait_until_idle`,
+  `into_session`; `Drop` asks the thread to unwind and never joins) and `Gate` (one mutex + two
+  condvars holding `ManualControl`, the answer for the pending offer, the goal, the pause flag, the
+  lifecycle state and the defensive counters).
+- **The plan's mechanism was rejected on measurement, and the measurement is in the evidence.** With
+  every seat Manual on the committed bundle: 120 engine steps -> 158 asks (17 steps raised >=2, worst
+  frame 7 asks); 400 steps -> 506 asks (52 steps raised >=2, worst frame 10). `legal_options()`
+  cannot see any of those (it never inspects `Game::trade`; 116 ask sites in 22 modules), so the
+  pause is taken inside `Table::ask` and answered from the UI thread. Exactly one thread ever touches
+  `Game`; abort-and-retry remains rejected (`Game` is not `Clone`).
+- `ti4-review` was NOT modified in this package; only the R02-002 seam is used. No engine file
+  changed.
+- Deadlock-freedom: the only sim->UI channel is `sync_channel(MAX_QUEUED_EVENTS = 4096)` written with
+  `try_send`; a full queue counts `Gate::dropped_events` (measured 0) instead of blocking. Commands
+  are direct gate calls returning synchronously, so nothing the UI waits on is behind that channel.
+- `LiveReview` is not `Send` (`Rc<RefCell<Vec<DecisionDetail>>>`, `Box<dyn Decider>`), so no `unsafe`
+  hand-off: the thread sends the finished `ReviewSession` on a one-item terminal channel and
+  `into_session()` joins for it.
+- R02-002's open gap is CLOSED: `Gate::delivery()` counts the two `Decider` entry points and measured
+  **all 158 / all 506 asks arrived via `choose_seeing`, none viewless**; a live test asserts
+  `bound > 0` after real play.
+- Gates: per-package fmt clean; `ti4-replayer` 19 unit + 8 engine-driven live (live suite green on 5
+  repeat runs, ~3.9 s at `--test-threads=3`); `ti4-review` 33 + 3 golden unchanged; clippy
+  `--no-deps -D warnings` exit 0; `cargo check --workspace --all-targets` exit 0.
+- Bugs this suite caught and fixed: a `Ready` flicker between back-to-back goals (`Gate::goal_queued`
+  now keeps the branch `Running`); `wait_until_parked` treating the answered-but-not-yet-resumed
+  instant as terminal; a `drive` helper that dropped the last frame of a goal (test-side).
+- Deviations recorded in evidence: thread + gate instead of the pre-step probe; `AdvanceGoal` maps
+  `Steps`/`NextRound`/`EndOfGame` to per-step driving and leaves `Decisions`/`Actions` to R01's own
+  counter (batch event instead of per-frame events); shutdown-while-parked answers from the policy and
+  counts `shutdown_fallbacks`, while `stop` deliberately does not interrupt a park; `faction: None` on
+  pending offers (presentation-only; the GUI fills it from the manifest); `ManualControl::
+  delegate_seat_once` added for the early-click delegation; `ManualInbox` kept for R02-004's replay
+  prefix and the detached-gate tests.
+
+### Handover checkpoint after R02-003 (for the next session)
+
+```text
+Objective:          R02 interactive branching replayer, plans/R02_REPLAYER.md, package by package.
+Normative sources:  plans/R02_REPLAYER.md (untracked, operator-supplied) + accepted Rust specs.
+                    Historical Python reference NOT used.
+Active milestone:   R02. Done: R02-001, R02-002, R02-003 (each committed, each with evidence).
+Branch / HEAD:      wp/r02-003-manual-live-controller @ 5d29ffe
+                    (chain: 31445af -> 185034b -> 314adcf -> 5d29ffe)
+Working tree:       clean apart from the operator's own files, which must stay unstaged:
+                    crates/ti4-mlp/examples/{capture_offline_pilot,offline_bc}.rs (also NOT fmt
+                    clean: use per-package `cargo fmt -p`, never --all), plans/INDEX.md,
+                    scripts/publish_and_train_stopped_corpus.ps1, untracked plans/R02_REPLAYER.md
+                    and target-cuda-repack/.
+Tests last run:     cargo test -p ti4-replayer -> 19 unit + 8 live passed; -p ti4-review -> 33 unit
+                    + 3 semantic golden passed; fmt clean; clippy -p ti4-replayer --all-targets
+                    --no-deps -D warnings exit 0; cargo check --workspace --all-targets exit 0.
+Compatibility:      Python parity not an acceptance criterion. R01's own semantic golden still
+                    passes, which is the reviewer-side regression backstop.
+Review:             WAIVED by the operator for all of R02 (2026-09-18). None performed, none claimed.
+Decisions open:     none blocking. Four defaults taken earlier are listed above (frames/bounds,
+                    authoritative ReplayRecord, R01 import re-verifies hashes, golden first).
+Blockers:           none.
+Next exact action:  branch wp/r02-004-deterministic-rebuild from 5d29ffe, then read
+                    plans/R02_REPLAYER.md R02-004 + this file's R02-003 section, and start with
+                    src/fingerprint.rs (the versioned frame SHA-256 the plan specifies).
+Read first:         plans/EXECUTION_STATE.md (this section), plans/evidence/R02-003.md,
+                    crates/ti4-replayer/src/live.rs, crates/ti4-replayer/src/decider.rs.
+```
+
+## 2026-09-18 R02-004 deterministic reconstruction: implemented, all gates green
+
+Evidence: `plans/evidence/R02-004.md`. Branch `wp/r02-004-deterministic-rebuild`.
+
+- `src/fingerprint.rs`: `FrameFingerprint` = versioned SHA-256 over engine step, decision/action
+  counts, round, phase, active, resolved_choice, action_completed, finished, error, new events,
+  structured events and the **whole `GameState`** (paths/branch/UI/timestamps/manifest/frame index
+  excluded; version string inside the digest). `first_difference` names the field that diverged.
+- `src/rebuild.rs`: `ReplayScript` (validates actor -> prompt -> ordered ids -> typed context ->
+  chosen-on-offer -> `ChoiceFingerprint`), `RebuildTarget::{Frame,End}`, `RebuildBounds` inherited
+  from R01 (`MAX_COMMAND_STEPS` 2,000,000 / `MAX_FRAMES` 1,000,001), typed `RebuildError`
+  (`Diverged`/`FrameMismatch`/`PolicyFailed`/`EngineFailed`/`TargetUnavailable`/`BoundsExceeded`/
+  `Cancelled`/`Setup`) and `rebuild()` driving `AdvanceUnit::Step` one step at a time, digesting every
+  frame, polling the cancel flag per step, and returning **no branch** on any failure.
+- `Gate` gained: the replay slot (plan priority order: replay prefix, one-shot delegation, Auto policy,
+  then queued manual answer), `divergence()`, `policy_failure()`, `replayed()`/`policy_calls()`
+  counters, `begin_frame`/`current_ordinal`, and `enable_recording()` which writes a `ReplayRecord`
+  built from the **engine's own `Choice`** through `ReplayRecord::record` (never from R01's trace,
+  which mixes synthetic `fleet decision`/`plan stopped` rows and projects the context).
+- Headline result: a forced 4-choice prefix followed by Auto play reproduced a 40-step run **frame
+  for frame** (whole-state digests), proving the invoke-once-and-discard RNG rule is load-bearing.
+  `a_terminal_target_rebuilds_exactly` replays a whole game to its terminal frame and matches; that
+  one test costs 193 s, which is why the rebuild suite is ~200 s.
+- Refusal is belt-and-braces: a prefix mismatch records the typed divergence **and** the decorator
+  returns `IllegalChoice::NotOffered{chosen:"r02-rebuild-refused"}` so the step poisons; a branch that
+  cannot account for a decision can never look playable.
+- Gates: per-package fmt clean; `ti4-replayer` 23 unit + 8 live + 12 rebuild = 43 passed; `ti4-review`
+  33 unit + 3 golden unchanged; clippy `--no-deps -D warnings` exit 0; `cargo check --workspace
+  --all-targets` exit 0. No engine or `ti4-review` file touched.
+- Deviations recorded in evidence: the plan's "one narrow engine invariant test" is **dropped** under
+  the operator's engine freeze (the multi-ask invariant is instead measured and asserted from outside
+  via `a_prefix_with_several_asks_in_one_frame_rebuilds_exactly` + R02-003's ask counts);
+  `Rebuilt` returns the non-`Send` `LiveReview` on the calling thread, so R02-007 must call
+  `rebuild()` inside the branch thread (or use `Gate::replaying` with `LiveBranch`); cancellation is
+  polled per step (the deterministic pre-set flag is what is tested); recording is opt-in.
+
+## 2026-09-18 R02-005 branch tree and persistence: implemented, all gates green
+
+Evidence: `plans/evidence/R02-005.md`. Branch `wp/r02-005-branch-tree-persistence` (from `60a364a`).
+
+- `src/project.rs`: `ReplayerProject` (schema `r02-replayer-project` v1, `deny_unknown_fields`,
+  SHA-256 payload checksum), `ReplayInputs` (R01's seven knobs), `SourceTimeline` (session/checkpoint/
+  pool SHA-256 at import + engine commit + content digest + frames + seating), `Branch` (id, parent,
+  `Origin::Imported|Fork{frame}`, title, seats, **only its own answers**, frames, `verified`,
+  optional UI value), `ProjectError`, `Verification`, `validate()`, `fork()`, `extend()`, `prefix()`,
+  `replay_script()`, `mark_verified()`, `set_ui()`, `total_frames()`, `verify_inputs()`.
+- `src/persistence.rs`: `save_project`/`load_project` (JSON; zstd iff the path ends in `.zst`, exactly
+  as R01 chooses), `MAX_PROJECT_BYTES = ti4_review::MAX_SESSION_BYTES`, R01's temp/backup/rename/restore
+  write, decompressed-stream bound, `sha256_file`.
+- `ti4-review` gained one additive line: `pub const ENGINE_COMMIT` (the recorded commit promoted from
+  an internal `env!`) so anything replaying a session can check it. R01's JSON/HTML/bounds untouched.
+- Prefix rule (makes branching non-destructive without duplication): walk branch-0 -> branch and take
+  each ancestor's answers strictly before the frame where the next branch diverged; sort by
+  `(frame, ask)`. `prefix()` is what `rebuild()` consumes.
+- Verification: `verify_inputs` re-hashes checkpoint/pool and enforces the content digest;
+  `Branch::playable(&Verification)` needs the branch's own `verified` flag AND that check, so a swapped
+  checkpoint takes the whole tree out of play. **Recorded judgement call:** an *engine commit*
+mismatch is reported (`engine_matches`) rather than refused, because R01 stamps the repository commit
+of the build, so enforcing it would reject every session made before the latest commit while proving
+nothing about replay; the commit is surfaced for R02-007's disabled-Play tooltip.
+- Gates: per-package fmt clean; `ti4-replayer` 23 unit + 8 live + 12 rebuild + **20 project** = 63
+  passed; `ti4-review` 33 + 3 unchanged; clippy `--no-deps -D warnings` exit 0 on **both** touched
+  crates; `cargo check --workspace --all-targets` exit 0.
+- End-to-end coverage added: `a_saved_project_rebuilds_what_it_recorded` (play 12 steps -> write the
+  session with R01's writer -> import -> save `.zst` -> load -> rebuild -> compare every frame
+  fingerprint) and `only_a_reproduced_fork_becomes_live` (fork is not playable, rebuild, mark
+  verified, is playable).
+- **Pre-existing workspace failures found and recorded, NOT fixed** (`cargo test --workspace
+  --no-fail-fast`: 38 targets ok, 4 failing): `ti4-bridge` `hexsummary_golden`/`import_golden`/
+  `wire_golden` and `ti4-mlp` `smoke_refusals` need corpora/artifacts that were never committed
+  (`crates/ti4-bridge/tests/golden/*`, `out/vocabulary/current.json`); `os error 3` panics from tests
+  added in `53a4efa`, and `cargo tree -i ti4-review` shows only `ti4-replayer` depends on it. Needs a
+  separate housekeeping package (commit the corpora or gate the tests); flagged for the R02-008
+  handoff. Do not invent fixtures to silence them.
+
+## 2026-09-18 R02-006 split recorded before implementation (a/b/c)
+
+`plans/PI_WORK_PACKAGE_STANDARD.md` allows a package row that is too large to be split into suffixed
+children, provided the split is recorded before implementation and each child preserves the parent's
+acceptance criterion. `crates/ti4-review/src/gui.rs` is 2,739 lines / 121 KB, and a single `impl
+ReviewApp` block spans lines 630-2670, so R02-006 ("extract the shared presentation for both apps,
+R01 UX unchanged") cannot be one atomic package. Parent criterion, preserved by all three children:
+**both apps render from one presentation layer and R01's on-screen output does not change.**
+
+Extraction map from the measured file (line numbers as of `cda2e6d`):
+
+| Area | Current location | Size |
+| --- | --- | --- |
+| palette + pure helpers (`SEAT_COLORS`, `NEUTRAL_COLOR`, `PANEL_TEXT/FILL`, `seat_index`, `player_color`, `short_trait`, `short_specialty`, `item_section`, `seat_label`, `section`, `section_with_id`, `stat_badge`, `content_label`, `unit_base`, `planets_for_tile`, `polygon`, `anomaly_style`, `wormhole_style`, `draw_wormhole`, `draw_fracture_portal`, `draw_unit_symbol`) | gui.rs 38-538 (free functions) | ~500 lines |
+| diplomacy panel | gui.rs 139-238 | ~100 |
+| top bar / controls (advance, seek, run count) | gui.rs 1037-1249 | ~210 |
+| player panel (players, table, objectives, status) | gui.rs 1249-1855 | ~600 |
+| decision panel | gui.rs 1855-2187 | ~330 |
+| board (hexes, units, anomalies, wormholes) | gui.rs 2187-2671 | ~480 |
+| frame layout / timeline / run loop | gui.rs 630-1037, 2671-2700 | ~440 |
+
+- **R02-006a** — create `crates/ti4-review/src/view.rs` and move the pure palette + helper layer above
+  into it (`pub`, frame/stateless, no `LiveReview`, no app state); gui.rs calls the same functions via
+  `view::`. Tests pin what the layer owes: seat colors, trait/specialty abbreviations, wormhole and
+  anomaly styles, hex `polygon` geometry, `content_label`/`unit_base` strings, and the section/row
+  item ordering. Zero behaviour change; every existing R01 test must stay green.
+- **R02-006b** — immutable view *models* built from `&ReviewSession` + `&ReviewFrame` (board tiles with
+  labels, player rows, objective rows, action summary rows) and the board + player panels rendered
+  from them. Highest UX risk: needs before/after control-availability and data equality, plus
+  view-model snapshots.
+- **R02-006c** — decision, event and timeline views; the shared layer is then what R02-007 draws
+  beside its seat chips, pending-choice panel and branch selector.
+
+Review is waived for this run by the operator, as for every R02 package. `ti4-review`'s 33 unit + 3
+semantic golden tests are the regression backstop for all three children, and each child must keep
+`cargo clippy -p ti4-review --all-targets --no-deps -- -D warnings` at exit 0.
+
+## 2026-09-18 R02-006a shared presentation layer: implemented, all gates green
+
+Evidence: `plans/evidence/R02-006a.md`. Branch `wp/r02-006a-shared-view` (from `edef24f`).
+
+- New `crates/ti4-review/src/view.rs` (`pub mod view;` in lib.rs): the seat palette
+  (`SEAT_COLORS`, `NEUTRAL_COLOR`, `PANEL_TEXT`, `PANEL_FILL`), identity (`seat_index`,
+  `player_color`, `short_trait`, `short_specialty`), chrome (`section`, `section_with_id`,
+  `item_section`, `seat_label`, `stat_badge`), naming (`content_label`, `unit_base`,
+  `planets_for_tile`) and geometry/glyphs (`polygon`, `anomaly_style`, `wormhole_style`,
+  `draw_wormhole`, `draw_fracture_portal`, `draw_unit_symbol`). Pure: no app state, no `LiveReview`,
+  no clock, no filesystem. `gui.rs` shrank 370 non-blank lines and gained one `use crate::view::{..}`
+  block, so the 2,371 remaining lines are untouched apart from the import.
+- **Move proved mechanically, not asserted**: (a) the moved text vs `view.rs` body (with `pub ` stripped)
+  is one rustfmt re-wrap hunk of `item_section`'s signature and nothing else; (b) `gui.rs` vs
+  `HEAD` minus the same spans is one line — the `use ti4_model::units::Unit;` that moved with its only
+  user. R01's rendering code is byte-identical, reached through a module path.
+- 11 snapshot tests in `crates/ti4-review/tests/presentation.rs`: exact seat RGBs + distinctness +
+  neutral, seat6 palette wrap, non-seat ids stay neutral, C/H/I + G/Y/B/R/T abbreviations with
+  first-rule-wins, five anomaly colours/labels **and their precedence**, four wormhole glyphs + grey
+  `?`, polygon regularity/stepping/rotation (with `atan2` wrap normalization) and the fighter-up /
+  dreadnought-due-east glyph facts, `unit_base` base-type resolution, `content_label`'s `Name [id]`
+  over 100+ real corpus records, and `planets_for_tile` merge order / no-duplicate / no-cross-system
+  leak / determinism.
+- Gates: `cargo test -p ti4-review` = 33 unit + 11 presentation + 3 semantic golden = 47 passed;
+  clippy `--no-deps -D warnings` exit 0; `ti4-replayer` 23 + 8 + 20 + 11 passed (terminal-target
+  rebuild test skipped here, re-run at the R02-005 gate, no library it uses changed);
+  `cargo check --workspace --all-targets` exit 0.
+- Two facts recorded for later packages: the R02-002 golden
+  (`crates/ti4-review/tests/golden/pre-r02-mlp-seed7777-rotation2.json`) is a semantic **projection**,
+  not a `ReviewSession`, so it cannot be fed to `load_session`; and a real session with a real
+  `GameState` is cheapest obtained from `LiveReview::start` on the committed example inputs at frame
+  zero (~0.4 s), with game state injected by the test — neither type derives `Default`.
+
+## 2026-09-18 R02-006b board view model: implemented, all gates green
+
+Evidence: `plans/evidence/R02-006b.md`. Branch `wp/r02-006b-view-models` (from `e6e3c8a`).
+
+- `view::board_view(content, session, frame, selected)` -> one `TileView` per **visible** tile:
+  `fill`/`color` (via `tile_fill`, which also returns *which* rule won), `label` (purged suffix),
+  `anomaly_label`, `space_owner` (None when contested or when only ground troops are present),
+  `planet_owners` (sorted/deduped, purged planets excluded), `selected`, `portal_linked`, `ingress`,
+  `egress`, `wormholes` (printed + tokens + ion storm in draw order, suppression resolved),
+  `units`/`ground` (`unit_stacks` keyed by owner+base+damaged+galvanized), `command_tokens`,
+  `token_labels`, `planets` (`PlanetView`: owner, purged, color, `trait_label`, `badge`, coexisting,
+  attachments). Plus shared geometry `hex_corners` and `planet_offset`. No `Pos2` in the model:
+  meaning is a function of the frame, position is a function of the window.
+- `gui.rs::board()` shrank **481 -> 260 lines** and is now geometry and strokes only.
+- **How R01 output was shown unchanged** (byte-identity is impossible for a rewritten renderer, so the
+  evidence used is stated rather than overclaimed): (a) renderer operation inventory identical -
+  `painter.add` 4=4, `painter.text` 8=8, `circle_filled` 3=3, `circle_stroke` 3=3, `line_segment` 1=1,
+  portals 2=2, unit symbols 2=2; the only change is `draw_wormhole` 3 -> 1 (three sources became one
+  loop over the model's ordered list, with a test that a token cannot displace a printed hole);
+  (b) derivations lifted as expressions rather than paraphrased; (c) the decisions are now tested
+  where they previously had zero tests; (d) R01's 33 unit + 3 semantic golden tests pass unchanged.
+- **Recorded behavioural difference:** the old loop re-read `self.selected_tile` per tile, so during
+  the single frame a click landed, later tiles drew with the previous selection. The model snapshots
+  the selection for the frame. The old behaviour was a loop artifact, not a design.
+- 11 new tests (`crates/ti4-review/tests/board_view.rs`) pin fill precedence with exact colours,
+  hex/ring geometry, planet offsets (including no underflow at count 0), stack grouping and order,
+  Fracture and Nexus visibility, portal linking in both directions, single-vs-contested space control,
+  infantry not controlling space, purged planets, the planet colour rule across **every** planet of a
+  real board, garrison/coexistence/attachments, trait-line shape, suppression semantics, and model
+  determinism. Frames are real setup frames from the committed example inputs; the state that matters
+  (ownership, purged planets, ingress tokens, egress via `session.board`, elected `travel_ban`) is
+  injected so the tests fail if a rule changes.
+- Re-split recorded: **R02-006c** now covers `player_panel` (~606 lines), `decision_panel` (~330) and
+  the timeline, since the board alone filled a package.
+
+## 2026-09-18 R02-006c decision/step/system-card view models: implemented, all gates green
+
+Evidence: `plans/evidence/R02-006c.md`. Branch `wp/r02-006c-panel-view-models` (from `60f5bb4`).
+
+- `view.rs` gained `StepView`/`step_view`, `DecisionPath`/`path_kind`, `DecisionRow`/`decision_rows`,
+  `RankInfo`, `OptionRow`, `FeatureRow`, `ActionSummaryView`/`action_summary`, `EventRow`/`event_rows`,
+  `SelectedSystemView`/`selected_system`, and `precision`/`precision3`/`json_pretty`.
+  `gui.rs::decision_panel` went **331 -> 184 lines**; what is left is widgets.
+- Evidence that R01 still says the same things (byte-identity is impossible for a rewrite):
+  (a) **string-literal inventory** - 66 fixed strings in the old panel, 33 remain in the new one, and
+  every one of the 33 that moved is present in `view.rs`; the only four exceptions are format-string
+  spellings with identical output (`Chosen rank {rank}/{}...` -> pre-formatted `{:.5}` values,
+  `Round {} · {:?} · active {}` -> `step.phase` pre-applied, `Selected system {tile}` -> `{system}`,
+  `{:.3}` -> inside `precision3`); (b) **widget inventory** identical except three counts that fall
+  because loops replaced repetitions (`ui.colored_label` 3->2, `ui.strong` 11->10, `ui.label` 26->18);
+  (c) derivations (rank sort, position, best fallback, rank-based `below_greedy`, summary format, tick
+  rule, column formats, span suffix, planet-line format) lifted as expressions; (d) R01's 33 unit +
+  3 semantic golden tests unchanged. No behavioural difference found or accepted.
+- 10 tests in `crates/ti4-review/tests/decision_view.rs` over **real** decisions produced by
+  `LiveReview::advance(Step, 12)` on the committed inputs, each row compared field by field against the
+  recorded `DecisionDetail`, plus bent clones for: no choice, no probabilities, no context, and a
+  choice outside the offered set (not ranked, ticks nothing). Also: em-dash rules, phase spelling,
+  agenda line order/wording, unknown decision paths preserved verbatim, action-in-progress vs latest
+  completed (with the ` · IN PROGRESS` suffix), event titles/cancelled/`{}` payloads, the system card
+  for a real tile vs an unknown system, dynamic-state JSON, and frame purity.
+- **Scope decision recorded:** `player_panel` (~606 lines) is deferred to **R02-006d** rather than
+  squeezed into this package. R02-007 can compose a player sheet from the primitives `view` already
+  exposes (`section`, `item_section`, `player_color`, `content_label`, `stat_badge`), and a rushed
+  600-line extraction would have been the worst kind of "while I was in there".
+- Gates: `cargo test -p ti4-review` = 33 + 11 board_view + **10 decision_view** + 11 presentation +
+  3 golden = **68 passed**; clippy `--no-deps -D warnings` exit 0; replayer 23+8+20+11 passed;
+  `cargo check --workspace --all-targets` exit 0.
+
+Next ready package: **R02-007 native replayer GUI** (`plans/R02_REPLAYER.md`), which now has every
+piece it needs: `view::board_view` (006b), `view::decision_rows`/`step_view`/`event_rows`/
+`selected_system` (006c), palette/chrome/geometry (006a), and `LiveBranch` + `rebuild` + `ReplayerProject`
++ `load_project` (001-005). First exact action when it starts: `git checkout -b wp/r02-007-replayer-gui`,
+read `plans/R02_REPLAYER.md` §R02-007, `plans/evidence/R02-006c.md`, `crates/ti4-replayer/src/lib.rs`,
+and `crates/ti4-review/src/view.rs`; it must verify `engine_commit`/`content_sha256` up front and
+disable "Play from this frame" with a tooltip rather than starting a wrong run. Optional smaller
+package if preferred first: **R02-006d** (player panel). Working tree is clean apart from the
+operator's own uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+`crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+`scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
+`target-cuda-repack/`); never stage them.
+
+## 2026-09-18 R02-007a replayer app reducer: implemented, all gates green
+
+Evidence: `plans/evidence/R02-007a.md`. Branch `wp/r02-007a-app-reducer` (from `0568c01`, tip of
+`wp/r02-006c-panel-view-models`).
+
+R02-007 was split before implementation into **007a** (the application state and its rules, no egui)
+and **007b** (the eframe shell, both release builds, Windows smoke with screenshots). Reason: the
+plan's own test list is stated as *GUI reducer states*, and every rule in it — disable buttons after
+submit, tooltip every disabled Play state, never overwrite R01 settings, navigation never branches,
+branch retains future, safe close while rebuilding, separate settings — is decidable in plain data.
+The half that needs a desktop is only the painting. The parent acceptance criterion is preserved
+across the children and quoted in the evidence file.
+
+- `crates/ti4-replayer/src/app.rs` (new): `ReplayApp<H>`, `BranchHandle` (+ `impl BranchHandle for
+  Gate` as the single bridge to the engine), `PlayBlock` with a `tooltip()` per refusal, `PlayPlan`,
+  `RebuildOutcome`/`RebuildStatus`, `BranchNode`/`tree()`, `ReplaySettings` + `SETTINGS_PATH =
+  "out/replays/replayer-settings.json"` (atomic write; unreadable or unknown-shaped ⇒ defaults).
+- `crates/ti4-replayer/tests/app.rs` (new): 18 tests over a *gate-shaped* fake branch — it releases a
+  parked choice only when its own seat returns to `Auto`, refuses a fingerprint that is not on screen,
+  and treats `pause()` as a request. No engine run, no window, 0.01 s.
+- Only library change outside the new file: `pub mod app;` in `crates/ti4-replayer/src/lib.rs`.
+  `control`/`decider`/`fingerprint`/`live`/`project`/`persistence`/`rebuild` and both `ti4-review` and
+  `ti4-engine` are untouched.
+
+Three rules the tests corrected in the first draft (recorded so they are not "re-fixed" later):
+
+1. `play_check` must not use `LiveState::accepts_run()` — that includes `Ready`, which would refuse
+   Play for a freshly attached branch, i.e. the headline feature. Only `Running | WaitingForHuman`
+   block.
+2. Only `RebuildStatus::Running` blocks Play. Blocking on `!= Idle` let one refused fork disable the
+   button for the rest of the session.
+3. `at_tip()` requires at least one frame; a branch with zero frames is not "at the live tip".
+
+Design decisions worth carrying into 007b:
+
+- `plan_play` allocates the fork and returns a `PlayPlan` instead of rebuilding, because `rebuild()`
+  returns a non-`Send` `LiveReview` (R02-004) and must run on the thread that will own the branch.
+  The shell runs `ti4_replayer::rebuild()` on a worker and reports with `finish_rebuild` /
+  `fail_rebuild` / `cancel_rebuild`. This is also what makes "safe close while rebuilding" testable.
+- `discard_fork` removes only a child with no children and never rewinds `next_branch`; ids are not
+  reused. That is not the pruning the master plan defers — it removes a branch the app made seconds
+  earlier, because R02-005 forbids an unreproduced branch looking playable.
+- Frames are held per branch in the app (`FrameTick`s actually seen); `ReplayerProject` keeps a frame
+  *count* for the budget. `tree()` takes the max so a branch never looks shorter than it is.
+
+Gates: `cargo test -p ti4-replayer` = 23 lib + **18 app** + 8 live + 20 project + 11 rebuild
+(terminal-target rebuild filtered — green at R02-005, no `rebuild.rs`/`live.rs` line changed);
+`cargo clippy -p ti4-replayer --all-targets --no-deps -- -D warnings` exit 0; `cargo fmt -p
+ti4-replayer --check` exit 0; `cargo check --workspace --all-targets` exit 0 (warnings only in
+`ti4-mlp/examples/opening_plan.rs` and `ti4-training/examples/seat_advantage.rs`, untouched by R02).
+
+Next ready package: **R02-007b replayer shell** — `crates/ti4-replayer/src/main.rs` + `src/gui.rs`
+drawing `ti4_review::view` models (006a/b/c) and calling only the `ReplayApp` methods, plus both
+release builds and an operator-run Windows smoke pass with screenshots for `plans/evidence/R02-007.md`.
+First exact actions: `git checkout -b wp/r02-007b-replayer-shell`; read `plans/R02_REPLAYER.md`
+§R02-007, `plans/evidence/R02-007a.md`, `crates/ti4-replayer/src/app.rs`, and
+`crates/ti4-review/src/gui.rs` (for the run loop and top bar to mirror). Optional and still not
+required: **R02-006d** (player panel). Working tree is clean apart from the operator's own
+uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+`crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+`scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
+`target-cuda-repack/`); never stage them.
+
+## 2026-09-18 R02-006e shared board painter: implemented, all gates green
+
+Evidence: `plans/evidence/R02-006e.md`. Branch `wp/r02-006e-board-painter` (from `15b7828`, tip of
+`wp/r02-007a-app-reducer`).
+
+A fifth child was added to R02-006 while starting R02-007b: 006a-c moved the board's *meaning* into
+`view`, but the *strokes* were still private inside `ReviewApp::board` and coupled to
+`self.selected_tile`, so the replayer's only alternative was to copy 234 lines of geometry. That is
+the thing R02-006 exists to prevent, so it is fixed here rather than in the shell.
+
+- `crates/ti4-review/src/view.rs` gains `BoardLayout` (+ `new`), `tile_point`, `fracture_shown` and
+  `draw_board(painter, response, layout, tiles) -> Option<String>`.
+- `ReviewApp::board()` is 28 lines (was 260); `gui.rs` 1,986 -> 1,753 and no longer imports
+  `Align2/FontId/Pos2/Shape/Stroke/Vec2/hex_corners/planet_offset/draw_wormhole/draw_fracture_portal/
+  draw_unit_symbol`.
+- New `crates/ti4-review/tests/board_layout.rs` (6 tests) pins the geometry that used to be four
+  local variables: scale clamps (0.45/1.2), the 72 px Fracture band, 126/108/63 axial spacing
+  including the 0.8 % projection squish, edge anchoring of the two special areas, 37 tiles, and
+  `fracture_shown` == `frame.state.fracture_in_play` over 13 real frames plus a forced positive.
+
+Proof the move did not change R01: two machine comparisons against `HEAD` after renames only —
+`tile_point == moved position formula: True (390 chars)` and `draw_board body == moved painter code:
+True (4,915 chars)`, normalising whitespace and the one trailing comma rustfmt added. Eight
+adaptations are listed in full in the evidence; seven are renames, one returns the clicked system
+instead of writing a field, and one derives the Fracture label from the tiles instead of the frame
+(equivalence tested). Painter operations: 19 before, 19 after.
+
+Three implementer assumptions were falsified by the new tests before shipping: the r-step skew is 63 px
+(not 54), the example map draws 37 tiles (not 52), and diagonal neighbour spacing is 125.032 rather
+than equal to the 126 row spacing, so "six equidistant neighbours" is not a property of this
+projection.
+
+Decision recorded: `decision_panel`, `player_panel`, timeline and top bar are **not** extracted. The
+replayer wants a choice panel, a branch selector and rebuild progress beside its timeline, so
+generalising R01's widgets would reshape them for an app that does not use them that way; R02-007b
+composes its own panels from the `view::` models 006b/c already provide.
+
+Gates: `cargo test -p ti4-review` = 33 + **6 board_layout** + 11 board_view + 10 decision_view + 11
+presentation + 3 golden = **74 passed**; clippy `--all-targets --no-deps -D warnings` exit 0; fmt exit
+0; `cargo test -p ti4-replayer --lib --test app --test live --test project` = 23+18+8+20 passed;
+`cargo check --workspace --all-targets` exit 0.
+
+Next ready package: **R02-007b replayer shell** — `crates/ti4-replayer/src/{main.rs,gui.rs}`: eframe
+window, top bar (open/import a project, run controls), six seat chips, the persistent manual-choice
+panel, the branch selector beside the timeline, Play + rebuild progress/cancel wired to
+`ReplayApp::plan_play` + a worker thread + `finish_rebuild`/`fail_rebuild`/`cancel_rebuild`, the
+live-tip versus viewed-frame marker, `ReplaySettings` persistence, both release builds, and the
+operator-run Windows smoke pass with screenshots into `plans/evidence/R02-007.md`. First exact
+actions: `git checkout -b wp/r02-007b-replayer-shell`; read `plans/R02_REPLAYER.md` §R02-007,
+`plans/evidence/R02-007a.md`, `plans/evidence/R02-006e.md`, `crates/ti4-replayer/src/app.rs`, and
+`crates/ti4-review/src/gui.rs` (for the run loop, top bar and `with_session` pattern). Optional and
+still not required: **R02-006d** (player panel). Working tree is clean apart from the operator's own
+uncommitted files (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+`crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+`scripts/publish_and_train_stopped_corpus.ps1`, untracked `plans/R02_REPLAYER.md`,
+`target-cuda-repack/`); never stage them.
+
+## 2026-09-19 R02-007b replayer shell: implemented, all gates green
+
+Branch `wp/r02-007b-replayer-shell` from `10dd96e`. `crates/ti4-replayer` is now an application:
+`src/gui.rs` (the window), `src/main.rs` (`ti4-replayer <session-or-project>` opens it with a file
+already loaded; `inspect`/`import` at the terminal), `src/store.rs` (what the window can draw per
+branch, plus `ticks`/`own_answers`/`fold_answers`). The shell calls `ReplayApp` methods and decides
+nothing itself; it draws through `view::board_view`/`BoardLayout`/`draw_board`, so its board is R01's
+board stroke for stroke.
+
+Architecture, unchanged in writing and now enforced by the shell: `LiveReview` is not `Send`, so no
+thread but the branch's ever holds the game. Frames cross into the UI through a bounded feed on the
+`Gate` (header once, deduped by index, oldest dropped and counted), so a window that falls behind loses
+pictures and never legality. `LiveBranch::replay` rebuilds a fork's prefix and then stays answerable on
+the same thread.
+
+Five real bugs were found by `tests/shell.rs` before any pixel was trusted, all fixed and all now
+regression-tested: opening a session left the reducer blind (`NoFrame` forever); imported projects
+carried no answers, so Play would have rebuilt a prefix out of nothing and called it a replay; the
+import's first version wrote a project its own loader refused (stale checksum); a fork inherited
+`Gate::replaying`'s non-blocking gate and answered the operator's own seat with the policy (fixed by
+`Gate::replaying_interactive`); and a hand answer was recorded on the engine thread after the panel
+closed, so Save could race it away (fixed by recording inside `Gate::submit`, plus `dropped_records`
+so a lost decision can never be silent). Checkpoints that are MLP bundles are now hashable
+(`sha256_path`), which is what makes the operator's real sessions importable at all.
+
+Gates: `cargo test -p ti4-replayer` = 34 + 18 + 6 + **4 shell** + 8 + 22 + 12 = **102 passed**;
+`cargo test -p ti4-review` = **74 passed**; clippy `--all-targets --no-deps -D warnings` exit 0 on both
+crates; fmt exit 0; `cargo check --workspace --all-targets` exit 0; `cargo build --release -p ti4-review
+-p ti4-replayer` builds both executables. Window smoke from a shell: title `TI4 game replayer`,
+1736x1019, no panic in 30 s, settings written to `out/replays/replayer-settings.json` on close, screen
+capture left at `target/r02-007b-window.png`. The assistant cannot see images, so the operator's eyes
+are still required: **R02-007 acceptance is not closed until the operator has driven the window.**
+
+Next ready package: **R02-008 integration and handoff**. First exact actions: read
+`plans/R02_REPLAYER.md` §R02-008 and `plans/evidence/R02-007b.md`; then the all-Auto equality gate
+between R01 and R02 (same checkpoint/pool/seed/rotation/temperature, R02 with every seat Auto, compared
+frame-by-frame through `FrameFingerprint`), then manual control at action, reaction, combat, transaction,
+production-payment and agenda decisions at early/round-end/late points, then budget caps and operator
+documentation. Optional and still not required: **R02-006d** (player panel).
+
+A check against the operator's own 4,481-frame recording found that a recording made by a *different*
+engine build cannot be forked at all: frame 0 does not reproduce (`FrameMismatch { index: 0 }`), after the
+prefix machinery had correctly counted 3,493 decisions to force. Import, answers, hashing and the file
+round trip are all fine; the build that recorded it is not this one, which `inspect` had already said in
+other words. R02-008's first task is therefore a forkability pre-check (rebuild frame 0 before offering
+Play, refuse with a tooltip) plus comparing the checkpoint and map-pool hashes against what the recording
+itself claims rather than only against what this import saw. Details and the exact output are in
+`plans/evidence/R02-007b.md`.
+
+Carry forward: pre-existing unrelated failures (`ti4-bridge` `hexsummary_golden`/`import_golden`/
+`wire_golden` missing committed golden corpora; `ti4-mlp --test smoke_refusals` needing a generated
+vocabulary) - do not invent fixtures. Working tree apart from this package's files holds the operator's
+own uncommitted work (`crates/ti4-mlp/examples/capture_offline_pilot.rs`,
+`crates/ti4-mlp/examples/offline_bc.rs`, `plans/INDEX.md`,
+`scripts/publish_and_train_stopped_corpus.ps1`, `target-cuda-repack/`); never stage them.
+
+## 2026-09-19 R02-007c operator feedback: start a table in the window
+
+The operator tried R02-007b and could not use it: no way to set up a game, no way to pick the profiles,
+two buttons named after file formats, and my suggested command failed on a file that only exists if you
+run the previous command first. They were right on all three. R01's window has had "Load starting table"
+with checkpoint / map pool / seed / faction rotation / profile table / temperature / structured diplomacy
+its whole life, so a sibling window without those words is not a replayer, it is a viewer with extra
+steps.
+
+Added: a setup form in the replayer with the reviewer's own labels (shown as the welcome screen when
+nothing is open, as a floating panel otherwise); `ReplayerProject::live_table` plus `Origin::Live`, so a
+table has a project - inputs, input hashes, content, seating, verified, playable, empty prefix - before
+any recording exists; buttons renamed to "Open recorded game…" and "Open replayer file…" with the
+distinction in the tooltips and a paragraph on screen; and a missing path now says what it expected
+instead of reciting a usage line. Taking a seat is one checkbox ("Take seat 0 now") or one chip toggle
+later. Saving a table still writes only the replayer file - recording a hand-played table means joining
+the branch thread, which is its own button and its own words, deferred to R02-008 with the frame-0
+pre-check.
+
+Evidence: `plans/evidence/R02-007c.md`. Note for the next session: while the operator has a replayer
+window open, cargo cannot replace `target/debug/ti4-replayer.exe`, so any `cargo test` that builds the
+package's bin fails with "Access is denied"; use `CARGO_TARGET_DIR=target/verify` rather than killing
+their window.
+
+Next ready package: **R02-008 integration and handoff**, first task now elevated: make "play a game"
+the documented default path (start a table in the window, take a seat, answer, save), then the frame-0
+forkability pre-check, the recording's-own-claims check against `SessionManifest::checkpoint_sha256` and
+`map_pool_sha256`, "finish and record" for hand-played tables, the R01-vs-R02 all-Auto equality gate,
+manual control across decision kinds, budget caps and operator documentation.
+
+## 2026-09-19 R02-007d: the replayer's sheets, and the crash that pass shipped
+
+A pass on the operator's six-item list moved R01's player and decision sheets into
+`ti4-review/src/panels.rs` so both windows render the same code, fixed the frozen board
+(`at_tip()` asked after appending), made the fork prefix cut inclusive, folded live answers
+before planning, swapped the gate at fork start, and named systems by tile and planets.
+
+It also shipped a crash. The shared sheets read their history from `session.frames`; the replayer's
+store hands out a session shell with `frames` emptied on purpose, so opening anything painted a range
+out of an empty slice: `range end index 0 out of range for slice of length 0`. Fixed with
+`panels::Sheets { header, frames }` - R01 passes `Sheets::whole(session)`, the replayer passes the
+branch's list - plus a total `view::action_summary_in` and `Sheets::previous` by index. Four new tests
+paint the shell shape (two in `panel_paint.rs`, one in `table.rs` through the real store, one asserting
+R01's answers are unchanged). `ti4-review` 82 and `ti4-replayer` 112 pass; clippy and fmt exit 0; the
+release binary holds a 4,481-frame recording open with an empty stderr.
+
+The pattern to remember, twice now in two packages: the fixtures had R01's shape while the code ran with
+the replayer's. A logic suite, or even a paint suite, does not notice. Before any further panel work,
+paint through the store the way the window does.
+
+Next: the operator drives the window (seat chips, Play/fork, objectives and diplomacy in the left sheet,
+system naming). R02-008 keeps the frame-0 forkability pre-check, verifying a recording against the
+checkpoint hash in its own manifest, "finish and record" for a hand-played table, the R01-vs-R02 all-Auto
+equality gate, budget caps and operator documentation.
+
+## 2026-09-19 R02-007e: remember the table; three playing bugs recorded, not guessed at
+
+The operator asked for the reviewer to keep the last game's profile, map and settings as defaults, and
+reported three playing defects (L1Z1X agents, transactions with Hacan, diplomacy generally).
+
+Fixed the settings defect in both windows. R01 restored its checkpoint, pool, profile table, temperature
+and diplomacy from `out/reviews/reviewer-settings.json` and then hard-coded `seed: "42"`, `rotation: 0` -
+which is not cosmetic, because seed and rotation choose who sits where, so re-opening a run described a
+different game. Both fields are now remembered (seed as text; `normalize_seed` covers a blank memory).
+The replayer's setup form remembered nothing and its window settings were rebuilt from `Default` on every
+write; there is now `SetupDefaults` (checkpoint, pool, seed, rotation, profile table, temperature,
+diplomacy), the form opens from it, the window size is written back, and the table is remembered when it
+*starts*, not only on a clean exit. Proved end to end by launching the release binary, closing it with
+`CloseMainWindow()` and reading the `setup` group out of `out/replays/replayer-settings.json`; a killed
+process never reaches `on_exit`, which is how the first two attempts taught me nothing.
+
+The three playing defects are recorded in `plans/evidence/R02-007e.md` as a ledger with what was checked
+and what is unknown, and nothing was changed for them. The first thing to rule out is a table started with
+structured diplomacy off - the replayer's default, my choice, and a table without it cannot transact with
+anybody - so the form now says that out loud under the checkbox and remembers the value. Engine diplomacy
+(`crates/ti4-engine/src/diplomacy/`) is not in R02's editable surface: if these are engine faults they
+need their own item with a failing engine test; if the engine offered something the window did not
+surface, that is R02-008. To reproduce I need the file the table is in, whether the seat was on Manual,
+what was clicked, and what the window said.
+
+Verification: `ti4-review` 83 passed; `ti4-replayer` 100 passed (lib/app/feed/live/project/shell/table, in
+an isolated target dir because the operator's window held `target/debug/ti4-replayer.exe`; the 12 rebuild
+tests were last green at `db7a220` and were not re-run for a settings-only change); clippy and fmt exit 0.
+
+Next: the operator's four facts on the playing defects, then R02-008 (frame-0 forkability pre-check,
+verifying a recording against the checkpoint hash in its own manifest, "finish and record" for a
+hand-played table, R01-vs-R02 all-Auto equality, budget caps, operator documentation).
+
+## 2026-09-19 engine authority for the named bugs; defect A located
+
+The operator granted permission to edit whatever is necessary for the concrete bugs they named. Reading
+the content text and the engine located the first one:
+
+**A - `l1z1xagent` (and any agent whose printed window is not the action phase) is unreachable.** Its
+window is "After a player activates a system:"; `leaders::component_actions` (leaders.rs:495) filters on
+`is_action_window` before offering anything, and `perform_leader_action` (game.rs:1326) is the only route
+from a player's choice into `use_leader`. The implementation arm (leaders.rs:1324) is there and plausible,
+but nothing raises its window, and its three `return false` exits carry no reason - which is why the
+symptom is "it doesn't work" rather than an explanation. Fix: raise the activation window after a system
+activates, ask the seat the card names through the normal ask/settle path, and make refusals say why.
+Test first, and the test must fail before the code changes.
+
+**B - Hacan transactions: located, not pinned.** `transactions.rs` exists and looks sane (partners,
+neighbours, `can_pay`, a Guild Ships test that reaches the whole table); the open question is whether a
+manual seat is offered the transaction action at all. That is answerable from the operator's saved game
+file - it carries faction, phase, the component options produced and the refusals - and until it is
+answered, calling anything a fix would be a guess.
+
+Details, quoted rules text and file:line for every claim: `plans/evidence/R02-007e.md`.
+
+Next exact action: fresh context; write a failing engine test for A (L1Z1X seat, readied agent, activate a
+system containing that seat's infantry, expect the ask and then the swap); then implement; then read the
+operator's game file for B.
+
+## 2026-09-19 accepted decision: transactions are subsumed under diplomacy
+
+The operator decided that transactions belong under diplomacy rather than beside it. The reason is not
+tidiness: the engine runs **two negotiation machines** - `transactions.rs` with
+`open_transaction`/`offer`/`transaction` kinds and `TradeWindow`, and `diplomacy/window.rs` with
+`diplomacy_offer`/`diplomacy_response`/`diplomacy_counter` and `DiplomacyWindow`. Two machines negotiating
+the same thing is why "transactions with Hacan not possible, generally diplomacy buggy" reads as vague: a
+seat must be asked by the right machine, the viewer renders two vocabularies, the policy is taught two
+shapes, and the diplomacy journal, promises, relations and per-pair initiation budget cannot see
+transactions at all.
+
+Plan: keep `Terms` (goods, commodities, relic fragments, a note, an action card, an unscored secret, with
+`describe()` and the loan asymmetry) as the payload a diplomatic deal carries; make the LRR 60 rules
+(`can_pay`, `why_illegal`, `partners`, the once-per-turn limits) the legality layer of a diplomatic deal;
+record deals in the diplomacy journal; retire `TradeWindow` once its tests pass against the merged path.
+
+`plans/ENGINE_DIPLOMACY_UNIFICATION.md` is the accepted decision, and it is *not implemented*. It names
+what must survive: exact rules legality including 94.3/Arbiters/Black Market and note-as-loan,
+determinism, the replayable answer log (a decision-kind change needs a typed refusal for old logs, never a
+silent reinterpretation), generated-not-rejected legality with reasons attached, and typed views because a
+transaction can name an unscored secret objective. Packages: DIPLO-001 deals carry `Terms`; DIPLO-002 the
+transaction rules move; DIPLO-003 one window and one vocabulary; DIPLO-004 what the operator sees.
+
+Next ready work, in the order I intend it unless told otherwise: (1) the L1Z1X activation-window defect,
+which is independent of this decision and starts with a failing engine test; (2) DIPLO-001. Still wanted
+for the Hacan case: the saved game file, which says in one read whether a Hacan manual seat was offered
+`transactions::available_actions` (transactions.rs:646) at all.
+
+### Correction to the entry above, found while cross-checking, and it changes the order
+
+The L1Z1X activation-window defect is not new and was not mine to re-name. `plans/BUG_2026-09-04_LEADER_USE_UNREACHABLE.md`
+recorded that no leader could be used from the driven loop at all; `plans/LEADER-FIX-2026-09-13.md` split
+the correction into three packages. LEADER-FIX-001 (deployment, unlock, component actions) is done - it is
+exactly the `is_action_window` filter that produces today's symptom of "action-phase leaders work, the rest
+silently do not" - and **LEADER-FIX-002, reactive combat, activation and production windows (L1Z1X, Letnev,
+Sol, Hacan), is not recorded as done.**
+
+Order, then: (1) **LEADER-FIX-002** under its own existing scope, P1 permissions and definition of done,
+opening with a failing engine test that a readied I48S is offered after a system activation and settles the
+infantry-for-mech swap through the normal ask/settle path; (2) DIPLO-001 onward, informed by it, since
+LEADER-FIX-002's second line is Hacan trade-good spending and merging two negotiation machines underneath
+half-delivered delivery is building on a broken floor.
+
+`plans/ENGINE_DIPLOMACY_UNIFICATION.md` now says the same, with the cross-references.
+
+## 2026-09-19 operator feedback: five UI gaps and four legality bugs, recorded and triaged
+
+The operator drove a hand-played table and reported nine things. All are recorded in
+`plans/OPERATOR_FEEDBACK_2026-09-19.md` with what was verified in code today, what done means, and the
+order I intend to take them. Nothing is fixed.
+
+Verified, so a fresh session does not re-derive it:
+
+- **Neither viewer says anything about exploration** - `grep exploration` across `ti4-review/src/view.rs`,
+  `ti4-review/src/panels.rs` and `ti4-replayer/src/gui.rs` returns nothing, while the engine has
+  `exploration.rs` and content has `explores.json`. An explore is currently invisible, decided or not.
+- **Attachments are shown as a count.** `view.rs:632` `pub attachments: usize`, drawn as `+N` at
+  `view.rs:1624`, from `state.planet_attachments` - so *which* attachment, and what it does, is available
+  and thrown away. Whether the effect applies is untested either way, which is why "maybe attachments are
+  broken" stays open rather than being dismissed.
+- **Seat chips print the raw id.** `view::seat_label` takes pre-made text; the chips use
+  `format!("{seat} · {mode}")`. The faction is in the frame; one helper fixes chips, seat row, actor line
+  and diplomacy rows at once.
+- **B2/B3 are one bug class: research offers generate illegal options.** Letnev has no prerequisite waiver
+  (`munitions`, `armada`), so non-Euclidean without prerequisites is an illegal offer; Jol-Nar waives
+  exactly one, so a two-yellow Space Dock II is legal only if the seat had one - the arithmetic, not the
+  existence of a waiver, is what has to be pinned. Start at `faction_abilities::waived_prerequisites`
+  (faction_abilities.rs:163) and its test at line 1153; the *producer* of the research option list is not
+  named `research_options`/`available_technologies` (both greps come back empty) and locating it is the
+  first task. Related existing records: `plans/BUG-001_ANALYTICAL_RIN_UPGRADE_EXCLUSION.md`.
+- **B1 (Hacan notes in transactions)** lands on top of the two-negotiation-machines problem.
+  `Terms.promissory` exists, `why_illegal` reasons about notes, and
+  `plans/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md` is marked FIXED 2026-08-31 for the
+  gift-priced case - so either that fix misses the operator's case or the case is on the diplomacy path.
+  That is the decision `plans/ENGINE_DIPLOMACY_UNIFICATION.md` makes; the failing test should be written
+  against whichever path the recording shows.
+- **B4, transactions during the action phase, is recorded as a constraint at the operator's request**: not
+  an action, subject to the once-per-turn limits, and honestly implemented it means a negotiation window
+  nested inside an activation - which R02's machinery can nest but the transaction machine does not share.
+  Every nested negotiation must be recorded with its frame stamp or forks will not replay.
+
+Order: (1) B2+B3 as one legality package, failing engine tests first; (2) B1 with the unification shape;
+(3) seat names and attachment detail; (4) deal tooltips generated from the terms, then exploration
+surfacing, then policy numbers behind an honesty guard (a temperature-shaded sample is not a probability).
+
+Single blocker for B1-B3: **the saved game**. Each is a specific offer or refusal at a specific moment, and
+the recording carries the moment, phase, offer list and refusal. Until then they are well-sourced
+hypotheses, not reproductions, and I would rather say that than write a test against a guess.
+
+## 2026-09-20 later
+
+A second operator report is in `plans/OPERATOR_FEEDBACK_2026-09-20.md` (7 items, triaged, with the
+order I propose and which of them need a saved game file). Fixed on this branch since:
+`09409d7` Guild Ships legality, `cf14895` technology prerequisite guard. Root cause found for the
+transaction complaints: `transactions::available_actions` returns nothing while `state.diplomacy.enabled`
+(deliberate, tested at `diplomacy/candidates.rs:1201`/`:1252`) and the substitute contact window is not
+arriving — the first concrete case for DIPLO-001. Nothing here is committed as reviewed.
+
+## 2026-09-21 operator bug batch opens; two engine faults fixed (F-01 Hacan agent, F-02 Maxis)
+
+The operator asked for the `plans/BUG_PLAN_2026-09-20.md` list plus eight informal reports to be
+worked independently, and waived the independent-review requirement for the duration. New branch
+`wp/operator-bugs-2026-09-21`; one focused commit per fix, evidence appended to
+`plans/evidence/OPERATOR_BUGS_2026-09-21.md`. The four paths that were already dirty when the batch
+started (two `ti4-mlp` examples, `plans/INDEX.md`, one script) are not mine and are not staged.
+
+**F-01 — Hacan's agent was never offered, and this is the answer to "check the commit that
+supposedly fixed the leader issues".** `16f389a` (LEADER-FIX-001) added `hacanagent` to
+`action_leader_delivered` and reported 44/44 leader tests green. It is green because its Hacan test
+calls `use_leader` directly. The offer path is `component_actions` → `is_action_window`, which
+compared the corpus window with `eq_ignore_ascii_case("during the action phase")` — and the corpus
+prints `"During the action phase:"`, colon and all, for every Prophecy of Kings agent. The heroes
+work because they print `"ACTION:"`. So "leaders are delivered" and "the Hacan agent is never
+offered" were both true: the commit asserted the half it owned (`can this be resolved`) and nothing
+asserted the half the corpus governs (`may a seat ever be asked`). Fixed by comparing the printed
+window with the trailing colon removed, turning the delivered set into an array, and adding a test
+that every delivered action leader's printed window is in fact an action window — the guard that
+kills the class rather than the instance. Both new tests were run red first (`not on the offer list:
+[]`). Also stops offering the agent when every seat is at its commodity cap, where both of its
+branches would do nothing.
+
+**F-02 — Maxis Central Control (Faunus) offered nearly nothing.** `maxis_candidates` enumerated
+`&state.board`, which is written the first time a unit, a capture or a token touches a system;
+untouched systems simply are not in it, and a card about "a planet that contains no units" is a card
+about the systems nothing has touched. It now enumerates the map (`Galaxy`) unioned with the board —
+the board still contributes for Fracture systems and for map-less unit tests — and the offered list
+for a fresh table goes from the visited handful to every legal planet. Test asserts the ring really
+is out of `state.board` before it asserts anything about it, then takes one of those planets through
+the real ask/settle path. Eighteen sites iterate `&state.board` this way; the other seventeen are
+named in the evidence file and none is called wrong without its rule text.
+
+Checks: engine lib 1347 passed / 0 failed (was 1343 + 4 new); all `ti4-engine` integration targets
+green; clippy emits nothing for `leaders.rs` or `legendary.rs`, pre-existing warnings unchanged in
+count. Next in this batch, in order: the Wormhole Nexus (never placed on a map-pool board at all),
+then the transaction shapes (note for note, other players' notes, action cards for notes), then the
+viewer items (diplomacy terms, planet totals, dice rolls, strategy picks).
+
+## 2026-09-21 (later) F-03: the Wormhole Nexus was not on the board at all
+
+`malice / wormhole nexus is not on the board` was two faults, and the first is bigger than a
+rendering problem. The Nexus is placed **off the hex grid** (`Galaxy::place_off_map`), and that call
+lived inline at the end of `seating::build_board` — the Rust spiral. The reviewer and the replayer do
+not build the spiral; they build from a captured Python map pool (`OpeningMap::PythonPool` →
+`MapPool::galaxy`), as does `Save54Captured`, so on every table either viewer actually runs the tile
+was never in the game: no gamma partner, no Mallice. Checked against the pools themselves — no `82`
+in any of the 1000 arrangements of `out/pools/full_np8_12_final.json`. What was captured is the ring
+of hexes and the Nexus is not one, so a pool cannot contain it.
+
+The rule now lives in `seating::place_wormhole_nexus` (idempotent, PoK-gated), called by
+`build_board` as before and by `ti4-training::rollout::seated` for every map family. The second half
+was the viewer hiding the tile until `state.board` held it — and `state.board` is written the first
+time a unit, a capture or a token touches a system, the same trap as F-02, so the tile appeared only
+after the player had flown into the place they could only find by looking. `board_metadata` now lists
+the two faces only when the map knows the tile (`wormhole_kinds`), and `board_view` — plus the export's
+own JavaScript — draws exactly one: `82b` when `nexus_unlocked`, `82a` otherwise.
+
+Four new tests (three map families in play; base scope gets nothing and a second placement is a
+no-op; the tile draws untouched and the face follows the latch; no tile for a map that has none).
+Two fixtures moved and both are explained in the evidence: the example board is 38 tiles not 37, and
+the layout test's special-area expectation was wrong about scaling in a branch no frame had ever
+reached.
+
+Also committed with it: the F-01a fallout, which is the process lesson. F-01 ran the engine suite and
+stopped; the workspace suite found the behavioural floors (re-baselined to v43, attributed by
+bisecting — Maxis and the Nexus measured inert in that suite) and the reviewer's semantic golden
+(regenerated through `TI4_REVIEW_GOLDEN_UPDATE=1`, first divergence at frame 18 where a Hacan seat is
+offered Carth for the first time, byte-identical with the Nexus change removed). The same workspace
+run also surfaced something not mine: `faction_differentiation` was already below its v42 floor on the
+tree this batch started from. Recorded as an open item in `plans/evidence/M08-021.md`, not bisected,
+not silently absorbed.
+
+## 2026-09-21 handover: four commits, three reports closed, one design left behind
+
+Branch `wp/operator-bugs-2026-09-21`, from `90afe71`. All four commits are on it:
+
+| commit | the operator's words | what it was |
+|---|---|---|
+| `f28dcf1` | "the hacan agent is broken, never offered" | a `:` in the corpus text: `is_action_window` compared against the window without the frame's colon, so every PoK agent but Xxcha's was unofferable |
+| `d878701` | (fallout of the above) | behaviour bounds v43 + the reviewer's semantic golden, attributed by bisecting each change; records a pre-existing `faction_differentiation` breach that is not ours |
+| `7dbdce8` | "malice / wormhole nexus is not on the board" | the Nexus was placed only in the Rust spiral's own builder, so pool-built tables had no tile; and the view hid it until `state.board` held it |
+| `847548b` | "the diplomacy offers really need better ui" | the live replayer panel rendered an offer's label and raw id; the terms were computed and shown everywhere else |
+
+Verification: `ti4-engine` 1347, `ti4-training` 149, `ti4-review` (lib + all integration tests incl.
+golden and `review_compatibility`), `ti4-sim` behaviour v43 + `map_pool`, `ti4-replayer` 60; clippy
+reports nothing in the changed files. `ti4-bridge`'s 4 golden failures (missing
+`crates/ti4-bridge/tests/golden/`, not in Git) and `ti4-mlp`'s `smoke_refusals` (needs
+`out/vocabulary/current.json`) fail the same way before and after.
+
+Not done, in the order I would take them:
+
+1. **F-07, the five transaction shapes** — designed in the evidence file, including why `>` separates
+   the halves and why `cp` rather than `pnc`. This closes BUG-03 and two more operator reports at
+   once. It needs its own behaviour re-baseline.
+2. **BUG-08**, refresh versus paying the due.
+3. **Dice rolls surfacing** — check first whether the autocombat steps are in the recording at all;
+   they are not read by anything outside the engine.
+4. **BUG-07** (strategy pick shown unpicked), **UI-06** (planet totals), then the BUG-05/06 BLOCKED
+   items once the operator's saved game arrives.
+
+The four files that were already modified when this batch started (`ti4-mlp/examples/capture_offline_pilot.rs`,
+`offline_bc.rs`, `plans/INDEX.md`, `scripts/publish_and_train_stopped_corpus.ps1`) are still
+uncommitted and still not ours.
+
+## 2026-09-21 (third): OP-04 landed, and the queue after it
+
+`1c4a86a` — the five transaction shapes. Engine 1352 green, behaviour re-baselined to **v44** (one
+metric, `faction_differentiation`, and it rose), reviewer golden re-generated with its diff read
+first: first divergence at frame 19, where a Hacan seat is offered four note-for-note trades for the
+first time, and 178 new options visible across 241 frames. The number worth carrying forward is that
+**the sampled policy takes none of them** — the capability is for the human at the table, and the
+bots' play moved only through softmax renormalization. If paper trading is wanted from the bots, that
+is a training change and no amount of offer shapes will produce it.
+
+Two of the three defects the design carried were caught by tests rather than reading: `pc` emitted
+the same id once per note across the table (the pre-existing `no_deal_shape_is_written_twice` guard),
+and the card-for-note shape inherited the one-good gate, which is precisely the reported table —
+Hacan facing a partner holding paper and no goods — offered nothing. The third was my own test
+pointing the ask the wrong way round.
+
+Still open, dependency-free and ready for a fresh context, in the order I would take them: the
+`&state.board` audit (18 sites, the Maxis fault class), BUG-08 refresh-versus-pay-the-due, OP-03 dice
+rolls (check the recording before the renderer), BUG-07, UI-06 (note the golden carries tile text, so
+it will move again), and UI-05's wording rule. BUG-05/06 wait on the operator's saved game and BUG-04
+on their A/B/C.
+
+## 2026-09-21 (fourth): lazy-board audit opened, and stopping mid-way
+
+`09b7ed6` fixes the thing that caused the class rather than another instance of it: the doc comment
+on `GameState::board` said "Absent entries are empty systems", which is true of units and false of
+planets, tokens and anomalies, and it is the sentence a rule author reads first. The field now states
+which of its three questions belongs to the board and which two belong to `Galaxy`, with Maxis named.
+ti4-model 81 green; no game behaviour touched, so no fixtures moved.
+
+Two findings worth not re-deriving: **movement is clean** (`path_from` expands via
+`Galaxy::adjacent`, which is also why the F-03 Nexus tile became reachable on placement alone), and
+**the class is narrower than 18 grep hits** — a rule about things in systems is right to read the
+board, the fault needs a subject that can exist untouched.
+
+Explicitly not cleared, and where to go next in this thread: the board-scanning agendas in
+`agenda_effects.rs` (144, 217, 284, 1024, 1071), the legendary-planet finder past Maxis, and the
+wild-token draw paths. Each is a ten-minute question — "does this rule's subject need a unit to be
+there?" — and none should be marked clean without being asked.
+
+This session ends here on context, not on blocked work. The queue after the audit is unchanged:
+BUG-08, then OP-03 dice rolls (check the recording first), then BUG-07, UI-06, UI-05's wording rule.
+
+## 2026-09-21 (fifth): the audit closed, and it found nothing live
+
+The lazy-board audit is finished — eight sites classified in `plans/evidence/OPERATOR_BUGS_2026-09-21.md`.
+One fault, `agenda_effects::system_of`, fixed (a planet's system now comes from the corpus, with the
+board as the fallback for planets placed during play). **It was latent, not live**: golden byte-identical
+and the behaviour suite unmoved, and the rules text for Colonial Redistribution explains why — the
+agenda destroys units before it asks who controls the planet, and a planet with units has a board
+entry, which is the only case where the old lookup was wrong. Exploration and wild tokens never read
+the board. The class is now a one-line rule: things may read the board, places may not.
+
+Queue unchanged and untouched by this session's remaining context: **BUG-08** (refresh offered while
+paying the due is not), **BUG-09**, **OP-03** dice rolls (check the recording before the renderer),
+**BUG-07**, **UI-06**, **BUG-10**, **OP-05**. Start at BUG-08 with a failing test that both answers
+exist at a due; nothing here needs the operator except BUG-04's A/B/C and the two BLOCKED saved games.
+
+## 2026-09-30 — independent review of Claude's pending main integration
+
+Objective: answer `ASTRA_REVIEW_REQUEST_2026-09-30.md`; no migration package or milestone advanced.
+Response: `plans/ASTRA_REVIEW_RESPONSE_2026-09-30.md`. Evidence and exact commands:
+`plans/evidence/ASTRA-MERGE-REVIEW-2026-09-30.md`.
+
+Branch/HEAD remain `wp/online-multiplayer` / `3f92016dabdd737212fc974d66187bbc11597aec`.
+Local main remains `b1143a5b8e047dca236d07f3f9981c623b6b89d1`; both committed trees are
+`54dcd09370e33d2506f4d56255f1e34147009a11`. No commit, ref movement, checkout, worktree, push,
+reset, clean, prune, or historical Python access. Recommendation: **hold the push**.
+
+Measured: all 30 behavioral seeds end cleanly; seven metrics breach v44, including every event share
+and VP pace. Invasion starts/resolutions match per seed (2,120 each). `TURN_CLOSING` from `75f1d94a`
+accounts for part of the denominator effect; remaining attribution is open. No rebaseline approval.
+ManualControl independently reproduces a stale ask-1 submission accepted at identical ask 2; probe
+exits 101 intentionally. Host pending deduplication has the same fingerprint-only identity defect
+by inspection. App/live tests pass (21 + 9); reviewer identity-hook test passes (1). Stage-1 exact
+one-seed diagnostic has 399 decisions and zero weights; the reference plan's 16-seed sample has
+6,752 decisions, zero errors, and 32,329 named nonzero weights. Hashing did not remove named schema-4
+weights. Preserve that test contract and repair its learning fixture.
+
+Working tree intentionally remains dirty. All inherited changes were preserved: 16 staged bridge
+goldens; capture_offline_pilot/offline_bc; app.rs and app/live tests; review board/decision tests;
+rollout.rs formatting; INDEX.md; publish_and_train_stopped_corpus.ps1; the review request, two resume
+psd1 files, and target-cuda-repack/. Review additions are only three diagnostic examples named
+`astra_*_20260930.rs` in ti4-sim/ti4-training/ti4-replayer, response/evidence docs, this append, and
+ignored `out/astra-review-20260930/` logs/hash manifest. Existing fixtures and fixes are still not in
+either committed tree. The full status/diff is preserved under that ignored evidence directory.
+
+Next safe action: scope the typed live-choice instance fix across submission/delegation and host
+pending delivery, keeping replay's shape hash stable; retain the red stale-click probe. Then finish
+behavior attribution and fixture/golden repairs as specified in the response, commit scoped changes,
+and qualify the exact forward-integrated candidate with `cargo test --workspace -j 4 --no-fail-fast`.
+No full workspace rerun or overall 127-commit/security sign-off was performed by this reviewer.
+All review-owned commands completed; no background worker was left running. Read this checkpoint,
+the request, response, evidence, and current Git state before resuming.

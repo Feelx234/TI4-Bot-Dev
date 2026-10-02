@@ -380,8 +380,7 @@ pub fn launch_scenario(
 fn build_research_scenario(
     seed: u64,
 ) -> Result<(SessionConfig, PlayerLobbyRecord, PlayerId, String), String> {
-    let (mut config, lobby, player, token, galaxy, _, _) =
-        setup_base_3p_game(seed, "dev_tech")?;
+    let (mut config, lobby, player, token, galaxy, _, _) = setup_base_3p_game(seed, "dev_tech")?;
     let content = ContentStore::embedded();
 
     let strat_tech = StrategyCardId::new("pok7technology");
@@ -458,7 +457,9 @@ fn advance_into_research(session: &Arc<GameSession>, player: &PlayerId) -> Resul
                     .pending_choice
                     .map(|envelope| envelope.choice)
             })
-            .ok_or_else(|| "timed out waiting for initial choice in advance_into_research".to_owned())?;
+            .ok_or_else(|| {
+                "timed out waiting for initial choice in advance_into_research".to_owned()
+            })?;
 
         if choice
             .context
@@ -472,7 +473,11 @@ fn advance_into_research(session: &Arc<GameSession>, player: &PlayerId) -> Resul
             return Err("no current pending decision in advance_into_research".to_owned());
         };
 
-        if let Some(strat_opt) = choice.options.iter().find(|o| o.id.starts_with("strategic|")) {
+        if let Some(strat_opt) = choice
+            .options
+            .iter()
+            .find(|o| o.id.starts_with("strategic|"))
+        {
             client
                 .submit(&nonce, version, &strat_opt.id)
                 .map_err(|e| format!("submit strategic card failed: {e:?}"))?;
@@ -513,7 +518,7 @@ fn build_score_objective_status_scenario(
     if let Some(sol) = config.state.player_mut(&player) {
         sol.tactic_tokens = 2;
         sol.strategic_tokens = 2; // total 4 tokens >= 3 for Lead From the Front
-        sol.trade_goods = 6;      // 6 trade goods >= 5 for Negotiate Trade Routes
+        sol.trade_goods = 6; // 6 trade goods >= 5 for Negotiate Trade Routes
         sol.victory_points = 2;
     }
 
@@ -575,7 +580,9 @@ fn advance_into_imperial_scoring(
                     .pending_choice
                     .map(|envelope| envelope.choice)
             })
-            .ok_or_else(|| "timed out waiting for initial choice in advance_into_imperial_scoring".to_owned())?;
+            .ok_or_else(|| {
+                "timed out waiting for initial choice in advance_into_imperial_scoring".to_owned()
+            })?;
 
         if choice
             .context
@@ -589,7 +596,11 @@ fn advance_into_imperial_scoring(
             return Err("no current pending decision in advance_into_imperial_scoring".to_owned());
         };
 
-        if let Some(strat_opt) = choice.options.iter().find(|o| o.id.starts_with("strategic|") || o.id == "strategic") {
+        if let Some(strat_opt) = choice
+            .options
+            .iter()
+            .find(|o| o.id.starts_with("strategic|") || o.id == "strategic")
+        {
             client
                 .submit(&nonce, version, &strat_opt.id)
                 .map_err(|e| format!("submit imperial card failed: {e:?}"))?;
@@ -747,9 +758,21 @@ fn build_endgame_scenario(
     let (mut config, lobby, p1, session1, _galaxy, p2, p3) =
         setup_base_3p_game(seed, "dev_endgame")?;
 
-    config.state.player_mut(&p1).expect("Sol seated").victory_points = 9;
-    config.state.player_mut(&p2).expect("Hacan seated").victory_points = 9;
-    config.state.player_mut(&p3).expect("Letnev seated").victory_points = 8;
+    config
+        .state
+        .player_mut(&p1)
+        .expect("Sol seated")
+        .victory_points = 9;
+    config
+        .state
+        .player_mut(&p2)
+        .expect("Hacan seated")
+        .victory_points = 9;
+    config
+        .state
+        .player_mut(&p3)
+        .expect("Letnev seated")
+        .victory_points = 8;
 
     config.state.objective_deck.clear();
     config.state.round = 5;
@@ -814,6 +837,13 @@ fn build_invasion_scenario(
         .take(if coexistence { 2 } else { 1 })
         .map(PlanetId::new)
         .collect();
+    // Keep the scripted carriers legal before the post-combat fleet check. Otherwise setup
+    // removes carriers and then their passengers before the landing scenario can begin.
+    config
+        .state
+        .player_mut(&invader)
+        .expect("invader seated")
+        .fleet_tokens = if coexistence { 4 } else { 3 };
     let board = config.state.system_mut(&SystemId::new(system));
     board.units.clear();
     board.command_tokens.clear();

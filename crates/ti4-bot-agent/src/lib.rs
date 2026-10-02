@@ -1399,10 +1399,9 @@ mod tests {
         let b2_task = tokio::spawn(run(b2));
         let b3_task = tokio::spawn(run(b3));
 
-        let run_result = tokio::time::timeout(
-            Duration::from_secs(20),
-            async { tokio::try_join!(b1_task, b2_task, b3_task) },
-        )
+        let run_result = tokio::time::timeout(Duration::from_secs(20), async {
+            tokio::try_join!(b1_task, b2_task, b3_task)
+        })
         .await;
 
         advisor_task.abort();
@@ -1527,10 +1526,9 @@ mod tests {
         let b2_task = tokio::spawn(run(b2));
         let b3_task = tokio::spawn(run(b3));
 
-        let run_result = tokio::time::timeout(
-            Duration::from_secs(60),
-            async { tokio::try_join!(b1_task, b2_task, b3_task) },
-        )
+        let run_result = tokio::time::timeout(Duration::from_secs(60), async {
+            tokio::try_join!(b1_task, b2_task, b3_task)
+        })
         .await;
 
         advisor_task.abort();

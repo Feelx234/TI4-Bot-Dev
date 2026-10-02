@@ -12,7 +12,7 @@ use ti4_model::state::GameState;
 use ti4_content::ContentStore;
 use ti4_model::content_types::SourceSet;
 
-use crate::production::{Spend, planet_value, spendable_planets};
+use crate::production::{Spend, planet_value_now, spendable_planets};
 
 /// One complete way to meet a cost.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -26,11 +26,17 @@ pub struct Plan {
 impl Plan {
     /// What this plan is worth towards the cost.
     #[must_use]
-    pub fn worth(&self, content: &ContentStore, sources: SourceSet, kind: Spend) -> i64 {
+    pub fn worth(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        kind: Spend,
+    ) -> i64 {
         let from_planets: i64 = self
             .planets
             .iter()
-            .map(|planet| planet_value(content, sources, planet, kind))
+            .map(|planet| planet_value_now(state, content, sources, planet, kind))
             .sum();
         from_planets + i64::from(self.trade_goods)
     }
@@ -68,7 +74,7 @@ pub fn plans(
     let mut useful: Vec<(PlanetId, i64)> = spendable_planets(state, player)
         .into_iter()
         .map(|planet| {
-            let worth = planet_value(content, sources, &planet, kind);
+            let worth = planet_value_now(state, content, sources, &planet, kind);
             (planet, worth)
         })
         .filter(|(_, worth)| *worth > 0)
@@ -163,7 +169,12 @@ mod tests {
         state
             .system_mut(&system)
             .set_control(planet.clone(), player());
-        let worth = planet_value(ContentStore::embedded(), POK, &planet, Spend::Resources);
+        let worth = crate::production::planet_value(
+            ContentStore::embedded(),
+            POK,
+            &planet,
+            Spend::Resources,
+        );
         (planet, worth)
     }
 
@@ -267,11 +278,16 @@ mod tests {
             1,
             Spend::Resources,
         ) {
-            let total = plan.worth(ContentStore::embedded(), POK, Spend::Resources);
+            let total = plan.worth(&state, ContentStore::embedded(), POK, Spend::Resources);
             assert!(total >= 1, "it pays the bill");
             if let Some(last) = plan.planets.last() {
-                let without =
-                    total - planet_value(ContentStore::embedded(), POK, last, Spend::Resources);
+                let without = total
+                    - crate::production::planet_value(
+                        ContentStore::embedded(),
+                        POK,
+                        last,
+                        Spend::Resources,
+                    );
                 assert!(without < 1, "the last planet was needed");
             }
         }

@@ -218,7 +218,9 @@ export const InvasionOverlay: React.FC<{
         <div className="invasion-overlay__header-main">
           <div className="invasion-overlay__badges">
             <span className="invasion-badge invasion-badge--phase">⚔️ INVASION</span>
-            <span className="invasion-badge invasion-badge--system">System {invasion.system_id}</span>
+            <span className="invasion-badge invasion-badge--system">
+              System {invasion.system_id}
+            </span>
             <span className="invasion-badge invasion-badge--status">
               {invasion.phase.replaceAll("_", " ")}
             </span>
@@ -273,7 +275,7 @@ export const InvasionOverlay: React.FC<{
                       {ctrlDisplay.label}
                     </>
                   ) : (
-                    controller ?? "uncontrolled"
+                    (controller ?? "uncontrolled")
                   )}
                 </span>
                 {isCurrent && <span className="invasion-planet-chip__target-tag">Target</span>}
@@ -290,7 +292,8 @@ export const InvasionOverlay: React.FC<{
           </span>
           <span className="invasion-sep">·</span>
           <span className="invasion-current-planet-banner__item">
-            Defender: <strong>{invasion.defender ? display(invasion.defender).label : "none"}</strong>
+            Defender:{" "}
+            <strong>{invasion.defender ? display(invasion.defender).label : "none"}</strong>
           </span>
           <span className="invasion-sep">·</span>
           <span className="invasion-current-planet-banner__item">
@@ -332,7 +335,8 @@ export const InvasionOverlay: React.FC<{
                   >
                     <span className="invasion-die-chip__icon">{die.hit ? "💥" : "⚪"}</span>
                     <span className="invasion-die-chip__text">
-                      {die.player} · {die.group}: {die.face} / {die.target} {die.hit ? "hit" : "miss"}
+                      {die.player} · {die.group}: {die.face} / {die.target}{" "}
+                      {die.hit ? "hit" : "miss"}
                     </span>
                   </span>
                 ))}
@@ -382,7 +386,10 @@ export const InvasionOverlay: React.FC<{
                   )}
                   <p className="visually-hidden">
                     {planetUnits
-                      .map((unit) => `${unit.owner} ${unit.unit_type}${unit.damaged ? " (damaged)" : ""}`)
+                      .map(
+                        (unit) =>
+                          `${unit.owner} ${unit.unit_type}${unit.damaged ? " (damaged)" : ""}`,
+                      )
                       .join(", ") || "No forces on planet"}
                   </p>
                 </div>
@@ -452,9 +459,7 @@ export const InvasionOverlay: React.FC<{
               waitingFor={display(choice.actor).label}
             />
           ) : (
-            <p className="invasion-waiting-note">
-              Waiting for invasion resolution
-            </p>
+            <p className="invasion-waiting-note">Waiting for invasion resolution</p>
           )}
         </div>
       )}

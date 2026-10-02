@@ -175,10 +175,7 @@ export const Board: React.FC<BoardProps> = ({
           </Tooltip>
         </div>
 
-        <MapOverlayToolbar
-          activeMode={activeOverlay}
-          onSelectMode={handleSelectOverlay}
-        />
+        <MapOverlayToolbar activeMode={activeOverlay} onSelectMode={handleSelectOverlay} />
       </div>
 
       <div className="board-seat-legend" aria-label="Player positions">

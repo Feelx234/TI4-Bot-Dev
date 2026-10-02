@@ -32,8 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(bot_password) = std::env::var("TI4_BOT_PASSWORD")
         && !bot_password.trim().is_empty()
     {
-        let advisor_url = std::env::var("TI4_ADVISOR_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8081".to_owned());
+        let advisor_url =
+            std::env::var("TI4_ADVISOR_URL").unwrap_or_else(|_| "http://127.0.0.1:8081".to_owned());
         let bot_agent_bin = std::env::var("TI4_BOT_AGENT_BIN")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| {

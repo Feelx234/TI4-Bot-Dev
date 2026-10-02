@@ -12,11 +12,11 @@ Build a **server-owned draft/branch coordinator around one authoritative timelin
 
 The three features share this infrastructure, but need different orchestration:
 
-| Feature | Branch purpose | How it becomes authoritative |
-|---|---|---|
-| Concurrent strategy selection | Each participant privately composes their primary/secondary choices against a common announced action. | Reveal the submitted summaries, obtain confirmation of that review revision, then resolve the choices in the engine's rules order. |
-| Next tactical action | Privately compose activation, movement/cargo, and conditional later steps while the real game continues. | Revalidate at the actual action opportunity; the owner confirms; execute certified segments, pausing for reactions and uncertain outcomes. |
-| Retroactive correction/insertion | Reconstruct the past, change a decision or workflow, and try to replay the subsequent intentions. | Publish a fully validated replacement timeline, or keep a conflicted revision private until it is repaired. |
+| Feature                          | Branch purpose                                                                                           | How it becomes authoritative                                                                                                               |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Concurrent strategy selection    | Each participant privately composes their primary/secondary choices against a common announced action.   | Reveal the submitted summaries, obtain confirmation of that review revision, then resolve the choices in the engine's rules order.         |
+| Next tactical action             | Privately compose activation, movement/cargo, and conditional later steps while the real game continues. | Revalidate at the actual action opportunity; the owner confirms; execute certified segments, pausing for reactions and uncertain outcomes. |
+| Retroactive correction/insertion | Reconstruct the past, change a decision or workflow, and try to replay the subsequent intentions.        | Publish a fully validated replacement timeline, or keep a conflicted revision private until it is repaired.                                |
 
 **Answers to the initial questions:**
 
@@ -56,21 +56,21 @@ These findings come from the implementation, not just older plan documents. Seve
 
 ### 2.1 Engine
 
-| Current mechanism | Relevant code | Consequence for this work |
-|---|---|---|
-| Every actor answers an engine-generated `Choice`; `Table` validates and records it. | [`choice.rs`](../../crates/ti4-engine/src/choice.rs), `Choice`, `Decider`, `Table::ask_seeing`, `DecisionRecord` | The existing authority boundary can remain the execution boundary. Plans select fresh offered options rather than supplying state mutations. |
-| `DecisionRecord` stores actor, prompt, chosen ID, offered IDs, and optional typed context. It does not store the selected option's complete semantic payload or resulting state. | `choice.rs`, `fingerprint.rs` | Useful for exact replay, but insufficient as a durable, cross-state intent or consequence certificate. |
-| `DecisionContext` carries actor/source/subtype/phase/round/target/outstanding amounts. | [`decision_context.rs`](../../crates/ti4-engine/src/decision_context.rs) | A strong starting point for classification; it lacks a general action/workflow/decision-site identity. |
-| `Game` owns private continuation state in addition to `GameState`. | [`game.rs`](../../crates/ti4-engine/src/game.rs), `Game` fields | Windows, RNG, dice, event allocation, turn preparation, and failed-action state must be reconstructed or checkpointed together. |
-| The strategy owner resolves the primary before a clockwise follower window. A follower's effect can ask several nested questions in one `step()`. | `game.rs::apply_choice`, `step_secondary`; [`strategy.rs`](../../crates/ti4-engine/src/strategy.rs); [`strategy_cards.rs`](../../crates/ti4-engine/src/strategy_cards.rs) | Concurrent composition needs a new orchestration boundary; allowing several network answers to the current single offer does not solve it. |
-| `StrategySecondaryWindow` exposes one eligible follower at a time and charges the shared strategy-token cost before dispatching the effect. Leadership has a different purchase/eligibility shape. | `strategy.rs::next_choice`, `take_choice`, `secondary_eligible` | Share eligibility and costs with detached participant planning. Do not reproduce these rules in the server. |
-| Hypothetical activation/reachability helpers already take a player explicitly. | [`tactical.rs`](../../crates/ti4-engine/src/tactical.rs), `activation_options`, `movable_into` | Initial movement planning need not pretend to advance the whole live game to another player's turn. |
-| Movement and loading are resumable windows, but finishing loading can immediately sail and roll a gravity rift. Finishing movement can immediately enter cannon/combat/invasion/production. | `game.rs::apply_tactical`, `sail`, `finish_tactical`; [`transit.rs`](../../crates/ti4-engine/src/transit.rs) | A planning boundary must exist before uncertain automatic work, not merely before the next `Choice`. |
-| Production has per-use capacity, credit, discounts, and payment/placement stages outside the board snapshot. | [`production.rs`](../../crates/ti4-engine/src/production.rs), `ProductionWindow` | Reopening a production window from a board between purchases would lose credit and remaining capacity. |
-| Timing is synchronous, nested, depth-first, and priority ordered. Some pending information exists in local Rust stack frames. | [`timing.rs`](../../crates/ti4-engine/src/timing.rs), `Resolver::run_window_with_context`; [`reactions.rs`](../../crates/ti4-engine/src/reactions.rs) | Cloning structs alone cannot fork a worker suspended inside an arbitrary nested call. |
-| Seeded randomness is domain separated, but individual outcomes and RNG positions are not persisted as a general game entropy journal. | [`rng.rs`](../../crates/ti4-engine/src/rng.rs), [`dice.rs`](../../crates/ti4-engine/src/dice.rs), `storage.rs` | Identical history replays deterministically; changed history can shift later randomness within a domain. |
-| Units are values, not entities with durable instance IDs. Some option IDs contain vector indexes. | [`units.rs`](../../crates/ti4-model/src/units.rs), `tactical.rs::movement_options`, `transit.rs::pending_choice` | Plans should identify interchangeable unit classes/counts and relevant attributes, never reuse old vector indexes. |
-| Runtime previews distinguish certain/chanced/unknown/unavailable outcomes, but `ChoiceOption.preview` is skipped in serialization. | [`preview.rs`](../../crates/ti4-engine/src/preview.rs), `choice.rs` | Reuse the conceptual contract; a browser planning response needs an explicit projected preview DTO. |
+| Current mechanism                                                                                                                                                                                  | Relevant code                                                                                                                                                             | Consequence for this work                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every actor answers an engine-generated `Choice`; `Table` validates and records it.                                                                                                                | [`choice.rs`](../../crates/ti4-engine/src/choice.rs), `Choice`, `Decider`, `Table::ask_seeing`, `DecisionRecord`                                                          | The existing authority boundary can remain the execution boundary. Plans select fresh offered options rather than supplying state mutations. |
+| `DecisionRecord` stores actor, prompt, chosen ID, offered IDs, and optional typed context. It does not store the selected option's complete semantic payload or resulting state.                   | `choice.rs`, `fingerprint.rs`                                                                                                                                             | Useful for exact replay, but insufficient as a durable, cross-state intent or consequence certificate.                                       |
+| `DecisionContext` carries actor/source/subtype/phase/round/target/outstanding amounts.                                                                                                             | [`decision_context.rs`](../../crates/ti4-engine/src/decision_context.rs)                                                                                                  | A strong starting point for classification; it lacks a general action/workflow/decision-site identity.                                       |
+| `Game` owns private continuation state in addition to `GameState`.                                                                                                                                 | [`game.rs`](../../crates/ti4-engine/src/game.rs), `Game` fields                                                                                                           | Windows, RNG, dice, event allocation, turn preparation, and failed-action state must be reconstructed or checkpointed together.              |
+| The strategy owner resolves the primary before a clockwise follower window. A follower's effect can ask several nested questions in one `step()`.                                                  | `game.rs::apply_choice`, `step_secondary`; [`strategy.rs`](../../crates/ti4-engine/src/strategy.rs); [`strategy_cards.rs`](../../crates/ti4-engine/src/strategy_cards.rs) | Concurrent composition needs a new orchestration boundary; allowing several network answers to the current single offer does not solve it.   |
+| `StrategySecondaryWindow` exposes one eligible follower at a time and charges the shared strategy-token cost before dispatching the effect. Leadership has a different purchase/eligibility shape. | `strategy.rs::next_choice`, `take_choice`, `secondary_eligible`                                                                                                           | Share eligibility and costs with detached participant planning. Do not reproduce these rules in the server.                                  |
+| Hypothetical activation/reachability helpers already take a player explicitly.                                                                                                                     | [`tactical.rs`](../../crates/ti4-engine/src/tactical.rs), `activation_options`, `movable_into`                                                                            | Initial movement planning need not pretend to advance the whole live game to another player's turn.                                          |
+| Movement and loading are resumable windows, but finishing loading can immediately sail and roll a gravity rift. Finishing movement can immediately enter cannon/combat/invasion/production.        | `game.rs::apply_tactical`, `sail`, `finish_tactical`; [`transit.rs`](../../crates/ti4-engine/src/transit.rs)                                                              | A planning boundary must exist before uncertain automatic work, not merely before the next `Choice`.                                         |
+| Production has per-use capacity, credit, discounts, and payment/placement stages outside the board snapshot.                                                                                       | [`production.rs`](../../crates/ti4-engine/src/production.rs), `ProductionWindow`                                                                                          | Reopening a production window from a board between purchases would lose credit and remaining capacity.                                       |
+| Timing is synchronous, nested, depth-first, and priority ordered. Some pending information exists in local Rust stack frames.                                                                      | [`timing.rs`](../../crates/ti4-engine/src/timing.rs), `Resolver::run_window_with_context`; [`reactions.rs`](../../crates/ti4-engine/src/reactions.rs)                     | Cloning structs alone cannot fork a worker suspended inside an arbitrary nested call.                                                        |
+| Seeded randomness is domain separated, but individual outcomes and RNG positions are not persisted as a general game entropy journal.                                                              | [`rng.rs`](../../crates/ti4-engine/src/rng.rs), [`dice.rs`](../../crates/ti4-engine/src/dice.rs), `storage.rs`                                                            | Identical history replays deterministically; changed history can shift later randomness within a domain.                                     |
+| Units are values, not entities with durable instance IDs. Some option IDs contain vector indexes.                                                                                                  | [`units.rs`](../../crates/ti4-model/src/units.rs), `tactical.rs::movement_options`, `transit.rs::pending_choice`                                                          | Plans should identify interchangeable unit classes/counts and relevant attributes, never reuse old vector indexes.                           |
+| Runtime previews distinguish certain/chanced/unknown/unavailable outcomes, but `ChoiceOption.preview` is skipped in serialization.                                                                 | [`preview.rs`](../../crates/ti4-engine/src/preview.rs), `choice.rs`                                                                                                       | Reuse the conceptual contract; a browser planning response needs an explicit projected preview DTO.                                          |
 
 ### 2.2 Server and history
 
@@ -101,19 +101,19 @@ These findings come from the implementation, not just older plan documents. Seve
 
 ### 3.1 Terms that should remain distinct
 
-| Term | Meaning |
-|---|---|
-| Canonical timeline/head | The accepted engine history currently shared by the table. |
-| Draft | The owner's editable intentions, assumptions, and dependencies. Exists independently of an engine instance. |
-| Evaluation branch | A disposable private run/result derived from a canonical base and a specific draft revision. |
-| Hypothesis | An explicitly assumed fact used for forecasting, such as “my Technology selection is accepted” or “no intervening action changes these ships.” |
-| Revalidation | Check a draft against new facts; may produce conflicts without moving its accepted base. |
-| Rebase | Rebuild the evaluation on a newer base and replay semantic intentions. |
-| Adoption/commit | Apply certified decisions to the authoritative timeline at real offered sites. |
-| Revision branch | A candidate replacement history reconstructed from an earlier canonical boundary. |
-| Checkpoint | A complete resumable engine continuation at a supported boundary; not a projected board. |
-| Segment | An executable portion of a plan ending before an unplanned decision, unresolved effect, or other declared boundary. |
-| Selection group | A server coordination object for parallel draft submission, reveal, review, and finalization. |
+| Term                    | Meaning                                                                                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical timeline/head | The accepted engine history currently shared by the table.                                                                                     |
+| Draft                   | The owner's editable intentions, assumptions, and dependencies. Exists independently of an engine instance.                                    |
+| Evaluation branch       | A disposable private run/result derived from a canonical base and a specific draft revision.                                                   |
+| Hypothesis              | An explicitly assumed fact used for forecasting, such as “my Technology selection is accepted” or “no intervening action changes these ships.” |
+| Revalidation            | Check a draft against new facts; may produce conflicts without moving its accepted base.                                                       |
+| Rebase                  | Rebuild the evaluation on a newer base and replay semantic intentions.                                                                         |
+| Adoption/commit         | Apply certified decisions to the authoritative timeline at real offered sites.                                                                 |
+| Revision branch         | A candidate replacement history reconstructed from an earlier canonical boundary.                                                              |
+| Checkpoint              | A complete resumable engine continuation at a supported boundary; not a projected board.                                                       |
+| Segment                 | An executable portion of a plan ending before an unplanned decision, unresolved effect, or other declared boundary.                            |
+| Selection group         | A server coordination object for parallel draft submission, reveal, review, and finalization.                                                  |
 
 ### 3.2 Invariants
 
@@ -209,13 +209,13 @@ An observation bundle may be sufficient for analytical planning. It must explici
 
 ### 5.3 Separate evaluator modes
 
-| Mode | Purpose | Allowed input behavior |
-|---|---|---|
-| Exact replay | Reconstruct accepted history or an unchanged prefix. | Require actor/site/choice record agreement; no fallback selections. |
-| Hypothetical planning | Evaluate an isolated future workflow under declared assumptions. | Actor/role comes from a server-authorized planning context; stop at uncertainty gates. |
-| Intent rebase | Try the draft's semantics against a newer allowed base. | Regenerate offered options; distinguish changed evidence from unavailable choices. |
-| Historical revision replay | Apply an edit, then align and retry later historical intentions. | Old suffix records become evidence/intents, not immutable expected offered lists. |
-| Canonical adoption | Certify and publish a plan segment at a real opportunity. | No synthetic turn, invented opponent answer, or planning-only state enters the timeline. |
+| Mode                       | Purpose                                                          | Allowed input behavior                                                                   |
+| -------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Exact replay               | Reconstruct accepted history or an unchanged prefix.             | Require actor/site/choice record agreement; no fallback selections.                      |
+| Hypothetical planning      | Evaluate an isolated future workflow under declared assumptions. | Actor/role comes from a server-authorized planning context; stop at uncertainty gates.   |
+| Intent rebase              | Try the draft's semantics against a newer allowed base.          | Regenerate offered options; distinguish changed evidence from unavailable choices.       |
+| Historical revision replay | Apply an edit, then align and retry later historical intentions. | Old suffix records become evidence/intents, not immutable expected offered lists.        |
+| Canonical adoption         | Certify and publish a plan segment at a real opportunity.        | No synthetic turn, invented opponent answer, or planning-only state enters the timeline. |
 
 Return an evaluation result with a **validated prefix**, per-intent status, safe projected consequences, first stopping boundary, remaining intents, and structured conflicts. Use distinct results for `needs_actor_input`, `waiting_for_live_window`, `chance_boundary`, `hidden_information_boundary`, `conflict`, `unsupported_context`, and `engine_failure`.
 
@@ -274,12 +274,12 @@ Add gates **before** dice/deck/effect execution where planning must stop. Waitin
 
 ### 5.7 Checkpoint/fork tiers
 
-| Tier | What can be reused | Limitation |
-|---|---|---|
-| Analytical forecast | Full known observation plus shared read-only engine queries. | No promise of an actual future turn or resolved reactions. |
-| Replay-backed branch | Initial setup, exact prefix, hypotheses, intents. | Replays cost CPU; evaluation engines are disposable. |
-| Quiescent checkpoint | Complete engine core between supported workflow steps, with no unresolved Rust call frames. | Must include windows, RNG streams, dice, resolver usage, event sequence, map/source state, and driver flags. |
-| Arbitrary nested checkpoint | Explicit continuation/timing frames and their pending effects. | Requires an engine control-flow refactor; not achieved by adding `Clone` to `GameState` or `Game`. |
+| Tier                        | What can be reused                                                                          | Limitation                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Analytical forecast         | Full known observation plus shared read-only engine queries.                                | No promise of an actual future turn or resolved reactions.                                                   |
+| Replay-backed branch        | Initial setup, exact prefix, hypotheses, intents.                                           | Replays cost CPU; evaluation engines are disposable.                                                         |
+| Quiescent checkpoint        | Complete engine core between supported workflow steps, with no unresolved Rust call frames. | Must include windows, RNG streams, dice, resolver usage, event sequence, map/source state, and driver flags. |
+| Arbitrary nested checkpoint | Explicit continuation/timing frames and their pending effects.                              | Requires an engine control-flow refactor; not achieved by adding `Clone` to `GameState` or `Game`.           |
 
 Separate an eventual `EngineCore` from deciders, channels, callbacks, storage, and subscribers. Immutable ability definitions can be shared; resolver usage/progress cannot. Keep replay from initialization as a correctness oracle for accelerated forks.
 
@@ -321,17 +321,17 @@ A planning offer gets a **branch-local** offer ID/nonce. It is not the canonical
 
 ### 6.2 Semantic selections
 
-| Intent | Persisted meaning |
-|---|---|
-| Activate | Destination system; ordinary/free activation role; relevant action opportunity. |
-| Move | Plan-local hull slot, origin, unit type, damage/other relevant condition, count, permitted boost use, and route constraints where supported. |
-| Load | Carrier's plan-local hull slot, actual pickup system, planet/space source, unit class/condition, and count. |
-| Research | Technology alias, primary/secondary role and research ordinal; explicit optional second research and payment/discount intent if the engine offers it. |
-| Gain tokens | Workflow-scoped pool selections or an aggregate desired distribution compiled into legal allocation choices. |
-| Pay | Transaction-scoped ordered planet/payment-face selections and trade goods; preserve credit and shared-budget semantics. |
-| Produce/place | Production-use anchor, requested unit quantities, destination placements, payment choices and discount/card intentions. |
-| Play card | Held card alias/copy semantics, legal printed timing site, target/effect selections, and prerequisites. |
-| Decline/finish | The specific workflow/site being declined or closed; not an unscoped `"decline"`/`"no"`. |
+| Intent         | Persisted meaning                                                                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Activate       | Destination system; ordinary/free activation role; relevant action opportunity.                                                                       |
+| Move           | Plan-local hull slot, origin, unit type, damage/other relevant condition, count, permitted boost use, and route constraints where supported.          |
+| Load           | Carrier's plan-local hull slot, actual pickup system, planet/space source, unit class/condition, and count.                                           |
+| Research       | Technology alias, primary/secondary role and research ordinal; explicit optional second research and payment/discount intent if the engine offers it. |
+| Gain tokens    | Workflow-scoped pool selections or an aggregate desired distribution compiled into legal allocation choices.                                          |
+| Pay            | Transaction-scoped ordered planet/payment-face selections and trade goods; preserve credit and shared-budget semantics.                               |
+| Produce/place  | Production-use anchor, requested unit quantities, destination placements, payment choices and discount/card intentions.                               |
+| Play card      | Held card alias/copy semantics, legal printed timing site, target/effect selections, and prerequisites.                                               |
+| Decline/finish | The specific workflow/site being declined or closed; not an unscoped `"decline"`/`"no"`.                                                              |
 
 Resolve each intention to exactly one fresh offer. Equivalent interchangeable units may remap to a different vector index; non-equivalent substitutions need explicit repair.
 
@@ -372,19 +372,19 @@ For initial implementation, use conservative explicit assumptions and full evalu
 
 ### 7.2 Conflict and uncertainty taxonomy
 
-| Class | Example | Result |
-|---|---|---|
-| Equivalent remap | A unit vector index changed; the same class/count of hull is available. | Auto-rebase; no semantic repair. |
-| Recoverable resource mismatch | One of three selected cruisers was destroyed; two remain. | Preserve the requested three, show unavailable one, propose reducing/replacing it. |
-| Dependency cascade | The carrier died, invalidating its cargo and a later landing. | Report one root problem with linked blocked children. |
-| Changed cost/commitment | A route now needs Ionian exhaustion; a research discount disappeared. | Still potentially legal, but confirmation is invalid until the owner reviews the new cost. |
-| Changed public consequence | The destination has a stronger enemy fleet, a law changed ship stats, or a planet changed controller. | Soft conflict/review warning; may remain executable. |
-| Hard root failure | Destination was purged, actor has no legal action opportunity, or the last usable production source is gone. | Root/specific branch cannot execute as authored; retain it for retarget/replacement. |
-| Workflow disappeared | A recorded casualty/payment question no longer exists after a historical edit. | Stop suffix alignment; explicitly resolve whether the obligation vanished or the intent must be replaced. |
-| New required question | A correction introduces fleet-supply removal or a previously absent reaction. | Await that actor's input; do not invent an answer. |
-| Chance/unknown future | Gravity-rift survival, combat result, or future hidden draw. | Conditional/unvalidated continuation, not an illegal choice. |
-| Live timing window open | Sabotage may cancel the card underlying a draft. | Defer exact rebase across that event; show its dependency as unresolved. |
-| Engine/replay failure | The unchanged prefix no longer reconstructs under this build. | Operational failure, separate from a player's plan conflict. |
+| Class                         | Example                                                                                                      | Result                                                                                                    |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Equivalent remap              | A unit vector index changed; the same class/count of hull is available.                                      | Auto-rebase; no semantic repair.                                                                          |
+| Recoverable resource mismatch | One of three selected cruisers was destroyed; two remain.                                                    | Preserve the requested three, show unavailable one, propose reducing/replacing it.                        |
+| Dependency cascade            | The carrier died, invalidating its cargo and a later landing.                                                | Report one root problem with linked blocked children.                                                     |
+| Changed cost/commitment       | A route now needs Ionian exhaustion; a research discount disappeared.                                        | Still potentially legal, but confirmation is invalid until the owner reviews the new cost.                |
+| Changed public consequence    | The destination has a stronger enemy fleet, a law changed ship stats, or a planet changed controller.        | Soft conflict/review warning; may remain executable.                                                      |
+| Hard root failure             | Destination was purged, actor has no legal action opportunity, or the last usable production source is gone. | Root/specific branch cannot execute as authored; retain it for retarget/replacement.                      |
+| Workflow disappeared          | A recorded casualty/payment question no longer exists after a historical edit.                               | Stop suffix alignment; explicitly resolve whether the obligation vanished or the intent must be replaced. |
+| New required question         | A correction introduces fleet-supply removal or a previously absent reaction.                                | Await that actor's input; do not invent an answer.                                                        |
+| Chance/unknown future         | Gravity-rift survival, combat result, or future hidden draw.                                                 | Conditional/unvalidated continuation, not an illegal choice.                                              |
+| Live timing window open       | Sabotage may cancel the card underlying a draft.                                                             | Defer exact rebase across that event; show its dependency as unresolved.                                  |
+| Engine/replay failure         | The unchanged prefix no longer reconstructs under this build.                                                | Operational failure, separate from a player's plan conflict.                                              |
 
 The example “all ships in the system died, so production is impossible” needs rule-specific evaluation: a surviving planetary dock can still produce, and a blockade blocks ships without necessarily blocking ground forces. The hard failure is loss of the relevant **usable production source/placement**, as computed by `production::capacity`, `producers`, and `placements`.
 
@@ -425,21 +425,21 @@ Only the first two are background defaults. Executing a future tactical plan req
 
 ### Boundary matrix
 
-| Live situation | Background work | Exact validation/adoption policy |
-|---|---|---|
-| Top-level action opportunity after start-of-turn work | Rebase tactical draft on the real actor/opportunity. | Best adoption point for activation; validate actual choices. |
-| Strategy announcement's cancellation window open | Compose provisional intents; note cancellation dependency. | Do not treat the announced action as guaranteed. |
-| Announced strategy survives; shared prerequisite fixed | Evaluate participant branches in the corresponding role. | Open/review selection group; later canonical execution follows rules order. |
-| A movement/cargo workflow is open | Revalidate the remaining authored movement; keep already executed steps separate. | Adopt current actor's certified segment within this activation. |
-| Activation/movement card stack is open | Update visible facts and identify changed dependencies. | Unrelated future action remains deferred. A planned card is usable only at its own exact offered site. |
-| A sabotage window is open | Keep drafts editable; show “awaiting card resolution.” | No assumed decline, card resolution, or tactical injection. Resume evaluation after the event settles. |
-| Loading completion is about to sail through a rift | Validate chosen ship/load intent and known capacity. | Planning stops before the roll; live execution may perform the real roll, then revalidate later nodes. |
-| Cannon/combat/invasion outcome unresolved | Refresh public losses and warnings as they become authoritative. | Post-outcome landing/production stays conditional; do not use seeded future outcomes as forecasts. |
-| Production entry reactions settled, before first build | Evaluate production use, full budget, payment and placements. | Good production-segment adoption point; preserve the same workflow credit/discount scope. |
-| Mid-payment or mid-placement | Re-evaluate only through the existing complete transaction continuation. | Do not create a fresh window from board state; do not cross another actor's question. |
-| Submitted decision in flight / incoherent publication boundary | Mark evaluation stale; keep editing intent. | Wait for a coherent boundary; no canonical replacement based on the partial cache. |
-| History changed | Invalidate base lineage mappings and dependent certificates. | Reconstruct and rebase; old nonces and confirmations cannot execute. |
-| Finished game | Preserve browsing/edit candidates. | Historical revision may reopen play if its fully validated replacement is nonterminal. |
+| Live situation                                                 | Background work                                                                   | Exact validation/adoption policy                                                                       |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Top-level action opportunity after start-of-turn work          | Rebase tactical draft on the real actor/opportunity.                              | Best adoption point for activation; validate actual choices.                                           |
+| Strategy announcement's cancellation window open               | Compose provisional intents; note cancellation dependency.                        | Do not treat the announced action as guaranteed.                                                       |
+| Announced strategy survives; shared prerequisite fixed         | Evaluate participant branches in the corresponding role.                          | Open/review selection group; later canonical execution follows rules order.                            |
+| A movement/cargo workflow is open                              | Revalidate the remaining authored movement; keep already executed steps separate. | Adopt current actor's certified segment within this activation.                                        |
+| Activation/movement card stack is open                         | Update visible facts and identify changed dependencies.                           | Unrelated future action remains deferred. A planned card is usable only at its own exact offered site. |
+| A sabotage window is open                                      | Keep drafts editable; show “awaiting card resolution.”                            | No assumed decline, card resolution, or tactical injection. Resume evaluation after the event settles. |
+| Loading completion is about to sail through a rift             | Validate chosen ship/load intent and known capacity.                              | Planning stops before the roll; live execution may perform the real roll, then revalidate later nodes. |
+| Cannon/combat/invasion outcome unresolved                      | Refresh public losses and warnings as they become authoritative.                  | Post-outcome landing/production stays conditional; do not use seeded future outcomes as forecasts.     |
+| Production entry reactions settled, before first build         | Evaluate production use, full budget, payment and placements.                     | Good production-segment adoption point; preserve the same workflow credit/discount scope.              |
+| Mid-payment or mid-placement                                   | Re-evaluate only through the existing complete transaction continuation.          | Do not create a fresh window from board state; do not cross another actor's question.                  |
+| Submitted decision in flight / incoherent publication boundary | Mark evaluation stale; keep editing intent.                                       | Wait for a coherent boundary; no canonical replacement based on the partial cache.                     |
+| History changed                                                | Invalidate base lineage mappings and dependent certificates.                      | Reconstruct and rebase; old nonces and confirmations cannot execute.                                   |
+| Finished game                                                  | Preserve browsing/edit candidates.                                                | Historical revision may reopen play if its fully validated replacement is nonterminal.                 |
 
 ### Rebase algorithm
 
@@ -520,17 +520,17 @@ Expose this distinction in the UI. Concurrent selection is guaranteed; instantan
 
 ### 9.5 Card-by-card planning capability
 
-| Card/family | Parallel composition | Dependency/uncertainty that affects finalization |
-|---|---|---|
-| Technology | Good pilot: primary research sequence and follower research intentions. | Second primary research depends on the first. Costs, discounts, substitutions and faction follow-ups must use actual rules; payment choices are currently partly automatic. |
-| Leadership | Good next pilot: free/purchased token allocations, influence payment, and remaining credit. | Distinguish free allocation from each purchased token. Later fleet-supply/action availability can change with the pools. |
-| Diplomacy | Followers can choose which own planets they intend to ready. | Primary system choice and global token placement are shared prerequisites. Do not treat follower previews from before them as exact. |
-| Construction | Stage target structure/placement intentions. | Player-wide plastic stock, placement restrictions, coexistence, and TE primary production require fresh validation. |
-| Trade | Stage replenish/decline and primary free-replenishment choices. | Primary choices determine participant cost/eligibility and change public commodities; faction effects can couple participants. |
-| Warfare | Stage recall/redistribution and home-production baskets. | Token removal and pool changes affect later plans. TE Warfare's free tactical action delays its follower window until that action resolves. |
-| Politics | Stage participation and public primary choices where known. | Actual drawn cards, hand-limit choices, and private agenda inspection are information gates; no draft preview of future identities. |
-| Imperial | Stage score/participate/draw intentions. | Scoring can end the game; secret draws and returns cannot all be selected in advance. |
-| Faction/leader/relic modifications | Enable through explicit supported role/workflow adapters. | A secondary may substitute the primary or add cross-player choices. Card name alone does not prove independence. |
+| Card/family                        | Parallel composition                                                                        | Dependency/uncertainty that affects finalization                                                                                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Technology                         | Good pilot: primary research sequence and follower research intentions.                     | Second primary research depends on the first. Costs, discounts, substitutions and faction follow-ups must use actual rules; payment choices are currently partly automatic. |
+| Leadership                         | Good next pilot: free/purchased token allocations, influence payment, and remaining credit. | Distinguish free allocation from each purchased token. Later fleet-supply/action availability can change with the pools.                                                    |
+| Diplomacy                          | Followers can choose which own planets they intend to ready.                                | Primary system choice and global token placement are shared prerequisites. Do not treat follower previews from before them as exact.                                        |
+| Construction                       | Stage target structure/placement intentions.                                                | Player-wide plastic stock, placement restrictions, coexistence, and TE primary production require fresh validation.                                                         |
+| Trade                              | Stage replenish/decline and primary free-replenishment choices.                             | Primary choices determine participant cost/eligibility and change public commodities; faction effects can couple participants.                                              |
+| Warfare                            | Stage recall/redistribution and home-production baskets.                                    | Token removal and pool changes affect later plans. TE Warfare's free tactical action delays its follower window until that action resolves.                                 |
+| Politics                           | Stage participation and public primary choices where known.                                 | Actual drawn cards, hand-limit choices, and private agenda inspection are information gates; no draft preview of future identities.                                         |
+| Imperial                           | Stage score/participate/draw intentions.                                                    | Scoring can end the game; secret draws and returns cannot all be selected in advance.                                                                                       |
+| Faction/leader/relic modifications | Enable through explicit supported role/workflow adapters.                                   | A secondary may substitute the primary or add cross-player choices. Card name alone does not prove independence.                                                            |
 
 Capability is per workflow stage, not one boolean “this card is simultaneous.” Unsupported stages remain normal live decisions while other participants retain their drafts.
 
@@ -681,14 +681,14 @@ That is a conflict even if `gain_command_token -> tactic_tokens` and all three m
 
 Different cases require different treatment:
 
-| Desired insertion | Engine interpretation |
-|---|---|
-| Play a reaction where you previously declined | Replace the decline at that exact timing site; record the card selection/targets and all new nested responses. |
-| Use an additional optional effect in an open workflow | Reopen the matching legal opportunity, not an arbitrary timestamp. |
-| Play an `Action` card before an old tactical action | The card usually consumes the action. The old tactical action cannot simply follow in the same turn unless an actual extra-action rule permits it. |
-| Add a free transaction before an action | Must be offered and obey adjacency/turn transaction limits; it may change later costs/ownership. |
-| Play a card not held at the historical point | Not a legal insertion even if it is held now. |
-| Insert Sabotage after the original card's effect | Reconstruct and edit the original WHEN opportunity, before that effect resolves. |
+| Desired insertion                                     | Engine interpretation                                                                                                                              |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Play a reaction where you previously declined         | Replace the decline at that exact timing site; record the card selection/targets and all new nested responses.                                     |
+| Use an additional optional effect in an open workflow | Reopen the matching legal opportunity, not an arbitrary timestamp.                                                                                 |
+| Play an `Action` card before an old tactical action   | The card usually consumes the action. The old tactical action cannot simply follow in the same turn unless an actual extra-action rule permits it. |
+| Add a free transaction before an action               | Must be offered and obey adjacency/turn transaction limits; it may change later costs/ownership.                                                   |
+| Play a card not held at the historical point          | Not a legal insertion even if it is held now.                                                                                                      |
+| Insert Sabotage after the original card's effect      | Reconstruct and edit the original WHEN opportunity, before that effect resolves.                                                                   |
 
 An inserted action can change turn order/opportunities for every subsequent action. This is why general insertion belongs after workflow identities, suffix alignment, and chance policy are working.
 
@@ -750,16 +750,16 @@ Information already seen cannot be undone. Archive/review that an edit changes p
 
 Use authenticated HTTP mutations, analogous to current baskets/history, and WebSocket projection updates. Proposed command families:
 
-| Operation | Required identity/precondition |
-|---|---|
-| Create/read/edit draft | Current player credential, owner, draft kind; edits use expected draft revision. |
-| Answer a branch offer | Draft ID/revision + branch-local offer capability + semantic selection. |
-| Request revalidation | Draft revision and requested/latest supported base; result is asynchronous if necessary. |
-| Mark strategy draft ready | Group ID + draft revision; stores an immutable submitted proposal. |
-| Confirm strategy review | Group ID + review revision/digest. |
-| Execute tactical segment | Draft/evaluation identity + real canonical site/head + request ID. |
-| Create/edit historical candidate | Original lineage/site plus candidate revision and actor-scoped edits. |
-| Publish historical candidate | Host credential, expected canonical head, candidate revision/certificate, request ID. |
+| Operation                        | Required identity/precondition                                                           |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| Create/read/edit draft           | Current player credential, owner, draft kind; edits use expected draft revision.         |
+| Answer a branch offer            | Draft ID/revision + branch-local offer capability + semantic selection.                  |
+| Request revalidation             | Draft revision and requested/latest supported base; result is asynchronous if necessary. |
+| Mark strategy draft ready        | Group ID + draft revision; stores an immutable submitted proposal.                       |
+| Confirm strategy review          | Group ID + review revision/digest.                                                       |
+| Execute tactical segment         | Draft/evaluation identity + real canonical site/head + request ID.                       |
+| Create/edit historical candidate | Original lineage/site plus candidate revision and actor-scoped edits.                    |
+| Publish historical candidate     | Host credential, expected canonical head, candidate revision/certificate, request ID.    |
 
 Possible routes are `/api/games/{game_id}/drafts`, `/selection-groups/{group_id}/...`, and `/revisions/{revision_id}/...`; exact URL naming should follow surrounding server conventions.
 
@@ -883,26 +883,26 @@ Keep history controls scoped: draft undo edits a draft; canonical Undo uses exis
 
 ## 15. Additional problems and design decisions
 
-| Problem | Proposed treatment |
-|---|---|
-| New legal alternatives appear without invalidating the selected one. | Show an informational “new options available” hint where useful; do not force the player to change an otherwise equivalent plan. |
-| A legal option's payload changes while its ID remains stable. | Compare fresh semantic payload/cost/effect evidence. ID membership and V1 decision hash are not enough. |
-| A player gets an extra action or has their turn skipped. | Match explicit action opportunities and scopes; retained turns are not necessarily new `turn_seq`s. Rebase/expire the draft rather than auto-run it at the wrong time. |
-| Same system has sequential productions with identical prompts. | Use producer-issued production/payment workflow instances, preserving per-use credit and discounts. |
-| Simultaneous plans overlap shared objects/decks. | Resolve confirmed intentions through canonical order; use shared prerequisite stages and information gates. Do not union independent effects. |
-| A player's strategy and tactical plans double-spend a planet or boost. | Compose them through parent dependencies and one forecast ledger; report contention. |
-| Parent draft changes after child review. | Pin revisions; invalidate affected child certificates and show the changed assumption. |
-| Other players' current action is only partly resolved. | Use the latest coherent permitted base; mark pending consequences unknown and refresh as they become real. |
-| Another player has an optional private response. | Report a generic reaction gate, independent of the hidden hand; do not infer exact future offer existence to the planner. |
-| Bot support in a review barrier. | Internal/external bots use participant draft/review APIs or a serial adapter. Bots may auto-confirm a specific revealed revision by policy, while humans still reconfirm. Replay prior bot decisions as saved intentions; do not rerun their policy throughout an unchanged suffix. |
-| Two browser tabs edit one owner's draft. | Expected-draft-revision CAS; return the latest document and local edit conflict. |
-| Credential takeover during evaluation. | Associate drafts with stable player identity, authenticate again at delivery/commit, and stop sending private updates to revoked credentials. |
-| Head advanced while a historical candidate was repaired. | Revalidate the additional tail or require a new review; never truncate the new live choices silently. |
-| Save/build changes invalidate cached branches. | Invalidate caches; verify exact replay before re-evaluation. Distinguish this from gameplay conflicts. |
-| Corrections affect game victory or phase transitions. | Recompute terminal/phase state and regenerate events; stop aligned suffix when the candidate ends earlier or newly requires input. |
-| Protocol reconnect delivers old results after a rewrite. | Check lineage + workspace + revision, replace canonical events, and retain/rebase owner drafts explicitly. |
-| Draft conflict details disclose a hidden cause. | Project bounded, actor-authorized reasons; public/host status can say “requires private input” without card identity or contents. |
-| Successful commit response is lost. | Durable payload-bound operation receipts; retries identify active/undone/superseded results. |
+| Problem                                                                | Proposed treatment                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New legal alternatives appear without invalidating the selected one.   | Show an informational “new options available” hint where useful; do not force the player to change an otherwise equivalent plan.                                                                                                                                                    |
+| A legal option's payload changes while its ID remains stable.          | Compare fresh semantic payload/cost/effect evidence. ID membership and V1 decision hash are not enough.                                                                                                                                                                             |
+| A player gets an extra action or has their turn skipped.               | Match explicit action opportunities and scopes; retained turns are not necessarily new `turn_seq`s. Rebase/expire the draft rather than auto-run it at the wrong time.                                                                                                              |
+| Same system has sequential productions with identical prompts.         | Use producer-issued production/payment workflow instances, preserving per-use credit and discounts.                                                                                                                                                                                 |
+| Simultaneous plans overlap shared objects/decks.                       | Resolve confirmed intentions through canonical order; use shared prerequisite stages and information gates. Do not union independent effects.                                                                                                                                       |
+| A player's strategy and tactical plans double-spend a planet or boost. | Compose them through parent dependencies and one forecast ledger; report contention.                                                                                                                                                                                                |
+| Parent draft changes after child review.                               | Pin revisions; invalidate affected child certificates and show the changed assumption.                                                                                                                                                                                              |
+| Other players' current action is only partly resolved.                 | Use the latest coherent permitted base; mark pending consequences unknown and refresh as they become real.                                                                                                                                                                          |
+| Another player has an optional private response.                       | Report a generic reaction gate, independent of the hidden hand; do not infer exact future offer existence to the planner.                                                                                                                                                           |
+| Bot support in a review barrier.                                       | Internal/external bots use participant draft/review APIs or a serial adapter. Bots may auto-confirm a specific revealed revision by policy, while humans still reconfirm. Replay prior bot decisions as saved intentions; do not rerun their policy throughout an unchanged suffix. |
+| Two browser tabs edit one owner's draft.                               | Expected-draft-revision CAS; return the latest document and local edit conflict.                                                                                                                                                                                                    |
+| Credential takeover during evaluation.                                 | Associate drafts with stable player identity, authenticate again at delivery/commit, and stop sending private updates to revoked credentials.                                                                                                                                       |
+| Head advanced while a historical candidate was repaired.               | Revalidate the additional tail or require a new review; never truncate the new live choices silently.                                                                                                                                                                               |
+| Save/build changes invalidate cached branches.                         | Invalidate caches; verify exact replay before re-evaluation. Distinguish this from gameplay conflicts.                                                                                                                                                                              |
+| Corrections affect game victory or phase transitions.                  | Recompute terminal/phase state and regenerate events; stop aligned suffix when the candidate ends earlier or newly requires input.                                                                                                                                                  |
+| Protocol reconnect delivers old results after a rewrite.               | Check lineage + workspace + revision, replace canonical events, and retain/rebase owner drafts explicitly.                                                                                                                                                                          |
+| Draft conflict details disclose a hidden cause.                        | Project bounded, actor-authorized reasons; public/host status can say “requires private input” without card identity or contents.                                                                                                                                                   |
+| Successful commit response is lost.                                    | Durable payload-bound operation receipts; retries identify active/undone/superseded results.                                                                                                                                                                                        |
 
 ### Alternatives and why the recommended combination fits
 
@@ -1000,21 +1000,21 @@ These are proposed implementation tests, not tests added or run for this documen
 
 ### Engine and evaluator scenarios
 
-| Scenario | Required assertion |
-|---|---|
-| Out-of-turn tactical forecast | Planning actor is correct; canonical active/window/state/entropy is unaffected; real legality still applies on adoption. |
-| Synthetic turn during a real sabotage window | No pending effect is discarded or assumed complete; forecast is deferred/conditional at the declared gate. |
-| Repeated identical prompts/workflows | No Leadership token, payment, hold, or production consumes an intent for a different occurrence. |
-| Vector-index churn and damage/galvanize differences | Equivalent unit remap succeeds; non-equivalent substitution is a conflict. |
-| En-route cargo and two carriers | Cargo source and carrier slot stay unambiguous; stock is not consumed twice. |
-| Shared boost contention | Two ships cannot both use the same per-activation boost in one forecast. |
-| Carrier destroyed by new live state | Root unavailable-hull conflict blocks its cargo/landings; draft counts are retained until repaired. |
-| Producer lost / surviving dock / blockade | Distinguish total production loss from ship-only restrictions and continuing ground production. |
-| Production credit and discount | Rebase/replay preserves combined-payment credit and discount scope, including mid-payment boundaries. |
-| Choice ID still exists but cost/route changes | Confirmation is invalidated even though fresh option membership succeeds. |
-| Planning crosses rift/combat/draw boundary | No exact future roll/draw or downstream outcome-dependent legality is disclosed. |
-| Nested effect swallows a stop error | Evaluator still returns the captured terminal boundary and accepts no further answers; no resumable-state claim. |
-| Engine operation legally no-ops/produces fewer units | Intent outcome mismatch is visible, not reported as completed solely because no error occurred. |
+| Scenario                                             | Required assertion                                                                                                       |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Out-of-turn tactical forecast                        | Planning actor is correct; canonical active/window/state/entropy is unaffected; real legality still applies on adoption. |
+| Synthetic turn during a real sabotage window         | No pending effect is discarded or assumed complete; forecast is deferred/conditional at the declared gate.               |
+| Repeated identical prompts/workflows                 | No Leadership token, payment, hold, or production consumes an intent for a different occurrence.                         |
+| Vector-index churn and damage/galvanize differences  | Equivalent unit remap succeeds; non-equivalent substitution is a conflict.                                               |
+| En-route cargo and two carriers                      | Cargo source and carrier slot stay unambiguous; stock is not consumed twice.                                             |
+| Shared boost contention                              | Two ships cannot both use the same per-activation boost in one forecast.                                                 |
+| Carrier destroyed by new live state                  | Root unavailable-hull conflict blocks its cargo/landings; draft counts are retained until repaired.                      |
+| Producer lost / surviving dock / blockade            | Distinguish total production loss from ship-only restrictions and continuing ground production.                          |
+| Production credit and discount                       | Rebase/replay preserves combined-payment credit and discount scope, including mid-payment boundaries.                    |
+| Choice ID still exists but cost/route changes        | Confirmation is invalidated even though fresh option membership succeeds.                                                |
+| Planning crosses rift/combat/draw boundary           | No exact future roll/draw or downstream outcome-dependent legality is disclosed.                                         |
+| Nested effect swallows a stop error                  | Evaluator still returns the captured terminal boundary and accepts no further answers; no resumable-state claim.         |
+| Engine operation legally no-ops/produces fewer units | Intent outcome mismatch is visible, not reported as completed solely because no error occurred.                          |
 
 ### Server, groups, replay, and persistence
 

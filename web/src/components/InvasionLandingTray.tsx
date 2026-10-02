@@ -109,7 +109,9 @@ export const InvasionLandingTray: React.FC<{
     }
     const groundTypes = new Set(context.ground_force_types);
     const opponent = context.opponent;
-    const mine = local.filter((unit) => unit.owner === choice.actor && groundTypes.has(unit.unit_type));
+    const mine = local.filter(
+      (unit) => unit.owner === choice.actor && groundTypes.has(unit.unit_type),
+    );
     const planned = draft.filter((item) => item.planet === planet);
     if (mine.length + planned.length === 0) {
       setOdds(null);
@@ -136,8 +138,13 @@ export const InvasionLandingTray: React.FC<{
       }
       return { units: unitsMap, damaged: damagedMap };
     };
-    const defenderForces = local.filter((unit) => unit.owner === opponent && groundTypes.has(unit.unit_type));
-    const attack = count([...mine, ...planned.map((item) => ({ unit_type: item.unit, damaged: item.damaged }))]);
+    const defenderForces = local.filter(
+      (unit) => unit.owner === opponent && groundTypes.has(unit.unit_type),
+    );
+    const attack = count([
+      ...mine,
+      ...planned.map((item) => ({ unit_type: item.unit, damaged: item.damaged })),
+    ]);
     const request: GroundOddsRequest = {
       attacker: { faction: normalizeFaction(players[choice.actor].faction), ...attack },
       defender: {
@@ -255,7 +262,8 @@ export const InvasionLandingTray: React.FC<{
                           aria-label={name}
                           onClick={() => setPlanet(name)}
                         >
-                          <span aria-hidden="true">🪐 </span>{name}
+                          <span aria-hidden="true">🪐 </span>
+                          {name}
                         </button>
                         <span className="invasion-planet-landing-card__meta">
                           Already on planet: {planetUnitsAlready} · Staged: {planetDraftCount}
@@ -263,7 +271,10 @@ export const InvasionLandingTray: React.FC<{
                       </div>
 
                       {isCurrentSelected && board?.invasion?.phase === "landing" && (
-                        <div data-testid="invasion-odds" className="invasion-planet-landing-card__odds">
+                        <div
+                          data-testid="invasion-odds"
+                          className="invasion-planet-landing-card__odds"
+                        >
                           <span className="invasion-odds-badge">
                             {visibleOdds === "no-battle"
                               ? "No ground battle expected"
@@ -274,7 +285,10 @@ export const InvasionLandingTray: React.FC<{
                                   : `Projected odds if these forces land against ${board.invasion.odds_context?.[name]?.opponent ?? "defender"}: ${Math.round(visibleOdds * 100)}%`}
                           </span>
                           {typeof visibleOdds === "number" && (
-                            <p className="text-muted" style={{ margin: "4px 0 0", fontSize: "11px" }}>
+                            <p
+                              className="text-muted"
+                              style={{ margin: "4px 0 0", fontSize: "11px" }}
+                            >
                               Excludes cards, Parley, optional deploy and unmodeled modifiers.
                             </p>
                           )}
@@ -364,14 +378,16 @@ export const InvasionLandingTray: React.FC<{
               <p className="invasion-draft-summary">
                 Remaining draft:{" "}
                 {draft
-                  .map(
-                    (item) => `${item.unit}${item.damaged ? " (damaged)" : ""} → ${item.planet}`,
-                  )
+                  .map((item) => `${item.unit}${item.damaged ? " (damaged)" : ""} → ${item.planet}`)
                   .join(", ")}
               </p>
             )}
 
-            {error && <p role="alert" className="workflow-error">{error}</p>}
+            {error && (
+              <p role="alert" className="workflow-error">
+                {error}
+              </p>
+            )}
 
             <div className="workflow-actions">
               <button

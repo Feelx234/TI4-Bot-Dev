@@ -450,9 +450,7 @@ describe("Board Component", () => {
     });
 
     it("displays space combat units, average hits per round, and sustain damage with planets hidden", () => {
-      render(
-        <Board board={overlayBoard} seatingOrder={["p1", "p2"]} overlayMode="space_combat" />,
-      );
+      render(<Board board={overlayBoard} seatingOrder={["p1", "p2"]} overlayMode="space_combat" />);
 
       // Planets are dropped in space combat view
       expect(screen.queryByTestId("planet-planet_alpha")).not.toBeInTheDocument();
@@ -610,7 +608,11 @@ describe("Board Component", () => {
       };
 
       render(
-        <Board board={boardWithUpperTech} seatingOrder={["p1", "p2"]} overlayMode="tech_benefits" />,
+        <Board
+          board={boardWithUpperTech}
+          seatingOrder={["p1", "p2"]}
+          overlayMode="tech_benefits"
+        />,
       );
 
       // System-level summary is removed as requested

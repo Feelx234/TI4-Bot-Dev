@@ -243,14 +243,47 @@ pub fn build_board(
     // Three rings hold 37 tiles, enough for Mecatol plus six homes and filler.
     let rings = 3;
     let mut galaxy = Galaxy::build(content, &ids, sources, rings)?;
-    // The Wormhole Nexus is always in play under Prophecy of Kings and is never dealt as filler:
-    // it sits beside the board, reached only through its wormholes. It starts on its locked face,
-    // which prints a gamma wormhole and nothing else -- so until it is flipped only a gamma
-    // source reaches it, which is Creuss's business.
-    if sources.contains(ti4_model::content_types::Source::Pok) {
-        galaxy.place_off_map(content, LOCKED_NEXUS, sources)?;
-    }
+    place_wormhole_nexus(&mut galaxy, content, sources)?;
     Ok(galaxy)
+}
+
+/// Put the Wormhole Nexus beside the board, for every board family that needs it.
+///
+/// The Nexus is always in play under Prophecy of Kings and is never dealt as filler: it sits off
+/// the hex grid, reached only through the wormholes printed on it, and it starts on its locked face
+/// — a gamma wormhole and nothing else, so until it is flipped only a gamma source reaches it, which
+/// is Creuss's business.
+///
+/// This is a rule about the game, not about one way of building a map, so it lives beside the rule
+/// and every map family calls it. It did not use to be so: the placement was written inline in
+/// [`build_board`], which is the Rust spiral, and the two map families built from a captured Python
+/// pool — [`ti4_content::galaxy::Galaxy::placed`], reached through the map pool, which is what the
+/// reviewer and the replayer sit on — never went near it. On those tables the Nexus was not hidden,
+/// it was simply not in the game: no tile, no gamma partner, no Mallice. A pool of a thousand
+/// arrangements contains no `82` in any of them, because the geometry it captured is the ring of
+/// tiles and the Nexus is not one.
+///
+/// Idempotent, and quiet when the tile is already on the grid — a captured arrangement that carries
+/// its own `82` keeps it, rather than this turning the setup into a [`GalaxyError::DuplicateSystem`].
+///
+/// # Errors
+/// Any [`GalaxyError`] from registering the tile, which in practice means the corpus has no Nexus in
+/// this source scope.
+pub fn place_wormhole_nexus(
+    galaxy: &mut Galaxy,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Result<(), ti4_content::galaxy::GalaxyError> {
+    if !sources.contains(ti4_model::content_types::Source::Pok) {
+        return Ok(());
+    }
+    // `wormhole_kinds` is how a caller asks about a system that has no hex; see its documentation.
+    if !galaxy.wormhole_kinds(LOCKED_NEXUS).is_empty()
+        || !galaxy.wormhole_kinds(OPEN_NEXUS).is_empty()
+    {
+        return Ok(());
+    }
+    galaxy.place_off_map(content, LOCKED_NEXUS, sources)
 }
 
 /// Whether anything has happened that opens the Wormhole Nexus.

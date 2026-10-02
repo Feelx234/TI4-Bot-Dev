@@ -1,5 +1,33 @@
 //! Behavioral distribution suite for the authored bot (M08-021).
 //!
+//! # RETIRED 2026-09-30
+//!
+//! The gate test below carries `#[ignore]`. **Nothing this project runs plays the authored bot**, so
+//! the claim made two paragraphs down — that it is "the comparison baseline every cross-time VP
+//! measurement depends on" — is no longer true, and reading it as current cost a reviewer two hours
+//! on 2026-09-30. Measured that day:
+//!
+//! - `ti4-mlp`, `ti4-training` and `ti4-policy` contain no use of `crate::run` or [`Seats`] at all.
+//!   Learned policies are measured by `ti4-mlp`'s `clearance_eval` and `crossplay_eval` against
+//!   checkpoint bundles, on a path that never touches this module.
+//! - `ti4_policy::bot::ScoredBot`'s only non-example consumers are this crate's own harness and
+//!   `ti4_training::rollout::play_rotated_pool_batch_authored`, whose only caller is the one-off
+//!   `ti4-training/examples/ceiling.rs`.
+//! - `plans/M08_AUTHORED_BOTS.md` records rows 001–017 as superseded, and Python parity stopped
+//!   being an acceptance criterion on 2026-08-21.
+//!
+//! What was genuinely lost by retiring it, stated plainly: six deterministic bots playing thirty
+//! fixed games is a cheap **engine** event-drift detector, and the action-mix metrics count engine
+//! events rather than bot judgement — which is why it caught seven metrics moving at v45. That value
+//! was incidental to the design, not its purpose, and a random-seat or learned-seat harness would
+//! serve it without claiming to be a VP baseline. If engine event-drift is worth watching, it wants
+//! its own suite with an honest label rather than this one revived.
+//!
+//! Nothing is deleted. The harness, the committed seed set, the bootstrap and the v45 intervals are
+//! intact; `cargo test -p ti4-sim --lib -- --ignored` runs it, and deleting one attribute restores
+//! it to the normal suite. The v45 re-baseline that preceded this retirement is recorded in
+//! `plans/evidence/M08-021.md`, including the seven-metric move whose attribution was never done.
+//!
 //! The authored bot is the comparison baseline every cross-time VP measurement depends on
 //! (SD-1, `plans/M08_AUTHORED_BOTS.md`). Determinism pins catch *run-to-run* drift; this suite
 //! catches *version-to-version* behavioral drift: it plays a fixed seed set twice, asserts
@@ -381,6 +409,38 @@ pub const BOOTSTRAP_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 /// the top of this module.
 #[must_use]
 pub fn baseline_bounds() -> BTreeMap<String, (f64, f64)> {
+    // v43 — 2026-09-21. `is_action_window` compared the corpus window against "during the action
+    // phase" without the colon the card frame prints, so every Prophecy of Kings agent — Carth of
+    // Golden Sands among them — was filtered out of `component_actions` before anything else was
+    // consulted. LEADER-FIX-001 (16f389a, the v37 note above) put `hacanagent` in the delivered set
+    // and tested `use_leader`, which never reads the window; the leader was therefore "delivered"
+    // for eight days and unreachable in play. Dropping the colon delivers it for real, and a Hacan
+    // seat now spends action-phase options on commodities. Guarded by
+    // `leaders::tests::every_delivered_action_leader_prints_an_action_window`.
+    //
+    // Four metrics leave v42, all of them the action mix: share_INVASION_RESOLVED
+    // 0.019538 -> 0.019071, share_PRODUCTION_RESOLVED 0.035318 -> 0.034880,
+    // share_SYSTEM_ACTIVATED 0.069826 -> 0.068945, share_TACTICAL_ACTION_BEGAN
+    // 0.034508 -> 0.034065 — each about 1% down, which is dilution: every use of the agent appends
+    // a COMPONENT_ACTION_RESOLVED to the stream the shares divide by. `faction_differentiation`
+    // 0.323989 -> 0.712759 is the interesting one and it was already outside v42 before this change
+    // (below its floor of 0.371517 on the tree this batch started from, measured by reverting
+    // leaders.rs and legendary.rs to 90afe71 and re-running the same example); a Hacan seat with a
+    // working economy pulls away from the seats that do not, and the interval comes back home.
+    //
+    // Attribution, because "four metrics at once" deserves a bisection rather than a story: the two
+    // other fixes in this batch leave this suite untouched. Reverting the Maxis change and
+    // re-running prints the same ten numbers; the Wormhole Nexus placement is inert here (the
+    // reviewer's semantic golden is byte-identical with and without it). `completion` is 1.0 again:
+    // all thirty games still end cleanly.
+    //
+    // Derived with `cargo run --release -p ti4-sim --example rebaseline_behavior`; the debug build
+    // of the same example prints these ten intervals to the last digit, checked both ways on this
+    // tree. The bootstrap seed and draw count are unchanged. Review approval, which this discipline
+    // normally asks for, is the operator's standing waiver of independent review for this batch
+    // (2026-09-20): the numbers are the implementer's, and the old/new table is in
+    // plans/evidence/M08-021.md.
+    //
     // v42 — 2026-09-17. b1330a5: only ships sustain a space hit (a carried mech no longer does),
     // start-of-combat-round cards go to the two combatants only, and Ceasefire denies movement
     // for the whole activation. Bisected on b1330a5: the Ceasefire fix alone stays inside v41;
@@ -1033,43 +1093,94 @@ pub fn baseline_bounds() -> BTreeMap<String, (f64, f64)> {
     let mut bounds = BTreeMap::new();
     bounds.insert(
         "vp_pace".to_owned(),
-        (0.378_395_061_728_395_1, 0.437_654_320_987_654_17),
+        (0.4438271604938271, 0.5179012345679012),
     );
     // Degenerate on purpose: all games in every recorded baseline ended cleanly, so the bound
     // is the strict invariant "every game ends cleanly", not a statistical interval.
     bounds.insert("completion".to_owned(), (1.0, 1.0));
     bounds.insert(
         "score_spread".to_owned(),
-        (1.795_363_964_616_141_2, 2.261_770_458_160_200_7),
+        (1.7567102253052604, 2.2381514094078523),
     );
+    // v45 — 2026-09-30. **Every one of the ten intervals is re-derived, and the attribution is NOT
+    // done.** Recorded that way deliberately: the v43 note says "four metrics at once deserves a
+    // bisection rather than a story", and this is seven at once. The operator directed that this gate
+    // stop blocking the merge review and authorised removing the test outright; re-recording is the
+    // lesser action and keeps the detector alive for the next change, but it buys that at the cost of
+    // the evidence the discipline above asks for. Treat the v45 interval as a fresh reference point,
+    // not as a finding.
+    //
+    // What moved, measured (old -> now):
+    //   share_INVASION_RESOLVED      0.018557-0.019962 -> 0.015906
+    //   share_PRODUCTION_RESOLVED    0.034243-0.035447 -> 0.028446
+    //   share_SHIP_MOVED             0.044410-0.047578 -> 0.040317
+    //   share_SPACE_COMBAT_RESOLVED  0.004248-0.004945 -> 0.003462
+    //   share_SYSTEM_ACTIVATED       0.067735-0.070061 -> 0.056298
+    //   share_TACTICAL_ACTION_BEGAN  0.033491-0.034637 -> 0.027852
+    //   vp_pace                      0.387654-0.449383 -> 0.479630  (up, while the shares fall)
+    // completion, faction_differentiation and score_spread stay inside v44 but are re-derived too,
+    // because the protocol-integrity check under this map is strict.
+    //
+    // What is known, and what is not:
+    //   - Not a lost completion event. INVASION_BEGAN and INVASION_RESOLVED are equal at 2,120 each
+    //     across the 30 seeds; every invasion that starts finishes. All 30 games end cleanly.
+    //   - Part of the fall is denominator growth. The stream carries 133,040 events including 6,237
+    //     TURN_CLOSING, a label git attributes to 75f1d94a. Removing only that label from each
+    //     denominator moves the invasion share 0.015906 -> 0.016689, which does not reach the v44
+    //     floor. That is a bookkeeping contribution, not a causal ablation.
+    //   - 40 engine commits landed since the v43/v44 baseline (cb7c559 era), six of them on combat
+    //     lethality (48e9ef39 Assault Cannon, b0693082 Graviton Laser, f75dd74f Duranium Armor,
+    //     f952b278 X-89, 0fc085e1 Hyper Metabolism et al., db3829f9 L1Z1X agent / Plasma Scoring)
+    //     and others on turn and trade behaviour. None is attributed to any metric here.
+    //   - The rising VP pace is not explained by a dilution story at all and is the loose end most
+    //     worth pulling if anybody returns to this.
+    // Independent review: plans/ASTRA_REVIEW_RESPONSE_2026-09-30.md section 1, which declines to
+    // approve any bounds and sets out the attribution it would want. plans/evidence/M08-021.md
+    // carries the side-by-side record.
+    //
     // V3: the spec's across-faction quantity — re-deriven with the same baseline run.
+    //
+    // v44 — 2026-09-21. One metric moves, and it moves the way a fix should: `faction_differentiation`
+    // [0.500247, 1.050646] -> [0.548201, 1.101080]. The transaction offer set gained five shapes that
+    // take an asset *from* the partner (a note bought for goods `np`, for commodities `cp`, my note for
+    // their commodities `pc`, note-for-note `nn`, a card for a note `cn`), which is the first time the
+    // engine could ask at all. Notes are the most asymmetric cards in the game — a Research Agreement
+    // is worth four goods to its own faction and two to anybody else — so a table that can trade them
+    // separates its factions by what each one wanted. Every other metric, including the four action-mix
+    // shares that moved at v43, stays inside its recorded interval -- but staying inside is a weak
+    // statement, and the protocol-integrity check under it is strict: eight more intervals
+    // (score_spread, vp_pace, share_SHIP_MOVED, share_SPACE_COMBAT_RESOLVED and the four v43 shares)
+    // no longer re-derived to the recorded constants and were re-derived here. Each moved by well
+    // under a tenth of its own width. The first version of this note claimed the rest was unchanged,
+    // which was true of the gate and false of the protocol, and the difference is exactly what the
+    // strict check exists to catch.
     bounds.insert(
         "faction_differentiation".to_owned(),
-        (0.371_516_744_384_455_37, 1.092_807_574_581_055_3),
+        (0.502_370_921_939_035_7, 1.166_296_237_488_678),
     );
     bounds.insert(
         "share_INVASION_RESOLVED".to_owned(),
-        (0.019_115_944_910_957_507, 0.020_127_060_909_007_55),
+        (0.015450145238948618, 0.01637068296879844),
     );
     bounds.insert(
         "share_PRODUCTION_RESOLVED".to_owned(),
-        (0.034_890_831_994_864_584, 0.036_340_109_077_348_26),
+        (0.02779015375336437, 0.029061887188504158),
     );
     bounds.insert(
         "share_SHIP_MOVED".to_owned(),
-        (0.045_206_739_940_504_84, 0.048_183_818_077_498_06),
+        (0.03885380549232535, 0.041846989151593204),
     );
     bounds.insert(
         "share_SPACE_COMBAT_RESOLVED".to_owned(),
-        (0.004_316_600_800_571_206, 0.005_090_458_836_192_481),
+        (0.0031806834552516134, 0.0037562752435148085),
     );
     bounds.insert(
         "share_SYSTEM_ACTIVATED".to_owned(),
-        (0.069_110_585_207_633_07, 0.071_842_061_831_318_97),
+        (0.0549943146528177, 0.05750128937511879),
     );
     bounds.insert(
         "share_TACTICAL_ACTION_BEGAN".to_owned(),
-        (0.034_202_350_692_948_86, 0.035_513_879_381_186_13),
+        (0.027212608859304592, 0.028446572959487597),
     );
     bounds
 }
@@ -1106,8 +1217,14 @@ mod tests {
 
     /// The suite's gate: two runs from the same seed set must be per-seed identical (the
     /// determinism precondition — a flaky bound could otherwise hide an engine nondeterminism
-    /// regression), and every batch metric must sit inside its recorded v1 bounds.
+    /// regression), and every batch metric must sit inside its recorded bounds.
+    ///
+    /// **Retired 2026-09-30 — see the retirement note in the module documentation.** Run it with
+    /// `cargo test -p ti4-sim --lib -- --ignored` when the authored bot is deliberately being
+    /// worked on. It is not deleted: the harness, the fixed seed set and the v45 intervals are all
+    /// still here, so reviving it is removing one attribute.
     #[test]
+    #[ignore = "retired: the authored bot has no downstream consumer; see the module retirement note"]
     fn the_suite_reproduces_and_stays_within_the_recorded_bounds() {
         let content = ContentStore::embedded();
 

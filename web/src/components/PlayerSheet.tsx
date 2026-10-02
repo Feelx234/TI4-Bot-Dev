@@ -193,7 +193,9 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
               }}
             >
               {/* Remaining / Total Resources */}
-              <Tooltip content={`Resources: ${stats.remainingResources} ready / ${stats.totalResources} total`}>
+              <Tooltip
+                content={`Resources: ${stats.remainingResources} ready / ${stats.totalResources} total`}
+              >
                 <div
                   data-testid="player-resources"
                   title={`Resources: ${stats.remainingResources} ready / ${stats.totalResources} total`}
@@ -217,7 +219,9 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
               </Tooltip>
 
               {/* Remaining / Total Influence */}
-              <Tooltip content={`Influence: ${stats.remainingInfluence} ready / ${stats.totalInfluence} total`}>
+              <Tooltip
+                content={`Influence: ${stats.remainingInfluence} ready / ${stats.totalInfluence} total`}
+              >
                 <div
                   data-testid="player-influence"
                   title={`Influence: ${stats.remainingInfluence} ready / ${stats.totalInfluence} total`}

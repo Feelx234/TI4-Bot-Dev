@@ -71,7 +71,7 @@ To enable self-service MLP bots from the lobby:
    ```
 4. **Using Bot Controls in the Web UI**:
    - In the browser lobby, the **host** will see a **`+ Bot`** button next to each available (unoccupied) seat slot.
-   - *Note*: If `TI4_BOT_PASSWORD` was not set on the server, or if viewing the lobby as a guest/spectator, the `+ Bot` buttons are hidden.
+   - _Note_: If `TI4_BOT_PASSWORD` was not set on the server, or if viewing the lobby as a guest/spectator, the `+ Bot` buttons are hidden.
    - Clicking `+ Bot` opens a modal prompting for the bot's display nickname and the server bot password (with an option to save the password in local storage).
    - Once submitted, the server spawns a `ti4-bot-agent` process that connects, heartbeats, and readies the seat.
    - The host can remove a bot by clicking the **`×`** button next to its slot before starting the match.

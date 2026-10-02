@@ -91,11 +91,7 @@ export const BoardTile: React.FC<BoardTileProps> = ({
 
       {/* Candidate target soft glow fill */}
       {tile.isCandidateTarget && isActivationMode && (
-        <polygon
-          points={tile.points}
-          fill="rgba(56, 189, 248, 0.15)"
-          pointerEvents="none"
-        />
+        <polygon points={tile.points} fill="rgba(56, 189, 248, 0.15)" pointerEvents="none" />
       )}
 
       {/* Candidate target highlight animation ring */}
@@ -180,10 +176,7 @@ export const BoardTile: React.FC<BoardTileProps> = ({
 
       {/* Blocked by player's command token overlay */}
       {tile.commandTokens.some((ct) => ct.owner === viewerSeat) && (
-        <g
-          data-testid={`blocked-token-${tile.systemId}`}
-          style={{ pointerEvents: "none" }}
-        >
+        <g data-testid={`blocked-token-${tile.systemId}`} style={{ pointerEvents: "none" }}>
           <polygon points={tile.points} fill="rgba(15, 23, 42, 0.4)" />
           <rect
             x={tile.center.x - 32}
@@ -249,14 +242,7 @@ export const BoardTile: React.FC<BoardTileProps> = ({
         const wY = tile.center.y - 18;
         return (
           <g key={`wh-${wh.kind}-${wIdx}`}>
-            <circle
-              cx={wX}
-              cy={wY}
-              r="8"
-              fill="#08111d"
-              stroke={wh.color}
-              strokeWidth="2"
-            />
+            <circle cx={wX} cy={wY} r="8" fill="#08111d" stroke={wh.color} strokeWidth="2" />
             <text
               x={wX}
               y={wY + 3.5}
@@ -275,9 +261,7 @@ export const BoardTile: React.FC<BoardTileProps> = ({
       {/* View-Specific Overlays */}
       {activeOverlay === "economy" && <EconomyOverlay tile={tile} />}
 
-      {activeOverlay === "space_combat" && (
-        <SpaceCombatOverlay tile={tile} players={players} />
-      )}
+      {activeOverlay === "space_combat" && <SpaceCombatOverlay tile={tile} players={players} />}
 
       {activeOverlay === "ground_combat" && (
         <GroundCombatOverlay

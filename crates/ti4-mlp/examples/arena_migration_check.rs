@@ -58,6 +58,8 @@ struct Played {
     seconds: f64,
     assigned: usize,
     movement: usize,
+    /// Fleet decisions, planned answers and stopped plans (fact version 7).
+    plans: (usize, usize, usize),
 }
 
 fn play(
@@ -77,6 +79,7 @@ fn play(
         .map(|(index, player)| (player.clone(), seated_faction(&factions, seed, 0, index)))
         .collect();
     let mut statuses = Vec::new();
+    let mut traces = Vec::new();
     let mut game = setup_game_with_capabilities_and_decider_factory(
         content,
         &players,
@@ -97,11 +100,11 @@ fn play(
                 let stream = seed
                     .wrapping_mul(1_000_003)
                     .wrapping_add(u64::try_from(index).unwrap_or(0));
-                let (decider, status) =
-                    ti4_mlp::bot::MlpBot::sharing(actor, vocabulary.clone(), row, stream)
-                        .at_temperature(0.001)
-                        .from_setup(baseline)
-                        .seat();
+                let bot = ti4_mlp::bot::MlpBot::sharing(actor, vocabulary.clone(), row, stream)
+                    .at_temperature(0.001)
+                    .from_setup(baseline);
+                traces.push(bot.plan_trace());
+                let (decider, status) = bot.seat();
                 statuses.push(status);
                 deciders.insert(player.clone(), decider);
             }
@@ -121,6 +124,13 @@ fn play(
         }
     }
     let seconds = started.elapsed().as_secs_f64();
+    for trace in &traces {
+        for entry in trace.borrow().iter() {
+            if let ti4_mlp::bot::PlanTrace::Stopped { player, reason } = entry {
+                println!("  seed {seed}: {player}'s plan stopped: {reason}");
+            }
+        }
+    }
     let records = &game.table.log.records;
     Ok(Played {
         trace: records
@@ -132,6 +142,14 @@ fn play(
             .iter()
             .map(|status| status.counters().assigned.load(Ordering::Relaxed))
             .sum(),
+        plans: statuses.iter().fold((0, 0, 0), |(d, p, s), status| {
+            let c = status.counters();
+            (
+                d + c.package_decisions.load(Ordering::Relaxed),
+                p + c.planned.load(Ordering::Relaxed),
+                s + c.plans_stopped.load(Ordering::Relaxed),
+            )
+        }),
         movement: records
             .iter()
             .filter(|r| r.offered.iter().any(|id| id == "done_moving"))
@@ -163,6 +181,7 @@ fn main() {
 
     let mut identical = true;
     let (mut t_plain, mut t_arena, mut decisions, mut facts, mut movement) = (0.0, 0.0, 0, 0, 0);
+    let mut plans = (0usize, 0usize, 0usize);
     println!("  seed        decisions  movement  battle facts  plain s  arena s");
     for seed in seed_base..seed_base + seeds {
         let before = play(content, &plain, &plain_vocabulary, seed, rounds)
@@ -198,6 +217,11 @@ fn main() {
         decisions += after.trace.len();
         facts += extra;
         movement += after.movement;
+        plans = (
+            plans.0 + after.plans.0,
+            plans.1 + after.plans.1,
+            plans.2 + after.plans.2,
+        );
     }
     println!(
         "\n  identity: {}",
@@ -207,6 +231,12 @@ fn main() {
         "  {decisions} decisions, {movement} movement decisions, {facts} battle facts emitted; wall time x{:.3}",
         t_arena / t_plain.max(f64::EPSILON)
     );
+    if plans.0 > 0 {
+        println!(
+            "  fleet decisions {}, prompts answered by plans {}, plans stopped {}",
+            plans.0, plans.1, plans.2
+        );
+    }
     if !identical {
         std::process::exit(1);
     }

@@ -27,15 +27,13 @@ fn specialty_planets(
     sources: SourceSet,
     player: &PlayerId,
 ) -> Vec<PlanetId> {
-    let planets = ti4_content::galaxy::all_planets(content, sources);
     state
         .controlled_planets(player)
         .into_iter()
         .filter_map(|(_, planet)| {
             (!state.exhausted_planets.contains(planet)
-                && planets
-                    .get(planet.as_str())
-                    .is_some_and(|record| !record.tech_specialties().is_empty()))
+                && !crate::planets::tech_specialties_now(state, content, sources, planet)
+                    .is_empty())
             .then_some(planet.clone())
         })
         .collect()

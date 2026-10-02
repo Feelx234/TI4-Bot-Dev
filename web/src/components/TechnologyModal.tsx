@@ -87,42 +87,42 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     isResearchMode ||
     Boolean(
       choice &&
-        (choice.context?.subtype === "research_technology" ||
-          choice.options.some((o) => o.kind === "research"))
+      (choice.context?.subtype === "research_technology" ||
+        choice.options.some((o) => o.kind === "research")),
     );
 
   const contextRecord = choice?.context as Record<string, unknown> | undefined;
   const isPrimaryTechnology = Boolean(
     choice?.context?.subtype === "research_technology" &&
-      (contextRecord?.strategy_card === "pok7technology" ||
-        contextRecord?.strategy_card === "Technology" ||
-        (choice.context.source &&
-          typeof choice.context.source === "object" &&
-          "StrategyCard" in choice.context.source &&
-          (choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
-            .StrategyCard?.card === "Technology" &&
-          !(choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
-            .StrategyCard?.secondary)),
+    (contextRecord?.strategy_card === "pok7technology" ||
+      contextRecord?.strategy_card === "Technology" ||
+      (choice.context.source &&
+        typeof choice.context.source === "object" &&
+        "StrategyCard" in choice.context.source &&
+        (choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
+          .StrategyCard?.card === "Technology" &&
+        !(choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
+          .StrategyCard?.secondary)),
   );
 
   const isSecondaryTechnology = Boolean(
     choice?.context?.subtype === "research_technology" &&
-      choice.context.source &&
-      typeof choice.context.source === "object" &&
-      "StrategyCard" in choice.context.source &&
-      (choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
-        .StrategyCard?.card === "Technology" &&
-      Boolean(
-        (choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
-          .StrategyCard?.secondary,
-      ),
+    choice.context.source &&
+    typeof choice.context.source === "object" &&
+    "StrategyCard" in choice.context.source &&
+    (choice.context.source as { StrategyCard: { card: string; secondary: boolean } }).StrategyCard
+      ?.card === "Technology" &&
+    Boolean(
+      (choice.context.source as { StrategyCard: { card: string; secondary: boolean } }).StrategyCard
+        ?.secondary,
+    ),
   );
 
   const maxSelectable = isPrimaryTechnology
     ? 2
     : model?.selectionMode.mode === "multi"
-    ? model.selectionMode.max
-    : 1;
+      ? model.selectionMode.max
+      : 1;
 
   // Selected technologies state (supports up to 2 for primary research)
   const [selectedTechs, setSelectedTechs] = useState<string[]>(() => {
@@ -175,7 +175,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     if (!viewerPlayer?.technologies) return counts;
     for (const track of TECH_TRACKS) {
       counts[track.id] = viewerPlayer.technologies.filter((techId) =>
-        track.techIds.some((trackTechId) => techMatches(techId, trackTechId))
+        track.techIds.some((trackTechId) => techMatches(techId, trackTechId)),
       ).length;
     }
     return counts;
@@ -278,17 +278,26 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   }, [selectedTechs.length, isPrimaryTechnology, isSecondaryTechnology, availableResources.total]);
 
   // Two-step submission pipeline for Option B
-  const pendingPipelineRef = useRef<{ initialNonce?: string; nextTarget: string | "decline" } | null>(null);
+  const pendingPipelineRef = useRef<{
+    initialNonce?: string;
+    nextTarget: string | "decline";
+  } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!pendingPipelineRef.current) return;
     const { initialNonce, nextTarget } = pendingPipelineRef.current;
-    if (choice && choice.nonce !== initialNonce && choice.context?.subtype === "research_technology") {
+    if (
+      choice &&
+      choice.nonce !== initialNonce &&
+      choice.context?.subtype === "research_technology"
+    ) {
       pendingPipelineRef.current = null;
       if (onSubmit) {
         if (nextTarget === "decline") {
-          const declineOpt = choice.options?.find((o) => o.id === "decline" || o.kind === "decline");
+          const declineOpt = choice.options?.find(
+            (o) => o.id === "decline" || o.kind === "decline",
+          );
           if (declineOpt) {
             onSubmit(declineOpt.id).finally(() => setIsSubmitting(false));
           } else {
@@ -494,30 +503,33 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                   </span>
                 </div>
                 <div className="technology-modal__skips-list" data-testid="tech-skips-list">
-                  {maxSelectable === 2 && selectedTechs.length >= 1 && (() => {
-                    const firstTrack = getTechnologyTrack(selectedTechs[0]);
-                    if (!firstTrack) return null;
-                    const firstTech = hydrateTech(selectedTechs[0]);
-                    return (
-                      <span
-                        key="first-tech-bonus"
-                        className="tech-skip-pill tech-skip-pill--toggled"
-                        style={{ cursor: "default" }}
-                        data-testid="first-tech-prereq-bonus"
-                        title={`1st selected technology (${firstTech.meta.name}) grants +1 ${firstTrack} prerequisite for your 2nd technology`}
-                      >
+                  {maxSelectable === 2 &&
+                    selectedTechs.length >= 1 &&
+                    (() => {
+                      const firstTrack = getTechnologyTrack(selectedTechs[0]);
+                      if (!firstTrack) return null;
+                      const firstTech = hydrateTech(selectedTechs[0]);
+                      return (
                         <span
-                          className={`tech-skip-pill__badge tech-skip-pill__badge--${firstTrack.toLowerCase()}`}
+                          key="first-tech-bonus"
+                          className="tech-skip-pill tech-skip-pill--toggled"
+                          style={{ cursor: "default" }}
+                          data-testid="first-tech-prereq-bonus"
+                          title={`1st selected technology (${firstTech.meta.name}) grants +1 ${firstTrack} prerequisite for your 2nd technology`}
                         >
-                          {firstTrack.charAt(0)}
+                          <span
+                            className={`tech-skip-pill__badge tech-skip-pill__badge--${firstTrack.toLowerCase()}`}
+                          >
+                            {firstTrack.charAt(0)}
+                          </span>
+                          <span>{firstTech.meta.name}</span>
+                          <span className="tech-skip-pill__status">Tech 1 (+1)</span>
                         </span>
-                        <span>{firstTech.meta.name}</span>
-                        <span className="tech-skip-pill__status">Tech 1 (+1)</span>
-                      </span>
-                    );
-                  })()}
+                      );
+                    })()}
 
-                  {controlledSpecialties.length === 0 && (maxSelectable !== 2 || selectedTechs.length === 0) ? (
+                  {controlledSpecialties.length === 0 &&
+                  (maxSelectable !== 2 || selectedTechs.length === 0) ? (
                     <span className="technology-modal__skips-empty">
                       No specialty planets controlled
                     </span>
@@ -535,16 +547,16 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                             planet.isExhausted
                               ? "tech-skip-pill--exhausted"
                               : isToggled
-                              ? "tech-skip-pill--toggled"
-                              : "tech-skip-pill--ready"
+                                ? "tech-skip-pill--toggled"
+                                : "tech-skip-pill--ready"
                           }`}
                           onClick={() => togglePlanetSkip(planet.planetId)}
                           title={
                             planet.isExhausted
                               ? `${planet.name} is exhausted`
                               : isToggled
-                              ? `Click to untoggle ${planet.name} skip`
-                              : `Click to toggle ${planet.name} skip`
+                                ? `Click to untoggle ${planet.name} skip`
+                                : `Click to toggle ${planet.name} skip`
                           }
                         >
                           <span
@@ -557,8 +569,8 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                             {planet.isExhausted
                               ? "(Exhausted)"
                               : isToggled
-                              ? "Active (+1)"
-                              : "Ready"}
+                                ? "Active (+1)"
+                                : "Ready"}
                           </span>
                         </button>
                       );
@@ -630,14 +642,14 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                     {isSubmitting
                       ? "Confirming..."
                       : selectedTechs.length === 0
-                      ? "Select Technology"
-                      : isPrimaryTechnology
-                      ? selectedTechs.length === 2
-                        ? "Confirm Research (2 Techs - 6 Resources)"
-                        : "Confirm Research (1 Tech - Free)"
-                      : researchCost > 0
-                      ? `Confirm Research (${researchCost} Resources)`
-                      : "Confirm Research (Free)"}
+                        ? "Select Technology"
+                        : isPrimaryTechnology
+                          ? selectedTechs.length === 2
+                            ? "Confirm Research (2 Techs - 6 Resources)"
+                            : "Confirm Research (1 Tech - Free)"
+                          : researchCost > 0
+                            ? `Confirm Research (${researchCost} Resources)`
+                            : "Confirm Research (Free)"}
                   </button>
                 </div>
               </div>
@@ -757,10 +769,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                   Unit Upgrades{" "}
                   <small style={{ color: "#94a3b8" }}>({unitUpgradeTechs.length})</small>
                 </h3>
-                <div
-                  className="technology-modal__unit-grid"
-                  data-testid="tech-track-unitupgrade"
-                >
+                <div className="technology-modal__unit-grid" data-testid="tech-track-unitupgrade">
                   {unitUpgradeTechs.map((tech) => (
                     <TechCard
                       key={tech.id}

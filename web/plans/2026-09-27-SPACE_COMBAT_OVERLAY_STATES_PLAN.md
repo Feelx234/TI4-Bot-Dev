@@ -11,7 +11,7 @@ The intended flow is:
 - **Before rolls:** show both fleets, including ships damaged in earlier rounds, and current win odds.
 - **Roll results:** show hits by ship type and total hits for each side. Distinguish the first-round anti-fighter barrage from normal space-combat rolls.
 - **Resolve hits:** show the roll totals, incoming hits still to resolve, and where hits have gone. A sustain marks a surviving ship damaged; a casualty reduces its ship count. Keep damaged ships visible in the fleet. Hit-cancellation reactions belong here.
-- **Retreat / next round:** after *both* sides finish resolving hits, show the resulting fleets. An announced retreat selects its destination at this point; otherwise the next round starts. The stay/announce-retreat choice happens **before** that round's rolls, not after it.
+- **Retreat / next round:** after _both_ sides finish resolving hits, show the resulting fleets. An announced retreat selects its destination at this point; otherwise the next round starts. The stay/announce-retreat choice happens **before** that round's rolls, not after it.
 - **Combat complete:** close or dock the battle view and let the next game decision proceed. Defer an automatic post-combat recap for now; it is not the between-round fleet view. A later optional recap can be designed separately.
 
 Only show odds when they correspond to the **current pre-roll fleet and conditions**. Hide them while a new calculation is pending or has failed, from the first combat roll until the next pre-roll state, and after the battle ends. Do not show a stale percentage or substitute the current heuristic as though it were up-to-date simulated odds.
@@ -43,7 +43,7 @@ Keep sensitive offers actor-only. All participants may see public fleet changes 
 
 ### Odds have a validity window
 
-Calculate odds for the initial pre-combat fleet before the barrage, then invalidate and recalculate if barrage losses, repairs, or other pre-roll changes alter the fleet. Recalculate again at the next round's pre-roll board after hits and retreats are settled. Invalidate the displayed odds immediately if that input changes, the phase changes to combat rolls/hit resolution, a new battle starts, or history is restored. Show a neutral `Calculating odds…` state or no odds card until the matching response arrives; on failure show a short unavailable message rather than an old percentage. On roll results, assignment, retreat destination, and combat completion, show no odds. These are *unconditional future-combat estimates*, not probabilities updated to account for already-known dice or a half-resolved hit queue.
+Calculate odds for the initial pre-combat fleet before the barrage, then invalidate and recalculate if barrage losses, repairs, or other pre-roll changes alter the fleet. Recalculate again at the next round's pre-roll board after hits and retreats are settled. Invalidate the displayed odds immediately if that input changes, the phase changes to combat rolls/hit resolution, a new battle starts, or history is restored. Show a neutral `Calculating odds…` state or no odds card until the matching response arrives; on failure show a short unavailable message rather than an old percentage. On roll results, assignment, retreat destination, and combat completion, show no odds. These are _unconditional future-combat estimates_, not probabilities updated to account for already-known dice or a half-resolved hit queue.
 
 Key/abort requests by battle identity, round, phase, and normalized odds input (unit counts, damage, factions, and any modifiers the advisor actually models). Accept a response only if its key still matches the current pre-roll view. Do not imply that the advisor includes cards, technologies, or modifiers it was not given; document/label the modeled scope if needed.
 
@@ -58,10 +58,10 @@ Key/abort requests by battle identity, round, phase, and normalized odds input (
 
 ## Crates to change
 
-| Area | Files / purpose |
-| --- | --- |
-| `ti4-engine` | `crates/ti4-engine/src/combat.rs` and, if necessary, the combat state/driver: expose public phase/round boundaries and assignment facts across pauses; preserve the existing simultaneous-hit and retreat rules. |
-| `ti4-server` | `crates/ti4-server/src/projection.rs`, `src/protocol/view.rs`, and focused projection tests: publish the phase, scoped rolls/hits, and public assignment evidence consistently for every viewer. |
+| Area                     | Files / purpose                                                                                                                                                                                                                                                                                                                          |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ti4-engine`             | `crates/ti4-engine/src/combat.rs` and, if necessary, the combat state/driver: expose public phase/round boundaries and assignment facts across pauses; preserve the existing simultaneous-hit and retreat rules.                                                                                                                         |
+| `ti4-server`             | `crates/ti4-server/src/projection.rs`, `src/protocol/view.rs`, and focused projection tests: publish the phase, scoped rolls/hits, and public assignment evidence consistently for every viewer.                                                                                                                                         |
 | `web` (not a Rust crate) | `web/src/protocol/types.ts`, `src/components/SpaceCombatOverlay.tsx`, `src/components/GameShell.tsx`, their tests, and `web/e2e/space_combat_four_views.spec.ts`: phase-aware rendering, odds validity, and nonblocking completion. `web/src/services/advisorService.ts` only if the request inputs or response handling need extending. |
 
 `ti4-advisor` should not need a change for display timing; only consider it if the proposed odds contract requires new simulation inputs that the current `/battle` endpoint cannot represent.

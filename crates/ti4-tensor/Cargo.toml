@@ -9,7 +9,26 @@ tch.workspace = true
 thiserror.workspace = true
 
 [build-dependencies]
+cc = "1"
 sha2.workspace = true
 
-[lints]
-workspace = true
+# The workspace lints, restated because one module needs `unsafe`: `cuda_cache` calls two C
+# functions from a C++ shim over libtorch's CUDA caching allocator (operator approval, 2026-09-22,
+# "just this module"). `forbid` cannot be lifted locally, so this crate `deny`s instead and that
+# module alone carries `#[allow(unsafe_code)]`. Keep in step with [workspace.lints] in Cargo.toml.
+[lints.rust]
+unsafe_code = "deny"
+dead_code = "warn"
+unused_imports = "warn"
+unused_variables = "warn"
+duplicate_macro_attributes = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(ti4_cuda_cache)"] }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "allow", priority = -1 }
+too_many_arguments = "allow"
+similar_names = "allow"
+many_single_char_names = "allow"
+must_use_candidate = "allow"

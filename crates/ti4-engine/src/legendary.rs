@@ -354,15 +354,38 @@ pub fn pass(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// this engine (Space Stations rule 7 keeps it out of the scoring view), and Mecatol Rex starts
 /// the game empty, so without a guard this would hand it over on the first pass of round one for
 /// nothing, bypassing the custodians token entirely.
+///
+/// ## Why the map and not `state.board`
+///
+/// `GameState::board` materialises a system the first time anything lands on it — a unit, a planet
+/// taken, a token placed. It is the record of what has *changed*, and until then `GameState::system`
+/// hands out an empty `SystemState` for a system that is a perfectly ordinary one on the map. Walking the
+/// board alone therefore offered exactly the planets somebody had already disturbed and silently
+/// omitted the empty ones the card is about: on a fresh table an opponent holding Faunus could take
+/// the planet on the other side of the board, and the only options offered were the half-dozen
+/// systems a fleet had visited. The [`Galaxy`] is the registry of what is in play, so it drives the
+/// list; the board still contributes, for systems the map does not hold — a Fracture system brought
+/// into play, or a game with no map at all in a unit test.
 fn maxis_candidates(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
     player: &PlayerId,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
 ) -> Vec<(ti4_model::id::SystemId, PlanetId)> {
     let records = ti4_content::galaxy::all_planets(content, sources);
+    let mut systems: std::collections::BTreeSet<ti4_model::id::SystemId> =
+        state.board.keys().cloned().collect();
+    if let Some(map) = galaxy {
+        systems.extend(
+            map.system_ids()
+                .into_iter()
+                .map(ti4_model::id::SystemId::new),
+        );
+    }
     let mut found = Vec::new();
-    for (system, board) in &state.board {
+    for system in &systems {
+        let board = state.board.get(system);
         let Some(record) = content
             .get(
                 ti4_model::content_types::ContentType::Systems,
@@ -374,7 +397,7 @@ fn maxis_candidates(
         };
         for planet_id in record.strings("planets") {
             let planet = PlanetId::new(planet_id);
-            if board.planet_control.get(&planet) == Some(player) {
+            if board.is_some_and(|here| here.planet_control.get(&planet) == Some(player)) {
                 continue;
             }
             let Some(printed) = records.get(planet_id) else {
@@ -389,11 +412,11 @@ fn maxis_candidates(
             {
                 continue;
             }
-            if board
-                .planet_units
-                .get(&planet)
-                .is_some_and(|units| !units.is_empty())
-            {
+            if board.is_some_and(|here| {
+                here.planet_units
+                    .get(&planet)
+                    .is_some_and(|units| !units.is_empty())
+            }) {
                 continue;
             }
             if state
@@ -423,8 +446,13 @@ fn resolve_pass(
         // "gain control of a non-home, non-legendary planet that contains no units and has no
         // attachments"
         "faunus" => {
-            let candidates =
-                maxis_candidates(context.state, context.content, context.sources, player);
+            let candidates = maxis_candidates(
+                context.state,
+                context.content,
+                context.sources,
+                player,
+                context.galaxy,
+            );
             if candidates.is_empty() {
                 return;
             }
@@ -1078,6 +1106,16 @@ mod tests {
 
     /// Run the pass window with a real timing context.
     fn passing(state: &mut GameState, table: &mut Table, player: &PlayerId) {
+        passing_on(None, state, table, player);
+    }
+
+    /// The same, on a map. The map is what the offer is built from; see [`maxis_candidates`].
+    fn passing_on(
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        state: &mut GameState,
+        table: &mut Table,
+        player: &PlayerId,
+    ) {
         let mut dice = crate::dice::Dice::new();
         let mut rng = crate::rng::GameRng::new(0);
         let mut sequence = crate::event::EventSequence::new();
@@ -1089,9 +1127,77 @@ mod tests {
             dice: &mut dice,
             rng: &mut rng,
             event_sequence: &mut sequence,
-            galaxy: None,
+            galaxy,
         };
         pass(&mut context, player);
+    }
+
+    #[test]
+    fn maxis_central_control_offers_the_planets_nobody_has_touched() {
+        // "Gain control of a non-home, non-legendary planet that contains no units" is a card about
+        // empty planets, and an empty planet is exactly the thing that never earns an entry in
+        // `state.board` -- which is written the first time a unit, a capture or a token touches a
+        // system. Asking the board alone offered the handful of systems somebody had already been
+        // to and nothing else; on a fresh table that is the difference between a dozen planets and
+        // none. The map is the registry of what is in play, so the map drives the list.
+        // Neutral tiles, not the ordinary ones the shared hub fixture reaches for: those first
+        // corpus systems are homeworlds, and Maxis names homeworlds as its first exclusion.
+        let ids: Vec<String> = crate::seating::neutral_systems(ContentStore::embedded(), 7, POK)
+            .into_iter()
+            .map(|system| system.to_string())
+            .collect();
+        let hub = crate::fixtures::hub_from(&ids);
+        let (mut state, player) = holding("faunus", "97");
+
+        let untouched: Vec<ti4_model::id::SystemId> = hub
+            .outer
+            .iter()
+            .map(|id| ti4_model::id::SystemId::new(id.as_str()))
+            .filter(|system| !state.board.contains_key(system))
+            .collect();
+        assert!(
+            !untouched.is_empty(),
+            "the ring is on the map and out of the board, which is the case being tested"
+        );
+
+        let without_map = maxis_candidates(&state, content(), POK, &player, None);
+        let with_map = maxis_candidates(&state, content(), POK, &player, Some(&hub.galaxy));
+        let from_the_map: Vec<String> = with_map
+            .iter()
+            .filter(|(system, _)| untouched.contains(system))
+            .map(|(system, planet)| format!("{system}|{planet}"))
+            .collect();
+
+        assert!(
+            !from_the_map.is_empty(),
+            "an untouched system on the map holds takeable planets: {with_map:?}"
+        );
+        assert!(
+            with_map.len() > without_map.len(),
+            "the map offered planets the board alone hid: {} with the map vs {} without ({from_the_map:?})",
+            with_map.len(),
+            without_map.len(),
+        );
+
+        // And it is not an offer that dies on the way to the table: taken through the ordinary
+        // ask/settle path, the planet changes hands.
+        let (system, target) = with_map
+            .into_iter()
+            .find(|(system, _)| untouched.contains(system))
+            .expect("a candidate in an untouched system");
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([
+            "faunus".to_owned(),
+            format!("{system}|{target}"),
+            "decline".to_owned(),
+            "decline".to_owned(),
+        ])));
+        passing_on(Some(&hub.galaxy), &mut state, &mut table, &player);
+
+        assert_eq!(
+            state.system_state(&system).planet_control.get(&target),
+            Some(&player),
+            "{target} in {system} was taken"
+        );
     }
 
     #[test]
@@ -1100,7 +1206,7 @@ mod tests {
         // System 20 is Lodor, an ordinary two-planet system; put it on the board empty.
         let elsewhere = ti4_model::id::SystemId::new("20");
         state.board.entry(elsewhere.clone()).or_default();
-        let target = maxis_candidates(&state, content(), POK, &player)
+        let target = maxis_candidates(&state, content(), POK, &player, None)
             .into_iter()
             .find(|(system, _)| system == &elsewhere)
             .map(|(_, planet)| planet)
@@ -1125,7 +1231,7 @@ mod tests {
         let (mut state, player) = holding("faunus", "97");
         let elsewhere = ti4_model::id::SystemId::new("20");
         state.board.entry(elsewhere.clone()).or_default();
-        let target = maxis_candidates(&state, content(), POK, &player)
+        let target = maxis_candidates(&state, content(), POK, &player, None)
             .into_iter()
             .find(|(system, _)| system == &elsewhere)
             .map(|(_, planet)| planet)
@@ -1141,7 +1247,7 @@ mod tests {
             1,
         );
 
-        let after = maxis_candidates(&state, content(), POK, &player);
+        let after = maxis_candidates(&state, content(), POK, &player, None);
         assert!(
             !after.iter().any(|(_, planet)| planet == &target),
             "an occupied planet is not takeable: {after:?}"
@@ -1159,7 +1265,7 @@ mod tests {
                 .or_default();
         }
         let records = ti4_content::galaxy::all_planets(content(), POK);
-        for (_, planet) in maxis_candidates(&board, content(), POK, &player) {
+        for (_, planet) in maxis_candidates(&board, content(), POK, &player, None) {
             let printed = records
                 .get(planet.as_str())
                 .expect("a candidate the corpus knows");

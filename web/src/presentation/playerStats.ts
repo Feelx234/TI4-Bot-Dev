@@ -92,7 +92,9 @@ export function getPlanetEffectiveValues(
       const normAtt = att.toLowerCase().replace(/[-_\s]/g, "");
       const mod =
         findAttachmentMeta(att) ??
-        (ATTACHMENTS as Record<string, { resourcesModifier: number; influenceModifier: number }>)[normAtt];
+        (ATTACHMENTS as Record<string, { resourcesModifier: number; influenceModifier: number }>)[
+          normAtt
+        ];
       if (mod) {
         res += mod.resourcesModifier ?? 0;
         inf += mod.influenceModifier ?? 0;

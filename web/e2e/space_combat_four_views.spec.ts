@@ -476,12 +476,21 @@ test("a complete human battle stays public in four independent views", async ({
                 await toggle.click({ timeout: 1_000 });
               }).toPass();
             }
-            await expect
-              .soft(
-                pages[i].getByTestId("event-log-list"),
-                `live event log for ${id ?? "spectator"}`,
-              )
-              .toContainText(expectedDetail, { timeout: 1_000 });
+            const log = pages[i].getByTestId("event-log-list");
+            await expect(async () => {
+              // A completed reaction can hand off to combat before this view renders it.
+              // Browse its collapsed stage instead of assuming the active path is still reactions.
+              const reactions = log.getByRole("button", { name: /Reactions/ }).last();
+              if (
+                (await reactions.count()) > 0 &&
+                (await reactions.getAttribute("aria-expanded")) === "false"
+              ) {
+                await reactions.click();
+              }
+              await expect(log, `live event log for ${id ?? "spectator"}`).toContainText(
+                expectedDetail,
+              );
+            }).toPass({ timeout: 5_000 });
             const resume = pages[i].getByTestId("resume-combat-btn");
             if (await resume.isVisible()) await resume.click();
             const wrappedResume = pages[i].getByTestId("resume-decision-btn");

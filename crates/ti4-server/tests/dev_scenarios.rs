@@ -554,9 +554,17 @@ fn test_launch_score_objective_status_scenario() {
         pending.choice.context.as_ref().map(|c| c.subtype.as_str()),
         Some("score_objective")
     );
-    let option_ids: Vec<&str> = pending.choice.options.iter().map(|o| o.id.as_str()).collect();
+    let option_ids: Vec<&str> = pending
+        .choice
+        .options
+        .iter()
+        .map(|o| o.id.as_str())
+        .collect();
     assert!(option_ids.contains(&"lead"), "should offer lead");
-    assert!(option_ids.contains(&"trade_routes"), "should offer trade_routes");
+    assert!(
+        option_ids.contains(&"trade_routes"),
+        "should offer trade_routes"
+    );
     assert!(option_ids.contains(&"decline"), "should offer decline");
 
     let nonce = pending.nonce;
@@ -567,14 +575,27 @@ fn test_launch_score_objective_status_scenario() {
 
     let mut updated = session.get_snapshot(&ViewerRole::Player(seat.clone()));
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while updated.view.players.iter().find(|p| p.id == seat).unwrap().victory_points < 3 {
-        assert!(std::time::Instant::now() < deadline, "waiting for VP update");
+    while updated
+        .view
+        .players
+        .iter()
+        .find(|p| p.id == seat)
+        .unwrap()
+        .victory_points
+        < 3
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "waiting for VP update"
+        );
         thread::sleep(Duration::from_millis(10));
         updated = session.get_snapshot(&ViewerRole::Player(seat.clone()));
     }
 
     let scored = updated.view.table.scored_objectives.get(&seat);
-    assert!(scored.is_some_and(|objs| objs.contains(&ti4_model::id::ObjectiveId::new("trade_routes"))));
+    assert!(
+        scored.is_some_and(|objs| objs.contains(&ti4_model::id::ObjectiveId::new("trade_routes")))
+    );
 }
 
 #[test]
@@ -591,9 +612,17 @@ fn test_launch_score_objective_imperial_scenario() {
         pending.choice.context.as_ref().map(|c| c.subtype.as_str()),
         Some("imperial_score_objective")
     );
-    let option_ids: Vec<&str> = pending.choice.options.iter().map(|o| o.id.as_str()).collect();
+    let option_ids: Vec<&str> = pending
+        .choice
+        .options
+        .iter()
+        .map(|o| o.id.as_str())
+        .collect();
     assert!(option_ids.contains(&"lead"), "should offer lead");
-    assert!(option_ids.contains(&"trade_routes"), "should offer trade_routes");
+    assert!(
+        option_ids.contains(&"trade_routes"),
+        "should offer trade_routes"
+    );
 
     let nonce = pending.nonce;
     let version = snapshot.game_version;
@@ -603,8 +632,19 @@ fn test_launch_score_objective_imperial_scenario() {
 
     let mut updated = session.get_snapshot(&ViewerRole::Player(seat.clone()));
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while updated.view.players.iter().find(|p| p.id == seat).unwrap().victory_points < 3 {
-        assert!(std::time::Instant::now() < deadline, "waiting for VP update");
+    while updated
+        .view
+        .players
+        .iter()
+        .find(|p| p.id == seat)
+        .unwrap()
+        .victory_points
+        < 3
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "waiting for VP update"
+        );
         thread::sleep(Duration::from_millis(10));
         updated = session.get_snapshot(&ViewerRole::Player(seat.clone()));
     }
@@ -612,4 +652,3 @@ fn test_launch_score_objective_imperial_scenario() {
     let scored = updated.view.table.scored_objectives.get(&seat);
     assert!(scored.is_some_and(|objs| objs.contains(&ti4_model::id::ObjectiveId::new("lead"))));
 }
-

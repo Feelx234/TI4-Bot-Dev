@@ -1030,6 +1030,9 @@ fn direct_hit(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
     if &producer != player {
         return; // defence in depth: the window guard already checks this
     }
+    if !crate::combat::direct_hittable(context.content, context.sources, unit_type.as_str()) {
+        return; // Dreadnought II and its kin: "cannot be destroyed by 'Direct Hit' action cards"
+    }
     let board = context.state.system_mut(&system);
     let index = board
         .units
@@ -1110,7 +1113,7 @@ fn courageous(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
     };
     let roll = context
         .dice
-        .roll(context.rng, 2, "courageous to the end", None);
+        .roll_by(context.rng, 2, "courageous to the end", None, player);
     for face in roll.faces {
         if i64::from(face) < combat_value {
             continue;
@@ -1986,6 +1989,14 @@ pub fn apply_movement_effects(
     let Some(seat) = state.player(player) else {
         return;
     };
+    // Light/Wave Deflector: "Your ships can move through systems that contain other players'
+    // ships." Held, not played, so it applies to every move.
+    if seat
+        .technologies
+        .contains(&ti4_model::id::TechnologyId::new("lwd"))
+    {
+        rules.ignore_enemy_ships = true;
+    }
     let this_activation = Some(state.activation_seq);
     if seat.anomalies_ignored_activation == this_activation {
         rules.anomalies_ignored = true;
@@ -2783,11 +2794,12 @@ fn experimental_battlestation(context: &mut crate::timing::TimingContext<'_>, pl
     ) else {
         return;
     };
-    let roll = context.dice.roll(
+    let roll = context.dice.roll_by(
         context.rng,
         3,
         "experimental_battlestation_space_cannon",
         Some(5),
+        player,
     );
     let hits = roll.hits();
     if hits == 0 {
@@ -4559,7 +4571,8 @@ fn mining_initiative(context: &mut crate::timing::TimingContext<'_>, player: &Pl
     let Some((_, planet)) = spot(&chosen) else {
         return;
     };
-    let worth = crate::production::planet_value(
+    let worth = crate::production::planet_value_now(
+        context.state,
         context.content,
         context.sources,
         &planet,
@@ -4838,7 +4851,8 @@ fn uprising(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let Some((_, planet)) = spot(&chosen) else {
         return;
     };
-    let worth = crate::production::planet_value(
+    let worth = crate::production::planet_value_now(
+        context.state,
         context.content,
         context.sources,
         &planet,
@@ -4879,9 +4893,13 @@ fn plague(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
         return;
     }
     // One die each, through the seeded roller: an ambient generator here would break replay.
-    let roll = context
-        .dice
-        .roll(context.rng, infantry, "plague", Some(PLAGUE_KILLS_ON));
+    let roll = context.dice.roll_by(
+        context.rng,
+        infantry,
+        "plague",
+        Some(PLAGUE_KILLS_ON),
+        player,
+    );
     let kills = roll
         .faces
         .iter()
@@ -4917,7 +4935,7 @@ fn spy(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     // "Random" comes from the seeded roller too, or replay diverges.
     let face = context
         .dice
-        .roll(context.rng, 1, "spy", None)
+        .roll_by(context.rng, 1, "spy", None, player)
         .faces
         .first()
         .copied()

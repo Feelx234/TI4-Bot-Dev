@@ -157,7 +157,8 @@ async function generate() {
         type: requiredString(card, "type", "explores"),
         resolution: requiredString(card, "resolution", "explores"),
         description: optionalString(card, "text"),
-        flavorText: optionalString(card, "flavorText") || optionalString(card, "flavourText") || undefined,
+        flavorText:
+          optionalString(card, "flavorText") || optionalString(card, "flavourText") || undefined,
       },
       "explores",
     );

@@ -244,6 +244,62 @@ impl Features {
 /// string reaching here — option ids, labels, prompts — is already lowercase, so that copy was
 /// usually made only to be thrown away. Borrowing when nothing needs changing costs one scan for
 /// an uppercase byte.
+/// Size and value of each side of a deal being built: terms, immediate goods, promises, and whether
+/// any promise runs into next round.
+fn deal_draft_features(features: &mut FeatureVector, draft: &Value, round: u32) {
+    for (side, name) in [("give", "deal-give"), ("take", "deal-take")] {
+        let Some(terms) = draft.get(side).and_then(Value::as_array) else {
+            continue;
+        };
+        let mut goods = 0.0;
+        let mut promises = 0.0;
+        let mut later = 0.0;
+        for term in terms {
+            if let Some(asset) = term.get("immediate_transfer") {
+                goods += asset
+                    .as_object()
+                    .and_then(|object| object.values().next())
+                    .and_then(Value::as_f64)
+                    .unwrap_or(1.0);
+            } else {
+                promises += 1.0;
+                let deadline = term
+                    .as_object()
+                    .and_then(|object| object.values().next())
+                    .and_then(|body| body.get("deadline_round"))
+                    .and_then(Value::as_u64);
+                if deadline.is_some_and(|deadline| deadline > u64::from(round)) {
+                    later += 1.0;
+                }
+            }
+        }
+        #[allow(clippy::cast_precision_loss, reason = "a handful of terms")]
+        let count = terms.len() as f64;
+        add_named(features, format_args!("diplomacy:{name}-terms"), count);
+        add_named(
+            features,
+            format_args!("diplomacy:{name}-goods"),
+            goods / 10.0,
+        );
+        add_named(
+            features,
+            format_args!("diplomacy:{name}-promises"),
+            promises,
+        );
+        add_named(features, format_args!("diplomacy:{name}-next-round"), later);
+    }
+    if draft.get("asking").and_then(Value::as_bool) == Some(true) {
+        add_named(features, format_args!("diplomacy:deal-stage-asking"), 1.0);
+    }
+    if draft.get("reviewing").and_then(Value::as_bool) == Some(true) {
+        add_named(
+            features,
+            format_args!("diplomacy:deal-stage-reviewing"),
+            1.0,
+        );
+    }
+}
+
 fn tokens(text: &str) -> Vec<String> {
     let lowered = if text.bytes().any(|byte| byte.is_ascii_uppercase()) {
         std::borrow::Cow::Owned(text.to_lowercase())
@@ -1185,6 +1241,23 @@ fn explicit_option_features_with(
         // fact this schema lets reach the policy as a literal token. It is represented as an
         // OBS-005 opponent slot instead, by `opponent_identity_features`.
         tokens(&option.id).into_iter().collect()
+    } else if matches!(
+        kind,
+        "diplomacy_item" | "diplomacy_amount" | "diplomacy_review"
+    ) {
+        // The deal builder (TRADE_REWORK_2026-09-22). Its ids are vocabulary -- `now|tg`,
+        // `later|commodities`, `note|cf:hacan`, `promise|{"do_not_attack":...}` -- and the one
+        // identity they carry is a seat named inside a promise, which is dropped like any other
+        // raw seat identity. Everything else stays, so trade goods and commodities, or a
+        // non-aggression promise and a vote, are different options to the policy.
+        tokens(&option.id)
+            .into_iter()
+            .filter(|token| {
+                token
+                    .strip_prefix("seat")
+                    .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit()))
+            })
+            .collect()
     } else if matches!(kind, "diplomacy_offer" | "diplomacy_counter") {
         // A bundle id is `diplomacy|{template}|{hash}`. The template is vocabulary; the hash only
         // names this one bundle and would reach the policy as a meaningless one-off token. What
@@ -1224,6 +1297,13 @@ fn explicit_option_features_with(
     // Stable iteration is part of the feature contract even though addition is commutative.
     for token in &option_tokens {
         add_parts(&mut features, &["option:", token], 1.0);
+    }
+
+    // The deal so far, on every builder option: how much each side already carries. Counted from
+    // the draft the window attaches, so "what am I giving, what am I asking" is the same fact
+    // whichever option is scored.
+    if let Some(draft) = option.payload.get("draft") {
+        deal_draft_features(&mut features, draft, seen.round());
     }
 
     for prompt_token in prompt_tokens {
@@ -1568,6 +1648,7 @@ fn diplomacy_decision_features(
         DealTemplate::PayForAgentFavour => "pay_for_agent_favour",
         DealTemplate::SellAgentFavour => "sell_agent_favour",
         DealTemplate::NoteForNonAggression => "note_for_non_aggression",
+        DealTemplate::Built => "built",
     };
     add_named(features, format_args!("diplomacy:template:{template}"), 1.0);
     let factual = &bundle.features;

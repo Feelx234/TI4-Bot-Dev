@@ -384,6 +384,10 @@ pub struct Galaxy {
     /// wormhole are adjacent to each other, whether or not the letter matching links them.
     /// Set by the game for the tactical action the card was played in, like the law switches.
     pub wormhole_star_links: bool,
+    /// Adjacency granted by an ability for the current activation, both directions listed:
+    /// Spatial Conduit Cylinders makes the active system adjacent to every system holding the
+    /// Jol-Nar player's units. Replaced by the game each step, like the switches above.
+    pub extra_links: BTreeMap<String, BTreeSet<String>>,
     /// Wormholes placed by tokens rather than printed on a tile: the Creuss tokens, the gamma
     /// tokens from Gamma Wormhole / Gamma Relay / Nexus Sovereignty, and the ion storm.
     ///
@@ -448,6 +452,7 @@ impl Galaxy {
             nexus_wormholes_off: false,
             wormholes_all_linked: false,
             wormhole_star_links: false,
+            extra_links: BTreeMap::new(),
         })
     }
 
@@ -511,6 +516,7 @@ impl Galaxy {
             nexus_wormholes_off: false,
             wormholes_all_linked: false,
             wormhole_star_links: false,
+            extra_links: BTreeMap::new(),
         })
     }
 
@@ -598,6 +604,9 @@ impl Galaxy {
                 });
         if !self.wormholes_off {
             neighbours.extend(self.wormhole_partners(system_id));
+        }
+        if let Some(linked) = self.extra_links.get(system_id) {
+            neighbours.extend(linked.iter().map(String::as_str));
         }
         neighbours.remove(system_id);
         neighbours

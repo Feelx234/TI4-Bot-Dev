@@ -106,11 +106,13 @@ test.describe("Technology Research with Tech Skips", () => {
     await confirmBtn.click();
 
     // Verify submission succeeds and game advances
-    await expect.poll(async () => {
-      const state = await snapshot(request, game, session);
-      const sol = Object.values(state.view.players).find((p) => p.id === player);
-      return sol?.technologies?.some((id) => id === "so2" || id === "specops2");
-    }).toBe(true);
+    await expect
+      .poll(async () => {
+        const state = await snapshot(request, game, session);
+        const sol = Object.values(state.view.players).find((p) => p.id === player);
+        return sol?.technologies?.some((id) => id === "so2" || id === "specops2");
+      })
+      .toBe(true);
   });
 
   test("handles multi-tech research with prerequisite chaining (1st tech unlocks 2nd tech)", async ({
@@ -174,12 +176,16 @@ test.describe("Technology Research with Tech Skips", () => {
     await confirmBtn.click();
 
     // Verify both technologies are researched (st first, then gls)
-    await expect.poll(async () => {
-      const state = await snapshot(request, game, session);
-      const sol = Object.values(state.view.players).find((p) => p.id === player);
-      const hasSt = sol?.technologies?.some((id) => id === "st" || id === "sarween_tools");
-      const hasGls = sol?.technologies?.some((id) => id === "gls" || id === "graviton_laser_system");
-      return Boolean(hasSt && hasGls);
-    }).toBe(true);
+    await expect
+      .poll(async () => {
+        const state = await snapshot(request, game, session);
+        const sol = Object.values(state.view.players).find((p) => p.id === player);
+        const hasSt = sol?.technologies?.some((id) => id === "st" || id === "sarween_tools");
+        const hasGls = sol?.technologies?.some(
+          (id) => id === "gls" || id === "graviton_laser_system",
+        );
+        return Boolean(hasSt && hasGls);
+      })
+      .toBe(true);
   });
 });

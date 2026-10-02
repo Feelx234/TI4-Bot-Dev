@@ -94,16 +94,12 @@ export const TECH_TIERS: readonly TechTierGroup[] = [
   {
     tier: 2,
     label: "2 Prerequisites",
-    rows: [
-      ["fl", "hm", "td", "da"],
-    ],
+    rows: [["fl", "hm", "td", "da"]],
   },
   {
     tier: 3,
     label: "3 Prerequisites",
-    rows: [
-      ["lwd", "x89c4", "ie", "asc"],
-    ],
+    rows: [["lwd", "x89c4", "ie", "asc"]],
   },
 ] as const;
 
@@ -208,7 +204,7 @@ export function getFactionTechIds(faction?: string): string[] {
       (meta) =>
         "faction" in meta &&
         typeof (meta as { faction?: unknown }).faction === "string" &&
-        (meta as { faction: string }).faction.toLowerCase() === normalized
+        (meta as { faction: string }).faction.toLowerCase() === normalized,
     )
     .map((meta) => meta.id);
 }

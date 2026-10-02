@@ -30,10 +30,7 @@ export function getSpaceCombatHexStyle(
         ? 3.5
         : tile.strokeWidth;
 
-  const strokeDasharray =
-    combatOverlay && fleets.length > 1
-      ? "6 3"
-      : tile.strokeDashArray;
+  const strokeDasharray = combatOverlay && fleets.length > 1 ? "6 3" : tile.strokeDashArray;
 
   return { stroke, strokeWidth, strokeDasharray };
 }

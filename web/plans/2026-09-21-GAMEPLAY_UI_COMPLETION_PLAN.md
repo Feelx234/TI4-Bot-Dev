@@ -8,17 +8,17 @@ Per project instructions, this plan is strictly scoped to the **gameplay UI and 
 
 ### 1.1 Current Baseline vs. Target State
 
-| Dimension | Current Baseline (`Step 3B / Step 4`) | Target Gameplay UI (`Step 6`) |
-|---|---|---|
-| **Choice Representation** | Monolithic `PendingChoiceModal` radio-button list. | Domain-specific Choice Renderer Model dispatching to dedicated workflow surfaces (drawers, overlays, desks, banners). |
-| **Selection Constraints** | Ignores `min_selection` and `max_selection`; strictly single radio select. | Fully enforces bounded multi-select (`min` to `max`), quantity allocation, and structured trade matrices. |
-| **Payment Workflow** | Sequential radio clicks per planet/trade good through repeated modal round-trips. | Interactive Economy Drawer with ready planet wallet, trade good stepper, live debt/credit tally, and pipelined execution. |
-| **Tactical Action** | Selecting system hex IDs from a text list in a modal. | Direct SVG board click-to-activate, visual movement vector overlays, and a docked Fleet Rally Tray with cargo capacity gauges. |
-| **Combat Resolution** | Sequential radio buttons (`destroy|0`, `sustain|1`). | Dedicated Combat Arena with dice roll feed, staged sustain vs. direct hit vs. casualty windows, and retreat vector highlights. |
-| **Bilateral Trade** | Unparsed cryptic string IDs (`cc3`, `c3:0`, `pnsupport:sol`). | Structured Deal Catalog with categorized tabs (Commodity Swaps, Goods Exchange, Promissory Notes, Mutual Support), counter-offer builder, and accept/refuse actions. |
-| **Agenda Voting** | Flat list of outcomes followed by one-by-one planet exhaust radios. | Full Agenda Council Board with live vote tallies per outcome, multi-planet influence basket, and Speaker tiebreaker controls. |
-| **Reaction Windows** | Intrusive modal popup interrupting viewer for routine passes. | Non-blocking floating bottom Reaction Bar with countdown timer, "Fast Pass" shortcut, and pinned-favorite reaction settings. |
-| **Production** | Isolated unit choices in modal. | Visual Production Cart tracking space dock capacity, resource costs, planet placement, and direct handoff to Payment Drawer. |
+| Dimension                 | Current Baseline (`Step 3B / Step 4`)                                             | Target Gameplay UI (`Step 6`)                                                                                                                                        |
+| ------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Choice Representation** | Monolithic `PendingChoiceModal` radio-button list.                                | Domain-specific Choice Renderer Model dispatching to dedicated workflow surfaces (drawers, overlays, desks, banners).                                                |
+| **Selection Constraints** | Ignores `min_selection` and `max_selection`; strictly single radio select.        | Fully enforces bounded multi-select (`min` to `max`), quantity allocation, and structured trade matrices.                                                            |
+| **Payment Workflow**      | Sequential radio clicks per planet/trade good through repeated modal round-trips. | Interactive Economy Drawer with ready planet wallet, trade good stepper, live debt/credit tally, and pipelined execution.                                            |
+| **Tactical Action**       | Selecting system hex IDs from a text list in a modal.                             | Direct SVG board click-to-activate, visual movement vector overlays, and a docked Fleet Rally Tray with cargo capacity gauges.                                       |
+| **Combat Resolution**     | Sequential radio buttons (`destroy                                                | 0`, `sustain                                                                                                                                                         | 1`). | Dedicated Combat Arena with dice roll feed, staged sustain vs. direct hit vs. casualty windows, and retreat vector highlights. |
+| **Bilateral Trade**       | Unparsed cryptic string IDs (`cc3`, `c3:0`, `pnsupport:sol`).                     | Structured Deal Catalog with categorized tabs (Commodity Swaps, Goods Exchange, Promissory Notes, Mutual Support), counter-offer builder, and accept/refuse actions. |
+| **Agenda Voting**         | Flat list of outcomes followed by one-by-one planet exhaust radios.               | Full Agenda Council Board with live vote tallies per outcome, multi-planet influence basket, and Speaker tiebreaker controls.                                        |
+| **Reaction Windows**      | Intrusive modal popup interrupting viewer for routine passes.                     | Non-blocking floating bottom Reaction Bar with countdown timer, "Fast Pass" shortcut, and pinned-favorite reaction settings.                                         |
+| **Production**            | Isolated unit choices in modal.                                                   | Visual Production Cart tracking space dock capacity, resource costs, planet placement, and direct handoff to Payment Drawer.                                         |
 
 ---
 
@@ -27,6 +27,7 @@ Per project instructions, this plan is strictly scoped to the **gameplay UI and 
 To ensure the plan is self-contained and ready for immediate execution, every open architectural and UX question is resolved here:
 
 ### Decision 1: Execution of Multi-Step Decisions via Semantic Pipeline Runner
+
 - **Problem**: In `ti4-engine`, complex decisions like paying 5 resources across multiple planets or moving 6 ships into an active system are structured as synchronous loops of atomic choices (`Choice` with `pay X more` or `movement_step`). Furthermore, in [`crates/ti4-engine/src/tactical.rs:368`](file:///home/zibert/github/TI4-Bot-Dev/crates/ti4-engine/src/tactical.rs#L368), ship movement option IDs are formatted as `{verb}|{origin}|{index}`, where `index` is the unit's position in `system.units`. When moving unit index 0, unit index 1 becomes index 0 in the next step. Raw static `option_id` matching fails across steps.
 - **Decision**: **Semantic Pipeline Submission Engine (`usePipelineRunner.ts`)**.
   1. The user drafts their complete desired transaction locally in the UI (e.g., wallet, fleet rally, or casualty allocation).
@@ -40,6 +41,7 @@ To ensure the plan is self-contained and ready for immediate execution, every op
   6. **Zero Engine Modifications**: Preserves 100% of engine determinism, timing windows, and authority without requiring composite batching endpoints on the server.
 
 ### Decision 2: Handling of Bounded Constraints (`min_selection` & `max_selection`)
+
 - **Problem**: `PendingChoiceModal` currently renders radio buttons regardless of constraints. Some choices require selecting multiple items (e.g. discarding down to hand limit, choosing 2 technologies, selecting secret objectives during setup).
 - **Decision**: **Bounded Multi-Select Control**.
   - When `constraints.max_selection > 1` or `constraints.min_selection > 1`:
@@ -49,6 +51,7 @@ To ensure the plan is self-contained and ready for immediate execution, every op
     - A clear badge displays: `Selected ${selected.size} of ${max_selection} required`.
 
 ### Decision 3: Board-First vs. Modal-First Spatial Interactions
+
 - **Problem**: Should map targets (system activation, ship movement origin/destinations, planet landings) be picked inside a dialog or directly on the map?
 - **Decision**: **Hybrid Board-First Interaction**.
   - **Spatial Actions** (System Activation, Fleet Rally, Invasion, Bombardment): The choice modal auto-minimizes into a compact status prompt ("Select a system to activate"). The SVG galaxy board highlights legal candidate hexes with animated target reticles. Clicking a hex or planet directly selects that target and executes or stages the move.
@@ -56,25 +59,28 @@ To ensure the plan is self-contained and ready for immediate execution, every op
   - **High-Stakes Focal Events** (Combat, Bilateral Trade, Agenda Council): Focused, accessible modal dialog with backdrop blur and explicit "Inspect Board" minimization toggle.
 
 ### Decision 4: Reaction Windows & Pinned Auto-Pass Strategy
+
 - **Problem**: In `ti4-engine` ([`crates/ti4-engine/src/reactions.rs:768`](file:///home/zibert/github/TI4-Bot-Dev/crates/ti4-engine/src/reactions.rs#L768)), the engine already silently skips seats with no playable cards. If a choice reaches the player, they definitely hold an eligible reaction card or ability. However, popping up a modal for every opportunity slows down play.
 - **Decision**: **Non-Blocking Reaction Bar with Pinned Fast-Pass**.
   - Optional reactions (`context.optional === true` and `subtype.startsWith('play_reaction_')`) render as an unobtrusive bottom floating pill (`ReactionStatusBar.tsx`) rather than a modal dialog.
-  - **Pinned Settings**: Players can configure `"Auto-pass reaction windows unless pinned/favorited"` (e.g. pinning only *Sabotage* and *Direct Hit*).
+  - **Pinned Settings**: Players can configure `"Auto-pass reaction windows unless pinned/favorited"` (e.g. pinning only _Sabotage_ and _Direct Hit_).
   - **Fast-Pass**: Pressing `Spacebar` or clicking "Pass" immediately submits `decline`.
   - A visual countdown bar (default 10s for active timers in multiplayer) informs the table of the window remaining.
 
 ### Decision 5: Bilateral Trade: Structured Deal Catalog vs. Composite Bundles
+
 - **Problem**: In [`crates/ti4-engine/src/transactions.rs:825-865`](file:///home/zibert/github/TI4-Bot-Dev/crates/ti4-engine/src/transactions.rs#L825-L865), `ti4-engine` only generates discrete atomic transaction shapes (`cc{n}`, `ct{g}:{w}`, `tc{g}:{w}`, `{g}:{w}`, `c{n}:0`, `pn{note}:{price}`, `ss`). An unconstrained freeform basket builder would allow assembling arbitrary multi-item bundles that have no corresponding legal `option_id` in the engine.
 - **Decision**: **Structured Deal Catalog**.
   - The Bilateral Trade Desk is organized into categorized tabs matching the engine's legal offer shapes:
     1. **Commodity Swaps**: Swap equal commodities (`cc{n}`).
     2. **Goods & Commodities Exchange**: Asymmetric swaps of commodities for trade goods (`ct{g}:{w}` / `tc{g}:{w}`).
     3. **Promissory Notes**: Buy, sell, or gift specific promissory notes (`pn{note}:{price}`).
-    4. **Relic Fragments & Secret Objectives**: Trade fragments or unscored secret objectives under *Black Market Dealings* (`fr{trait}:{price}`, `so{secret}:{price}`).
+    4. **Relic Fragments & Secret Objectives**: Trade fragments or unscored secret objectives under _Black Market Dealings_ (`fr{trait}:{price}`, `so{secret}:{price}`).
     5. **Mutual Support**: Bilateral Support for the Throne swap (`ss`).
   - The UI controls configure parameters within these discrete legal shapes, directly mapping the chosen tab and values to an offered engine `option_id`.
 
 ### Decision 6: Authoritative Dice Presentation & Animation
+
 - **Problem**: The engine rolls all dice server-side using seeded ChaCha8 RNG. How should this be displayed to players without creating desynchronization?
 - **Decision**: **Authoritative Event-Driven Dice Animation**.
   - The server records rolls in `GameEvent` logs (`CombatRoll { player, unit, roll, target, hit }`).
@@ -82,6 +88,7 @@ To ensure the plan is self-contained and ready for immediate execution, every op
   - An "Instant / Skip Animation" toggle is provided for fast play.
 
 ### Decision 7: Multi-Stage Combat Phasing & Direct Hit Protection
+
 - **Problem**: Grouping Sustain Damage and Casualty Destruction into a single simultaneous form fails because in TI4 rules and `ti4-engine`, they are strictly sequential phases separated by opponent reaction windows:
   1. `sustain_damage`: Player chooses whether to sustain hits on Dreadnoughts/Warsuns.
   2. If sustained, opponents get an opportunity to play **Direct Hit** (destroying that ship).
@@ -94,6 +101,7 @@ To ensure the plan is self-contained and ready for immediate execution, every op
   - Sustained ships show a yellow caution badge indicating pending status until Stage 2 resolves.
 
 ### Decision 8: Opponent & Spectator Visibility During Focal Events
+
 - **Problem**: What do non-active players and spectators see during tactical movement, combat, and trade?
 - **Decision**: **Explicit Redacted Observer Roles**.
   - **Combat**: Spectators and non-combatant opponents see the Combat Arena in read-only **Spectator Mode**, displaying live dice rolls, battle participants, round numbers, and casualty counts.
@@ -101,6 +109,7 @@ To ensure the plan is self-contained and ready for immediate execution, every op
   - **Bilateral Trade**: Negotiation terms remain strictly private between the two negotiating seats; opponents see a public turn status: `"Player A negotiating transaction with Player B"`.
 
 ### Decision 9: Streamlined Multi-Casualty Steppers
+
 - **Problem**: In large fleet battles where a player loses 8 fighters, clicking 8 individual checkboxes or radio buttons is tedious and error-prone.
 - **Decision**: **Unit Quantity Steppers & Auto-Allocation**.
   - Identical units in `assign_casualty` are grouped into steppers: `Fighter [ - 4 + ] (Available: 6)`.
@@ -120,37 +129,37 @@ import {
   DecisionContextDto,
   OutstandingConstraintDto,
   DecisionTargetDto,
-} from '../protocol/types.ts';
+} from "../protocol/types.ts";
 
 export type SelectionMode =
-  | { mode: 'single' }                                  // 1-of-N (Radio, click card, or click hex)
-  | { mode: 'multi'; min: number; max: number }         // Bounded multi-select (Checkboxes, multi-cards)
-  | { mode: 'quantity'; target: number; paid: number; unit: 'resources' | 'influence' | 'votes' }
-  | { mode: 'transaction'; partnerSeat: string }        // Structured deal catalog
-  | { mode: 'tactical_move'; activeSystem: string }     // Multi-origin ship rally
-  | { mode: 'tactical_cargo'; activeSystem: string }    // Fighter and infantry cargo loading
-  | { mode: 'tactical_invasion'; activeSystem: string } // Ground commitment to planets
-  | { mode: 'production'; capacity: number; systemId: string } // Unit build cart
-  | { mode: 'sustain'; hitsRemaining: number }          // Sustain damage allocation
-  | { mode: 'casualty'; hitsToAssign: number };         // Unit destruction allocation
+  | { mode: "single" } // 1-of-N (Radio, click card, or click hex)
+  | { mode: "multi"; min: number; max: number } // Bounded multi-select (Checkboxes, multi-cards)
+  | { mode: "quantity"; target: number; paid: number; unit: "resources" | "influence" | "votes" }
+  | { mode: "transaction"; partnerSeat: string } // Structured deal catalog
+  | { mode: "tactical_move"; activeSystem: string } // Multi-origin ship rally
+  | { mode: "tactical_cargo"; activeSystem: string } // Fighter and infantry cargo loading
+  | { mode: "tactical_invasion"; activeSystem: string } // Ground commitment to planets
+  | { mode: "production"; capacity: number; systemId: string } // Unit build cart
+  | { mode: "sustain"; hitsRemaining: number } // Sustain damage allocation
+  | { mode: "casualty"; hitsToAssign: number }; // Unit destruction allocation
 
 export type ChoiceWorkflowKind =
-  | 'system_activation'     // Activating a system on the board
-  | 'tactical_movement'     // Moving ships into active system
-  | 'tactical_cargo'        // Loading cargo into carriers / dreadnoughts
-  | 'tactical_invasion'     // Committing ground forces to planets
-  | 'payment'               // Paying resources or influence (planets + trade goods)
-  | 'production'            // Building units at production structures
-  | 'combat_sustain'        // Sustaining damage on capital ships
-  | 'combat_casualty'       // Destroying units to satisfy uncancelled hits
-  | 'combat_retreat'        // Announcing or choosing retreat destination
-  | 'agenda_vote_outcome'   // Selecting outcome or abstaining
-  | 'agenda_vote_planets'   // Exhausting planets / spending influence for votes
-  | 'transaction_propose'   // Building an offer for another player
-  | 'transaction_answer'    // Accepting, countering, or refusing an offer
-  | 'action_card_reaction'  // Fast reaction window (Sabotage, timing triggers)
-  | 'objective_scoring'     // Public or secret objective fulfillment
-  | 'generic_selection';    // Fallback list / modal
+  | "system_activation" // Activating a system on the board
+  | "tactical_movement" // Moving ships into active system
+  | "tactical_cargo" // Loading cargo into carriers / dreadnoughts
+  | "tactical_invasion" // Committing ground forces to planets
+  | "payment" // Paying resources or influence (planets + trade goods)
+  | "production" // Building units at production structures
+  | "combat_sustain" // Sustaining damage on capital ships
+  | "combat_casualty" // Destroying units to satisfy uncancelled hits
+  | "combat_retreat" // Announcing or choosing retreat destination
+  | "agenda_vote_outcome" // Selecting outcome or abstaining
+  | "agenda_vote_planets" // Exhausting planets / spending influence for votes
+  | "transaction_propose" // Building an offer for another player
+  | "transaction_answer" // Accepting, countering, or refusing an offer
+  | "action_card_reaction" // Fast reaction window (Sabotage, timing triggers)
+  | "objective_scoring" // Public or secret objective fulfillment
+  | "generic_selection"; // Fallback list / modal
 
 export interface ChoiceRendererModel {
   readonly workflow: ChoiceWorkflowKind;
@@ -162,7 +171,7 @@ export interface ChoiceRendererModel {
   readonly contextTarget: DecisionTargetDto | null;
   readonly options: readonly ChoiceOptionDto[];
   readonly outstanding: readonly OutstandingConstraintDto[];
-  
+
   // Categorized options
   readonly declineOption: ChoiceOptionDto | null;
   readonly optionsByKind: ReadonlyMap<string, ChoiceOptionDto[]>;
@@ -173,15 +182,15 @@ export interface ChoiceRendererModel {
 export function getPaymentPayload(opt: ChoiceOptionDto): {
   worth: number;
   owed: number;
-  kind: 'resources' | 'influence';
+  kind: "resources" | "influence";
   source?: string;
 } {
   const p = opt.payload ?? {};
   return {
     worth: Number(p.worth ?? 0),
     owed: Number(p.owed ?? 0),
-    kind: (String(p.kind ?? 'resources').toLowerCase() === 'influence' ? 'influence' : 'resources'),
-    source: typeof p.source === 'string' ? p.source : undefined,
+    kind: String(p.kind ?? "resources").toLowerCase() === "influence" ? "influence" : "resources",
+    source: typeof p.source === "string" ? p.source : undefined,
   };
 }
 
@@ -194,10 +203,10 @@ export function getMovementPayload(opt: ChoiceOptionDto): {
 } {
   const p = opt.payload ?? {};
   return {
-    origin: typeof p.origin === 'string' ? p.origin : undefined,
-    unit: typeof p.unit === 'string' ? p.unit : undefined,
+    origin: typeof p.origin === "string" ? p.origin : undefined,
+    unit: typeof p.unit === "string" ? p.unit : undefined,
     damaged: Boolean(p.damaged),
-    capacity: typeof p.capacity === 'number' ? p.capacity : undefined,
+    capacity: typeof p.capacity === "number" ? p.capacity : undefined,
     gravity_drive: Boolean(p.gravity_drive),
   };
 }
@@ -208,8 +217,8 @@ export function getTradePayload(opt: ChoiceOptionDto): {
 } {
   const p = opt.payload ?? {};
   return {
-    net: typeof p.net === 'number' ? p.net : undefined,
-    their_net: typeof p.their_net === 'number' ? p.their_net : undefined,
+    net: typeof p.net === "number" ? p.net : undefined,
+    their_net: typeof p.their_net === "number" ? p.their_net : undefined,
   };
 }
 ```
@@ -221,42 +230,46 @@ This function aligns 1:1 with authoritative engine subtypes in `crates/ti4-engin
 ```typescript
 export function deriveChoiceRendererModel(
   choice: PendingChoiceDto | null,
-  viewerSeat: string | null
+  viewerSeat: string | null,
 ): ChoiceRendererModel | null {
   if (!choice || !viewerSeat || choice.actor !== viewerSeat) {
     return null;
   }
 
-  const subtype = choice.context?.subtype ?? '';
-  const isOptional = Boolean(choice.context?.optional || choice.options.some((o) => o.id === 'decline'));
-  const declineOption = choice.options.find((o) => o.id === 'decline' || o.kind === 'decline') ?? null;
+  const subtype = choice.context?.subtype ?? "";
+  const isOptional = Boolean(
+    choice.context?.optional || choice.options.some((o) => o.id === "decline"),
+  );
+  const declineOption =
+    choice.options.find((o) => o.id === "decline" || o.kind === "decline") ?? null;
   const constraints = choice.constraints ?? choice.context?.outstanding?.[0];
 
   // Grouping
   const optionsByKind = new Map<string, ChoiceOptionDto[]>();
   for (const opt of choice.options) {
-    const list = optionsByKind.get(opt.kind ?? 'default') || [];
+    const list = optionsByKind.get(opt.kind ?? "default") || [];
     list.push(opt);
-    optionsByKind.set(opt.kind ?? 'default', list);
+    optionsByKind.set(opt.kind ?? "default", list);
   }
 
   // 1. Payment & Economy (Exact engine subtypes from production.rs and choice.rs)
   if (
-    subtype === 'pay_resources' ||
-    subtype === 'pay_influence' ||
-    subtype === 'spend_command_tokens' ||
-    subtype === 'leadership_spend_influence' ||
-    subtype === 'tactical_production' ||
-    optionsByKind.has('pay')
+    subtype === "pay_resources" ||
+    subtype === "pay_influence" ||
+    subtype === "spend_command_tokens" ||
+    subtype === "leadership_spend_influence" ||
+    subtype === "tactical_production" ||
+    optionsByKind.has("pay")
   ) {
     const owed = constraints?.amount ?? 0;
     const paid = constraints?.paid ?? 0;
-    const kind = (subtype === 'pay_influence' || constraints?.kind?.toLowerCase() === 'influence')
-      ? 'influence'
-      : 'resources';
+    const kind =
+      subtype === "pay_influence" || constraints?.kind?.toLowerCase() === "influence"
+        ? "influence"
+        : "resources";
     return {
-      workflow: 'payment',
-      selectionMode: { mode: 'quantity', target: owed, paid, unit: kind },
+      workflow: "payment",
+      selectionMode: { mode: "quantity", target: owed, paid, unit: kind },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -272,12 +285,12 @@ export function deriveChoiceRendererModel(
 
   // 2. System Activation
   if (
-    subtype === 'activate_system' ||
-    (choice.options.length > 0 && choice.options.every((o) => o.kind === 'activate'))
+    subtype === "activate_system" ||
+    (choice.options.length > 0 && choice.options.every((o) => o.kind === "activate"))
   ) {
     return {
-      workflow: 'system_activation',
-      selectionMode: { mode: 'single' },
+      workflow: "system_activation",
+      selectionMode: { mode: "single" },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -292,11 +305,14 @@ export function deriveChoiceRendererModel(
   }
 
   // 3. Tactical Movement, Cargo, and Invasion Commit
-  if (subtype === 'movement_step' || choice.prompt.toLowerCase().includes('movement')) {
-    const activeSystem = choice.context?.target && 'System' in choice.context.target ? choice.context.target.System : '';
+  if (subtype === "movement_step" || choice.prompt.toLowerCase().includes("movement")) {
+    const activeSystem =
+      choice.context?.target && "System" in choice.context.target
+        ? choice.context.target.System
+        : "";
     return {
-      workflow: 'tactical_movement',
-      selectionMode: { mode: 'tactical_move', activeSystem },
+      workflow: "tactical_movement",
+      selectionMode: { mode: "tactical_move", activeSystem },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -310,11 +326,14 @@ export function deriveChoiceRendererModel(
     };
   }
 
-  if (subtype === 'load_cargo') {
-    const activeSystem = choice.context?.target && 'System' in choice.context.target ? choice.context.target.System : '';
+  if (subtype === "load_cargo") {
+    const activeSystem =
+      choice.context?.target && "System" in choice.context.target
+        ? choice.context.target.System
+        : "";
     return {
-      workflow: 'tactical_cargo',
-      selectionMode: { mode: 'tactical_cargo', activeSystem },
+      workflow: "tactical_cargo",
+      selectionMode: { mode: "tactical_cargo", activeSystem },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -328,11 +347,14 @@ export function deriveChoiceRendererModel(
     };
   }
 
-  if (subtype === 'commit_ground_forces') {
-    const activeSystem = choice.context?.target && 'System' in choice.context.target ? choice.context.target.System : '';
+  if (subtype === "commit_ground_forces") {
+    const activeSystem =
+      choice.context?.target && "System" in choice.context.target
+        ? choice.context.target.System
+        : "";
     return {
-      workflow: 'tactical_invasion',
-      selectionMode: { mode: 'tactical_invasion', activeSystem },
+      workflow: "tactical_invasion",
+      selectionMode: { mode: "tactical_invasion", activeSystem },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -347,12 +369,15 @@ export function deriveChoiceRendererModel(
   }
 
   // Production Builder (production.rs)
-  if (subtype === 'produce_unit' || subtype === 'place_unit') {
-    const systemId = choice.context?.target && 'System' in choice.context.target ? choice.context.target.System : '';
+  if (subtype === "produce_unit" || subtype === "place_unit") {
+    const systemId =
+      choice.context?.target && "System" in choice.context.target
+        ? choice.context.target.System
+        : "";
     const capacity = constraints?.amount ?? 0;
     return {
-      workflow: 'production',
-      selectionMode: { mode: 'production', capacity, systemId },
+      workflow: "production",
+      selectionMode: { mode: "production", capacity, systemId },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -367,10 +392,10 @@ export function deriveChoiceRendererModel(
   }
 
   // 4. Combat Phasing: Sustain vs Casualties vs Retreat
-  if (subtype === 'sustain_damage') {
+  if (subtype === "sustain_damage") {
     return {
-      workflow: 'combat_sustain',
-      selectionMode: { mode: 'sustain', hitsRemaining: constraints?.amount ?? 1 },
+      workflow: "combat_sustain",
+      selectionMode: { mode: "sustain", hitsRemaining: constraints?.amount ?? 1 },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -384,11 +409,11 @@ export function deriveChoiceRendererModel(
     };
   }
 
-  if (subtype === 'assign_casualty' || optionsByKind.has('casualty')) {
+  if (subtype === "assign_casualty" || optionsByKind.has("casualty")) {
     const hits = constraints?.amount ?? 1;
     return {
-      workflow: 'combat_casualty',
-      selectionMode: { mode: 'casualty', hitsToAssign: hits },
+      workflow: "combat_casualty",
+      selectionMode: { mode: "casualty", hitsToAssign: hits },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -402,10 +427,10 @@ export function deriveChoiceRendererModel(
     };
   }
 
-  if (subtype === 'announce_retreat' || subtype === 'retreat_to' || optionsByKind.has('retreat')) {
+  if (subtype === "announce_retreat" || subtype === "retreat_to" || optionsByKind.has("retreat")) {
     return {
-      workflow: 'combat_retreat',
-      selectionMode: { mode: 'single' },
+      workflow: "combat_retreat",
+      selectionMode: { mode: "single" },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -420,11 +445,18 @@ export function deriveChoiceRendererModel(
   }
 
   // 5. Bilateral Transactions (Structured Deal Catalog)
-  if (subtype === 'propose_transaction' || subtype === 'answer_transaction' || optionsByKind.has('offer')) {
-    const partnerSeat = choice.context?.target && 'Player' in choice.context.target ? choice.context.target.Player : '';
+  if (
+    subtype === "propose_transaction" ||
+    subtype === "answer_transaction" ||
+    optionsByKind.has("offer")
+  ) {
+    const partnerSeat =
+      choice.context?.target && "Player" in choice.context.target
+        ? choice.context.target.Player
+        : "";
     return {
-      workflow: subtype === 'answer_transaction' ? 'transaction_answer' : 'transaction_propose',
-      selectionMode: { mode: 'transaction', partnerSeat },
+      workflow: subtype === "answer_transaction" ? "transaction_answer" : "transaction_propose",
+      selectionMode: { mode: "transaction", partnerSeat },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -439,12 +471,13 @@ export function deriveChoiceRendererModel(
   }
 
   // 6. Agenda Voting
-  if (subtype === 'cast_vote' || subtype === 'vote_exhaust_planet' || subtype === 'vote_tiebreak') {
+  if (subtype === "cast_vote" || subtype === "vote_exhaust_planet" || subtype === "vote_tiebreak") {
     return {
-      workflow: subtype === 'vote_exhaust_planet' ? 'agenda_vote_planets' : 'agenda_vote_outcome',
-      selectionMode: subtype === 'vote_exhaust_planet'
-        ? { mode: 'quantity', target: 0, paid: 0, unit: 'votes' }
-        : { mode: 'single' },
+      workflow: subtype === "vote_exhaust_planet" ? "agenda_vote_planets" : "agenda_vote_outcome",
+      selectionMode:
+        subtype === "vote_exhaust_planet"
+          ? { mode: "quantity", target: 0, paid: 0, unit: "votes" }
+          : { mode: "single" },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -460,12 +493,15 @@ export function deriveChoiceRendererModel(
 
   // 7. Optional Reactions (Exact engine pattern `play_reaction_*`)
   if (
-    subtype.startsWith('play_reaction_') ||
-    (isOptional && choice.options.length <= 4 && choice.context?.source && 'Reaction' in choice.context.source)
+    subtype.startsWith("play_reaction_") ||
+    (isOptional &&
+      choice.options.length <= 4 &&
+      choice.context?.source &&
+      "Reaction" in choice.context.source)
   ) {
     return {
-      workflow: 'action_card_reaction',
-      selectionMode: { mode: 'single' },
+      workflow: "action_card_reaction",
+      selectionMode: { mode: "single" },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,
@@ -481,10 +517,11 @@ export function deriveChoiceRendererModel(
 
   // 8. Bounded Multi-Selection Fallback
   const min = constraints?.min_selection ?? 1;
-  const max = constraints?.max_selection ?? (constraints?.min_selection ? constraints.min_selection : 1);
+  const max =
+    constraints?.max_selection ?? (constraints?.min_selection ? constraints.min_selection : 1);
   return {
-    workflow: 'generic_selection',
-    selectionMode: max > 1 ? { mode: 'multi', min, max } : { mode: 'single' },
+    workflow: "generic_selection",
+    selectionMode: max > 1 ? { mode: "multi", min, max } : { mode: "single" },
     prompt: choice.prompt,
     actor: choice.actor,
     nonce: choice.nonce,
@@ -506,6 +543,7 @@ export function deriveChoiceRendererModel(
 ### 4.1 Payment & Economy Drawer (`PaymentDrawer.tsx`)
 
 #### UX Flow Diagram
+
 ```
 [Engine issues: pay_resources or pay_influence]
                     │
@@ -538,6 +576,7 @@ export function deriveChoiceRendererModel(
 ```
 
 #### Detailed Interactions & Edge Cases
+
 - **Archon's Gift / Dual-Value Planets**: Planets with both resource and influence values display their spendable face prominently based on the required currency. If an ability permits cross-spending, both faces are shown with a selector.
 - **Overpayment & Credit**: Overpaying (e.g. using a 4-resource planet for a 3-resource token) displays an informational note: `1 Resource will be retained as credit for the remainder of this transaction`.
 - **Keyboard Shortcuts**: Numbers `1-9` toggle the first 9 planets; `+` / `-` increment/decrement trade goods; `Enter` confirms payment.
@@ -547,6 +586,7 @@ export function deriveChoiceRendererModel(
 ### 4.2 Tactical Movement Suite (`TacticalMovementOverlay.tsx`)
 
 #### UX Flow Diagram
+
 ```
 [Tactical Action: Active System Selected on Board]
                        │
@@ -585,6 +625,7 @@ export function deriveChoiceRendererModel(
 ```
 
 #### Detailed Interactions & Edge Cases
+
 - **Semantic Intent Matching**: Moving multiple Cruisers from system 24 matches against payload `{ origin: "24", unit: "cruiser" }`, unaffected by dynamic unit index shifts.
 - **Gravity Drive Selection**: If the player has Gravity Drive, ship rows display an optional `[ +1 Move ]` checkbox badge. Selecting it binds the `gravity_drive` payload parameter.
 - **Cargo & Ground Commitment**: After ships arrive, `load_cargo` and `commit_ground_forces` use the same docked tray layout, avoiding abrupt modal switches.
@@ -594,6 +635,7 @@ export function deriveChoiceRendererModel(
 ### 4.3 Combat Resolution Arena (`CombatResolutionModal.tsx`)
 
 #### UX Flow Diagram
+
 ```
 [Combat Phase Triggered in System #18]
                     │
@@ -636,6 +678,7 @@ export function deriveChoiceRendererModel(
 ```
 
 #### Detailed Interactions & Edge Cases
+
 - **Sequential Phasing**: Sustain Damage and Casualty Allocation are strictly decoupled to respect TI4 Direct Hit reaction windows.
 - **Grouped Steppers**: Identical units (e.g. 6 Fighters) are grouped into steppers with quick `[ Max ]`, `[ Clear ]`, and `[ Auto-Cheapest ]` helpers.
 - **Spectator Mode**: Non-combatants view the Combat Arena in read-only mode showing live dice feeds and unit casualties without action buttons.
@@ -645,6 +688,7 @@ export function deriveChoiceRendererModel(
 ### 4.4 Bilateral Trade Desk (`TradeDeskModal.tsx`)
 
 #### Structured Deal Catalog Layout
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ Bilateral Trade Desk: You (Sol) <---> Partner (Hacan)                       │
@@ -665,6 +709,7 @@ export function deriveChoiceRendererModel(
 ```
 
 #### Detailed Interactions & Edge Cases
+
 - **Catalog Alignment**: Tabs strictly correspond to legal engine shapes:
   - Commodity Swaps (`cc{n}`)
   - Goods Exchange (`ct{g}:{w}`, `tc{g}:{w}`, `{g}:{w}`, `c{n}:0`)
@@ -677,6 +722,7 @@ export function deriveChoiceRendererModel(
 ### 4.5 Agenda Voting & Council Board (`AgendaBallotModal.tsx`)
 
 #### UX Flow Diagram
+
 ```
 [Agenda Phase: Agenda Card Revealed: "Fleet Regulations"]
                           │
@@ -704,6 +750,7 @@ export function deriveChoiceRendererModel(
 ```
 
 #### Detailed Interactions & Edge Cases
+
 - **Speaker Tiebreaker**: If the final tally results in a tie, a special gavel animation appears for the Speaker seat: "Break the Tie" with outcome buttons.
 - **Riders & Prediction**: Players who played Agenda Riders (e.g. Leadership Rider) see an icon next to their chosen outcome indicating their active stake.
 
@@ -712,6 +759,7 @@ export function deriveChoiceRendererModel(
 ### 4.6 Unobtrusive Reaction Window Bar (`ReactionStatusBar.tsx`)
 
 #### Component Layout
+
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
 │ ⚡ REACTION WINDOW: Sabotage Opportunity               [ 0:08 ] [ ⏸ Pause ]│
@@ -721,6 +769,7 @@ export function deriveChoiceRendererModel(
 ```
 
 #### Behavioral Rules
+
 - **Non-Modal Injection**: Mounted directly into `GameShell` bottom overlay stack without creating a dialog backdrop.
 - **Keyboard Navigation**: Pressing `Spacebar` passes immediately (`decline`). Pressing `Enter` triggers the primary reaction card.
 - **Pinned Settings**: Option in user preferences: `"Auto-pass reaction windows unless pinned/favorited"`.
@@ -733,14 +782,14 @@ export function deriveChoiceRendererModel(
 
 ```typescript
 export interface SemanticIntent {
-  kind: 'movement' | 'casualty' | 'payment';
+  kind: "movement" | "casualty" | "payment";
   predicate: (option: ChoiceOptionDto) => boolean;
   description: string;
 }
 
 export function usePipelineRunner(
   pendingChoice: PendingChoiceDto | null,
-  submitChoice: (optionId: string) => Promise<void>
+  submitChoice: (optionId: string) => Promise<void>,
 ) {
   const [activeQueue, setActiveQueue] = useState<SemanticIntent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -814,6 +863,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 ### Package Specifications
 
 #### UI-01: Choice Model Classification & Presentation Refactor
+
 - **Objective**: Implement the domain classification engine matching exact engine subtypes.
 - **Writable Paths**: `web/src/presentation/choiceModel.ts`, `web/src/presentation/choiceModel.test.ts`.
 - **Deliverables**:
@@ -823,6 +873,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 - **Verification**: `npm test src/presentation/choiceModel.test.ts`.
 
 #### UI-02: Bounded Multi-Selection & Dynamic Option List
+
 - **Objective**: Replace radio-only inputs in `PendingChoiceModal` with dynamic single/multi selection controls.
 - **Writable Paths**: `web/src/components/PendingChoiceModal.tsx`, `web/src/components/PendingChoiceModal.test.tsx`.
 - **Deliverables**:
@@ -833,6 +884,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 - **Verification**: `npm test src/components/PendingChoiceModal.test.tsx`.
 
 #### UI-03: Dedicated Payment & Economy Drawer
+
 - **Objective**: Build the visual wallet and pipelined debt settlement interface.
 - **Writable Paths**: `web/src/components/PaymentDrawer.tsx`, `web/src/components/PaymentDrawer.test.tsx`, `web/src/hooks/usePipelineRunner.ts`.
 - **Deliverables**:
@@ -843,6 +895,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 - **Verification**: Vitest tests simulating resource payment, overpayment credit, and trade good spending.
 
 #### UI-04a: System Activation & Board Vector Overlays
+
 - **Objective**: Build SVG board target reticles and movement vector overlays for tactical actions.
 - **Writable Paths**: `web/src/components/Board.tsx`, `web/src/presentation/boardPresentation.ts`.
 - **Deliverables**:
@@ -852,6 +905,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 - **Verification**: `npm test src/presentation/boardPresentation.test.ts`.
 
 #### UI-04b: Fleet Rally Tray, Cargo Gauges & Semantic Runner
+
 - **Objective**: Build the docked fleet movement tray and semantic pipeline runner.
 - **Writable Paths**: `web/src/components/TacticalMovementOverlay.tsx`, `web/src/hooks/usePipelineRunner.ts`.
 - **Deliverables**:
@@ -862,6 +916,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 - **Verification**: Component tests for fleet limits and cargo capacity verification.
 
 #### UI-05: Multi-Stage Combat Arena & Casualty Steppers
+
 - **Objective**: Build visual combat staging, dice roll feed, and casualty allocation.
 - **Writable Paths**: `web/src/components/CombatResolutionModal.tsx`, `web/src/components/CombatResolutionModal.test.tsx`.
 - **Deliverables**:
@@ -872,6 +927,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 - **Verification**: Vitest tests validating sustain toggles, casualty counts, and direct-hit warnings.
 
 #### UI-06a: Bilateral Trade Desk & Structured Deal Catalog
+
 - **Objective**: Build the structured trade desk matching discrete engine transaction shapes.
 - **Writable Paths**: `web/src/components/TradeDeskModal.tsx`, `web/src/presentation/tradeDecoder.ts`.
 - **Deliverables**:
@@ -880,6 +936,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 - **Verification**: Vitest tests for legal option mapping and trade value delta calculation.
 
 #### UI-06b: Agenda Council Ballot Desk & Speaker Gavel
+
 - **Objective**: Build the imperial council voting board and Speaker tiebreaker.
 - **Writable Paths**: `web/src/components/AgendaBallotModal.tsx`.
 - **Deliverables**:
@@ -889,6 +946,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 - **Verification**: Vitest tests for agenda ballot tally verification.
 
 #### UI-07: Unobtrusive Reaction Window Bar & Production Cart
+
 - **Objective**: Implement modeless reaction HUD and space dock unit production cart.
 - **Writable Paths**: `web/src/components/ReactionStatusBar.tsx`, `web/src/components/ProductionBuilderDrawer.tsx`.
 - **Deliverables**:
@@ -898,6 +956,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 - **Verification**: Component tests for fast-pass keyboard events and production limit enforcement.
 
 #### UI-08: Shell Assembly, Responsive Polish & E2E Verification
+
 - **Objective**: Unify all workflow renderers into `GameShell`, ensure responsive layouts, and validate with multi-seat Playwright tests.
 - **Writable Paths**: `web/src/components/GameShell.tsx`, `web/src/App.tsx`, `web/e2e/gameplay_workflows.spec.ts`.
 - **Deliverables**:
@@ -914,6 +973,7 @@ To keep implementation risk low and enforce modular verification, packages `UI-0
 ## 7. Accessibility & Ergonomics Standards
 
 ### WCAG 2.1 AA Compliance
+
 - **Keyboard Navigation**:
   - `Tab` / `Shift+Tab`: Logical traversal through actionable cards and controls.
   - `Spacebar`: Toggle checkboxes, fast-pass reaction windows.

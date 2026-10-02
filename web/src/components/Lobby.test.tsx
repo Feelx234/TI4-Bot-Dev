@@ -262,14 +262,7 @@ describe("lobby UI", () => {
 
   it("allows host to remove an occupied non-host seat", () => {
     const onRemoveBot = vi.fn().mockResolvedValue(true);
-    render(
-      <LobbyStatus
-        lobby={lobby}
-        playerId="player_a"
-        onRemoveBot={onRemoveBot}
-        {...props}
-      />,
-    );
+    render(<LobbyStatus lobby={lobby} playerId="player_a" onRemoveBot={onRemoveBot} {...props} />);
 
     const removeBtn = screen.getByTestId("remove-bot-button-2");
     expect(removeBtn).toBeInTheDocument();

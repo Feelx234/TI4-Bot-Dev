@@ -162,20 +162,6 @@ pub fn secret_objective_bonus(state: &GameState, player: &PlayerId) -> usize {
     usize::from(holds(state, player, &RelicId::new("obsidian")))
 }
 
-/// Nano-Forge: the attached planet is worth two more of each, and is legendary.
-///
-/// Attached rather than held, so the bonus follows the planet and not the owner. Read through the
-/// same `planet_value_now` path the three attachment laws use.
-#[must_use]
-pub fn nanoforge_bonus(state: &GameState, planet: &ti4_model::id::PlanetId) -> i64 {
-    i64::from(
-        state
-            .planet_attachments
-            .get(planet)
-            .is_some_and(|attached| attached.iter().any(|card| card == "nanoforge")),
-    ) * 2
-}
-
 /// Ask which technology to gain, and gain it without checking prerequisites.
 ///
 /// Maw of Worlds and Enigmatic Device both say *gain* or *research 1 technology* as the whole of
@@ -266,7 +252,7 @@ fn the_silver_flame(
     // public objectives for the rest of the game. The roll happens either way, so the
     // card is purged before the branch rather than in one arm of it.
     let roll = dice
-        .roll(rng, 1, "silver_flame", None)
+        .roll_by(rng, 1, "silver_flame", None, player)
         .faces
         .first()
         .copied()
@@ -897,13 +883,10 @@ fn controls_all_four_specialties(
     sources: SourceSet,
     player: &PlayerId,
 ) -> bool {
-    let catalogue = ti4_content::galaxy::all_planets(content, sources);
     let mut found = std::collections::BTreeSet::new();
     for (_, planet) in state.controlled_planets(player) {
-        if let Some(record) = catalogue.get(planet.as_str()) {
-            for specialty in record.tech_specialties() {
-                found.insert(specialty.to_ascii_uppercase());
-            }
+        for specialty in crate::planets::tech_specialties_now(state, content, sources, planet) {
+            found.insert(specialty.to_ascii_uppercase());
         }
     }
     found.len() >= 4

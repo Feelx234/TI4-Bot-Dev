@@ -127,6 +127,8 @@ fn main() {
         }
     }
 
+    cuda_cache_shim(&root);
+
     // 2. Every DLL that will be linked must be one the manifest pins. An unpinned binary in the
     //    directory is not a stray file to ignore — it is a library that could be loaded.
     let lib = root.join("lib");
@@ -188,4 +190,37 @@ fn main() {
             }
         }
     }
+}
+
+/// Compile `src/cuda_cache.cpp` when `LIBTORCH` is a CUDA build, and tell the crate it exists.
+///
+/// The shim reaches libtorch's CUDA caching allocator, which `tch` 0.22 does not expose. It needs
+/// the CUDA toolkit's headers (`CUDA_PATH`) beside libtorch's; a CPU libtorch, or no toolkit, builds
+/// without it and `cuda_cache` reports that nothing is available.
+fn cuda_cache_shim(root: &Path) {
+    println!("cargo:rerun-if-changed=src/cuda_cache.cpp");
+    println!("cargo:rerun-if-env-changed=CUDA_PATH");
+    let lib = root.join("lib");
+    if !lib.join("c10_cuda.lib").is_file() {
+        return;
+    }
+    let Some(cuda) = std::env::var_os("CUDA_PATH").map(PathBuf::from) else {
+        println!("cargo:warning=CUDA libtorch without CUDA_PATH: cuda_cache is disabled");
+        return;
+    };
+    cc::Build::new()
+        .cpp(true)
+        .warnings(false)
+        .include(root.join("include"))
+        .include(cuda.join("include"))
+        .flag("/std:c++17")
+        .file("src/cuda_cache.cpp")
+        .compile("ti4_cuda_cache");
+    println!("cargo:rustc-link-search=native={}", lib.display());
+    println!("cargo:rustc-link-lib=c10_cuda");
+    println!("cargo:rustc-link-lib=c10");
+    println!("cargo:rustc-cfg=ti4_cuda_cache");
+    // As in ti4-mlp's build script: one real reference to torch_cuda, or its DLL (which registers
+    // CUDA with libtorch) never loads and this crate's tests see no device.
+    println!("cargo:rustc-link-arg-tests=/INCLUDE:?warp_size@cuda@at@@YAHXZ");
 }

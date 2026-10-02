@@ -17,17 +17,17 @@ non-blocking engine API is a later scale/recovery improvement, not a prerequisit
 
 ## Current seams
 
-| Existing seam | Multiplayer use |
-|---|---|
-| `ti4-engine::Game` | Canonical mutable rules state and transitions; one session worker owns it. |
-| `Game::step()` | Drives automatic transitions and invokes the decider when a player must decide. |
-| `Table::ask_seeing` | Authenticates the acting seat by selecting its decider, binds a `SeatObservation`, validates the returned option, and records the choice. |
-| `Choice` / `ChoiceOption` | Server sends the generated choice only to its owner; clients return one offered option id. |
-| `ti4-model::view::view_for` | Basis for redacted state projection. It is not itself the browser protocol. |
-| `DecisionContext::visible_to` | Redacts actor-only outstanding constraints from other seats. |
-| `DecisionLog` and canonical hashes | Foundation for audit, diagnostics, deterministic replay, and durable history. |
-| `ti4-bridge` | TTS command/telemetry integration, not the online game authority or browser choice protocol. |
-| `ti4-review` | Source of board/presentation requirements and SVG export semantics. |
+| Existing seam                      | Multiplayer use                                                                                                                           |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `ti4-engine::Game`                 | Canonical mutable rules state and transitions; one session worker owns it.                                                                |
+| `Game::step()`                     | Drives automatic transitions and invokes the decider when a player must decide.                                                           |
+| `Table::ask_seeing`                | Authenticates the acting seat by selecting its decider, binds a `SeatObservation`, validates the returned option, and records the choice. |
+| `Choice` / `ChoiceOption`          | Server sends the generated choice only to its owner; clients return one offered option id.                                                |
+| `ti4-model::view::view_for`        | Basis for redacted state projection. It is not itself the browser protocol.                                                               |
+| `DecisionContext::visible_to`      | Redacts actor-only outstanding constraints from other seats.                                                                              |
+| `DecisionLog` and canonical hashes | Foundation for audit, diagnostics, deterministic replay, and durable history.                                                             |
+| `ti4-bridge`                       | TTS command/telemetry integration, not the online game authority or browser choice protocol.                                              |
+| `ti4-review`                       | Source of board/presentation requirements and SVG export semantics.                                                                       |
 
 `Table::ask_seeing` is central to hidden-information safety. It binds the private observation only
 after looking up the decider for `choice.player`. A server must preserve this path rather than
@@ -104,6 +104,7 @@ The protocol needs, at minimum:
 - Snapshot-size and message-size bounds tests.
 
 **Status: COMPLETED (PROTOCOL & REDACTED PROJECTIONS)**
+
 - **Wire Protocol DTOs (`crates/ti4-server/src/protocol/`)**:
   - Implemented versioned JSON protocol (`client.rs`, `server.rs`, `choice.rs`, `status.rs`, `view.rs`, `error.rs`).
   - Strict serde configuration (`deny_unknown_fields`) enforces schema conformance.
@@ -155,6 +156,7 @@ state machine.
   decision and event hashes.
 
 **Status: COMPLETED (AUTHORITATIVE SESSION VERTICAL SLICE)**
+
 - **Session Architecture (`crates/ti4-server/src/session/`)**:
   - `RemoteHumanDecider` coordinates blocking choices with thread-safe pending choice registry and response channels.
   - `GameSession` runs an authoritative `ti4_engine::Game` on a dedicated session worker thread.
@@ -201,6 +203,7 @@ accessible and inspectable.
 - Manual responsive visual checks at desktop and narrow mobile widths.
 
 **Status: COMPLETED**
+
 - **Step 3A (Server Transport & Lobby Lifecycle)**:
   - Added HTTP routes (`GET /health`, `GET /api/games`, `POST /api/games`, `GET /api/games/:game_id/snapshot`).
   - Added pre-game lobby lifecycle endpoints (`POST /api/games/:game_id/lobby/ready`, `POST /api/games/:game_id/lobby/claim`, `POST /api/games/:game_id/lobby/start`) with unguessable capability tokens and seat lease renewal.
@@ -247,6 +250,7 @@ code.
 - Recovery replay produces the same canonical hashes as the uninterrupted run.
 
 **Status: COMPLETED (DURABLE CRASH RECOVERY & REPLAY)**
+
 - **Filesystem Durable Storage (`crates/ti4-server/src/storage.rs`)**:
   - Implemented `FileGameStore` rooted at `./data/games` (configurable via `TI4_DATA_DIR` or `--data-dir`).
   - Atomic JSON writer (`init.json`) using `.tmp` and atomic replace ensures corruption immunity during power cuts.
@@ -262,8 +266,8 @@ code.
   - Default `demo` game is resumed if present on disk, or created and persisted if not.
   - New games created via HTTP `POST /api/games` automatically save `init.json` and persist all subsequent moves.
 - **Snapshot Recovery & Event Log Parity (`crates/ti4-server/src/session/worker.rs`, `web/src/hooks/useGameSession.ts`)**:
-   - Monotonic typed `GameEvent` log maintained in server shared session state and persisted to disk;
-     visibility is explicit and events are projected per viewer.
+  - Monotonic typed `GameEvent` log maintained in server shared session state and persisted to disk;
+    visibility is explicit and events are projected per viewer.
   - Reconnecting clients fetch current snapshot (via WebSocket or HTTP), receiving the complete authoritative event log and matching continuous subscribers 1:1.
   - Human-readable action formatting in `crates/ti4-server/src/format.rs` aligns with frontend representations.
 - **Verification**:
@@ -344,6 +348,7 @@ choice and seat-bound observation it is entitled to see; it does not gain a priv
   choice or a false successful game completion.
 
 **Status: COMPLETED (GAMEPLAY UI WORKFLOWS & FRONTEND EXPERIENCE)**
+
 - **Completed Work Packages (`web/plans/2026-09-21-GAMEPLAY_UI_COMPLETION_PLAN.md` UI-01 through UI-08)**:
   - **UI-01 (Choice Renderer Model & Classifier)**: `deriveChoiceRendererModel` (`web/src/presentation/choiceModel.ts`) with typed payload decoders (payment, movement, trade) eliminating raw string parsing.
   - **UI-02 (Bounded Multi-Selection & Search)**: Accessible bounded checkbox cards (`min_selection` to `max_selection`), count badge, and option search filter (`web/src/components/PendingChoiceModal.tsx`).

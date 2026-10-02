@@ -118,15 +118,18 @@ describe("playerStats", () => {
           planets: {
             jord: { planet_id: "jord", controlled_by: "p1", exhausted: true },
           },
-          units: [
-            { owner: "p1", unit_type: "space_dock", planet: "jord", damaged: false },
-          ],
+          units: [{ owner: "p1", unit_type: "space_dock", planet: "jord", damaged: false }],
         },
         "2": {
           system_id: "2",
           command_tokens: [],
           planets: {
-            abyz: { planet_id: "abyz", controlled_by: "p1", exhausted: false, attachments: ["nanoforge"] },
+            abyz: {
+              planet_id: "abyz",
+              controlled_by: "p1",
+              exhausted: false,
+              attachments: ["nanoforge"],
+            },
           },
           units: [],
         },
@@ -177,9 +180,7 @@ describe("playerStats", () => {
           planets: {
             jord: { planet_id: "jord", controlled_by: "p1", exhausted: false },
           },
-          units: [
-            { owner: "p1", unit_type: "space_dock", planet: "jord", damaged: false },
-          ],
+          units: [{ owner: "p1", unit_type: "space_dock", planet: "jord", damaged: false }],
         },
       },
     };
@@ -214,15 +215,13 @@ describe("playerStats", () => {
   it("controls empty system if player is the only one with ships", () => {
     const board: BoardView = {
       systems: {
-        "empty_1": {
+        empty_1: {
           system_id: "empty_1",
           command_tokens: [],
           planets: {},
-          units: [
-            { owner: "p1", unit_type: "carrier", damaged: false },
-          ],
+          units: [{ owner: "p1", unit_type: "carrier", damaged: false }],
         },
-        "empty_2": {
+        empty_2: {
           system_id: "empty_2",
           command_tokens: [],
           planets: {},
@@ -238,7 +237,7 @@ describe("playerStats", () => {
   it("does not control multi-planet system if some planets are uncolonized or controlled by others", () => {
     const board: BoardView = {
       systems: {
-        "multi": {
+        multi: {
           system_id: "multi",
           command_tokens: [],
           planets: {

@@ -354,8 +354,8 @@ export function deriveChoiceRendererModel(
       choice.context?.source &&
       typeof choice.context.source === "object" &&
       "StrategyCard" in choice.context.source &&
-      (choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
-        .StrategyCard?.card === "Technology" &&
+      (choice.context.source as { StrategyCard: { card: string; secondary: boolean } }).StrategyCard
+        ?.card === "Technology" &&
       !(choice.context.source as { StrategyCard: { card: string; secondary: boolean } })
         .StrategyCard?.secondary;
 
@@ -364,10 +364,7 @@ export function deriveChoiceRendererModel(
 
     return {
       workflow: "technology_research",
-      selectionMode:
-        max > 1
-          ? { mode: "multi", min, max }
-          : { mode: "single" },
+      selectionMode: max > 1 ? { mode: "multi", min, max } : { mode: "single" },
       prompt: choice.prompt,
       actor: choice.actor,
       nonce: choice.nonce,

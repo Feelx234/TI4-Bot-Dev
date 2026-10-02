@@ -408,6 +408,7 @@ fn roll_bombard_plan(
     let blitzed = state
         .player(invader)
         .is_some_and(|seat| seat.blitz_invasion.contains(&state.activation_seq));
+    let mut plasma = crate::technology::plasma_scoring(state, invader);
     for planet in planets {
         if !bombardable(state, content, sources, system, &planet, invader) {
             continue;
@@ -443,6 +444,8 @@ fn roll_bombard_plan(
             if count == 0 {
                 continue;
             }
+            // Plasma Scoring: one bombarding unit rolls a die more, once for the whole bombardment.
+            let count = count + usize::from(std::mem::take(&mut plasma));
             // Bunker: "during this invasion, apply -4 to the result of each BOMBARDMENT roll
             // against planets you control." The window that hosts these rolls is opened after
             // the driver's invasion events, so the marker is in place by the time the rolls
@@ -462,13 +465,14 @@ fn roll_bombard_plan(
                     .unwrap_or(i64::MAX)
                 });
             let value = value + bunker_penalty;
-            let roll = dice.roll(
+            let roll = dice.roll_by(
                 rng,
                 count,
                 "bombardment",
                 Some(u32::try_from(value).unwrap_or(u32::MAX)),
+                invader,
             );
-            let produced = roll.hits();
+            let produced = roll.hits() * x89_multiplier(state, invader);
             if produced > 0 {
                 groups.push(produced);
             }
@@ -580,6 +584,10 @@ fn apply_bombard_plan(
     let mut killed = 0;
     let mut noted = false;
     for entry in plan {
+        // X-89: "Exhaust each planet you use BOMBARDMENT against."
+        if x89_multiplier(state, invader) > 1 {
+            state.exhaust_planet(entry.planet.clone());
+        }
         let mut taken = 0;
         for produced in &entry.groups {
             let target = if entry.victims.len() == 1 {
@@ -937,11 +945,12 @@ fn roll_ground(
         if dice_count == 0 {
             continue;
         }
-        let roll = dice.roll(
+        let roll = dice.roll_by(
             rng,
             dice_count,
             "ground combat",
             Some(u32::try_from(value).unwrap_or(u32::MAX)),
+            player,
         );
         hits += roll.hits();
         set.rolls.push(ti4_model::state::RerollEntry {
@@ -958,7 +967,20 @@ fn roll_ground(
         state.reroll_staging.insert(player.clone(), set);
         state.last_reroll_player = Some(player.clone());
     }
-    hits
+    hits * x89_multiplier(state, player)
+}
+
+/// X-89 Bacterial Weapon (the codex printing in play): "Double the hits produced by your units'
+/// BOMBARDMENT and ground combat rolls."
+fn x89_multiplier(state: &GameState, player: &PlayerId) -> usize {
+    if state.player(player).is_some_and(|seat| {
+        seat.technologies
+            .contains(&ti4_model::id::TechnologyId::new("x89c4"))
+    }) {
+        2
+    } else {
+        1
+    }
 }
 
 /// Apply one hit to `player`'s ground forces on `planet`: an undamaged unit with SUSTAIN DAMAGE
@@ -1016,6 +1038,7 @@ fn ground_hit(
     state
         .system_mut(system)
         .remove_from_planet(planet, std::slice::from_ref(&doomed));
+    crate::faction_techs::note_destroyed(state, &doomed);
     Some(doomed)
 }
 
@@ -1125,6 +1148,7 @@ fn absorb_ground(
         state
             .system_mut(system)
             .remove_from_planet(planet, std::slice::from_ref(&doomed));
+        crate::faction_techs::note_destroyed(state, &doomed);
     }
     Ok(())
 }
@@ -1646,6 +1670,7 @@ impl InvasionWindow {
         }
         crate::combat::open_reroll_windows(state, ctx, &self.invader);
         if let Some(set) = state.reroll_staging.get(&self.invader).cloned() {
+            let multiplier = x89_multiplier(state, &self.invader);
             for entry in &mut self.bombard_plan {
                 entry.dice = set
                     .rolls
@@ -1673,7 +1698,7 @@ impl InvasionWindow {
                     .rolls
                     .iter()
                     .filter(|roll| roll.planet.as_ref() == Some(&entry.planet))
-                    .map(ti4_model::state::RerollEntry::hits)
+                    .map(|roll| roll.hits() * multiplier)
                     .filter(|hits| *hits > 0)
                     .collect();
             }
@@ -1881,15 +1906,20 @@ impl InvasionWindow {
         defender: &PlayerId,
         defender_hits: usize,
     ) -> (usize, usize) {
+        // Staged dice are raw faces; X-89 doubles what they produce, as `roll_ground` did.
         (
             state
                 .reroll_staging
                 .get(invader)
-                .map_or(invader_hits, crate::combat::staged_hits),
+                .map_or(invader_hits, |set| {
+                    crate::combat::staged_hits(set) * x89_multiplier(state, invader)
+                }),
             state
                 .reroll_staging
                 .get(defender)
-                .map_or(defender_hits, crate::combat::staged_hits),
+                .map_or(defender_hits, |set| {
+                    crate::combat::staged_hits(set) * x89_multiplier(state, defender)
+                }),
         )
     }
 
@@ -2086,6 +2116,17 @@ impl InvasionWindow {
         } else {
             self.invader.clone()
         };
+        // Only a side with forces left has won (both wiped out is nobody's win).
+        if owners.contains(&winner) {
+            crate::faction_techs::dacxive_animators(
+                state,
+                content,
+                sources,
+                &winner,
+                &self.system,
+                planet,
+            );
+        }
         let noted = self
             .current_ground_occurrence
             .take()
@@ -2875,6 +2916,14 @@ fn space_cannon_defense(
     if !crate::entropic_scars::abilities_usable(content, sources, system, Some(system)) {
         return;
     }
+    // L4 Disruptors (Letnev): "During an invasion, units cannot use SPACE CANNON against your
+    // units." Space cannon defense is the only cannon fire an invasion has.
+    if state.player(invader).is_some_and(|seat| {
+        seat.technologies
+            .contains(&ti4_model::id::TechnologyId::new("l4"))
+    }) {
+        return;
+    }
     let types = catalogue(content, sources);
     let guns: Vec<Unit> = state
         .system_state(system)
@@ -2886,6 +2935,17 @@ fn space_cannon_defense(
     let before = state.system_state(system).on_planet(planet).to_vec();
     let mut rolled = Vec::new();
     let mut hits = 0;
+    let mut plasma = crate::combat::plasma_picks(
+        state,
+        guns.iter().map(|unit| {
+            (
+                unit,
+                types
+                    .get(unit.type_id.as_str())
+                    .and_then(|kind| kind.space_cannon_hits_on()),
+            )
+        }),
+    );
     for unit in guns {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
@@ -2904,11 +2964,13 @@ fn space_cannon_defense(
         if count == 0 {
             continue;
         }
-        let roll = ctx.dice.roll(
+        let count = count + crate::combat::take_plasma(&mut plasma, &unit.owner, value);
+        let roll = ctx.dice.roll_by(
             ctx.rng,
             count,
             "space cannon defense",
             Some(u32::try_from(value).unwrap_or(u32::MAX)),
+            &unit.owner,
         );
         hits += roll.hits();
         for face in roll.faces {
@@ -4332,6 +4394,77 @@ mod tests {
             .on_planet_of(&planet, &invader())
             .len();
         assert_eq!(landed, 1, "the PDS hit one of the two infantry");
+    }
+
+    #[test]
+    fn x89_doubles_ground_combat_hits() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = arena_off_mecatol();
+        on_planet(&mut state, &system, &planet, "infantry", &invader(), 1);
+        let mut rng = GameRng::new(7);
+        let mut dice = Dice::from_faces([10u32]);
+        let plain = roll_ground(
+            &mut state,
+            content,
+            POK,
+            &mut dice,
+            &mut rng,
+            &invader(),
+            &system,
+            &planet,
+        );
+        state.reroll_staging.clear();
+        state
+            .player_mut(&invader())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("x89c4"));
+        let mut dice = Dice::from_faces([10u32]);
+        let doubled = roll_ground(
+            &mut state,
+            content,
+            POK,
+            &mut dice,
+            &mut rng,
+            &invader(),
+            &system,
+            &planet,
+        );
+        assert_eq!((plain, doubled), (1, 2));
+    }
+
+    #[test]
+    fn l4_disruptors_silence_space_cannon_defense() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = arena_off_mecatol();
+        on_planet(&mut state, &system, &planet, "pds", &holder(), 1);
+        on_planet(&mut state, &system, &planet, "infantry", &invader(), 2);
+        state
+            .player_mut(&invader())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("l4"));
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        let mut dice = Dice::from_faces([10u32]);
+        let mut rng = GameRng::new(7);
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        space_cannon_defense(&mut state, &mut ctx, &system, &planet, &invader());
+        assert_eq!(
+            state
+                .system_state(&system)
+                .on_planet_of(&planet, &invader())
+                .len(),
+            2,
+            "no cannon fired at the Letnev forces"
+        );
+        assert!(dice.rolled("space cannon defense").is_empty());
     }
 
     #[test]

@@ -109,13 +109,7 @@ describe("PlayerSheet Component & Human Readable Metadata", () => {
 
   it("opens only the owner’s private cards", () => {
     const onInspectCard = vi.fn();
-    render(
-      <PlayerSheet
-        players={mockPlayers}
-        userSeat="p1"
-        onInspectCard={onInspectCard}
-      />,
-    );
+    render(<PlayerSheet players={mockPlayers} userSeat="p1" onInspectCard={onInspectCard} />);
     fireEvent.click(screen.getByTestId("action-card-item-direct_hit").querySelector("button")!);
     expect(onInspectCard).toHaveBeenCalledWith({ kind: "action", id: "direct_hit" });
     expect(screen.queryByTestId("action-card-item-nonexistent")).not.toBeInTheDocument();
@@ -207,9 +201,7 @@ describe("PlayerSheet Component & Human Readable Metadata", () => {
           planets: {
             jord: { planet_id: "jord", controlled_by: "p1", exhausted: false },
           },
-          units: [
-            { owner: "p1", unit_type: "space_dock", planet: "jord", damaged: false },
-          ],
+          units: [{ owner: "p1", unit_type: "space_dock", planet: "jord", damaged: false }],
         },
       },
     };

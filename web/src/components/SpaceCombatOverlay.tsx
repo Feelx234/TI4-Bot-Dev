@@ -333,18 +333,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       const combatUnits = stats.units.filter((unit) =>
         canParticipateInSpaceCombat(unit.unit_type, player),
       );
-      const hits = combatUnits.reduce(
-        (sum, unit) => sum + expectedHits(unit.unit_type, player),
-        0,
-      );
+      const hits = combatUnits.reduce((sum, unit) => sum + expectedHits(unit.unit_type, player), 0);
       const health = combatUnits.reduce(
-        (sum, unit) =>
-          sum +
-          (unit.damaged
-            ? 1
-            : hasSustainDamage(unit.unit_type, player)
-              ? 2
-              : 1),
+        (sum, unit) => sum + (unit.damaged ? 1 : hasSustainDamage(unit.unit_type, player) ? 2 : 1),
         0,
       );
       return (hits + 0.1) * (health + 0.1);

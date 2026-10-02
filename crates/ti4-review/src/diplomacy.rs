@@ -5,6 +5,8 @@
 //! reviewer can scan. The native window, the action summaries and the tests all use these, so a
 //! deal reads the same wherever it appears.
 
+use std::collections::BTreeMap;
+
 use serde::Deserialize as _;
 use serde_json::Value;
 use ti4_engine::diplomacy::candidates::{CandidateBundle, DealTemplate};
@@ -17,16 +19,22 @@ use ti4_model::{
 
 use crate::{DecisionDetail, OptionDetail};
 
-/// A seat as the reviewer names it: `seat2 (xxcha)`.
+/// A seat as the reviewer names it: `seat2 "The Xxcha Kingdom"`, the same form as
+/// [`crate::view::seat_name`]; a faction the content does not know keeps its id: `seat2 (xxcha)`.
 #[must_use]
 pub fn seat(state: &GameState, player: &PlayerId) -> String {
-    state
+    let Some(seat) = state
         .player(player)
         .filter(|seat| !seat.faction.as_str().is_empty())
-        .map_or_else(
-            || player.to_string(),
-            |seat| format!("{} ({})", seat.id, seat.faction),
-        )
+    else {
+        return player.to_string();
+    };
+    match ti4_content::factions::get(ti4_content::ContentStore::embedded(), seat.faction.as_str())
+        .and_then(|faction| faction.name())
+    {
+        Some(name) => format!("{} \"{name}\"", seat.id),
+        None => format!("{} ({})", seat.id, seat.faction),
+    }
 }
 
 fn count(amount: u8, one: &str, many: &str) -> String {
@@ -542,6 +550,7 @@ const fn template_text(template: DealTemplate) -> &'static str {
         DealTemplate::PayForAgentFavour => "pay for an agent's help",
         DealTemplate::SellAgentFavour => "sell an agent's help",
         DealTemplate::NoteForNonAggression => "promissory note for non-aggression",
+        DealTemplate::Built => "a deal",
     }
 }
 
@@ -550,15 +559,24 @@ const fn template_text(template: DealTemplate) -> &'static str {
 /// Empty for every other option.
 #[must_use]
 pub fn option_lines(state: &GameState, option: &OptionDetail) -> Vec<String> {
-    let Some(bundle) = option
-        .payload
+    payload_lines(state, &option.payload)
+}
+
+/// [`option_lines`] from the payload map alone.
+///
+/// The reviewer has a recorded [`OptionDetail`]; the replayer's live panel has the engine's own
+/// option, which carries the same payload and none of the recording. Both must show the same words,
+/// because a deal whose terms the seat cannot read is not a decision — it is a coin flip with a
+/// button on it. That is why this is a function of the payload rather than of either type.
+#[must_use]
+pub fn payload_lines(state: &GameState, payload: &BTreeMap<String, Value>) -> Vec<String> {
+    let Some(bundle) = payload
         .get("bundle")
         .and_then(|value| CandidateBundle::deserialize(value).ok())
     else {
         return Vec::new();
     };
-    let actor_is_proposer = option
-        .payload
+    let actor_is_proposer = payload
         .get("actor_is_proposer")
         .and_then(Value::as_bool)
         .unwrap_or(true);
@@ -718,6 +736,14 @@ mod tests {
             lines.contains("They commit to: give 2 trade goods now"),
             "{lines}"
         );
+        // R02's live panel holds the engine's option, not a recorded `OptionDetail`, and used to
+        // show a diplomacy offer as a label plus a raw id. Both windows go through the payload, so
+        // the sentence a seat accepts is the sentence the recording keeps.
+        assert_eq!(
+            payload_lines(&state, &option.payload),
+            option_lines(&state, &option)
+        );
+        assert!(payload_lines(&state, &BTreeMap::new()).is_empty());
     }
 
     #[test]

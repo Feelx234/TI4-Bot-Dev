@@ -386,8 +386,8 @@ async fn exercise_game_to_end(
     let b2_task = tokio::spawn(run(b2));
     let b3_task = tokio::spawn(run(b3));
 
-    let (r1, r2, r3) = tokio::try_join!(b1_task, b2_task, b3_task)
-        .map_err(|e| format!("bot join error: {e}"))?;
+    let (r1, r2, r3) =
+        tokio::try_join!(b1_task, b2_task, b3_task).map_err(|e| format!("bot join error: {e}"))?;
     r1.map_err(|e| format!("bot 1 failed: {e:?}"))?;
     r2.map_err(|e| format!("bot 2 failed: {e:?}"))?;
     r3.map_err(|e| format!("bot 3 failed: {e:?}"))?;

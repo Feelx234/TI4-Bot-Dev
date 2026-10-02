@@ -22,7 +22,11 @@ fn ensure_and_verify_fixtures() {
     for (name, expected_msg) in &fixtures {
         if std::env::var("UPDATE_FIXTURES").is_ok() {
             let pretty = serde_json::to_string_pretty(expected_msg).expect("pretty");
-            std::fs::write(format!("{}/fixtures/{name}", env!("CARGO_MANIFEST_DIR")), format!("{pretty}\n")).expect("write fixture");
+            std::fs::write(
+                format!("{}/fixtures/{name}", env!("CARGO_MANIFEST_DIR")),
+                format!("{pretty}\n"),
+            )
+            .expect("write fixture");
         }
         let persisted =
             std::fs::read_to_string(format!("{}/fixtures/{name}", env!("CARGO_MANIFEST_DIR")))

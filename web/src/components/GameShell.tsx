@@ -520,7 +520,10 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
           className="button button--primary choice-minimized-pill"
           onClick={() => onMinimizedChange(false)}
         >
-          ⚔️ {isActor && choice ? `Resume: ${choice.prompt}` : `View invasion · System ${boardView.invasion.system_id}`}
+          ⚔️{" "}
+          {isActor && choice
+            ? `Resume: ${choice.prompt}`
+            : `View invasion · System ${boardView.invasion.system_id}`}
         </button>
       </div>
     ) : (

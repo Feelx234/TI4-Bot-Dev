@@ -42,7 +42,8 @@ export const BoardTooltip: React.FC<BoardTooltipProps> = ({
 }) => {
   const display = usePlayerIdentity();
 
-  const eco = tilePresentation && activeOverlay === "economy" ? computeTileEconomy(tilePresentation) : null;
+  const eco =
+    tilePresentation && activeOverlay === "economy" ? computeTileEconomy(tilePresentation) : null;
   const combat =
     tilePresentation && activeOverlay === "space_combat"
       ? computeTileSpaceCombat(tilePresentation, players)

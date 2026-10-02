@@ -275,9 +275,7 @@ export function getExpectedSpaceHits(
     case "dreadnought": {
       // L1Z1X Super Dreadnought II hits on 4+ (1 die) instead of 5+
       const isL1Z1X =
-        normType.includes("l1z1x") ||
-        normType.includes("superdreadnought") ||
-        faction === "l1z1x";
+        normType.includes("l1z1x") || normType.includes("superdreadnought") || faction === "l1z1x";
       const target = isL1Z1X && upgraded ? 4 : 5;
       return Math.round(calculateHitChance(target, shift) * 100) / 100;
     }
@@ -294,7 +292,7 @@ export function getExpectedSpaceHits(
         normType.includes("crimson") ||
         faction === "argent" ||
         faction === "crimson";
-      const target = isArgentOrCrimson ? (upgraded ? 7 : 8) : (upgraded ? 8 : 9);
+      const target = isArgentOrCrimson ? (upgraded ? 7 : 8) : upgraded ? 8 : 9;
       return Math.round(calculateHitChance(target, shift) * 100) / 100;
     }
     case "fighter": {
@@ -303,7 +301,7 @@ export function getExpectedSpaceHits(
         normType.includes("naalu") ||
         normType.includes("hybridcrystalfighter") ||
         faction === "naalu";
-      const target = isNaalu ? (upgraded ? 7 : 8) : (upgraded ? 8 : 9);
+      const target = isNaalu ? (upgraded ? 7 : 8) : upgraded ? 8 : 9;
       return Math.round(calculateHitChance(target, shift) * 100) / 100;
     }
     case "carrier": {
@@ -334,9 +332,7 @@ export function getExpectedGroundHits(
     case "mech": {
       // Naaz-Rokha Mech (Z-Grav Eidolon) rolls 2 dice hitting on 6+
       const isNaaz =
-        normType.includes("naaz") ||
-        normType.includes("eidolon") ||
-        faction === "naaz";
+        normType.includes("naaz") || normType.includes("eidolon") || faction === "naaz";
       const dice = isNaaz ? 2 : 1;
       return Math.round(dice * calculateHitChance(6, shift) * 100) / 100;
     }
@@ -395,7 +391,10 @@ export function hasSustainDamage(
     return true;
   }
   // Titans Hel-Titan (PDS) has sustain damage
-  if (base === "pds" && (normType.includes("titans") || normType.includes("heltitan") || context?.faction === "titans")) {
+  if (
+    base === "pds" &&
+    (normType.includes("titans") || normType.includes("heltitan") || context?.faction === "titans")
+  ) {
     return true;
   }
   return false;
@@ -491,7 +490,8 @@ export function canParticipateInSpaceCombat(
   if (
     (normType.includes("naaz") && normType.includes("space")) ||
     (normType.includes("eidolon") && normType.includes("space")) ||
-    (base === "mech" && (normType.includes("space") || (context?.faction === "naaz" && normType.includes("eidolon"))))
+    (base === "mech" &&
+      (normType.includes("space") || (context?.faction === "naaz" && normType.includes("eidolon"))))
   ) {
     return true;
   }

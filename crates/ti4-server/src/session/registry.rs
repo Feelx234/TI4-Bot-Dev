@@ -2075,7 +2075,10 @@ impl GameRegistry {
 
         let (server_port, default_nick) = {
             let state = self.state.lock().expect("registry lock");
-            let lobby = state.player_lobbies.get(game_id).ok_or(LobbyError::NotFound)?;
+            let lobby = state
+                .player_lobbies
+                .get(game_id)
+                .ok_or(LobbyError::NotFound)?;
             if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
                 return Err(LobbyError::AlreadyRunning);
             }
@@ -2140,9 +2143,9 @@ impl GameRegistry {
             let state = self.state.lock().expect("registry lock");
             if let Some(lobby) = state.player_lobbies.get(game_id) {
                 if lobby.slots.iter().any(|s| {
-                    s.occupant
-                        .as_ref()
-                        .is_some_and(|id| lobby.players.get(id).map(|p| &p.nickname) == Some(&chosen_nick))
+                    s.occupant.as_ref().is_some_and(|id| {
+                        lobby.players.get(id).map(|p| &p.nickname) == Some(&chosen_nick)
+                    })
                 }) {
                     return Ok(self.player_view(&state, lobby));
                 }
@@ -2150,7 +2153,10 @@ impl GameRegistry {
         }
 
         let state = self.state.lock().expect("registry lock");
-        let lobby = state.player_lobbies.get(game_id).ok_or(LobbyError::NotFound)?;
+        let lobby = state
+            .player_lobbies
+            .get(game_id)
+            .ok_or(LobbyError::NotFound)?;
         Ok(self.player_view(&state, lobby))
     }
 
@@ -2174,10 +2180,7 @@ impl GameRegistry {
         if player_id == &lobby.host_player_id {
             return Err(LobbyError::HostRequired);
         }
-        let nickname = lobby
-            .players
-            .get(player_id)
-            .map(|p| p.nickname.clone());
+        let nickname = lobby.players.get(player_id).map(|p| p.nickname.clone());
 
         let mut updated = lobby.clone();
         updated.players.remove(player_id);
@@ -2193,7 +2196,9 @@ impl GameRegistry {
         updated.lobby_version += 1;
         self.save_player_lobby(&updated)?;
         *lobby = updated;
-        state.presence.remove(&(game_id.to_owned(), player_id.clone()));
+        state
+            .presence
+            .remove(&(game_id.to_owned(), player_id.clone()));
 
         if let Some(nick) = nickname {
             let mut bots_guard = self.active_bots.lock().expect("active bots lock");

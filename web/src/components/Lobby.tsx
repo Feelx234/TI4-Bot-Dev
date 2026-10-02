@@ -144,7 +144,9 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   const [copying, setCopying] = useState(false);
   const copyingRef = useRef(false);
   const [addBotPosition, setAddBotPosition] = useState<number | null>(null);
-  const [botPassword, setBotPassword] = useState(() => localStorage.getItem("ti4_bot_password") || "");
+  const [botPassword, setBotPassword] = useState(
+    () => localStorage.getItem("ti4_bot_password") || "",
+  );
   const [botNickname, setBotNickname] = useState("");
   const [rememberBotPassword, setRememberBotPassword] = useState(true);
   const [botError, setBotError] = useState<string | null>(null);
@@ -367,16 +369,15 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                   Remember password on this device
                 </label>
                 {botError && (
-                  <p role="alert" style={{ color: "var(--color-danger, #ef4444)", margin: "4px 0" }}>
+                  <p
+                    role="alert"
+                    style={{ color: "var(--color-danger, #ef4444)", margin: "4px 0" }}
+                  >
                     {botError}
                   </p>
                 )}
                 <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                  <button
-                    type="submit"
-                    className="button button--success"
-                    disabled={addingBot}
-                  >
+                  <button type="submit" className="button button--success" disabled={addingBot}>
                     {addingBot ? "Adding bot…" : "Add Bot"}
                   </button>
                   <button

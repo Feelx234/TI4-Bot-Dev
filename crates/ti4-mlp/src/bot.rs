@@ -26,6 +26,9 @@ use ti4_policy::vocabulary::Vocabulary;
 
 use crate::{Actor, FactionRow, SparseOption};
 
+/// The option kind of a fleet decision's synthetic options.
+pub const PACKAGE_KIND: &str = "package";
+
 /// A campaign's inference status, which cannot be discarded to obtain a success.
 ///
 /// Handed out by [`MlpBot::seat`] and consumed by [`InferenceStatus::into_result`]. An earlier
@@ -111,6 +114,46 @@ pub struct MlpBot {
     records: std::rc::Rc<std::cell::RefCell<Vec<PpoRecord>>>,
     ppo_mode: Option<crate::bundle::CriticMode>,
     baseline: ti4_policy::progress::Baseline,
+    /// One note per recorded step, pushed with it: what the trainer charges wasted activations
+    /// against. Kept here rather than rebuilt from the engine's prompts, because fleet decisions
+    /// have no engine prompt and planned steps have no record.
+    notes: std::rc::Rc<std::cell::RefCell<Vec<crate::positive_corpus::Note>>>,
+    /// The fleet this seat chose at its last activation (fact version 7), while it is being moved.
+    plan: Option<PlanSlot>,
+    /// What the fleet decisions and plans did, for a reviewer.
+    trace: std::rc::Rc<std::cell::RefCell<Vec<PlanTrace>>>,
+}
+
+/// A fleet being carried out, tied to the activation it was chosen for.
+#[derive(Debug, Clone)]
+struct PlanSlot {
+    player: ti4_model::id::PlayerId,
+    system: ti4_model::id::SystemId,
+    execution: ti4_policy::tactical_plan::Execution,
+}
+
+/// One fleet on a decision's menu, as a trace shows it: label, probability, facts.
+pub type PackageOptionTrace = (String, f64, Vec<(String, f64)>);
+
+/// One entry of a bot's plan trace.
+#[derive(Debug, Clone)]
+pub enum PlanTrace {
+    /// A fleet decision: the menu, what the model made of it, and the pick.
+    Package {
+        player: String,
+        system: String,
+        /// The menu, the manual option last.
+        options: Vec<PackageOptionTrace>,
+        chosen: usize,
+    },
+    /// An engine prompt answered by the plan rather than the model.
+    Planned {
+        player: String,
+        prompt: String,
+        chosen: String,
+    },
+    /// The plan stopped before it was finished.
+    Stopped { player: String, reason: String },
 }
 
 /// One PPO decision and the progress snapshot taken at that exact decision.
@@ -142,6 +185,12 @@ pub struct Counters {
     pub oov: AtomicUsize,
     /// Feature names that found a column of their own.
     pub assigned: AtomicUsize,
+    /// Fleet decisions sampled (fact version 7).
+    pub package_decisions: AtomicUsize,
+    /// Engine prompts answered by a chosen fleet's plan.
+    pub planned: AtomicUsize,
+    /// Plans that stopped before they finished.
+    pub plans_stopped: AtomicUsize,
 }
 
 impl MlpBot {
@@ -181,6 +230,9 @@ impl MlpBot {
             records: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
             ppo_mode: None,
             baseline: ti4_policy::progress::Baseline::default(),
+            notes: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+            plan: None,
+            trace: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
         }
     }
 
@@ -208,6 +260,9 @@ impl MlpBot {
             records: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
             ppo_mode: None,
             baseline: ti4_policy::progress::Baseline::default(),
+            notes: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+            plan: None,
+            trace: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
         }
     }
 
@@ -336,6 +391,227 @@ impl MlpBot {
     #[must_use]
     pub fn ppo_records(&self) -> std::rc::Rc<std::cell::RefCell<Vec<PpoRecord>>> {
         std::rc::Rc::clone(&self.records)
+    }
+
+    /// One note per record, in record order: the decision's head, the option taken, and whether it
+    /// was a decline. A fleet decision's note is a movement note (declined when it moves nothing).
+    #[must_use]
+    pub fn ppo_notes(&self) -> std::rc::Rc<std::cell::RefCell<Vec<crate::positive_corpus::Note>>> {
+        std::rc::Rc::clone(&self.notes)
+    }
+
+    /// What this bot's fleet decisions and plans did.
+    #[must_use]
+    pub fn plan_trace(&self) -> std::rc::Rc<std::cell::RefCell<Vec<PlanTrace>>> {
+        std::rc::Rc::clone(&self.trace)
+    }
+
+    fn note(&self, head: &str, chosen: &str, declined: bool) {
+        self.notes.borrow_mut().push(crate::positive_corpus::Note {
+            head: crate::capture_head(head).to_owned(),
+            chosen: chosen.to_owned(),
+            declined,
+        });
+    }
+
+    /// Answer from the current plan when this prompt is the plan's; drop a plan that no longer
+    /// applies. `None` hands the prompt to the model.
+    fn planned(&mut self, choice: &Choice, seen: &SeatObservation<'_>) -> Option<ChoiceOption> {
+        let slot = self.plan.as_mut()?;
+        let starts_over = choice.options.iter().any(|option| {
+            option.kind == ti4_engine::tactical::ACTIVATE_KIND
+                || option.id == ti4_engine::game::TACTICAL_ACTION_ID
+        });
+        let elsewhere = seen.observed().active_system() != Some(&slot.system);
+        if starts_over || (elsewhere && choice.player == slot.player) {
+            self.plan = None;
+            return None;
+        }
+        if choice.player != slot.player || !ti4_policy::tactical_plan::Execution::handles(choice) {
+            return None;
+        }
+        let answer = slot.execution.answer(choice);
+        let player = slot.player.to_string();
+        match (&answer, &slot.execution.state) {
+            (Some(id), state) => {
+                let option = choice
+                    .options
+                    .iter()
+                    .find(|option| &option.id == id)?
+                    .clone();
+                self.counters.planned.fetch_add(1, Ordering::Relaxed);
+                self.trace.borrow_mut().push(PlanTrace::Planned {
+                    player,
+                    prompt: choice.prompt.clone(),
+                    chosen: option.id.clone(),
+                });
+                if *state == ti4_policy::tactical_plan::PlanState::Complete {
+                    self.plan = None;
+                }
+                Some(option)
+            }
+            (None, ti4_policy::tactical_plan::PlanState::NotOffered(reason)) => {
+                self.counters.plans_stopped.fetch_add(1, Ordering::Relaxed);
+                self.trace.borrow_mut().push(PlanTrace::Stopped {
+                    player,
+                    reason: reason.clone(),
+                });
+                self.plan = None;
+                None
+            }
+            (None, _) => None,
+        }
+    }
+
+    /// Fact version 7: after an activation, sample which candidate fleet to send and keep it as
+    /// the plan. A recorded step of the movement head, with its own options and probability.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one decision: menu, features, sampling, record, plan"
+    )]
+    fn choose_package(
+        &mut self,
+        choice: &Choice,
+        seen: &SeatObservation<'_>,
+        system: &ti4_model::id::SystemId,
+        lap: &mut crate::perf::Lap,
+    ) -> Result<(), IllegalChoice> {
+        let Some(actor) = self.actor.clone() else {
+            return Ok(());
+        };
+        let Some(predictor) = actor.battle_predictor() else {
+            return Ok(());
+        };
+        if !ti4_policy::battle::samples_packages(predictor.feature_version) {
+            return Ok(());
+        }
+        let menu = ti4_policy::tactical_plan::packages(
+            seen.observed(),
+            &choice.player,
+            system,
+            Some(predictor),
+        );
+        if menu.is_empty() {
+            return Ok(());
+        }
+        // The menu, then building the fleet step by step.
+        let mut options: Vec<ChoiceOption> = menu
+            .iter()
+            .enumerate()
+            .map(|(index, package)| {
+                ChoiceOption::labelled(
+                    format!("package|{index}"),
+                    PACKAGE_KIND,
+                    format!(
+                        "{}: {} ships, {} carried",
+                        package.strategy.label(),
+                        package.moves.len(),
+                        package.loads.len()
+                    ),
+                )
+            })
+            .collect();
+        options.push(ChoiceOption::labelled(
+            "package|manual",
+            PACKAGE_KIND,
+            "build the fleet step by step",
+        ));
+        let synthetic = Choice::new(choice.player.clone(), "movement", options);
+        let held = seen.held_secret_progress();
+        let vectors = ti4_policy::projection::mlp_choice_features(
+            seen.observed(),
+            &synthetic,
+            &synthetic.player,
+            &held,
+            self.baseline,
+        );
+        let facts: Vec<Vec<(&'static str, f64)>> = menu
+            .iter()
+            .map(|package| ti4_policy::battle::package_facts(Some(package)))
+            .chain(std::iter::once(ti4_policy::battle::package_facts(None)))
+            .collect();
+        let vectors = ti4_policy::battle::append_facts(vectors, &facts);
+        let sparse: Vec<SparseOption> = vectors
+            .iter()
+            .map(|vector| self.sparse_from(vector))
+            .collect::<Result<_, _>>()
+            .map_err(|reason| self.refuse(choice, reason))?;
+        let requested = ti4_policy::learned::decision_head(&synthetic);
+        let head = actor.resolve_layout_head(requested);
+        let head_index = actor
+            .layout_head_index(head)
+            .map_err(|error| self.refuse(choice, format!("package head {head}: {error}")))?;
+        let head = head.to_owned();
+        let probabilities = actor
+            .probabilities(&sparse, &head, self.row, self.temperature)
+            .map_err(|error| self.refuse(choice, format!("package head {head}: {error}")))?;
+        if probabilities.len() != synthetic.options.len()
+            || probabilities.iter().any(|p| !p.is_finite() || *p < 0.0)
+        {
+            return Err(self.refuse(choice, "malformed package distribution".to_owned()));
+        }
+        self.counters
+            .package_decisions
+            .fetch_add(1, Ordering::Relaxed);
+        let chosen = self.sample(&probabilities);
+        let manual = chosen == menu.len();
+        self.trace.borrow_mut().push(PlanTrace::Package {
+            player: choice.player.to_string(),
+            system: system.to_string(),
+            options: synthetic
+                .options
+                .iter()
+                .zip(&probabilities)
+                .zip(&facts)
+                .map(|((option, p), facts)| {
+                    (
+                        option.label.clone(),
+                        *p,
+                        facts.iter().map(|(n, v)| ((*n).to_owned(), *v)).collect(),
+                    )
+                })
+                .collect(),
+            chosen,
+        });
+        if let Some(mode) = self.ppo_mode
+            && synthetic.options.len() >= 2
+        {
+            self.record(
+                &synthetic,
+                seen,
+                mode,
+                &probabilities,
+                sparse,
+                head_index,
+                chosen,
+                lap,
+            )?;
+            let moves_nothing = manual || menu[chosen].moves.is_empty();
+            let label = if manual {
+                "manual"
+            } else {
+                menu[chosen].strategy.label()
+            };
+            self.note(requested, label, moves_nothing);
+        }
+        self.plan = (!manual).then(|| PlanSlot {
+            player: choice.player.clone(),
+            system: system.clone(),
+            execution: ti4_policy::tactical_plan::Execution::new(menu[chosen].clone()),
+        });
+        Ok(())
+    }
+
+    fn sample(&mut self, probabilities: &[f64]) -> usize {
+        let draw: f64 = self.rng.random_range(0.0..1.0);
+        let mut cumulative = 0.0;
+        for (index, probability) in probabilities.iter().enumerate() {
+            cumulative += *probability;
+            if draw < cumulative {
+                return index;
+            }
+        }
+        probabilities.len() - 1
     }
 
     fn refuse(&self, choice: &Choice, reason: String) -> IllegalChoice {
@@ -491,6 +767,10 @@ impl MlpBot {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one decision, from features to the sampled option"
+    )]
     fn decide(
         &mut self,
         choice: &Choice,
@@ -503,6 +783,9 @@ impl MlpBot {
             });
         }
         let mut lap = crate::perf::Lap::start();
+        if let Some(option) = self.planned(choice, seen) {
+            return Ok(option);
+        }
         let held = seen.held_secret_progress();
         // The seat's own setup baseline goes in with the features: the opening-progress facts are
         // deltas against it, and a bot that passed a default would report absolute holdings as
@@ -531,6 +814,17 @@ impl MlpBot {
                 ti4_policy::battle::append_facts(vectors, &facts)
             }
             None => vectors,
+        };
+        // Deal values on diplomacy options, for a bundle whose vocabulary places them (migrated
+        // with the names appended); any other bundle sees exactly the vectors it always did.
+        let vectors = if self
+            .vocabulary
+            .is_assigned(ti4_policy::deal_value::FACT_SCORE)
+        {
+            let facts = ti4_policy::deal_value::deal_facts(seen.observed(), choice);
+            ti4_policy::battle::append_facts(vectors, &facts)
+        } else {
+            vectors
         };
         lap.mark(crate::perf::Stage::Features);
         let options: Vec<SparseOption> = vectors
@@ -639,16 +933,7 @@ impl MlpBot {
 
         // Sample. The cumulative walk is the same shape the linear bot uses, so a comparison
         // between them is about the policy rather than about the sampler.
-        let draw: f64 = self.rng.random_range(0.0..1.0);
-        let mut cumulative = 0.0;
-        let mut chosen = choice.options.len() - 1;
-        for (index, probability) in probabilities.iter().enumerate() {
-            cumulative += *probability;
-            if draw < cumulative {
-                chosen = index;
-                break;
-            }
-        }
+        let chosen = self.sample(&probabilities);
 
         lap.mark(crate::perf::Stage::Sampling);
 
@@ -684,9 +969,17 @@ impl MlpBot {
                     &mut lap,
                 )?;
             }
+            let taken = &choice.options[chosen];
+            self.note(requested_head, &taken.id, taken.is_decline());
         }
 
-        Ok(choice.options[chosen].clone())
+        let taken = choice.options[chosen].clone();
+        if taken.kind == ti4_engine::tactical::ACTIVATE_KIND {
+            self.plan = None;
+            let system = ti4_model::id::SystemId::new(taken.id.clone());
+            self.choose_package(choice, seen, &system, &mut lap)?;
+        }
+        Ok(taken)
     }
 }
 

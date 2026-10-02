@@ -46,10 +46,10 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
 
   const activeScoringMode = Boolean(
     isScoringMode ||
-      (choice &&
-        (choice.context?.subtype === "score_objective" ||
-          choice.context?.subtype === "imperial_score_objective" ||
-          model?.workflow === "objective_scoring")),
+    (choice &&
+      (choice.context?.subtype === "score_objective" ||
+        choice.context?.subtype === "imperial_score_objective" ||
+        model?.workflow === "objective_scoring")),
   );
 
   const scoreableOptionMap = useMemo(() => {
@@ -155,9 +155,7 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
       return;
     }
 
-    const firstScoreable = choice.options.find(
-      (o) => o.id !== "decline" && o.kind !== "decline",
-    );
+    const firstScoreable = choice.options.find((o) => o.id !== "decline" && o.kind !== "decline");
     const initialId =
       firstScoreable?.id ??
       choice.options.find((o) => o.id === "decline" || o.kind === "decline")?.id ??
@@ -361,7 +359,8 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
               </Dialog.Title>
               <span className="objectives-modal__subtitle">
                 {activeScoringMode
-                  ? (choice?.prompt ?? "Select an unscored public objective to claim victory points.")
+                  ? (choice?.prompt ??
+                    "Select an unscored public objective to claim victory points.")
                   : `${effectiveRevealedObjectives.length} revealed · Track progress and scored objectives across all players`}
               </span>
             </div>

@@ -132,7 +132,9 @@ async fn bot_service_password_and_host_validation() {
     // 3. Remove player/bot works with host credential
     let guest_id = guest["player"]["id"].as_str().unwrap();
     let remove_res = client
-        .post(format!("http://{addr}/api/games/{game_id}/lobby/remove-bot"))
+        .post(format!(
+            "http://{addr}/api/games/{game_id}/lobby/remove-bot"
+        ))
         .header("x-ti4-player-session", host_token)
         .json(&serde_json::json!({
             "player_id": guest_id

@@ -25,11 +25,7 @@ export const TechBenefitsOverlay: React.FC<TechBenefitsOverlayProps> = ({
     <>
       {/* Tech Benefits: Dim non-tech systems */}
       {!techOverlay?.hasTechSpecialties && (
-        <polygon
-          points={tile.points}
-          fill="rgba(15, 23, 42, 0.55)"
-          pointerEvents="none"
-        />
+        <polygon points={tile.points} fill="rgba(15, 23, 42, 0.55)" pointerEvents="none" />
       )}
 
       {/* Tech Benefits: Active system highlight border */}
@@ -211,8 +207,7 @@ export const TechBenefitsTooltipSection: React.FC<TechBenefitsTooltipSectionProp
       {tech.planets.length > 0 ? (
         tech.planets.map((tp) => (
           <div key={tp.id} style={{ marginTop: 2 }}>
-            • {tp.label}: {tp.specialties.join(", ")}{" "}
-            {tp.exhausted ? "(Exhausted)" : "(Ready)"}
+            • {tp.label}: {tp.specialties.join(", ")} {tp.exhausted ? "(Exhausted)" : "(Ready)"}
           </div>
         ))
       ) : (

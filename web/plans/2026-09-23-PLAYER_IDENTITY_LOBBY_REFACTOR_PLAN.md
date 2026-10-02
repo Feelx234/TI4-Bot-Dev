@@ -37,7 +37,7 @@ admission flow. A client supplies a game ID, the server assigns the next open
 lobby position for a new participant, and the server issues a private resumable
 player-session credential. Clients must not choose a position or receive a session
 credential as a command line or URL parameter. Someone without a credential may
-also take over an *existing disconnected player* from a different computer;
+also take over an _existing disconnected player_ from a different computer;
 that operation does not create a new participant or change their position.
 
 The host may reorder players while the game is a lobby. Starting the game
@@ -50,11 +50,11 @@ that player's identity or session credential.
 
 Use three separate concepts:
 
-| Concept | Meaning | Lifetime | Authority |
-|---|---|---|---|
-| `PlayerId` | Stable game participant identity. It is created on first player admission. | Lobby through game completion | Server generated |
-| Player-session credential | Opaque, high-entropy bearer credential that resumes one `PlayerId`. | Until replacement on takeover or game deletion | Server generated and private to the client |
-| Lobby slot / seat position | A physical ordered position in the lobby, optionally occupied by a `PlayerId`. | Mutable only during lobby | Host reorders; server assigns first open position |
+| Concept                    | Meaning                                                                        | Lifetime                                       | Authority                                         |
+| -------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------- |
+| `PlayerId`                 | Stable game participant identity. It is created on first player admission.     | Lobby through game completion                  | Server generated                                  |
+| Player-session credential  | Opaque, high-entropy bearer credential that resumes one `PlayerId`.            | Until replacement on takeover or game deletion | Server generated and private to the client        |
+| Lobby slot / seat position | A physical ordered position in the lobby, optionally occupied by a `PlayerId`. | Mutable only during lobby                      | Host reorders; server assigns first open position |
 
 `PlayerId` is not a position such as `p1`. It is retained when its holder moves
 from one position to another. The engine's seating order is an ordered
@@ -229,15 +229,15 @@ No credential expiry timestamp or expiry sweep is needed.
 
 Replace the following lobby API behavior:
 
-| Current | Replacement |
-|---|---|
-| `players: ["p1", "p2", ...]` at creation | A bounded `player_count` that creates ordered empty slots |
-| `POST /lobby/claim` with `{ "seat": "p2" }` | `POST /lobby/join` with no chosen position; server assigns the next open slot |
-| `creator_token` | Private `player_session` for the host player |
-| `credential` from claim | Private `player_session` from join |
-| `x-ti4-seat-token` | `x-ti4-player-session` for authenticated player operations |
+| Current                                                        | Replacement                                                                                             |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `players: ["p1", "p2", ...]` at creation                       | A bounded `player_count` that creates ordered empty slots                                               |
+| `POST /lobby/claim` with `{ "seat": "p2" }`                    | `POST /lobby/join` with no chosen position; server assigns the next open slot                           |
+| `creator_token`                                                | Private `player_session` for the host player                                                            |
+| `credential` from claim                                        | Private `player_session` from join                                                                      |
+| `x-ti4-seat-token`                                             | `x-ti4-player-session` for authenticated player operations                                              |
 | Public roster's `seat`, `available`, and controller assignment | Ordered slots with position, occupancy, public player label, and coarse connected/disconnected presence |
-| `bot_seats` selecting server-side `BotFirstOption` | Remove from the public create flow; remote bots join exactly like humans |
+| `bot_seats` selecting server-side `BotFirstOption`             | Remove from the public create flow; remote bots join exactly like humans                                |
 
 Define typed request and response DTOs, use strict Serde decoding, and document
 the credential fields as private. Never put a session credential inside a
@@ -384,7 +384,7 @@ do not claim an intermediate package is a deployable release.
   first-open admission, storage-failure rollback, HTTP authentication and
   spectator reads, v2 restart/replay, and existing WS/protocol coverage);
   `cargo fmt --package ti4-server` applied; `cargo clippy -p ti4-server
-  --all-targets` passed with existing dependency warnings. Strict `-D warnings`
+--all-targets` passed with existing dependency warnings. Strict `-D warnings`
   remains blocked by unrelated warnings in `ti4-model` and `ti4-engine`.
 - **Next:** PIL-03 replaces the WebSocket subscription field, adds authenticated
   presence/heartbeat behavior and revocation-aware subscriptions; PIL-04
@@ -426,7 +426,7 @@ do not claim an intermediate package is a deployable release.
   250 ms. The update forwarder is async and cancels when the outbound channel
   closes. Debug formatting of subscribe messages redacts credentials.
 - **Verification:** `cargo fmt --package ti4-server` and `cargo test -p
-  ti4-server` passed, including protocol-v3 rejection, spectator/invalid-token
+ti4-server` passed, including protocol-v3 rejection, spectator/invalid-token
   subscriptions, application-vs-control ping, grace expiry, credential
   continuity, and restart presence. The first full test attempt hung in two
   WebSocket lifecycle tests because a blocking subscription forwarder survived
@@ -478,7 +478,7 @@ do not claim an intermediate package is a deployable release.
   Concurrent requests produce one winner, without changing player identity,
   position, readiness or host. No old credential appears in public responses.
 - **Verification:** `cargo test -p ti4-server --test player_lobby_admission
-  --test ws_lifecycle` passed (8 + 6 tests); `cargo fmt --package ti4-server`
+--test ws_lifecycle` passed (8 + 6 tests); `cargo fmt --package ti4-server`
   applied and `cargo test -p ti4-server` passed (all unit, integration and doc
   tests). Full Clippy was not run, as requested (blocked by `ti4-model`).
   No independent review was performed; do not treat PIL-04 as independently
@@ -509,7 +509,7 @@ do not claim an intermediate package is a deployable release.
   exact engine order, rejected post-start changes, and crash-before/after-init
   tests pass (acceptance 6–9, 12).
 - **Progress (2026-09-23):** Added host-authenticated `POST
-  /api/games/{game_id}/lobby/reorder` accepting strict `{ "slot_ids": [...] }`.
+/api/games/{game_id}/lobby/reorder` accepting strict `{ "slot_ids": [...] }`.
   The registry validates an exact permutation, including empty slots, under
   the same lock as join/start. A changed order increments the lobby version
   and is saved before publication; storage failures leave memory and disk
@@ -573,7 +573,7 @@ do not claim an intermediate package is a deployable release.
   the focused lifecycle run below was added in the UI follow-up.
 - **Create-response correction (2026-09-23):** A real create response was
   rejected by the browser because its old shared string validator capped
-  *all* identifiers and credentials at 64 characters. The server-generated
+  _all_ identifiers and credentials at 64 characters. The server-generated
   `player_` ID is 71 characters and the `session_` credential is 72. The
   decoder now uses separate bounds for game/slot IDs (64) and player IDs/
   player sessions (128, matching the WebSocket session bound). A regression
@@ -644,14 +644,14 @@ do not claim an intermediate package is a deployable release.
   Updated the opt-in real-advisor E2E fixture to create/join/start without
   manual seat claims; its identity assertions use actual lobby occupants.
 - **Verification:** `cargo fmt --package ti4-bot-agent` and `cargo test -p
-  ti4-bot-agent` pass (9 unit/integration tests; real-server join/ready/heartbeat
+ti4-bot-agent` pass (9 unit/integration tests; real-server join/ready/heartbeat
   stays connected past the 30-second grace, starts, then exercises a
   fresh-process explicit running takeover after absence and old-token refusal;
   mock WS covers ping/pong, reconnection and advisor submission). The opt-in
   `cargo check -p ti4-bot-agent --features real-e2e --tests` passed with the
   README's Linux `LIBTORCH=out/libtorch-2.9.1-cpu-linux`, version bypass and
   `LD_LIBRARY_PATH` settings. `cargo test -p ti4-bot-agent --features real-e2e
-  --test real_e2e -- --ignored` with the same settings passed (1/1, 11.51 s):
+--test real_e2e -- --ignored` with the same settings passed (1/1, 11.51 s):
   a real server, pinned advisor, two newly admitted bots and a scripted host
   advanced a bounded game prefix, with decisions by both generated bot IDs.
   The initial check without the README's environment had mistakenly used the
@@ -784,7 +784,7 @@ do not claim an intermediate package is a deployable release.
   clearly as appropriate for this pre-launch branch. In particular, running
   takeover already writes an authoritative current-session record while its
   lobby record may contain stale data: define and test one authoritative
-  recovery path for the *current nickname* as well. Persist the new nickname
+  recovery path for the _current nickname_ as well. Persist the new nickname
   before returning a successful admission/takeover; a failed write leaves the
   previous nickname and credential intact. Never use a display name as an
   authorization or game-rule key.
@@ -809,7 +809,7 @@ do not claim an intermediate package is a deployable release.
   Failed lobby/running writes leave both fields unchanged. Direct registry
   creation, joining and takeover require explicit nickname arguments too.
 - **Verification:** `cargo fmt --package ti4-server` and `cargo test -p
-  ti4-server` passed (all unit, integration and doc tests); `git diff --check`
+ti4-server` passed (all unit, integration and doc tests); `git diff --check`
   passed. Focused tests exercise Unicode/bounds/format validation, duplicate
   names, HTTP admission/reconnect refusal, name continuity across reorder,
   running takeover with a stale lobby on disk, lobby takeover restart, and
@@ -896,7 +896,7 @@ do not claim an intermediate package is a deployable release.
   admission, and neither name nor credential is put in the URL.
 - **Verification:** `npm run build` and `npm test` passed (25 files, 178
   tests). Focused `npx vitest run src/App.test.tsx
-  src/components/Lobby.test.tsx src/protocol/client.test.ts` passed (26 tests).
+src/components/Lobby.test.tsx src/protocol/client.test.ts` passed (26 tests).
   No full Clippy or independent review was performed.
 - **Further plan/PIL-16:** The existing real-browser Playwright admission
   helpers still send pre-nickname create/join requests; update them to supply
@@ -918,7 +918,7 @@ do not claim an intermediate package is a deployable release.
   `web/src/components/{Lobby,Lobby.test,Board,Board.test,PlayerSheet,PlayerSheet.test,SystemInspector,SystemInspector.test}.tsx`,
   `web/src/index.css`, and this plan. No external references/downloads or
   external-state changes; bounded local browser tests only. Full Clippy excluded.
-- **Contract:** Map the *current physical position* (1–8), not `PlayerId`,
+- **Contract:** Map the _current physical position_ (1–8), not `PlayerId`,
   nickname, faction, or creation slot ID, to the eight Okabe–Ito colors:
   orange `#E69F00`, sky blue `#56B4E9`, bluish green `#009E73`, yellow
   `#F0E442`, blue `#0072B2`, vermilion `#D55E00`, reddish purple `#CC79A7`,
@@ -962,7 +962,7 @@ do not claim an intermediate package is a deployable release.
   external-state changes; bounded browser tests only. Full Clippy excluded.
   Dynamic free-form server prompt/option/error conversion remains PIL-14;
   explicit typed participant fields are resolved here.
-- **Contract:** Resolve each `PlayerId` to the *current server-provided*
+- **Contract:** Resolve each `PlayerId` to the _current server-provided_
   nickname plus seat context at the presentation boundary. Replace raw IDs in
   visible and accessible lobby, player-sheet, board/inspector ownership,
   turn/speaker/winner status, event log, spectator notices, trade and choice
@@ -994,7 +994,7 @@ do not claim an intermediate package is a deployable release.
   display with unchanged submitted option ID, and absence of raw IDs in the
   composed running-view markup. No independent review or real-browser E2E
   was performed. No full Clippy run.
-- **Further plan:** PIL-14 must handle *free-form server-supplied* prompts,
+- **Further plan:** PIL-14 must handle _free-form server-supplied_ prompts,
   option labels/descriptions and error messages (including the existing trade
   answer prompt that can contain a raw player ID). They are still passed
   through unchanged here: a typed reference can be safely resolved, while
@@ -1155,12 +1155,12 @@ do not claim an intermediate package is a deployable release.
    one concurrent takeover succeeds. Old credentials and old live subscriptions
    lose access immediately, including after a server restart.
 10. A bot started with only game/advisor configuration joins, survives an idle
-     interval exceeding the presence grace period through authenticated
-     heartbeats/pings, marks itself ready, reconnects as the same player, and
-     sends advisor requests only for its authenticated player. A new process
-     without the lost credential can take over its disconnected player.
+    interval exceeding the presence grace period through authenticated
+    heartbeats/pings, marks itself ready, reconnects as the same player, and
+    sends advisor requests only for its authenticated player. A new process
+    without the lost credential can take over its disconnected player.
 11. Credentials never occur in public lobby responses, spectator snapshots,
-     broadcast messages, URLs, structured logs, or debug output covered by tests.
+    broadcast messages, URLs, structured logs, or debug output covered by tests.
 12. A server restart preserves player credentials and running-game recovery;
     a crash before a complete game-init record does not misreport an active
     game. Presence reconstructs as disconnected without expiring credentials.

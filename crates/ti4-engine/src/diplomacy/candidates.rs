@@ -21,7 +21,7 @@ const PAYMENT_PREFIX: &str = "component|diplomacy-payment|";
 
 #[must_use]
 pub fn available_contacts(state: &GameState, actor: &PlayerId) -> Vec<crate::ChoiceOption> {
-    if !state.diplomacy.enabled {
+    if !state.diplomacy.enabled || !state.may_initiate_negotiation(actor) {
         return Vec::new();
     }
     let used = state.diplomacy.initiations_this_turn.get(actor);
@@ -90,15 +90,13 @@ pub fn payment_actions(
             if side_actor != actor {
                 continue;
             }
-            if state.transacted_with(actor).contains(beneficiary)
-                || state
-                    .diplomacy
-                    .initiations_this_turn
-                    .get(actor)
-                    .is_some_and(|used| used.contains(beneficiary))
-            {
-                continue;
-            }
+            // No initiation gate here, deliberately. This loop lists the ways to perform a
+            // promise that is already in force -- a payment that is due, a relation to refresh --
+            // and performing one is not conducting a transaction. Gating it on the transaction
+            // budget made a seat unable to pay a second due to the same player, and unable to pay
+            // at all after any voluntary trade with them, so that obeying a treaty could remove
+            // the option to obey it. The budget is spent by the initiator's own offer path.
+
             for (index, (term, status)) in terms.iter().zip(statuses).enumerate() {
                 if *status != ti4_model::PromiseStatus::Pending {
                     continue;
@@ -154,6 +152,8 @@ pub enum DealTemplate {
     SellAgentFavour,
     /// One of the proposer's own notes now, for the recipient's non-aggression.
     NoteForNonAggression,
+    /// Built item by item in the contact window (`plans/TRADE_REWORK_2026-09-22.md`).
+    Built,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -538,10 +538,15 @@ fn is_null_swap(revision: &DealRevision) -> bool {
 /// under exactly the legality and pricing the transaction window uses. Only partners who have not
 /// transacted this turn trade, and only legal shapes are kept, in the legacy offer order.
 fn trade_bundles(ctx: &CandidateContext<'_>) -> Vec<CandidateBundle> {
-    let partners = crate::transactions::partners(ctx.state, ctx.content, ctx.galaxy, ctx.proposer);
     // During the agenda phase every other seat is a transaction partner (94).
-    let partner =
-        ctx.state.phase == ti4_model::state::Phase::Agenda || partners.contains(ctx.recipient);
+    let partner = ctx.state.phase == ti4_model::state::Phase::Agenda
+        || crate::transactions::may_transact(
+            ctx.state,
+            ctx.content,
+            ctx.galaxy,
+            ctx.proposer,
+            ctx.recipient,
+        );
     if !partner
         || ctx
             .state
@@ -623,6 +628,60 @@ fn append_template(out: &mut Vec<CandidateBundle>, mut variants: Vec<CandidateBu
     variants.dedup_by(|a, b| a.id == b.id);
     variants.truncate(4);
     out.extend(variants);
+}
+
+/// What a contact's builder needs from the map, computed once when the contact opens.
+///
+/// `physical` is the caller's "this contact is a transaction" (partners, or the agenda phase, and
+/// not already transacted this turn). Attack targets are the seats whose forces share or border
+/// either party's; systems are those where the two parties' forces share or border each other.
+#[must_use]
+pub fn contact_scope(ctx: &CandidateContext<'_>, physical: bool) -> super::builder::ContactScope {
+    let mut attack_targets = relevant_attack_targets(ctx);
+    let flipped = CandidateContext {
+        state: ctx.state,
+        content: ctx.content,
+        galaxy: ctx.galaxy,
+        proposer: ctx.recipient,
+        recipient: ctx.proposer,
+        agenda: ctx.agenda,
+    };
+    for target in relevant_attack_targets(&flipped) {
+        if !attack_targets.contains(&target) {
+            attack_targets.push(target);
+        }
+    }
+    let mine = crate::transactions::presence(ctx.state, ctx.proposer);
+    let theirs = crate::transactions::presence(ctx.state, ctx.recipient);
+    let touches = |system: &ti4_model::SystemId, other: &BTreeSet<ti4_model::SystemId>| {
+        other.contains(system)
+            || ctx
+                .galaxy
+                .adjacent(system.as_str())
+                .into_iter()
+                .any(|adjacent| other.contains(&ti4_model::SystemId::new(adjacent)))
+    };
+    let mut systems: Vec<ti4_model::SystemId> = mine
+        .iter()
+        .filter(|system| touches(system, &theirs))
+        .chain(theirs.iter().filter(|system| touches(system, &mine)))
+        .cloned()
+        .collect();
+    systems.sort();
+    systems.dedup();
+    systems.truncate(4);
+    let agenda = ctx.agenda.map(|alias| {
+        (
+            alias.to_owned(),
+            ctx.state.agenda_choices.iter().take(4).cloned().collect(),
+        )
+    });
+    super::builder::ContactScope {
+        physical,
+        attack_targets,
+        systems,
+        agenda,
+    }
 }
 
 fn relevant_attack_targets(ctx: &CandidateContext<'_>) -> Vec<PlayerId> {
@@ -955,6 +1014,12 @@ fn bundle(template: DealTemplate, revision: DealRevision) -> CandidateBundle {
     }
 }
 
+/// A revision built item by item, as the bundle the window keeps on the table.
+#[must_use]
+pub fn built_bundle(revision: DealRevision) -> CandidateBundle {
+    bundle(DealTemplate::Built, revision)
+}
+
 fn counter_bundle(current: &CandidateBundle, revision: DealRevision) -> CandidateBundle {
     let mut candidate = bundle(current.template, revision);
     candidate.features.target_relationship_effect = current.features.target_relationship_effect;
@@ -1170,6 +1235,53 @@ mod tests {
         assert!(payment_actions(&state, content, &galaxy, &pid("a")).is_empty());
     }
 
+    /// Paying what you owe is not starting a conversation.
+    ///
+    /// A due was gated on the same budget as an initiation, so a seat that had already traded with
+    /// -- or already paid -- somebody could not pay them again. Compliance was locking itself out,
+    /// which is how "refresh offered, paying the due not" reaches the screen.
+    #[test]
+    fn a_due_survives_having_transacted_with_the_person_it_is_owed_to() {
+        let (mut state, galaxy) = fixture();
+        let content = ContentStore::embedded();
+        let revision = DealRevision::new(
+            0,
+            pid("a"),
+            vec![DealTerm::FuturePayment {
+                asset: TransferAsset::TradeGoods(2),
+                deadline_round: state.round,
+            }],
+            vec![],
+            state.round,
+        )
+        .unwrap();
+        let id = state
+            .diplomacy
+            .create_deal(pid("a"), pid("b"), state.round, revision)
+            .unwrap();
+        state.diplomacy.active_deals.get_mut(&id).unwrap().status = DealStatus::Active;
+        assert_eq!(
+            payment_actions(&state, content, &galaxy, &pid("a")).len(),
+            1
+        );
+
+        // Same seat, same partner, one transaction already conducted this turn.
+        state.record_transaction(&pid("a"), &pid("b"));
+        assert_eq!(
+            payment_actions(&state, content, &galaxy, &pid("a")).len(),
+            1,
+            "the due is owed whether or not they also traded"
+        );
+
+        // An initiation spent on them cancels the obligation no better.
+        let _ = state.diplomacy.consume_initiation(&pid("a"), &pid("b"));
+        assert_eq!(
+            payment_actions(&state, content, &galaxy, &pid("a")).len(),
+            1,
+            "a payment fulfils a promise; it does not initiate a deal"
+        );
+    }
+
     #[test]
     fn signals_are_concrete_and_name_only_contested_systems() {
         let (state, galaxy) = fixture();
@@ -1352,6 +1464,29 @@ mod tests {
             .filter_map(|option| contact_target(&state, option))
             .collect();
         assert_eq!(from_b, vec![pid("a"), pid("c")]);
+    }
+
+    /// Operator limits (2026-09-22): 2 negotiations initiated per action, 6 per round.
+    #[test]
+    fn negotiations_are_limited_per_action_and_per_round() {
+        let (mut state, _) = fixture();
+        let a = pid("a");
+        assert!(!available_contacts(&state, &a).is_empty());
+        state.note_negotiation(&a);
+        state.note_negotiation(&a);
+        assert!(available_contacts(&state, &a).is_empty(), "two this action");
+        for _ in 0..2 {
+            state.negotiations_this_action.clear();
+            assert!(!available_contacts(&state, &a).is_empty(), "a new action");
+            state.note_negotiation(&a);
+            state.note_negotiation(&a);
+        }
+        state.negotiations_this_action.clear();
+        assert!(available_contacts(&state, &a).is_empty(), "six this round");
+        assert!(
+            !available_contacts(&state, &pid("b")).is_empty(),
+            "the limits are per player"
+        );
     }
 
     #[test]

@@ -355,7 +355,7 @@ fn seated(
 
     // Drawn by seed, so a batch plays many boards rather than one. A policy trained on a single
     // map learns that map, and no batch report would say so.
-    let galaxy = match map {
+    let mut galaxy = match map {
         OpeningMap::RustVaried => {
             let filler: Vec<String> = ti4_engine::seating::map_filler(content, 30, sources, seed)
                 .into_iter()
@@ -393,6 +393,14 @@ fn seated(
             .map_err(|error| format!("Python map pool: {error}"))?
         }
     };
+    // Every family, not just the spiral. The Wormhole Nexus is off the grid, so a captured tile
+    // arrangement cannot contain it and a pool built from one never will; the rule that it is in
+    // play under Prophecy of Kings belongs to the game, and this is where every family's map
+    // becomes this game's map. `place_wormhole_nexus` is idempotent, so the families that already
+    // placed it are unchanged — and unchanged here means unchanged everywhere, including the
+    // reviewer and the replayer, which start a game through this function.
+    ti4_engine::seating::place_wormhole_nexus(&mut galaxy, content, sources)
+        .map_err(|error| format!("wormhole nexus: {error}"))?;
     for (player, faction) in factions {
         if let Err(error) =
             ti4_engine::seating::deploy(&mut state, content, player, faction, sources)
@@ -2310,6 +2318,95 @@ mod tests {
             ti4_sim::MapPool::from_reader(payload.to_string().as_bytes())
                 .expect("test Save-54 pool is valid"),
         )
+    }
+
+    #[test]
+    fn every_map_family_has_the_wormhole_nexus_in_play() {
+        // Prophecy of Kings puts the Wormhole Nexus on the table whatever the map; only its face is
+        // a matter of play. The two families built from captured Python geometry used to leave it
+        // out altogether — no tile, so no gamma partner for a gamma wormhole, and no Mallice to be
+        // found. A pool of a thousand arrangements has no `82` in any of them, because what was
+        // captured is the ring of hexes and the Nexus does not sit on a hex.
+        let players = seats(&["a", "b", "c"]);
+        let factions: BTreeMap<PlayerId, FactionId> =
+            [("a", "letnev"), ("b", "jolnar"), ("c", "hacan")]
+                .into_iter()
+                .map(|(seat, faction)| (PlayerId::new(seat), FactionId::new(faction)))
+                .collect();
+        let pool = save54_pool();
+        let families: Vec<(&str, OpeningMap)> = vec![
+            ("rust spiral", OpeningMap::RustVaried),
+            ("save-54 captured", OpeningMap::Save54Captured),
+            (
+                "python pool",
+                OpeningMap::PythonPool {
+                    pool: Arc::clone(&pool),
+                    tile_seed_offset: 7,
+                },
+            ),
+        ];
+        for (name, map) in families {
+            let (_state, galaxy, _) =
+                seated(ContentStore::embedded(), &players, &factions, POK, 3, &map)
+                    .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let nexus = ti4_engine::seating::LOCKED_NEXUS;
+            let kinds = galaxy.wormhole_kinds(nexus);
+            assert!(
+                !kinds.is_empty(),
+                "{name}: the Wormhole Nexus is not in play at all ({kinds:?})"
+            );
+            assert!(
+                galaxy.coord_of(nexus).is_none(),
+                "{name}: the Nexus belongs beside the board, not on a hex"
+            );
+            // The locked face is gamma alone, which is what makes it the locked face.
+            assert!(
+                kinds.iter().any(|kind| *kind == "GAMMA") && kinds.len() == 1,
+                "{name}: the Nexus should start locked — gamma only, got {kinds:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_nexus_is_a_prophecy_of_kings_rule_and_is_placed_once() {
+        // Two things the placement has to get right and cannot get wrong twice: it is a Prophecy of
+        // Kings tile, so a base-scope table must not gain it; and it is placed once, so a family
+        // that already did the placing — `build_board` — is not turned into an error by the call
+        // every family now makes.
+        use ti4_model::content_types::BASE;
+        let content = ContentStore::embedded();
+        let ids: Vec<String> = ti4_engine::seating::neutral_systems(content, 7, POK)
+            .into_iter()
+            .map(|system| system.to_string())
+            .collect();
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let mut galaxy = ti4_content::galaxy::Galaxy::build(content, &refs, POK, 1)
+            .expect("a one-ring map builds");
+        let nexus = ti4_engine::seating::LOCKED_NEXUS;
+
+        ti4_engine::seating::place_wormhole_nexus(&mut galaxy, content, BASE)
+            .expect("placing nothing is not an error");
+        assert!(
+            galaxy.wormhole_kinds(nexus).is_empty(),
+            "a base-scope table was given a Prophecy of Kings tile"
+        );
+
+        ti4_engine::seating::place_wormhole_nexus(&mut galaxy, content, POK)
+            .expect("the corpus has a Nexus");
+        let once: std::collections::BTreeSet<String> = galaxy
+            .wormhole_kinds(nexus)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert!(!once.is_empty(), "the Nexus did not come into play");
+        ti4_engine::seating::place_wormhole_nexus(&mut galaxy, content, POK)
+            .expect("placing it twice is not an error");
+        let twice: std::collections::BTreeSet<String> = galaxy
+            .wormhole_kinds(nexus)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(twice, once, "the second call changed the tile");
     }
 
     #[test]

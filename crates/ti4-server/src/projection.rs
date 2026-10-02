@@ -433,7 +433,12 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
     let galaxy_opt = if !map_tiles.is_empty() {
         let tiles: Vec<_> = map_tiles
             .iter()
-            .map(|tile| (tile.system_id.as_str(), ti4_model::hex::Hex::new(tile.q, tile.r)))
+            .map(|tile| {
+                (
+                    tile.system_id.as_str(),
+                    ti4_model::hex::Hex::new(tile.q, tile.r),
+                )
+            })
             .collect();
         Galaxy::placed(content, &tiles, sources).ok()
     } else {
@@ -442,7 +447,8 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
 
     let mut objective_progress = BTreeMap::new();
     for player in &state.players {
-        let mut position = ti4_engine::objectives::Position::new(state, content, sources, &player.id);
+        let mut position =
+            ti4_engine::objectives::Position::new(state, content, sources, &player.id);
         if let Some(ref galaxy) = galaxy_opt {
             position = position.with_galaxy(galaxy);
         }
@@ -453,7 +459,9 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
                 .unwrap_or_else(|| raw_alias.clone());
 
             if let Some(prog) = ti4_engine::objectives::counting_progress(&canonical, &position)
-                .or_else(|| ti4_engine::objectives::remaining_position_progress(&canonical, &position))
+                .or_else(|| {
+                    ti4_engine::objectives::remaining_position_progress(&canonical, &position)
+                })
             {
                 player_progress.insert(
                     raw_alias.clone(),
@@ -463,7 +471,9 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
                         satisfied: prog.satisfied(),
                     },
                 );
-            } else if let Some(cost) = ti4_engine::objectives::bought_progress_at(&position, &canonical) {
+            } else if let Some(cost) =
+                ti4_engine::objectives::bought_progress_at(&position, &canonical)
+            {
                 player_progress.insert(
                     raw_alias.clone(),
                     ObjectiveProgressView {
@@ -749,12 +759,16 @@ mod tests {
         let table = project_table_view(&state);
         let p1_progress = table.objective_progress.get(&p1).expect("p1 progress");
 
-        let trade_routes = p1_progress.get(&ObjectiveId::new("trade_routes")).expect("trade_routes");
+        let trade_routes = p1_progress
+            .get(&ObjectiveId::new("trade_routes"))
+            .expect("trade_routes");
         assert_eq!(trade_routes.have, 5);
         assert_eq!(trade_routes.threshold, 5);
         assert!(trade_routes.satisfied);
 
-        let centralize = p1_progress.get(&ObjectiveId::new("centralize_trade")).expect("centralize");
+        let centralize = p1_progress
+            .get(&ObjectiveId::new("centralize_trade"))
+            .expect("centralize");
         assert_eq!(centralize.have, 7);
         assert_eq!(centralize.threshold, 10);
         assert!(!centralize.satisfied);
@@ -765,4 +779,3 @@ mod tests {
         assert!(lead.satisfied);
     }
 }
-

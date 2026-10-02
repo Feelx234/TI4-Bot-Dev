@@ -197,7 +197,11 @@ fn local_head(kind: &str) -> Option<&'static str> {
         | "diplomacy_response"
         | "diplomacy_counter"
         | "diplomacy_fulfill_payment"
-        | "diplomacy_signal" => "diplomacy",
+        | "diplomacy_signal"
+        // The deal builder (TRADE_REWORK_2026-09-22): offer and ask items, amounts, review.
+        | "diplomacy_item"
+        | "diplomacy_amount"
+        | "diplomacy_review" => "diplomacy",
         "discard" | "return" | "remove" => "scoring",
         _ => return None,
     };

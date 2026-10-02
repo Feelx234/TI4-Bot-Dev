@@ -51,20 +51,26 @@ describe("mapOverlays", () => {
       expect(getExpectedSpaceHits("sol_carrier2")).toBe(0.2);
       expect(getExpectedSpaceHits("superdreadnought_1")).toBe(0.6);
       expect(getExpectedSpaceHits("superdreadnought_2")).toBe(0.7);
-      expect(getExpectedSpaceHits("dreadnought", { faction: "l1z1x", technologies: ["dn2"] })).toBe(0.7);
+      expect(getExpectedSpaceHits("dreadnought", { faction: "l1z1x", technologies: ["dn2"] })).toBe(
+        0.7,
+      );
       expect(getExpectedSpaceHits("saturn_engine_1")).toBe(0.4);
 
       // Argent Strike Wing Alpha: I hits on 8+ (0.3), II hits on 7+ (0.4)
       expect(getExpectedSpaceHits("argent_destroyer")).toBe(0.3);
       expect(getExpectedSpaceHits("argent_destroyer2")).toBe(0.4);
       expect(getExpectedSpaceHits("destroyer", { faction: "argent" })).toBe(0.3);
-      expect(getExpectedSpaceHits("destroyer", { faction: "argent", technologies: ["dd2"] })).toBe(0.4);
+      expect(getExpectedSpaceHits("destroyer", { faction: "argent", technologies: ["dd2"] })).toBe(
+        0.4,
+      );
 
       // Naalu Hybrid Crystal Fighter: I hits on 8+ (0.3), II hits on 7+ (0.4)
       expect(getExpectedSpaceHits("naalu_fighter")).toBe(0.3);
       expect(getExpectedSpaceHits("naalu_fighter2")).toBe(0.4);
       expect(getExpectedSpaceHits("fighter", { faction: "naalu" })).toBe(0.3);
-      expect(getExpectedSpaceHits("fighter", { faction: "naalu", technologies: ["ff2"] })).toBe(0.4);
+      expect(getExpectedSpaceHits("fighter", { faction: "naalu", technologies: ["ff2"] })).toBe(
+        0.4,
+      );
 
       // Faction flagships
       expect(getExpectedSpaceHits("ghost_flagship")).toBe(0.6); // 1 die on 5+
@@ -95,7 +101,9 @@ describe("mapOverlays", () => {
       expect(getExpectedSpaceHits("cruiser", { faction: "sardakk" })).toBe(0.5);
       expect(getExpectedSpaceHits("warsun", { faction: "sardakk" })).toBe(2.7);
       // Sardakk with Cruiser II: hits on 5+ (6 - 1) -> 0.6
-      expect(getExpectedSpaceHits("cruiser", { faction: "sardakk", technologies: ["cr2"] })).toBe(0.6);
+      expect(getExpectedSpaceHits("cruiser", { faction: "sardakk", technologies: ["cr2"] })).toBe(
+        0.6,
+      );
 
       // Universities of Jol-Nar: -1 to all combat rolls
       expect(getExpectedSpaceHits("cruiser", { faction: "jolnar" })).toBe(0.3);
@@ -127,7 +135,9 @@ describe("mapOverlays", () => {
 
       // Sol Spec Ops
       expect(getExpectedGroundHits("infantry", { faction: "sol" })).toBe(0.4);
-      expect(getExpectedGroundHits("infantry", { faction: "sol", technologies: ["spec_ops_2"] })).toBe(0.5);
+      expect(
+        getExpectedGroundHits("infantry", { faction: "sol", technologies: ["spec_ops_2"] }),
+      ).toBe(0.5);
 
       // Naaz-Rokha Mech (Eidolon): rolls 2 dice hitting on 6+ (1.0 hit)
       expect(getExpectedGroundHits("naaz_mech")).toBe(1.0);
@@ -152,7 +162,9 @@ describe("mapOverlays", () => {
 
     it("recognizes upgraded units with sustain damage", () => {
       expect(hasSustainDamage("saturn_engine_2")).toBe(true);
-      expect(hasSustainDamage("cruiser", { faction: "titans", technologies: ["saturn_engine_2"] })).toBe(true);
+      expect(
+        hasSustainDamage("cruiser", { faction: "titans", technologies: ["saturn_engine_2"] }),
+      ).toBe(true);
       expect(hasSustainDamage("sol_carrier2")).toBe(true);
       expect(hasSustainDamage("titans_pds")).toBe(true);
       expect(hasSustainDamage("titans_pds2")).toBe(true);
@@ -217,7 +229,13 @@ describe("mapOverlays", () => {
           { unitType: "dreadnought", owner: "p1", ownerColor: "#3b82f6", damaged: false },
           { unitType: "cruiser", owner: "p1", ownerColor: "#3b82f6", damaged: false },
           { unitType: "fighter", owner: "p1", ownerColor: "#3b82f6", damaged: false },
-          { unitType: "infantry", owner: "p1", ownerColor: "#3b82f6", planet: "planet_1", damaged: false }, // on planet
+          {
+            unitType: "infantry",
+            owner: "p1",
+            ownerColor: "#3b82f6",
+            planet: "planet_1",
+            damaged: false,
+          }, // on planet
           { unitType: "destroyer", owner: "p2", ownerColor: "#ef4444", damaged: false },
         ],
       });
@@ -293,9 +311,7 @@ describe("mapOverlays", () => {
 
     it("returns hasCombatUnits false if only infantry/ground forces are in space", () => {
       const tile = createMockTile({
-        units: [
-          { unitType: "infantry", owner: "p1", ownerColor: "#3b82f6", damaged: false },
-        ],
+        units: [{ unitType: "infantry", owner: "p1", ownerColor: "#3b82f6", damaged: false }],
       });
 
       const combat = computeTileSpaceCombat(tile);
@@ -326,10 +342,34 @@ describe("mapOverlays", () => {
           },
         ],
         units: [
-          { unitType: "infantry", owner: "p1", ownerColor: "#3b82f6", planet: "planet_1", damaged: false },
-          { unitType: "infantry", owner: "p1", ownerColor: "#3b82f6", planet: "planet_1", damaged: false },
-          { unitType: "mech", owner: "p1", ownerColor: "#3b82f6", planet: "planet_1", damaged: false },
-          { unitType: "pds", owner: "p1", ownerColor: "#3b82f6", planet: "planet_1", damaged: false },
+          {
+            unitType: "infantry",
+            owner: "p1",
+            ownerColor: "#3b82f6",
+            planet: "planet_1",
+            damaged: false,
+          },
+          {
+            unitType: "infantry",
+            owner: "p1",
+            ownerColor: "#3b82f6",
+            planet: "planet_1",
+            damaged: false,
+          },
+          {
+            unitType: "mech",
+            owner: "p1",
+            ownerColor: "#3b82f6",
+            planet: "planet_1",
+            damaged: false,
+          },
+          {
+            unitType: "pds",
+            owner: "p1",
+            ownerColor: "#3b82f6",
+            planet: "planet_1",
+            damaged: false,
+          },
           { unitType: "fighter", owner: "p1", ownerColor: "#3b82f6", damaged: false }, // space unit
         ],
       });
@@ -379,16 +419,26 @@ describe("mapOverlays", () => {
           // 1 Mech: 1 * 0.6 = 0.6 (6+ base with +1 = 5+ -> 0.6)
           // Total hits = 1.6
           // 1 PDS II: hits on 5+ with +1 = 4+ -> 0.7 hits
-          { unitType: "infantry", owner: "p1", ownerColor: "#f00", planet: "planet_1", damaged: false },
-          { unitType: "infantry", owner: "p1", ownerColor: "#f00", planet: "planet_1", damaged: false },
+          {
+            unitType: "infantry",
+            owner: "p1",
+            ownerColor: "#f00",
+            planet: "planet_1",
+            damaged: false,
+          },
+          {
+            unitType: "infantry",
+            owner: "p1",
+            ownerColor: "#f00",
+            planet: "planet_1",
+            damaged: false,
+          },
           { unitType: "mech", owner: "p1", ownerColor: "#f00", planet: "planet_1", damaged: false },
           { unitType: "pds", owner: "p1", ownerColor: "#f00", planet: "planet_1", damaged: false },
         ],
       });
 
-      const players = [
-        { id: "p1", faction: "sardakk", technologies: ["inf2", "pds2"] } as any,
-      ];
+      const players = [{ id: "p1", faction: "sardakk", technologies: ["inf2", "pds2"] } as any];
 
       const ground = computeTileGroundCombat(tile, players);
       const force = ground.planets[0].forces[0];

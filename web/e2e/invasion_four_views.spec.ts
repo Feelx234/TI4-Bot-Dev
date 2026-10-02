@@ -308,8 +308,11 @@ test("a separate two-planet invasion keeps ground-round evidence scoped to each 
     ).toBe(6);
     for (const planet of planets) {
       await tray.getByRole("button", { name: planet, exact: true }).click();
+      const planetCard = tray.locator(".invasion-planet-landing-card").filter({
+        has: page.getByRole("button", { name: planet, exact: true }),
+      });
       for (let copy = 0; copy < 3; copy++) {
-        await tray
+        await planetCard
           .getByRole("button", { name: /land infantry.*in space/i })
           .first()
           .click();
@@ -329,6 +332,7 @@ test("a separate two-planet invasion keeps ground-round evidence scoped to each 
       .toEqual([3, 3]);
     await tray.getByRole("button", { name: "Done committing" }).click();
     const seen = new Set<string>();
+    const fought = new Set<string>();
     for (let step = 0; step < 30; step++) {
       const current = await snapshot(request, game, seats[invader]);
       if (!current.view.board.invasion) break;
@@ -340,6 +344,11 @@ test("a separate two-planet invasion keeps ground-round evidence scoped to each 
       }
       const offer = current.pending_choice?.choice;
       if (!offer) continue;
+      if (offer.context?.subtype === "fight_ground_combat_round") {
+        const planet = current.view.board.invasion.current_planet;
+        expect(planets).toContain(planet);
+        fought.add(planet!);
+      }
       const next =
         offer.context?.subtype === "fight_ground_combat_round"
           ? page.getByRole("button", { name: "Fight next round" }).first()
@@ -352,7 +361,10 @@ test("a separate two-planet invasion keeps ground-round evidence scoped to each 
         .poll(async () => (await snapshot(request, game, seats[invader])).game_version)
         .toBeGreaterThan(current.game_version);
     }
-    expect(seen).toEqual(new Set(planets));
+    expect(fought).toEqual(new Set(planets));
+    // The final roll can complete the invasion in the same step; no active invasion snapshot
+    // remains then. Every intermediate round that is exposed must stay planet-local.
+    expect(seen.size).toBeGreaterThan(0);
   } finally {
     await ctx.close();
   }

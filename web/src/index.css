@@ -288,7 +288,9 @@ html,
   background: linear-gradient(180deg, #0e1729 0%, #0a0f1d 100%);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-lg, 12px);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
   padding: 22px;
   display: flex;
   flex-direction: column;
@@ -302,6 +304,10 @@ html,
   gap: 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: 16px;
+}
+
+.invasion-overlay > * {
+  flex-shrink: 0;
 }
 
 .invasion-overlay__header-main {
@@ -631,37 +637,49 @@ html,
 .invasion-effect-card--industrial {
   --effect-accent: #10b981;
   border-color: rgba(16, 185, 129, 0.4);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(16, 185, 129, 0.12);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(16, 185, 129, 0.12);
 }
 
 .invasion-effect-card--hazardous {
   --effect-accent: #ef4444;
   border-color: rgba(239, 68, 68, 0.4);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(239, 68, 68, 0.12);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(239, 68, 68, 0.12);
 }
 
 .invasion-effect-card--cultural {
   --effect-accent: #38bdf8;
   border-color: rgba(56, 189, 248, 0.4);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(56, 189, 248, 0.12);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(56, 189, 248, 0.12);
 }
 
 .invasion-effect-card--frontier {
   --effect-accent: #c084fc;
   border-color: rgba(192, 132, 252, 0.4);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(192, 132, 252, 0.12);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(192, 132, 252, 0.12);
 }
 
 .invasion-effect-card--action {
   --effect-accent: #f59e0b;
   border-color: rgba(245, 158, 11, 0.4);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(245, 158, 11, 0.12);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(245, 158, 11, 0.12);
 }
 
 .invasion-effect-card--combat {
   --effect-accent: #f43f5e;
   border-color: rgba(244, 63, 94, 0.4);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 24px rgba(244, 63, 94, 0.12);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.45),
+    0 0 24px rgba(244, 63, 94, 0.12);
 }
 
 .invasion-effect-card--general {
@@ -834,7 +852,8 @@ html,
 }
 
 @keyframes invasion-pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.3;
     transform: scale(0.8);
   }
@@ -888,7 +907,9 @@ html,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
 .invasion-planet-landing-card--active {

@@ -85,17 +85,13 @@ function renderWithIdentity(ui: React.ReactElement) {
 
 describe("TechnologyModal", () => {
   it("does not render when isOpen is false", () => {
-    renderWithIdentity(
-      <TechnologyModal isOpen={false} onClose={vi.fn()} players={mockPlayers} />,
-    );
+    renderWithIdentity(<TechnologyModal isOpen={false} onClose={vi.fn()} players={mockPlayers} />);
     expect(screen.queryByTestId("technology-modal")).not.toBeInTheDocument();
   });
 
   it("renders modal with header, roster, and close button when isOpen is true", () => {
     const onClose = vi.fn();
-    renderWithIdentity(
-      <TechnologyModal isOpen={true} onClose={onClose} players={mockPlayers} />,
-    );
+    renderWithIdentity(<TechnologyModal isOpen={true} onClose={onClose} players={mockPlayers} />);
 
     expect(screen.getByTestId("technology-modal")).toBeInTheDocument();
     expect(screen.getByText("Technologies")).toBeInTheDocument();
@@ -112,9 +108,7 @@ describe("TechnologyModal", () => {
   });
 
   it("renders all four color tracks and unit upgrades", () => {
-    renderWithIdentity(
-      <TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />,
-    );
+    renderWithIdentity(<TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />);
 
     // Track columns
     expect(screen.getByTestId("tech-track-propulsion")).toBeInTheDocument();
@@ -146,9 +140,7 @@ describe("TechnologyModal", () => {
   });
 
   it("displays effect descriptions and prerequisite badges", () => {
-    renderWithIdentity(
-      <TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />,
-    );
+    renderWithIdentity(<TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />);
 
     // Antimass Deflectors description (no prereqs: "—")
     const amdEffect = screen.getByTestId("tech-effect-amd");
@@ -167,9 +159,7 @@ describe("TechnologyModal", () => {
   });
 
   it("displays player markers with symbol, position/nickname, and seat color for researched tech", () => {
-    renderWithIdentity(
-      <TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />,
-    );
+    renderWithIdentity(<TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />);
 
     // Player 1 researched AMD
     const amdP1Marker = screen.getByTestId("player-tech-marker-player1-amd");
@@ -187,9 +177,7 @@ describe("TechnologyModal", () => {
   });
 
   it("indicates exhausted status for exhausted technologies", () => {
-    renderWithIdentity(
-      <TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />,
-    );
+    renderWithIdentity(<TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />);
 
     // Player 1 researched GD and exhausted it
     const gdMarker = screen.getByTestId("player-tech-marker-player1-gd");
@@ -203,9 +191,7 @@ describe("TechnologyModal", () => {
   });
 
   it("handles alias matching (e.g. x89 variant)", () => {
-    renderWithIdentity(
-      <TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />,
-    );
+    renderWithIdentity(<TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />);
 
     // Player 1 has x89c4, which matches x89c4
     expect(screen.getByTestId("player-tech-marker-player1-x89c4")).toBeInTheDocument();
@@ -304,8 +290,7 @@ describe("TechnologyModal", () => {
     // Verify faction section appears before standard track headers in DOM order
     const propulsionHeader = screen.getByTestId("tech-track-propulsion");
     expect(
-      factionSection.compareDocumentPosition(propulsionHeader) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      factionSection.compareDocumentPosition(propulsionHeader) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 

@@ -23,12 +23,10 @@ const choice = {
 afterEach(() => vi.unstubAllGlobals());
 
 it("uses the engine's classified defender, all standing guns and legal Harrow in a draft-keyed request", async () => {
-  const fetch = vi
-    .fn()
-    .mockResolvedValue({
-      ok: true,
-      json: async () => ({ attacker_win_rate: 0.4, simulations: 2000 }),
-    });
+  const fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ attacker_win_rate: 0.4, simulations: 2000 }),
+  });
   vi.stubGlobal("fetch", fetch);
   const board = {
     ...galleryBoard,

@@ -7,6 +7,14 @@ rust-version.workspace = true
 [[bin]]
 name = "ti4-review"
 path = "src/main.rs"
+required-features = ["simulate"]
+
+# `simulate` is everything that plays a game: the learned policy (and through it libtorch), the map
+# pool, the rollout. Without it the crate is the session format and the board/panel painters, which
+# is all a remote online client needs -- and it builds and runs with no libtorch at all.
+[features]
+default = ["simulate"]
+simulate = ["dep:ti4-mlp", "dep:ti4-policy", "dep:ti4-sim", "dep:ti4-tensor", "dep:ti4-training"]
 
 [dependencies]
 eframe.workspace = true
@@ -18,12 +26,12 @@ thiserror.workspace = true
 zstd.workspace = true
 ti4-content.workspace = true
 ti4-engine.workspace = true
-ti4-mlp.workspace = true
+ti4-mlp = { workspace = true, optional = true }
 ti4-model.workspace = true
-ti4-policy.workspace = true
-ti4-sim.workspace = true
-ti4-tensor.workspace = true
-ti4-training.workspace = true
+ti4-policy = { workspace = true, optional = true }
+ti4-sim = { workspace = true, optional = true }
+ti4-tensor = { workspace = true, optional = true }
+ti4-training = { workspace = true, optional = true }
 
 [lints]
 workspace = true

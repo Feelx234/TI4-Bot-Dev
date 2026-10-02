@@ -53,12 +53,8 @@ test.describe("Objective Scoring Dev Scenarios", () => {
     const tradeRoutesOption = page.locator(
       '[data-testid="choice-option"][data-option-id="trade_routes"]',
     );
-    const declineOption = page.locator(
-      '[data-testid="choice-option"][data-option-id="decline"]',
-    );
-    const cornerOption = page.locator(
-      '[data-testid="choice-option"][data-option-id="corner"]',
-    );
+    const declineOption = page.locator('[data-testid="choice-option"][data-option-id="decline"]');
+    const cornerOption = page.locator('[data-testid="choice-option"][data-option-id="corner"]');
 
     await expect(leadOption).toBeVisible();
     await expect(tradeRoutesOption).toBeVisible();
@@ -145,8 +141,8 @@ test.describe("Objective Scoring Dev Scenarios", () => {
     await expect(submitBtn).toBeEnabled();
     await submitBtn.click();
 
-    // Wait for Action Phase to advance to the next turn choice
-    await expect(page.getByTestId("choice-prompt")).toContainText("action phase");
+    // Imperial completes the action and offers the end-of-turn decision.
+    await expect(page.getByTestId("choice-prompt")).toContainText("end your turn");
 
     // Minimize subsequent choice to clear modal backdrop and view board/tables
     const minimizeBtn = page.getByTestId("minimize-choice-button");

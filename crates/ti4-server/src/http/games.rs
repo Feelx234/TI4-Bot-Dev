@@ -310,7 +310,10 @@ pub async fn add_bot_to_lobby(
 ) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
     let token = require_player_session(&headers)?;
     if !registry.bot_service_enabled() {
-        return Err((StatusCode::FORBIDDEN, "Bot service is not enabled on this server".to_owned()));
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Bot service is not enabled on this server".to_owned(),
+        ));
     }
     if !registry.verify_bot_password(&payload.password) {
         return Err((StatusCode::UNAUTHORIZED, "Invalid bot password".to_owned()));
