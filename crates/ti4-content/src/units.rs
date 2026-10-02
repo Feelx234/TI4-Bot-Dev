@@ -101,6 +101,22 @@ impl<'a> UnitType<'a> {
         self.record.flag("isStructure")
     }
 
+    /// A structure printed as living in the space area rather than on a planet (`isSpaceOnly`):
+    /// the Clan of Saar's Floating Factory ("This unit is placed in the space area instead of on a
+    /// planet. This unit can move and retreat as if it were a ship.").
+    #[must_use]
+    pub fn is_space_only_structure(&self) -> bool {
+        self.is_structure() && self.record.flag("isSpaceOnly")
+    }
+
+    /// Whether this unit moves and retreats like a ship although it is not one: a space-only
+    /// structure with a move value (Floating Factory). It is not a ship for fleet supply,
+    /// capacity-consumption or combat; only movement treats it as one.
+    #[must_use]
+    pub fn moves_as_ship(&self) -> bool {
+        self.is_ship() || (self.is_space_only_structure() && self.move_value() > 0)
+    }
+
     /// Ground forces are infantry and mechs — plus the Titans' PDS, which is a ground
     /// force that also happens to be a structure.
     #[must_use]

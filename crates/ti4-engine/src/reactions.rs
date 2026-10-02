@@ -722,6 +722,47 @@ fn announce_discard(
     Ok(())
 }
 
+/// Open the windows for the card events faction hooks staged
+/// (`factions::hooks_cards::{discard_chosen, take_revealed_action_card}`), oldest first, and
+/// return how many were announced.
+///
+/// A hook runs with a `TimingContext`, which has no resolver, so it can only stage; whoever owns
+/// both a context and the resolver calls this after the hook returns. A staged discard becomes
+/// `ACTION_CARD_DISCARDED` exactly as a played card's does (the pile and
+/// `last_action_discarded` are set by [`announce_discard`]); a staged take becomes the new
+/// `ACTION_CARD_TAKEN` (`player` = taker, `from`, `card`). With nothing staged — every game
+/// without a faction module — this does nothing at all.
+///
+/// # Errors
+/// [`TimingError`] when a window cannot be resolved.
+pub fn announce_staged_card_events(
+    context: &mut TimingContext<'_>,
+    resolver: &mut Resolver,
+) -> Result<usize, TimingError> {
+    use crate::factions::hooks_cards::{StagedCardEvent, drain_staged, has_staged};
+    if !has_staged(context.state) {
+        return Ok(0);
+    }
+    let staged = drain_staged(context.state);
+    let count = staged.len();
+    for event in staged {
+        match event {
+            StagedCardEvent::Discarded { player, card } => {
+                announce_discard(context, resolver, &player, &card)?;
+            }
+            StagedCardEvent::Taken { player, from, card } => {
+                let mut payload = BTreeMap::new();
+                payload.insert("player".to_owned(), player.to_string().into());
+                payload.insert("from".to_owned(), from.to_string().into());
+                payload.insert("card".to_owned(), card.to_string().into());
+                let taken = context.event_sequence.next("ACTION_CARD_TAKEN", payload)?;
+                resolver.emit_with_context(context, taken, |_, _| {})?;
+            }
+        }
+    }
+    Ok(count)
+}
+
 /// The choice kind the oracle offers reaction cards under (engine/reactions.py:320–324).
 pub const ACTION_CARD_KIND: &str = "action_card";
 
@@ -1507,6 +1548,58 @@ mod tests {
         assert_eq!(
             state.player(&player()).unwrap().action_cards,
             [ActionCardId::new("silence_space")]
+        );
+    }
+
+    /// BF-00h-cards: staged card events are announced oldest first; with none staged nothing runs.
+    #[test]
+    fn staged_card_events_are_announced_through_their_windows() {
+        use crate::factions::hooks_cards::{
+            RevealScope, discard_chosen, reveal_hand, take_revealed_action_card,
+        };
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&PlayerId::new("a")).unwrap().action_cards =
+            vec![ActionCardId::new("bribery")];
+        state.player_mut(&PlayerId::new("b")).unwrap().action_cards =
+            vec![ActionCardId::new("dh1")];
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut table = crate::choice::Table::new();
+        let announced = crate::fixtures::with_context(&mut state, POK, None, &mut table, |ctx| {
+            assert_eq!(
+                announce_staged_card_events(ctx, &mut resolver).unwrap(),
+                0,
+                "nothing staged, nothing emitted"
+            );
+            assert!(resolver.log().is_empty());
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            assert!(discard_chosen(ctx.state, &a, &ActionCardId::new("bribery")));
+            reveal_hand(ctx.state, &a, &b, RevealScope::Choice, "mi");
+            assert!(take_revealed_action_card(
+                ctx.state,
+                &a,
+                &b,
+                &ActionCardId::new("dh1")
+            ));
+            announce_staged_card_events(ctx, &mut resolver).unwrap()
+        });
+        assert_eq!(announced, 2);
+        let log = resolver.log().join(
+            "
+",
+        );
+        let discarded = log
+            .find("emit ACTION_CARD_DISCARDED")
+            .expect("discard announced");
+        let taken = log.find("emit ACTION_CARD_TAKEN").expect("take announced");
+        assert!(discarded < taken, "oldest first: {log}");
+        assert_eq!(
+            state.discarded_action_cards,
+            [ActionCardId::new("bribery")],
+            "the pile is set when the discard is announced"
+        );
+        assert_eq!(
+            state.last_action_discarded,
+            Some((PlayerId::new("a"), ActionCardId::new("bribery")))
         );
     }
 }

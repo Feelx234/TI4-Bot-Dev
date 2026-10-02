@@ -267,8 +267,39 @@ struct Producer {
 
 const PRODUCERS: &[Producer] = &[
     Producer {
+        module: "sardakk.rs",
+        function: "exotrireme",
+        count: 2,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "sardakk.rs",
+        function: "supremacy",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "yin.rs",
+        function: "ask_one",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "action_cards.rs",
         function: "place_units_choosing",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    // BF-00h-cards: hidden-hand choices for faction effects.
+    Producer {
+        module: "action_cards.rs",
+        function: "choose_from_own_hand",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "action_cards.rs",
+        function: "take_from_revealed_hand",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -957,6 +988,12 @@ const PRODUCERS: &[Producer] = &[
 ];
 
 const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
+    // BF faction modules (crates/ti4-engine/src/factions/).
+    ("sardakk.rs", "exotrireme", 2),
+    ("sardakk.rs", "supremacy", 1),
+    ("yin.rs", "ask_one", 1),
+    ("action_cards.rs", "choose_from_own_hand", 1),
+    ("action_cards.rs", "take_from_revealed_hand", 1),
     ("action_cards.rs", "choose_crashlanding_ground", 1),
     ("action_cards.rs", "choose_crashlanding_planet", 1),
     ("action_cards.rs", "confusing", 1),

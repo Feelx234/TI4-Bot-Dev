@@ -202,10 +202,39 @@ pub fn effective_move_value_with_boosts(
     gravity_drive: bool,
     ionian: bool,
 ) -> i32 {
+    effective_move_value_for_ship(state, kind, player, origin, None, gravity_drive, ionian)
+}
+
+/// [`effective_move_value_with_boosts`] for the ship at `index` in `state.ships_of(player,
+/// origin)`, when the caller knows it, so a faction's one-ship move bonus (Winnu Imperator) can
+/// pick it out. Faction modules' `MovementHooks::move_bonus` (Creuss Slipstream) is added here,
+/// before Gravleash's anchor; with every module empty it adds 0.
+///
+/// A caller that offers a move with an `index` must look its route up with the same `index`, or the
+/// two disagree about the ship's reach.
+#[must_use]
+pub fn effective_move_value_for_ship(
+    state: &GameState,
+    kind: &ti4_content::units::UnitType<'_>,
+    player: &PlayerId,
+    origin: &SystemId,
+    index: Option<usize>,
+    gravity_drive: bool,
+    ionian: bool,
+) -> i32 {
     let own_move = i32::try_from(kind.move_value()).unwrap_or(0)
         + crate::action_cards::move_bonus(state, player, state.activation_seq)
         + i32::from(gravity_drive)
-        + i32::from(ionian);
+        + i32::from(ionian)
+        + crate::factions::hooks_movement::move_bonus(
+            state,
+            &crate::factions::hooks_movement::MoveSite {
+                player,
+                origin,
+                index,
+                ship: kind,
+            },
+        );
     if state
         .player(player)
         .and_then(|seat| seat.breakthrough.as_ref())
@@ -285,25 +314,41 @@ pub fn movable_into(
             if !kind.is_ship() {
                 continue;
             }
-            let move_value = effective_move_value(state, kind, player, origin);
+            let move_value = effective_move_value_for_ship(
+                state,
+                kind,
+                player,
+                origin,
+                Some(index),
+                false,
+                false,
+            );
+            let ship_type = Some(hull.type_id.as_str());
             // Cheapest boost first, and only enough of it to arrive. Gravity Drive is preferred
             // over the Ionian Fuel Refinery when either alone suffices: the drive renews with
             // every activation, the legendary card only in the status phase, so spending the
             // renewable one is strictly the smaller commitment.
             let gravity = crate::technology::gravity_drive_available(state, player);
             let ionian = crate::legendary::ionian_available(state, player);
-            let boosts = if rules.can_reach(origin.as_str(), move_value) {
+            let boosts = if rules.can_reach_ship(origin.as_str(), move_value, ship_type) {
                 Some((false, false))
             } else {
                 [(true, false), (false, true), (true, true)]
                     .into_iter()
                     .filter(|(gd, ion)| (!gd || gravity) && (!ion || ionian))
                     .find(|(gd, ion)| {
-                        rules.can_reach(
+                        rules.can_reach_ship(
                             origin.as_str(),
-                            effective_move_value_with_boosts(
-                                state, kind, player, origin, *gd, *ion,
+                            effective_move_value_for_ship(
+                                state,
+                                kind,
+                                player,
+                                origin,
+                                Some(index),
+                                *gd,
+                                *ion,
                             ),
+                            ship_type,
                         )
                     })
             };
@@ -450,6 +495,11 @@ pub fn preview_moves(
             .get("gravity_drive")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        let kind_id = option
+            .payload
+            .get("unit")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
         let route_exits_rift = origin.is_some_and(|origin| {
             let mut rules = MovementRules::with_laws(
                 galaxy,
@@ -460,7 +510,7 @@ pub fn preview_moves(
                 Some(state),
             );
             crate::action_cards::apply_movement_effects(&mut rules, state, player);
-            let path = rules.path_from(
+            let path = rules.path_from_ship(
                 origin,
                 effective_move_value_with_gravity(
                     state,
@@ -469,6 +519,7 @@ pub fn preview_moves(
                     &SystemId::new(origin),
                     gravity_drive,
                 ),
+                Some(kind_id),
             );
             !rules.anomalies_ignored
                 && !rules.rifts_ignored
@@ -1224,5 +1275,122 @@ mod tests {
             after.is_empty(),
             "58.4b closed the only route, so the move is no longer offered"
         );
+    }
+
+    // -- faction-module movement hooks (BF-00e) -----------------------------------------------
+
+    fn across_the_centre(galaxy: &Galaxy, ids: &[SystemId]) -> SystemId {
+        let neighbours_of = |id: &str| -> std::collections::BTreeSet<String> {
+            galaxy
+                .adjacent(id)
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect()
+        };
+        let from_neighbours = neighbours_of(ids[1].as_str());
+        galaxy
+            .system_ids()
+            .into_iter()
+            .find(|id| {
+                galaxy.distance(ids[1].as_str(), id) == Some(2)
+                    && &from_neighbours & &neighbours_of(id)
+                        == std::collections::BTreeSet::from([ids[0].to_string()])
+            })
+            .map(SystemId::new)
+            .expect("a system directly across the centre")
+    }
+
+    #[test]
+    fn a_hook_move_bonus_reaches_what_the_printed_value_cannot_and_is_neutral_without_one() {
+        use crate::factions::hooks_movement::{MovementHooks, with_test_hooks};
+        let (mut state, galaxy, ids) = fixture();
+        let across = across_the_centre(&galaxy, &ids);
+        // A carrier moves 1 and is two systems short.
+        state.system_mut(&ids[1]).units.push(ship("carrier"));
+        activate(&mut state, &player(), &across).unwrap();
+        let content = ContentStore::embedded();
+        assert!(movable(&state, content, POK, &galaxy, &player()).is_empty());
+        let kind = ti4_content::units::unit_type(content, "carrier", POK).unwrap();
+        let printed = effective_move_value(&state, &kind, &player(), &ids[1]);
+
+        // Slipstream's shape: +1 for ships starting in a marked system, +1 more for a hook that
+        // reads the ship, so the two sum.
+        state
+            .faction_marks
+            .insert("bonus_from".to_owned(), ids[1].to_string());
+        let slipstream = MovementHooks {
+            move_bonus: Some(|state, site| {
+                i32::from(
+                    state.faction_marks.get("bonus_from").map(String::as_str)
+                        == Some(site.origin.as_str())
+                        && site.player.as_str() == "a",
+                )
+            }),
+            ..MovementHooks::NONE
+        };
+        let second = MovementHooks {
+            move_bonus: Some(|_, site| i32::from(!site.ship.is_fighter())),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(slipstream, || {
+            assert_eq!(
+                effective_move_value(&state, &kind, &player(), &ids[1]),
+                printed + 1
+            );
+            assert_eq!(
+                effective_move_value(&state, &kind, &player(), &ids[0]),
+                printed,
+                "only ships starting in the marked system"
+            );
+            // Still one short of two systems: a bonus of 1 on a move of 1 is a move of 2.
+            let found = movable(&state, content, POK, &galaxy, &player());
+            assert_eq!(found.len(), 1, "move 1 + 1 reaches two systems");
+            assert_eq!(found[0].origin, ids[1]);
+        });
+        with_test_hooks(second, || {
+            assert_eq!(
+                effective_move_value(&state, &kind, &player(), &ids[1]),
+                printed + 1
+            );
+        });
+        assert!(
+            movable(&state, content, POK, &galaxy, &player()).is_empty(),
+            "the hook is gone and so is the move"
+        );
+        assert_eq!(
+            effective_move_value(&state, &kind, &player(), &ids[1]),
+            printed
+        );
+    }
+
+    #[test]
+    fn a_ship_type_that_passes_blockades_is_offered_the_move_the_others_are_refused() {
+        use crate::factions::hooks_movement::{MovementHooks, with_test_hooks};
+        let (mut state, galaxy, ids) = fixture();
+        let across = across_the_centre(&galaxy, &ids);
+        let enemy = PlayerId::new("b");
+        state
+            .system_mut(&ids[0])
+            .units
+            .push(Unit::new(UnitTypeId::new("destroyer"), enemy));
+        state.system_mut(&ids[1]).units.push(ship("cruiser"));
+        state.system_mut(&ids[1]).units.push(ship("destroyer"));
+        activate(&mut state, &player(), &across).unwrap();
+        let content = ContentStore::embedded();
+        assert!(
+            movable(&state, content, POK, &galaxy, &player()).is_empty(),
+            "the centre is blockaded for both"
+        );
+        let corsair = MovementHooks {
+            may_move_through_ships: Some(|_, _, _, site| {
+                site.player.as_str() == "a" && site.ship_type == "cruiser"
+            }),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(corsair, || {
+            let found = movable(&state, content, POK, &galaxy, &player());
+            assert_eq!(found.len(), 1, "only the cruiser: {found:?}");
+            assert_eq!(found[0].unit.type_id.as_str(), "cruiser");
+        });
     }
 }

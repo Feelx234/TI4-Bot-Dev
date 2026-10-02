@@ -218,6 +218,197 @@ pub fn gain_trade_goods_via(
     Ok(gained)
 }
 
+// -- capture (BF-00d-strategy) ----------------------------------------------------------------------
+//
+// Captured units live in `Player::captured_units` of the player who holds them, as `(owner, unit
+// type)`. They are off the board and out of the owner's reinforcements: `held` above counts them
+// against the owner, so `remaining`/`allowed` (31.4) already see a captured model as gone, and
+// nothing here has to adjust a count. The functions below only move a model between the three
+// places it can be (the board, a reinforcements box, a captor's sheet), each atomically.
+//
+// Rules, from the Prophecy of Kings Living Rules Reference "Capture" entry as the task brief gave
+// it (the rule text is not in the content corpus, so none of these is checked against a printed
+// source; see the rules questions in `plans/evidence/BF-00d-strategy.md`): a captured unit is
+// removed from play and placed on the capturing player's faction sheet; it is not in its owner's
+// reinforcements, so its owner cannot place it; the captor may return it to its owner's
+// reinforcements.
+
+/// What `captor` is holding captured, as `(owner, unit type)` in capture order.
+#[must_use]
+pub fn captured_by<'a>(state: &'a GameState, captor: &PlayerId) -> &'a [(PlayerId, UnitTypeId)] {
+    state
+        .player(captor)
+        .map_or(&[], |seat| seat.captured_units.as_slice())
+}
+
+/// How many of `owner`'s models of this base type are sitting captured, with anyone.
+#[must_use]
+pub fn captured_of(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    owner: &PlayerId,
+    base_type: &str,
+) -> usize {
+    state
+        .players
+        .iter()
+        .flat_map(|seat| &seat.captured_units)
+        .filter(|(who, unit)| who == owner && base_type_of(content, sources, unit) == base_type)
+        .count()
+}
+
+/// Capture a unit standing on the board: take it off `system` (its space area, or `planet`) and
+/// onto `captor`'s sheet. Returns `false`, changing nothing, when the unit is not there, when the
+/// captor or owner is not seated, or when they are the same player.
+///
+/// Mentak and Vuil'raith capture units that are being destroyed: the caller removes it from the
+/// destruction and captures it instead, so no `SHIP_DESTROYED`-style announcement is made here.
+pub fn capture_from_board(
+    state: &mut GameState,
+    captor: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: Option<&ti4_model::id::PlanetId>,
+    unit: &ti4_model::units::Unit,
+) -> bool {
+    if captor == &unit.owner
+        || state.player(captor).is_none()
+        || state.player(&unit.owner).is_none()
+    {
+        return false;
+    }
+    let Some(board) = state.board.get_mut(system) else {
+        return false;
+    };
+    let pool = match planet {
+        Some(planet) => board.planet_units.get_mut(planet),
+        None => Some(&mut board.units),
+    };
+    let Some(pool) = pool else {
+        return false;
+    };
+    let Some(index) = pool.iter().position(|found| found == unit) else {
+        return false;
+    };
+    pool.remove(index);
+    if let Some(seat) = state.player_mut(captor) {
+        seat.captured_units
+            .push((unit.owner.clone(), unit.type_id.clone()));
+    }
+    true
+}
+
+/// Capture a unit out of `owner`'s reinforcements (a captor effect that says "from your
+/// opponent's reinforcements"). Needs a model left in the box (31.4: `remaining`); uncapped
+/// fighters and infantry always have one. Returns `false`, changing nothing, otherwise.
+pub fn capture_from_reinforcements(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    captor: &PlayerId,
+    owner: &PlayerId,
+    unit: &UnitTypeId,
+) -> bool {
+    if captor == owner
+        || state.player(captor).is_none()
+        || state.player(owner).is_none()
+        || allowed(state, content, sources, owner, unit, 1) == 0
+    {
+        return false;
+    }
+    if let Some(seat) = state.player_mut(captor) {
+        seat.captured_units.push((owner.clone(), unit.clone()));
+    }
+    true
+}
+
+/// Return one captured model of `owner`'s base type from `captor`'s sheet to `owner`'s
+/// reinforcements. The unit type that was captured is returned, `None` (nothing changes) when the
+/// captor holds none of that base type for that owner.
+///
+/// "Reinforcements" is not stored: a model is in the box exactly when it is neither on the board
+/// nor captured, so removing the record is the return.
+pub fn return_captured(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    captor: &PlayerId,
+    owner: &PlayerId,
+    base_type: &str,
+) -> Option<UnitTypeId> {
+    let seat = state.player_mut(captor)?;
+    let index = seat.captured_units.iter().position(|(who, unit)| {
+        who == owner && base_type_of(content, sources, unit) == base_type
+    })?;
+    Some(seat.captured_units.remove(index).1)
+}
+
+/// Return everything `captor` holds captured to its owners, e.g. when the captor leaves the game.
+/// Returns how many models went back. The caller decides when this applies; the rule is recorded
+/// as a question in the evidence file.
+pub fn release_all_captured(state: &mut GameState, captor: &PlayerId) -> usize {
+    state
+        .player_mut(captor)
+        .map_or(0, |seat| std::mem::take(&mut seat.captured_units).len())
+}
+
+fn capture_payload(
+    captor: &PlayerId,
+    owner: &PlayerId,
+    unit: &UnitTypeId,
+    source: &str,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut payload = std::collections::BTreeMap::new();
+    payload.insert("player".to_owned(), captor.to_string().into());
+    payload.insert("owner".to_owned(), owner.to_string().into());
+    payload.insert("unit".to_owned(), unit.to_string().into());
+    payload.insert("source".to_owned(), source.into());
+    payload
+}
+
+/// [`capture_from_board`], then announce `UNIT_CAPTURED` (`player` = the captor, `owner`, `unit`,
+/// `source`) in the caller's timing handle. Nothing is emitted when the capture did not happen.
+pub fn capture_from_board_announced(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    captor: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: Option<&ti4_model::id::PlanetId>,
+    unit: &ti4_model::units::Unit,
+    source: &str,
+) -> bool {
+    let done = capture_from_board(state, captor, system, planet, unit);
+    if done {
+        crate::factions::hooks_economy::emit(
+            ctx,
+            state,
+            "UNIT_CAPTURED",
+            capture_payload(captor, &unit.owner, &unit.type_id, source),
+        );
+    }
+    done
+}
+
+/// [`return_captured`], then announce `CAPTURED_UNIT_RETURNED` (`player` = the captor, `owner`,
+/// `unit`, `source`). Nothing is emitted when nothing was returned.
+pub fn return_captured_announced(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    captor: &PlayerId,
+    owner: &PlayerId,
+    base_type: &str,
+    source: &str,
+) -> Option<UnitTypeId> {
+    let returned = return_captured(state, ctx.content, ctx.sources, captor, owner, base_type)?;
+    crate::factions::hooks_economy::emit(
+        ctx,
+        state,
+        "CAPTURED_UNIT_RETURNED",
+        capture_payload(captor, owner, &returned, source),
+    );
+    Some(returned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,6 +741,299 @@ mod tests {
                 .count(),
             1,
             "one emission, for the non-zero gain only"
+        );
+    }
+}
+
+#[cfg(test)]
+mod capture_tests {
+    use super::*;
+    use crate::fixtures::{a_placed_planet, game, put, put_on_planet};
+    use ti4_model::content_types::POK;
+    use ti4_model::units::Unit;
+
+    fn pid(id: &str) -> PlayerId {
+        PlayerId::new(id)
+    }
+
+    fn carrier(owner: &str) -> Unit {
+        Unit::new(UnitTypeId::new("carrier"), pid(owner))
+    }
+
+    #[test]
+    fn a_captured_ship_leaves_the_board_but_not_its_owners_plastic() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        put(&mut state, &system, "carrier", &pid("b"), 4);
+        assert_eq!(
+            remaining(&state, content, POK, &pid("b"), &UnitTypeId::new("carrier")),
+            0
+        );
+
+        assert!(capture_from_board(
+            &mut state,
+            &pid("a"),
+            &system,
+            None,
+            &carrier("b")
+        ));
+        assert_eq!(state.system_state(&system).units_of(&pid("b")).len(), 3);
+        assert_eq!(
+            captured_by(&state, &pid("a")),
+            &[(pid("b"), UnitTypeId::new("carrier"))]
+        );
+        assert_eq!(captured_of(&state, content, POK, &pid("b"), "carrier"), 1);
+        assert_eq!(
+            held(&state, content, POK, &pid("b"), "carrier"),
+            4,
+            "still out of the box"
+        );
+        assert_eq!(
+            allowed(
+                &state,
+                content,
+                POK,
+                &pid("b"),
+                &UnitTypeId::new("carrier"),
+                1
+            ),
+            0,
+            "31.4: the owner cannot place the captured model"
+        );
+        assert_eq!(
+            held(&state, content, POK, &pid("a"), "carrier"),
+            0,
+            "it is not the captor's"
+        );
+    }
+
+    #[test]
+    fn a_returned_model_goes_back_to_its_owners_reinforcements() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        put(&mut state, &system, "carrier", &pid("b"), 4);
+        capture_from_board(&mut state, &pid("a"), &system, None, &carrier("b"));
+
+        assert_eq!(
+            return_captured(&mut state, content, POK, &pid("a"), &pid("b"), "carrier"),
+            Some(UnitTypeId::new("carrier"))
+        );
+        assert!(captured_by(&state, &pid("a")).is_empty());
+        assert_eq!(
+            allowed(
+                &state,
+                content,
+                POK,
+                &pid("b"),
+                &UnitTypeId::new("carrier"),
+                1
+            ),
+            1,
+            "the model is in the box again"
+        );
+        // Nothing left to return, or the wrong owner or type: nothing changes.
+        assert_eq!(
+            return_captured(&mut state, content, POK, &pid("a"), &pid("b"), "carrier"),
+            None
+        );
+        capture_from_board(&mut state, &pid("a"), &system, None, &carrier("b"));
+        assert_eq!(
+            return_captured(&mut state, content, POK, &pid("a"), &pid("b"), "cruiser"),
+            None
+        );
+        assert_eq!(
+            return_captured(&mut state, content, POK, &pid("b"), &pid("b"), "carrier"),
+            None
+        );
+        assert_eq!(captured_by(&state, &pid("a")).len(), 1);
+    }
+
+    #[test]
+    fn a_ground_force_is_captured_off_its_planet() {
+        let mut state = game(&["a", "b"]);
+        let (system, planet) = a_placed_planet();
+        put_on_planet(&mut state, &system, &planet, "mech", &pid("b"), 1);
+        let mech = Unit::new(UnitTypeId::new("mech"), pid("b"));
+        // The wrong place is refused; the planet works.
+        assert!(!capture_from_board(
+            &mut state,
+            &pid("a"),
+            &system,
+            None,
+            &mech
+        ));
+        assert!(capture_from_board(
+            &mut state,
+            &pid("a"),
+            &system,
+            Some(&planet),
+            &mech
+        ));
+        assert!(
+            state
+                .system_state(&system)
+                .planet_units
+                .get(&planet)
+                .is_none_or(Vec::is_empty)
+        );
+        assert_eq!(captured_by(&state, &pid("a")).len(), 1);
+    }
+
+    #[test]
+    fn an_impossible_capture_changes_nothing() {
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        put(&mut state, &system, "carrier", &pid("b"), 1);
+        let before = serde_json::to_value(&state).unwrap();
+        // Not there; own unit; unseated captor.
+        assert!(!capture_from_board(
+            &mut state,
+            &pid("a"),
+            &system,
+            None,
+            &Unit::new(UnitTypeId::new("dreadnought"), pid("b"))
+        ));
+        assert!(!capture_from_board(
+            &mut state,
+            &pid("b"),
+            &system,
+            None,
+            &carrier("b")
+        ));
+        assert!(!capture_from_board(
+            &mut state,
+            &pid("zed"),
+            &system,
+            None,
+            &carrier("b")
+        ));
+        assert!(!capture_from_board(
+            &mut state,
+            &pid("a"),
+            &ti4_model::id::SystemId::new("none"),
+            None,
+            &carrier("b")
+        ));
+        assert_eq!(serde_json::to_value(&state).unwrap(), before);
+    }
+
+    #[test]
+    fn capturing_from_reinforcements_needs_a_model_in_the_box() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        let dread = UnitTypeId::new("dreadnought");
+        put(&mut state, &system, "dreadnought", &pid("b"), 5);
+        assert!(!capture_from_reinforcements(
+            &mut state,
+            content,
+            POK,
+            &pid("a"),
+            &pid("b"),
+            &dread
+        ));
+        assert!(captured_by(&state, &pid("a")).is_empty());
+
+        state.system_mut(&system).units.pop();
+        assert!(capture_from_reinforcements(
+            &mut state,
+            content,
+            POK,
+            &pid("a"),
+            &pid("b"),
+            &dread
+        ));
+        assert_eq!(remaining(&state, content, POK, &pid("b"), &dread), 0);
+        // Fighters are uncapped: always capturable.
+        assert!(capture_from_reinforcements(
+            &mut state,
+            content,
+            POK,
+            &pid("a"),
+            &pid("b"),
+            &UnitTypeId::new("fighter")
+        ));
+    }
+
+    #[test]
+    fn a_captor_leaving_returns_everything() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b", "c"]);
+        let (system, _) = a_placed_planet();
+        put(&mut state, &system, "carrier", &pid("b"), 2);
+        put(&mut state, &system, "cruiser", &pid("c"), 1);
+        capture_from_board(&mut state, &pid("a"), &system, None, &carrier("b"));
+        capture_from_board(
+            &mut state,
+            &pid("a"),
+            &system,
+            None,
+            &Unit::new(UnitTypeId::new("cruiser"), pid("c")),
+        );
+        assert_eq!(release_all_captured(&mut state, &pid("a")), 2);
+        assert!(captured_by(&state, &pid("a")).is_empty());
+        assert_eq!(held(&state, content, POK, &pid("b"), "carrier"), 1);
+        assert_eq!(release_all_captured(&mut state, &pid("a")), 0);
+    }
+
+    #[test]
+    fn announced_capture_and_return_report_success_and_stay_quiet_otherwise() {
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        put(&mut state, &system, "carrier", &pid("b"), 1);
+        let content = ContentStore::embedded();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut table = crate::choice::Table::new();
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        assert!(capture_from_board_announced(
+            &mut state,
+            &mut ctx,
+            &pid("a"),
+            &system,
+            None,
+            &carrier("b"),
+            "test"
+        ));
+        assert!(!capture_from_board_announced(
+            &mut state,
+            &mut ctx,
+            &pid("a"),
+            &system,
+            None,
+            &carrier("b"),
+            "test"
+        ));
+        assert_eq!(
+            return_captured_announced(
+                &mut state,
+                &mut ctx,
+                &pid("a"),
+                &pid("b"),
+                "carrier",
+                "test"
+            ),
+            Some(UnitTypeId::new("carrier"))
+        );
+        assert_eq!(
+            return_captured_announced(
+                &mut state,
+                &mut ctx,
+                &pid("a"),
+                &pid("b"),
+                "carrier",
+                "test"
+            ),
+            None
         );
     }
 }

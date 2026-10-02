@@ -182,6 +182,63 @@ pub fn planet_value_now(
         + attachment_bonus(state, content, planet, kind)
 }
 
+/// The faction mark holding the [`GameState::production_seq`] a value swap was declared in.
+const SWAP_SEQ_MARK: &str = "production:value_swap_seq";
+
+/// Record that, for the current use of PRODUCTION, `planet`'s resource and influence values are
+/// swapped (Winnu Hegemonic Trade Policy). Replaces any earlier swap. The swap is scoped to the
+/// use it was declared in: it is read only while [`GameState::production_seq`] is unchanged, and
+/// it is cleared when the production window ends ([`end_value_swap`]).
+///
+/// Hegemonic Trade Policy: "Exhaust this card when 1 or more of your units use PRODUCTION; swap
+/// the resource and influence values of 1 planet you control during that use of Production."
+/// Call it from the module's `PRODUCTION_USED` window (after `production_seq` was advanced for
+/// the use, before the window's `refresh`), having exhausted the card and chosen the planet. The
+/// module's `planet_spend_value` hook then returns [`swapped_value`] for that planet.
+pub fn begin_value_swap(state: &mut GameState, planet: &PlanetId) {
+    state.production_value_swapped_planet = Some(planet.clone());
+    state
+        .faction_marks
+        .insert(SWAP_SEQ_MARK.to_owned(), state.production_seq.to_string());
+}
+
+/// End the current value swap, if any (the use of PRODUCTION is over).
+pub fn end_value_swap(state: &mut GameState) {
+    state.production_value_swapped_planet = None;
+    state.faction_marks.remove(SWAP_SEQ_MARK);
+}
+
+/// The planet whose values are swapped in the use of PRODUCTION now in progress, if any.
+#[must_use]
+pub fn swapped_planet(state: &GameState) -> Option<&PlanetId> {
+    let planet = state.production_value_swapped_planet.as_ref()?;
+    let declared = state.faction_marks.get(SWAP_SEQ_MARK)?;
+    (*declared == state.production_seq.to_string()).then_some(planet)
+}
+
+/// What `planet` reads as `kind` for this player right now if it is the planet whose values are
+/// swapped: the *other* kind's value (attachments and laws included, as [`planet_value_now`]). `None`
+/// when `planet` is not the swapped planet, so a module's `planet_spend_value` hook can write
+/// `swapped_value(..).unwrap_or(value)`. It does not check who controls the planet or holds the
+/// card: the module that began the swap does.
+#[must_use]
+pub fn swapped_value(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &PlanetId,
+    kind: Spend,
+) -> Option<i64> {
+    if swapped_planet(state) != Some(planet) {
+        return None;
+    }
+    let other = match kind {
+        Spend::Resources => Spend::Influence,
+        Spend::Influence => Spend::Resources,
+    };
+    Some(planet_value_now(state, content, sources, planet, other))
+}
+
 /// What the attachments on a planet add to it (LRR 35.8): each attachment record's
 /// `resourcesModifier` / `influenceModifier`, summed.
 ///
@@ -713,7 +770,14 @@ fn sling_relay_candidates(
             })
             .map(|(planet, _)| planet)
             .collect();
-        let has_dock = !dock_planets.is_empty();
+        // A space dock in the space area (Saar's Floating Factory) is a space dock too.
+        let has_dock = !dock_planets.is_empty()
+            || board.units.iter().any(|unit| {
+                unit.owner == *player
+                    && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                        kind.base_type() == "spacedock" && kind.is_space_only_structure()
+                    })
+            });
         // Coexistence rule 4: "A coexisting structure is always blockaded, regardless of what
         // ships, if any, are in the system." A dock the player built while coexisting produces
         // nothing even in a system they otherwise hold uncontested.
@@ -1250,6 +1314,112 @@ pub fn producers(
         );
     }
     found
+}
+
+/// The player's mobile production structures in `system`: space-only structures with PRODUCTION
+/// (`isSpaceOnly` in the content), sitting in the space area. Saar's Floating Factory.
+///
+/// Already included in [`producers`] (with no planet, so its printed flat value applies) and
+/// therefore in [`capacity`] and every production window; this names them for the callers that
+/// treat them specially (blockade, movement). Empty unless a faction content flags a unit so.
+///
+/// Floating Factory I: "This unit is placed in the space area instead of on a planet. This unit
+/// can move and retreat as if it were a ship. If this unit is blockaded, it is destroyed."
+#[must_use]
+pub fn mobile_docks(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<Unit> {
+    let types = catalogue(content, sources);
+    state
+        .board
+        .get(system)
+        .map(|board| {
+            board
+                .units
+                .iter()
+                .filter(|unit| &unit.owner == player)
+                .filter(|unit| {
+                    types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(|kind| kind.is_space_only_structure() && kind.has_production())
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Destroy every mobile dock in `system` that is blockaded: an enemy ship is present and the
+/// dock's owner has no ship there. Returns the docks destroyed. Their plastic goes back to the
+/// owner's reinforcements (the board no longer holds it), and nothing else changes; the caller
+/// announces any destruction event it wants.
+///
+/// Floating Factory I: "If this unit is blockaded, it is destroyed." Blockade here is the
+/// space-dock blockade of the LRR (enemy ships and none of your own); that is a different test
+/// from the 68.10 production ban above, which applies whatever ships the producer has. The
+/// caller decides *when* to look (a moved-into system, the end of a combat); the Floating Factory
+/// does not carry a printed timing, so this is a rules question recorded in the evidence file.
+/// Neutral units' ships count as enemy ships.
+pub fn destroy_blockaded_mobile_docks(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+) -> Vec<Unit> {
+    let types = catalogue(content, sources);
+    let Some(board) = state.board.get(system) else {
+        return Vec::new();
+    };
+    let is_ship = |unit: &Unit| {
+        types
+            .get(unit.type_id.as_str())
+            .is_some_and(UnitType::is_ship)
+    };
+    let owners: std::collections::BTreeSet<PlayerId> = board
+        .units
+        .iter()
+        .filter(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(|kind| kind.is_space_only_structure() && kind.has_production())
+        })
+        .map(|unit| unit.owner.clone())
+        .collect();
+    let doomed: Vec<Unit> = owners
+        .into_iter()
+        .filter(|owner| {
+            let enemy_ship = board
+                .units
+                .iter()
+                .any(|unit| &unit.owner != owner && is_ship(unit));
+            let own_ship = board
+                .units
+                .iter()
+                .any(|unit| &unit.owner == owner && is_ship(unit));
+            enemy_ship && !own_ship
+        })
+        .flat_map(|owner| {
+            board
+                .units
+                .iter()
+                .filter(|unit| {
+                    unit.owner == owner
+                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                            kind.is_space_only_structure() && kind.has_production()
+                        })
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    if !doomed.is_empty() {
+        state.destroy_units(system, &doomed);
+    }
+    doomed
 }
 
 /// 68.1a: the production values of all the player's producing units here, combined.
@@ -2326,6 +2496,8 @@ impl Window for ProductionWindow {
         // reach `Done`, so this is a flag rather than a call at each of them.
         if matches!(self.stage, Stage::Done) && !self.settled {
             self.settled = true;
+            // A planet-value swap lasts one use of PRODUCTION (Hegemonic Trade Policy).
+            end_value_swap(state);
             let (who, made) = (self.player.clone(), self.report.produced.clone());
             crate::breakthroughs::on_production_finished(state, content, sources, &who, &made);
             // Prophecy of Ixth: using PRODUCTION discards the law unless two or more fighters were
@@ -2547,6 +2719,7 @@ pub fn resolve_timed(
             .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
         window.resolve(state, &mut ctx, answer)?;
     }
+    end_value_swap(state);
     Ok(window.into_report())
 }
 
@@ -2576,6 +2749,7 @@ pub fn produce_by_ability(
             .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
         window.resolve(state, ctx, answer)?;
     }
+    end_value_swap(state);
     Ok(window.into_report())
 }
 
@@ -4969,5 +5143,236 @@ mod tests {
         let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
         assert_eq!(seen[0]["source"], "production");
+    }
+}
+
+#[cfg(test)]
+mod mobile_dock_and_swap_tests {
+    use super::*;
+    use crate::fixtures::{a_placed_planet, game, put, put_on_planet};
+    use ti4_model::content_types::POK;
+
+    fn pid(id: &str) -> PlayerId {
+        PlayerId::new(id)
+    }
+
+    // -- mobile space dock (Saar Floating Factory) ------------------------------------------------
+
+    #[test]
+    fn a_floating_factory_in_the_space_area_is_a_producer_and_counts_for_capacity() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, planet) = a_placed_planet();
+        let a = pid("a");
+        assert!(mobile_docks(&state, content, POK, &a, &system).is_empty());
+        put(&mut state, &system, "saar_spacedock", &a, 1);
+        assert_eq!(mobile_docks(&state, content, POK, &a, &system).len(), 1);
+        assert!(mobile_docks(&state, content, POK, &pid("b"), &system).is_empty());
+        let made = producers(&state, content, POK, &a, &system);
+        assert_eq!(made.len(), 1);
+        assert_eq!(made[0].1, None, "no planet: its flat printed value applies");
+        assert_eq!(capacity(&state, content, POK, &a, &system), 5);
+
+        // An ordinary dock on a planet is not a mobile dock, and adds its own value.
+        put_on_planet(&mut state, &system, &planet, "spacedock", &a, 1);
+        assert_eq!(mobile_docks(&state, content, POK, &a, &system).len(), 1);
+        assert!(capacity(&state, content, POK, &a, &system) > 5);
+    }
+
+    #[test]
+    fn it_is_still_the_same_plastic_as_a_space_dock() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        let (system, _) = a_placed_planet();
+        let a = pid("a");
+        put(&mut state, &system, "saar_spacedock", &a, 3);
+        assert_eq!(
+            crate::supply::remaining(&state, content, POK, &a, &UnitTypeId::new("spacedock")),
+            0,
+            "three docks of any kind are the whole box"
+        );
+    }
+
+    #[test]
+    fn an_enemy_ship_with_none_of_its_own_destroys_a_floating_factory() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, planet) = a_placed_planet();
+        let (a, b) = (pid("a"), pid("b"));
+        put(&mut state, &system, "saar_spacedock", &a, 1);
+        put_on_planet(&mut state, &system, &planet, "spacedock", &a, 1);
+
+        // No enemy, or only ground forces: not blockaded.
+        assert!(destroy_blockaded_mobile_docks(&mut state, content, POK, &system).is_empty());
+        put_on_planet(&mut state, &system, &planet, "infantry", &b, 1);
+        assert!(destroy_blockaded_mobile_docks(&mut state, content, POK, &system).is_empty());
+
+        // An enemy ship, but the owner has a ship too: not blockaded.
+        put(&mut state, &system, "cruiser", &b, 1);
+        put(&mut state, &system, "destroyer", &a, 1);
+        assert!(destroy_blockaded_mobile_docks(&mut state, content, POK, &system).is_empty());
+        assert_eq!(mobile_docks(&state, content, POK, &a, &system).len(), 1);
+
+        // The owner's last ship is gone: the dock is destroyed; the planet dock is not.
+        let pos = state
+            .system_state(&system)
+            .units
+            .iter()
+            .position(|unit| unit.type_id.as_str() == "destroyer")
+            .unwrap();
+        state.system_mut(&system).units.remove(pos);
+        let gone = destroy_blockaded_mobile_docks(&mut state, content, POK, &system);
+        assert_eq!(gone.len(), 1);
+        assert_eq!(gone[0].type_id.as_str(), "saar_spacedock");
+        assert!(mobile_docks(&state, content, POK, &a, &system).is_empty());
+        assert_eq!(
+            structures_on(&state, content, POK, &a, &planet, "spacedock"),
+            1
+        );
+        assert_eq!(
+            crate::supply::remaining(&state, content, POK, &a, &UnitTypeId::new("spacedock")),
+            2,
+            "its plastic is back in the box"
+        );
+        assert!(destroy_blockaded_mobile_docks(&mut state, content, POK, &system).is_empty());
+    }
+
+    #[test]
+    fn sling_relay_sees_a_floating_factory_as_a_space_dock() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        let a = pid("a");
+        state.player_mut(&a).unwrap().trade_goods = 10;
+        assert!(!sling_relay_candidates(&state, content, POK, &a).contains_key(&system));
+        put(&mut state, &system, "saar_spacedock", &a, 1);
+        let with_dock = sling_relay_candidates(&state, content, POK, &a);
+        assert!(
+            with_dock
+                .get(&system)
+                .is_some_and(|ships| !ships.is_empty()),
+            "a ship can be produced at a system whose only dock floats"
+        );
+        put(&mut state, &system, "cruiser", &pid("b"), 1);
+        assert!(!sling_relay_candidates(&state, content, POK, &a).contains_key(&system));
+    }
+
+    // -- Hegemonic Trade Policy value swap --------------------------------------------------------
+
+    /// A placed planet whose resources and influence differ, so a swap is visible.
+    fn lopsided_planet() -> (SystemId, PlanetId) {
+        let content = ContentStore::embedded();
+        ti4_content::galaxy::all_planets(content, POK)
+            .iter()
+            .filter(|(_, planet)| planet.system_id().is_some() && !planet.is_placed_during_play())
+            .map(|(id, planet)| {
+                (
+                    SystemId::new(planet.system_id().unwrap_or("18")),
+                    PlanetId::new(*id),
+                )
+            })
+            .find(|(_, planet)| {
+                planet_value(content, POK, planet, Spend::Resources)
+                    != planet_value(content, POK, planet, Spend::Influence)
+            })
+            .expect("a planet with unequal values")
+    }
+
+    #[test]
+    fn a_swap_reads_the_other_value_for_the_swapped_planet_only_and_only_during_its_use() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        let (_, planet) = lopsided_planet();
+        let other = PlanetId::new("elsewhere");
+        let res = planet_value_now(&state, content, POK, &planet, Spend::Resources);
+        let inf = planet_value_now(&state, content, POK, &planet, Spend::Influence);
+        assert_ne!(res, inf);
+        assert_eq!(
+            swapped_value(&state, content, POK, &planet, Spend::Resources),
+            None
+        );
+
+        state.production_seq = 3;
+        begin_value_swap(&mut state, &planet);
+        assert_eq!(swapped_planet(&state), Some(&planet));
+        assert_eq!(
+            swapped_value(&state, content, POK, &planet, Spend::Resources),
+            Some(inf)
+        );
+        assert_eq!(
+            swapped_value(&state, content, POK, &planet, Spend::Influence),
+            Some(res)
+        );
+        assert_eq!(
+            swapped_value(&state, content, POK, &other, Spend::Resources),
+            None
+        );
+
+        // A later use of PRODUCTION does not inherit it, even if nobody cleared it.
+        state.production_seq = 4;
+        assert_eq!(swapped_planet(&state), None);
+        assert_eq!(
+            swapped_value(&state, content, POK, &planet, Spend::Resources),
+            None
+        );
+        state.production_seq = 3;
+        end_value_swap(&mut state);
+        assert_eq!(swapped_planet(&state), None);
+        assert!(state.faction_marks.is_empty(), "nothing is left behind");
+        assert_eq!(state.production_value_swapped_planet, None);
+    }
+
+    #[test]
+    fn the_swap_reaches_a_docks_production_through_the_planet_value_hook() {
+        use crate::factions::hooks_economy::{EconomyHooks, with_test_hooks};
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        let (system, planet) = lopsided_planet();
+        let a = pid("a");
+        put_on_planet(&mut state, &system, &planet, "spacedock", &a, 1);
+        let inf = planet_value_now(&state, content, POK, &planet, Spend::Influence);
+        let printed = capacity(&state, content, POK, &a, &system);
+
+        let hooks = EconomyHooks {
+            planet_spend_value: Some(|state, content, _, planet, kind, value| {
+                swapped_value(state, content, POK, planet, kind).unwrap_or(value)
+            }),
+            ..EconomyHooks::NONE
+        };
+        with_test_hooks(hooks, || {
+            assert_eq!(
+                capacity(&state, content, POK, &a, &system),
+                printed,
+                "no swap yet"
+            );
+            begin_value_swap(&mut state, &planet);
+            // Space dock: PRODUCTION is the planet's resources + 2; swapped, its influence + 2.
+            assert_eq!(capacity(&state, content, POK, &a, &system), inf + 2);
+            end_value_swap(&mut state);
+            assert_eq!(capacity(&state, content, POK, &a, &system), printed);
+        });
+    }
+
+    #[test]
+    fn a_finished_production_use_ends_the_swap() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        let (system, planet) = lopsided_planet();
+        begin_value_swap(&mut state, &planet);
+        let mut table = Table::new();
+        // No producing unit: the window closes at once, and the use is over.
+        let report = resolve(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut table,
+            &pid("a"),
+            &system,
+        )
+        .unwrap();
+        assert!(report.produced.is_empty());
+        assert_eq!(state.production_value_swapped_planet, None);
+        assert!(state.faction_marks.is_empty());
     }
 }

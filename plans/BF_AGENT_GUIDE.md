@@ -32,6 +32,13 @@ then `crates/ti4-engine/src/factions/mod.rs` (the contract), then your faction's
   restored or branched. Gate "once" on state (exhausted card, a `GameState` flag).
 - **`timing_abilities` is called once, at game construction**, with that state. Build the same
   abilities regardless of state; decide everything in the condition/effect.
+- **Games without your faction must not change.** Timing abilities are registered for every
+  seat; each condition must be false unless that seat really holds the card/ability/leader in a
+  usable state. An ability that offers a choice to a seat without the card breaks dozens of
+  scripted tests (`ScriptDiverged`). Ability ids use the real `owner_name` argument.
+- **New choice sites:** do not edit `tests/decision_delivery_inventory.rs`. List every function in
+  your file that builds a `Choice` or asks one (name, count) in evidence under "Decision sites to
+  register"; the coordinator registers them.
 - **`unit_dice` adjusts** the running count; do not overwrite it without saying why.
 - **Already implemented in shared code — do not re-implement** (claim it only after a test shows
   it works through the shared path): `unrelenting` (Sardakk, `faction_abilities::combat_modifier`);

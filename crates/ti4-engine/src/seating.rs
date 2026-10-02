@@ -16,6 +16,15 @@ use ti4_model::units::Unit;
 /// Mecatol Rex, which sits at the centre of the board.
 pub const MECATOL: &str = "18";
 
+/// The Creuss Gate (tile 17): where the Creuss home position sits **on the map**. It prints a
+/// delta wormhole and no planet, and "is not a home system" (Creuss Gate ability).
+pub const CREUSS_GATE: &str = "17";
+
+/// The Creuss home system (tile 51): off the map, beside the board, connected to the gate by the
+/// delta wormholes both tiles print. The corpus's `homeSystem` for `ghost` names the gate; the
+/// seat's home system -- where its units start and its planet lies -- is this tile.
+pub const CREUSS_HOME: &str = "51";
+
 /// Something went wrong seating a game.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SeatingError {
@@ -112,7 +121,14 @@ pub fn deploy(
     let home = faction
         .home_system()
         .ok_or_else(|| SeatingError::NoHomeSystem(alias.to_string()))?;
-    let system_id = SystemId::new(home);
+    // Creuss: "place the Creuss Gate (tile 17) where your home system would normally be placed ...
+    // Then, place your home system (tile 51) in your play area." The faction record names the
+    // gate; the seat's home system, with its planet and starting fleet, is tile 51.
+    let system_id = SystemId::new(if home == CREUSS_GATE {
+        CREUSS_HOME
+    } else {
+        home
+    });
     let home_planets = faction.home_planets();
     let deployments = faction.deployments(content)?;
 
@@ -274,6 +290,7 @@ pub fn place_wormhole_nexus(
     content: &ContentStore,
     sources: SourceSet,
 ) -> Result<(), ti4_content::galaxy::GalaxyError> {
+    place_creuss_home(galaxy, content, sources)?;
     if !sources.contains(ti4_model::content_types::Source::Pok) {
         return Ok(());
     }
@@ -284,6 +301,27 @@ pub fn place_wormhole_nexus(
         return Ok(());
     }
     galaxy.place_off_map(content, LOCKED_NEXUS, sources)
+}
+
+/// Put the Creuss home system beside the board when the Creuss Gate is on it.
+///
+/// The gate occupies the Creuss seat's home position (see [`CREUSS_GATE`]); the home system is off
+/// the hex grid and reached only through the delta wormholes the two tiles print, which
+/// `Galaxy::adjacent` pairs by kind like any other wormhole. Called from
+/// [`place_wormhole_nexus`], which every map family already calls, so a board with no gate -- every
+/// board without a Creuss seat -- is untouched. Idempotent.
+///
+/// # Errors
+/// Any [`GalaxyError`] from registering the tile.
+pub fn place_creuss_home(
+    galaxy: &mut Galaxy,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Result<(), ti4_content::galaxy::GalaxyError> {
+    if galaxy.coord_of(CREUSS_GATE).is_none() || !galaxy.wormhole_kinds(CREUSS_HOME).is_empty() {
+        return Ok(());
+    }
+    galaxy.place_off_map(content, CREUSS_HOME, sources)
 }
 
 /// Whether anything has happened that opens the Wormhole Nexus.
@@ -1045,5 +1083,92 @@ mod tests {
             build_board(content(), &pairs, &refs, POK).unwrap()
         );
         assert_eq!(filler, neutral_systems(content(), 30, POK));
+    }
+
+    // -- the Creuss Gate and the Creuss home system -----------------------------------------------
+
+    fn board_for(pairs: &[(&str, &str)]) -> Galaxy {
+        let seats = assignments(pairs);
+        let filler = full_filler();
+        let refs: Vec<&str> = filler.iter().map(SystemId::as_str).collect();
+        build_board(content(), &seats, &refs, POK).unwrap()
+    }
+
+    #[test]
+    fn the_creuss_gate_sits_in_the_seats_home_position_and_the_home_system_is_off_the_map() {
+        let galaxy = board_for(&[("a", "sol"), ("b", "ghost"), ("c", "hacan")]);
+        assert!(
+            galaxy.coord_of(CREUSS_GATE).is_some(),
+            "the gate is on the hex grid"
+        );
+        assert!(
+            galaxy.coord_of(CREUSS_HOME).is_none(),
+            "the Creuss home system is not on the hex grid"
+        );
+        assert!(
+            galaxy.wormhole_kinds(CREUSS_HOME).contains("DELTA"),
+            "but it is in play"
+        );
+        // Home position: the gate took the slot a home system would, so it is as far from the
+        // other homes as they are from each other (every third outer slot).
+        let sol = galaxy.coord_of("01").unwrap();
+        let gate = galaxy.coord_of(CREUSS_GATE).unwrap();
+        assert!(sol.distance(gate) >= 3, "spaced like a home, not huddled");
+        // Connected through the delta wormholes, in both directions, and nothing else reaches it.
+        assert!(galaxy.are_adjacent(CREUSS_GATE, CREUSS_HOME));
+        assert!(galaxy.are_adjacent(CREUSS_HOME, CREUSS_GATE));
+        assert_eq!(
+            galaxy.adjacent(CREUSS_HOME).into_iter().collect::<Vec<_>>(),
+            vec![CREUSS_GATE],
+            "only the gate is adjacent to the off-map home"
+        );
+    }
+
+    #[test]
+    fn boards_without_a_creuss_seat_are_unchanged() {
+        let galaxy = board_for(&[("a", "sol"), ("b", "hacan"), ("c", "letnev")]);
+        assert!(galaxy.coord_of(CREUSS_GATE).is_none());
+        assert!(galaxy.wormhole_kinds(CREUSS_HOME).is_empty());
+        let six = board_for(&[
+            ("a", "sol"),
+            ("b", "hacan"),
+            ("c", "letnev"),
+            ("d", "xxcha"),
+            ("e", "jolnar"),
+            ("f", "l1z1x"),
+        ]);
+        assert!(
+            six.system_ids().iter().all(|id| *id != CREUSS_GATE),
+            "no gate on a six-faction board"
+        );
+        let mut again = six.clone();
+        place_creuss_home(&mut again, content(), POK).unwrap();
+        assert_eq!(again, six, "placing the home is a no-op without the gate");
+    }
+
+    #[test]
+    fn placing_the_creuss_home_twice_changes_nothing() {
+        let mut galaxy = board_for(&[("a", "sol"), ("b", "ghost")]);
+        let once = galaxy.clone();
+        place_creuss_home(&mut galaxy, content(), POK).unwrap();
+        place_wormhole_nexus(&mut galaxy, content(), POK).unwrap();
+        assert_eq!(galaxy, once);
+    }
+
+    #[test]
+    fn a_creuss_seat_starts_in_tile_51_not_on_the_gate() {
+        let state = seated(&[("a", "ghost")]);
+        let player = state.player(&PlayerId::new("a")).unwrap();
+        assert_eq!(player.home_system, Some(SystemId::new(CREUSS_HOME)));
+        let home = state.system_state(&SystemId::new(CREUSS_HOME));
+        assert!(home.controls_a_planet(&PlayerId::new("a")));
+        assert!(!home.units.is_empty(), "the starting fleet is at home");
+        assert!(
+            state
+                .system_state(&SystemId::new(CREUSS_GATE))
+                .units
+                .is_empty(),
+            "nothing starts on the gate"
+        );
     }
 }

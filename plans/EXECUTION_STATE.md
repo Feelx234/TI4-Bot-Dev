@@ -29,6 +29,12 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
 - Wave B (BF-00c-space, BF-00c-ground, BF-00b-economy) complete, reviewed, verified, committed:
   `plans/evidence/BF-wave-B.md`. `ti4-review` semantic_golden fails on `main` since 52066efa
   (pre-existing; regeneration needs operator approval).
+- Scaffold f5bddcae: hook files movement/cards/strategy; `GameState::faction_marks`.
+- Wave B2 + Sardakk + Yin committed and reviewed (no blockers): `plans/evidence/BF-wave-B2.md`.
+- Next: BF-01 (coordinator) — review should-fixes S1–S5 and the seven game.rs changes (commit
+  only own hunks; game.rs carries another session's round-income experiment). Then wave C:
+  Mentak, Winnu, Arborec, Yssaril; wave D: Saar, Naalu, Muaat, Creuss, Argent, Naaz.
+- Operator: ignore `ti4-review` semantic_golden.
 - Blocked: typed status-phase events need `game.rs`, which carries another session's uncommitted
   edits (Arborec `mitosis`/`bio`/mech).
 - After wave B: movement/wormholes (BF-00e), hidden hand (BF-00h), capture (BF-00d), then wave C.

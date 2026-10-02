@@ -552,6 +552,63 @@ fn remove_one(
     Ok(())
 }
 
+// -- dual-form units (BF-00d-strategy) ---------------------------------------------------------------
+
+/// The other form of a dual-form unit: `naaz_mech` and `naaz_mech_space` (Naaz Eidolon / Z-Grav
+/// Eidolon) name each other by the `_space` suffix and share a base type. `None` for every unit
+/// without such a twin in `types`, which is every unit of every faction but Naaz's mech, and for
+/// Thunder's Edge `naaz_voltron`, which is both a ship and a ground force in one record.
+#[must_use]
+pub fn other_form<'a>(types: &BTreeMap<&'a str, UnitType<'a>>, id: &str) -> Option<&'a str> {
+    let twin = id
+        .strip_suffix("_space")
+        .map_or_else(|| format!("{id}_space"), ToOwned::to_owned);
+    let (twin_id, twin) = types.get_key_value(twin.as_str())?;
+    let own = types.get(id)?;
+    (twin.base_type() == own.base_type() && twin.faction() == own.faction()).then_some(*twin_id)
+}
+
+/// Flip one unit of `player`'s of type `from` to its other form, in place: in `system`'s space
+/// area when `planet` is `None`, otherwise on that planet. Returns the new unit type, or `None`
+/// with nothing changed.
+///
+/// Both forms are the same plastic (one base type, `supply::held` counts by it), so the supply
+/// cannot change and no cap is asked. Damage and the galvanize token stay with the unit. A flip to
+/// a ship form is refused on a planet (a ship is never on a planet), so a Z-Grav Eidolon that lands
+/// is flipped back by its owner's effect first; the flip to the ground form is legal anywhere.
+///
+/// Naaz Eidolon: "If this unit is in the space area of the active system at the start of a space
+/// combat, flip this card." Z-Grav Eidolon: "If this unit is in the space area of the active
+/// system, it is also a ship. At the end of a space battle in the active system, flip this card."
+/// This is per unit, not per card: see the rules question in `plans/evidence/BF-00d-strategy.md`.
+/// The caller decides *when* a flip is required; this changes nothing without being asked.
+pub fn flip_form(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: Option<&ti4_model::id::PlanetId>,
+    from: &ti4_model::id::UnitTypeId,
+) -> Option<ti4_model::id::UnitTypeId> {
+    let types = catalogue(content, sources);
+    let to = other_form(&types, from.as_str())?;
+    if planet.is_some() && types.get(to).is_some_and(UnitType::is_ship) {
+        return None;
+    }
+    let board = state.board.get_mut(system)?;
+    let pool = match planet {
+        Some(planet) => board.planet_units.get_mut(planet)?,
+        None => &mut board.units,
+    };
+    let unit = pool
+        .iter_mut()
+        .find(|unit| &unit.owner == player && &unit.type_id == from)?;
+    let flipped = ti4_model::id::UnitTypeId::new(to);
+    unit.type_id = flipped.clone();
+    Some(flipped)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -1026,5 +1083,203 @@ mod obs_review_super_dreadnought {
             1,
             "the third fighter does not fit"
         );
+    }
+}
+
+#[cfg(test)]
+mod dual_form_tests {
+    use super::*;
+    use crate::fixtures::{a_placed_planet, game, put, put_on_planet};
+    use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::UnitTypeId;
+
+    fn pid(id: &str) -> PlayerId {
+        PlayerId::new(id)
+    }
+
+    #[test]
+    fn only_the_naaz_mech_has_another_form() {
+        let content = ContentStore::embedded();
+        let types = catalogue(content, DEFAULT);
+        assert_eq!(other_form(&types, "naaz_mech"), Some("naaz_mech_space"));
+        assert_eq!(other_form(&types, "naaz_mech_space"), Some("naaz_mech"));
+        for id in [
+            "mech",
+            "infantry",
+            "carrier",
+            "naaz_voltron",
+            "saar_spacedock",
+            "nothing",
+        ] {
+            assert_eq!(other_form(&types, id), None, "{id}");
+        }
+        // The census: every unit that has a twin, by the rule above.
+        let twins: Vec<&str> = types
+            .keys()
+            .copied()
+            .filter(|id| other_form(&types, id).is_some())
+            .collect();
+        assert_eq!(twins, vec!["naaz_mech", "naaz_mech_space"]);
+    }
+
+    #[test]
+    fn flipping_in_the_space_area_makes_the_mech_a_ship_without_touching_the_supply() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        let (a, ground) = (pid("a"), UnitTypeId::new("naaz_mech"));
+        put(&mut state, &system, "naaz_mech", &a, 1);
+        state.system_mut(&system).units[0].sustained_damage = true;
+        let held = |state: &GameState| crate::supply::held(state, content, DEFAULT, &a, "mech");
+        let before = (
+            held(&state),
+            standing(&state, content, DEFAULT, &a, &system, None),
+        );
+        assert!(crate::combat::ships_of(&state, content, DEFAULT, &a, &system).is_empty());
+        assert!(crate::combat::combatants(&state, content, DEFAULT, &system).is_empty());
+
+        let flipped = flip_form(&mut state, content, DEFAULT, &a, &system, None, &ground);
+        assert_eq!(flipped, Some(UnitTypeId::new("naaz_mech_space")));
+        let ships = crate::combat::ships_of(&state, content, DEFAULT, &a, &system);
+        assert_eq!(
+            ships.len(),
+            1,
+            "the space form is a ship: it fights the space combat"
+        );
+        assert!(ships[0].sustained_damage, "damage stays with the unit");
+        assert_eq!(
+            crate::combat::combatants(&state, content, DEFAULT, &system),
+            vec![a.clone()]
+        );
+        let after = (
+            held(&state),
+            standing(&state, content, DEFAULT, &a, &system, None),
+        );
+        assert_eq!(after.0, before.0, "one plastic pool for both forms");
+        assert_eq!(
+            after.1.consumed, before.1.consumed,
+            "still carried: the hold is unchanged"
+        );
+        assert_eq!(
+            after.1.fleet_charged, before.1.fleet_charged,
+            "and not charged to the fleet pool"
+        );
+
+        // And back again at the end of the battle.
+        assert_eq!(
+            flip_form(
+                &mut state,
+                content,
+                DEFAULT,
+                &a,
+                &system,
+                None,
+                &UnitTypeId::new("naaz_mech_space")
+            ),
+            Some(ground)
+        );
+        assert!(crate::combat::ships_of(&state, content, DEFAULT, &a, &system).is_empty());
+    }
+
+    #[test]
+    fn both_forms_are_one_model_for_the_cap() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        let (system, _) = a_placed_planet();
+        let a = pid("a");
+        put(&mut state, &system, "naaz_mech", &a, 3);
+        put(&mut state, &system, "naaz_mech_space", &a, 1);
+        assert_eq!(
+            crate::supply::remaining(&state, content, DEFAULT, &a, &UnitTypeId::new("naaz_mech")),
+            0
+        );
+        flip_form(
+            &mut state,
+            content,
+            DEFAULT,
+            &a,
+            &system,
+            None,
+            &UnitTypeId::new("naaz_mech"),
+        );
+        assert_eq!(
+            crate::supply::remaining(&state, content, DEFAULT, &a, &UnitTypeId::new("naaz_mech")),
+            0,
+            "flipping neither frees nor consumes a model"
+        );
+    }
+
+    #[test]
+    fn a_ship_form_is_never_made_on_a_planet_and_the_ground_form_may_be() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        let (system, planet) = a_placed_planet();
+        let a = pid("a");
+        put_on_planet(&mut state, &system, &planet, "naaz_mech", &a, 1);
+        let before = serde_json::to_value(&state).unwrap();
+        assert_eq!(
+            flip_form(
+                &mut state,
+                content,
+                DEFAULT,
+                &a,
+                &system,
+                Some(&planet),
+                &UnitTypeId::new("naaz_mech")
+            ),
+            None
+        );
+        assert_eq!(serde_json::to_value(&state).unwrap(), before);
+
+        // A space-form mech that landed is put back to its ground form.
+        put_on_planet(&mut state, &system, &planet, "naaz_mech_space", &a, 1);
+        assert_eq!(
+            flip_form(
+                &mut state,
+                content,
+                DEFAULT,
+                &a,
+                &system,
+                Some(&planet),
+                &UnitTypeId::new("naaz_mech_space")
+            ),
+            Some(UnitTypeId::new("naaz_mech"))
+        );
+    }
+
+    #[test]
+    fn a_flip_that_cannot_happen_changes_nothing() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        put(&mut state, &system, "naaz_mech", &pid("b"), 1);
+        put(&mut state, &system, "carrier", &pid("a"), 1);
+        let before = serde_json::to_value(&state).unwrap();
+        let try_flip = |state: &mut GameState, who: &str, id: &str, at: &SystemId| {
+            flip_form(
+                state,
+                content,
+                DEFAULT,
+                &pid(who),
+                at,
+                None,
+                &UnitTypeId::new(id),
+            )
+        };
+        assert_eq!(
+            try_flip(&mut state, "a", "naaz_mech", &system),
+            None,
+            "not a's unit"
+        );
+        assert_eq!(
+            try_flip(&mut state, "a", "carrier", &system),
+            None,
+            "no other form"
+        );
+        assert_eq!(
+            try_flip(&mut state, "b", "naaz_mech", &SystemId::new("none")),
+            None
+        );
+        assert_eq!(serde_json::to_value(&state).unwrap(), before);
     }
 }

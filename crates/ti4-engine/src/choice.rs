@@ -1308,6 +1308,63 @@ impl<'a> SeatObservation<'a> {
             .collect()
     }
 
+    /// Hidden cards other players have shown the bound seat, by owner — and only to this seat.
+    ///
+    /// Faction effects that let one player look at another's hand (Yssaril Mageon Implants, Spy
+    /// Net, So Ata, Kyver) record a reveal through `factions::hooks_cards::reveal`; this is the
+    /// only place it is read back, and it filters on the bound seat, so no argument can name
+    /// another viewer. The public [`Observed`] has no accessor for it. A card its owner no longer
+    /// holds is not reported. Empty in every game where no module reveals anything.
+    #[must_use]
+    pub fn revealed_cards(&self) -> Vec<crate::factions::hooks_cards::Revealed> {
+        crate::factions::hooks_cards::revealed_to(self.observed.state, &self.acting_seat)
+    }
+
+    /// The action cards other players have shown the bound seat: `(owner, cards)` in owner order.
+    /// See [`SeatObservation::revealed_cards`].
+    #[must_use]
+    pub fn revealed_action_cards(&self) -> Vec<(PlayerId, Vec<ti4_model::id::ActionCardId>)> {
+        self.revealed_of(crate::factions::hooks_cards::RevealKind::ActionCards)
+            .into_iter()
+            .map(|(owner, ids)| {
+                (
+                    owner,
+                    ids.into_iter()
+                        .map(ti4_model::id::ActionCardId::new)
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// The promissory notes (still in hand, so not public) other players have shown the bound seat.
+    /// See [`SeatObservation::revealed_cards`].
+    #[must_use]
+    pub fn revealed_promissory_notes(&self) -> Vec<(PlayerId, Vec<String>)> {
+        self.revealed_of(crate::factions::hooks_cards::RevealKind::PromissoryNotes)
+    }
+
+    /// The secret objectives other players have shown the bound seat. See
+    /// [`SeatObservation::revealed_cards`].
+    #[must_use]
+    pub fn revealed_secret_objectives(&self) -> Vec<(PlayerId, Vec<SecretObjectiveId>)> {
+        self.revealed_of(crate::factions::hooks_cards::RevealKind::SecretObjectives)
+            .into_iter()
+            .map(|(owner, ids)| (owner, ids.into_iter().map(SecretObjectiveId::new).collect()))
+            .collect()
+    }
+
+    fn revealed_of(
+        &self,
+        kind: crate::factions::hooks_cards::RevealKind,
+    ) -> Vec<(PlayerId, Vec<String>)> {
+        self.revealed_cards()
+            .into_iter()
+            .filter(|shown| shown.kind == kind)
+            .map(|shown| (shown.owner, shown.ids))
+            .collect()
+    }
+
     /// Exact progress for the secrets the bound seat holds — and only that seat's.
     ///
     /// No arguments: the acting seat is fixed at binding time, so an opponent cannot be
@@ -3119,5 +3176,69 @@ mod obs004_actor_owned_inventory {
                 "a standing law binds the table, so it reads the same from either seat"
             );
         }
+    }
+
+    #[test]
+    fn a_reveal_is_visible_to_its_viewer_alone_and_never_through_the_public_position() {
+        // BF-00h-cards: three seats, a shows nothing, b's hand is shown to a. Only a's bound view
+        // reports it, in each of the three kinds; b and c get nothing, and the public `Observed`
+        // carries a count for b, as it did before.
+        use crate::factions::hooks_cards::{RevealKind, RevealScope, reveal, reveal_hand};
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        state.player_mut(&pid("b")).unwrap().action_cards = vec![
+            ti4_model::id::ActionCardId::new("bribery"),
+            ti4_model::id::ActionCardId::new("dh1"),
+        ];
+        state.player_mut(&pid("b")).unwrap().secret_objectives =
+            vec![SecretObjectiveId::new("otf")];
+        let note = "spynet:yssaril".to_owned();
+        state.promissory_notes.insert(note.clone(), pid("b"));
+        let before = Observed::new(&state, content, POK, None);
+        for seat in ["a", "b", "c"] {
+            assert!(
+                SeatObservation::bind(&before, pid(seat))
+                    .revealed_cards()
+                    .is_empty()
+            );
+        }
+        reveal_hand(
+            &mut state,
+            &pid("a"),
+            &pid("b"),
+            RevealScope::Choice,
+            "yssarilcommander",
+        );
+        for (kind, ids) in [
+            (RevealKind::SecretObjectives, vec!["otf".to_owned()]),
+            (RevealKind::PromissoryNotes, vec![note.clone()]),
+        ] {
+            assert!(reveal(
+                &mut state,
+                &pid("a"),
+                &pid("b"),
+                kind,
+                &ids,
+                RevealScope::Choice,
+                "yssarilcommander"
+            ));
+        }
+        let seen = Observed::new(&state, content, POK, None);
+        let a = SeatObservation::bind(&seen, pid("a"));
+        assert_eq!(a.revealed_action_cards()[0].1.len(), 2);
+        assert_eq!(a.revealed_promissory_notes(), vec![(pid("b"), vec![note])]);
+        assert_eq!(
+            a.revealed_secret_objectives(),
+            vec![(pid("b"), vec![SecretObjectiveId::new("otf")])]
+        );
+        for seat in ["b", "c"] {
+            assert!(
+                SeatObservation::bind(&seen, pid(seat))
+                    .revealed_cards()
+                    .is_empty(),
+                "{seat} was shown nothing"
+            );
+        }
+        assert_eq!(seen.seat(&pid("b")).unwrap().action_cards_held, 2);
     }
 }

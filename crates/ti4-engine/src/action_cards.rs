@@ -199,6 +199,201 @@ pub fn discard(state: &mut GameState, player: &PlayerId, index: usize) -> Option
     Some(seat.action_cards.remove(index))
 }
 
+// -- hidden hands: choosing, showing and taking (BF-00h-cards) -----------------------------------
+
+/// The choice kind for picking a card out of your own hand for a faction effect.
+pub const OWN_HAND_KIND: &str = "own_hand_card";
+
+/// The choice kind for taking a card out of a hand you were shown.
+pub const TAKE_REVEALED_KIND: &str = "take_revealed_card";
+
+/// One option per distinct *printed card* among `cards`, id = the alias of its first copy.
+fn distinct_card_options(
+    content: &ContentStore,
+    cards: &[ActionCardId],
+    kind: &str,
+) -> Vec<ChoiceOption> {
+    first_of_each(content, cards)
+        .into_iter()
+        .map(|(name, index)| ChoiceOption::labelled(cards[index].as_str(), kind, name))
+        .collect()
+}
+
+/// Ask `player` to choose one action card from their own hand for the faction effect `source`
+/// (a card or ability id), or take the only one without asking. `None` when the hand is empty,
+/// or when `optional` and the player declines.
+///
+/// Used for Stall Tactics ("Discard 1 action card from your hand"), and by
+/// [`show_action_card`]. One option per distinct printed card: two copies are one decision.
+///
+/// # Errors
+/// [`IllegalChoice`] when the decider answers with something not offered.
+pub fn choose_from_own_hand(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    source: &str,
+    subtype: &str,
+    prompt: &str,
+    optional: bool,
+) -> Result<Option<ActionCardId>, IllegalChoice> {
+    let hand = context
+        .state
+        .player(player)
+        .map(|seat| seat.action_cards.clone())
+        .unwrap_or_default();
+    if hand.is_empty() {
+        return Ok(None);
+    }
+    let mut options = distinct_card_options(context.content, &hand, OWN_HAND_KIND);
+    if options.len() == 1 && !optional {
+        return Ok(Some(ActionCardId::new(options.remove(0).id)));
+    }
+    if optional {
+        options.push(ChoiceOption::decline());
+    }
+    let choice = Choice::new(player.clone(), prompt, options).contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::FactionAbility(source.to_owned()),
+        subtype,
+        context.state.phase,
+        context.state.round,
+    ));
+    let answer = context.ask_seeing(&choice)?;
+    if answer.is_decline() {
+        return Ok(None);
+    }
+    Ok(Some(ActionCardId::new(answer.id)))
+}
+
+/// `owner` chooses 1 action card from their hand and shows it to `viewer` for `scope`: "Each other
+/// player shows you 1 action card from their hand" (Yssaril `yssarilhero`). The owner is asked
+/// (through their own decider, with their own view), the card is revealed to `viewer` only, and
+/// returned. `None`, with nothing revealed, when the owner has no card.
+///
+/// # Errors
+/// [`IllegalChoice`] as [`choose_from_own_hand`].
+pub fn show_action_card(
+    context: &mut crate::timing::TimingContext<'_>,
+    owner: &PlayerId,
+    viewer: &PlayerId,
+    scope: crate::factions::hooks_cards::RevealScope,
+    source: &str,
+) -> Result<Option<ActionCardId>, IllegalChoice> {
+    let Some(card) = choose_from_own_hand(
+        context,
+        owner,
+        source,
+        "show_action_card",
+        &format!("show {viewer} 1 action card from your hand"),
+        false,
+    )?
+    else {
+        return Ok(None);
+    };
+    Ok(crate::factions::hooks_cards::reveal(
+        context.state,
+        viewer,
+        owner,
+        crate::factions::hooks_cards::RevealKind::ActionCards,
+        &[card.as_str().to_owned()],
+        scope,
+        source,
+    )
+    .then_some(card))
+}
+
+/// `taker` chooses 1 of the action cards `owner` has shown them and takes it into their hand.
+///
+/// "Choose 1 of those cards and add it to your hand" (Mageon Implants, Spy Net). The offer is
+/// exactly the cards currently revealed to `taker` from `owner`'s hand (see
+/// `factions::hooks_cards::reveal`), one per distinct printed card, plus a decline when
+/// `optional`. Nothing revealed: `None`, nothing asked. One card and not optional: taken without a
+/// question. Atomic; stages `ACTION_CARD_TAKEN`. The hand limit is the caller's to enforce
+/// ([`look_at_hand_and_take`] does).
+///
+/// # Errors
+/// [`IllegalChoice`] when the decider answers with something not offered.
+pub fn take_from_revealed_hand(
+    context: &mut crate::timing::TimingContext<'_>,
+    taker: &PlayerId,
+    owner: &PlayerId,
+    source: &str,
+    optional: bool,
+) -> Result<Option<ActionCardId>, IllegalChoice> {
+    let shown: Vec<ActionCardId> = crate::factions::hooks_cards::revealed_to(context.state, taker)
+        .into_iter()
+        .filter(|row| {
+            &row.owner == owner && row.kind == crate::factions::hooks_cards::RevealKind::ActionCards
+        })
+        .flat_map(|row| row.ids)
+        .map(ActionCardId::new)
+        .collect();
+    if shown.is_empty() {
+        return Ok(None);
+    }
+    let mut options = distinct_card_options(context.content, &shown, TAKE_REVEALED_KIND);
+    let chosen = if options.len() == 1 && !optional {
+        ActionCardId::new(options.remove(0).id)
+    } else {
+        if optional {
+            options.push(ChoiceOption::decline());
+        }
+        let choice = Choice::new(
+            taker.clone(),
+            format!("take 1 of {owner}'s action cards"),
+            options,
+        )
+        .contextualized(DecisionContext::new(
+            taker.clone(),
+            DecisionSource::FactionAbility(source.to_owned()),
+            "take_revealed_action_card",
+            context.state.phase,
+            context.state.round,
+        ));
+        let answer = context.ask_seeing(&choice)?;
+        if answer.is_decline() {
+            return Ok(None);
+        }
+        ActionCardId::new(answer.id)
+    };
+    Ok(crate::factions::hooks_cards::take_revealed_action_card(
+        context.state,
+        taker,
+        owner,
+        &chosen,
+    )
+    .then_some(chosen))
+}
+
+/// "Look at another player's hand of action cards. Choose 1 of those cards and add it to your
+/// hand" (Mageon Implants after its exhaust; Spy Net): reveals `owner`'s whole hand to `taker` for
+/// the duration of the one choice, lets the taker choose ([`take_from_revealed_hand`]), ends the
+/// reveal on every path out, and enforces the taker's hand limit (2.4).
+///
+/// `None` when the hand is empty or the taker declines (`optional`).
+///
+/// # Errors
+/// [`IllegalChoice`] when a decider answers with something not offered, the reveal is ended first.
+pub fn look_at_hand_and_take(
+    context: &mut crate::timing::TimingContext<'_>,
+    taker: &PlayerId,
+    owner: &PlayerId,
+    source: &str,
+    optional: bool,
+) -> Result<Option<ActionCardId>, IllegalChoice> {
+    use crate::factions::hooks_cards::{RevealScope, clear_reveal_between, reveal_hand};
+    if reveal_hand(context.state, taker, owner, RevealScope::Choice, source) == 0 {
+        return Ok(None);
+    }
+    let taken = take_from_revealed_hand(context, taker, owner, source, optional);
+    clear_reveal_between(context.state, source, taker, owner);
+    let taken = taken?;
+    if taken.is_some() {
+        enforce_hand_limit(context.state, context.content, context.table, taker)?;
+    }
+    Ok(taken)
+}
+
 // -- the component action (22.1) -----------------------------------------------------------------
 
 /// The kind of a component-action option.
@@ -10776,5 +10971,390 @@ mod economy_hooks {
                     .is_empty()
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod hidden_hands {
+    //! BF-00h-cards: showing and taking cards from a hidden hand, through the typed observation.
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use ti4_model::content_types::POK;
+
+    use super::*;
+    use crate::choice::{ChoiceOption, Decider, SeatObservation};
+    use crate::factions::hooks_cards::{RevealScope, clear_reveals_from, reveal_hand, revealed_to};
+    use crate::fixtures::{game, with_context};
+
+    fn pid(name: &str) -> PlayerId {
+        PlayerId::new(name)
+    }
+
+    fn deal(state: &mut GameState, who: &str, cards: &[&str]) {
+        state.player_mut(&pid(who)).unwrap().action_cards =
+            cards.iter().map(|name| ActionCardId::new(*name)).collect();
+    }
+
+    /// What one decider was offered and what it could see of other hands when asked.
+    #[derive(Default)]
+    struct Seen {
+        offered: Vec<String>,
+        shown: Vec<(PlayerId, Vec<ActionCardId>)>,
+    }
+
+    /// Answers with `pick` (or the first option) and records what its bound view showed.
+    struct Peek {
+        pick: Option<&'static str>,
+        seen: Rc<RefCell<Seen>>,
+    }
+
+    impl Decider for Peek {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            self.seen.borrow_mut().offered = choice.options.iter().map(|o| o.id.clone()).collect();
+            Ok(self
+                .pick
+                .and_then(|id| choice.option(id).cloned())
+                .unwrap_or_else(|| choice.options[0].clone()))
+        }
+
+        fn choose_seeing(
+            &mut self,
+            choice: &Choice,
+            seen: &SeatObservation<'_>,
+        ) -> Result<ChoiceOption, IllegalChoice> {
+            self.seen.borrow_mut().shown = seen.revealed_action_cards();
+            self.choose(choice)
+        }
+    }
+
+    fn peek(pick: Option<&'static str>) -> (Box<dyn Decider>, Rc<RefCell<Seen>>) {
+        let seen = Rc::new(RefCell::new(Seen::default()));
+        (
+            Box::new(Peek {
+                pick,
+                seen: Rc::clone(&seen),
+            }),
+            seen,
+        )
+    }
+
+    /// A decider that must never be asked: a seat the effect has no business consulting.
+    struct Never;
+    impl Decider for Never {
+        fn choose(&mut self, _: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            panic!("this seat was asked a question");
+        }
+    }
+
+    /// Answers something that was not offered.
+    struct Cheat;
+    impl Decider for Cheat {
+        fn choose(&mut self, _: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            Ok(ChoiceOption::labelled("not_offered", "x", "x"))
+        }
+    }
+
+    #[test]
+    fn mageon_implants_shows_the_hand_to_the_taker_alone_and_moves_the_chosen_card() {
+        let mut state = game(&["a", "b", "c"]);
+        deal(&mut state, "a", &["bunker"]);
+        deal(&mut state, "b", &["bribery", "dh1", "dh2"]);
+        deal(&mut state, "c", &["abs"]);
+        let (decider, a_saw) = peek(Some("dh1"));
+        let mut table = Table::new();
+        table.seat(pid("a"), decider);
+        table.seat(pid("b"), Box::new(Never));
+        table.seat(pid("c"), Box::new(Never));
+        let taken = with_context(&mut state, POK, None, &mut table, |ctx| {
+            look_at_hand_and_take(ctx, &pid("a"), &pid("b"), "mi", false).unwrap()
+        });
+        assert_eq!(taken, Some(ActionCardId::new("dh1")));
+        let a_saw = a_saw.borrow();
+        assert_eq!(
+            a_saw.offered,
+            vec!["bribery", "dh1"],
+            "one option per distinct printed card (two Direct Hits are one)"
+        );
+        assert_eq!(
+            a_saw.shown,
+            vec![(
+                pid("b"),
+                ["bribery", "dh1", "dh2"].map(ActionCardId::new).to_vec()
+            )],
+            "the taker's own view showed b's whole hand while choosing"
+        );
+        assert_eq!(
+            state.player(&pid("a")).unwrap().action_cards,
+            ["bunker", "dh1"].map(ActionCardId::new)
+        );
+        assert_eq!(
+            state.player(&pid("b")).unwrap().action_cards,
+            ["bribery", "dh2"].map(ActionCardId::new)
+        );
+        assert!(
+            revealed_to(&state, &pid("a")).is_empty(),
+            "the choice-scoped reveal ended with the choice"
+        );
+        assert_eq!(
+            crate::factions::hooks_cards::drain_staged(&mut state).len(),
+            1,
+            "ACTION_CARD_TAKEN is staged for announcement"
+        );
+    }
+
+    #[test]
+    fn no_other_seats_view_ever_contains_a_revealed_card() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b", "c"]);
+        deal(&mut state, "b", &["bribery", "dh1"]);
+        deal(&mut state, "c", &["abs"]);
+        reveal_hand(
+            &mut state,
+            &pid("a"),
+            &pid("b"),
+            RevealScope::Standing,
+            "yssarilcommander",
+        );
+
+        let seen = Observed::new(&state, content, POK, None);
+        let a = SeatObservation::bind(&seen, pid("a"));
+        let b = SeatObservation::bind(&seen, pid("b"));
+        let c = SeatObservation::bind(&seen, pid("c"));
+        assert_eq!(a.revealed_action_cards().len(), 1);
+        assert!(b.revealed_action_cards().is_empty(), "not the owner");
+        assert!(c.revealed_action_cards().is_empty(), "not a third seat");
+        for view in [&a, &b, &c] {
+            assert!(view.revealed_promissory_notes().is_empty());
+            assert!(view.revealed_secret_objectives().is_empty());
+        }
+        // The public position carries counts only: the rival's contents are not on it.
+        let public = seen.seat(&pid("b")).expect("seat b");
+        assert_eq!(public.action_cards_held, 2);
+        // The hand accessor answers for the bound seat, never for the one shown.
+        assert!(
+            a.held_action_cards()
+                .iter()
+                .all(|card| card.as_str() != "bribery")
+        );
+        assert!(
+            c.held_action_cards()
+                .iter()
+                .all(|card| card.as_str() != "bribery")
+        );
+
+        // Ending the standing reveal ends it for a too.
+        assert_eq!(clear_reveals_from(&mut state, "yssarilcommander"), 1);
+        let seen = Observed::new(&state, content, POK, None);
+        assert!(
+            SeatObservation::bind(&seen, pid("a"))
+                .revealed_action_cards()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_decline_leaves_both_hands_and_the_reveal_is_still_ended() {
+        let mut state = game(&["a", "b"]);
+        deal(&mut state, "a", &[]);
+        deal(&mut state, "b", &["bribery", "dh1"]);
+        let mut table = Table::new();
+        table.seat(
+            pid("a"),
+            Box::new(crate::choice::Scripted::new(["decline"])),
+        );
+        let taken = with_context(&mut state, POK, None, &mut table, |ctx| {
+            look_at_hand_and_take(ctx, &pid("a"), &pid("b"), "spynet", true).unwrap()
+        });
+        assert_eq!(taken, None);
+        assert!(state.player(&pid("a")).unwrap().action_cards.is_empty());
+        assert_eq!(state.player(&pid("b")).unwrap().action_cards.len(), 2);
+        assert!(
+            state.faction_marks.is_empty(),
+            "no reveal row, no staged event"
+        );
+    }
+
+    #[test]
+    fn an_illegal_answer_fails_the_step_without_a_lingering_reveal_or_move() {
+        let mut state = game(&["a", "b"]);
+        deal(&mut state, "b", &["bribery", "dh1"]);
+        let mut table = Table::new();
+        table.seat(pid("a"), Box::new(Cheat));
+        let outcome = with_context(&mut state, POK, None, &mut table, |ctx| {
+            look_at_hand_and_take(ctx, &pid("a"), &pid("b"), "mi", false)
+        });
+        assert!(outcome.is_err());
+        assert_eq!(state.player(&pid("b")).unwrap().action_cards.len(), 2);
+        assert!(state.faction_marks.is_empty());
+    }
+
+    #[test]
+    fn an_empty_hand_asks_nothing_and_a_single_card_is_taken_without_a_question() {
+        let mut state = game(&["a", "b"]);
+        deal(&mut state, "a", &[]);
+        deal(&mut state, "b", &[]);
+        let mut table = Table::new();
+        table.seat(pid("a"), Box::new(Never));
+        let nothing = with_context(&mut state, POK, None, &mut table, |ctx| {
+            look_at_hand_and_take(ctx, &pid("a"), &pid("b"), "mi", false).unwrap()
+        });
+        assert_eq!(nothing, None);
+        deal(&mut state, "b", &["bribery"]);
+        let only = with_context(&mut state, POK, None, &mut table, |ctx| {
+            look_at_hand_and_take(ctx, &pid("a"), &pid("b"), "mi", false).unwrap()
+        });
+        assert_eq!(only, Some(ActionCardId::new("bribery")));
+        assert!(state.player(&pid("b")).unwrap().action_cards.is_empty());
+    }
+
+    #[test]
+    fn the_taker_discards_down_when_the_taken_card_breaks_the_limit() {
+        let mut state = game(&["a", "b"]);
+        deal(
+            &mut state,
+            "a",
+            &[
+                "abs",
+                "bunker",
+                "cripple",
+                "assassin",
+                "confusing",
+                "courageous",
+                "const_rider",
+            ],
+        );
+        deal(&mut state, "b", &["bribery"]);
+        let mut table = Table::new();
+        let taken = with_context(&mut state, POK, None, &mut table, |ctx| {
+            look_at_hand_and_take(ctx, &pid("a"), &pid("b"), "spynet", false).unwrap()
+        });
+        assert_eq!(taken, Some(ActionCardId::new("bribery")));
+        assert_eq!(
+            state.player(&pid("a")).unwrap().action_cards.len(),
+            HAND_LIMIT,
+            "2.4: eight cards, one discarded"
+        );
+    }
+
+    #[test]
+    fn the_hero_shows_one_chosen_card_and_only_that_card_is_visible_and_takeable() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b", "c"]);
+        deal(&mut state, "b", &["bribery", "dh1", "abs"]);
+        let mut table = Table::new();
+        let (decider, _) = peek(Some("dh1"));
+        table.seat(pid("b"), decider);
+        let shown = with_context(&mut state, POK, None, &mut table, |ctx| {
+            show_action_card(
+                ctx,
+                &pid("b"),
+                &pid("a"),
+                RevealScope::Action,
+                "yssarilhero",
+            )
+            .unwrap()
+        });
+        assert_eq!(shown, Some(ActionCardId::new("dh1")));
+        let seen = Observed::new(&state, content, POK, None);
+        assert_eq!(
+            SeatObservation::bind(&seen, pid("a")).revealed_action_cards(),
+            vec![(pid("b"), vec![ActionCardId::new("dh1")])]
+        );
+        assert!(
+            SeatObservation::bind(&seen, pid("c"))
+                .revealed_action_cards()
+                .is_empty()
+        );
+        // The hero can take the one shown card, not another one from the hand.
+        assert!(!crate::factions::hooks_cards::take_revealed_action_card(
+            &mut state,
+            &pid("a"),
+            &pid("b"),
+            &ActionCardId::new("bribery")
+        ));
+        let taken = with_context(&mut state, POK, None, &mut table, |ctx| {
+            take_from_revealed_hand(ctx, &pid("a"), &pid("b"), "yssarilhero", true).unwrap()
+        });
+        assert_eq!(taken, Some(ActionCardId::new("dh1")));
+        // The end-of-action clear removes what the hero was shown.
+        deal(&mut state, "b", &["bribery", "abs"]);
+        reveal_hand(
+            &mut state,
+            &pid("a"),
+            &pid("b"),
+            RevealScope::Action,
+            "yssarilhero",
+        );
+        crate::factions::hooks_cards::clear_reveals(&mut state, RevealScope::Action);
+        assert!(revealed_to(&state, &pid("a")).is_empty());
+    }
+
+    #[test]
+    fn choosing_from_your_own_hand_asks_for_many_and_not_for_one() {
+        let mut state = game(&["a"]);
+        deal(&mut state, "a", &["bribery", "dh1", "dh2"]);
+        let (decider, saw) = peek(Some("dh1"));
+        let mut table = Table::new();
+        table.seat(pid("a"), decider);
+        let chosen = with_context(&mut state, POK, None, &mut table, |ctx| {
+            choose_from_own_hand(
+                ctx,
+                &pid("a"),
+                "stall_tactics",
+                "stall_tactics_discard",
+                "discard 1",
+                false,
+            )
+            .unwrap()
+        });
+        assert_eq!(chosen, Some(ActionCardId::new("dh1")));
+        assert_eq!(saw.borrow().offered, vec!["bribery", "dh1"]);
+
+        deal(&mut state, "a", &["bribery"]);
+        let mut quiet = Table::new();
+        quiet.seat(pid("a"), Box::new(Never));
+        let only = with_context(&mut state, POK, None, &mut quiet, |ctx| {
+            choose_from_own_hand(ctx, &pid("a"), "stall_tactics", "x", "discard 1", false).unwrap()
+        });
+        assert_eq!(only, Some(ActionCardId::new("bribery")));
+        deal(&mut state, "a", &[]);
+        let none = with_context(&mut state, POK, None, &mut quiet, |ctx| {
+            choose_from_own_hand(ctx, &pid("a"), "stall_tactics", "x", "discard 1", false).unwrap()
+        });
+        assert_eq!(none, None);
+    }
+
+    #[test]
+    fn stall_tactics_is_reachable_through_the_existing_component_action_hooks() {
+        // The hooks are `component_actions` (offer) and `perform_component` (resolve, with a
+        // `TimingContext`); a module's resolution is `choose_from_own_hand` then `discard_chosen`.
+        use crate::factions::hooks_cards::{StagedCardEvent, discard_chosen, drain_staged};
+        let mut state = game(&["a", "b"]);
+        deal(&mut state, "a", &["bribery", "dh1"]);
+        let mut table = Table::new();
+        let (decider, _) = peek(Some("bribery"));
+        table.seat(pid("a"), decider);
+        with_context(&mut state, POK, None, &mut table, |ctx| {
+            let card = choose_from_own_hand(
+                ctx,
+                &pid("a"),
+                "stall_tactics",
+                "stall_tactics_discard",
+                "Stall Tactics: discard 1 action card",
+                false,
+            )
+            .unwrap()
+            .expect("a card");
+            assert!(discard_chosen(ctx.state, &pid("a"), &card));
+        });
+        assert_eq!(state.player(&pid("a")).unwrap().action_cards.len(), 1);
+        assert_eq!(
+            drain_staged(&mut state),
+            vec![StagedCardEvent::Discarded {
+                player: pid("a"),
+                card: ActionCardId::new("bribery")
+            }]
+        );
     }
 }

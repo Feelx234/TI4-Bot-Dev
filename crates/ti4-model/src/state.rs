@@ -1384,6 +1384,13 @@ pub struct GameState {
     /// so games without faction modules serialize and hash exactly as before.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub faction_marks: BTreeMap<String, String>,
+    /// Initiative numbers that replace a player's printed one for the rest of the round (Naalu's
+    /// "0" token, Telepathic and Gift of Prescience): player to the number they now count as.
+    /// Read by [`GameState::initiative_order`]; set and cleared through
+    /// `ti4_engine::strategy::{set_initiative_override, clear_initiative_overrides}`. Skipped when
+    /// empty, so games without an override serialize and hash exactly as before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub initiative_overrides: BTreeMap<PlayerId, i32>,
 }
 
 /// Equality over the declared, compared fields only — the oracle marks 20 of these maps
@@ -1437,6 +1444,7 @@ impl PartialEq for GameState {
             && self.production_discount_remaining == other.production_discount_remaining
             && self.production_value_swapped_planet == other.production_value_swapped_planet
             && self.promissory_faceup == other.promissory_faceup
+            && self.initiative_overrides == other.initiative_overrides
     }
 }
 
@@ -1603,6 +1611,7 @@ impl GameState {
             promissory_notes: BTreeMap::new(),
             promissory_faceup: BTreeSet::new(),
             faction_marks: BTreeMap::new(),
+            initiative_overrides: BTreeMap::new(),
         }
     }
 
@@ -1654,17 +1663,21 @@ impl GameState {
     ///
     /// A player holding two cards — the three-player deal — takes their initiative from the
     /// lower-numbered one, so a seat holding Leadership and Imperial goes first, not last.
-    /// Players holding no card sort last, stably by seating.
+    /// Players holding no card sort last, stably by seating. A player in
+    /// [`GameState::initiative_overrides`] counts as that number instead (a "0" token puts
+    /// them first), ties still broken by seating.
     #[must_use]
     pub fn initiative_order(&self) -> Vec<PlayerId> {
         let mut ordered: Vec<&Player> = self.players.iter().collect();
         ordered.sort_by_key(|p| {
-            let initiative = p
+            let printed = p
                 .strategy_cards
                 .iter()
                 .map(|c| self.card_initiative.get(c).copied().unwrap_or(99))
                 .min()
                 .unwrap_or(99);
+            // A "0" token and its like replace the printed number (Naalu Telepathic).
+            let initiative = self.initiative_overrides.get(&p.id).copied().unwrap_or(printed);
             let seat = self
                 .seating_order
                 .iter()

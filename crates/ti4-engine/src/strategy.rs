@@ -16,6 +16,10 @@ pub const ACTION_KIND: &str = "action";
 pub const FOLLOW_SECONDARY_ID: &str = "follow";
 /// The choice kind for a strategic-action secondary response.
 pub const STRATEGY_KIND: &str = "strategy";
+/// Prefix of an option that follows a secondary without spending a strategy token, offered only
+/// when a faction module has a waiver (Winnu Acquiescence). The full id is
+/// `follow|waived|<module index>|<waiver id>`.
+pub const WAIVED_SECONDARY_PREFIX: &str = "follow|waived|";
 
 /// A strategic action could not be selected from the state that was presented.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -148,6 +152,28 @@ fn secondary_choice(
     )
 }
 
+/// Token-free ways for `follower` to follow `card` (faction waivers), as offered options.
+fn waiver_options(
+    state: &GameState,
+    content: &ContentStore,
+    follower: &PlayerId,
+    primary: &PlayerId,
+    card: &StrategyCardId,
+) -> Vec<ChoiceOption> {
+    let name = crate::strategy_cards::card_name(content, card.as_str())
+        .unwrap_or_else(|| card.to_string());
+    crate::factions::hooks_strategy::secondary_waivers(state, content, follower, primary, &name)
+        .into_iter()
+        .map(|(index, waiver)| {
+            ChoiceOption::labelled(
+                format!("{WAIVED_SECONDARY_PREFIX}{index}|{}", waiver.id),
+                STRATEGY_KIND,
+                waiver.label,
+            )
+        })
+        .collect()
+}
+
 /// The ordered follower window opened by a strategic action.
 ///
 /// The owner is deliberately absent from `followers`: LRR 82.1 offers a secondary to
@@ -160,9 +186,37 @@ pub struct StrategySecondaryWindow {
     followers: Vec<PlayerId>,
     next_follower: usize,
     resolutions: Vec<(PlayerId, SecondaryResolution)>,
+    /// Whether finishing the window exhausts the primary player's copy of the card. False for
+    /// a card resolved by an effect rather than held (see [`StrategySecondaryWindow::foreign`]).
+    exhausts_card: bool,
 }
 
 impl StrategySecondaryWindow {
+    /// The follower window for a card the primary player does **not** hold, resolved by an effect
+    /// rather than a strategic action: `followers` (in the order given) may each follow its
+    /// secondary, at the usual cost, and no card is exhausted when the window completes.
+    ///
+    /// Winnu hero (`winnuhero`, Mathis Mathinus): "ACTION: Perform the primary ability of any
+    /// strategy card. Then, choose any number of other players. Those players may perform the
+    /// secondary ability of that strategy card. Then, purge this card." The caller resolves the
+    /// primary with [`crate::strategy_cards::primary`] (which does not need the card to be held),
+    /// chooses the followers, and drives this window as for a strategic action.
+    #[must_use]
+    pub fn foreign(
+        primary_player: PlayerId,
+        card: StrategyCardId,
+        followers: Vec<PlayerId>,
+    ) -> Self {
+        Self {
+            primary_player,
+            card,
+            followers,
+            next_follower: 0,
+            resolutions: Vec::new(),
+            exhausts_card: false,
+        }
+    }
+
     /// The player resolving the primary.
     #[must_use]
     pub const fn primary_player(&self) -> &PlayerId {
@@ -201,11 +255,21 @@ impl StrategySecondaryWindow {
     ) -> Option<Choice> {
         self.followers[self.next_follower..]
             .iter()
-            .find(|player_id| secondary_eligible(state, content, sources, player_id, &self.card))
+            .find(|player_id| self.eligible(state, content, sources, player_id))
             .map(|player_id| {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, player_id, &self.card);
-                secondary_choice(content, &self.card, player_id, costs_token)
+                let mut choice = secondary_choice(content, &self.card, player_id, costs_token);
+                if costs_token {
+                    choice.options.extend(waiver_options(
+                        state,
+                        content,
+                        player_id,
+                        &self.primary_player,
+                        &self.card,
+                    ));
+                }
+                choice
             })
     }
 
@@ -220,15 +284,20 @@ impl StrategySecondaryWindow {
         sources: SourceSet,
     ) -> Option<Choice> {
         while let Some(player_id) = self.followers.get(self.next_follower).cloned() {
-            if secondary_eligible(state, content, sources, &player_id, &self.card) {
+            if self.eligible(state, content, sources, &player_id) {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, &player_id, &self.card);
-                return Some(secondary_choice(
-                    content,
-                    &self.card,
-                    &player_id,
-                    costs_token,
-                ));
+                let mut choice = secondary_choice(content, &self.card, &player_id, costs_token);
+                if costs_token {
+                    choice.options.extend(waiver_options(
+                        state,
+                        content,
+                        &player_id,
+                        &self.primary_player,
+                        &self.card,
+                    ));
+                }
+                return Some(choice);
             }
             self.resolutions
                 .push((player_id, SecondaryResolution::Ineligible));
@@ -256,6 +325,22 @@ impl StrategySecondaryWindow {
         let answer = validate(&choice, answer)?;
         let resolution = if answer.is_decline() || answer.id == "no" {
             SecondaryResolution::Declined
+        } else if let Some(waived) = answer.id.strip_prefix(WAIVED_SECONDARY_PREFIX) {
+            // A faction waiver: no token. The module pays its own cost. `validate` accepted the id
+            // because `waiver_options` offered it, so it is `<index>|<waiver id>`.
+            if let Some((index, waiver)) = waived.split_once('|')
+                && let Ok(index) = index.parse::<usize>()
+            {
+                crate::factions::hooks_strategy::secondary_waived(
+                    state,
+                    content,
+                    &choice.player,
+                    &self.primary_player,
+                    index,
+                    waiver,
+                );
+            }
+            SecondaryResolution::Followed
         } else {
             let costs_token = secondary_costs_token(content, &self.card)
                 && !secondary_is_free(state, content, &choice.player, &self.card);
@@ -277,8 +362,25 @@ impl StrategySecondaryWindow {
         Ok(resolution)
     }
 
+    /// [`secondary_eligible`], or a follower without a token who holds a waiver.
+    fn eligible(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+    ) -> bool {
+        secondary_eligible(state, content, sources, player, &self.card)
+            || (secondary_costs_token(content, &self.card)
+                && crate::strategy_cards::card_name(content, self.card.as_str()).as_deref()
+                    != Some("Leadership")
+                && !waiver_options(state, content, player, &self.primary_player, &self.card)
+                    .is_empty()
+                && secondary_can_do_something(state, content, sources, player, &self.card))
+    }
+
     fn exhaust_primary(&self, state: &mut GameState) {
-        if self.is_complete() {
+        if self.is_complete() && self.exhausts_card {
             let exhausted = state.exhaust_strategy_card(&self.primary_player, self.card.clone());
             debug_assert!(
                 exhausted,
@@ -493,6 +595,7 @@ pub fn begin_strategic_action(
             .collect(),
         next_follower: 0,
         resolutions: Vec::new(),
+        exhausts_card: true,
     })
 }
 
@@ -528,6 +631,81 @@ fn selected_strategic_card(
     };
 
     Ok(card)
+}
+
+// -- initiative overrides and card exchange (BF-00d-strategy) ---------------------------------------
+
+/// From now until [`clear_initiative_overrides`], `player` counts as having initiative `value`
+/// instead of the number printed on their strategy card(s): `0` puts them first.
+///
+/// Naalu Telepathic ("Place the Naalu '0' token on your strategy card; you are first in
+/// initiative order") and Gift of Prescience (the holder places that token on their card instead)
+/// write this from `hooks_strategy::StrategyHooks::strategy_phase_ended`. Returns `false` and
+/// changes nothing for a player who is not seated. Ties (two overrides of `0`) still break by
+/// seating order, as for printed numbers.
+///
+/// Neutral when unused: [`GameState::initiative_order`] reads this map only when it is non-empty.
+pub fn set_initiative_override(state: &mut GameState, player: &PlayerId, value: i32) -> bool {
+    if state.player(player).is_none() {
+        return false;
+    }
+    state.initiative_overrides.insert(player.clone(), value);
+    true
+}
+
+/// Remove one player's initiative override.
+pub fn clear_initiative_override(state: &mut GameState, player: &PlayerId) -> bool {
+    state.initiative_overrides.remove(player).is_some()
+}
+
+/// Remove every initiative override. Called from `phase::begin_next_round`: the "0" token lasts
+/// the game round (Gift of Prescience is returned "at the end of the status phase").
+pub fn clear_initiative_overrides(state: &mut GameState) {
+    state.initiative_overrides.clear();
+}
+
+/// Exchange one strategy card of `a` for one of `b`, atomically.
+///
+/// Both must hold the card named for them and be different players holding different cards;
+/// otherwise nothing changes and `false` is returned. The rest of each holding is preserved and
+/// stays in initiative order; each card keeps **its own** exhausted state (an exhausted card
+/// stays exhausted wherever it goes). Public information: initiative follows the cards.
+///
+/// Winnu's Acquiescence is *not* a swap (its text is a free secondary; see
+/// `plans/evidence/BF-00d-strategy.md`); this exists for any effect that does exchange cards.
+pub fn exchange_strategy_cards(
+    state: &mut GameState,
+    a: &PlayerId,
+    card_a: &StrategyCardId,
+    b: &PlayerId,
+    card_b: &StrategyCardId,
+) -> bool {
+    if a == b || card_a == card_b {
+        return false;
+    }
+    let (Some(seat_a), Some(seat_b)) = (state.player(a), state.player(b)) else {
+        return false;
+    };
+    if !seat_a.strategy_cards.contains(card_a) || !seat_b.strategy_cards.contains(card_b) {
+        return false;
+    }
+    let spent_a = seat_a.exhausted_strategy_cards.contains(card_a);
+    let spent_b = seat_b.exhausted_strategy_cards.contains(card_b);
+    state.swap_strategy_card(a, card_a, card_b.clone());
+    state.swap_strategy_card(b, card_b, card_a.clone());
+    // `swap_strategy_card` moves exhaustion with the *slot*; here it must follow the card.
+    for (player, gave, got, got_spent) in
+        [(a, card_a, card_b, spent_b), (b, card_b, card_a, spent_a)]
+    {
+        if let Some(seat) = state.player_mut(player) {
+            seat.exhausted_strategy_cards.remove(gave);
+            seat.exhausted_strategy_cards.remove(got);
+            if got_spent {
+                seat.exhausted_strategy_cards.insert(got.clone());
+            }
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -1016,5 +1194,357 @@ mod tests {
 
         assert!(matches!(error, StrategyActionError::IllegalChoice(_)));
         assert!(state.identical(&before));
+    }
+}
+
+#[cfg(test)]
+mod bf00d_tests {
+    use ti4_content::ContentStore;
+    use ti4_model::content_types::POK;
+
+    use super::*;
+    use crate::factions::hooks_strategy::{SecondaryWaiver, StrategyHooks, with_test_hooks};
+    use crate::setup::start_game;
+
+    fn pid(id: &str) -> PlayerId {
+        PlayerId::new(id)
+    }
+
+    /// Three seats, no cards dealt: every card on the mat.
+    fn undealt() -> GameState {
+        let players = [pid("a"), pid("b"), pid("c")];
+        start_game(ContentStore::embedded(), &players, POK, None).unwrap()
+    }
+
+    fn named(state: &GameState, wanted: &str) -> StrategyCardId {
+        state
+            .unclaimed_strategy_cards
+            .iter()
+            .find(|card| {
+                crate::strategy_cards::card_name(ContentStore::embedded(), card.as_str()).as_deref()
+                    == Some(wanted)
+            })
+            .cloned()
+            .expect("the deck carries this card")
+    }
+
+    /// Deal a named card from the mat to a seat.
+    fn deal(state: &mut GameState, to: &PlayerId, wanted: &str) -> StrategyCardId {
+        let card = named(state, wanted);
+        state.unclaimed_strategy_cards.retain(|c| c != &card);
+        assert!(state.deal_strategy_card(to, card.clone()));
+        card
+    }
+
+    // -- item 1: initiative override --------------------------------------------------------------
+
+    #[test]
+    fn an_initiative_override_puts_a_player_first_until_cleared() {
+        let mut state = undealt();
+        deal(&mut state, &pid("a"), "Leadership");
+        deal(&mut state, &pid("b"), "Diplomacy");
+        deal(&mut state, &pid("c"), "Imperial");
+        assert_eq!(state.initiative_order(), vec![pid("a"), pid("b"), pid("c")]);
+
+        // The "0" token on the Imperial card: first, whatever the card says.
+        assert!(set_initiative_override(&mut state, &pid("c"), 0));
+        assert_eq!(state.initiative_order(), vec![pid("c"), pid("a"), pid("b")]);
+
+        // Gift of Prescience hands the token on: the holder takes it, the owner loses it.
+        assert!(clear_initiative_override(&mut state, &pid("c")));
+        assert!(set_initiative_override(&mut state, &pid("b"), 0));
+        assert_eq!(state.initiative_order(), vec![pid("b"), pid("a"), pid("c")]);
+
+        clear_initiative_overrides(&mut state);
+        assert_eq!(state.initiative_order(), vec![pid("a"), pid("b"), pid("c")]);
+        assert!(!set_initiative_override(&mut state, &pid("nobody"), 0));
+        assert!(
+            state.initiative_overrides.is_empty(),
+            "an unseated id is refused"
+        );
+    }
+
+    #[test]
+    fn two_zero_tokens_tie_by_seating() {
+        let mut state = undealt();
+        deal(&mut state, &pid("a"), "Leadership");
+        deal(&mut state, &pid("b"), "Diplomacy");
+        deal(&mut state, &pid("c"), "Imperial");
+        set_initiative_override(&mut state, &pid("c"), 0);
+        set_initiative_override(&mut state, &pid("b"), 0);
+        assert_eq!(state.initiative_order()[..2], [pid("b"), pid("c")]);
+    }
+
+    #[test]
+    fn the_override_is_invisible_in_serialization_until_used() {
+        let mut state = undealt();
+        let plain = serde_json::to_value(&state).unwrap();
+        assert!(plain.get("initiative_overrides").is_none());
+        set_initiative_override(&mut state, &pid("a"), 0);
+        let marked = serde_json::to_value(&state).unwrap();
+        assert!(marked.get("initiative_overrides").is_some());
+        // A snapshot from before the field existed still loads, with no override.
+        let back: GameState = serde_json::from_value(plain).unwrap();
+        assert!(back.initiative_overrides.is_empty());
+        let again: GameState = serde_json::from_value(marked).unwrap();
+        assert_eq!(again.initiative_overrides.get(&pid("a")), Some(&0));
+    }
+
+    #[test]
+    fn the_strategy_phase_ends_through_the_hook_and_the_round_clears_the_token() {
+        let mut state = undealt();
+        deal(&mut state, &pid("a"), "Leadership");
+        deal(&mut state, &pid("b"), "Diplomacy");
+        deal(&mut state, &pid("c"), "Imperial");
+        state.phase = ti4_model::state::Phase::Strategy;
+        let hooks = StrategyHooks {
+            strategy_phase_ended: Some(|state| {
+                set_initiative_override(state, &PlayerId::new("c"), 0);
+            }),
+            ..StrategyHooks::NONE
+        };
+        let outcome = with_test_hooks(hooks, || crate::phase::advance_phase(&mut state));
+        assert_eq!(
+            outcome,
+            crate::phase::PhaseOutcome::ActionBegan(pid("c")),
+            "the action phase opens with the player holding the token"
+        );
+        assert_eq!(state.active, Some(pid("c")));
+
+        state.phase = ti4_model::state::Phase::Status;
+        let cards = state.card_initiative.keys().cloned().collect();
+        crate::phase::begin_next_round(&mut state, cards);
+        assert!(state.initiative_overrides.is_empty());
+    }
+
+    // -- item 2: strategy cards -----------------------------------------------------------------
+
+    #[test]
+    fn exchanging_cards_moves_each_with_its_own_exhaustion() {
+        let mut state = undealt();
+        let lead = deal(&mut state, &pid("a"), "Leadership");
+        let other = deal(&mut state, &pid("a"), "Warfare");
+        let dip = deal(&mut state, &pid("b"), "Diplomacy");
+        state.exhaust_strategy_card(&pid("a"), lead.clone());
+        state.exhaust_strategy_card(&pid("a"), other.clone());
+        assert!(exchange_strategy_cards(
+            &mut state,
+            &pid("a"),
+            &lead,
+            &pid("b"),
+            &dip
+        ));
+        let (a, b) = (
+            state.player(&pid("a")).unwrap(),
+            state.player(&pid("b")).unwrap(),
+        );
+        assert!(a.strategy_cards.contains(&dip) && !a.strategy_cards.contains(&lead));
+        assert!(
+            a.strategy_cards.contains(&other),
+            "the rest of the holding is kept"
+        );
+        assert!(b.strategy_cards.contains(&lead));
+        assert!(
+            !a.exhausted_strategy_cards.contains(&dip),
+            "the ready card stays ready"
+        );
+        assert!(a.exhausted_strategy_cards.contains(&other));
+        assert!(
+            b.exhausted_strategy_cards.contains(&lead),
+            "the exhausted card stays exhausted with its new holder"
+        );
+    }
+
+    #[test]
+    fn a_bad_exchange_changes_nothing() {
+        let mut state = undealt();
+        let lead = deal(&mut state, &pid("a"), "Leadership");
+        let dip = deal(&mut state, &pid("b"), "Diplomacy");
+        let imp = named(&state, "Imperial");
+        let before = serde_json::to_value(&state).unwrap();
+        assert!(!exchange_strategy_cards(
+            &mut state,
+            &pid("a"),
+            &imp,
+            &pid("b"),
+            &dip
+        ));
+        assert!(!exchange_strategy_cards(
+            &mut state,
+            &pid("a"),
+            &lead,
+            &pid("b"),
+            &imp
+        ));
+        assert!(!exchange_strategy_cards(
+            &mut state,
+            &pid("a"),
+            &lead,
+            &pid("a"),
+            &lead
+        ));
+        assert!(!exchange_strategy_cards(
+            &mut state,
+            &pid("a"),
+            &lead,
+            &pid("zed"),
+            &dip
+        ));
+        assert_eq!(serde_json::to_value(&state).unwrap(), before);
+    }
+
+    #[test]
+    fn a_primary_resolves_for_a_card_nobody_holds_and_followers_may_follow_it() {
+        let content = ContentStore::embedded();
+        let mut state = undealt();
+        let lead = named(&state, "Leadership");
+        let tokens = |state: &GameState, who: &str| {
+            let seat = state.player(&pid(who)).unwrap();
+            seat.tactic_tokens + seat.fleet_tokens + seat.strategic_tokens
+        };
+        let before = tokens(&state, "a");
+        let mut table = crate::choice::Table::new();
+        let done = crate::strategy_cards::primary(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut table,
+            &pid("a"),
+            lead.as_str(),
+        )
+        .unwrap();
+        assert_eq!(done, crate::strategy_cards::Ability::Resolved);
+        assert_eq!(
+            tokens(&state, "a"),
+            before + i32::try_from(crate::strategy_cards::LEADERSHIP_TOKENS).unwrap(),
+            "Winnu's hero resolves the primary of a card Winnu does not hold"
+        );
+
+        // The follower window for it exhausts nothing (no one holds it) and does not panic.
+        let imp = named(&state, "Imperial");
+        let mut window = StrategySecondaryWindow::foreign(pid("a"), imp, vec![pid("b")]);
+        state.player_mut(&pid("b")).unwrap().strategic_tokens = 2;
+        let choice = window.next_choice(&mut state, content, POK).unwrap();
+        assert_eq!(choice.player, pid("b"));
+        window
+            .take_choice(
+                &mut state,
+                content,
+                POK,
+                ChoiceOption::new("yes", STRATEGY_KIND),
+            )
+            .unwrap();
+        assert!(window.is_complete());
+        assert_eq!(
+            state.player(&pid("b")).unwrap().strategic_tokens,
+            1,
+            "the usual cost"
+        );
+        assert!(
+            state
+                .player(&pid("a"))
+                .unwrap()
+                .exhausted_strategy_cards
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_waiver_lets_a_tokenless_follower_follow_for_free_and_is_paid_by_its_module() {
+        let content = ContentStore::embedded();
+        let mut state = undealt();
+        deal(&mut state, &pid("a"), "Imperial");
+        state.player_mut(&pid("b")).unwrap().strategic_tokens = 0;
+        state.player_mut(&pid("c")).unwrap().strategic_tokens = 2;
+        let strategic = ChoiceOption::new(STRATEGIC_ACTION_ID, ACTION_KIND);
+
+        // No module: the tokenless follower is skipped; the other sees the plain options.
+        let mut copy = state.clone();
+        let mut plain =
+            begin_strategic_action(&mut copy, content, &pid("a"), strategic.clone()).unwrap();
+        let choice = plain.next_choice(&mut copy, content, POK).unwrap();
+        assert_eq!(choice.player, pid("c"));
+        assert_eq!(
+            choice.ids(),
+            vec!["no", "yes"],
+            "neutral without a waiver hook"
+        );
+
+        let hooks = StrategyHooks {
+            secondary_waivers: Some(|_, _, follower, primary, card| {
+                if follower.as_str() == "b" && primary.as_str() == "a" && card == "Imperial" {
+                    vec![SecondaryWaiver {
+                        id: "acq".to_owned(),
+                        label: "follow using Acquiescence".to_owned(),
+                    }]
+                } else {
+                    Vec::new()
+                }
+            }),
+            secondary_waived: Some(|state, _, follower, primary, waiver| {
+                state.faction_marks.insert(
+                    format!("test:waived:{follower}:{primary}"),
+                    waiver.to_owned(),
+                );
+            }),
+            ..StrategyHooks::NONE
+        };
+        with_test_hooks(hooks, || {
+            let mut window =
+                begin_strategic_action(&mut state, content, &pid("a"), strategic.clone()).unwrap();
+            let pending = window.pending_choice(&state, content, POK).unwrap();
+            assert_eq!(pending.player, pid("b"), "tokenless but waived: offered");
+            assert_eq!(
+                pending.ids(),
+                vec!["no", "yes", "follow|waived|0|acq"],
+                "the waiver sits beside the ordinary option"
+            );
+            let resolved = window
+                .take_choice(
+                    &mut state,
+                    content,
+                    POK,
+                    ChoiceOption::new("follow|waived|0|acq", STRATEGY_KIND),
+                )
+                .unwrap();
+            assert_eq!(resolved, SecondaryResolution::Followed);
+            assert_eq!(state.player(&pid("b")).unwrap().strategic_tokens, 0);
+            assert_eq!(
+                state
+                    .faction_marks
+                    .get("test:waived:b:a")
+                    .map(String::as_str),
+                Some("acq")
+            );
+            // The next follower has no waiver: plain options, pays as usual.
+            let next = window.pending_choice(&state, content, POK).unwrap();
+            assert_eq!(next.player, pid("c"));
+            assert_eq!(next.ids(), vec!["no", "yes"]);
+        });
+    }
+
+    #[test]
+    fn an_unoffered_waiver_is_refused_and_changes_nothing() {
+        let content = ContentStore::embedded();
+        let mut state = undealt();
+        deal(&mut state, &pid("a"), "Imperial");
+        state.player_mut(&pid("b")).unwrap().strategic_tokens = 2;
+        let mut window = begin_strategic_action(
+            &mut state,
+            content,
+            &pid("a"),
+            ChoiceOption::new(STRATEGIC_ACTION_ID, ACTION_KIND),
+        )
+        .unwrap();
+        let before = serde_json::to_value(&state).unwrap();
+        let refused = window.take_choice(
+            &mut state,
+            content,
+            POK,
+            ChoiceOption::new("follow|waived|0|acq", STRATEGY_KIND),
+        );
+        assert!(refused.is_err());
+        assert_eq!(serde_json::to_value(&state).unwrap(), before);
     }
 }
