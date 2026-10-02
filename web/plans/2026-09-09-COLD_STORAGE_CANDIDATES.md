@@ -30,7 +30,7 @@ Sizes measured with `du -sh` on this machine; "G" = GiB.
 - `crates/`, `plans/`, `docs/`, `scripts/`, `tools/` — source and active project state.
 - `fixtures/` — tracked, checksummed fixture corpora (`mlp-baselines/`, `legacy_entropy/bounded-v1/`); part of the repo (104 files in Git).
 - `.git/` (~605 M) — repository metadata; worktrees under `.worktrees/` depend on it.
-- Root files: `Cargo.toml`, `AGENTS.md`, `RECOVERY.md`, `engine-rules-audit.md`, etc.
+- Root files: `Cargo.toml`, `AGENTS.md`, `engine-rules-audit.md`, etc.; recovery instructions: `web/plans/2026-08-13-RECOVERY.md`.
 - `.pi-control/` (14 M, mostly `events.jsonl`) — active RPC controller state; do not move while the bridge/controller is running. If disk pressure demands it later, archive `events.jsonl` only when no controller session is live.
 - `.cargo/`, `.github/`, `.claude/`, `.pi/` — tiny config dirs, leave in place.
 
