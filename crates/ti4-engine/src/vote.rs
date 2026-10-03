@@ -301,11 +301,17 @@ impl VoteWindow {
         };
         let (hackers, rest): (Vec<PlayerId>, Vec<PlayerId>) =
             order.into_iter().partition(|player| votes_last(player));
-        let mut final_order: Vec<PlayerId> = rest
-            .iter()
-            .filter(|player| *player != &state.speaker)
-            .cloned()
-            .collect();
+        // A module that seats a player first (Argent's Zeal) takes the opening seats, clockwise
+        // from the speaker among themselves; nobody else's relative order changes.
+        let (firsts, rest): (Vec<PlayerId>, Vec<PlayerId>) = rest
+            .into_iter()
+            .partition(|player| crate::factions::hooks_cards::votes_first(state, player));
+        let mut final_order: Vec<PlayerId> = firsts;
+        final_order.extend(
+            rest.iter()
+                .filter(|player| *player != &state.speaker)
+                .cloned(),
+        );
         if rest.contains(&state.speaker) {
             final_order.push(state.speaker.clone());
         }
@@ -475,7 +481,7 @@ impl VoteWindow {
                     let player = &self.order[*index];
                     if votable_planets(state, content, sources, player).is_empty() {
                         let (index, outcome, votes) = (*index, outcome.clone(), *votes);
-                        self.record(state, index, &outcome, votes);
+                        self.record(state, content, index, &outcome, votes);
                         self.stage = Stage::Outcome(index + 1);
                         continue;
                     }
@@ -491,12 +497,24 @@ impl VoteWindow {
     /// A commander's bonus is added here rather than at the card, so it cannot be honoured on
     /// one voting path and forgotten on another. It rides on votes actually cast: a player who
     /// exhausts nothing casts nothing, and a bonus alone is not a vote.
-    fn record(&mut self, state: &GameState, index: usize, outcome: &str, votes: i64) {
+    fn record(
+        &mut self,
+        state: &GameState,
+        content: &ContentStore,
+        index: usize,
+        outcome: &str,
+        votes: i64,
+    ) {
         if votes <= 0 {
             return;
         }
         let votes = votes
             + crate::leaders::vote_bonus(state, &self.order[index])
+            + crate::factions::hooks_cards::vote_bonus_with_content(
+                state,
+                content,
+                &self.order[index],
+            )
             + extra_votes(state, &self.order[index]);
         self.ballot
             .votes
@@ -556,7 +574,7 @@ impl VoteWindow {
                 votes,
             } => {
                 if option.is_decline() {
-                    self.record(state, index, &outcome, votes);
+                    self.record(state, content, index, &outcome, votes);
                     self.stage = Stage::Outcome(index + 1);
                 } else {
                     let planet = PlanetId::new(option.id);
@@ -689,6 +707,36 @@ mod tests {
             [PlayerId::new("c"), PlayerId::new("a"), PlayerId::new("b")],
             "the speaker keeps their seat ahead of the hacker, b votes dead last"
         );
+    }
+
+    #[test]
+    fn a_seat_a_module_puts_first_votes_first_and_others_keep_their_order() {
+        let (mut state, _) = game(&["a", "b", "c"]);
+        state.speaker = PlayerId::new("a");
+        let baseline = VoteWindow::new(&state, "some_agenda", for_against());
+        assert_eq!(
+            baseline.order(),
+            [PlayerId::new("b"), PlayerId::new("c"), PlayerId::new("a")],
+            "no module: unchanged, the speaker last"
+        );
+        let hook = crate::factions::hooks_cards::CardHooks {
+            votes_first: Some(|_, player| player.as_str() == "c"),
+            ..crate::factions::hooks_cards::CardHooks::NONE
+        };
+        crate::factions::hooks_cards::with_test_hooks(hook, || {
+            let vote = VoteWindow::new(&state, "some_agenda", for_against());
+            assert_eq!(
+                vote.order(),
+                [PlayerId::new("c"), PlayerId::new("b"), PlayerId::new("a")]
+            );
+            // The speaker as first voter really votes first; a hacker still goes last.
+            state.speaker = PlayerId::new("c");
+            let vote = VoteWindow::new(&state, "some_agenda", for_against());
+            assert_eq!(
+                vote.order(),
+                [PlayerId::new("c"), PlayerId::new("a"), PlayerId::new("b")]
+            );
+        });
     }
 
     #[test]
@@ -992,6 +1040,56 @@ mod tests {
             window.ballot.counts.get(FOR).copied(),
             Some(first_influence + second_influence + 2)
         );
+    }
+
+    /// BF-00l deferral: a module's vote bonus can now read the content corpus, and rides on votes
+    /// actually cast like the commander bonus does.
+    #[test]
+    fn a_module_vote_bonus_with_content_is_banked_with_the_votes() {
+        let (mut state, players) = game(&["a"]);
+        let (first, first_influence, _second, _) = give_two_voting_planets(&mut state, &players[0]);
+        let hook = crate::factions::hooks_cards::CardHooks {
+            vote_bonus_with_content: Some(|_, content, _| {
+                // Reads the corpus, which the older `Hooks::vote_bonus` could not.
+                i64::from(
+                    content
+                        .get(ContentType::Agendas, "no_such_agenda")
+                        .is_none(),
+                ) * 4
+            }),
+            ..crate::factions::hooks_cards::CardHooks::NONE
+        };
+        let tally = |bonus: bool| {
+            let mut state = state.clone();
+            let run = |state: &mut GameState| {
+                let mut window = VoteWindow::new(state, "x", for_against());
+                window.open(state, ContentStore::embedded(), POK);
+                let option = pick(&window, state, FOR);
+                window
+                    .resolve(state, ContentStore::embedded(), POK, option)
+                    .unwrap();
+                let option = pick(&window, state, first.as_str());
+                window
+                    .resolve(state, ContentStore::embedded(), POK, option)
+                    .unwrap();
+                if let Some(done) = window
+                    .pending_choice(state, ContentStore::embedded(), POK)
+                    .and_then(|choice| choice.options.into_iter().find(ChoiceOption::is_decline))
+                {
+                    window
+                        .resolve(state, ContentStore::embedded(), POK, done)
+                        .unwrap();
+                }
+                window.ballot.counts.get(FOR).copied()
+            };
+            if bonus {
+                crate::factions::hooks_cards::with_test_hooks(hook, || run(&mut state))
+            } else {
+                run(&mut state)
+            }
+        };
+        assert_eq!(tally(false), Some(first_influence));
+        assert_eq!(tally(true), Some(first_influence + 4));
     }
 
     #[test]

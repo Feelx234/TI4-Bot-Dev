@@ -443,8 +443,8 @@ fn titan_prototype(
         )
         .unwrap_or(None)
         .is_some();
-    if !built && let Some(seat) = state.player_mut(&chosen) {
-        seat.trade_goods += 1;
+    if !built {
+        crate::supply::gain_trade_goods_staged(state, &chosen, 1, "relic");
     }
     true
 }
@@ -1020,9 +1020,7 @@ pub fn use_relic(
             // player happens to be holding. Reading the holding pays a full seat nothing and an
             // empty one two, which is the card backwards.
             let value = commodity_value(state, content, player) + 2;
-            if let Some(seat) = state.player_mut(player) {
-                seat.trade_goods += value;
-            }
+            crate::supply::gain_trade_goods_staged(state, player, value, "relic");
         }
         "bookoflatvinia" => {
             // All four specialties gains a victory point; otherwise the speaker token.
@@ -2063,5 +2061,42 @@ mod tests {
                 "{alias} is not a relic the corpus knows"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod bf_f3_tests {
+    use super::*;
+    use ti4_model::content_types::POK;
+
+    #[test]
+    fn dynamis_core_stages_its_gain_for_a_module_seat() {
+        let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], POK);
+        let player = PlayerId::new("a");
+        state
+            .player_mut(&player)
+            .unwrap()
+            .relics
+            .push(RelicId::new("dynamiscore"));
+        state.player_mut(&player).unwrap().trade_goods = 0;
+        let printed = ti4_content::factions::get(ContentStore::embedded(), "mentak")
+            .expect("mentak")
+            .commodities();
+        use_relic(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &mut crate::dice::Dice::new(),
+            &mut crate::rng::GameRng::new(0),
+            &mut crate::choice::Table::new(),
+            None,
+            &player,
+            &RelicId::new("dynamiscore"),
+        );
+        assert_eq!(state.player(&player).unwrap().trade_goods, printed + 2);
+        assert_eq!(
+            crate::supply::staged_event_types(&state),
+            ["TRADE_GOODS_GAINED"]
+        );
     }
 }

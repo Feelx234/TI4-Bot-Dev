@@ -771,7 +771,7 @@ const PRODUCERS: &[Producer] = &[
         // ready, whether to remove the infantry, gain-or-replenish, which system to gather in,
         // and per-technology swap or keep.
         module: "leaders.rs",
-        function: "use_leader",
+        function: "dispatch_leader",
         count: 7,
         delivery: Delivery::ObservedHere,
     },
@@ -1219,7 +1219,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("production.rs", "pay_with_observation_credit", 1),
     ("production.rs", "produce_one", 2),
     // BF-00b: ability-driven production delivers `ProductionWindow::pending_choice` itself.
-    ("production.rs", "produce_by_ability", 1),
+    ("production.rs", "produce_by_ability_capped", 1),
     ("production.rs", "resolve_timed", 1),
     ("production.rs", "sling_relay", 2),
     ("reactions.rs", "instinct_training", 1),
@@ -1236,7 +1236,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard", 1),
-    ("leaders.rs", "use_leader", 7),
+    ("leaders.rs", "dispatch_leader", 7),
     ("leaders.rs", "offer_production_hero", 1),
     ("legendary.rs", "end_turn", 1),
     ("legendary.rs", "pass", 1),

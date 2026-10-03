@@ -714,15 +714,13 @@ pub fn available_actions(
     if state.diplomacy.enabled || !state.may_initiate_negotiation(player) {
         return Vec::new();
     }
-    let already = state.transacted_with(player);
     state
         .seating_order
         .iter()
         .filter(|other| *other != player && may_transact(state, content, galaxy, player, other))
-        .cloned()
-        .filter(|other| !already.contains(other))
+        .filter(|other| may_open_again(state, content, player, other))
         .map(|other| {
-            let name = faction_name(state, &other);
+            let name = faction_name(state, other);
             crate::choice::ChoiceOption::labelled(
                 format!("{OPEN_PREFIX}{name}"),
                 OPEN_KIND,
@@ -730,6 +728,50 @@ pub fn available_actions(
             )
         })
         .collect()
+}
+
+/// Whether `proposer` may still open a transaction with `partner` this turn: they have not dealt yet
+/// (94.1), or a faction module exempts the pair from the limit
+/// (`hooks_cards::transaction_exempt_from_limit`, Yssaril's Deepgloom Executable).
+#[must_use]
+pub fn may_open_again(
+    state: &GameState,
+    content: &ContentStore,
+    proposer: &PlayerId,
+    partner: &PlayerId,
+) -> bool {
+    !state.transacted_with(proposer).contains(partner)
+        || crate::factions::hooks_cards::transaction_exempt_from_limit(
+            state, content, proposer, partner,
+        )
+}
+
+/// Spend this pair's one transaction for the turn, unless a module exempts it from the limit.
+/// The game's opening path calls this where it used to call `GameState::record_transaction`.
+pub fn record_unless_exempt(
+    state: &mut GameState,
+    content: &ContentStore,
+    proposer: &PlayerId,
+    partner: &PlayerId,
+) {
+    if !crate::factions::hooks_cards::transaction_exempt_from_limit(
+        state, content, proposer, partner,
+    ) {
+        state.record_transaction(proposer, partner);
+    }
+}
+
+/// Payload of `TRANSACTION_RESOLVED`: `proposer` and `partner` (the two seats that dealt). Both
+/// are public: that a deal happened is known to the table (Lie in Wait, Pillage read the event).
+#[must_use]
+pub fn resolved_payload(
+    proposer: &PlayerId,
+    partner: &PlayerId,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut payload = std::collections::BTreeMap::new();
+    payload.insert("proposer".to_owned(), proposer.to_string().into());
+    payload.insert("partner".to_owned(), partner.to_string().into());
+    payload
 }
 
 /// The partner an opening option names, or `None` for any other option.
@@ -1385,7 +1427,19 @@ impl TradeWindow {
     /// both wrong and non-terminating.
     #[must_use]
     pub fn open(state: &mut GameState, proposer: &PlayerId, partner: &PlayerId) -> Self {
-        state.record_transaction(proposer, partner);
+        Self::open_with_content(state, ContentStore::embedded(), proposer, partner)
+    }
+
+    /// [`Self::open`] with the game's content, so a module's exemption from the per-turn limit
+    /// (`hooks_cards::transaction_exempt_from_limit`) is honoured: an exempt pair is not recorded.
+    #[must_use]
+    pub fn open_with_content(
+        state: &mut GameState,
+        content: &ContentStore,
+        proposer: &PlayerId,
+        partner: &PlayerId,
+    ) -> Self {
+        record_unless_exempt(state, content, proposer, partner);
         if state.diplomacy.enabled {
             let _ = state.diplomacy.consume_initiation(proposer, partner);
         }
@@ -1395,6 +1449,12 @@ impl TradeWindow {
             stage: Stage::Proposing,
             rounds_left: 2,
         }
+    }
+
+    /// The two seats: `(proposer, partner)`. For [`resolved_payload`].
+    #[must_use]
+    pub const fn parties(&self) -> (&PlayerId, &PlayerId) {
+        (&self.proposer, &self.partner)
     }
 
     /// Whether negotiations have ended.
@@ -1958,6 +2018,43 @@ mod tests {
             "the opportunity is gone even though no deal was struck"
         );
         assert!(choice.ids().contains(&"cc3"), "a swap was on the table");
+    }
+
+    #[test]
+    fn an_exempt_pair_may_open_again_and_the_opening_is_not_recorded() {
+        let (hub, mut state) = trading_partners();
+        let content = ContentStore::embedded();
+        let exempt = crate::factions::hooks_cards::CardHooks {
+            transaction_limit_exempt: Some(|_, _, _, other| other.as_str() == "b"),
+            ..crate::factions::hooks_cards::CardHooks::NONE
+        };
+        crate::factions::hooks_cards::with_test_hooks(exempt, || {
+            let first = TradeWindow::open_with_content(&mut state, content, &a(), &b());
+            assert!(
+                state.transacted_with(&a()).is_empty(),
+                "an exempt transaction does not count against the limit"
+            );
+            assert_eq!(first.parties(), (&a(), &b()));
+            assert!(may_open_again(&state, content, &a(), &b()));
+            assert_eq!(
+                available_actions(&state, content, &hub.galaxy, &a()).len(),
+                1,
+                "still offered"
+            );
+        });
+        // Without the hook the same opening is spent, and not offered again.
+        let _ = TradeWindow::open_with_content(&mut state, content, &a(), &b());
+        assert!(state.transacted_with(&a()).contains(&b()));
+        assert!(!may_open_again(&state, content, &a(), &b()));
+        assert!(available_actions(&state, content, &hub.galaxy, &a()).is_empty());
+    }
+
+    #[test]
+    fn the_resolved_payload_names_both_parties() {
+        let payload = resolved_payload(&a(), &b());
+        assert_eq!(payload.get("proposer").and_then(Value::as_str), Some("a"));
+        assert_eq!(payload.get("partner").and_then(Value::as_str), Some("b"));
+        assert_eq!(payload.len(), 2);
     }
 
     #[test]

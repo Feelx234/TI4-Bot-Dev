@@ -491,10 +491,26 @@ fn resolve_pass(
             else {
                 return;
             };
+            let previous = context
+                .state
+                .system_state(&system)
+                .planet_control
+                .get(&target)
+                .cloned();
             context
                 .state
                 .system_mut(&system)
                 .set_control(target.clone(), player.clone());
+            // Staged for the coordinator's flush (`hooks_ground::announce_staged_events`).
+            if previous.as_ref() != Some(player) {
+                crate::factions::hooks_ground::stage_planet_control_gained(
+                    context.state,
+                    &system,
+                    &target,
+                    player,
+                    previous.as_ref(),
+                );
+            }
             let _ = crate::technology::control_gained(
                 context.state,
                 context.content,
@@ -1599,5 +1615,38 @@ mod tests {
             0,
             "nothing was offered, so nothing was gained"
         );
+    }
+
+    /// BF-F1 package B: Maxis Central Control stages `PLANET_CONTROL_GAINED` (no previous owner:
+    /// only unheld planets are offered).
+    #[test]
+    fn maxis_central_control_stages_the_control_gain() {
+        let (mut state, player) = holding("faunus", "97");
+        let elsewhere = ti4_model::id::SystemId::new("20");
+        state.board.entry(elsewhere.clone()).or_default();
+        let target = maxis_candidates(&state, content(), POK, &player, None)
+            .into_iter()
+            .find(|(system, _)| system == &elsewhere)
+            .map(|(_, planet)| planet)
+            .expect("an empty system on the board offers its planets");
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([
+            "faunus".to_owned(),
+            format!("20|{target}"),
+            "decline".to_owned(),
+        ])));
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
+        passing(&mut state, &mut table, &player);
+
+        let events = crate::factions::hooks_ground::test_support::flush_recorded(&mut state);
+        let gained: Vec<_> = events
+            .iter()
+            .filter(|(name, _)| name == "PLANET_CONTROL_GAINED")
+            .collect();
+        assert_eq!(gained.len(), 1);
+        let payload = &gained[0].1;
+        assert_eq!(payload["player"], "a");
+        assert_eq!(payload["planet"], target.to_string());
+        assert_eq!(payload["system"], "20");
+        assert_eq!(payload.get("previous_owner"), None, "nobody held it before");
     }
 }

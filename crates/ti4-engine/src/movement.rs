@@ -120,6 +120,9 @@ pub struct MovementRules<'a> {
     pub asteroid_fields_open: bool,
     /// Magmus Reactor permits supernovas without switching off other anomalies.
     pub supernovae_open: bool,
+    /// Gashlai Physiology: ships may move *through* supernovas (as intermediate systems) but
+    /// still may not end a move in one. Set from `MovementHooks::may_pass_through_supernova`.
+    pub supernovae_pass_through: bool,
     /// The Dominus Orb, for the activation it was purged into: ships may leave systems holding
     /// this player's command tokens (58.4c suspended).
     pub command_tokens_ignored: bool,
@@ -191,6 +194,7 @@ impl<'a> MovementRules<'a> {
             nebulae_open: state.is_some_and(crate::laws::nebulae_passable),
             asteroid_fields_open: false,
             supernovae_open: false,
+            supernovae_pass_through: false,
             command_tokens_ignored: false,
             anomalies_ignored: false,
             ignore_enemy_ships_from: None,
@@ -267,6 +271,18 @@ impl<'a> MovementRules<'a> {
         if hooks::may_enter_supernova(state, content, sources, &mover) {
             self.supernovae_open = true;
         }
+        if hooks::may_pass_through_supernova(state, content, sources, &mover) {
+            self.supernovae_pass_through = true;
+        }
+        if hooks::any(|table| table.blocks_passage.is_some()) {
+            // Aerie Hololattice: the system may still be entered (it is the active system), but
+            // not crossed; `barred_transit` is exactly that rule.
+            for system in state.board.keys() {
+                if hooks::blocks_passage(state, content, sources, &mover, system) {
+                    self.barred_transit.insert(system.to_string());
+                }
+            }
+        }
         if hooks::any(|table| table.may_move_through_ships.is_some()) {
             let active = SystemId::new(self.active_system.as_str());
             let types: BTreeSet<&str> = state
@@ -314,6 +330,12 @@ impl<'a> MovementRules<'a> {
     /// Whether a ship may end or pass a step in this system at all.
     #[must_use]
     pub fn can_enter(&self, system_id: &str) -> bool {
+        self.enterable(system_id, false)
+    }
+
+    /// [`Self::can_enter`] for a step that is only passed through when `passing`: Gashlai
+    /// Physiology opens supernovas to those and to nothing else.
+    fn enterable(&self, system_id: &str, passing: bool) -> bool {
         if self.anomalies_ignored {
             return true;
         }
@@ -321,7 +343,9 @@ impl<'a> MovementRules<'a> {
             // A system the corpus does not describe is not a licence to move anywhere.
             return false;
         };
-        if (system.is_supernova() && !self.supernovae_open)
+        if (system.is_supernova()
+            && !self.supernovae_open
+            && !(passing && self.supernovae_pass_through))
             || (system.is_asteroid_field() && !self.asteroid_fields_open)
         {
             return false; // 86.1, 11.1
@@ -348,7 +372,7 @@ impl<'a> MovementRules<'a> {
         origin: Option<&str>,
         ship_type: Option<&str>,
     ) -> bool {
-        if !self.can_enter(system_id) {
+        if !self.enterable(system_id, true) {
             return false;
         }
         if self.system(system_id).is_some_and(System::is_nebula) && !self.nebulae_open() {
@@ -471,12 +495,15 @@ impl<'a> MovementRules<'a> {
             }
 
             for neighbour in neighbours {
-                if !self.can_enter(&neighbour) {
+                let ends_here = neighbour == self.active_system;
+                // The step that ends the move is judged by `can_enter`; every other step is
+                // judged by `can_pass_through_ship`, whose first test is the passing form of it.
+                if ends_here && !self.can_enter(&neighbour) {
                     continue;
                 }
                 let mut arrived = route.clone();
                 arrived.push(neighbour.clone());
-                if neighbour == self.active_system {
+                if ends_here {
                     return Some(arrived); // 58.4a — movement ends here
                 }
                 if !self.can_pass_through_ship(&neighbour, Some(origin), ship_type) {
@@ -1463,6 +1490,68 @@ mod tests {
             );
             let blind = movement_rules(&hub, &near_b, Board::default());
             assert!(!blind.can_reach(&near_a, 2), "no mover, no module effect");
+        });
+    }
+
+    #[test]
+    fn passing_through_a_supernova_is_not_ending_a_move_in_one() {
+        let supernova = a_system_where("supernova");
+        let hub = hub_with_centre(&supernova);
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], FULL);
+        let pass_only = MovementHooks {
+            may_pass_through_supernova: Some(|_, _, _, who| who.as_str() == "a"),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(pass_only, || {
+            assert!(
+                with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2),
+                "through is allowed"
+            );
+            assert!(
+                !with_state(&hub, &state, &hub.centre, "a").can_reach(&near_a, 1),
+                "ending in the supernova is not"
+            );
+            assert!(!with_state(&hub, &state, &hub.centre, "a").can_enter(&hub.centre));
+            assert!(
+                !with_state(&hub, &state, &near_b, "b").can_reach(&near_a, 2),
+                "only the hook's player"
+            );
+        });
+        let enter_only = MovementHooks {
+            may_enter_supernova: Some(|_, _, _, who| who.as_str() == "a"),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(enter_only, || {
+            assert!(with_state(&hub, &state, &hub.centre, "a").can_reach(&near_a, 1));
+        });
+        assert!(
+            !with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2),
+            "neutral"
+        );
+    }
+
+    #[test]
+    fn a_module_can_bar_passage_through_a_system_for_other_players_only() {
+        let hub = plain_hub();
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], FULL);
+        assert!(
+            with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2),
+            "neutral"
+        );
+        let hololattice = MovementHooks {
+            // b owns the structures: every other player is barred from the centre.
+            blocks_passage: Some(|_, _, _, mover, _| mover.as_str() != "b"),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(hololattice, || {
+            assert!(!with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2));
+            assert!(
+                with_state(&hub, &state, &hub.centre, "a").can_reach(&near_a, 1),
+                "the system itself may still be the destination"
+            );
+            assert!(with_state(&hub, &state, &near_b, "b").can_reach(&near_a, 2));
         });
     }
 

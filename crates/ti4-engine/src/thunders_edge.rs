@@ -514,6 +514,10 @@ fn complete_expedition(
         state
             .system_mut(&system)
             .set_control(planet.clone(), placer.clone());
+        // Staged for the coordinator's flush (`hooks_ground::announce_staged_events`).
+        crate::factions::hooks_ground::stage_planet_control_gained(
+            state, &system, &planet, &placer, None,
+        );
         // Jupiter Brain's first clause. Usually a no-op here -- the placer holds a slice, and the
         // first slice already granted them their breakthrough -- but the clause is on the card,
         // and the placer need not be the seat that finished the expedition.
@@ -653,6 +657,13 @@ mod tests {
             Some(&a),
             "the player who placed the infantry controls Thunder's Edge"
         );
+        // BF-F1 package B: the control gain is staged for the coordinator's flush.
+        let events = crate::factions::hooks_ground::test_support::flush_recorded(&mut state);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].0, "PLANET_CONTROL_GAINED");
+        assert_eq!(events[0].1["player"], "a");
+        assert_eq!(events[0].1["planet"], "thundersedge");
+        assert_eq!(events[0].1.get("previous_owner"), None);
     }
 
     #[test]

@@ -158,6 +158,22 @@ pub struct CombatHooks {
     /// barrage's producer only if `excess > 0`. Not called for a Waylay barrage (those hits are
     /// ordinary combat hits against all ships, so nothing is in excess).
     pub afb_excess: Option<fn(&mut TimingContext<'_>, &AfbExcess<'_>) -> Result<(), IllegalChoice>>,
+    /// Whether `shooter` may not use SPACE CANNON against `target_owner`'s ships in `system` (the
+    /// active system). **Any** module's `true` bars; read by `combat::space_cannon_offense` for
+    /// guns in the system and for adjacent-reaching guns alike.
+    ///
+    /// Argent flagship: "Other players cannot use SPACE CANNON against your ships in this
+    /// system." The module checks that `target_owner` has the flagship in `system` and that
+    /// `shooter` is another player.
+    pub space_cannon_barred:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &PlayerId, &SystemId) -> bool>,
+    /// Whether `player`'s excess fighters of `unit_type` count as half a ship against the fleet
+    /// pool. Any module's `true` halves; read by `fleet::standing`.
+    ///
+    /// Naalu Hybrid Crystal Fighter II: "Fighters in excess of your ships' capacity count as 1/2
+    /// of a ship against your fleet pool." The module checks `player` is Naalu and `unit_type` is
+    /// `naalu_fighter2`.
+    pub fighter_fleet_weight_halves: Option<fn(&GameState, &ContentStore, &PlayerId, &str) -> bool>,
 }
 
 impl CombatHooks {
@@ -167,6 +183,8 @@ impl CombatHooks {
         may_sustain: None,
         direct_hit_immune: None,
         afb_excess: None,
+        space_cannon_barred: None,
+        fighter_fleet_weight_halves: None,
     };
 }
 
@@ -288,6 +306,32 @@ pub(crate) fn afb_excess(
         hook(context, site)?;
     }
     Ok(())
+}
+
+/// Whether any module bars `shooter`'s SPACE CANNON against `target_owner`'s ships in `system`.
+pub(crate) fn space_cannon_barred(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    shooter: &PlayerId,
+    target_owner: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    tables()
+        .filter_map(|table| table.space_cannon_barred)
+        .any(|hook| hook(state, content, sources, shooter, target_owner, system))
+}
+
+/// Whether any module makes `player`'s excess `unit_type` fighters weigh half a ship.
+pub(crate) fn fighter_fleet_weight_halves(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    unit_type: &str,
+) -> bool {
+    tables()
+        .filter_map(|table| table.fighter_fleet_weight_halves)
+        .any(|hook| hook(state, content, player, unit_type))
 }
 
 #[cfg(test)]

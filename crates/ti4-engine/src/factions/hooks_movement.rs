@@ -14,7 +14,10 @@
 //! | [`MovementHooks::linked_systems`] | Creuss Quantum Entanglement, Winnu Lazax Gate Folding | `MovementRules::with_laws` and [`crate::movement::PlayerAdjacency`] |
 //! | [`MovementHooks::move_bonus`] | Creuss Slipstream, Winnu breakthrough Imperator | `tactical::effective_move_value_*` |
 //! | [`MovementHooks::may_move_through_ships`] | Mentak Corsair and Table's Grace, Yssaril flagship | `MovementRules::path_from_ship` |
-//! | [`MovementHooks::may_enter_supernova`] | Muaat Gashlai Physiology | `MovementRules::with_laws` (`supernovae_open`) |
+//! | [`MovementHooks::may_enter_supernova`] | Magmus Reactor ("move into": a move may *end* in a supernova) | `MovementRules::with_laws` (`supernovae_open`) |
+//! | [`MovementHooks::may_pass_through_supernova`] | Muaat Gashlai Physiology ("move through") | `MovementRules::with_laws` (`supernovae_pass_through`) |
+//! | [`MovementHooks::free_cargo`] | Argent Aerie Sentinel ("does not count against capacity ... if being transported") | `transit::CargoWindow::for_ship` |
+//! | [`MovementHooks::blocks_passage`] | Argent Aerie Hololattice | `MovementRules::with_laws` (`barred_transit`) |
 //!
 //! The off-turn movement API (Naalu Foresight) is `transit::relocate_ships`, which emits the new
 //! typed event `SHIPS_RELOCATED`; the wormhole token API is in `tokens.rs`; the map-edit API
@@ -28,6 +31,7 @@ use ti4_content::units::UnitType;
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::GameState;
+use ti4_model::units::Unit;
 
 use super::MODULES;
 
@@ -104,11 +108,36 @@ pub struct MovementHooks {
     /// can move through systems that contain other player's ships."
     pub may_move_through_ships:
         Option<fn(&GameState, &ContentStore, SourceSet, &PassSite<'_>) -> bool>,
-    /// Whether this player's ships may enter and move through supernovas (86.1 lifted, like the
-    /// Magmus Reactor). Any module's `true` allows.
+    /// Whether this player's ships may **end a step in** a supernova (86.1 lifted for the
+    /// active system and, because the shared rule has no finer split, for intermediate systems
+    /// too: `MovementRules::supernovae_open`). Any module's `true` allows.
+    ///
+    /// Muaat Magmus Reactor: "Your ships can move into supernovas." (Gashlai Physiology, which is
+    /// "move *through*", uses [`Self::may_pass_through_supernova`] instead.)
+    pub may_enter_supernova: Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId) -> bool>,
+    /// Whether this player's ships may move **through** (as an intermediate system, never as the
+    /// system a move ends in) supernovas. Any module's `true` allows. A supernova can still not be
+    /// the active system unless [`Self::may_enter_supernova`] allows it.
     ///
     /// Muaat Gashlai Physiology: "Your ships can move through supernovas."
-    pub may_enter_supernova: Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId) -> bool>,
+    pub may_pass_through_supernova:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId) -> bool>,
+    /// Whether `unit` (one of the moving player's units, as it stands in the state) does not use a
+    /// capacity slot while being transported by a ship during a tactical action or relocation. A
+    /// ship's capacity is spent only by the units for which no module answers `true`.
+    ///
+    /// Argent Aerie Sentinel: "This unit does not count against capacity if it is being
+    /// transported ...". The hook must return `false` for units that are not the module's own.
+    pub free_cargo: Option<fn(&GameState, &ContentStore, SourceSet, &Unit) -> bool>,
+    /// Whether `mover`'s ships may not move **through** `system` (it may still be the active
+    /// system / destination). Any module's `true` bars. Called for `mover` on every system of the
+    /// board each time `MovementRules` is built for a player, only when some module installs it.
+    ///
+    /// Argent Aerie Hololattice: "Other players cannot move ships through systems that contain
+    /// your structures." The hook checks that `mover` is not the owner and that the owner has a
+    /// structure (planet or space area) in `system`.
+    pub blocks_passage:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId) -> bool>,
     /// Whether `player` is barred from activating `system` (any module's `true` bars). Read by
     /// `tactical::activatable`, so a barred system is never offered.
     ///
@@ -126,6 +155,9 @@ impl MovementHooks {
         move_bonus: None,
         may_move_through_ships: None,
         may_enter_supernova: None,
+        may_pass_through_supernova: None,
+        free_cargo: None,
+        blocks_passage: None,
         cannot_activate: None,
     };
 }
@@ -313,6 +345,74 @@ fn may_enter_supernova_by(
         .any(|hook| hook(state, content, sources, player))
 }
 
+/// Whether any module lets this player's ships move through supernovas.
+pub(crate) fn may_pass_through_supernova(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> bool {
+    may_pass_through_supernova_by(tables(), state, content, sources, player)
+}
+
+fn may_pass_through_supernova_by(
+    tables: impl Iterator<Item = MovementHooks>,
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> bool {
+    tables
+        .filter_map(|table| table.may_pass_through_supernova)
+        .any(|hook| hook(state, content, sources, player))
+}
+
+/// Whether any module makes `unit` free to transport.
+pub(crate) fn free_cargo(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &Unit,
+) -> bool {
+    free_cargo_by(tables(), state, content, sources, unit)
+}
+
+fn free_cargo_by(
+    tables: impl Iterator<Item = MovementHooks>,
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &Unit,
+) -> bool {
+    tables
+        .filter_map(|table| table.free_cargo)
+        .any(|hook| hook(state, content, sources, unit))
+}
+
+/// Whether any module bars `mover` from moving through `system`.
+pub(crate) fn blocks_passage(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    mover: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    blocks_passage_by(tables(), state, content, sources, mover, system)
+}
+
+fn blocks_passage_by(
+    tables: impl Iterator<Item = MovementHooks>,
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    mover: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    tables
+        .filter_map(|table| table.blocks_passage)
+        .any(|hook| hook(state, content, sources, mover, system))
+}
+
 // -- queries for faction modules -----------------------------------------------------------------
 
 /// Wormhole kinds printed on tiles, by tile id, read once from the embedded corpus.
@@ -418,6 +518,23 @@ mod tests {
             content,
             DEFAULT,
             &a
+        ));
+        let unit = Unit::new(ti4_model::id::UnitTypeId::new("mech"), a.clone());
+        assert!(!may_pass_through_supernova_by(
+            none(),
+            &state,
+            content,
+            DEFAULT,
+            &a
+        ));
+        assert!(!free_cargo_by(none(), &state, content, DEFAULT, &unit));
+        assert!(!blocks_passage_by(
+            none(),
+            &state,
+            content,
+            DEFAULT,
+            &a,
+            &origin
         ));
         // (The real module table is no longer empty once faction packages land; their own
         // tests prove a game without that faction is unchanged.)

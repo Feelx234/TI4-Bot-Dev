@@ -17,12 +17,26 @@
 //! | Event | Payload | When |
 //! |---|---|---|
 //! | `GROUND_FORCE_SUSTAINED` | `system`, `planet`, `player` (owner), `unit` (type id), `cause` | A ground force used SUSTAIN DAMAGE to cancel a hit. |
-//! | `GROUND_FORCE_DESTROYED` | `system`, `planet`, `player` (owner), `unit` (type id), `damaged` (bool), `cause` | A ground force was destroyed by a hit **in an invasion** (`invasion.rs` paths only; ground forces destroyed by action/agenda cards or other rules elsewhere do not emit it). |
+//! | `GROUND_FORCE_DESTROYED` | `system`, `planet`, `player` (owner), `unit` (type id), `damaged` (bool), `cause` | A ground force was destroyed: by a hit in an invasion (live `InvasionWindow`, emitted at once), or by an action card / agenda effect (staged, see below). |
+//! | `PLANET_CONTROL_GAINED` | `system`, `planet`, `player` (new controller), `previous_owner` (absent if uncontrolled) | A player gained control of a planet: invasion landing (emitted at once), or an action card / agenda / legendary / Thunder's Edge effect (staged, see below). |
 //! | `GROUND_COMBAT_STARTED` | `system`, `planet`, `attacker`, `defender` | Before the first round of a ground combat on a planet. |
 //! | `GROUND_COMBAT_ENDED` | `system`, `planet`, `attacker`, `defender`, `winner` (absent if both sides were wiped out), `control_changed` (bool) | After the last round, before the next planet. |
 //! | `GROUND_COMMITMENT_FINISHED` | `system`, `player`, `planets` (array of strings) | The invader has finished committing ground forces. |
 //!
-//! `cause` is one of `ground_combat`, `harrow`, `space_cannon_defense`, `bombardment`.
+//! `cause` is one of `ground_combat`, `harrow`, `space_cannon_defense`, `bombardment` (invasion),
+//! or `action_card:<id>` / `agenda:<id>` for a card or agenda effect.
+//!
+//! # Staged events (BF-F1)
+//!
+//! A card, agenda or legendary effect holds a `TimingContext` or only a `GameState`, never a
+//! resolver, so it cannot emit. Such an effect calls [`stage_ground_force_destroyed`] /
+//! [`stage_planet_control_gained`], which write one row per event into the invisible
+//! `faction_marks` namespace `private:#staged:ground:` (no seat is named `#staged`, so
+//! `mark_visible_to` shows it to nobody, and `cards:staged:` parsing is not disturbed). The
+//! coordinator drains them in staging order with [`announce_staged_events`] (beside
+//! `combat::announce_staged_destructions`) after every action card play, agenda resolution,
+//! component action and leader action; [`has_staged_events`] tells whether anything waits. Until
+//! drained the rows are in-flight bookkeeping.
 //! Hits from a ground-combat round are resolved for both sides first (42.2: simultaneous) and the
 //! events of the round are then emitted in the order the hits were applied, invader's casualties
 //! last; a handler therefore sees the board after the whole round.
@@ -99,7 +113,7 @@ pub struct GroundHooks {
     /// in the active system and each planet in adjacent systems that do not contain 1 of your
     /// command tokens."
     ///
-    /// Called with `(state, content, sources, invader, active_system, already)` each time the
+    /// Called with `(state, content, sources, galaxy, invader, active_system, already)` each time the
     /// commit question is built or answered; `already` lists the planets this invasion has
     /// already committed from through this hook, so "up to 1 from each planet" is expressible.
     /// The hook returns candidates; the engine drops any that are not really the invader's
@@ -113,10 +127,30 @@ pub struct GroundHooks {
             &GameState,
             &ContentStore,
             SourceSet,
+            Option<&ti4_content::galaxy::Galaxy>,
             &PlayerId,
             &SystemId,
             &[CommitOrigin],
         ) -> Vec<CommitCandidate>,
+    >,
+    /// At the start of a round of ground combat, once for each participant (the invader, then
+    /// the defender), before anything is rolled.
+    ///
+    /// Naaz `sc` (Supercharge): "At the start of a combat round, ..." is the ground half of
+    /// `Hooks::space_combat_round_started`. Arguments after the table: the participant, the
+    /// system and the planet. Called in the live window and in the synchronous `ground_combat`;
+    /// a participant may have lost every ground force before a later module runs, so check the
+    /// board. Refusal means doing nothing; the hook must be atomic.
+    pub ground_combat_round_started: Option<
+        fn(
+            &mut GameState,
+            &ContentStore,
+            SourceSet,
+            &mut crate::choice::Table,
+            &PlayerId,
+            &SystemId,
+            &PlanetId,
+        ),
     >,
     /// Whether this player need not spend influence to remove the custodians token.
     ///
@@ -132,6 +166,7 @@ impl GroundHooks {
         ground_rolls_extra_hits: None,
         may_sustain: None,
         commit_candidates: None,
+        ground_combat_round_started: None,
         custodians_free: None,
     };
 }
@@ -188,14 +223,145 @@ pub(crate) fn commit_candidates(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
     invader: &PlayerId,
     system: &SystemId,
     already: &[CommitOrigin],
 ) -> Vec<CommitCandidate> {
     hooks()
         .filter_map(|h| h.commit_candidates)
-        .flat_map(|f| f(state, content, sources, invader, system, already))
+        .flat_map(|f| f(state, content, sources, galaxy, invader, system, already))
         .collect()
+}
+
+pub(crate) fn ground_combat_round_started(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) {
+    for f in hooks().filter_map(|h| h.ground_combat_round_started) {
+        f(state, content, sources, table, player, system, planet);
+    }
+}
+
+// -- staged events (resolver-less effects) -------------------------------------------------------
+
+/// `faction_marks` namespace holding staged ground events. Invisible to every seat.
+const STAGED: &str = "private:#staged:ground:";
+
+fn stage(state: &mut GameState, row: String) {
+    let next = state
+        .faction_marks
+        .range(STAGED.to_owned()..)
+        .map_while(|(key, _)| key.strip_prefix(STAGED))
+        .filter_map(|n| n.parse::<u64>().ok())
+        .max()
+        .map_or(0, |n| n + 1);
+    state
+        .faction_marks
+        .insert(format!("{STAGED}{next:08}"), row);
+}
+
+/// Stage `GROUND_FORCE_DESTROYED` for `unit`, which the caller has already removed from `planet`.
+/// `cause` must not contain `|`.
+pub(crate) fn stage_ground_force_destroyed(
+    state: &mut GameState,
+    system: &SystemId,
+    planet: &PlanetId,
+    unit: &Unit,
+    cause: &str,
+) {
+    stage(
+        state,
+        format!(
+            "destroyed|{system}|{planet}|{}|{}|{}|{cause}",
+            unit.owner, unit.type_id, unit.sustained_damage
+        ),
+    );
+}
+
+/// Stage `PLANET_CONTROL_GAINED`, which the caller has already applied. The announcement also
+/// records the capture in `last_control_gained`, as an invasion landing does.
+pub(crate) fn stage_planet_control_gained(
+    state: &mut GameState,
+    system: &SystemId,
+    planet: &PlanetId,
+    player: &PlayerId,
+    previous: Option<&PlayerId>,
+) {
+    stage(
+        state,
+        format!(
+            "control|{system}|{planet}|{player}|{}",
+            previous.map_or_else(String::new, ToString::to_string)
+        ),
+    );
+}
+
+/// Whether any staged ground event waits to be announced.
+#[must_use]
+pub fn has_staged_events(state: &GameState) -> bool {
+    state
+        .faction_marks
+        .range(STAGED.to_owned()..)
+        .next()
+        .is_some_and(|(key, _)| key.starts_with(STAGED))
+}
+
+/// Emit every staged `GROUND_FORCE_DESTROYED` / `PLANET_CONTROL_GAINED`, in staging order, and
+/// remove the rows. An announcement may stage more; this runs until nothing is left. Cancels are
+/// ignored (the thing has happened). A no-op when nothing is staged.
+///
+/// **Flush site for the coordinator:** call it where `combat::announce_staged_destructions` is
+/// called (`Game::announce_staged_destructions`), and also after an action card resolves and after
+/// an agenda outcome resolves.
+pub fn announce_staged_events(state: &mut GameState, ctx: &mut crate::choice::Resolving<'_>) {
+    while has_staged_events(state) {
+        let keys: Vec<String> = state
+            .faction_marks
+            .range(STAGED.to_owned()..)
+            .map_while(|(key, _)| key.starts_with(STAGED).then(|| key.clone()))
+            .collect();
+        for key in keys {
+            let Some(row) = state.faction_marks.remove(&key) else {
+                continue;
+            };
+            let parts: Vec<&str> = row.split('|').collect();
+            let mut payload = std::collections::BTreeMap::new();
+            let name = match parts[..] {
+                ["destroyed", system, planet, player, unit, damaged, cause] => {
+                    payload.insert("system".to_owned(), system.into());
+                    payload.insert("planet".to_owned(), planet.into());
+                    payload.insert("player".to_owned(), player.into());
+                    payload.insert("unit".to_owned(), unit.into());
+                    payload.insert("damaged".to_owned(), (damaged == "true").into());
+                    payload.insert("cause".to_owned(), cause.into());
+                    "GROUND_FORCE_DESTROYED"
+                }
+                ["control", system, planet, player, previous] => {
+                    payload.insert("system".to_owned(), system.into());
+                    payload.insert("planet".to_owned(), planet.into());
+                    payload.insert("player".to_owned(), player.into());
+                    if !previous.is_empty() {
+                        payload.insert("previous_owner".to_owned(), previous.into());
+                    }
+                    state.last_control_gained = Some((
+                        SystemId::new(system),
+                        PlanetId::new(planet),
+                        PlayerId::new(player),
+                        (!previous.is_empty()).then(|| PlayerId::new(previous)),
+                    ));
+                    "PLANET_CONTROL_GAINED"
+                }
+                _ => continue,
+            };
+            let _ = ctx.emit(state, name, payload);
+        }
+    }
 }
 
 pub(crate) fn custodians_free(
@@ -224,6 +390,70 @@ pub(crate) mod test_support {
         INSTALLED.with(Cell::get)
     }
 
+    /// Flush the staged ground events of `state` through a resolver that records every
+    /// `GROUND_FORCE_DESTROYED` and `PLANET_CONTROL_GAINED` it emits, in order.
+    #[allow(
+        clippy::let_and_return,
+        reason = "the guard must drop before `seen` does"
+    )]
+    pub(crate) fn flush_recorded(
+        state: &mut ti4_model::state::GameState,
+    ) -> Vec<(
+        String,
+        std::collections::BTreeMap<String, serde_json::Value>,
+    )> {
+        use crate::timing::{Ability, Relation, Resolver};
+        use std::sync::{Arc, Mutex};
+        use ti4_model::id::PlayerId;
+        let seen: Arc<Mutex<Vec<_>>> = Arc::default();
+        let who = PlayerId::new("a");
+        let mut resolver = Resolver::new(
+            vec![who.clone()],
+            Some(who.clone()),
+            crate::choice::Table::default(),
+        );
+        resolver.register(
+            ["GROUND_FORCE_DESTROYED", "PLANET_CONTROL_GAINED"]
+                .into_iter()
+                .map(|event| {
+                    let seen = Arc::clone(&seen);
+                    Ability::new(
+                        format!("test:{event}"),
+                        who.clone(),
+                        event,
+                        Relation::After,
+                        Arc::new(move |event, _| {
+                            seen.lock()
+                                .unwrap()
+                                .push((event.event_type.clone(), event.payload.clone()));
+                            Ok(())
+                        }),
+                    )
+                }),
+        );
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut table = crate::choice::Table::default();
+        let mut sequence = crate::event::EventSequence::new();
+        {
+            let mut ctx = crate::choice::Resolving {
+                content: ti4_content::ContentStore::embedded(),
+                sources: ti4_model::content_types::POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(crate::choice::TimingHandle {
+                    resolver: &mut resolver,
+                    sequence: &mut sequence,
+                    galaxy: None,
+                }),
+            };
+            super::announce_staged_events(state, &mut ctx);
+        }
+        let out = seen.lock().unwrap().clone();
+        out
+    }
+
     /// Run `run` with `hooks` dispatched after every module's. The previous value is restored
     /// afterwards, even on panic.
     pub(crate) fn with_test_hooks<T>(hooks: GroundHooks, run: impl FnOnce() -> T) -> T {
@@ -235,5 +465,93 @@ pub(crate) mod test_support {
         }
         let _restore = Restore(INSTALLED.with(|cell| cell.replace(Some(hooks))));
         run()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_model::view::mark_visible_to;
+
+    fn a() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    #[test]
+    fn staged_events_are_announced_in_order_once_and_are_invisible() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        assert!(!has_staged_events(&state));
+        assert!(test_support::flush_recorded(&mut state).is_empty());
+
+        let (system, planet) = (SystemId::new("18"), PlanetId::new("mr"));
+        let unit = Unit::new(ti4_model::id::UnitTypeId::new("infantry"), a());
+        stage_ground_force_destroyed(&mut state, &system, &planet, &unit, "action_card:plague");
+        stage_planet_control_gained(
+            &mut state,
+            &system,
+            &planet,
+            &PlayerId::new("b"),
+            Some(&a()),
+        );
+        stage_planet_control_gained(&mut state, &system, &planet, &a(), None);
+        assert!(has_staged_events(&state));
+        assert!(
+            state.faction_marks.keys().all(
+                |key| !mark_visible_to(key, &a()) && !mark_visible_to(key, &PlayerId::new("b"))
+            )
+        );
+
+        let events = test_support::flush_recorded(&mut state);
+        let names: Vec<&str> = events.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "GROUND_FORCE_DESTROYED",
+                "PLANET_CONTROL_GAINED",
+                "PLANET_CONTROL_GAINED"
+            ]
+        );
+        let destroyed = &events[0].1;
+        assert_eq!(destroyed["system"], "18");
+        assert_eq!(destroyed["planet"], "mr");
+        assert_eq!(destroyed["player"], "a");
+        assert_eq!(destroyed["unit"], "infantry");
+        assert_eq!(destroyed["damaged"], false);
+        assert_eq!(destroyed["cause"], "action_card:plague");
+        assert_eq!(events[1].1["player"], "b");
+        assert_eq!(events[1].1["previous_owner"], "a");
+        assert!(!events[2].1.contains_key("previous_owner"));
+        assert!(!has_staged_events(&state), "drained");
+        assert!(state.faction_marks.is_empty());
+        assert!(test_support::flush_recorded(&mut state).is_empty(), "once");
+    }
+
+    #[test]
+    fn the_new_hooks_are_neutral_when_empty() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let before = state.clone();
+        let mut table = crate::choice::Table::default();
+        ground_combat_round_started(
+            &mut state,
+            ti4_content::ContentStore::embedded(),
+            ti4_model::content_types::POK,
+            &mut table,
+            &a(),
+            &SystemId::new("18"),
+            &PlanetId::new("mr"),
+        );
+        assert_eq!(state, before);
+        assert!(
+            commit_candidates(
+                &state,
+                ti4_content::ContentStore::embedded(),
+                ti4_model::content_types::POK,
+                None,
+                &a(),
+                &SystemId::new("18"),
+                &[],
+            )
+            .is_empty()
+        );
     }
 }

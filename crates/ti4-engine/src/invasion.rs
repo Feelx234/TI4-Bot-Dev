@@ -785,6 +785,33 @@ fn landable_planets(
         .collect()
 }
 
+/// Put a committed ground force on `planet`. A dual-form unit that stood in space in its ship form
+/// (Naaz Eidolon, Z-Grav Eidolon) lands in its ground form: the ship form is never on a planet
+/// ([`crate::fleet::flip_form`]; the card flips as the unit lands).
+fn land_unit(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+    unit: Unit,
+) {
+    let space_form = catalogue(content, sources)
+        .get(unit.type_id.as_str())
+        .is_some_and(UnitType::is_ship);
+    let from = unit.type_id.clone();
+    state
+        .system_mut(system)
+        .planet_units
+        .entry(planet.clone())
+        .or_default()
+        .push(unit);
+    if space_form {
+        crate::fleet::flip_form(state, content, sources, player, system, Some(planet), &from);
+    }
+}
+
 /// Every ground force the invader may commit now, with where each stands: the space area of the
 /// active system (`None`, the ordinary source) first, then those a faction adds through
 /// [`crate::factions::hooks_ground::GroundHooks::commit_candidates`]. A candidate that is not
@@ -794,6 +821,7 @@ fn commit_pool(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
     invader: &PlayerId,
     system: &SystemId,
     already: &[crate::factions::hooks_ground::CommitOrigin],
@@ -805,7 +833,7 @@ fn commit_pool(
     let mut origins = vec![None; troops.len()];
     let types = catalogue(content, sources);
     for candidate in crate::factions::hooks_ground::commit_candidates(
-        state, content, sources, invader, system, already,
+        state, content, sources, galaxy, invader, system, already,
     ) {
         let real = candidate.unit.owner == *invader
             && types
@@ -972,12 +1000,7 @@ pub fn commit_ground_forces(
             break;
         };
         state.system_mut(system).remove(std::slice::from_ref(&unit));
-        state
-            .system_mut(system)
-            .planet_units
-            .entry(planet.clone())
-            .or_default()
-            .push(unit);
+        land_unit(state, content, sources, invader, system, &planet, unit);
         committed.insert(planet);
     }
     Ok(committed.into_iter().collect())
@@ -1431,6 +1454,11 @@ pub fn ground_combat(
         if !owners.contains(invader) || !owners.contains(&defender) {
             break;
         }
+        for who in [invader, &defender] {
+            crate::factions::hooks_ground::ground_combat_round_started(
+                state, content, sources, table, who, system, planet,
+            );
+        }
 
         let attacker_hits =
             roll_ground(state, content, sources, dice, rng, invader, system, planet);
@@ -1671,6 +1699,9 @@ pub struct InvasionWindow {
     /// [`crate::factions::hooks_ground::GroundHooks::commit_candidates`], so a hook can say "up
     /// to 1 from each planet".
     extra_commits: Vec<crate::factions::hooks_ground::CommitOrigin>,
+    /// The map, for [`crate::factions::hooks_ground::GroundHooks::commit_candidates`]. Taken from
+    /// the resolver's handle the first time one is available, or set by [`Self::with_galaxy`].
+    galaxy: Option<std::sync::Arc<ti4_content::galaxy::Galaxy>>,
 }
 
 impl InvasionWindow {
@@ -1697,7 +1728,17 @@ impl InvasionWindow {
             bombard_occurrence: occurrence,
             bombard_announced: true,
             extra_commits: Vec::new(),
+            galaxy: None,
         }
+    }
+
+    /// Give the window the map, so a commit hook that needs adjacency (Sardakk's commander) can
+    /// see it before the first answer. Without this the window takes the map from the first
+    /// resolver handle it is driven with.
+    #[must_use]
+    pub fn with_galaxy(mut self, galaxy: &ti4_content::galaxy::Galaxy) -> Self {
+        self.galaxy = Some(std::sync::Arc::new(galaxy.clone()));
+        self
     }
 
     /// Open an invasion, rolling its bombardment immediately (49.1).
@@ -1747,6 +1788,7 @@ impl InvasionWindow {
             bombard_occurrence: occurrence,
             bombard_announced: false,
             extra_commits: Vec::new(),
+            galaxy: None,
         }
     }
 
@@ -2000,6 +2042,7 @@ impl InvasionWindow {
             state,
             content,
             sources,
+            self.galaxy.as_deref(),
             &self.invader,
             &self.system,
             &self.extra_commits,
@@ -2132,6 +2175,18 @@ impl InvasionWindow {
     ) {
         let (content, sources) = (ctx.content, ctx.sources);
         let planet = planets[index].clone();
+        // Faction effects at the start of the round (Naaz Supercharge), for each participant.
+        for who in [self.invader.clone(), defender.clone()] {
+            crate::factions::hooks_ground::ground_combat_round_started(
+                state,
+                content,
+                sources,
+                ctx.table,
+                &who,
+                &self.system,
+                &planet,
+            );
+        }
         // Letnev's Dunlain Reaper: "DEPLOY: At the start of a round of ground combat, you may spend
         // 2 resources to replace 1 of your infantry in that combat with 1 mech from your
         // reinforcements." Before the dice, so the mech fights the round it arrives for.
@@ -2847,6 +2902,11 @@ impl Window for InvasionWindow {
         answer: ChoiceOption,
     ) -> Result<(), IllegalChoice> {
         let (content, sources) = (ctx.content, ctx.sources);
+        if self.galaxy.is_none()
+            && let Some(galaxy) = ctx.timing.as_ref().and_then(|handle| handle.galaxy)
+        {
+            self.galaxy = Some(std::sync::Arc::new(galaxy.clone()));
+        }
         let Some(choice) = self.pending_choice(state, content, sources) else {
             return Ok(());
         };
@@ -3002,6 +3062,7 @@ impl Window for InvasionWindow {
                         state,
                         content,
                         sources,
+                        self.galaxy.as_deref(),
                         &self.invader,
                         &self.system,
                         &self.extra_commits,
@@ -3031,12 +3092,15 @@ impl Window for InvasionWindow {
                                     .remove_from_planet(from_planet, std::slice::from_ref(&unit));
                             }
                         }
-                        state
-                            .system_mut(&self.system)
-                            .planet_units
-                            .entry(planet.clone())
-                            .or_default()
-                            .push(unit);
+                        land_unit(
+                            state,
+                            content,
+                            sources,
+                            &self.invader,
+                            &self.system,
+                            &planet,
+                            unit,
+                        );
                         if let Some(origin) = origin.clone() {
                             self.extra_commits.push(origin);
                         }
@@ -3985,6 +4049,7 @@ mod tests {
             bombard_occurrence: state.begin_feat_occurrence(),
             bombard_announced: true,
             extra_commits: Vec::new(),
+            galaxy: None,
         };
         let next_combat = window
             .pending_choice(&state, content, POK)
@@ -4026,6 +4091,7 @@ mod tests {
             bombard_occurrence: mecatol_state.begin_feat_occurrence(),
             bombard_announced: true,
             extra_commits: Vec::new(),
+            galaxy: None,
         };
         let removal = custodians_window
             .pending_choice(&mecatol_state, content, POK)
@@ -4133,6 +4199,7 @@ mod tests {
             bombard_occurrence: state.begin_feat_occurrence(),
             bombard_announced: true,
             extra_commits: Vec::new(),
+            galaxy: None,
         };
         let mut dice = Dice::new();
         let mut rng = GameRng::new(1);
@@ -4200,6 +4267,7 @@ mod tests {
                 bombard_occurrence: state.begin_feat_occurrence(),
                 bombard_announced: true,
                 extra_commits: Vec::new(),
+                galaxy: None,
             };
             let mut dice = Dice::new();
             let mut rng = GameRng::new(1);
@@ -4270,6 +4338,7 @@ mod tests {
             bombard_occurrence: state.begin_feat_occurrence(),
             bombard_announced: true,
             extra_commits: Vec::new(),
+            galaxy: None,
         };
         let mut dice = Dice::new();
         let mut rng = GameRng::new(1);
@@ -4426,6 +4495,7 @@ mod tests {
             bombard_occurrence: state.begin_feat_occurrence(),
             bombard_announced: true,
             extra_commits: Vec::new(),
+            galaxy: None,
         };
         let mut dice = Dice::from_faces([10, 1, 10, 1]);
         let mut rng = GameRng::new(1);
@@ -5251,6 +5321,7 @@ mod tests {
             bombard_occurrence: state.begin_feat_occurrence(),
             bombard_announced: true,
             extra_commits: Vec::new(),
+            galaxy: None,
         };
         let choice = window
             .pending_choice(&state, content, POK)
@@ -5421,6 +5492,7 @@ mod tests {
             bombard_occurrence: state.begin_feat_occurrence(),
             bombard_announced: true,
             extra_commits: Vec::new(),
+            galaxy: None,
         };
         let choice = window
             .pending_choice(&state, content, POK)
@@ -5643,6 +5715,7 @@ mod tests {
             bombard_occurrence: state.begin_feat_occurrence(),
             bombard_announced: true,
             extra_commits: Vec::new(),
+            galaxy: None,
         };
         let mut ctx = Resolving {
             content,
@@ -6712,6 +6785,7 @@ mod ground_routes {
         state: &GameState,
         _: &ContentStore,
         _: ti4_model::content_types::SourceSet,
+        _: Option<&ti4_content::galaxy::Galaxy>,
         invader: &PlayerId,
         _: &SystemId,
         already: &[CommitOrigin],
@@ -6837,6 +6911,7 @@ mod ground_routes {
         _: &GameState,
         _: &ContentStore,
         _: ti4_model::content_types::SourceSet,
+        _: Option<&ti4_content::galaxy::Galaxy>,
         invader: &PlayerId,
         _: &SystemId,
         _: &[CommitOrigin],
@@ -6860,7 +6935,7 @@ mod ground_routes {
             ..GroundHooks::NONE
         };
         let (troops, origins) = with_test_hooks(hooks, || {
-            commit_pool(&state, content, POK, &a(), &home, &[])
+            commit_pool(&state, content, POK, None, &a(), &home, &[])
         });
         assert_eq!(troops.len(), 1);
         assert_eq!(origins, vec![None]);
@@ -6961,5 +7036,191 @@ mod ground_routes {
             .on_planet_of(&planet, &b())
             .len();
         assert_eq!(left, 1, "the damaged mech stands");
+    }
+
+    fn mark_round(
+        state: &mut GameState,
+        _: &ContentStore,
+        _: ti4_model::content_types::SourceSet,
+        _: &mut Table,
+        who: &PlayerId,
+        _: &SystemId,
+        _: &PlanetId,
+    ) {
+        let key = format!("test:round:{who}");
+        let seen: u32 = state
+            .faction_marks
+            .get(&key)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        state.faction_marks.insert(key, (seen + 1).to_string());
+    }
+
+    #[test]
+    fn the_ground_round_start_hook_runs_once_per_participant_per_round() {
+        let rounds = |hooked: bool| {
+            let (mut state, system, planet) = mech_defends();
+            let mut window = fight_window(&mut state, &system, &planet);
+            let run = |state: &mut GameState, window: &mut InvasionWindow| {
+                drive(state, window, &["fight", "fight"], &[10, 1, 1, 10, 1, 1]);
+            };
+            if hooked {
+                let hooks = GroundHooks {
+                    ground_combat_round_started: Some(mark_round),
+                    ..GroundHooks::NONE
+                };
+                with_test_hooks(hooks, || run(&mut state, &mut window));
+            } else {
+                run(&mut state, &mut window);
+            }
+            (
+                state.faction_marks.get("test:round:a").cloned(),
+                state.faction_marks.get("test:round:b").cloned(),
+                state
+                    .system_state(&system)
+                    .planet_control
+                    .get(&planet)
+                    .cloned(),
+            )
+        };
+        let (a_rounds, b_rounds, controller) = rounds(true);
+        assert_eq!(
+            a_rounds.as_deref(),
+            Some("2"),
+            "invader, each of two rounds"
+        );
+        assert_eq!(
+            b_rounds.as_deref(),
+            Some("2"),
+            "defender, each of two rounds"
+        );
+        let (none_a, none_b, plain_controller) = rounds(false);
+        assert_eq!((none_a, none_b), (None, None), "neutral without the hook");
+        assert_eq!(controller, plain_controller, "the hook changed no outcome");
+    }
+
+    #[test]
+    fn the_synchronous_ground_combat_also_starts_each_round_through_the_hook() {
+        let (mut state, system, planet) = mech_defends();
+        let hooks = GroundHooks {
+            ground_combat_round_started: Some(mark_round),
+            ..GroundHooks::NONE
+        };
+        let mut table = Table::default();
+        let mut dice = Dice::from_faces([10, 1, 1, 10, 1, 1]);
+        let mut rng = GameRng::new(7);
+        with_test_hooks(hooks, || {
+            let _ = ground_combat(
+                &mut state,
+                ContentStore::embedded(),
+                POK,
+                &mut table,
+                &mut dice,
+                &mut rng,
+                &system,
+                &planet,
+                &a(),
+            );
+        });
+        let rounds: u32 = state.faction_marks["test:round:a"].parse().unwrap();
+        assert!(rounds >= 1);
+        assert_eq!(
+            state.faction_marks["test:round:a"], state.faction_marks["test:round:b"],
+            "both participants, every round"
+        );
+    }
+
+    #[test]
+    fn a_ship_form_unit_lands_in_its_ground_form() {
+        let (mut state, system, planet) = arena();
+        let content = ContentStore::embedded();
+        let eidolon = Unit::new(UnitTypeId::new("naaz_mech_space"), a());
+        land_unit(&mut state, content, POK, &a(), &system, &planet, eidolon);
+        let infantry = Unit::new(UnitTypeId::new("infantry"), a());
+        land_unit(&mut state, content, POK, &a(), &system, &planet, infantry);
+        let board = state.system_state(&system);
+        let landed: Vec<&str> = board
+            .on_planet_of(&planet, &a())
+            .iter()
+            .map(|unit| unit.type_id.as_str())
+            .collect();
+        assert_eq!(
+            landed,
+            ["naaz_mech", "infantry"],
+            "only the dual-form unit flipped"
+        );
+    }
+
+    #[test]
+    fn committing_a_space_form_mech_lands_it_as_the_ground_form() {
+        let (mut state, system, planet) = arena();
+        // Nothing of ours or anybody else's stands there; clear the arena for the commit.
+        state.system_mut(&system).planet_units.clear();
+        state.system_mut(&system).units.clear();
+        crate::fixtures::put(&mut state, &system, "naaz_mech_space", &a(), 1);
+        let script = vec![format!("commit|0|{planet}"), "done_committing".to_owned()];
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(script)));
+        let committed = commit_ground_forces(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &mut table,
+            &a(),
+            &system,
+        )
+        .unwrap();
+        assert_eq!(committed, vec![planet.clone()]);
+        let board = state.system_state(&system);
+        let landed: Vec<&str> = board
+            .on_planet_of(&planet, &a())
+            .iter()
+            .map(|unit| unit.type_id.as_str())
+            .collect();
+        assert_eq!(landed, ["naaz_mech"]);
+        assert!(state.system_state(&system).units_of(&a()).is_empty());
+    }
+
+    thread_local! {
+        static SAW_GALAXY: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    }
+
+    fn note_galaxy(
+        _: &GameState,
+        _: &ContentStore,
+        _: ti4_model::content_types::SourceSet,
+        galaxy: Option<&ti4_content::galaxy::Galaxy>,
+        _: &PlayerId,
+        _: &SystemId,
+        _: &[CommitOrigin],
+    ) -> Vec<CommitCandidate> {
+        SAW_GALAXY.with(|cell| cell.set(Some(galaxy.is_some())));
+        Vec::new()
+    }
+
+    #[test]
+    fn the_commit_hook_receives_the_map_the_window_was_given() {
+        let content = ContentStore::embedded();
+        let (mut state, system, _) = arena();
+        crate::fixtures::put(&mut state, &system, "infantry", &a(), 1);
+        let hub = crate::fixtures::plain_hub();
+        let hooks = GroundHooks {
+            commit_candidates: Some(note_galaxy),
+            ..GroundHooks::NONE
+        };
+        let window = InvasionWindow::at_commit_step(&mut state, &a(), &system);
+        with_test_hooks(hooks, || {
+            let _ = window.landing_options(&state, content, POK);
+        });
+        assert_eq!(
+            SAW_GALAXY.with(std::cell::Cell::get),
+            Some(false),
+            "no map yet"
+        );
+        SAW_GALAXY.with(|cell| cell.set(None));
+        let window = window.with_galaxy(&hub.galaxy);
+        with_test_hooks(hooks, || {
+            let _ = window.landing_options(&state, content, POK);
+        });
+        assert_eq!(SAW_GALAXY.with(std::cell::Cell::get), Some(true));
     }
 }

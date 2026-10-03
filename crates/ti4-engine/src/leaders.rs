@@ -448,6 +448,8 @@ fn is_action_window(content: &ContentStore, leader: &LeaderId) -> bool {
 /// of Kings agents such as Carth of Golden Sands). Only the first ends the turn (OP-07).
 #[must_use]
 pub fn uses_the_action(content: &ContentStore, leader: &LeaderId) -> bool {
+    let leader = split_borrowed(leader).map_or_else(|| leader.clone(), |(_, source)| source);
+    let leader = &leader;
     content
         .get(ContentType::Leaders, leader.as_str())
         .and_then(|record| record.text("abilityWindow"))
@@ -601,6 +603,38 @@ pub fn component_actions(
                 format!("component|leader|{}", leader.as_str()),
                 "component",
                 label.to_owned(),
+            )
+        })
+        .chain(borrowed_component_actions(state, content, player))
+        .collect()
+}
+
+/// Ssruu, Clever Genome: each other seat's agent whose printed window is the action phase, offered
+/// to the Ssruu holder as `component|leader|yssarilagent|<agent>` when its effect can resolve for
+/// the holder. Empty unless `player` holds a readied Ssruu.
+fn borrowed_component_actions(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+) -> Vec<crate::choice::ChoiceOption> {
+    crate::factions::hooks_cards::borrowable_agents(state, content, player)
+        .into_iter()
+        .map(|(_, agent)| agent)
+        .filter(|agent| is_action_window(content, agent))
+        .filter(|agent| {
+            action_leader_delivered(agent)
+                || crate::factions::leader_action(state, content, player, agent).is_some()
+        })
+        .filter(|agent| can_resolve_action(state, content, player, agent))
+        .map(|agent| {
+            let name = content
+                .get(ContentType::Leaders, agent.as_str())
+                .and_then(|record| record.text("name"))
+                .unwrap_or(agent.as_str());
+            crate::choice::ChoiceOption::labelled(
+                format!("component|leader|yssarilagent|{}", agent.as_str()),
+                "component",
+                format!("Ssruu: use {name}'s ability"),
             )
         })
         .collect()
@@ -847,6 +881,10 @@ pub fn use_leader(
     player: &PlayerId,
     leader: &LeaderId,
 ) -> bool {
+    // An offer made through Ssruu names `yssarilagent|<agent>` (see `component_actions`).
+    if let Some((ssruu, source)) = split_borrowed(leader) {
+        return ssruu.as_str() == "yssarilagent" && use_leader_text(context, player, &source);
+    }
     // Agents are used readied; heroes and commanders unlocked. Commanders reach this point only
     // from their own delivery windows (combat, voting, sustain), never as a generic action —
     // which is why `usable` keeps them out of the offer while this gate admits them here.
@@ -860,7 +898,35 @@ pub fn use_leader(
     if !ready {
         return false;
     }
-    let done = match leader.as_str() {
+    let done = dispatch_leader(context, player, leader);
+    if done {
+        // An agent exhausts; a hero is purged once used (51.9, 51.10) — except Darktalon
+        // Treilla, whose card says she stays in play until the end of her game round.
+        // `end_of_round` purges her there and clears the flag she set.
+        if kind_of(context.content, leader).as_deref() == Some(HERO)
+            && leader.as_str() != "letnevhero"
+        {
+            purge(context.state, player, leader);
+        } else {
+            exhaust(context.state, player, leader);
+        }
+    }
+    done
+}
+
+/// The per-leader effect dispatch shared by [`use_leader`] and [`use_leader_text`]: runs the leader's
+/// printed effect for `player` and reports whether it resolved. No status gate, no exhaust or purge:
+/// the callers own both.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one arm per leader: the list is the point, and splitting it hides the set"
+)]
+fn dispatch_leader(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> bool {
+    match leader.as_str() {
         // Evelyn DeLouis and Viscount Unlenn: one unit in the active system rolls an extra die
         // this combat round. Held as the round number, so it expires with the round it was used
         // in rather than improving every later one.
@@ -1655,20 +1721,49 @@ pub fn use_leader(
             true
         }
         _ => crate::factions::use_leader(context, player, leader).unwrap_or(false),
-    };
-    if done {
-        // An agent exhausts; a hero is purged once used (51.9, 51.10) — except Darktalon
-        // Treilla, whose card says she stays in play until the end of her game round.
-        // `end_of_round` purges her there and clears the flag she set.
-        if kind_of(context.content, leader).as_deref() == Some(HERO)
-            && leader.as_str() != "letnevhero"
-        {
-            purge(context.state, player, leader);
-        } else {
-            exhaust(context.state, player, leader);
-        }
     }
-    done
+}
+
+/// Separator in a borrowed-agent id: `yssarilagent|<agent>` (see [`use_leader_text`]).
+pub const BORROWED_SEPARATOR: char = '|';
+
+/// Split a borrowed-agent leader id (`yssarilagent|solagent`) into Ssruu's id and the source agent.
+#[must_use]
+pub fn split_borrowed(leader: &LeaderId) -> Option<(LeaderId, LeaderId)> {
+    let (ssruu, source) = leader.as_str().split_once(BORROWED_SEPARATOR)?;
+    Some((LeaderId::new(ssruu), LeaderId::new(source)))
+}
+
+/// Use `source_agent`'s text ability as `as_player`, through Ssruu, Clever Genome (`yssarilagent`):
+/// "This card has the text ability of each other player's agent, even if that agent is exhausted."
+///
+/// Runs the same per-leader dispatch as [`use_leader`] (including `factions::use_leader`) but
+/// without the readied gate on `source_agent` and without exhausting it. Returns `false`, changing
+/// nothing, unless `source_agent` is in `hooks_cards::borrowable_agents` for `as_player` (the seat
+/// holds a readied Ssruu and the agent is another seat's, readied or exhausted).
+///
+/// On success Ssruu itself exhausts: the borrowed text says "exhaust this card", and the card
+/// carrying that text is Ssruu. Then every module's `borrowed_agent_used` hook runs.
+///
+/// Limit: the effect runs as `as_player`. A module agent whose `use_leader`/`leader_action` hook
+/// requires its own seat to hold the leader declines here (returns `false`, nothing happens), so
+/// it is simply not borrowable until that module accepts a borrower.
+pub fn use_leader_text(
+    context: &mut crate::timing::TimingContext<'_>,
+    as_player: &PlayerId,
+    source_agent: &LeaderId,
+) -> bool {
+    let borrowable =
+        crate::factions::hooks_cards::borrowable_agents(context.state, context.content, as_player);
+    if !borrowable.iter().any(|(_, agent)| agent == source_agent) {
+        return false;
+    }
+    if !dispatch_leader(context, as_player, source_agent) {
+        return false;
+    }
+    exhaust(context.state, as_player, &LeaderId::new("yssarilagent"));
+    crate::factions::hooks_cards::borrowed_agent_used(context, as_player, source_agent);
+    true
 }
 
 #[cfg(test)]
@@ -2661,6 +2756,174 @@ mod tests {
             offered.iter().any(|id| id == "component|leader|hacanagent"),
             "Carth of Golden Sands was not on the offer list: {offered:?}"
         );
+    }
+
+    /// A game where `a` holds a readied Ssruu and `b` (Hacan) holds Carth, exhausted.
+    fn ssruu_game() -> GameState {
+        let mut state = game(&["a", "b"]);
+        holding(&mut state, "yssarilagent", LeaderStatus::Readied);
+        let other = PlayerId::new("b");
+        let seat = state.player_mut(&other).unwrap();
+        seat.faction = ti4_model::id::FactionId::new("hacan");
+        seat.commodities = 0;
+        seat.leaders
+            .insert(LeaderId::new("hacanagent"), LeaderStatus::Exhausted);
+        state
+    }
+
+    #[test]
+    fn ssruu_uses_an_exhausted_agent_without_exhausting_or_readying_it() {
+        let content = ContentStore::embedded();
+        let mut state = ssruu_game();
+        assert!(use_scripted(
+            &mut state,
+            "yssarilagent|hacanagent",
+            None,
+            vec!["b".to_owned()],
+        ));
+        let limit = ti4_content::factions::get(content, "hacan")
+            .expect("Hacan exists")
+            .commodities();
+        assert_eq!(
+            state.player(&PlayerId::new("b")).unwrap().commodities,
+            limit
+        );
+        assert_eq!(
+            status(&state, &PlayerId::new("b"), &LeaderId::new("hacanagent")),
+            Some(LeaderStatus::Exhausted),
+            "the source agent is untouched"
+        );
+        assert_eq!(
+            status(&state, &player(), &LeaderId::new("yssarilagent")),
+            Some(LeaderStatus::Exhausted),
+            "Ssruu carries the text, so Ssruu exhausts"
+        );
+        // Exhausted Ssruu has nothing left to borrow.
+        let before = state.clone();
+        assert!(!use_scripted(
+            &mut state,
+            "yssarilagent|hacanagent",
+            None,
+            vec!["b".to_owned()],
+        ));
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn use_leader_text_refuses_without_ssruu_or_for_a_non_agent_and_changes_nothing() {
+        let mut state = ssruu_game();
+        // b does not hold Ssruu, so b borrows nothing (not even a's agent).
+        let (decider, _seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new(Vec::<String>::new()),
+        ));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let before = state.clone();
+        let refused = crate::fixtures::with_context(&mut state, POK, None, &mut table, |ctx| {
+            (
+                use_leader_text(ctx, &PlayerId::new("b"), &LeaderId::new("yssarilagent")),
+                use_leader_text(ctx, &PlayerId::new("b"), &LeaderId::new("hacanagent")),
+                // a holds Ssruu, but a hero is not an agent.
+                use_leader_text(ctx, &player(), &LeaderId::new("hacanhero")),
+                // and a's own Ssruu is not another seat's agent.
+                use_leader_text(ctx, &player(), &LeaderId::new("yssarilagent")),
+            )
+        });
+        assert_eq!(refused, (false, false, false, false));
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn ssruu_offers_other_seats_action_agents_with_distinct_ids() {
+        let content = ContentStore::embedded();
+        let state = ssruu_game();
+        let ids = |who: &str| -> Vec<String> {
+            component_actions(&state, content, &PlayerId::new(who))
+                .into_iter()
+                .map(|option| option.id)
+                .collect()
+        };
+        let mine = ids("a");
+        assert!(
+            mine.iter()
+                .any(|id| id == "component|leader|yssarilagent|hacanagent"),
+            "{mine:?}"
+        );
+        assert!(
+            !mine.iter().any(|id| id == "component|leader|yssarilagent"),
+            "Ssruu's own window is not an action"
+        );
+        let mut distinct = mine.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(distinct.len(), mine.len(), "option ids are distinct");
+        assert!(
+            ids("b").iter().all(|id| !id.contains("yssarilagent")),
+            "only the Ssruu holder is offered borrowed agents"
+        );
+        // A borrowed ACTION agent takes the turn; a "During the action phase" one does not.
+        assert!(!uses_the_action(
+            content,
+            &LeaderId::new("yssarilagent|hacanagent")
+        ));
+        assert!(uses_the_action(
+            content,
+            &LeaderId::new("yssarilagent|xxchaagent")
+        ));
+        // Not offered when the borrowed effect could not resolve for the holder.
+        let mut full = state.clone();
+        for seat in &mut full.players {
+            seat.faction = ti4_model::id::FactionId::new("hacan");
+            seat.commodities = 99;
+        }
+        assert!(
+            ids_of(&full, "a")
+                .iter()
+                .all(|id| !id.contains("hacanagent")),
+            "a full table leaves Carth with nothing to do"
+        );
+    }
+
+    fn ids_of(state: &GameState, who: &str) -> Vec<String> {
+        component_actions(state, ContentStore::embedded(), &PlayerId::new(who))
+            .into_iter()
+            .map(|option| option.id)
+            .collect()
+    }
+
+    #[test]
+    fn the_borrowed_agent_hook_runs_after_a_successful_borrow_only() {
+        let hook = crate::factions::hooks_cards::CardHooks {
+            borrowed_agent_used: Some(|ctx, who, source| {
+                ctx.state
+                    .faction_marks
+                    .insert(format!("test:borrowed:{who}"), source.to_string());
+            }),
+            ..crate::factions::hooks_cards::CardHooks::NONE
+        };
+        crate::factions::hooks_cards::with_test_hooks(hook, || {
+            let mut state = ssruu_game();
+            assert!(use_scripted(
+                &mut state,
+                "yssarilagent|hacanagent",
+                None,
+                vec!["b".to_owned()],
+            ));
+            assert_eq!(
+                state
+                    .faction_marks
+                    .get("test:borrowed:a")
+                    .map(String::as_str),
+                Some("hacanagent")
+            );
+            let mut refused = game(&["a", "b"]);
+            assert!(!use_scripted(
+                &mut refused,
+                "yssarilagent|hacanagent",
+                None,
+                vec![]
+            ));
+            assert!(refused.faction_marks.is_empty(), "a refusal fires nothing");
+        });
     }
 
     #[test]

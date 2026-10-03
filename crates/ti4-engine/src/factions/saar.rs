@@ -4,6 +4,7 @@
 //!
 //! Card texts (latest printing, `crates/ti4-content/content/*.json`):
 //!
+//! * Nomadic: "You can score objectives even if you do not control the planets in your home system."
 //! * Scavenge: "After you gain control of a planet: Gain 1 trade good."
 //! * Scavenger Zeta (mech): "DEPLOY: After you gain control of a planet, you may spend 1 trade
 //!   good to place 1 mech on that planet"
@@ -12,8 +13,7 @@
 //!   Saar player. Then, return this card to the Saar player."
 //! * Chaos Mapping (`cm`): "Other players cannot activate asteroid fields that contain 1 or more
 //!   of your ships. At the start of your turn during the action phase, you may produce 1 unit in a
-//!   system that contains at least 1 of your units that has PRODUCTION." (second sentence only;
-//!   the activation bar needs a shared hook, see the evidence file)
+//!   system that contains at least 1 of your units that has PRODUCTION."
 //! * Gurno Aggero (`saarhero`): "ACTION: Choose 1 system that is adjacent to 1 of your space
 //!   docks. Destroy all other players' infantry and fighters in that system. Then, purge this
 //!   card." Unlock: "Have 3 scored objectives."
@@ -29,6 +29,8 @@ use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::{GameState, LeaderStatus};
 use ti4_model::units::Unit;
 
+use super::hooks_movement::MovementHooks;
+use super::hooks_strategy::StrategyHooks;
 use super::{FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption, Resolving, TimingHandle, Window};
 use crate::decision_context::{DecisionContext, DecisionSource};
@@ -43,8 +45,8 @@ const RAGH_NOTE: &str = "ragh:saar";
 /// What this faction implements.
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
-    abilities: &[],
-    technologies: &[],
+    abilities: &["nomadic"],
+    technologies: &["cm"],
     units: &["saar_flagship"],
     promissory: &["ragh"],
     leaders: &["saarhero"],
@@ -54,6 +56,14 @@ pub const MODULE: FactionModule = FactionModule {
         commander_unlocked: Some(commander_unlocked),
         leader_action: Some(leader_action),
         use_leader: Some(use_leader),
+        movement: MovementHooks {
+            cannot_activate: Some(chaos_mapping_blocks_activation),
+            ..MovementHooks::NONE
+        },
+        strategy: StrategyHooks {
+            scores_without_home: Some(nomadic),
+            ..StrategyHooks::NONE
+        },
         ..Hooks::NONE
     },
 };
@@ -161,17 +171,12 @@ fn commander_unlocked(
 // -- timing abilities ----------------------------------------------------------------------------
 
 fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    let mut abilities = vec![
+    vec![
         scavenge(owner_name, seat),
         scavenger_zeta(owner_name, seat),
         ragh_call(owner_name, seat),
-    ];
-    // Chaos Mapping is half implemented (the activation bar needs a shared hook), so its
-    // production is registered only under test until `cm` can be claimed whole.
-    if cfg!(test) {
-        abilities.push(chaos_mapping_production(owner_name, seat));
-    }
-    abilities
+        chaos_mapping_production(owner_name, seat),
+    ]
 }
 
 fn gained_by(event: &crate::event::Event, player: &PlayerId) -> Option<(SystemId, PlanetId)> {
@@ -404,6 +409,39 @@ fn ragh_call(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
+// -- Nomadic and Chaos Mapping activation --------------------------------------------------------
+
+/// "You can score objectives even if you do not control the planets in your home system."
+/// Lifts only the home-control prerequisite (LRR 61.16); objective requirements still apply.
+fn nomadic(state: &GameState, player: &PlayerId) -> bool {
+    is_saar(state, player)
+}
+
+/// "Other players cannot activate asteroid fields that contain 1 or more of your ships."
+/// Checked while generating legal activations (LRR 89.1). Floating Factories move as ships but
+/// remain structures, so they do not satisfy this ship requirement.
+fn chaos_mapping_blocks_activation(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    activator: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    if !ti4_content::galaxy::system(content, system.as_str(), sources)
+        .is_some_and(|tile| tile.is_asteroid_field())
+    {
+        return false;
+    }
+    let types = catalogue(content, sources);
+    state.system_state(system).units.iter().any(|unit| {
+        &unit.owner != activator
+            && has_technology(state, &unit.owner, "cm")
+            && types
+                .get(unit.type_id.as_str())
+                .is_some_and(UnitType::is_ship)
+    })
+}
+
 // -- Chaos Mapping: start-of-turn production -----------------------------------------------------
 
 /// Systems where `player` could produce at least 1 unit by ability now.
@@ -480,7 +518,14 @@ fn chaos_mapping_production(owner_name: &str, seat: &PlayerId) -> Ability {
                 };
                 picked.clone()
             };
-            produce(context, resolver, &owner, &system)
+            // Production can ask several payment/placement questions. A failed later choice
+            // must not leave this faction effect partially paid or placed.
+            let before = context.state.clone();
+            if let Err(error) = produce(context, resolver, &owner, &system) {
+                *context.state = before;
+                return Err(error);
+            }
+            Ok(())
         }),
     )
     .with_optional(true)

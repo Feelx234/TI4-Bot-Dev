@@ -2549,7 +2549,27 @@ fn parley(context: &mut crate::timing::TimingContext<'_>, _player: &PlayerId) {
     {
         units.remove(index);
     }
-    board.units.push(unit);
+    board.units.push(unit.clone());
+    // A dual-form unit that landed as its ground form goes back to space in its ship form: the
+    // ground form is never in a space area.
+    let types = ti4_content::units::catalogue(context.content, context.sources);
+    if types
+        .get(unit.type_id.as_str())
+        .is_some_and(|kind| !kind.is_ship())
+        && crate::fleet::other_form(&types, unit.type_id.as_str())
+            .and_then(|twin| types.get(twin))
+            .is_some_and(ti4_content::units::UnitType::is_ship)
+    {
+        crate::fleet::flip_form(
+            context.state,
+            context.content,
+            context.sources,
+            &owner,
+            &system,
+            None,
+            &unit.type_id,
+        );
+    }
 }
 
 /// One Ghost Squad selection moves every unit of one ground-force type from one of the
@@ -5382,12 +5402,17 @@ fn unexpected_action(context: &mut crate::timing::TimingContext<'_>, player: &Pl
 }
 
 /// Destroy up to `limit` units of a base type from a planet, and report how many died.
+///
+/// Each destroyed ground force is staged as `GROUND_FORCE_DESTROYED` with cause
+/// `action_card:<card>` (see `factions::hooks_ground`, "Staged events"); structures are not
+/// ground forces and stage nothing.
 fn destroy_on_planet(
     context: &mut crate::timing::TimingContext<'_>,
     system: &ti4_model::id::SystemId,
     planet: &ti4_model::id::PlanetId,
     base_type: &str,
     limit: Option<usize>,
+    card: &str,
 ) -> usize {
     let types = ti4_content::units::catalogue(context.content, context.sources);
     let Some(units) = context
@@ -5399,6 +5424,7 @@ fn destroy_on_planet(
         return 0;
     };
     let mut destroyed = 0;
+    let mut fallen: Vec<Unit> = Vec::new();
     units.retain(|unit| {
         if limit.is_some_and(|cap| destroyed >= cap) {
             return true;
@@ -5408,9 +5434,25 @@ fn destroy_on_planet(
             .is_some_and(|kind| kind.base_type() == base_type);
         if hit {
             destroyed += 1;
+            if types
+                .get(unit.type_id.as_str())
+                .is_some_and(ti4_content::units::UnitType::is_ground_force)
+            {
+                fallen.push(unit.clone());
+            }
         }
         !hit
     });
+    let cause = format!("action_card:{card}");
+    for unit in &fallen {
+        crate::factions::hooks_ground::stage_ground_force_destroyed(
+            context.state,
+            system,
+            planet,
+            unit,
+            &cause,
+        );
+    }
     destroyed
 }
 
@@ -5453,7 +5495,14 @@ fn reactor_meltdown(context: &mut crate::timing::TimingContext<'_>, player: &Pla
     };
     if let Some((system, planet)) = spot(&chosen) {
         // One dock, not every dock on the planet: the card says "1 space dock".
-        destroy_on_planet(context, &system, &planet, "spacedock", Some(1));
+        destroy_on_planet(
+            context,
+            &system,
+            &planet,
+            "spacedock",
+            Some(1),
+            "reactor_meltdown",
+        );
     }
 }
 
@@ -5490,7 +5539,14 @@ fn unstable_planet(context: &mut crate::timing::TimingContext<'_>, player: &Play
         return;
     };
     context.state.exhausted_planets.insert(planet.clone());
-    destroy_on_planet(context, &system, &planet, "infantry", Some(3));
+    destroy_on_planet(
+        context,
+        &system,
+        &planet,
+        "infantry",
+        Some(3),
+        "unstable_planet",
+    );
 }
 
 /// Uprising: exhaust a rival's non-home planet and take its resource value in trade goods.
@@ -5573,7 +5629,7 @@ fn plague(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
         .iter()
         .filter(|face| **face >= PLAGUE_KILLS_ON)
         .count();
-    destroy_on_planet(context, &system, &planet, "infantry", Some(kills));
+    destroy_on_planet(context, &system, &planet, "infantry", Some(kills), "plague");
 }
 
 /// Plague destroys an infantry on a six or better.
@@ -10374,6 +10430,118 @@ mod tests {
             limit,
             "the Trade secondary replenishes commodities"
         );
+    }
+
+    /// BF-F1 package A: Plague stages one `GROUND_FORCE_DESTROYED` per infantry it kills; the
+    /// coordinator's flush announces them.
+    #[test]
+    fn plague_stages_ground_force_destroyed_for_each_kill() {
+        let player = PlayerId::new("a");
+        let (system, planet) = a_neutral_spot();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), PlayerId::new("b"));
+        crate::fixtures::put_on_planet(
+            &mut state,
+            &system,
+            &planet,
+            "infantry",
+            &PlayerId::new("b"),
+            4,
+        );
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
+
+        resolve_with_dice(&mut state, "plague", &player, &[10, 1, 6, 2], &[]);
+
+        assert!(crate::factions::hooks_ground::has_staged_events(&state));
+        let events = crate::factions::hooks_ground::test_support::flush_recorded(&mut state);
+        assert_eq!(events.len(), 2, "a ten and a six killed one each");
+        for (name, payload) in &events {
+            assert_eq!(name, "GROUND_FORCE_DESTROYED");
+            assert_eq!(payload["player"], "b");
+            assert_eq!(payload["unit"], "infantry");
+            assert_eq!(payload["planet"], planet.to_string());
+            assert_eq!(payload["system"], system.to_string());
+            assert_eq!(payload["damaged"], false);
+            assert_eq!(payload["cause"], "action_card:plague");
+        }
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
+    }
+
+    #[test]
+    fn unstable_planet_and_plague_without_victims_stage_nothing() {
+        let player = PlayerId::new("a");
+        let (system, planet) = a_neutral_spot();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), PlayerId::new("b"));
+        resolve_card(&mut state, "plague", &player, &[]);
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
+    }
+
+    /// A space dock is a structure, not a ground force: destroying one stages nothing.
+    #[test]
+    fn destroying_a_structure_stages_no_ground_force_event() {
+        let player = PlayerId::new("a");
+        let (system, planet) = a_neutral_spot();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        crate::fixtures::put_on_planet(
+            &mut state,
+            &system,
+            &planet,
+            "spacedock",
+            &PlayerId::new("b"),
+            1,
+        );
+        resolve_card(&mut state, "meltdown", &player, &[]);
+        assert_eq!(on_planet(&state, &planet), 0);
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
+    }
+
+    /// BF-F1 package I: a dual-form unit that landed as its ground form returns to space as its
+    /// ship form (Parley), never as a ground form in a space area.
+    #[test]
+    fn parley_returns_a_landed_eidolon_to_space_in_its_ship_form() {
+        let player = PlayerId::new("a");
+        let (system, planet) = a_neutral_spot();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_mech", &player, 1);
+        let unit = state.system_state(&system).planet_units[&planet][0].clone();
+        state.last_committed_unit = Some((player.clone(), system.clone(), planet.clone(), unit));
+
+        resolve_card(&mut state, "parley", &player, &[]);
+
+        assert_eq!(on_planet(&state, &planet), 0, "left the planet");
+        let board = state.system_state(&system);
+        let in_space: Vec<&str> = board
+            .units
+            .iter()
+            .map(|unit| unit.type_id.as_str())
+            .collect();
+        assert_eq!(in_space, ["naaz_mech_space"]);
+    }
+
+    /// An ordinary unit returned by Parley is unchanged (neutral for every other faction).
+    #[test]
+    fn parley_leaves_an_ordinary_infantry_alone() {
+        let player = PlayerId::new("a");
+        let (system, planet) = a_neutral_spot();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &player, 1);
+        let unit = state.system_state(&system).planet_units[&planet][0].clone();
+        state.last_committed_unit = Some((player.clone(), system.clone(), planet.clone(), unit));
+
+        resolve_card(&mut state, "parley", &player, &[]);
+
+        let board = state.system_state(&system);
+        let in_space: Vec<&str> = board
+            .units
+            .iter()
+            .map(|unit| unit.type_id.as_str())
+            .collect();
+        assert_eq!(in_space, ["infantry"]);
     }
 }
 

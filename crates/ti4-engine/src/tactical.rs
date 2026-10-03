@@ -355,7 +355,8 @@ pub fn movable_into(
             let Some(kind) = types.get(hull.type_id.as_str()) else {
                 continue;
             };
-            if !kind.is_ship() {
+            // Ships, and the Floating Factory ("can move and retreat as if it were a ship").
+            if !kind.moves_as_ship() {
                 continue;
             }
             let move_value = effective_move_value_for_ship(
@@ -644,6 +645,35 @@ pub fn read_move(choice: &Choice, answer: ChoiceOption) -> Result<MoveSelection,
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_floating_factory_is_offered_as_a_mover_and_an_ordinary_dock_is_not() {
+        let hub = crate::fixtures::plain_hub();
+        let player = PlayerId::new("a");
+        let origin = SystemId::new(hub.outer[0].clone());
+        let target = SystemId::new(hub.centre.clone());
+        let mut state = crate::fixtures::game(&["a"]);
+        crate::fixtures::put(&mut state, &origin, "saar_spacedock", &player, 1);
+        crate::fixtures::put(&mut state, &origin, "spacedock", &player, 1);
+        activate(&mut state, &player, &target).unwrap();
+        let found = movable(&state, ContentStore::embedded(), POK, &hub.galaxy, &player);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].unit.type_id.as_str(), "saar_spacedock");
+        assert_eq!(found[0].capacity, 4, "it carries like a ship");
+    }
+
+    #[test]
+    fn a_floating_factory_out_of_range_is_not_offered() {
+        let hub = crate::fixtures::plain_hub();
+        let player = PlayerId::new("a");
+        let origin = SystemId::new(hub.outer[0].clone());
+        let far = SystemId::new(hub.across(&hub.outer[0]));
+        let mut state = crate::fixtures::game(&["a"]);
+        crate::fixtures::put(&mut state, &origin, "saar_spacedock", &player, 1);
+        activate(&mut state, &player, &far).unwrap();
+        // Move 1 reaches the centre but not the far side of it.
+        assert!(movable(&state, ContentStore::embedded(), POK, &hub.galaxy, &player).is_empty());
+    }
 
     #[test]
     fn nav_suite_opens_a_supernova_that_barred_the_route() {

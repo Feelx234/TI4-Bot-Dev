@@ -1076,9 +1076,8 @@ fn trade_primary(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<(), IllegalChoice> {
-    if let Some(seat) = state.player_mut(player) {
-        seat.trade_goods += 3;
-    }
+    // No timing handle here: the gain is staged and announced by `supply::flush_staged_events`.
+    crate::supply::gain_trade_goods_staged(state, player, 3, "trade_primary");
     replenish(state, content, player);
     let mut remaining: Vec<PlayerId> = state
         .seating_order
@@ -2834,5 +2833,65 @@ mod research_carries_its_price {
             second.payload.get("cost"),
             "the free research and the six-resource one must not look alike"
         );
+    }
+}
+
+#[cfg(test)]
+mod bf_f3_tests {
+    use super::*;
+    use ti4_model::content_types::POK;
+
+    #[test]
+    fn trade_stages_its_gain_only_when_a_module_seat_could_react() {
+        let content = ContentStore::embedded();
+        let trade = card_id(content);
+        let mut plain = crate::fixtures::game(&["a", "b"]);
+        let mut table = Table::new();
+        primary(
+            &mut plain,
+            content,
+            POK,
+            None,
+            &mut table,
+            &PlayerId::new("a"),
+            &trade,
+        )
+        .unwrap();
+        assert_eq!(plain.player(&PlayerId::new("a")).unwrap().trade_goods, 3);
+        assert_eq!(crate::supply::staged_events(&plain), 0);
+
+        let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], POK);
+        let before = state.player(&PlayerId::new("a")).unwrap().trade_goods;
+        primary(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut table,
+            &PlayerId::new("a"),
+            &trade,
+        )
+        .unwrap();
+        assert_eq!(
+            state.player(&PlayerId::new("a")).unwrap().trade_goods,
+            before + 3
+        );
+        assert_eq!(
+            crate::supply::staged_event_types(&state),
+            ["TRADE_GOODS_GAINED"]
+        );
+    }
+
+    fn card_id(content: &ContentStore) -> String {
+        content
+            .records(ti4_model::content_types::ContentType::StrategyCards)
+            .iter()
+            .find(|record| {
+                record.text("name") == Some("Trade")
+                    && record.text("id").is_some_and(|id| id.starts_with("pok"))
+            })
+            .and_then(|record| record.text("id"))
+            .map(ToOwned::to_owned)
+            .expect("a Trade card")
     }
 }

@@ -1592,6 +1592,30 @@ fn reaching_guns_by(
     found
 }
 
+/// Faction bars (Argent flagship: "Other players cannot use SPACE CANNON against your ships in
+/// this system"): whether `owner`'s gun may not fire. The active player's own guns fire at the
+/// `opponent`, every other gun at the active player. Applies to adjacent-reaching guns too.
+fn cannon_barred(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    owner: &PlayerId,
+    active: &PlayerId,
+    opponent: Option<&PlayerId>,
+    system: &SystemId,
+) -> bool {
+    let target = if owner == active {
+        opponent
+    } else {
+        Some(active)
+    };
+    target.is_some_and(|target| {
+        crate::factions::hooks_combat::space_cannon_barred(
+            state, content, sources, owner, target, system,
+        )
+    })
+}
+
 pub fn space_cannon_offense(
     state: &mut GameState,
     content: &ContentStore,
@@ -1613,12 +1637,24 @@ pub fn space_cannon_offense(
     let board = state.system_state(system);
     // The active player's guns fire too (as ti4calc has it; user ruling 2026-09-17), at the ships
     // of the player being attacked. With no such ships there is nothing to roll at.
-    let targets = opponent_with_ships(state, content, sources, active, system).is_some();
+    let opponent = opponent_with_ships(state, content, sources, active, system);
+    let targets = opponent.is_some();
+    let barred = |owner: &PlayerId| {
+        cannon_barred(
+            state,
+            content,
+            sources,
+            owner,
+            active,
+            opponent.as_ref(),
+            system,
+        )
+    };
     let may_fire = |owner: &PlayerId| {
         if owner == active {
-            targets
+            targets && !barred(owner)
         } else {
-            !solar_flare
+            !solar_flare && !barred(owner)
         }
     };
 
@@ -2596,7 +2632,8 @@ pub fn retreat_to(
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
         };
-        if kind.is_ship() && kind.move_value() > 0 {
+        // A Floating Factory "can retreat as if it were a ship" (`moves_as_ship`).
+        if (kind.is_ship() || kind.moves_as_ship()) && kind.move_value() > 0 {
             movers.push(unit);
         } else if kind.consumes_capacity() {
             carried.push(unit);
@@ -2613,6 +2650,15 @@ pub fn retreat_to(
     let mut leaving = movers;
     leaving.extend(carried);
     state.move_units(system, destination, &leaving);
+    // A dual-form unit is a ship only in the active system during its battle (Z-Grav Eidolon):
+    // one that retreats takes its ground form again where it lands.
+    crate::fleet::flip_to_ground_forms(
+        state,
+        content,
+        sources,
+        std::slice::from_ref(player),
+        destination,
+    );
     for unit in &stranded {
         state.system_mut(system).remove(std::slice::from_ref(unit));
     }
@@ -3310,7 +3356,19 @@ impl CombatWindow {
                 .into(),
         );
         payload.insert("destroyed".to_owned(), destroyed.into());
+        // "At the end of a space battle in the active system, flip this card" (Z-Grav Eidolon):
+        // the survivors in this system's space area return to their ground form. Measured after
+        // the losses above, which count ships, so a flipped mech is not reported destroyed.
+        crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
         let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
+        // A mobile space dock left in a space area with another player's ships is destroyed
+        // (Floating Factory); checked when the combat that could have cleared them ends.
+        let _ = crate::production::destroy_blockaded_mobile_docks(
+            state,
+            ctx.content,
+            ctx.sources,
+            &self.system,
+        );
         announce_staged_destructions(state, ctx);
     }
 
@@ -3341,6 +3399,18 @@ impl CombatWindow {
             payload.insert("defender".to_owned(), self.defender.to_string().into());
             payload.insert("round".to_owned(), i64::from(round).into());
             if round == 1 {
+                // "At the start of a space combat", a ground-form dual-form unit (Naaz Eidolon)
+                // in the space area of the active system takes its ship form, so it fights. It
+                // is added to the fleet the end announcement measures losses against.
+                let sides = [self.attacker.clone(), self.defender.clone()];
+                for (owner, form) in
+                    crate::fleet::flip_to_ship_forms(state, content, sources, &sides, &self.system)
+                {
+                    if let Some(fleet) = self.fleet_at_start.get_mut(&owner) {
+                        fleet.push(form.to_string());
+                        fleet.sort();
+                    }
+                }
                 crate::diplomacy::evaluate_event(
                     state,
                     &crate::diplomacy::DiplomacyEventContext::HostileEngagement {
@@ -5783,6 +5853,98 @@ mod tests {
     }
 
     #[test]
+    fn a_module_bar_silences_space_cannon_against_the_named_owner_only() {
+        use crate::factions::hooks_combat::{CombatHooks, with_test_hooks};
+        let bar = CombatHooks {
+            space_cannon_barred: Some(|_, _, _, shooter, target, system| {
+                shooter.as_str() == "b" && target.as_str() == "a" && system.as_str() == "18"
+            }),
+            ..CombatHooks::NONE
+        };
+        let planet = ti4_model::id::PlanetId::new("mecatol_rex");
+        let fire = |barred: bool| {
+            let (mut state, system) = arena();
+            state
+                .system_mut(&system)
+                .planet_units
+                .entry(planet.clone())
+                .or_default()
+                .push(Unit::new(UnitTypeId::new(a_cannon_unit()), defender()));
+            put(&mut state, &system, "cruiser", &attacker(), 1);
+            let (_, mut dice, mut rng) = kit();
+            let run = |state: &mut GameState, dice: &mut Dice, rng: &mut GameRng| {
+                space_cannon_offense(
+                    state,
+                    ContentStore::embedded(),
+                    POK,
+                    dice,
+                    rng,
+                    &system,
+                    &attacker(),
+                    None,
+                )
+            };
+            if barred {
+                with_test_hooks(bar, || run(&mut state, &mut dice, &mut rng));
+            } else {
+                run(&mut state, &mut dice, &mut rng);
+            }
+            dice.count()
+        };
+        assert_eq!(fire(false), 1, "neutral without the hook");
+        assert_eq!(fire(true), 0, "the bar stops the gun");
+    }
+
+    #[test]
+    fn a_module_bar_also_stops_adjacent_reaching_guns() {
+        use crate::factions::hooks_combat::{CombatHooks, with_test_hooks};
+        let hub = crate::fixtures::plain_hub();
+        let active = SystemId::new(&hub.centre);
+        let next_door = SystemId::new(&hub.outer[0]);
+        let planet = ti4_model::id::PlanetId::new("a_planet_next_door");
+        let fire = |barred: bool| {
+            let mut state = crate::fixtures::game(&["a", "b"]);
+            for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
+                state.board.entry(SystemId::new(id)).or_default();
+            }
+            put(&mut state, &active, "cruiser", &attacker(), 1);
+            state
+                .board
+                .get_mut(&next_door)
+                .expect("system")
+                .planet_units
+                .entry(planet.clone())
+                .or_default()
+                .push(Unit::new(UnitTypeId::new("pds2"), defender()));
+            let (_, mut dice, mut rng) = kit();
+            let bar = CombatHooks {
+                space_cannon_barred: Some(|_, _, _, _, target, _| target.as_str() == "a"),
+                ..CombatHooks::NONE
+            };
+            let run = |state: &mut GameState, dice: &mut Dice, rng: &mut GameRng| {
+                space_cannon_offense(
+                    state,
+                    ContentStore::embedded(),
+                    POK,
+                    dice,
+                    rng,
+                    &active,
+                    &attacker(),
+                    Some(&hub.galaxy),
+                )
+            };
+            if barred {
+                with_test_hooks(bar, || run(&mut state, &mut dice, &mut rng));
+            } else {
+                run(&mut state, &mut dice, &mut rng);
+            }
+            dice.count()
+        };
+        assert_eq!(fire(false), 1, "the PDS II next door fires");
+        assert_eq!(fire(true), 0, "and is barred by the hook");
+    }
+
+    #[test]
     fn the_active_players_own_guns_do_not_fire_at_them() {
         let (mut state, system) = arena();
         put(&mut state, &system, &a_cannon_unit(), &attacker(), 3);
@@ -6023,6 +6185,43 @@ mod tests {
                 .command_tokens
                 .contains(&attacker()),
             "78.7d: a token goes to the destination"
+        );
+    }
+
+    #[test]
+    fn a_retreating_ship_form_mech_lands_in_its_ground_form() {
+        // Z-Grav Eidolon is a ship only in the active system during its battle; carried away by a
+        // retreat it must not stay a ship in the system it retreats to.
+        let hub = crate::fixtures::plain_hub();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let centre = SystemId::new(hub.centre.clone());
+        let refuge = SystemId::new(hub.outer[0].clone());
+        put(&mut state, &centre, "carrier", &attacker(), 1);
+        put(&mut state, &centre, "naaz_mech_space", &attacker(), 1);
+
+        let stranded = retreat_to(
+            &mut state,
+            ContentStore::embedded(),
+            ti4_model::content_types::DEFAULT,
+            &attacker(),
+            &centre,
+            &refuge,
+        );
+
+        assert_eq!(stranded, 0);
+        let landed: Vec<String> = state
+            .system_state(&refuge)
+            .units
+            .iter()
+            .map(|unit| unit.type_id.to_string())
+            .collect();
+        assert!(
+            landed.iter().any(|id| id == "naaz_mech"),
+            "flipped back: {landed:?}"
+        );
+        assert!(
+            landed.iter().all(|id| id != "naaz_mech_space"),
+            "{landed:?}"
         );
     }
 
@@ -8511,5 +8710,82 @@ mod space_routes_tests {
                 Err(CombatError::IllegalChoice(IllegalChoice::NoOptions { .. }))
             ));
         });
+    }
+
+    thread_local! {
+        static SAW_SHIP_FORM: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    }
+
+    #[test]
+    fn a_ground_form_mech_in_space_takes_its_ship_form_for_the_combat_and_flips_back() {
+        let kinds = |state: &GameState, system: &SystemId| -> Vec<String> {
+            state
+                .system_state(system)
+                .units
+                .iter()
+                .filter(|unit| unit.owner == a())
+                .map(|unit| unit.type_id.to_string())
+                .collect()
+        };
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &a(), 1);
+        put(&mut state, &system, "naaz_mech", &a(), 1);
+        put(&mut state, &system, "destroyer", &b(), 1);
+        SAW_SHIP_FORM.with(|cell| cell.set(None));
+        let probe = CombatHooks {
+            produced_hits: Some(|ctx, site| {
+                if site.player.as_str() == "a" && site.moment == CombatMoment::CombatStart {
+                    let seen = ctx
+                        .state
+                        .system_state(site.system)
+                        .units
+                        .iter()
+                        .any(|unit| {
+                            unit.owner.as_str() == "a" && unit.type_id.as_str() == "naaz_mech_space"
+                        });
+                    SAW_SHIP_FORM.with(|cell| cell.set(Some(seen)));
+                }
+                Ok(ProducedHits::NONE)
+            }),
+            ..CombatHooks::NONE
+        };
+        let fight = crate::factions::hooks_combat::with_test_hooks(probe, || {
+            fight(state, &system, 3, &[], None)
+        });
+        assert_eq!(
+            SAW_SHIP_FORM.with(std::cell::Cell::get),
+            Some(true),
+            "the mech is a ship when the combat starts"
+        );
+        let left = kinds(&fight.state, &system);
+        assert!(
+            !left.iter().any(|kind| kind == "naaz_mech_space"),
+            "no ship form survives the battle: {left:?}"
+        );
+    }
+
+    #[test]
+    fn combats_without_a_dual_form_unit_flip_nothing() {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &a(), 2);
+        put(&mut state, &system, "infantry", &a(), 1);
+        put(&mut state, &system, "destroyer", &b(), 1);
+        let before: Vec<String> = state
+            .system_state(&system)
+            .units
+            .iter()
+            .map(|unit| unit.type_id.to_string())
+            .collect();
+        let fight = fight(state, &system, 5, &[], None);
+        let after: Vec<String> = fight
+            .state
+            .system_state(&system)
+            .units
+            .iter()
+            .filter(|unit| unit.owner == a())
+            .map(|unit| unit.type_id.to_string())
+            .collect();
+        assert!(after.iter().all(|kind| before.contains(kind)));
+        assert!(!after.iter().any(|kind| kind.starts_with("naaz")));
     }
 }

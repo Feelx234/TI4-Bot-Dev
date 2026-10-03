@@ -40,6 +40,8 @@ use ti4_model::content_types::ContentType;
 use ti4_model::id::{ActionCardId, LeaderId, PlayerId};
 use ti4_model::state::{GameState, LeaderStatus};
 
+use crate::timing::TimingContext;
+
 /// How long a reveal lasts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RevealScope {
@@ -532,12 +534,28 @@ pub struct CardHooks {
     /// module; check your own condition. Consulted by [`transaction_exempt_from_limit`].
     pub transaction_limit_exempt:
         Option<fn(&GameState, &ContentStore, &PlayerId, &PlayerId) -> bool>,
+    /// Whether `player` votes first on an agenda ("You vote first", Argent Flight's Zeal). **Any**
+    /// module's `true` seats the player ahead of the rest of the voting order; several such seats
+    /// keep clockwise order from the speaker. Called for every module; check your own condition.
+    /// Consulted by [`votes_first`] from `vote::VoteWindow::new`.
+    pub votes_first: Option<fn(&GameState, &PlayerId) -> bool>,
+    /// Extra votes `player` casts, with the content corpus in hand (`vote.rs` banks it beside
+    /// `leaders::vote_bonus`; the older `Hooks::vote_bonus` has no content). Summed over modules.
+    pub vote_bonus_with_content: Option<fn(&GameState, &ContentStore, &PlayerId) -> i64>,
+    /// Runs after Ssruu (`yssarilagent`) successfully used another seat's agent text through
+    /// `leaders::use_leader_text`: `(context, borrower, source_agent)`. Ssruu is already exhausted
+    /// by then; a module hangs follow-ups here (bookkeeping, a record of what was borrowed).
+    /// Called for every module; check your own condition.
+    pub borrowed_agent_used: Option<fn(&mut TimingContext<'_>, &PlayerId, &LeaderId)>,
 }
 
 impl CardHooks {
     /// No hooks.
     pub const NONE: Self = Self {
         transaction_limit_exempt: None,
+        votes_first: None,
+        vote_bonus_with_content: None,
+        borrowed_agent_used: None,
     };
 }
 
@@ -580,8 +598,9 @@ fn hooks() -> impl Iterator<Item = CardHooks> {
 }
 
 /// Whether a faction module exempts the transaction between `active` and `other` from the
-/// per-turn limit. `false` with every module empty. **Call site (not wired, `transactions.rs` is
-/// outside this package):** wherever the once-per-player-per-turn count is checked and recorded.
+/// per-turn limit. `false` with every module empty. Called by
+/// `transactions::available_actions`, `transactions::may_open_again` and
+/// `transactions::TradeWindow::open_with_content` (BF-F5).
 #[must_use]
 pub fn transaction_exempt_from_limit(
     state: &GameState,
@@ -592,6 +611,103 @@ pub fn transaction_exempt_from_limit(
     hooks()
         .filter_map(|h| h.transaction_limit_exempt)
         .any(|f| f(state, content, active, other))
+}
+
+/// Whether a module seats `player` first in the voting order. `false` with every module empty.
+#[must_use]
+pub fn votes_first(state: &GameState, player: &PlayerId) -> bool {
+    hooks()
+        .filter_map(|h| h.votes_first)
+        .any(|f| f(state, player))
+}
+
+/// Extra votes from modules that need the content corpus. `0` with every module empty.
+#[must_use]
+pub fn vote_bonus_with_content(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+) -> i64 {
+    hooks()
+        .filter_map(|h| h.vote_bonus_with_content)
+        .map(|f| f(state, content, player))
+        .sum()
+}
+
+/// Tell every module that `borrower` used `source_agent`'s text through Ssruu.
+pub fn borrowed_agent_used(
+    context: &mut TimingContext<'_>,
+    borrower: &PlayerId,
+    source_agent: &LeaderId,
+) {
+    for f in hooks().filter_map(|h| h.borrowed_agent_used) {
+        f(context, borrower, source_agent);
+    }
+}
+
+// -- COMMAND_TOKEN_PLACED -------------------------------------------------------------------------
+
+/// The typed event name for "a command token was placed on the board".
+pub const COMMAND_TOKEN_PLACED: &str = "COMMAND_TOKEN_PLACED";
+
+/// Where a placed command token came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenPool {
+    /// Taken from the player's command sheet: tactic pool (activation).
+    Tactic,
+    /// Taken from the command sheet: fleet pool.
+    Fleet,
+    /// Taken from the command sheet: strategy pool.
+    Strategy,
+    /// Taken from reinforcements (Stymie, Mahact-style effects, card and agenda placements).
+    Reinforcements,
+}
+
+impl TokenPool {
+    /// The payload token for `pool`.
+    #[must_use]
+    pub const fn token(self) -> &'static str {
+        match self {
+            Self::Tactic => "tactic",
+            Self::Fleet => "fleet",
+            Self::Strategy => "strategy",
+            Self::Reinforcements => "reinforcements",
+        }
+    }
+}
+
+/// Payload of `COMMAND_TOKEN_PLACED`: `player` (whose token), `system`, `pool` ([`TokenPool::token`]).
+#[must_use]
+pub fn command_token_placed_payload(
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    pool: TokenPool,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut payload = std::collections::BTreeMap::new();
+    payload.insert("player".to_owned(), player.to_string().into());
+    payload.insert("system".to_owned(), system.to_string().into());
+    payload.insert("pool".to_owned(), pool.token().into());
+    payload
+}
+
+/// Open the `COMMAND_TOKEN_PLACED` window for a token already placed. Call this at the placement
+/// site, after the token is on the board, from any code holding a context and a resolver.
+///
+/// # Errors
+/// [`crate::timing::TimingError`] when the window cannot be resolved.
+pub fn announce_command_token_placed(
+    context: &mut TimingContext<'_>,
+    resolver: &mut crate::timing::Resolver,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    pool: TokenPool,
+) -> Result<(), crate::timing::TimingError> {
+    let event = context.event_sequence.next(
+        COMMAND_TOKEN_PLACED,
+        command_token_placed_payload(player, system, pool),
+    )?;
+    resolver.emit_with_context(context, event, |_, _| {})?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -859,11 +975,65 @@ mod tests {
     }
 
     #[test]
+    fn command_token_placed_payload_and_window_carry_player_system_and_pool() {
+        let payload = command_token_placed_payload(
+            &pid("a"),
+            &ti4_model::id::SystemId::new("27"),
+            TokenPool::Reinforcements,
+        );
+        assert_eq!(payload.get("player").and_then(|v| v.as_str()), Some("a"));
+        assert_eq!(payload.get("system").and_then(|v| v.as_str()), Some("27"));
+        assert_eq!(
+            payload.get("pool").and_then(|v| v.as_str()),
+            Some("reinforcements")
+        );
+        assert_eq!(payload.len(), 3);
+
+        // The window opens through a real resolver with no listener: it announces and returns.
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut table = crate::choice::Table::new();
+        let result = crate::fixtures::with_context(
+            &mut state,
+            ti4_model::content_types::DEFAULT,
+            None,
+            &mut table,
+            |ctx| {
+                announce_command_token_placed(
+                    ctx,
+                    &mut resolver,
+                    &pid("a"),
+                    &ti4_model::id::SystemId::new("27"),
+                    TokenPool::Tactic,
+                )
+            },
+        );
+        assert!(result.is_ok());
+        assert!(
+            resolver
+                .log()
+                .iter()
+                .any(|line| line.contains("COMMAND_TOKEN_PLACED")),
+            "the event reached the resolver: {:?}",
+            resolver.log()
+        );
+    }
+
+    #[test]
+    fn card_hooks_are_neutral_when_empty() {
+        let state = crate::fixtures::game(&["a", "b"]);
+        let content = ContentStore::embedded();
+        assert!(!votes_first(&state, &pid("a")));
+        assert_eq!(vote_bonus_with_content(&state, content, &pid("a")), 0);
+    }
+
+    #[test]
     fn a_test_hook_exempts_a_transaction_only_inside_its_scope() {
         let state = crate::fixtures::game(&["a", "b"]);
         let content = ContentStore::embedded();
         let exempt = CardHooks {
             transaction_limit_exempt: Some(|_, _, _, other| other.as_str() == "b"),
+            ..CardHooks::NONE
         };
         with_test_hooks(exempt, || {
             assert!(transaction_exempt_from_limit(

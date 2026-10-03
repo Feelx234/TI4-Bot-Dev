@@ -18,7 +18,8 @@
 //! | `TRADE_GOODS_GAINED` | `supply::gain_trade_goods_announced` / `_via` | `player`, `amount` (actually gained), `source` |
 
 use ti4_content::ContentStore;
-use ti4_model::id::{ActionCardId, PlanetId, PlayerId};
+use ti4_model::content_types::SourceSet;
+use ti4_model::id::{ActionCardId, PlanetId, PlayerId, SystemId};
 use ti4_model::state::GameState;
 
 use crate::choice::{IllegalChoice, Table};
@@ -86,6 +87,33 @@ pub struct EconomyHooks {
     /// action gate) and exposed as [`action_cards_forbidden`] for the reaction-window gate
     /// `reactions::playable_now`, which is not in this package's files (see the evidence).
     pub action_cards_forbidden: Option<fn(&GameState, &PlayerId) -> bool>,
+    /// PRODUCTION added to `system` for `player` as if from a unit of theirs (BF-F3 package K).
+    /// Summed into `production::capacity`; the system then counts as having a producer for ships
+    /// (which are placed in the space area). Muaat Magmus Reactor ("each supernova that contains 1
+    /// or more of your units gains PRODUCTION 5"), Creuss Particle Synthesis (each wormhole in a
+    /// system with your ships gains PRODUCTION 1). Sum over modules; `0` is neutral. Called for every
+    /// player and system: check your own condition.
+    pub extra_production:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId) -> i64>,
+    /// PRODUCTION added to one *planet* of `system` as if from a unit of `player` there. Summed into
+    /// `production::capacity`, and a planet with a positive value is a placement spot for ground
+    /// forces and structures (`production::placements`, subject to the same planet gates as a real
+    /// producer). Argent Aerie Hololattice (PRODUCTION 1 for each planet with 1+ of your structures).
+    pub extra_production_planet:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId, &PlanetId) -> i64>,
+    /// Reduction of the combined cost of units `player` produces in `system` (BF-F3 package K),
+    /// applied as part of the use's discount pool, so it never reduces below zero. Creuss Particle
+    /// Synthesis ("reduce the combined cost ... by 1 for each wormhole in that system"), Argent
+    /// Hololattice. Sum over modules.
+    pub production_cost_reduction: Option<fn(&GameState, &PlayerId, &SystemId) -> i64>,
+    /// Whether `player` draws an extra exploration card when exploring `planet`, and chooses which
+    /// to resolve (the other is discarded). Naaz Distant Suns (BF-F3 package H). Any module's `true`.
+    pub explore_extra_draw:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &PlanetId) -> bool>,
+    /// After `player` finishes exploring `planet` (the card resolved and gains applied), called once
+    /// per module at the end of `exploration::explore_with`. Naaz Pre-Fab Arcologies ("ready that
+    /// planet"). Atomic: mutate only.
+    pub explored: Option<fn(&mut GameState, &ContentStore, SourceSet, &PlayerId, &PlanetId)>,
 }
 
 impl EconomyHooks {
@@ -98,6 +126,11 @@ impl EconomyHooks {
         action_cards_drawn: None,
         action_card_limit: None,
         action_cards_forbidden: None,
+        extra_production: None,
+        extra_production_planet: None,
+        production_cost_reduction: None,
+        explore_extra_draw: None,
+        explored: None,
     };
 }
 
@@ -235,6 +268,74 @@ pub(crate) fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bo
         .any(|f| f(state, player))
 }
 
+/// Extra PRODUCTION modules add to `system` for `player` (see [`EconomyHooks::extra_production`]).
+pub(crate) fn extra_production(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> i64 {
+    hooks()
+        .filter_map(|h| h.extra_production)
+        .map(|f| f(state, content, sources, player, system))
+        .sum()
+}
+
+/// Extra PRODUCTION modules add to one planet (see [`EconomyHooks::extra_production_planet`]).
+pub(crate) fn extra_production_planet(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> i64 {
+    hooks()
+        .filter_map(|h| h.extra_production_planet)
+        .map(|f| f(state, content, sources, player, system, planet))
+        .sum()
+}
+
+/// Combined-cost reduction for production in `system` (see [`EconomyHooks::production_cost_reduction`]).
+pub(crate) fn production_cost_reduction(
+    state: &GameState,
+    player: &PlayerId,
+    system: &SystemId,
+) -> i64 {
+    hooks()
+        .filter_map(|h| h.production_cost_reduction)
+        .map(|f| f(state, player, system))
+        .sum::<i64>()
+        .max(0)
+}
+
+/// Whether any module grants `player` an extra exploration draw on `planet`.
+pub(crate) fn explore_extra_draw(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    planet: &PlanetId,
+) -> bool {
+    hooks()
+        .filter_map(|h| h.explore_extra_draw)
+        .any(|f| f(state, content, sources, player, planet))
+}
+
+/// Tell every module `player` finished exploring `planet`.
+pub(crate) fn explored(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    planet: &PlanetId,
+) {
+    for f in hooks().filter_map(|h| h.explored) {
+        f(state, content, sources, player, planet);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,6 +364,15 @@ mod tests {
         assert_eq!(action_card_draw_bonus(&state, content, &a, 2), 0);
         assert_eq!(action_card_limit(&state, content, &a, 7), 7);
         assert!(!action_cards_forbidden(&state, &a));
+        let system = SystemId::new("s");
+        let sources = ti4_model::content_types::DEFAULT;
+        assert_eq!(extra_production(&state, content, sources, &a, &system), 0);
+        assert_eq!(
+            extra_production_planet(&state, content, sources, &a, &system, &planet),
+            0
+        );
+        assert_eq!(production_cost_reduction(&state, &a, &system), 0);
+        assert!(!explore_extra_draw(&state, content, sources, &a, &planet));
     }
 
     #[test]

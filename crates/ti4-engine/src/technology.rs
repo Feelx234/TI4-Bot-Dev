@@ -210,9 +210,8 @@ pub fn start_turn(
                 break;
             }
             state.exhaust_planet(PlanetId::new(answer.id));
-            if let Some(seat) = state.player_mut(player) {
-                seat.trade_goods += 1;
-            }
+            // No timing handle in this window: named gain, not announced (see BF-F3 remaining sites).
+            crate::supply::gain_trade_goods(state, player, 1);
         }
     }
 
@@ -874,6 +873,34 @@ pub fn specialties(
     found
 }
 
+/// The research track a module names by track or by colour (`"green"` is BIOTIC).
+fn track_named(name: &str) -> Option<&'static str> {
+    match name.to_ascii_uppercase().as_str() {
+        "BIOTIC" | "GREEN" => Some("BIOTIC"),
+        "CYBERNETIC" | "YELLOW" => Some("CYBERNETIC"),
+        "PROPULSION" | "BLUE" => Some("PROPULSION"),
+        "WARFARE" | "RED" => Some("WARFARE"),
+        _ => None,
+    }
+}
+
+/// A faction module's way to research `alias` ignoring its prerequisites (Yin commander), if one
+/// is offered now. Read-only; the first offer is the one [`research`] uses. Callers that can ask
+/// should offer it beside Inheritance Systems and settle the cost with
+/// [`crate::factions::hooks_strategy`]'s `research_waiver_paid`.
+#[must_use]
+pub fn research_waiver_offer(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) -> Option<crate::factions::hooks_strategy::ResearchWaiver> {
+    crate::factions::hooks_strategy::research_waiver_offers(state, content, player, alias)
+        .into_iter()
+        .next()
+        .map(|(_, waiver)| waiver)
+}
+
 /// Whether this player may research a technology now.
 #[must_use]
 pub fn can_research(
@@ -917,6 +944,7 @@ pub fn can_research(
     }
     prerequisites_met(state, content, sources, player, alias)
         || inheritance_systems_ready(state, content, sources, player)
+        || research_waiver_offer(state, content, player, alias).is_some()
 }
 
 /// Inheritance Systems (L1Z1X): "You may exhaust this card and spend 2 resources when you research
@@ -969,6 +997,14 @@ fn prerequisites_met(
     let mut holdings: std::collections::BTreeMap<&'static str, usize> = held;
     for (colour, count) in specialties {
         *holdings.entry(colour).or_insert(0) += count;
+    }
+    // Faction modules that stand in for a technology of some colour (Yin commander: green).
+    for (name, count) in
+        crate::factions::hooks_strategy::extra_prerequisite_colours(state, content, player)
+    {
+        if let Some(colour) = track_named(&name) {
+            *holdings.entry(colour).or_insert(0) += count;
+        }
     }
     // Research Team laws attach to a planet and are exhausted to ignore one prerequisite of their
     // colour. They add to the same waiver budget the faction abilities use, because both are
@@ -1050,11 +1086,15 @@ pub fn apply_unit_upgrades(
     let mut swaps: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     for kind in catalogue.values() {
         let base = kind.base_type();
-        if let Some(better) =
-            ti4_content::units::unlocked_upgrade(content, sources, base, &faction, &held)
-            && better.id() != kind.id()
-        {
-            swaps.insert(kind.id().to_owned(), better.id().to_owned());
+        let chosen = ti4_content::units::unlocked_upgrade(content, sources, base, &faction, &held)
+            .map_or_else(|| kind.id().to_owned(), |better| better.id().to_owned());
+        // A module may name another form for this base type (Mentak Corsair's acquisition).
+        let chosen = crate::factions::hooks_strategy::unit_form_override(
+            state, content, sources, player, base, &chosen,
+        )
+        .map_or(chosen, |form| form.as_str().to_owned());
+        if chosen != kind.id() {
+            swaps.insert(kind.id().to_owned(), chosen);
         }
     }
     if swaps.is_empty() {
@@ -1095,7 +1135,17 @@ pub fn research(
     }
     // Researchable only through Inheritance Systems: exhaust it and pay its 2 resources now, with
     // the cheapest plan (this path has no table to ask which planets; the plans are minimal).
-    if !prerequisites_met(state, content, sources, player, alias) {
+    if !prerequisites_met(state, content, sources, player, alias)
+        && !inheritance_systems_ready(state, content, sources, player)
+        && let Some((index, _)) =
+            crate::factions::hooks_strategy::research_waiver_offers(state, content, player, alias)
+                .into_iter()
+                .next()
+    {
+        // A module's waiver (Yin commander): this path has no table, so the first offer is taken
+        // and the module charges its cost.
+        crate::factions::hooks_strategy::research_waiver_paid(state, content, player, alias, index);
+    } else if !prerequisites_met(state, content, sources, player, alias) {
         let Some(plan) = crate::payment::plans(
             state,
             content,
@@ -2106,6 +2156,108 @@ mod replaced_upgrades {
         assert!(
             !replaced_for_faction(content, "", &carrier_two),
             "an unseated faction blocks nothing"
+        );
+    }
+}
+
+#[cfg(test)]
+mod bf_f3_tests {
+    use super::*;
+    use crate::factions::hooks_strategy::{ResearchWaiver, StrategyHooks, with_test_hooks};
+    use crate::fixtures::game;
+    use ti4_model::content_types::POK;
+    use ti4_model::id::UnitTypeId;
+
+    fn a() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    #[test]
+    fn an_extra_prerequisite_colour_stands_in_for_an_owned_technology() {
+        let state = game(&["a"]);
+        let content = ContentStore::embedded();
+        let gd = TechnologyId::new("gd"); // one PROPULSION (blue) prerequisite
+        assert!(!can_research(&state, content, POK, &a(), &gd));
+        let blue = StrategyHooks {
+            extra_prerequisite_colours: Some(|_, _, _| vec![("blue".to_owned(), 1)]),
+            ..StrategyHooks::NONE
+        };
+        with_test_hooks(blue, || {
+            assert!(can_research(&state, content, POK, &a(), &gd));
+            assert!(researchable(&state, content, POK, &a()).contains(&gd));
+        });
+        let wrong = StrategyHooks {
+            extra_prerequisite_colours: Some(|_, _, _| {
+                vec![("green".to_owned(), 1), ("mauve".to_owned(), 9)]
+            }),
+            ..StrategyHooks::NONE
+        };
+        with_test_hooks(wrong, || {
+            assert!(!can_research(&state, content, POK, &a(), &gd));
+        });
+    }
+
+    #[test]
+    fn a_module_waiver_researches_past_the_prerequisites_and_is_paid_once() {
+        let content = ContentStore::embedded();
+        let gd = TechnologyId::new("gd");
+        let waiver = StrategyHooks {
+            research_waiver_offer: Some(|_, _, _, tech| {
+                (tech.as_str() == "gd").then(|| ResearchWaiver {
+                    id: "w".to_owned(),
+                    label: "ignore prerequisites".to_owned(),
+                })
+            }),
+            research_waiver_paid: Some(|state, _, player, tech| {
+                state
+                    .faction_marks
+                    .insert(format!("paid:{player}:{tech}"), String::new());
+            }),
+            ..StrategyHooks::NONE
+        };
+        let mut state = game(&["a"]);
+        assert!(!research(&mut state, content, POK, &a(), &gd), "no hook");
+        assert!(state.faction_marks.is_empty());
+        with_test_hooks(waiver, || {
+            assert!(research_waiver_offer(&state, content, &a(), &gd).is_some());
+            assert!(
+                research_waiver_offer(&state, content, &a(), &TechnologyId::new("ws")).is_none()
+            );
+            assert!(research(&mut state, content, POK, &a(), &gd));
+        });
+        assert!(state.player(&a()).unwrap().technologies.contains(&gd));
+        assert_eq!(state.faction_marks.len(), 1);
+        assert!(state.faction_marks.contains_key("paid:a:gd"));
+    }
+
+    #[test]
+    fn a_unit_form_override_replaces_units_on_the_board_and_the_build_list() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, _) = crate::fixtures::a_placed_planet();
+        crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+        assert!(
+            crate::production::buildable_for(&state, content, POK, &a())
+                .contains(&"cruiser".to_owned())
+        );
+        let corsair = StrategyHooks {
+            unit_form_override: Some(|_, _, _, player, base, _| {
+                (player.as_str() == "a" && base == "cruiser")
+                    .then(|| UnitTypeId::new("mentak_cruiser3"))
+            }),
+            ..StrategyHooks::NONE
+        };
+        with_test_hooks(corsair, || {
+            let list = crate::production::buildable_for(&state, content, POK, &a());
+            assert!(list.contains(&"mentak_cruiser3".to_owned()));
+            assert!(!list.contains(&"cruiser".to_owned()));
+            let other = crate::production::buildable_for(&state, content, POK, &PlayerId::new("b"));
+            assert!(other.contains(&"cruiser".to_owned()));
+            apply_unit_upgrades(&mut state, content, POK, &a());
+        });
+        assert_eq!(
+            state.system_state(&system).units[0].type_id.as_str(),
+            "mentak_cruiser3"
         );
     }
 }

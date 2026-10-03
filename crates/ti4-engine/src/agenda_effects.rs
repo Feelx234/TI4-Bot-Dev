@@ -259,6 +259,7 @@ fn clear_planet(
     planet: &str,
     doomed: impl Fn(&str) -> bool,
     limit: Option<usize>,
+    agenda: &str,
 ) -> usize {
     let Some(system) = system_of(state, content, sources, planet) else {
         return 0;
@@ -269,6 +270,7 @@ fn clear_planet(
         return 0;
     };
     let mut destroyed = 0;
+    let mut fallen: Vec<ti4_model::units::Unit> = Vec::new();
     units.retain(|unit| {
         if limit.is_some_and(|cap| destroyed >= cap) {
             return true;
@@ -278,9 +280,23 @@ fn clear_planet(
             .is_some_and(|kind| doomed(kind.base_type()));
         if hit {
             destroyed += 1;
+            if types
+                .get(unit.type_id.as_str())
+                .is_some_and(ti4_content::units::UnitType::is_ground_force)
+            {
+                fallen.push(unit.clone());
+            }
         }
         !hit
     });
+    // Staged for the coordinator's flush (`hooks_ground::announce_staged_events`): an agenda
+    // effect holds no resolver.
+    let cause = format!("agenda:{agenda}");
+    for unit in &fallen {
+        crate::factions::hooks_ground::stage_ground_force_destroyed(
+            state, &system, &planet, unit, &cause,
+        );
+    }
     destroyed
 }
 
@@ -514,7 +530,15 @@ pub fn resolve_with(
             // furthest behind. Several may be level, and the controller chooses between them.
             let controller = controller_of(state, outcome);
             let system = system_of(state, content, sources, outcome);
-            clear_planet(state, content, sources, outcome, |_| true, None);
+            clear_planet(
+                state,
+                content,
+                sources,
+                outcome,
+                |_| true,
+                None,
+                "redistribution",
+            );
             let (Some(controller), Some(system)) = (controller, system) else {
                 return Effect::Resolved {
                     agenda: agenda.to_owned(),
@@ -784,6 +808,7 @@ pub fn resolve_with(
                 outcome,
                 |base| matches!(base, "infantry" | "mech"),
                 None,
+                "disarmament",
             );
             if let Some(controller) = controller
                 && destroyed > 0
@@ -842,10 +867,21 @@ pub fn resolve_with(
                         })
                         .unwrap_or_default();
                     let losses = held.len().div_ceil(2);
+                    let mut fallen: Vec<ti4_model::units::Unit> = Vec::new();
                     if let Some(units) = state.system_mut(&system).planet_units.get_mut(&planet) {
                         for index in held.into_iter().take(losses).rev() {
-                            units.remove(index);
+                            fallen.push(units.remove(index));
                         }
+                    }
+                    // Staged in the order they fell (highest index first, as removed).
+                    for unit in &fallen {
+                        crate::factions::hooks_ground::stage_ground_force_destroyed(
+                            state,
+                            &system,
+                            &planet,
+                            unit,
+                            "agenda:plowshares",
+                        );
                     }
                     destroyed += losses;
                 }
@@ -1076,11 +1112,20 @@ pub fn resolve_with(
                 outcome,
                 |base| base == "infantry",
                 Some(1),
+                "core_mining",
             );
         }
         "demilitarized_zone" => {
             // Everything on the planet dies; the standing ban is the law.
-            clear_planet(state, content, sources, outcome, |_| true, None);
+            clear_planet(
+                state,
+                content,
+                sources,
+                outcome,
+                |_| true,
+                None,
+                "demilitarized_zone",
+            );
         }
         "holy_planet_of_ixth" => {
             if let Some(controller) = controller_of(state, outcome) {
@@ -2623,5 +2668,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// BF-F1 package A: an agenda that destroys a garrison stages one event per ground force.
+    #[test]
+    fn disarmament_stages_ground_force_destroyed_with_the_agenda_as_cause() {
+        let (mut state, planet, _player) = garrison(2);
+        run(&mut state, "disarmament", planet.as_str(), &no_votes());
+
+        let events = crate::factions::hooks_ground::test_support::flush_recorded(&mut state);
+        assert_eq!(events.len(), 2);
+        for (name, payload) in &events {
+            assert_eq!(name, "GROUND_FORCE_DESTROYED");
+            assert_eq!(payload["player"], "a");
+            assert_eq!(payload["unit"], "infantry");
+            assert_eq!(payload["planet"], planet.to_string());
+            assert_eq!(payload["cause"], "agenda:disarmament");
+        }
+    }
+
+    #[test]
+    fn plowshares_stages_the_infantry_it_buys_out() {
+        let (mut state, _planet, _player) = garrison(3);
+        run(&mut state, "plowshares", FOR, &no_votes());
+        let events = crate::factions::hooks_ground::test_support::flush_recorded(&mut state);
+        assert_eq!(events.len(), 2, "three lose two");
+        assert!(
+            events
+                .iter()
+                .all(|(_, payload)| payload["cause"] == "agenda:plowshares")
+        );
+    }
+
+    #[test]
+    fn an_agenda_that_destroys_no_ground_force_stages_nothing() {
+        let (mut state, planet, _player) = garrison(0);
+        run(&mut state, "disarmament", planet.as_str(), &no_votes());
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
     }
 }

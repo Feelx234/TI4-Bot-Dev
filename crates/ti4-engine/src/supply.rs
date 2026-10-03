@@ -218,6 +218,191 @@ pub fn gain_trade_goods_via(
     Ok(gained)
 }
 
+// -- staged announcements (BF-F3) ----------------------------------------------------------------
+//
+// A site with a table but no timing handle (strategy-card primaries, relics, leader hooks, a
+// production run with `Resolving::timing == None`) cannot announce an event. It STAGES it instead:
+// the typed payload is kept in `GameState::faction_marks` under `staged:event:NNNNNN` and
+// announced by [`flush_staged_events`], which the coordinator calls wherever a `Resolving` with a
+// timing handle is in reach (after a leader action, a component action, a strategy-card primary).
+// Staging happens only when a registered faction module is seated ([`staging_enabled`]), so a game
+// with no module player records nothing and behaves exactly as before.
+
+/// `private:#…` rows are visible to no seat (`ti4_model::view::mark_visible_to`), like the ground
+/// staging rows: staged events are engine bookkeeping, not state any viewer should see.
+const STAGED_EVENT_PREFIX: &str = "private:#staged:event:";
+
+/// Whether a seated player's faction has a registered module, i.e. whether anything could react to
+/// a staged event. With none, staging is skipped and state is untouched.
+#[must_use]
+pub fn staging_enabled(state: &GameState) -> bool {
+    state.seating_order.iter().any(|player| {
+        state.player(player).is_some_and(|seat| {
+            crate::factions::MODULES
+                .iter()
+                .any(|module| module.alias == seat.faction.as_str())
+        })
+    })
+}
+
+/// Keep a typed event for [`flush_staged_events`]. Returns whether it was staged (`false` when
+/// [`staging_enabled`] is false).
+pub fn stage_event(
+    state: &mut GameState,
+    event_type: &str,
+    payload: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> bool {
+    if !staging_enabled(state) {
+        return false;
+    }
+    // Next index after the highest still staged, not the row count: a flush removes rows from the
+    // front, and a reaction staging during it must not overwrite a row still waiting.
+    let index = state
+        .faction_marks
+        .range(STAGED_EVENT_PREFIX.to_owned()..)
+        .take_while(|(key, _)| key.starts_with(STAGED_EVENT_PREFIX))
+        .filter_map(|(key, _)| key[STAGED_EVENT_PREFIX.len()..].parse::<usize>().ok())
+        .max()
+        .map_or(0, |highest| highest + 1);
+    let record = serde_json::json!({ "type": event_type, "payload": payload });
+    state.faction_marks.insert(
+        format!("{STAGED_EVENT_PREFIX}{index:06}"),
+        record.to_string(),
+    );
+    true
+}
+
+/// How many events are staged and not yet announced.
+#[must_use]
+pub fn staged_events(state: &GameState) -> usize {
+    state
+        .faction_marks
+        .keys()
+        .filter(|key| key.starts_with(STAGED_EVENT_PREFIX))
+        .count()
+}
+
+/// The `type` of each staged event, in staging order.
+#[must_use]
+pub fn staged_event_types(state: &GameState) -> Vec<String> {
+    state
+        .faction_marks
+        .iter()
+        .filter(|(key, _)| key.starts_with(STAGED_EVENT_PREFIX))
+        .filter_map(|(_, text)| serde_json::from_str::<serde_json::Value>(text).ok())
+        .filter_map(|record| record.get("type")?.as_str().map(ToOwned::to_owned))
+        .collect()
+}
+
+/// Announce every staged event (`UNITS_PRODUCED`, `TRADE_GOODS_GAINED`, `STRATEGY_TOKEN_SPENT`)
+/// through `ctx`, in the order staged, clearing each first so a reaction that stages more events
+/// is handled in the same call. Returns how many were announced; with `ctx.timing == None` it does
+/// nothing and leaves them staged.
+///
+/// THE FLUSH FUNCTION: the coordinator calls this after leader actions, component actions, and
+/// strategy-card primaries / relic uses (`game.rs`), wherever a timing handle is in reach.
+pub fn flush_staged_events(state: &mut GameState, ctx: &mut crate::choice::Resolving<'_>) -> usize {
+    if ctx.timing.is_none() {
+        return 0;
+    }
+    let mut announced = 0;
+    while let Some(key) = state
+        .faction_marks
+        .keys()
+        .find(|key| key.starts_with(STAGED_EVENT_PREFIX))
+        .cloned()
+    {
+        let Some(text) = state.faction_marks.remove(&key) else {
+            break;
+        };
+        let Ok(record) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let (Some(kind), Some(payload)) = (
+            record.get("type").and_then(serde_json::Value::as_str),
+            record
+                .get("payload")
+                .and_then(|payload| payload.as_object()),
+        ) else {
+            continue;
+        };
+        let payload: std::collections::BTreeMap<String, serde_json::Value> = payload
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        crate::factions::hooks_economy::emit(ctx, state, kind, payload);
+        announced += 1;
+    }
+    announced
+}
+
+/// [`gain_trade_goods`] for a site with no timing handle: the gain is made now and its
+/// `TRADE_GOODS_GAINED` is staged for [`flush_staged_events`].
+pub fn gain_trade_goods_staged(
+    state: &mut GameState,
+    player: &PlayerId,
+    amount: i32,
+    source: &str,
+) -> i32 {
+    let gained = gain_trade_goods(state, player, amount);
+    if gained > 0 {
+        stage_event(
+            state,
+            "TRADE_GOODS_GAINED",
+            &goods_payload(player, gained, source),
+        );
+    }
+    gained
+}
+
+fn token_spent_payload(
+    player: &PlayerId,
+    reason: &str,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut payload = std::collections::BTreeMap::new();
+    payload.insert("player".to_owned(), player.to_string().into());
+    payload.insert("reason".to_owned(), reason.into());
+    payload
+}
+
+/// Spend 1 token from `player`'s strategy pool and announce `STRATEGY_TOKEN_SPENT` (`player`,
+/// `reason`), for Muaat Magmus ("after you spend a token from your strategy pool"). Returns whether
+/// a token was spent (`false`, and nothing announced, when the pool is empty).
+pub fn spend_strategy_token_announced(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    reason: &str,
+) -> bool {
+    let spent = state
+        .player_mut(player)
+        .is_some_and(|seat| seat.spend_token(ti4_model::state::TokenPool::Strategic));
+    if spent {
+        crate::factions::hooks_economy::emit(
+            ctx,
+            state,
+            "STRATEGY_TOKEN_SPENT",
+            token_spent_payload(player, reason),
+        );
+    }
+    spent
+}
+
+/// [`spend_strategy_token_announced`] for a site with no timing handle: the event is staged.
+pub fn spend_strategy_token_staged(state: &mut GameState, player: &PlayerId, reason: &str) -> bool {
+    let spent = state
+        .player_mut(player)
+        .is_some_and(|seat| seat.spend_token(ti4_model::state::TokenPool::Strategic));
+    if spent {
+        stage_event(
+            state,
+            "STRATEGY_TOKEN_SPENT",
+            &token_spent_payload(player, reason),
+        );
+    }
+    spent
+}
+
 // -- capture (BF-00d-strategy) ----------------------------------------------------------------------
 //
 // Captured units live in `Player::captured_units` of the player who holds them, as `(owner, unit
@@ -1034,6 +1219,187 @@ mod capture_tests {
                 "test"
             ),
             None
+        );
+    }
+}
+
+#[cfg(test)]
+mod bf_f3_tests {
+    use super::*;
+    use ti4_model::content_types::POK;
+
+    type Seen = std::sync::Arc<
+        std::sync::Mutex<Vec<std::collections::BTreeMap<String, serde_json::Value>>>,
+    >;
+
+    fn listening(event: &str) -> (crate::timing::Resolver, Seen) {
+        let seen = Seen::default();
+        let sink = seen.clone();
+        let mut resolver = crate::timing::Resolver::new(
+            vec![PlayerId::new("a"), PlayerId::new("b")],
+            Some(PlayerId::new("a")),
+            crate::choice::Table::default(),
+        );
+        resolver.register([crate::timing::Ability::new(
+            "test:listener",
+            PlayerId::new("a"),
+            event,
+            crate::timing::Relation::After,
+            std::sync::Arc::new(move |event, _| {
+                sink.lock().unwrap().push(event.payload.clone());
+                Ok(())
+            }),
+        )]);
+        (resolver, seen)
+    }
+
+    #[test]
+    fn staging_during_a_flush_never_overwrites_a_waiting_row() {
+        // A reaction to a flushed event may stage another; the new row must not reuse a key
+        // that is still waiting (indices come from the highest staged row, not the count).
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "saar"), ("b", "sol")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let payload = std::collections::BTreeMap::new();
+        for _ in 0..3 {
+            assert!(super::stage_event(&mut state, "TEST_EVENT", &payload));
+        }
+        let first = state
+            .faction_marks
+            .keys()
+            .find(|key| key.starts_with(super::STAGED_EVENT_PREFIX))
+            .cloned()
+            .expect("staged");
+        state.faction_marks.remove(&first);
+        assert!(super::stage_event(&mut state, "LATE_EVENT", &payload));
+        assert_eq!(super::staged_events(&state), 3, "nothing overwritten");
+        assert!(
+            state
+                .faction_marks
+                .keys()
+                .all(|key| !key.starts_with("staged:")),
+            "staging rows are private"
+        );
+    }
+
+    #[test]
+    fn staged_gains_flush_in_order_and_only_with_a_timing_handle() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], POK);
+        let a = PlayerId::new("a");
+        assert_eq!(gain_trade_goods_staged(&mut state, &a, 2, "one"), 2);
+        assert_eq!(gain_trade_goods_staged(&mut state, &a, 0, "none"), 0);
+        assert_eq!(gain_trade_goods_staged(&mut state, &a, 1, "two"), 1);
+        assert_eq!(staged_events(&state), 2);
+
+        let (mut resolver, seen) = listening("TRADE_GOODS_GAINED");
+        let mut sequence = crate::event::EventSequence::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut table = crate::choice::Table::new();
+        let mut quiet = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        assert_eq!(flush_staged_events(&mut state, &mut quiet), 0);
+        assert_eq!(staged_events(&state), 2, "left staged");
+        let mut table = crate::choice::Table::new();
+        let mut loud = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        assert_eq!(flush_staged_events(&mut state, &mut loud), 2);
+        assert_eq!(staged_events(&state), 0);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[0]["source"], "one");
+        assert_eq!(seen[1]["source"], "two");
+    }
+
+    #[test]
+    fn nothing_is_staged_without_a_module_seat() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        assert_eq!(
+            gain_trade_goods_staged(&mut state, &PlayerId::new("a"), 3, "x"),
+            3
+        );
+        assert_eq!(staged_events(&state), 0);
+        assert!(state.faction_marks.is_empty());
+    }
+
+    #[test]
+    fn spending_a_strategy_token_announces_or_stages_the_event() {
+        let content = ContentStore::embedded();
+        let a = PlayerId::new("a");
+        let mut state = crate::fixtures::seated_game(&[("a", "muaat"), ("b", "sol")], POK);
+        state.gain_token(&a, ti4_model::state::TokenPool::Strategic, 3);
+        let before = state
+            .player(&a)
+            .unwrap()
+            .tokens(ti4_model::state::TokenPool::Strategic);
+
+        assert!(spend_strategy_token_staged(&mut state, &a, "test"));
+        assert_eq!(staged_event_types(&state), ["STRATEGY_TOKEN_SPENT"]);
+
+        let (mut resolver, seen) = listening("STRATEGY_TOKEN_SPENT");
+        let mut sequence = crate::event::EventSequence::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut table = crate::choice::Table::new();
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        assert!(spend_strategy_token_announced(
+            &mut state, &mut ctx, &a, "direct"
+        ));
+        assert_eq!(
+            state
+                .player(&a)
+                .unwrap()
+                .tokens(ti4_model::state::TokenPool::Strategic),
+            before - 2
+        );
+        assert_eq!(flush_staged_events(&mut state, &mut ctx), 1);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[0]["reason"], "direct");
+        assert_eq!(seen[1]["reason"], "test");
+        assert_eq!(seen[1]["player"], "a");
+
+        let mut empty = crate::fixtures::seated_game(&[("a", "muaat"), ("b", "sol")], POK);
+        empty
+            .player_mut(&a)
+            .unwrap()
+            .spend_token(ti4_model::state::TokenPool::Strategic);
+        while spend_strategy_token_staged(&mut empty, &a, "drain") {}
+        let staged = staged_events(&empty);
+        assert!(!spend_strategy_token_staged(&mut empty, &a, "none"));
+        assert_eq!(
+            staged_events(&empty),
+            staged,
+            "an empty pool announces nothing"
         );
     }
 }

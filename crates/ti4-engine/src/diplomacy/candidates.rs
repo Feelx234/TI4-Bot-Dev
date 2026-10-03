@@ -548,10 +548,7 @@ fn trade_bundles(ctx: &CandidateContext<'_>) -> Vec<CandidateBundle> {
             ctx.recipient,
         );
     if !partner
-        || ctx
-            .state
-            .transacted_with(ctx.proposer)
-            .contains(ctx.recipient)
+        || !crate::transactions::may_open_again(ctx.state, ctx.content, ctx.proposer, ctx.recipient)
     {
         return Vec::new();
     }

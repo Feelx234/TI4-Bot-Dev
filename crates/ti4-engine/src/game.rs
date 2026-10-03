@@ -338,7 +338,7 @@ impl AftermathWindow {
                 serde_json::Value::String(self.system.to_string()),
             );
             let _ = ctx.emit(state, "INVASION_BEGAN", payload);
-            Aftermath::Invading(Box::new(crate::invasion::InvasionWindow::new_with_notes(
+            let mut invasion = crate::invasion::InvasionWindow::new_with_notes(
                 state,
                 ctx.content,
                 ctx.sources,
@@ -347,7 +347,12 @@ impl AftermathWindow {
                 &self.player,
                 &self.system,
                 self.notes_at_tactical_start.clone(),
-            )))
+            );
+            // The map, so commitment hooks can ask about adjacency (Sardakk commander).
+            if let Some(galaxy) = ctx.timing.as_ref().and_then(|timing| timing.galaxy) {
+                invasion = invasion.with_galaxy(galaxy);
+            }
+            Aftermath::Invading(Box::new(invasion))
         } else {
             // No invasion: straight to production, and the production window opens
             // before the step makes its first choice (see `enter_production`).
@@ -1032,6 +1037,7 @@ impl<'a> Game<'a> {
         reason = "the driver keeps the ordered window/phase precedence visible in one place"
     )]
     pub fn step(&mut self) -> StepResult {
+        self.announce_staged_ground_events();
         // Space station control is a function of occupancy, not an event (rules 2, 2a, 2b), so it
         // is recomputed once per step rather than at each of the dozen places a unit can move or
         // die. Doing it here means a movement path added later cannot forget to.
@@ -1687,8 +1693,9 @@ impl<'a> Game<'a> {
                 if let Some(partner) = crate::transactions::opens_with(&self.state, &answer) {
                     self.settle_extreme_duress(&active, false)?;
                     self.state.note_negotiation(&active);
-                    self.trade = Some(crate::transactions::TradeWindow::open(
+                    self.trade = Some(crate::transactions::TradeWindow::open_with_content(
                         &mut self.state,
+                        self.content,
                         &active,
                         &partner,
                     ));
@@ -2076,9 +2083,10 @@ impl<'a> Game<'a> {
     }
 
     /// Announce ship destructions an effect staged without a resolver (a leader or component
-    /// action calling `combat::destroy_units`), so SHIP_DESTROYED windows open at the effect rather
+    /// action calling `combat::destroy_units`), so `SHIP_DESTROYED` windows open at the effect rather
     /// than at the next combat. A no-op when nothing is staged.
     fn announce_staged_destructions(&mut self) {
+        self.announce_staged_ground_events();
         if self.state.pending_destructions.is_empty() {
             return;
         }
@@ -2100,6 +2108,43 @@ impl<'a> Game<'a> {
                 }),
             };
             crate::combat::announce_staged_destructions(&mut self.state, &mut ctx);
+        }
+        self.dice = dice;
+        self.rng = rng;
+        self.mirror_timing_log(logged);
+    }
+
+    /// Announce ground-force destructions and planet-control gains that action cards, agendas and
+    /// other resolver-less effects staged (`GROUND_FORCE_DESTROYED`, `PLANET_CONTROL_GAINED`). Run
+    /// at the start of every step and after component and leader actions; a no-op when nothing is
+    /// staged. Combat's own staged ship destructions are not touched here.
+    fn announce_staged_ground_events(&mut self) {
+        if !crate::factions::hooks_ground::has_staged_events(&self.state)
+            && crate::supply::staged_events(&self.state) == 0
+        {
+            return;
+        }
+        let galaxy = self.galaxy.clone();
+        let logged = self.timing.log().len();
+        let mut dice = std::mem::take(&mut self.dice);
+        let mut rng = self.rng.clone();
+        {
+            let mut ctx = Resolving {
+                content: self.content,
+                sources: self.sources,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut self.table,
+                timing: Some(crate::choice::TimingHandle {
+                    resolver: &mut self.timing,
+                    sequence: &mut self.event_sequence,
+                    galaxy: galaxy.as_ref(),
+                }),
+            };
+            crate::factions::hooks_ground::announce_staged_events(&mut self.state, &mut ctx);
+            // UNITS_PRODUCED, TRADE_GOODS_GAINED and STRATEGY_TOKEN_SPENT staged by resolver-less
+            // production, Trade, relics and leader effects.
+            crate::supply::flush_staged_events(&mut self.state, &mut ctx);
         }
         self.dice = dice;
         self.rng = rng;
@@ -2294,6 +2339,15 @@ impl<'a> Game<'a> {
             TacticalStage::Activating => {
                 let system = SystemId::new(answer.id);
                 activate(&mut self.state, &window.player, &system)?;
+                // The activation token is a command token placed in a system (Naalu agent Z'eu).
+                self.emit_typed(
+                    "COMMAND_TOKEN_PLACED",
+                    crate::factions::hooks_cards::command_token_placed_payload(
+                        &window.player,
+                        &system,
+                        crate::factions::hooks_cards::TokenPool::Tactic,
+                    ),
+                )?;
                 for owner in crate::promissory::spend_support_on_activation(
                     &mut self.state,
                     &window.player,
@@ -2764,6 +2818,13 @@ impl<'a> Game<'a> {
         if let Err(error) = self.emit_typed("MOVEMENT_FINISHED", moved) {
             return self.result(false, Some(error));
         }
+        // Floating Factories that end movement among another player's ships are destroyed.
+        let _ = crate::production::destroy_blockaded_mobile_docks(
+            &mut self.state,
+            self.content,
+            self.sources,
+            &system,
+        );
 
         let mut dice = std::mem::take(&mut self.dice);
         let mut rng = self.rng.clone();
@@ -3057,7 +3118,7 @@ impl<'a> Game<'a> {
                 actor,
                 &partner,
             ))
-            && !self.state.transacted_with(actor).contains(&partner);
+            && crate::transactions::may_open_again(&self.state, self.content, actor, &partner);
         if trading {
             // Extreme Duress binds a player's next action; the agenda phase has none.
             if !agenda_phase {
@@ -3087,7 +3148,12 @@ impl<'a> Game<'a> {
         let scope = crate::diplomacy::candidates::contact_scope(&context, trading);
         let signals = crate::diplomacy::candidates::generate_signal_statements(&context);
         if trading {
-            self.state.record_transaction(actor, &partner);
+            crate::transactions::record_unless_exempt(
+                &mut self.state,
+                self.content,
+                actor,
+                &partner,
+            );
         }
         self.diplomacy = Some(Box::new(crate::diplomacy::window::DiplomacyWindow::open(
             &mut self.state,
@@ -3163,6 +3229,7 @@ impl<'a> Game<'a> {
                     ti4_model::DiplomacyEvent::ImmediateApplied { .. }
                 )
             });
+        let parties = (window.proposer.clone(), window.recipient.clone());
         if window
             .pending_choice(&self.state, self.content, self.sources)
             .is_some()
@@ -3178,7 +3245,8 @@ impl<'a> Game<'a> {
             return self.result(false, Some(error.into()));
         }
         if traded {
-            if let Err(error) = self.emit_typed("TRANSACTION_RESOLVED", BTreeMap::new()) {
+            let payload = crate::transactions::resolved_payload(&parties.0, &parties.1);
+            if let Err(error) = self.emit_typed("TRANSACTION_RESOLVED", payload) {
                 return self.result(false, Some(error));
             }
             self.emit("TRANSACTION");
@@ -3226,7 +3294,10 @@ impl<'a> Game<'a> {
         // A resolved deal opens Lie in Wait's window. Emitted only on Resolved: the card counts
         // transactions that happened, not offers that were made.
         if matches!(outcome, crate::transactions::Traded::Resolved) {
-            let payload = BTreeMap::new();
+            let payload = self.trade.as_ref().map_or_else(BTreeMap::new, |trade| {
+                let (proposer, partner) = trade.parties();
+                crate::transactions::resolved_payload(proposer, partner)
+            });
             if let Err(error) = self.emit_typed("TRANSACTION_RESOLVED", payload) {
                 return self.result(false, Some(error));
             }

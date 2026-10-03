@@ -16,7 +16,8 @@
 //! | [`StrategyHooks::secondary_waived`] | Winnu Acquiescence | `strategy.rs`, when that option is taken |
 
 use ti4_content::ContentStore;
-use ti4_model::id::PlayerId;
+use ti4_model::content_types::SourceSet;
+use ti4_model::id::{PlayerId, TechnologyId, UnitTypeId};
 use ti4_model::state::GameState;
 
 use super::MODULES;
@@ -31,6 +32,18 @@ pub struct SecondaryWaiver {
     /// Stable id, unique within the module (`"acq"`).
     pub id: String,
     /// What the option says ("resolve the secondary using Acquiescence").
+    pub label: String,
+}
+
+/// A way to research a technology without its prerequisites, paid for by the module (BF-F3).
+///
+/// Offered by [`StrategyHooks::research_waiver_offer`] beside Inheritance Systems; taking it calls
+/// [`StrategyHooks::research_waiver_paid`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResearchWaiver {
+    /// Stable id, unique within the module (`"yin_infantry"`).
+    pub id: String,
+    /// What the option says ("return 1 infantry to ignore its prerequisites").
     pub label: String,
 }
 
@@ -80,6 +93,31 @@ pub struct StrategyHooks {
     /// Saar Nomadic: "You can score objectives even if you do not control the planets in your
     /// home system."
     pub scores_without_home: Option<fn(&GameState, &PlayerId) -> bool>,
+    /// Extra technology prerequisite holdings for `player` as `(colour, count)` with `colour` one of
+    /// a track name (`"BIOTIC"`, `"CYBERNETIC"`, `"PROPULSION"`, `"WARFARE"`) or its colour (`"green"`,
+    /// `"yellow"`, `"blue"`, `"red"`), any case; an unknown colour is ignored. Added to the
+    /// holdings `technology::prerequisites_met` reads, so they pay for a prerequisite exactly like an
+    /// owned technology (and take part in synergies). Yin commander ("this card satisfies a green
+    /// technology prerequisite"). Sum over modules.
+    pub extra_prerequisite_colours:
+        Option<fn(&GameState, &ContentStore, &PlayerId) -> Vec<(String, usize)>>,
+    /// A way for `player` to research `tech` ignoring every prerequisite, at a cost the module pays in
+    /// [`Self::research_waiver_paid`]. `None` when not available (affordability is the module's to
+    /// check). Yin commander ("return 1 of your infantry to reinforcements to ignore its
+    /// prerequisites" when the tech is owned by another player). Pure and read-only.
+    pub research_waiver_offer:
+        Option<fn(&GameState, &ContentStore, &PlayerId, &TechnologyId) -> Option<ResearchWaiver>>,
+    /// `player` researched `tech` using this module's waiver: pay its cost. Called once, before the
+    /// technology is granted (the same place Inheritance Systems charges its 2 resources).
+    pub research_waiver_paid: Option<fn(&mut GameState, &ContentStore, &PlayerId, &TechnologyId)>,
+    /// The unit id `player` uses for `base_type` (`"cruiser"`) instead of `chosen_id`, the one the
+    /// upgrade lookup picked. Any module's `Some` wins (first in [`MODULES`] order). Mentak
+    /// Corsair's acquisition (`mentak_cruiser3` for a cruiser once the breakthrough is held).
+    /// Consulted where production offers units (`production::buildable_for`) and where a
+    /// researched upgrade replaces units on the board (`technology::apply_unit_upgrades`).
+    pub unit_form_override: Option<
+        fn(&GameState, &ContentStore, SourceSet, &PlayerId, &str, &str) -> Option<UnitTypeId>,
+    >,
 }
 
 impl StrategyHooks {
@@ -89,6 +127,10 @@ impl StrategyHooks {
         secondary_waivers: None,
         secondary_waived: None,
         scores_without_home: None,
+        extra_prerequisite_colours: None,
+        research_waiver_offer: None,
+        research_waiver_paid: None,
+        unit_form_override: None,
     };
 }
 
@@ -140,6 +182,65 @@ pub(crate) fn scores_without_home(state: &GameState, player: &PlayerId) -> bool 
     tables()
         .filter_map(|table| table.scores_without_home)
         .any(|lifted| lifted(state, player))
+}
+
+/// Every module's extra prerequisite holdings for `player`, summed per colour.
+pub(crate) fn extra_prerequisite_colours(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+) -> Vec<(String, usize)> {
+    tables()
+        .filter_map(|table| table.extra_prerequisite_colours)
+        .flat_map(|hook| hook(state, content, player))
+        .collect()
+}
+
+/// Every module's prerequisite-ignoring way to research `tech`, with the index of the module (among
+/// those with this hook) that offered it, for [`research_waiver_paid`].
+pub(crate) fn research_waiver_offers(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    tech: &TechnologyId,
+) -> Vec<(usize, ResearchWaiver)> {
+    tables()
+        .filter_map(|table| table.research_waiver_offer)
+        .enumerate()
+        .filter_map(|(index, hook)| hook(state, content, player, tech).map(|w| (index, w)))
+        .collect()
+}
+
+/// Tell the module that offered the research waiver (`index`, from [`research_waiver_offers`])
+/// that it was used: it pays the cost.
+pub(crate) fn research_waiver_paid(
+    state: &mut GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    tech: &TechnologyId,
+    index: usize,
+) {
+    if let Some(hook) = tables()
+        .filter(|table| table.research_waiver_offer.is_some())
+        .nth(index)
+        .and_then(|table| table.research_waiver_paid)
+    {
+        hook(state, content, player, tech);
+    }
+}
+
+/// The unit id a module makes `player` use for `base_type` in place of `chosen_id`, if any.
+pub(crate) fn unit_form_override(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    base_type: &str,
+    chosen_id: &str,
+) -> Option<UnitTypeId> {
+    tables()
+        .filter_map(|table| table.unit_form_override)
+        .find_map(|hook| hook(state, content, sources, player, base_type, chosen_id))
 }
 
 /// Let every module write its initiative overrides as the strategy phase ends.
@@ -205,6 +306,21 @@ mod tests {
         let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
         assert!(
             secondary_waivers(&state, ContentStore::embedded(), &a, &b, "Technology").is_empty()
+        );
+        let content = ContentStore::embedded();
+        let tech = TechnologyId::new("pds");
+        assert!(extra_prerequisite_colours(&state, content, &a).is_empty());
+        assert!(research_waiver_offers(&state, content, &a, &tech).is_empty());
+        assert_eq!(
+            unit_form_override(
+                &state,
+                content,
+                ti4_model::content_types::DEFAULT,
+                &a,
+                "cruiser",
+                "cruiser1"
+            ),
+            None
         );
     }
 
