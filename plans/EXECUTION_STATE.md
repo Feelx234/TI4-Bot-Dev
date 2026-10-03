@@ -19,6 +19,18 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
 
 ### Base-faction completion (BF), 2026-10-02
 
+- **Operator takeover, 2026-10-03:** Claude is unavailable for the weekend; Codex is authorized
+  to finish the remaining BF work, superseding the Claude/Codex edit split below. Subagents must
+  stay at Terra or below. Preserve the unrelated game income, policy, training and UI experiments.
+  Current committed ledger verified at ec8e957c: 133/145 across the twelve factions. All twelve
+  passed 200-game seated diagnostics plus deterministic replays at e2b7d484; Saar passed again
+  after its commander seam at ec8e957c. Full engine suite at ec8e957c: 1,916 passed, 1 ignored,
+  integrations and doctests passed. Six-original-faction 30-seed diagnostic matches c5632448
+  at all ten metrics. Evidence: BF-CODEX-SOAK-2026-10-03.md.
+  Root is fixing the confirmed initial relic/breakthrough baseline issue; Terra agents have
+  disjoint Yin faction work and read-only Naalu/Naaz hook audits. Next: integrate the reviewed
+  baseline fix while preserving the uncommitted game.rs income hunks, then finish shared seams.
+
 - **Work split (operator, 2026-10-03), Claude ↔ Codex on `wp/base-factions`:**
   - **Claude owns:** all shared engine files (`crates/ti4-engine/src/*.rs` outside `factions/<alias>.rs`,
     `factions/mod.rs`, `factions/hooks_*.rs`, `tests/decision_delivery_inventory.rs`) and the faction

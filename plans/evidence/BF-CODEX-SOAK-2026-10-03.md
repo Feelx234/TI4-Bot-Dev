@@ -26,3 +26,9 @@ The existing detached checkout `.worktrees/m03-015-timing-properties` was used. 
 These twelve individual runs cover the same 12 x 200 faction/seed cases as the default full campaign: 2,400 games and 2,400 deterministic replays, with zero engine errors, unfinished horizons, or replay differences. They are a diagnostic at e2b7d484, not a BF exit gate: that snapshot has unclaimed assets and Claude is still changing engine/faction code. The ten-seed smoke checks preceded the full runs and are subsumed by them.
 
 The independent ledger command `cargo test -p ti4-engine --lib print_faction_ledger -j 1 -- --ignored --nocapture` passed on this snapshot: 132/145 claimed, with Arborec, Ghost, Mentak and Sardakk at 12/12. The full `cargo test -p ti4-engine -q --no-fail-fast -j 1` also passed: 1,914 library tests, one ignored, integration binaries 1/1, 4/4 and 5/5, and doctests. Later Claude commits claim more assets; their source was not part of this soak.
+
+## Targeted validation after Saar commander seam (ec8e957c)
+
+The clean checkout advanced to committed `ec8e957c`, which includes Claude's `3af444da` remote-production-destination seam and Saar commander claim; the shared working copy's separate `game.rs` income experiment remained excluded. The ledger now reports **133/145** claimed across the twelve factions, with Saar **12/13** and only `saarbt` outstanding. `cargo test -p ti4-engine -q --no-fail-fast -j 1` passed: 1,916 library tests, one ignored, integration binaries 1/1, 4/4, 5/5 and doctests.
+
+`cargo run --release -q -p ti4-sim --example base_faction_soak -j 1 -- saar 0 200` passed again: 200 games and 200 replays, zero engine errors, unfinished horizons or mismatches. The 30-seed six-original-faction `rebaseline_behavior` diagnostic on the same commit matched the earlier `c5632448` point in all ten metrics (`share_SHIP_MOVED=0.046439`, `vp_pace=0.472222`); the same five points remain outside the retired v45 bounds. No bound was changed.
