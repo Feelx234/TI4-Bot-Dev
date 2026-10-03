@@ -336,6 +336,24 @@ pub fn flush_staged_events(state: &mut GameState, ctx: &mut crate::choice::Resol
     announced
 }
 
+/// Stage `TRADE_GOODS_GAINED` for a gain the caller has already made (a site that adds to
+/// `trade_goods` itself, e.g. while holding a borrow of the seat). A no-op for `amount <= 0` and
+/// when no faction module is seated.
+pub fn note_trade_goods_gained(
+    state: &mut GameState,
+    player: &PlayerId,
+    amount: i32,
+    source: &str,
+) {
+    if amount > 0 {
+        stage_event(
+            state,
+            "TRADE_GOODS_GAINED",
+            &goods_payload(player, amount, source),
+        );
+    }
+}
+
 /// [`gain_trade_goods`] for a site with no timing handle: the gain is made now and its
 /// `TRADE_GOODS_GAINED` is staged for [`flush_staged_events`].
 pub fn gain_trade_goods_staged(

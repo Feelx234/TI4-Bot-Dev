@@ -72,11 +72,17 @@ const HERO_LIMIT: i64 = 1000;
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
     abilities: &["mitosis"],
-    // `lw2` / `arborec_infantry2` are live for invasion, action-card and agenda destruction, but
-    // not for infantry destroyed as cargo with their ship (no GROUND_FORCE_DESTROYED there yet):
-    // unclaimed until that path announces (coordinator review, 2026-10-03).
-    technologies: &["bio"],
-    units: &["arborec_flagship", "arborec_infantry", "arborec_mech"],
+    // `lw2` / `arborec_infantry2`: every path that *destroys* a ground force announces
+    // GROUND_FORCE_DESTROYED (invasion, action cards, agendas, Nova Seed). Cargo left over capacity
+    // when its ship dies is *removed* (LRR 16 Capacity), not destroyed, so Letani Warrior II does
+    // not roll for it — by the rules, not a gap.
+    technologies: &["bio", "lw2"],
+    units: &[
+        "arborec_flagship",
+        "arborec_infantry",
+        "arborec_infantry2",
+        "arborec_mech",
+    ],
     promissory: &["stymie"],
     leaders: &["arborecagent", "arboreccommander", "arborechero"],
     breakthroughs: &["arborecbt"],

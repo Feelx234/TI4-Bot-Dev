@@ -677,6 +677,30 @@ fn destroy_others(
             }
         }
     }
+    // Ground forces of other players left in the space area (cargo) are destroyed too and are
+    // announced like the ones on planets; there is no planet, so the system id stands in.
+    let types = ti4_content::units::catalogue(content, sources);
+    let cargo: Vec<ti4_model::units::Unit> = state
+        .system_state(system)
+        .units
+        .iter()
+        .filter(|unit| &unit.owner != owner)
+        .filter(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(ti4_content::units::UnitType::is_ground_force)
+        })
+        .cloned()
+        .collect();
+    for unit in &cargo {
+        super::hooks_ground::stage_ground_force_destroyed(
+            state,
+            system,
+            &PlanetId::new(system.as_str()),
+            unit,
+            "nova_seed",
+        );
+    }
     state
         .system_mut(system)
         .units

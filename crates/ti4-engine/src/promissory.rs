@@ -510,6 +510,7 @@ pub fn trade_agreement_on_replenish(state: &mut GameState, player: &PlayerId) ->
     if let Some(seat) = state.player_mut(&holder) {
         seat.trade_goods += given;
     }
+    crate::supply::note_trade_goods_gained(state, &holder, given, "trade_agreement");
     let name = faction_name(state, player);
     give_back(state, &note_id("ta", &name));
     Some(holder)

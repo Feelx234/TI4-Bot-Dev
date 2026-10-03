@@ -74,3 +74,12 @@ Production questions flow through `production::produce_by_ability` (already regi
 - `arborechero` claimed: ability production without a timing handle stages `UNITS_PRODUCED` (`the_heros_production_is_announced_as_units_produced`).
 - New decision sites: none.
 - Results: `factions::arborec` 40 passed; clippy clean in arborec.rs; rustfmt applied. Ledger: `arborec   12/12 implemented`.
+
+## Coordinator note (2026-10-03): Letani Warrior II claim
+
+A review flagged infantry lost as cargo when its ship is destroyed. By LRR 16.3 (capacity), units
+over capacity are *removed*, not destroyed, so "After this unit is destroyed" does not trigger —
+consistent with the engine's capacity enforcement (`fleet::enforce_seeing`, "excess removed at the
+end of combat", 16.3c). Every path that *destroys* a ground force now announces
+GROUND_FORCE_DESTROYED (invasion, action cards, agendas; Muaat Nova Seed now also announces ground
+forces in the space area). `lw2` and `arborec_infantry2` are claimed on that basis.

@@ -248,6 +248,7 @@ pub fn on_gain_control(state: &mut GameState, player: &PlayerId) -> i32 {
     if let Some(seat) = state.player_mut(player) {
         seat.trade_goods += 1;
     }
+    crate::supply::note_trade_goods_gained(state, player, 1, "minister_exploration");
     1
 }
 

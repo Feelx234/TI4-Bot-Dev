@@ -19,21 +19,24 @@ use super::hooks_combat::{CombatHooks, CombatMoment, HitSite, ProducedHits};
 use super::hooks_economy::EconomyHooks;
 use super::hooks_ground::GroundHooks;
 use super::hooks_movement::{MovementHooks, PassSite};
+use super::hooks_strategy::StrategyHooks;
 use super::{CombatUnit, FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption, IllegalChoice};
 use crate::decision_context::{DecisionContext, DecisionSource};
 use crate::event::Event;
 use crate::production::Spend;
 use crate::timing::{Ability, Relation, TimingContext, TimingError};
+use ti4_model::id::UnitTypeId;
 
 /// What this faction implements; grows package by package.
 pub const MODULE: FactionModule = FactionModule {
     alias: "mentak",
-    // Not claimed: `pillage` and `mentakagent` (the "gains trade goods" half has no live emitter),
-    // `mentak_cruiser3` (unreachable while `mentakbt` is blocked). See the evidence.
+    // Not claimed: `pillage` and `mentakagent` (several trade-goods gain sites still do not emit),
+    // `mentakbt` (gaining it does not convert ships already on the board; some card placements
+    // ignore the unit-form override). See the evidence.
     abilities: &["ambush"],
     technologies: &["mc", "so"],
-    units: &["mentak_flagship", "mentak_mech"],
+    units: &["mentak_flagship", "mentak_mech", "mentak_cruiser3"],
     promissory: &["pop"],
     leaders: &["mentakcommander", "mentakhero"],
     breakthroughs: &[],
@@ -56,6 +59,10 @@ pub const MODULE: FactionModule = FactionModule {
         movement: MovementHooks {
             may_move_through_ships: Some(may_move_through_ships),
             ..MovementHooks::NONE
+        },
+        strategy: StrategyHooks {
+            unit_form_override: Some(unit_form_override),
+            ..StrategyHooks::NONE
         },
         ..Hooks::NONE
     },
@@ -217,6 +224,26 @@ fn may_move_through_ships(
     })
 }
 
+// -- The Table's Grace ---------------------------------------------------------------------------
+
+/// The Table's Grace: "If you have the Cruiser II unit upgrade technology, flip this card and place
+/// it on top of cruiser II." The Corsair stands in for Cruiser II for the holder, in production,
+/// on research and on the board (`technology::apply_unit_upgrades`).
+fn unit_form_override(
+    state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    player: &PlayerId,
+    base_type: &str,
+    chosen_id: &str,
+) -> Option<UnitTypeId> {
+    (base_type == "cruiser"
+        && chosen_id == "cruiser2"
+        && is_mentak(state, player)
+        && crate::breakthroughs::holds(state, player, "mentakbt"))
+    .then(|| UnitTypeId::new(CORSAIR))
+}
+
 // -- Ambush --------------------------------------------------------------------------------------
 
 /// Ambush: "At the start of a space combat: You may roll 1 die for each of up to 2 of your
@@ -332,9 +359,8 @@ fn protected(state: &GameState, owner: &PlayerId, target: &PlayerId) -> bool {
 
 /// Neighbours `owner` may pillage now, out of those the event concerns.
 ///
-/// `TRADE_GOODS_GAINED` names the player who gained; a resolved transaction names no parties in
-/// its payload, so the two parties are the last one the engine recorded
-/// (`GameState::transactions_this_round`, pushed when a deal resolves).
+/// `TRADE_GOODS_GAINED` names the player who gained; `TRANSACTION_RESOLVED` names `proposer` and
+/// `partner`.
 fn pillage_targets(
     event: &Event,
     state: &GameState,
@@ -350,11 +376,10 @@ fn pillage_targets(
             .map(PlayerId::new)
             .into_iter()
             .collect(),
-        "TRANSACTION_RESOLVED" => state
-            .transactions_this_round
-            .last()
-            .map(|(a, b)| vec![a.clone(), b.clone()])
-            .unwrap_or_default(),
+        "TRANSACTION_RESOLVED" => ["proposer", "partner"]
+            .into_iter()
+            .filter_map(|key| event.text(key).map(PlayerId::new))
+            .collect(),
         _ => Vec::new(),
     };
     let Some(galaxy) = galaxy else {
@@ -697,6 +722,14 @@ fn salvage_effect(
     }
     if crate::action_cards::place_units_counted(context, owner, &system, None, base, 1) == 0 {
         *context.state = before;
+    } else {
+        // `place_units_counted` ignores the unit-form override; bring the new ship to its form.
+        crate::technology::apply_unit_upgrades(
+            context.state,
+            context.content,
+            context.sources,
+            owner,
+        );
     }
     Ok(())
 }
@@ -979,6 +1012,13 @@ fn hero_destroyed(owner_name: &str, seat: &PlayerId) -> Ability {
                 &base,
                 1,
             );
+            // `place_units_counted` ignores the unit-form override; bring the new ship to its form.
+            crate::technology::apply_unit_upgrades(
+                context.state,
+                context.content,
+                context.sources,
+                &owner,
+            );
             Ok(())
         }),
     )
@@ -1228,6 +1268,66 @@ mod tests {
         );
     }
 
+    // -- The Table's Grace ----------------------------------------------------------------------
+
+    fn grace_game() -> GameState {
+        let (mut state, _) = arena();
+        give_tech(&mut state, &a(), "cr2");
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("mentakbt"));
+        state
+    }
+
+    #[test]
+    fn the_tables_grace_makes_the_corsair_the_cruiser_ii() {
+        let content = ContentStore::embedded();
+        let mut state = grace_game();
+        let built = crate::production::buildable_for(&state, content, DEFAULT, &a());
+        assert!(built.iter().any(|id| id == CORSAIR), "{built:?}");
+        assert!(!built.iter().any(|id| id == "cruiser2"));
+        // Ships already on the board are flipped with it.
+        let system = SystemId::new("18");
+        put(&mut state, &system, "cruiser2", &a(), 1);
+        put(&mut state, &system, "cruiser2", &b(), 1);
+        crate::technology::apply_unit_upgrades(&mut state, content, DEFAULT, &a());
+        assert_eq!(count(&state, &system, CORSAIR, &a()), 1);
+        assert_eq!(
+            count(&state, &system, "cruiser2", &b()),
+            1,
+            "others keep theirs"
+        );
+    }
+
+    #[test]
+    fn the_tables_grace_needs_the_breakthrough_the_upgrade_and_a_mentak_seat() {
+        let content = ContentStore::embedded();
+        let override_for = |state: &GameState, who: &PlayerId| {
+            super::super::hooks_strategy::unit_form_override(
+                state, content, DEFAULT, who, "cruiser", "cruiser2",
+            )
+        };
+        let state = grace_game();
+        assert_eq!(override_for(&state, &a()), Some(UnitTypeId::new(CORSAIR)));
+        assert_eq!(override_for(&state, &b()), None, "not another seat");
+        let mut no_bt = grace_game();
+        no_bt.player_mut(&a()).unwrap().breakthrough = None;
+        assert_eq!(override_for(&no_bt, &a()), None);
+        assert!(
+            !crate::production::buildable_for(&no_bt, content, DEFAULT, &a())
+                .iter()
+                .any(|id| id == CORSAIR)
+        );
+        // Without Cruiser II the chosen unit is the plain cruiser: nothing to replace.
+        let (mut no_cr2, _) = arena();
+        no_cr2.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("mentakbt"));
+        assert!(
+            !crate::production::buildable_for(&no_cr2, content, DEFAULT, &a())
+                .iter()
+                .any(|id| id == CORSAIR)
+        );
+    }
+
     // -- Ambush ----------------------------------------------------------------------------------
 
     fn ambush(
@@ -1348,10 +1448,14 @@ mod tests {
         let (mut state, _) = neighbours();
         state.player_mut(&b()).unwrap().trade_goods = 3;
         state.player_mut(&b()).unwrap().commodities = 0;
-        state
-            .transactions_this_round
-            .push((b(), PlayerId::new("c")));
-        emit(&mut state, &[PILLAGE_TRADE], "TRANSACTION_RESOLVED", &[]).unwrap();
+        let parties = [("proposer", "b".into()), ("partner", "c".into())];
+        emit(
+            &mut state,
+            &[PILLAGE_TRADE],
+            "TRANSACTION_RESOLVED",
+            &parties,
+        )
+        .unwrap();
         assert_eq!(state.player(&b()).unwrap().trade_goods, 2);
         assert_eq!(state.player(&a()).unwrap().trade_goods, 1);
     }

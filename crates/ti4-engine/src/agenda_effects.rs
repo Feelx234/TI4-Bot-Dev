@@ -815,6 +815,12 @@ pub fn resolve_with(
                 && let Some(seat) = state.player_mut(&controller)
             {
                 seat.trade_goods += i32::try_from(destroyed).unwrap_or(i32::MAX);
+                crate::supply::note_trade_goods_gained(
+                    state,
+                    &controller,
+                    i32::try_from(destroyed).unwrap_or(i32::MAX),
+                    "agenda",
+                );
             }
         }
         "plowshares" => {
@@ -888,6 +894,12 @@ pub fn resolve_with(
                 if let Some(seat) = state.player_mut(&player) {
                     seat.trade_goods += i32::try_from(destroyed).unwrap_or(i32::MAX);
                 }
+                crate::supply::note_trade_goods_gained(
+                    state,
+                    &player,
+                    i32::try_from(destroyed).unwrap_or(i32::MAX),
+                    "agenda",
+                );
             }
         }
         "arms_reduction" => {
@@ -964,6 +976,7 @@ pub fn resolve_with(
                     if let Some(seat) = state.player_mut(&player) {
                         seat.trade_goods += 3;
                     }
+                    crate::supply::note_trade_goods_gained(state, &player, 3, "agenda");
                 }
             }
         }
@@ -1179,6 +1192,7 @@ pub fn resolve_with(
                     if let Some(seat) = state.player_mut(&player) {
                         seat.trade_goods += 5;
                     }
+                    crate::supply::note_trade_goods_gained(state, &player, 5, "agenda");
                 }
             }
         }
@@ -1246,17 +1260,16 @@ pub fn resolve_with(
             // on who voted, not on what won.
             for player in ballot.voted_for(FOR) {
                 if outcome == FOR {
-                    // Two action cards. The hand limit is enforced by the caller that owns a
-                    // table; here the draw is unconditional and the limit applies later.
-                    for _ in 0..2 {
-                        if state.action_card_deck.is_empty() {
-                            break;
-                        }
-                        let top = state.action_card_deck.remove(0);
-                        if let Some(seat) = state.player_mut(&player) {
-                            seat.action_cards.push(top);
-                        }
-                    }
+                    // Two action cards, drawn through the shared draw so draw effects apply
+                    // (Yssaril Scheming) and the draw is announced; the same convention as
+                    // Archived Secret's draw above for a decider's illegal answer.
+                    let _ = crate::action_cards::draw_announced(
+                        state,
+                        ctx,
+                        &player,
+                        2,
+                        "unconventional_measures",
+                    );
                 } else if let Some(seat) = state.player_mut(&player) {
                     seat.action_cards.clear();
                 }

@@ -267,6 +267,12 @@ struct Producer {
 
 const PRODUCERS: &[Producer] = &[
     Producer {
+        module: "yssaril.rs",
+        function: "borrowed_stall_tactics",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "argent.rs",
         function: "ask_option_for",
         count: 1,
@@ -1145,6 +1151,7 @@ const PRODUCERS: &[Producer] = &[
 
 const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     // BF faction modules (crates/ti4-engine/src/factions/).
+    ("yssaril.rs", "borrowed_stall_tactics", 1),
     ("argent.rs", "ask_option_for", 1),
     ("sardakk.rs", "skip_to_commit", 1),
     ("muaat.rs", "ask", 1),

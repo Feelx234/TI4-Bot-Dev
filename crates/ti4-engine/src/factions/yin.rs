@@ -9,12 +9,13 @@
 use std::sync::Arc;
 
 use ti4_content::ContentStore;
-use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, UnitTypeId};
+use ti4_model::content_types::{DEFAULT, SourceSet};
+use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
 use ti4_model::state::{GameState, LeaderStatus};
 use ti4_model::units::Unit;
 
 use super::hooks_combat::{CombatHooks, CombatMoment, HitSite, ProducedHits};
+use super::hooks_strategy::{ResearchWaiver, StrategyHooks};
 use super::{FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption, IllegalChoice};
 use crate::decision_context::{DecisionContext, DecisionSource};
@@ -29,10 +30,18 @@ pub const MODULE: FactionModule = FactionModule {
     technologies: &["yso", "ic"],
     units: &["yin_flagship", "yin_mech"],
     promissory: &["greyfire"],
-    leaders: &["yinagent"],
+    leaders: &["yinagent", "yincommander", "yinhero"],
     breakthroughs: &[],
     hooks: Hooks {
         commander_unlocked: Some(commander_unlocked),
+        leader_action: Some(leader_action),
+        use_leader: Some(use_leader),
+        strategy: StrategyHooks {
+            extra_prerequisite_colours: Some(extra_prerequisite_colours),
+            research_waiver_offer: Some(research_waiver_offer),
+            research_waiver_paid: Some(research_waiver_paid),
+            ..StrategyHooks::NONE
+        },
         timing_abilities: Some(timing_abilities),
         combat: CombatHooks {
             produced_hits: Some(produced_hits),
@@ -785,6 +794,268 @@ fn commander_unlocked(
 ) -> Option<bool> {
     (leader.as_str() == "yincommander")
         .then(|| state.faction_marks.contains_key(&ability_mark(player)))
+}
+
+// -- Brother Omar's effect -----------------------------------------------------------------------
+
+/// Whether `player` is Yin with Brother Omar unlocked (a commander in play is `Unlocked`).
+fn commander_active(state: &GameState, player: &PlayerId) -> bool {
+    is_yin(state, player)
+        && state.player(player).is_some_and(|seat| {
+            seat.leaders.get(&LeaderId::new("yincommander")) == Some(&LeaderStatus::Unlocked)
+        })
+}
+
+/// Brother Omar: "This card satisfies a green technology prerequisite."
+fn extra_prerequisite_colours(
+    state: &GameState,
+    _content: &ContentStore,
+    player: &PlayerId,
+) -> Vec<(String, usize)> {
+    if commander_active(state, player) {
+        vec![("green".to_owned(), 1)]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Where `player`'s first infantry stands, in board order (planets before space).
+fn first_infantry(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+) -> Option<(SystemId, Option<PlanetId>)> {
+    let types = ti4_content::units::catalogue(content, DEFAULT);
+    let is_mine = |unit: &Unit| {
+        &unit.owner == player
+            && types
+                .get(unit.type_id.as_str())
+                .is_some_and(|kind| kind.base_type() == "infantry")
+    };
+    for (system, board) in &state.board {
+        for (planet, units) in &board.planet_units {
+            if units.iter().any(is_mine) {
+                return Some((system.clone(), Some(planet.clone())));
+            }
+        }
+        if board.units.iter().any(is_mine) {
+            return Some((system.clone(), None));
+        }
+    }
+    None
+}
+
+/// Brother Omar: "When you research a tech owned by another player, you may return 1 of your
+/// infantry to reinforcements to ignore its prerequisites."
+fn research_waiver_offer(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    tech: &TechnologyId,
+) -> Option<ResearchWaiver> {
+    let owned_elsewhere = state
+        .players
+        .iter()
+        .any(|seat| &seat.id != player && seat.technologies.contains(tech));
+    (commander_active(state, player)
+        && owned_elsewhere
+        && first_infantry(state, content, player).is_some())
+    .then(|| ResearchWaiver {
+        id: "yin_infantry".to_owned(),
+        label: "return 1 infantry to reinforcements to ignore its prerequisites".to_owned(),
+    })
+}
+
+/// Pay the infantry. The hook has no table, so the first infantry in board order goes.
+fn research_waiver_paid(
+    state: &mut GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    _tech: &TechnologyId,
+) {
+    let Some((system, planet)) = first_infantry(state, content, player) else {
+        return;
+    };
+    let types = ti4_content::units::catalogue(content, DEFAULT);
+    let board = state.system_mut(&system);
+    let units = match &planet {
+        Some(planet) => board.planet_units.get_mut(planet),
+        None => Some(&mut board.units),
+    };
+    if let Some(units) = units
+        && let Some(index) = units.iter().position(|unit| {
+            &unit.owner == player
+                && types
+                    .get(unit.type_id.as_str())
+                    .is_some_and(|kind| kind.base_type() == "infantry")
+        })
+    {
+        units.remove(index);
+    }
+}
+
+// -- Dannel of the Tenth -------------------------------------------------------------------------
+
+/// Every non-home planet on the map, in the map's system order. Without a map there are none.
+fn hero_spots(
+    content: &ContentStore,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+) -> Vec<(SystemId, PlanetId)> {
+    let Some(galaxy) = galaxy else {
+        return Vec::new();
+    };
+    let homes = ti4_content::galaxy::home_systems(content, DEFAULT);
+    let mut spots = Vec::new();
+    for system in galaxy.system_ids() {
+        if homes.contains(system) {
+            continue;
+        }
+        for planet in ti4_content::galaxy::planets_in(content, system, DEFAULT) {
+            spots.push((SystemId::new(system), PlanetId::new(planet.id())));
+        }
+    }
+    spots
+}
+
+fn leader_action(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Option<bool> {
+    (leader.as_str() == "yinhero").then(|| {
+        // The map is not in reach here; `use_leader` refuses (nothing changes) without one.
+        in_reinforcements(state, content, DEFAULT, player, "infantry")
+    })
+}
+
+/// Dannel of the Tenth, Quantum Dissemination: "ACTION: Commit up to 3 infantry from your
+/// reinforcements to any non-home planets and resolve ground combats on those planets. Players
+/// cannot use SPACE CANNON against these units. Then, purge this card." (The shared code purges.)
+///
+/// Every placement is asked first, then the infantry land, then each planet's ground combat is
+/// fought to its end in the order chosen and control is established (49.5). Space cannon defense
+/// is simply never run. Limits: the synchronous resolver emits no ground-combat events, so
+/// Indoctrination, Greyfire and Brother Milor do not react to these combats; one rival side is
+/// fought per planet.
+fn use_leader(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Option<bool> {
+    if leader.as_str() != "yinhero" || !is_yin(context.state, player) {
+        return None;
+    }
+    let spots = hero_spots(context.content, context.galaxy);
+    let id = placed_type(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        "infantry",
+    )?;
+    let stock = crate::supply::allowed(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &id,
+        3,
+    );
+    if stock == 0 || spots.is_empty() {
+        return Some(false);
+    }
+    let mut chosen: Vec<(SystemId, PlanetId)> = Vec::new();
+    while chosen.len() < stock {
+        let options = spots
+            .iter()
+            .map(|(system, planet)| {
+                ChoiceOption::labelled(
+                    format!("{system}|{planet}"),
+                    "commit_infantry",
+                    format!("commit infantry to {planet} in {system}"),
+                )
+            })
+            .collect();
+        let answer = ask_one(
+            context,
+            player,
+            format!(
+                "Quantum Dissemination: commit infantry {} of {stock}",
+                chosen.len() + 1
+            ),
+            "yinhero",
+            "yin_hero_commit",
+            options,
+        )
+        .ok()?;
+        if answer.is_decline() {
+            break;
+        }
+        let spot = spots
+            .iter()
+            .find(|(system, planet)| format!("{system}|{planet}") == answer.id)?;
+        chosen.push(spot.clone());
+    }
+    if chosen.is_empty() {
+        return Some(false);
+    }
+    Some(land_and_fight(context, player, &chosen))
+}
+
+/// Land the infantry, fight every planet to its end, then establish control. `false` (state
+/// restored) if a decider gave an illegal answer mid-combat.
+fn land_and_fight(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    chosen: &[(SystemId, PlanetId)],
+) -> bool {
+    let before = context.state.clone();
+    for (system, planet) in chosen {
+        crate::action_cards::place_units_counted(
+            context,
+            player,
+            system,
+            Some(planet),
+            "infantry",
+            1,
+        );
+    }
+    let mut order: Vec<(SystemId, PlanetId)> = Vec::new();
+    for spot in chosen {
+        if !order.contains(spot) {
+            order.push(spot.clone());
+        }
+    }
+    for (system, planet) in &order {
+        if crate::invasion::ground_combat(
+            context.state,
+            context.content,
+            context.sources,
+            context.table,
+            context.dice,
+            context.rng,
+            system,
+            planet,
+            player,
+        )
+        .is_err()
+        {
+            *context.state = before;
+            return false;
+        }
+    }
+    for (system, planet) in &order {
+        crate::invasion::establish_control(
+            context.state,
+            context.content,
+            context.sources,
+            system,
+            player,
+            std::slice::from_ref(planet),
+        );
+    }
+    true
 }
 
 #[cfg(test)]
@@ -1557,11 +1828,197 @@ mod tests {
         );
     }
 
+    fn unlock_omar(state: &mut GameState) {
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yincommander"), LeaderStatus::Unlocked);
+    }
+
+    #[test]
+    fn brother_omar_supplies_green_and_waives_prerequisites_for_an_infantry() {
+        let content = ContentStore::embedded();
+        let (mut state, _) = arena();
+        // A technology someone else owns, that Yin cannot otherwise research.
+        let tech = TechnologyId::new("ws");
+        state
+            .player_mut(&b())
+            .unwrap()
+            .technologies
+            .insert(tech.clone());
+        assert!(extra_prerequisite_colours(&state, content, &a()).is_empty());
+        assert!(
+            research_waiver_offer(&state, content, &a(), &tech).is_none(),
+            "locked"
+        );
+        assert!(!crate::technology::can_research(
+            &state,
+            content,
+            DEFAULT,
+            &a(),
+            &tech
+        ));
+        unlock_omar(&mut state);
+        assert_eq!(
+            extra_prerequisite_colours(&state, content, &a()),
+            vec![("green".to_owned(), 1)]
+        );
+        assert!(research_waiver_offer(&state, content, &a(), &tech).is_some());
+        assert!(
+            research_waiver_offer(&state, content, &a(), &TechnologyId::new("gd")).is_none(),
+            "nobody else owns it"
+        );
+        assert!(crate::technology::can_research(
+            &state,
+            content,
+            DEFAULT,
+            &a(),
+            &tech
+        ));
+        let before = home_infantry(&state);
+        research_waiver_paid(&mut state, content, &a(), &tech);
+        assert_eq!(home_infantry(&state), before - 1);
+        // Another seat's commander does nothing for Yin.
+        assert!(extra_prerequisite_colours(&state, content, &b()).is_empty());
+    }
+
+    #[test]
+    fn brother_omar_green_pays_a_single_green_prerequisite() {
+        let content = ContentStore::embedded();
+        let (mut state, _) = arena();
+        let green = content
+            .records(ti4_model::content_types::ContentType::Technologies)
+            .iter()
+            .filter(|r| r.text("requirements") == Some("G") && r.text("faction").is_none())
+            .filter_map(|r| r.text("alias"))
+            .map(TechnologyId::new)
+            .find(|t| !crate::technology::is_unit_upgrade(content, t))
+            .expect("a single-green technology");
+        let seat = state.player_mut(&a()).unwrap();
+        seat.technologies.clear();
+        assert!(!crate::technology::can_research(
+            &state,
+            content,
+            DEFAULT,
+            &a(),
+            &green
+        ));
+        unlock_omar(&mut state);
+        assert!(crate::technology::can_research(
+            &state,
+            content,
+            DEFAULT,
+            &a(),
+            &green
+        ));
+    }
+
+    fn hero_state() -> (GameState, SystemId, PlanetId, ti4_content::galaxy::Galaxy) {
+        let state = seated_game(&[("a", "yin"), ("b", "sol")], DEFAULT);
+        let centre = ti4_content::galaxy::all_planets(ContentStore::embedded(), DEFAULT)
+            .iter()
+            .find(|(_, planet)| {
+                planet.homeworld_of().is_none()
+                    && !planet.is_placed_during_play()
+                    && planet.system_id().is_some()
+            })
+            .and_then(|(_, planet)| planet.system_id().map(ToOwned::to_owned))
+            .expect("a non-home planet");
+        let hub = crate::fixtures::hub_with_centre(&centre);
+        let (system, planet) = hero_spots(ContentStore::embedded(), Some(&hub.galaxy))
+            .into_iter()
+            .next()
+            .expect("a non-home planet");
+        (state, system, planet, hub.galaxy)
+    }
+
+    fn use_hero(
+        state: &mut GameState,
+        galaxy: &ti4_content::galaxy::Galaxy,
+        answers: &[&str],
+    ) -> Option<bool> {
+        let mut table = scripted(answers);
+        with_context(state, DEFAULT, Some(galaxy), &mut table, |ctx| {
+            use_leader(ctx, &a(), &LeaderId::new("yinhero"))
+        })
+    }
+
+    #[test]
+    fn dannel_lands_up_to_three_infantry_and_takes_an_empty_planet() {
+        let (mut state, system, planet, galaxy) = hero_state();
+        let content = ContentStore::embedded();
+        assert_eq!(
+            leader_action(&state, content, &a(), &LeaderId::new("yinhero")),
+            Some(true)
+        );
+        assert!(
+            hero_spots(content, Some(&galaxy))
+                .iter()
+                .all(|(s, _)| !ti4_content::galaxy::is_home_system(content, s.as_str(), DEFAULT)),
+            "no home planet is offered"
+        );
+        let spot = format!("{system}|{planet}");
+        let done = use_hero(&mut state, &galaxy, &[&spot, &spot, &spot, &spot]);
+        assert_eq!(done, Some(true));
+        assert_eq!(
+            infantry_of(&state, &system, &planet, &a(), "infantry"),
+            3,
+            "never more than 3"
+        );
+        assert_eq!(
+            state.system_state(&system).planet_control.get(&planet),
+            Some(&a()),
+            "uncontested, so taken"
+        );
+    }
+
+    #[test]
+    fn dannel_fights_the_defenders_to_the_end_and_declining_changes_nothing() {
+        let (mut state, system, planet, galaxy) = hero_state();
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        let before = state.clone();
+        assert_eq!(use_hero(&mut state, &galaxy, &["decline"]), Some(false));
+        assert_eq!(
+            state, before,
+            "nothing asked beyond the choice, nothing changed"
+        );
+        let spot = format!("{system}|{planet}");
+        assert_eq!(
+            use_hero(&mut state, &galaxy, &[&spot, &spot, "decline"]),
+            Some(true)
+        );
+        let (mine, theirs) = (
+            infantry_of(&state, &system, &planet, &a(), "infantry"),
+            infantry_of(&state, &system, &planet, &b(), "infantry"),
+        );
+        assert!(
+            mine == 0 || theirs == 0,
+            "the combat ran to its end: {mine} v {theirs}"
+        );
+        let holder = state
+            .system_state(&system)
+            .planet_control
+            .get(&planet)
+            .cloned();
+        assert_eq!(holder == Some(a()), mine > 0);
+        // Not this module's leader.
+        let mut table = scripted(&[]);
+        assert_eq!(
+            with_context(&mut state, DEFAULT, None, &mut table, |ctx| use_leader(
+                ctx,
+                &a(),
+                &LeaderId::new("yinagent")
+            )),
+            None
+        );
+    }
+
     #[test]
     fn every_claim_is_on_the_sheet_and_the_module_is_registered() {
         assert!(crate::factions::module("yin").is_some());
         let missing = crate::factions::missing(ContentStore::embedded(), DEFAULT, "yin");
         let ids: Vec<&str> = missing.iter().map(|asset| asset.id.as_str()).collect();
-        assert_eq!(ids, ["yincommander", "yinhero", "yinbt"]);
+        assert_eq!(ids, ["yinbt"]);
     }
 }

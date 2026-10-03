@@ -58,6 +58,7 @@ pub fn e_res_siphons(
         if let Some(holder) = state.player_mut(seat) {
             holder.trade_goods += 4;
         }
+        crate::supply::note_trade_goods_gained(state, seat, 4, "faction_technology");
     }
     gained
 }
@@ -327,6 +328,12 @@ pub fn offer_quantum_datahub(
     }
     seat.trade_goods -= QUANTUM_DATAHUB_GOODS;
     state.player_mut(&partner)?.trade_goods += QUANTUM_DATAHUB_GOODS;
+    crate::supply::note_trade_goods_gained(
+        state,
+        &partner,
+        QUANTUM_DATAHUB_GOODS,
+        "quantum_datahub",
+    );
     state.swap_strategy_card(&holder, &given, taken.clone());
     state.swap_strategy_card(&partner, &taken, given);
     Some((holder, partner))

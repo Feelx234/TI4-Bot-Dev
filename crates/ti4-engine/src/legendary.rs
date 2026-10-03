@@ -880,14 +880,18 @@ fn resolve(
                 ));
             let answer =
                 table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
+            let mut gained = 0;
             if let Some(seat) = state.player_mut(player) {
                 if answer.id == "convert" {
+                    gained = seat.commodities;
                     seat.trade_goods += seat.commodities;
                     seat.commodities = 0;
                 } else {
+                    gained = 2;
                     seat.trade_goods += 2;
                 }
             }
+            crate::supply::note_trade_goods_gained(state, player, gained, "legendary");
         }
         // "place up to 2 infantry from your reinforcements on any planet you control"
         "primor" => place_on_own_planet(

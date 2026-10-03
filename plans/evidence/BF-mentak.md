@@ -10,7 +10,7 @@ File: `crates/ti4-engine/src/factions/mentak.rs`. Only other edit: the `mc` hard
 | tech | `mc` | done | `mirror_computing_doubles_trade_goods_through_both_payment_paths` |
 | unit | `mentak_flagship` | done | `fourth_moon_stops_other_players_ships_sustaining` |
 | unit | `mentak_mech` | done | `moll_terminus_stops_other_ground_forces_on_its_planet_sustaining` |
-| unit | `mentak_cruiser3` | **not claimed, unreachable**: text implemented, but it can never be placed while `mentakbt` is blocked | `the_corsair_passes_blockades_only_towards_other_players_non_fighter_ships` (through `MovementRules::path_from_ship`) |
+| unit | `mentak_cruiser3` | done, claimed (commit 083ff72b route): reachable through production and research | `the_corsair_passes_blockades_only_towards_other_players_non_fighter_ships` (through `MovementRules::path_from_ship`), `the_tables_grace_makes_the_corsair_the_cruiser_ii` |
 | ability | `ambush` | done | `ambush_rolls_each_chosen_ship_against_its_own_combat_value`, `ambush_declined_unavailable_or_not_mentak_changes_nothing` |
 | ability | `pillage` | **partial, not claimed**: transaction half live; the "gains trade goods" half waits for the trade-goods conversion package (no production code emits `TRADE_GOODS_GAINED`) | `pillage_takes_a_trade_good_from_a_neighbour_with_three_or_more`, `..._may_take_a_commodity_instead_...`, `pillage_also_follows_a_resolved_transaction`, `pillage_needs_three_goods_a_neighbour_and_no_promise_of_protection` |
 | tech | `so` | done | `salvage_gains_a_trade_good_for_winning_or_losing_and_may_rebuild_when_winning`, `salvage_does_nothing_without_the_technology_or_after_a_draw` |
@@ -18,7 +18,7 @@ File: `crates/ti4-engine/src/factions/mentak.rs`. Only other edit: the `mc` hard
 | leader | `mentakagent` | **not claimed** (rides on Pillage's partial coverage; text implemented and tested on the transaction half) | `suffi_an_draws_an_action_card_each_after_pillage` |
 | leader | `mentakcommander` | done | `the_commander_unlocks_with_four_cruisers_on_the_board`, `the_commander_takes_a_note_the_opponent_chooses_from_their_hand`, `the_commander_is_not_offered_locked_or_when_the_opponent_has_no_note_in_hand` |
 | leader | `mentakhero` | done | `ipswitch_replaces_each_other_players_destroyed_ship_for_the_combat`, `ipswitch_is_not_offered_locked_declined_or_to_a_non_participant` |
-| breakthrough | `mentakbt` | **blocked** (not claimed) | none |
+| breakthrough | `mentakbt` | **partial, not claimed**: `unit_form_override` live in `production::buildable_for` and `technology::apply_unit_upgrades` (tests: `the_tables_grace_*`); gaps below | `the_tables_grace_makes_the_corsair_the_cruiser_ii`, `the_tables_grace_needs_the_breakthrough_the_upgrade_and_a_mentak_seat` |
 | regression | no Mentak seat | done | `a_game_without_a_mentak_seat_is_offered_no_mentak_ability` (every event the module listens to, plus the `mc`/sustain hooks, on a Sol/Hacan game: nothing asked, state unchanged) |
 
 Design notes:
@@ -50,6 +50,28 @@ Design notes:
   `promissory::take`. Test `the_commander_can_take_support_for_the_throne_and_scores_it`.
 * After the fixes: `factions::` 195 passed, 1 failed (`arborec::...mitosis_places_an_infantry_on_the_planet_you_choose`,
   another agent's file); mentak tests all pass; clippy has no mentak.rs warning.
+
+## Routes update (commits 083ff72b, c5632448)
+
+* The Table's Grace: `unit_form_override` returns `mentak_cruiser3` for base `cruiser` when the seat is
+  Mentak, holds `mentakbt` and the chosen form is `cruiser2`. Still not covered, so `mentakbt` is not
+  claimed: (1) gaining the breakthrough does not run `technology::apply_unit_upgrades`, so Cruiser IIs
+  already on the board stay Cruiser IIs until the next research (needs a call where
+  `seat.breakthrough` is set: `breakthroughs.rs` ~277, `thunders_edge.rs` ~315, `legendary.rs` ~234,
+  `action_cards.rs` ~4414); (2) `action_cards::placed_unit_id` (~4684, used by `place_units_counted`
+  and every card placement) ignores the override. My Salvage and Ipswitch placements call
+  `apply_unit_upgrades` afterwards to compensate; other cards that place a cruiser would place a
+  Cruiser II.
+* Pillage / Suffi An stay partial. `TRADE_GOODS_GAINED` now fires from the Trade primary/secondary,
+  relic gains and exploration; it does not fire at the `trade_goods +=` sites BF-F3.md lists:
+  action_cards.rs (7), agenda_effects.rs (4), combat.rs, diplomacy/transfers.rs, draft.rs,
+  faction_abilities.rs, faction_techs.rs, game.rs:1933/4549/4576 (including income), laws.rs,
+  legendary.rs, promissory.rs:511, transactions.rs:476 (covered by the transaction half instead).
+  Staged events also depend on `flush_staged_events` being called after the acting window.
+* `TRANSACTION_RESOLVED` now supplies `proposer`/`partner`; Pillage reads them (test updated).
+* No new decision sites (still only `ask_among`).
+* Commands: `cargo test -p ti4-engine --lib -- factions::mentak` 23 passed; clippy: no `mentak.rs`
+  warning; rustfmt applied.
 
 ## Hook requests
 
@@ -116,4 +138,4 @@ Not run: `ti4-sim`, training (forbidden).
 
 ## Ledger line
 
-`mentak     8/12 implemented` (gaps: `pillage`, `mentak_cruiser3`, `mentakagent`, `mentakbt`).
+`mentak     9/12 implemented` (gaps: `pillage`, `mentakagent`, `mentakbt`).

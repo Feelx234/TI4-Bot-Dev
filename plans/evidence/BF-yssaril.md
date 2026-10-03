@@ -111,3 +111,11 @@ yssaril   10/12 implemented
 - **S2** Kyver decides every outcome (`kyver_decisions`, mutates only reveals) before applying any; a failed show/ask clears reveals and returns `Some(false)` with the state unchanged. Test `kyver_changes_nothing_when_a_decision_fails`.
 - **Nit** So Ata refuses an unrecognised answer (`IllegalChoice::NotOffered`) instead of falling back.
 - Results: `factions::yssaril` 23 passed; clippy no warnings in yssaril.rs; rustfmt clean. Ledger now `yssaril 9/12` (missing `scheming`, `yssarilagent`, `yssarilbt`).
+
+## Routes update (2026-10-03)
+
+- `yssarilagent` (Ssruu): claimed. Shared `leaders::use_leader_text` / `component|leader|yssarilagent|<agent>` do the work; module tests `ssruu_borrows_an_action_agent_even_exhausted_and_exhausts_itself`, `ssruu_is_not_offered_to_a_seat_without_it`. Limit: only ACTION agents the shared code delivers (Hacan, Xxcha) are borrowable; non-ACTION and module agents are not delivered through Ssruu.
+- `scheming`: stays unclaimed. Status-phase draw is routed; Unconventional Measures (`agenda_effects.rs` ~1252, "draw 2 action cards" For voters) still pops the deck directly and is a real draw. Politics Rider found no direct deck access. Claim once that site uses `action_cards::draw`.
+- `yssarilbt`: partial, not claimed. Built: another player's Stall Tactics by the owner's leave (`faction|yssaril|bt_stall|<owner>`, owner asked, refusal remembered per turn), and `transaction_limit_exempt` for the pair for that turn (public marks `yssaril:bt:{exempt,declined}:<owner>:<user>` = turn_seq). Not expressible: the Scheming half (no consent point inside `draw`'s hooks); the owner's transaction is the ordinary one, not opened by the module. Tests: `an_allowed_stall_tactics_discards_for_the_user_and_exempts_their_transaction`, `a_refused_stall_tactics_changes_nothing_but_is_not_offered_again`, `deepgloom_needs_the_breakthrough_and_a_card`.
+- New decision site: `yssaril.rs::borrowed_stall_tactics` (Choice 1, AskObserved 1). Others unchanged.
+- Results: `factions::yssaril` 28 passed; clippy none in yssaril.rs; rustfmt applied. Ledger: `yssaril 10/12` (missing `scheming`, `yssarilbt`).

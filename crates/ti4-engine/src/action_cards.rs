@@ -2080,6 +2080,7 @@ fn rider_payoff(state: &mut GameState, player: &PlayerId, card: Option<&str>) {
             if let Some(seat) = state.player_mut(player) {
                 seat.trade_goods += 5;
             }
+            crate::supply::note_trade_goods_gained(state, player, 5, "trade_rider");
         }
         Some("politic_rider") => {
             // Three action cards, the hand limit applied later by whoever owns a table (the
@@ -2279,6 +2280,7 @@ fn forward_supply_base(context: &mut crate::timing::TimingContext<'_>, player: &
     if let Some(seat) = context.state.player_mut(player) {
         seat.trade_goods += 3;
     }
+    crate::supply::note_trade_goods_gained(context.state, player, 3, "forward_supply_base");
     let seating = context.state.seating_order.clone();
     let options: Vec<(String, String)> = seating
         .iter()
@@ -2303,6 +2305,12 @@ fn forward_supply_base(context: &mut crate::timing::TimingContext<'_>, player: &
     {
         seat.trade_goods += 1;
     }
+    crate::supply::note_trade_goods_gained(
+        context.state,
+        &ti4_model::id::PlayerId::new(&other),
+        1,
+        "forward_supply_base",
+    );
 }
 
 /// Counterstroke: "After another player activates a system that contains 1 of your command
@@ -3329,6 +3337,12 @@ fn industrial_initiative(context: &mut crate::timing::TimingContext<'_>, player:
     if let Some(seat) = context.state.player_mut(player) {
         seat.trade_goods += i32::try_from(count).unwrap_or(i32::MAX);
     }
+    crate::supply::note_trade_goods_gained(
+        context.state,
+        player,
+        i32::try_from(count).unwrap_or(i32::MAX),
+        "action_card",
+    );
 }
 
 /// Fighter Conscription: "Place 1 fighter from your reinforcements in each system that
@@ -3975,6 +3989,7 @@ fn scuttle(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     if let Some(seat) = context.state.player_mut(player) {
         seat.trade_goods += goods;
     }
+    crate::supply::note_trade_goods_gained(context.state, player, goods, "action_card");
 }
 
 /// Seize Artifact: "Choose 1 of your neighbors that has 1 or more relic fragments. That player
@@ -4688,7 +4703,19 @@ fn placed_unit_id(
                 .get(base_type)
                 .copied()
         })
-        .map(|kind| ti4_model::id::UnitTypeId::new(kind.id().to_owned()))
+        .map(|kind| {
+            // A faction effect may replace the unit a player places for this base type (Mentak's
+            // Corsair), as production and research already ask.
+            crate::factions::hooks_strategy::unit_form_override(
+                state,
+                content,
+                sources,
+                player,
+                base_type,
+                kind.id(),
+            )
+            .unwrap_or_else(|| ti4_model::id::UnitTypeId::new(kind.id().to_owned()))
+        })
 }
 
 /// Every spot `target` allows for this player, in board order: `(system, Some(planet))` for a
@@ -5269,6 +5296,12 @@ fn mining_initiative(context: &mut crate::timing::TimingContext<'_>, player: &Pl
     if let Some(seat) = context.state.player_mut(player) {
         seat.trade_goods += i32::try_from(worth).unwrap_or(0);
     }
+    crate::supply::note_trade_goods_gained(
+        context.state,
+        player,
+        i32::try_from(worth).unwrap_or(0),
+        "action_card",
+    );
 }
 
 /// War Effort: one cruiser into a system that already holds a ship of yours.
@@ -5586,6 +5619,12 @@ fn uprising(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     if let Some(seat) = context.state.player_mut(player) {
         seat.trade_goods += i32::try_from(worth).unwrap_or(0);
     }
+    crate::supply::note_trade_goods_gained(
+        context.state,
+        player,
+        i32::try_from(worth).unwrap_or(0),
+        "action_card",
+    );
 }
 
 /// Plague: one die per infantry on a rival planet; each 6 or better destroys one of them.

@@ -1082,6 +1082,9 @@ impl<'a> Game<'a> {
     )]
     pub fn step(&mut self) -> StepResult {
         self.announce_staged_ground_events();
+        if let Err(error) = self.announce_gains() {
+            return self.result(false, Some(error));
+        }
         // Space station control is a function of occupancy, not an event (rules 2, 2a, 2b), so it
         // is recomputed once per step rather than at each of the dozen places a unit can move or
         // die. Doing it here means a movement path added later cannot forget to.
@@ -1956,6 +1959,7 @@ impl<'a> Game<'a> {
         if let Some(holder) = self.state.player_mut(&by) {
             holder.trade_goods += goods;
         }
+        crate::supply::note_trade_goods_gained(&mut self.state, &by, goods, "extreme_duress");
         self.emit(&format!("EXTREME_DURESS:{player}"));
         // The punishment discards every action card left in the hand, and every discarded
         // component action is a moment another player's Reverse Engineer may take.
@@ -2193,6 +2197,83 @@ impl<'a> Game<'a> {
         self.dice = dice;
         self.rng = rng;
         self.mirror_timing_log(logged);
+    }
+
+    /// Announce breakthroughs and relics gained since the last step as typed `BREAKTHROUGH_GAINED`
+    /// (`player`, `breakthrough`) and `RELIC_GAINED` (`player`, `relic`) — "when you gain this
+    /// card" effects (Mentak, Muaat, Naaz breakthroughs; Naalu's Iconoclast). Detected by comparing
+    /// each seat with what it held at the last step rather than at the dozen grant sites, so no
+    /// path can forget. Only while a faction module is seated (nothing else listens), so other
+    /// games' state is unchanged.
+    fn announce_gains(&mut self) -> Result<(), GameError> {
+        if !crate::supply::staging_enabled(&self.state) {
+            return Ok(());
+        }
+        let mut gained: Vec<(&'static str, &'static str, PlayerId, String)> = Vec::new();
+        let seats: Vec<PlayerId> = self
+            .state
+            .players
+            .iter()
+            .map(|seat| seat.id.clone())
+            .collect();
+        for player in seats {
+            let Some(seat) = self.state.player(&player) else {
+                continue;
+            };
+            let breakthrough = seat
+                .breakthrough
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            let relics: Vec<String> = seat.relics.iter().map(ToString::to_string).collect();
+            let bt_key = format!("private:#seen:breakthrough:{player}");
+            let relic_key = format!("private:#seen:relics:{player}");
+            let seen_bt = self
+                .state
+                .faction_marks
+                .get(&bt_key)
+                .cloned()
+                .unwrap_or_default();
+            let seen_relics: Vec<String> = self
+                .state
+                .faction_marks
+                .get(&relic_key)
+                .map(|list| {
+                    list.split(',')
+                        .filter(|id| !id.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !breakthrough.is_empty() && breakthrough != seen_bt {
+                gained.push((
+                    "BREAKTHROUGH_GAINED",
+                    "breakthrough",
+                    player.clone(),
+                    breakthrough.clone(),
+                ));
+            }
+            let mut remaining = seen_relics.clone();
+            for relic in &relics {
+                if let Some(index) = remaining.iter().position(|seen| seen == relic) {
+                    remaining.remove(index);
+                } else {
+                    gained.push(("RELIC_GAINED", "relic", player.clone(), relic.clone()));
+                }
+            }
+            self.state.faction_marks.insert(bt_key, breakthrough);
+            self.state.faction_marks.insert(relic_key, relics.join(","));
+        }
+        for (event, key, player, id) in gained {
+            let mut payload = BTreeMap::new();
+            payload.insert(
+                "player".to_owned(),
+                serde_json::Value::String(player.to_string()),
+            );
+            payload.insert(key.to_owned(), serde_json::Value::String(id));
+            self.emit_typed(event, payload)?;
+        }
+        Ok(())
     }
 
     /// Announce card moves a faction effect staged (discards, takes) through the resolver, so

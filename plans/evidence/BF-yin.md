@@ -87,3 +87,19 @@ agents' in-progress edits; a rerun was green.
 
 `cargo test -p ti4-engine --lib print_faction_ledger -- --ignored --nocapture`:
 `yin        8/11 implemented` (missing: Leader yincommander, Leader yinhero, Breakthrough yinbt).
+
+## Update 2026-10-03 (new shared routes)
+
+| Item | Status | Tests |
+|---|---|---|
+| `yincommander` Brother Omar effect | done, claimed: `StrategyHooks::extra_prerequisite_colours` (green x1), `research_waiver_offer` (tech owned by another seat, 1+ infantry on the board) and `research_waiver_paid` (first infantry in board order returns; no table in the hook) | `brother_omar_supplies_green_and_waives_prerequisites_for_an_infantry`, `brother_omar_green_pays_a_single_green_prerequisite` (real `technology::can_research`) |
+| `yinhero` Dannel | done, claimed: `leader_action` + `use_leader`. Asks up to 3 planets first (non-home, from the map in `context.galaxy`; refuses with no map), lands infantry, runs `invasion::ground_combat` per planet to its end, then `establish_control`; space cannon is never run; state restored on an illegal answer | `dannel_lands_up_to_three_infantry_and_takes_an_empty_planet`, `dannel_fights_the_defenders_to_the_end_and_declining_changes_nothing` |
+| `yinbt` | out of scope: needs the alliance abilities of other factions' commanders (not built); `BREAKTHROUGH_GAINED` now exists but the grant itself has no route | none |
+
+Limits of the hero: the synchronous resolver emits no ground-combat events, so Indoctrination, Greyfire, Brother Milor and
+`GROUND_FORCE_DESTROYED` listeners do not see these combats; one rival side is fought per planet; `leader_action` cannot see
+the map, so it is offered whenever infantry remain in the box (a no-map use changes nothing and does not purge).
+Decision sites to register: unchanged (`yin.rs::ask_one` x1 Choice, x1 AskObserved; the hero reuses it).
+
+Results: `cargo test -p ti4-engine --lib factions::yin` 24 passed; clippy 0 warnings in yin.rs; rustfmt clean.
+Ledger: `yin 10/11 implemented` (missing: Breakthrough yinbt).

@@ -408,6 +408,8 @@ fn production_biomes(context: &mut crate::timing::TimingContext<'_>, player: &Pl
     if let Some(seat) = context.state.player_mut(&chosen) {
         seat.trade_goods += 2;
     }
+    crate::supply::note_trade_goods_gained(context.state, player, 4, "production_biomes");
+    crate::supply::note_trade_goods_gained(context.state, &chosen, 2, "production_biomes");
     true
 }
 

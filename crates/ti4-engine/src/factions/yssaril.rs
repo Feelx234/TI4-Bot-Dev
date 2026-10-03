@@ -43,7 +43,7 @@ use ti4_model::content_types::{POK, SourceSet};
 use ti4_model::id::{ActionCardId, LeaderId, PlayerId, SystemId, TechnologyId};
 use ti4_model::state::{GameState, LeaderStatus, Phase};
 
-use super::hooks_cards::{self, RevealKind, RevealScope};
+use super::hooks_cards::{self, CardHooks, RevealKind, RevealScope};
 use super::hooks_economy::EconomyHooks;
 use super::hooks_movement::{MovementHooks, PassSite};
 use super::{FactionModule, Hooks};
@@ -59,6 +59,8 @@ const SPY_NET: &str = "spynet:yssaril";
 const STALL_TACTICS: &str = "faction|yssaril|stall_tactics";
 /// Mageon Implants' component-action option ids start with this; the target seat follows.
 const MAGEON_PREFIX: &str = "faction|yssaril|mi|";
+/// Deepgloom Executable: another player's Stall Tactics, by leave of the Yssaril seat that follows.
+const BT_STALL_PREFIX: &str = "faction|yssaril|bt_stall|";
 
 /// What this faction implements.
 pub const MODULE: FactionModule = FactionModule {
@@ -69,8 +71,10 @@ pub const MODULE: FactionModule = FactionModule {
     technologies: &["tp", "mi"],
     units: &["yssaril_flagship", "yssaril_mech"],
     promissory: &["spynet"],
-    // `yssarilagent` (needs `leaders.rs`) and the breakthrough are not implemented.
-    leaders: &["yssarilcommander", "yssarilhero"],
+    // `yssarilagent` is Ssruu: the shared `leaders::use_leader_text` does the work (ACTION agents the
+    // shared code delivers only).
+    leaders: &["yssarilagent", "yssarilcommander", "yssarilhero"],
+    // `yssarilbt` is partial (the Scheming half is not expressible), so not claimed.
     breakthroughs: &[],
     hooks: Hooks {
         component_actions: Some(component_actions),
@@ -79,6 +83,10 @@ pub const MODULE: FactionModule = FactionModule {
         leader_action: Some(leader_action),
         use_leader: Some(use_leader),
         timing_abilities: Some(timing_abilities),
+        cards: CardHooks {
+            transaction_limit_exempt: Some(transaction_limit_exempt),
+            ..CardHooks::NONE
+        },
         economy: EconomyHooks {
             action_card_draw_bonus: Some(action_card_draw_bonus),
             action_cards_drawn: Some(action_cards_drawn),
@@ -273,6 +281,13 @@ fn component_actions(
             "Stall Tactics: discard 1 action card from your hand",
         ));
     }
+    for owner in bt_owners(state, player) {
+        options.push(ChoiceOption::labelled(
+            format!("{BT_STALL_PREFIX}{owner}"),
+            crate::faction_abilities::ACTION_KIND,
+            format!("Deepgloom Executable: use {owner}'s Stall Tactics (if {owner} allows)"),
+        ));
+    }
     for target in mageon_targets(state, player) {
         options.push(ChoiceOption::labelled(
             format!("{MAGEON_PREFIX}{target}"),
@@ -290,6 +305,9 @@ fn perform_component(
 ) -> bool {
     if option.id == STALL_TACTICS {
         return stall_tactics(context, player);
+    }
+    if let Some(owner) = option.id.strip_prefix(BT_STALL_PREFIX) {
+        return borrowed_stall_tactics(context, player, &PlayerId::new(owner));
     }
     if let Some(target) = option.id.strip_prefix(MAGEON_PREFIX) {
         return mageon_implants(context, player, &PlayerId::new(target));
@@ -343,6 +361,112 @@ fn mageon_implants(context: &mut TimingContext<'_>, player: &PlayerId, target: &
     // A decider answering outside the options leaves the card exhausted, as the look happened.
     let _ = crate::action_cards::look_at_hand_and_take(context, player, target, "mi", false);
     true
+}
+
+// -- Deepgloom Executable (partial) ----------------------------------------------------------------
+
+/// Public, per-turn facts about the breakthrough, in `faction_marks` (they are known to the table,
+/// so no `private:` key). Value: the `turn_seq` they hold for.
+fn bt_key(kind: &str, owner: &PlayerId, user: &PlayerId) -> String {
+    format!("yssaril:bt:{kind}:{owner}:{user}")
+}
+
+fn bt_mark(state: &GameState, kind: &str, owner: &PlayerId, user: &PlayerId) -> bool {
+    state
+        .faction_marks
+        .get(&bt_key(kind, owner, user))
+        .is_some_and(|turn| *turn == state.turn_seq.to_string())
+}
+
+/// The Yssaril seats whose Stall Tactics `user` may ask to use this turn: they hold the
+/// breakthrough, have not refused `user` this turn, and `user` has a card to discard.
+fn bt_owners(state: &GameState, user: &PlayerId) -> Vec<PlayerId> {
+    if hand_size(state, user) == 0 {
+        return Vec::new();
+    }
+    state
+        .players
+        .iter()
+        .filter(|seat| {
+            &seat.id != user
+                && crate::breakthroughs::holds(state, &seat.id, "yssarilbt")
+                && !bt_mark(state, "declined", &seat.id, user)
+        })
+        .map(|seat| seat.id.clone())
+        .collect()
+}
+
+/// "You can allow other players to use your STALL TACTICS ...; when you do, you may resolve a
+/// transaction with that player. During the action phase, that transaction does not count against
+/// the once-per-player transaction limit for that turn."
+///
+/// The owner is asked; a refusal is remembered for the turn so it is not offered again. Opening
+/// the transaction itself is the owner's ordinary transaction (the exemption mark is what the
+/// transaction limit reads). The Scheming half is not expressible (no consent point inside
+/// `action_cards::draw`), so the breakthrough is not claimed.
+fn borrowed_stall_tactics(
+    context: &mut TimingContext<'_>,
+    user: &PlayerId,
+    owner: &PlayerId,
+) -> bool {
+    if !bt_owners(context.state, user).contains(owner) {
+        return false;
+    }
+    let choice = Choice::new(
+        owner.clone(),
+        format!("Deepgloom Executable: allow {user} to use your Stall Tactics"),
+        vec![
+            ChoiceOption::labelled("allow", "breakthrough", format!("allow {user}")),
+            ChoiceOption::decline(),
+        ],
+    )
+    .contextualized(decision(
+        context.state,
+        owner,
+        "yssarilbt",
+        "deepgloom_allow_stall_tactics",
+    ));
+    let Ok(answer) = context.ask_seeing(&choice) else {
+        return false;
+    };
+    let turn = context.state.turn_seq.to_string();
+    if answer.id != "allow" {
+        context
+            .state
+            .faction_marks
+            .insert(bt_key("declined", owner, user), turn);
+        return false;
+    }
+    let Ok(Some(card)) = crate::action_cards::choose_from_own_hand(
+        context,
+        user,
+        "yssarilbt",
+        "deepgloom_stall_tactics_discard",
+        "Stall Tactics (allowed by Deepgloom Executable): discard 1 action card",
+        false,
+    ) else {
+        return false;
+    };
+    if !hooks_cards::discard_chosen(context.state, user, &card) {
+        return false;
+    }
+    context
+        .state
+        .faction_marks
+        .insert(bt_key("exempt", owner, user), turn);
+    true
+}
+
+/// A transaction between a Yssaril seat and a player it allowed to use Stall Tactics this turn does
+/// not count against the once-per-player limit.
+fn transaction_limit_exempt(
+    state: &GameState,
+    _content: &ContentStore,
+    active: &PlayerId,
+    other: &PlayerId,
+) -> bool {
+    state.phase == Phase::Action
+        && (bt_mark(state, "exempt", active, other) || bt_mark(state, "exempt", other, active))
 }
 
 // -- the commander -------------------------------------------------------------------------------
@@ -1391,6 +1515,140 @@ mod tests {
         );
         assert_eq!(used, Some(false));
         assert_eq!(state, before);
+    }
+
+    // -- Ssruu -----------------------------------------------------------------------------------
+
+    fn ssruu_game() -> GameState {
+        let mut state = crate::fixtures::seated_game(&[("a", FACTION), ("b", "hacan")], DEFAULT);
+        let seat = state.player_mut(&b()).unwrap();
+        seat.commodities = 0;
+        seat.leaders
+            .insert(LeaderId::new("hacanagent"), LeaderStatus::Exhausted);
+        state
+    }
+
+    #[test]
+    fn ssruu_borrows_an_action_agent_even_exhausted_and_exhausts_itself() {
+        let mut state = ssruu_game();
+        let content = ContentStore::embedded();
+        let id = "component|leader|yssarilagent|hacanagent";
+        let offered: Vec<String> = crate::leaders::component_actions(&state, content, &a())
+            .into_iter()
+            .map(|option| option.id)
+            .collect();
+        assert!(offered.iter().any(|offered| offered == id), "{offered:?}");
+        let used = crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            None,
+            &mut scripted(&["b"]),
+            |ctx| crate::leaders::use_leader(ctx, &a(), &LeaderId::new("yssarilagent|hacanagent")),
+        );
+        assert!(used);
+        assert!(
+            state.player(&b()).unwrap().commodities > 0,
+            "Carth's text ran"
+        );
+        assert_eq!(
+            leader_status(&state, &b(), "hacanagent"),
+            Some(LeaderStatus::Exhausted),
+            "the source agent is untouched"
+        );
+        assert_eq!(
+            leader_status(&state, &a(), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+    }
+
+    #[test]
+    fn ssruu_is_not_offered_to_a_seat_without_it() {
+        let state = ssruu_game();
+        let offered = crate::leaders::component_actions(&state, ContentStore::embedded(), &b());
+        assert!(
+            offered
+                .iter()
+                .all(|option| !option.id.contains("yssarilagent"))
+        );
+    }
+
+    // -- Deepgloom Executable (partial) ----------------------------------------------------------
+
+    fn with_bt(state: &mut GameState) {
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("yssarilbt"));
+    }
+
+    #[test]
+    fn an_allowed_stall_tactics_discards_for_the_user_and_exempts_their_transaction() {
+        let mut state = game();
+        with_bt(&mut state);
+        state.phase = Phase::Action;
+        deal(&mut state, "b", &["sabotage"]);
+        let id = format!("{BT_STALL_PREFIX}a");
+        assert!(options(&state, &b()).contains(&id));
+        let content = ContentStore::embedded();
+        assert!(!transaction_limit_exempt(&state, content, &b(), &a()));
+        assert!(perform(&mut state, &mut scripted(&["allow"]), &b(), &id));
+        assert!(hand(&state, "b").is_empty());
+        assert!(hooks_cards::has_staged(&state));
+        assert!(transaction_limit_exempt(&state, content, &b(), &a()));
+        assert!(
+            crate::transactions::may_open_again(
+                &{
+                    let mut s = state.clone();
+                    s.record_transaction(&b(), &a());
+                    s
+                },
+                content,
+                &b(),
+                &a()
+            ),
+            "the limit no longer applies to the pair"
+        );
+        state.turn_seq += 1;
+        assert!(
+            !transaction_limit_exempt(&state, content, &b(), &a()),
+            "this turn only"
+        );
+    }
+
+    #[test]
+    fn a_refused_stall_tactics_changes_nothing_but_is_not_offered_again() {
+        let mut state = game();
+        with_bt(&mut state);
+        deal(&mut state, "b", &["sabotage"]);
+        let id = format!("{BT_STALL_PREFIX}a");
+        assert!(!perform(&mut state, &mut scripted(&["decline"]), &b(), &id));
+        assert_eq!(hand(&state, "b"), ["sabotage"]);
+        assert!(!transaction_limit_exempt(
+            &state,
+            ContentStore::embedded(),
+            &b(),
+            &a()
+        ));
+        assert!(
+            !options(&state, &b()).contains(&id),
+            "not offered again this turn"
+        );
+    }
+
+    #[test]
+    fn deepgloom_needs_the_breakthrough_and_a_card() {
+        let mut state = game();
+        deal(&mut state, "b", &["sabotage"]);
+        assert!(
+            !options(&state, &b())
+                .iter()
+                .any(|id| id.contains("bt_stall"))
+        );
+        with_bt(&mut state);
+        deal(&mut state, "b", &[]);
+        assert!(
+            !options(&state, &b())
+                .iter()
+                .any(|id| id.contains("bt_stall"))
+        );
     }
 
     // -- no Yssaril, no questions ----------------------------------------------------------------

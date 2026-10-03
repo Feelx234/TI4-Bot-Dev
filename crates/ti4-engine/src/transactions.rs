@@ -510,6 +510,19 @@ pub fn resolve(
     take(state, &offer.partner, &offer.received);
     give(state, content, &offer.partner, &offer.given);
     give(state, content, &offer.proposer, &offer.received);
+    // 21.5: received commodities arrive as trade goods, so both count as trade goods gained.
+    crate::supply::note_trade_goods_gained(
+        state,
+        &offer.partner,
+        offer.given.trade_goods + offer.given.commodities,
+        "transaction",
+    );
+    crate::supply::note_trade_goods_gained(
+        state,
+        &offer.proposer,
+        offer.received.trade_goods + offer.received.commodities,
+        "transaction",
+    );
     // Recorded here rather than at the window that opened the deal: this is the one place a
     // transaction is *resolved*, and Lie in Wait counts resolutions.
     state
