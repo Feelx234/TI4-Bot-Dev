@@ -86,3 +86,30 @@ Checks: `factions::saar` 9 passed; clippy no warning in `saar.rs`; rustfmt run. 
 Agent rules question: "highest move value" is the printed value among ships on the board (all players), not boosted values. New decision sites: `saar::agent` (1, via `ask`; subtype `agent_ship`). Existing: `ragh_call`, `chaos_mapping_production`, `hero`.
 
 Commands: `cargo test -p ti4-engine --lib -- factions::saar` 14 passed, 0 failed; clippy no warning in `saar.rs`; rustfmt run. Ledger: `saar 11/13 implemented` (missing saarcommander, saarbt).
+
+## Update: commander and breakthrough investigation (2026-10-03)
+
+| Item | Status |
+|---|---|
+| `saarcommander` Rowl Sarring effect | NOT claimed. No existing production hook can override where a produced unit is placed: `production::placements` returns spots inside the producing system only, and `ProductionWindow::place` writes into `self.system`. `EconomyHooks` has only `extra_production`, `extra_production_planet`, `cannot_produce`, `production_cost_reduction`. Faction-side logic is ready: `saar::commander_docks(state, content, sources, galaxy, player) -> Vec<(SystemId, Option<PlanetId>)>` (docks of an unlocked commander that are not in or adjacent to a system with another player's units; adjacency via `PlayerAdjacency`), test `the_commander_docks_exclude_systems_in_or_next_to_other_players_units`. It is `#[allow(dead_code)]` until the hook below exists. |
+| `saarbt` Deorbit Barrage | NOT claimed, not implemented. Missing seams: (a) `Hooks::perform_component` gets no `Resolver`, so `invasion::assign_ground_hits_in_timing` (needs one) cannot announce the sustain/destroy events; (b) no exhausted-breakthrough state (the engine tracks none; would need a `faction_marks` flag plus a ready step in the status phase); (c) "spend any amount of resources" has no quantity prompt (`production::pay_seeing` takes a fixed cost); (d) "up to 2 systems away" is undefined for wormholes (`Galaxy::distance` is hex-only); (e) the victim chooses nothing but the hit goes to a planet's ground forces owned by possibly several players. |
+
+### Hook request 7 (commander placement), exact change
+
+* File `crates/ti4-engine/src/factions/hooks_economy.rs`, new field in `EconomyHooks` (and `NONE`):
+  `pub produced_destinations: Option<fn(&GameState, &ContentStore, SourceSet, Option<&Galaxy>, &PlayerId, &SystemId /*producing system*/, &str /*unit base type*/) -> Vec<(SystemId, Option<PlanetId>)>>`
+  plus dispatch `pub fn produced_destinations(...)` concatenating modules (deduped, sorted).
+* Call sites in `production.rs`: `ProductionWindow::placement_choice` appends one option per extra destination, id `"<system>|<planet or space>"` (distinct from local spots, which are bare planet ids or `SPACE`), only for unit base types the hook returns destinations for (fighter, infantry), labelled as a placement elsewhere; `ProductionWindow::place` (line ~2356) resolves such an id and pushes the unit into that system's `units` / `planet_units` instead of `self.system`; `placements()` is used for the can-produce gate, so a producing system with no local spot but a remote dock is still buildable (add the remote destinations to the non-empty check at line ~1108 and ~1968).
+* Saar's side then returns `commander_docks(..)` filtered: fighters to entries with any planet or `None` (space area of that system), infantry only to entries with `Some(planet)`; excludes the producing system's own spot (already offered locally). Capacity (fleet pool, fighter capacity at the destination) must still be checked by the shared code via `fleet`/`supply::allowed` at the destination.
+* Rules question: neutral units (Gravity Rift/frontier-style non-player tokens) are not "another player's units"; implemented as units whose owner is a seated other player only (neutral owner ids are not seated players, but `unit.owner != player` is what is tested, so neutral-owned units currently DO count; confirm).
+
+### Commands
+
+| Command | Result |
+|---|---|
+| `cargo test -p ti4-engine --lib -- factions::saar` | 15 passed, 0 failed |
+| `cargo test -p ti4-engine --lib -- factions::` | 341 passed, 0 failed, 1 ignored |
+| `cargo clippy -p ti4-engine --all-targets` | no warning mentioning `saar.rs` |
+| ledger | `saar 11/13 implemented` (missing saarcommander, saarbt) |
+
+New decision sites: none.

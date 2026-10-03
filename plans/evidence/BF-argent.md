@@ -34,6 +34,8 @@ inside a timing hook).
 
 A. **Agent** ("When a player produces ground forces in a system ... place those units on any planets they control in that system and adjacent systems"): no WHEN event before ground-force placement; `production.rs::placements` needs an extra-planets hook (and a typed `GROUND_FORCES_BEING_PRODUCED` window carrying player, system, count).
 
+A (third pass 2026-10-03). Brief premise corrected: `argentagent` is not a combat-start card. Exact text (leaders.json): window "When a player produces ground forces in a system:" / "You may exhaust this card: that player may place those units on any planets they control in that system and any adjacent systems." Re-checked: no typed event before ground-force placement exists (`PRODUCTION_USED` is emitted AFTER production, game.rs ~465; no `GROUND_FORCES*` event anywhere), and `production::placements` (production.rs ~1586) returns only the producing planets. Needed shared change: (1) in the production step that places ground forces, emit a typed WHEN event `GROUND_FORCES_BEING_PRODUCED` {player, system, count} through `Game::emit_typed`/`Resolving::emit` with timing handle; (2) a hook (e.g. `EconomyHooks::extra_placement_planets(state, content, sources, player, system) -> Vec<PlanetId>`) or a `GameState.faction_marks` key `argent:agent_planets:<player>` read by `placements` to extend the ground-force spots to controlled planets in the system and adjacent systems. Argent then adds a WHEN optional timing ability (condition: Argent seat holds unexhausted agent; the event's player is any player) that exhausts via `crate::leaders` and sets the mark. Not claimed.
+
 ## Rules questions
 
 - Alpha II's "your opponent" is the combat opponent (`combat::opponent_with_ships`); several opponents: first only.
@@ -62,3 +64,5 @@ A. **Agent** ("When a player produces ground forces in a system ... place those 
 | `cargo test -p ti4-engine -q --no-fail-fast` | lib 1878 passed, 1 ignored; `decision_delivery_inventory` 2 failed (unregistered sites, incl. the ones above); other binaries ok |
 
 Ledger: `argent 12/13 implemented`; missing: Leader argentagent.
+
+Third pass: `cargo test -p ti4-engine --lib print_faction_ledger -- --ignored --nocapture` -> `argent 12/13 implemented`, missing Leader argentagent (1 passed). No code change to argent.rs.

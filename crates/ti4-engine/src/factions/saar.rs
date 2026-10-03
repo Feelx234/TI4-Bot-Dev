@@ -174,6 +174,53 @@ fn commander_unlocked(
     Some(units_of_base(state, content, sources, player, "spacedock").len() >= 3)
 }
 
+/// Rowl Sarring: "When you produce fighters or infantry, you may place each of those units at any
+/// of your space docks that are not in or adjacent to a system that contains another player's
+/// units." The docks that qualify, as `(system, planet)`; `planet` is `None` for a Floating Factory
+/// in the space area (fighters only). Needs the unlocked commander; the shared production placement
+/// hook (see `plans/evidence/BF-saar.md`, Hook requests) would call this, so it is not yet claimed.
+#[allow(
+    dead_code,
+    reason = "waits for the shared production placement hook; covered by tests"
+)]
+fn commander_docks(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+) -> Vec<(SystemId, Option<PlanetId>)> {
+    if !is_saar(state, player)
+        || leader_status(state, player, "saarcommander") != Some(LeaderStatus::Unlocked)
+    {
+        return Vec::new();
+    }
+    let adjacency = crate::movement::PlayerAdjacency::new(state, content, sources, galaxy, player);
+    let occupied = |system: &SystemId| {
+        let board = state.system_state(system);
+        board
+            .units
+            .iter()
+            .any(|unit| &unit.owner != player && !crate::neutral_units::is_neutral(&unit.owner))
+            || board.planet_units.values().any(|units| {
+                units.iter().any(|unit| {
+                    &unit.owner != player && !crate::neutral_units::is_neutral(&unit.owner)
+                })
+            })
+    };
+    units_of_base(state, content, sources, player, "spacedock")
+        .into_iter()
+        .filter(|(system, _, _)| {
+            !occupied(system)
+                && !adjacency
+                    .neighbours(system.as_str())
+                    .iter()
+                    .any(|n| occupied(&SystemId::new(n.clone())))
+        })
+        .map(|(system, planet, _)| (system, planet))
+        .collect()
+}
+
 // -- timing abilities ----------------------------------------------------------------------------
 
 fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
@@ -1005,6 +1052,55 @@ mod tests {
             commander_unlocked(&state, content, DEFAULT, None, &a(), &LeaderId::new("x")),
             None
         );
+    }
+
+    #[test]
+    fn the_commander_docks_exclude_systems_in_or_next_to_other_players_units() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        let hub = crate::fixtures::plain_hub();
+        let dock = SystemId::new(hub.outer[0].clone());
+        let next_to = SystemId::new(hub.centre.clone());
+        // The fixture seeds ships around the hub: start from an empty neighbourhood.
+        for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
+            let board = state.system_mut(&SystemId::new(id.clone()));
+            board.units.clear();
+            board.planet_units.clear();
+        }
+        state
+            .system_mut(&dock)
+            .units
+            .push(Unit::new(UnitTypeId::new("saar_spacedock"), a()));
+        let docks = |state: &GameState| {
+            commander_docks(state, content, DEFAULT, &hub.galaxy, &a())
+                .into_iter()
+                .filter(|(system, _)| system == &dock)
+                .count()
+        };
+        assert_eq!(docks(&state), 0, "commander still locked");
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("saarcommander"), LeaderStatus::Unlocked);
+        assert_eq!(docks(&state), 1, "an empty neighbourhood qualifies");
+        state
+            .system_mut(&next_to)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), b()));
+        assert_eq!(
+            docks(&state),
+            0,
+            "an adjacent system holds another player's ship"
+        );
+        state.system_mut(&next_to).units.clear();
+        state
+            .system_mut(&dock)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), b()));
+        assert_eq!(docks(&state), 0, "the dock's own system holds one");
+        let sol = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        assert!(commander_docks(&sol, content, DEFAULT, &hub.galaxy, &a()).is_empty());
     }
 
     #[test]
