@@ -82,6 +82,22 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
   edits (Arborec `mitosis`/`bio`/mech).
 - After wave B: movement/wormholes (BF-00e), hidden hand (BF-00h), capture (BF-00d), then wave C.
 - Ledger report: `cargo test -p ti4-engine --lib print_faction_ledger -- --ignored --nocapture`.
+- Wave D, 2026-10-03 (Claude, commits `b016ae7f` `25ac5e07` `e382d476` `e2b7d484` `3af444da`):
+  f77a0347 review resolved (`BF-wave-C.md`); every strategy-pool spend announces
+  STRATEGY_TOKEN_SPENT; Politics Rider draws through `action_cards::draw`; production
+  destinations seam (`EconomyHooks::production_destinations`). Naalu `RELIC_GAINED` replaced the
+  Fracture listener (duplicate note above resolved). Ledger (12 BF factions): arborec, ghost,
+  mentak, sardakk complete; argent 12/13, muaat 12/13, saar 12/13, naaz 11/13, naalu 10/13,
+  winnu 10/11, yssaril 10/12, yin 8/11. Lib 1916 passed.
+- Remaining BF gaps, each needs a shared seam (details in each `BF-<alias>.md`):
+  argentagent (cross-player "when produces ground forces" window + adjacent-planet destinations,
+  needs galaxy); winnuhero (free tactical action from a leader, `perform_leader_action`);
+  naalu_flagship (commit space-area units as ground forces), naalucommander (agenda peek),
+  naaluagent-te (placement events); naaz_voltron + naazbt (ability-hit immunity, planet unit in
+  space combat, effect-placement gate, capture release form); muaatbt (SHIP_MOVED path,
+  planet-token move, Nucleus Star Forge); saarbt (component resolver, breakthrough exhaust,
+  variable resource spend); yssarilagent (all agents), yssarilbt; yinhero (ground events, all
+  rivals), yincommander (player picks infantry), yinbt (alliance, out of scope).
 
 ### Structured diplomacy v2 continuation (2026-09-15)
 
