@@ -71,9 +71,9 @@ pub const MODULE: FactionModule = FactionModule {
     technologies: &["tp", "mi"],
     units: &["yssaril_flagship", "yssaril_mech"],
     promissory: &["spynet"],
-    // `yssarilagent` is Ssruu: the shared `leaders::use_leader_text` does the work (ACTION agents the
-    // shared code delivers only).
-    leaders: &["yssarilagent", "yssarilcommander", "yssarilhero"],
+    // `yssarilagent` (Ssruu) is wired through `leaders::use_leader_text` but copies only the ACTION
+    // agents the shared code delivers, so it stays unclaimed until it is complete (f77a0347 review).
+    leaders: &["yssarilcommander", "yssarilhero"],
     // `yssarilbt` is partial (the Scheming half is not expressible), so not claimed.
     breakthroughs: &[],
     hooks: Hooks {

@@ -2210,6 +2210,8 @@ impl<'a> Game<'a> {
             return Ok(());
         }
         let mut gained: Vec<(&'static str, &'static str, PlayerId, String)> = Vec::new();
+        // Written only after every gain is announced, so a failed emit is seen again next step.
+        let mut seen: Vec<(String, String)> = Vec::new();
         let seats: Vec<PlayerId> = self
             .state
             .players
@@ -2223,7 +2225,7 @@ impl<'a> Game<'a> {
             let breakthrough = seat
                 .breakthrough
                 .as_ref()
-                .map(|id| id.to_string())
+                .map(ToString::to_string)
                 .unwrap_or_default();
             let relics: Vec<String> = seat.relics.iter().map(ToString::to_string).collect();
             let bt_key = format!("private:#seen:breakthrough:{player}");
@@ -2261,8 +2263,8 @@ impl<'a> Game<'a> {
                     gained.push(("RELIC_GAINED", "relic", player.clone(), relic.clone()));
                 }
             }
-            self.state.faction_marks.insert(bt_key, breakthrough);
-            self.state.faction_marks.insert(relic_key, relics.join(","));
+            seen.push((bt_key, breakthrough));
+            seen.push((relic_key, relics.join(",")));
         }
         for (event, key, player, id) in gained {
             let mut payload = BTreeMap::new();
@@ -2273,6 +2275,7 @@ impl<'a> Game<'a> {
             payload.insert(key.to_owned(), serde_json::Value::String(id));
             self.emit_typed(event, payload)?;
         }
+        self.state.faction_marks.extend(seen);
         Ok(())
     }
 

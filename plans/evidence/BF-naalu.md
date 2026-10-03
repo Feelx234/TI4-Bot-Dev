@@ -148,3 +148,19 @@ Not run: `ti4-sim`, any live `Game` with a Naalu seat (every test drives the typ
 * Commands: `factions::naalu` 20 passed; `factions::` 289 passed; clippy clean for naalu.rs; full suite lib 1857 passed,
   2 failed (`transit::` rides-free tests, not naalu), `decision_delivery_inventory` 2 failed (other agents' sites).
 * Foresight requires `ships_moved > 0` on MOVEMENT_FINISHED (review); test `foresight_needs_the_mover_to_have_moved_ships_in`.
+
+## Round 4
+
+* `naalu_mech_te` claimed: DEPLOY on typed `RELIC_GAINED` (announced at the start of the next step by `Game::announce_gains`,
+  so the window is step-delayed, not mid-effect; a free placement, nothing observable differs). The `FRACTURE_RELIC_GAINED`
+  listener was dropped (the diff-based announcement already covers Fracture; both would double-fire). Running-`Game`
+  test `a_relic_gained_in_a_running_game_offers_the_deploy_once` (needs `.with_sources(DEFAULT)`, else the game deals the
+  PoK `naalu_mech`).
+* Z'eu: unchanged, partial (card says any placement; only activation announced). Stays test-build only, unclaimed.
+* Flagship: `GroundHooks::commit_candidates` returns `CommitCandidate {system, planet, unit}` and the engine drops any
+  that is not a ground force standing on that planet, so fighters in the space area cannot be offered. Missing hook:
+  commit units from the active system's space area as ground forces (they keep their type and roll its die), and
+  return survivors to the space area after the invasion.
+* Commander: `RevealKind` has no agenda variant and stored reveals go stale; needs a live computed view (a
+  `CardHooks::sees_hand`-style read by `SeatObservation`) and an agenda-deck peek. Not done.
+* Decision sites unchanged.

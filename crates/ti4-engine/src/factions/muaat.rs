@@ -1061,7 +1061,7 @@ fn magmus(owner_name: &str, seat: &PlayerId) -> Ability {
         Relation::After,
         Arc::new(move |event, _resolver, context| {
             if live(event, context.state, &owner) {
-                crate::supply::gain_trade_goods(context.state, &owner, 1);
+                crate::supply::gain_trade_goods_staged(context.state, &owner, 1, "muaat");
             }
             Ok(())
         }),

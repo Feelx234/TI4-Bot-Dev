@@ -30,7 +30,9 @@ pub const MODULE: FactionModule = FactionModule {
     technologies: &["yso", "ic"],
     units: &["yin_flagship", "yin_mech"],
     promissory: &["greyfire"],
-    leaders: &["yinagent", "yincommander", "yinhero"],
+    // yincommander (infantry waiver picks for the player) and yinhero (no ground events, one rival
+    // only) are partial: unclaimed until they are complete (f77a0347 review).
+    leaders: &["yinagent"],
     breakthroughs: &[],
     hooks: Hooks {
         commander_unlocked: Some(commander_unlocked),
@@ -2019,6 +2021,6 @@ mod tests {
         assert!(crate::factions::module("yin").is_some());
         let missing = crate::factions::missing(ContentStore::embedded(), DEFAULT, "yin");
         let ids: Vec<&str> = missing.iter().map(|asset| asset.id.as_str()).collect();
-        assert_eq!(ids, ["yinbt"]);
+        assert_eq!(ids, ["yincommander", "yinhero", "yinbt"]);
     }
 }

@@ -484,7 +484,7 @@ fn pillage_effect(
     if !taken {
         return Ok(());
     }
-    crate::supply::gain_trade_goods(context.state, owner, 1);
+    crate::supply::gain_trade_goods_staged(context.state, owner, 1, "mentakagent");
     if let Err(error) = suffi_an(context, owner, &target) {
         *context.state = before;
         return Err(error);
@@ -569,7 +569,7 @@ fn salvage_trade_good(owner_name: &str, seat: &PlayerId) -> Ability {
         "SPACE_COMBAT_ENDED",
         Relation::After,
         Arc::new(move |_event, _resolver, context| {
-            crate::supply::gain_trade_goods(context.state, &owner, 1);
+            crate::supply::gain_trade_goods_staged(context.state, &owner, 1, "mentak");
             Ok(())
         }),
     )

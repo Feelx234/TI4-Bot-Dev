@@ -210,8 +210,7 @@ pub fn start_turn(
                 break;
             }
             state.exhaust_planet(PlanetId::new(answer.id));
-            // No timing handle in this window: named gain, not announced (see BF-F3 remaining sites).
-            crate::supply::gain_trade_goods(state, player, 1);
+            crate::supply::gain_trade_goods_staged(state, player, 1, "psychoarchaeology");
         }
     }
 

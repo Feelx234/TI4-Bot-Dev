@@ -49,3 +49,17 @@ ability production in leaders; explore hooks (Naaz); flip_form call sites (Naaz 
 "through" vs "into" (Gashlai); extra-production / cost hooks (Creuss/Muaat/Argent breakthroughs);
 mobile-dock movement and blockade (Saar); hook sources/galaxy for component/leader offers;
 TURN_PASSED for the final pass; leaders::use_leader_text (Ssruu); transactions limit call site.
+
+## f77a0347 review resolution (2026-10-03)
+
+| Finding | Resolution |
+|---|---|
+| `yinhero` overclaimed (no GROUND_COMBAT_STARTED/destroyed events, one rival only) | Unclaimed; Yin missing = `yincommander`, `yinhero`, `yinbt` |
+| `yincommander` waiver chooses infantry for the player | Unclaimed until the player chooses |
+| `yssarilagent` copies only shared-code ACTION agents | Unclaimed |
+| TG gains not announced: Psychoarchaeology, Suffi An, Mentak after-combat, Muaat strategy-token | Now `gain_trade_goods_staged` |
+| `announce_gains` wrote `#seen` marks before emitting | Marks written only after every emit succeeds |
+| Unconventional Measures drops `draw_announced` error | Rejected: `resolve_with` returns `Effect`, the only error is an illegal decider answer, same convention as Archived Secret; propagation needs an `Effect` signature change outside this batch |
+| Pillage double trigger / late flush; Politics Rider `rider_payoff` bypasses `draw` (Scheming) | Open; `pillage`, `mentakagent` and Yssaril Scheming stay unclaimed. Assigned to the Mentak follow-up |
+
+Checks: `cargo test -p ti4-engine` — lib 1901 passed, 1 ignored; integration binaries all ok. Clippy: no new warnings in touched code. Ledger: yin 8/11, yssaril 9/12, naalu 10/13, mentak 9/12, muaat 11/13.

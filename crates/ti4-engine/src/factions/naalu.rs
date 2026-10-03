@@ -71,7 +71,7 @@ pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
     abilities: &["telepathic", "foresight"],
     technologies: &["ng", "hcf2"],
-    units: &["naalu_fighter", "naalu_fighter2"],
+    units: &["naalu_fighter", "naalu_fighter2", "naalu_mech_te"],
     promissory: &["gift"],
     leaders: &[HERO],
     breakthroughs: &["naalubt"],
@@ -554,13 +554,15 @@ fn mech_ready(context: &TimingContext<'_>, event: &crate::event::Event, seat: &P
         .is_empty()
 }
 
-/// DEPLOY, on the relic gains that are announced: Fracture's own event and `RELIC_GAINED`.
-fn mech(owner_name: &str, seat: &PlayerId, event_type: &'static str) -> Ability {
+/// DEPLOY, on the typed `RELIC_GAINED` the game announces at the start of the step after any relic
+/// is gained (so the window opens at the next step, not mid-effect; a DEPLOY is a free placement,
+/// so the delay changes nothing the board can show).
+fn mech(owner_name: &str, seat: &PlayerId) -> Ability {
     let (owner, condition_seat) = (seat.clone(), seat.clone());
     Ability::stateful(
-        format!("unit:{owner_name}:naalu_mech_te:{event_type}:after"),
+        format!("unit:{owner_name}:naalu_mech_te:RELIC_GAINED:after"),
         seat.clone(),
-        event_type,
+        "RELIC_GAINED",
         Relation::After,
         Arc::new(move |event, _resolver, context| {
             if !mech_ready(context, event, &owner) {
@@ -719,17 +721,13 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
         gift_return(owner_name, seat),
         neuroglaive(owner_name, seat),
         foresight(owner_name, seat),
+        mech(owner_name, seat),
         hero(owner_name, seat),
     ];
-    // Z'eu and Iconoclast are written and unit-tested but not claimed (Z'eu covers only the
-    // activation token; Iconoclast only some relic gains), so they stay off in real games.
-    // The unit tests drive them directly.
+    // Z'eu is written and unit-tested but not claimed: only the activation token is announced
+    // (`COMMAND_TOKEN_PLACED`), the card says any placement. It stays off in real games.
     if cfg!(test) {
-        abilities.extend([
-            agent(owner_name, seat),
-            mech(owner_name, seat, "RELIC_GAINED"),
-            mech(owner_name, seat, "FRACTURE_RELIC_GAINED"),
-        ]);
+        abilities.push(agent(owner_name, seat));
     }
     abilities
 }
@@ -894,7 +892,6 @@ mod tests {
                 vec![("player", "a"), ("system", other.as_str())],
             ),
             ("RELIC_GAINED", vec![("player", "a")]),
-            ("FRACTURE_RELIC_GAINED", vec![("player", "a")]),
         ] {
             emit(&mut state, &mut scripted(&[]), event, &pairs);
         }
@@ -1366,7 +1363,7 @@ mod tests {
     // -- Iconoclast ------------------------------------------------------------------------------
 
     #[test]
-    fn the_mech_is_the_thunders_edge_printing_and_deploys_after_a_fracture_relic() {
+    fn the_mech_is_the_thunders_edge_printing_and_deploys_after_a_relic_gain() {
         let content = ContentStore::embedded();
         assert_eq!(
             ti4_content::units::faction_unit(content, FACTION, "mech", DEFAULT)
@@ -1395,10 +1392,10 @@ mod tests {
         emit(
             &mut state,
             &mut scripted(&[
-                "unit:naalu:naalu_mech_te:FRACTURE_RELIC_GAINED:after",
+                "unit:naalu:naalu_mech_te:RELIC_GAINED:after",
                 &format!("{home}|{planet}"),
             ]),
-            "FRACTURE_RELIC_GAINED",
+            "RELIC_GAINED",
             &[("player", "b")],
         );
         assert_eq!(count(&state), before + 1, "one mech on the chosen planet");
@@ -1408,10 +1405,55 @@ mod tests {
         emit(
             &mut own,
             &mut scripted(&[]),
-            "FRACTURE_RELIC_GAINED",
+            "RELIC_GAINED",
             &[("player", "a")],
         );
         assert!(own == before);
+    }
+
+    #[test]
+    fn a_relic_gained_in_a_running_game_offers_the_deploy_once() {
+        use crate::game::Game;
+        let content = ContentStore::embedded();
+        let mut state = game();
+        state.phase = ti4_model::state::Phase::Action;
+        state.active = Some(a());
+        let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+        let planet = state
+            .system_state(&home)
+            .planet_control
+            .iter()
+            .find(|(_, owner)| **owner == a())
+            .map(|(planet, _)| planet.clone())
+            .expect("a controlled planet");
+        state
+            .player_mut(&b())
+            .unwrap()
+            .relics
+            .push(ti4_model::id::RelicId::new("the_crown_of_emphidia"));
+        let table = scripted(&[
+            "unit:naalu:naalu_mech_te:RELIC_GAINED:after",
+            &format!("{home}|{planet}"),
+        ]);
+        let mut game = Game::with_table(state, content, table).with_sources(DEFAULT);
+        let _ = game.step();
+        let mechs = game
+            .state
+            .system_state(&home)
+            .on_planet_of(&planet, &a())
+            .into_iter()
+            .filter(|u| u.type_id.as_str() == "naalu_mech_te")
+            .count();
+        assert_eq!(mechs, 1, "events: {:?}", game.events);
+        let _ = game.step();
+        let again = game
+            .state
+            .system_state(&home)
+            .on_planet_of(&planet, &a())
+            .into_iter()
+            .filter(|u| u.type_id.as_str() == "naalu_mech_te")
+            .count();
+        assert_eq!(again, 1, "announced once per gain");
     }
 
     // -- units -----------------------------------------------------------------------------------
