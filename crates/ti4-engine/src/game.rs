@@ -253,8 +253,20 @@ impl AftermathWindow {
             let bound = crate::combat::use_graviton(
                 state, content, sources, &gunner, &victim, system, hits,
             );
+            // These hits come from units' SPACE CANNON values, so they are unit-ability hits:
+            // a unit immune to hits from unit abilities (Naaz Eidolon Maximum) is skipped here.
             crate::combat::absorb_hits_seeing_with(
-                state, content, sources, galaxy, ctx, &victim, system, &gunner, hits, bound,
+                state,
+                content,
+                sources,
+                galaxy,
+                ctx,
+                &victim,
+                system,
+                &gunner,
+                hits,
+                bound,
+                crate::combat::HitOrigin::UnitAbility,
             )?;
         }
         let mut pending_event_scoring = None;
@@ -2758,6 +2770,7 @@ impl<'a> Game<'a> {
             "unit".to_owned(),
             serde_json::Value::String(ship.type_id.to_string()),
         );
+        payload.insert("path".to_owned(), serde_json::Value::String(path.join(",")));
         // Hops of the route that went through a wormhole rather than across a hex edge (Creuss
         // commander Sai Seravus: "ships that moved through 1 or more wormholes").
         if let Some(galaxy) = self.galaxy.as_ref() {

@@ -10043,3 +10043,73 @@ and qualify the exact forward-integrated candidate with `cargo test --workspace 
 No full workspace rerun or overall 127-commit/security sign-off was performed by this reviewer.
 All review-owned commands completed; no background worker was left running. Read this checkpoint,
 the request, response, evidence, and current Git state before resuming.
+
+## 2026-10-04 — BF-COMBAT-ORIGIN: the branch builds again
+
+Objective: finish the `HitOrigin` combat-origin seam the inherited base-faction wave had left
+half-installed, make `ti4-engine` green, register the decision sites the wave created, re-validate
+the base-faction ledger and the behaviour point, and commit the result without touching the separate
+ML session's work. Evidence and exact commands: `plans/evidence/BF-COMBAT-ORIGIN.md`.
+
+Inherited state: `wp/base-factions` at `a13f185b`, 21 modified paths, `cargo check -p ti4-engine
+--all-targets` red — `absorb_hits_seeing_with` had gained a `HitOrigin` parameter and two call
+sites (`game.rs:256`, one `combat.rs` test) had not been updated.
+
+Done and committed on this package:
+
+- Space-cannon absorption passes `HitOrigin::UnitAbility`. A space cannon hit is not a combat-roll
+  hit, and Naaz's Eidolon Maximum is defined against exactly that distinction.
+- `SHIP_MOVED` now carries the traversed `path`; that payload key is the producer for Muaat's
+  breakthrough, which reads `event.text("path")`.
+- `technology::bf_f3_tests::a_module_waiver_requires_a_selected_payment_and_is_paid_once` no longer
+  hardcodes waiver index `0`. `research_waiver_offers` numbers only tables that register a waiver
+  hook, and the wave registered Yin's Brother Omar, so the test's own hook moved to index `1` and
+  the test paid the wrong waiver. The index is now derived from `research_waiver_offers`, as the
+  production caller does. No fixture was regenerated.
+- `decision_delivery_inventory.rs` registers `strategy_cards.rs::resolve_research` (2 choices,
+  `ObservedVia("strategy_cards.rs::ask")`), `yssaril.rs::action_card_draw_requested` (1,
+  `ObservedHere`), and the two Yssaril observed asks.
+- The three clippy warnings the wave introduced are fixed; the 18 pre-existing `ti4-engine` and 1
+  `ti4-model` warnings are untouched. `cargo fmt -p ti4-engine` touched only files already inside the
+  wave.
+
+Measured: `cargo test -p ti4-engine -q --no-fail-fast -j 8` → 1928 + 1 + 4 + 5 passed, 0 failed,
+1 ignored (`factions::tests::print_faction_ledger`), doctests clean. `cargo test -p ti4-sim --lib`
+→ 51/0/1. `cargo check --release -p ti4-policy -p ti4-sim --all-targets` → exit 0, so the changed
+engine API does not break its downstream consumers. Twelve concurrent 200-seated faction soaks
+(one process per faction, 32-core host, 7 m 06 s wall) → 2,400 games with replay comparison,
+**0 failures**, run twice with identical results. The six-original-faction 30-seed diagnostic is
+**identical to the recorded `c5632448` point on all ten metrics** (`vp_pace 0.472222`,
+`share_SHIP_MOVED 0.046439`, …): the wave is behaviour-neutral for the original six. Ledger:
+arborec 12/12, argent 12/13, ghost 12/12, mentak 12/12, muaat 13/13, naalu 11/13, naaz 11/13,
+saar 12/13, sardakk 12/12, winnu 10/11, yin 9/11, yssaril 10/12 — **136/147**. The denominator
+moved 145 → 147 because the wave registered further base-faction assets, so 136/147 is not
+comparable with the earlier 133/145.
+
+Decisions: commit the inherited engine wave rather than only this package's edits, because a green
+HEAD requires it and the wave is one interdependent unit; stage `game.rs` partially so the other
+session's round-income experiment (`Game::with_round_income`, `STATUS_INCOME_TRADE_GOODS`) stays
+uncommitted — verified safe because `git show HEAD:crates/ti4-training/src/rollout.rs` has no
+`with_round_income` reference. Environment note for later sessions: the pinned
+`out/libtorch-2.9.1-cpu/lib` has no `include` directory, so exporting `LIBTORCH` invalidates the
+cached `torch-sys` fingerprint and a fresh C++ build then fails on `torch/torch.h`; unset `LIBTORCH`
+for debug work and set it only for the release diagnostics that need it. A whole-workspace debug
+build is not available in this environment right now.
+
+Not cleared: **no independent review was run** — no review peer was available, and these changes are
+self-reviewed; tier C/D review is still owed for the wave as a whole. Eleven base-faction assets
+remain unclaimed (`argentagent`, `naaluagent-te`, `naalucommander`, `naaz_voltron`, `naazbt`,
+`saarbt`, `winnuhero`, `yinhero`, `yinbt`, `yssarilagent`, `yssarilbt`). The Naaz Eidolon change is
+soaked but not asserted by any fixture. The five metrics outside the retired behaviour bounds are
+unchanged and still await a re-baselining decision.
+
+Working tree after the commit: intentionally still dirty. Uncommitted and untouched: the `game.rs`
+round-income experiment, `crates/ti4-mlp/**`, `crates/ti4-policy/**`, `crates/ti4-training/**`,
+`crates/ti4-replayer/**`, `crates/ti4-review/**`, `scripts/`, `plans/INDEX.md`,
+`target-cuda-repack/`. No command in this package wrote to the historical Python reference.
+
+Next safe action: add the missing Naaz fixture — one ground combat where a `HitOrigin::UnitAbility`
+hit is suppressed by Eidolon immunity while a `HitOrigin::CombatRoll` hit is not — then claim
+`naaz_voltron` if the Voltron unit behaviour the wave implemented is real. After that the remaining
+base-faction gaps are the eight leaders/breakthroughs already listed in the wave-D queue. Obtain a
+tier C review of this commit before extending the wave further.

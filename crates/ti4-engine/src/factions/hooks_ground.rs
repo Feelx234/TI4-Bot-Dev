@@ -133,6 +133,18 @@ pub struct GroundHooks {
             &[CommitOrigin],
         ) -> Vec<CommitCandidate>,
     >,
+    /// Extra units from the active system's space area that may commit temporarily as ground
+    /// forces. The invasion returns surviving candidates to space before it establishes control.
+    ///
+    /// Naalu's Matriarch supplies its fighters here. Unlike [`Self::commit_candidates`], these
+    /// units already stand in the active system's space area, so the engine validates that they
+    /// are still there and keeps their temporary provenance through the invasion.
+    pub temporary_space_commit_candidates:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId) -> Vec<Unit>>,
+    /// Whether a unit temporarily counts as a ground force on a planet during an invasion.
+    pub temporary_ground_force: Option<
+        fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId, &PlanetId, &Unit) -> bool,
+    >,
     /// At the start of a round of ground combat, once for each participant (the invader, then
     /// the defender), before anything is rolled.
     ///
@@ -166,6 +178,8 @@ impl GroundHooks {
         ground_rolls_extra_hits: None,
         may_sustain: None,
         commit_candidates: None,
+        temporary_space_commit_candidates: None,
+        temporary_ground_force: None,
         ground_combat_round_started: None,
         custodians_free: None,
     };
@@ -232,6 +246,33 @@ pub(crate) fn commit_candidates(
         .filter_map(|h| h.commit_candidates)
         .flat_map(|f| f(state, content, sources, galaxy, invader, system, already))
         .collect()
+}
+
+pub(crate) fn temporary_space_commit_candidates(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    invader: &PlayerId,
+    system: &SystemId,
+) -> Vec<Unit> {
+    hooks()
+        .filter_map(|h| h.temporary_space_commit_candidates)
+        .flat_map(|f| f(state, content, sources, invader, system))
+        .collect()
+}
+
+pub(crate) fn temporary_ground_force(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+    unit: &Unit,
+) -> bool {
+    hooks()
+        .filter_map(|h| h.temporary_ground_force)
+        .any(|f| f(state, content, sources, player, system, planet, unit))
 }
 
 pub(crate) fn ground_combat_round_started(

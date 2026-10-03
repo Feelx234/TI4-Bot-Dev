@@ -523,6 +523,8 @@ pub fn borrowable_agents(
     reason = "plain fn-pointer table; aliases would only move the signatures elsewhere"
 )]
 pub struct CardHooks {
+    /// A card-specific transaction may reach a player without ordinary adjacency.
+    pub transaction_reach: Option<fn(&GameState, &ContentStore, &PlayerId, &PlayerId) -> bool>,
     /// Whether a transaction between `active` (the player whose turn it is) and `other` is exempt
     /// from the once-per-player-per-turn limit. **Any** module's `true` exempts it.
     ///
@@ -552,6 +554,7 @@ pub struct CardHooks {
 impl CardHooks {
     /// No hooks.
     pub const NONE: Self = Self {
+        transaction_reach: None,
         transaction_limit_exempt: None,
         votes_first: None,
         vote_bonus_with_content: None,
@@ -595,6 +598,18 @@ fn hooks() -> impl Iterator<Item = CardHooks> {
         .iter()
         .map(|module| module.hooks.cards)
         .chain(extra)
+}
+
+#[must_use]
+pub fn transaction_reach(
+    state: &GameState,
+    content: &ContentStore,
+    a: &PlayerId,
+    b: &PlayerId,
+) -> bool {
+    hooks()
+        .filter_map(|h| h.transaction_reach)
+        .any(|f| f(state, content, a, b))
 }
 
 /// Whether a faction module exempts the transaction between `active` and `other` from the

@@ -344,45 +344,133 @@ fn offer_research(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<Option<TechnologyId>, IllegalChoice> {
-    let open = crate::technology::researchable(state, content, sources, player);
-    if open.is_empty() {
-        return Ok(None);
+    loop {
+        let open = crate::technology::researchable(state, content, sources, player);
+        if open.is_empty() {
+            return Ok(None);
+        }
+        // No decline. The Technology primary reads "Research 1 technology" -- it is not optional,
+        // and the second one, which is, goes through `paid_research`. A declined *optional faction
+        // waiver* returns here without paying or researching, so the player can select another
+        // legal technology.
+        let techs_owned = i64::try_from(
+            state
+                .player(player)
+                .map_or(0, |seat| seat.technologies.len()),
+        )
+        .unwrap_or(i64::MAX);
+        let choice = Choice::new(
+            player.clone(),
+            "research a technology",
+            open.iter()
+                .map(|id| research_option(content, id, 0, 0, techs_owned))
+                .collect(),
+        )
+        .contextualized(DecisionContext::new(
+            player.clone(),
+            DecisionSource::StrategyCard {
+                card: "Technology".to_owned(),
+                secondary: false,
+            },
+            "research_technology",
+            state.phase,
+            state.round,
+        ));
+        let answer = ask(state, content, sources, galaxy, table, &choice)?;
+        if answer.is_decline() {
+            return Ok(None);
+        }
+        let technology = TechnologyId::new(answer.id);
+        if resolve_research(state, content, sources, galaxy, table, player, &technology)? {
+            return Ok(Some(technology));
+        }
     }
-    // No decline. The Technology primary reads "Research 1 technology" -- it is not optional, and
-    // the second one, which is, goes through `paid_research`. The empty case returned above, so a
-    // seat reaching here always has something legal to take.
-    let techs_owned = i64::try_from(
-        state
-            .player(player)
-            .map_or(0, |seat| seat.technologies.len()),
-    )
-    .unwrap_or(i64::MAX);
+}
+
+/// Resolve an already-selected technology. The normal and Inheritance Systems paths retain their
+/// existing table-less resolution. When a faction waiver is the only way past prerequisites, the
+/// player chooses both the waiver and its exact cost; declining either makes no mutation.
+fn resolve_research(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    technology: &TechnologyId,
+) -> Result<bool, IllegalChoice> {
+    if !crate::technology::faction_waiver_required(state, content, sources, player, technology) {
+        return Ok(crate::technology::research(
+            state, content, sources, player, technology,
+        ));
+    }
+    let waivers = crate::technology::research_waiver_offers(state, content, player, technology);
     let choice = Choice::new(
         player.clone(),
-        "research a technology",
-        open.iter()
-            .map(|id| research_option(content, id, 0, 0, techs_owned))
+        format!("research {technology}: choose a prerequisite waiver"),
+        waivers
+            .iter()
+            .map(|(index, waiver)| {
+                ChoiceOption::labelled(
+                    format!("waiver|{index}"),
+                    "research_waiver",
+                    waiver.label.clone(),
+                )
+            })
+            .chain(std::iter::once(ChoiceOption::decline()))
             .collect(),
     )
     .contextualized(DecisionContext::new(
         player.clone(),
-        DecisionSource::StrategyCard {
-            card: "Technology".to_owned(),
-            secondary: false,
-        },
-        "research_technology",
+        DecisionSource::FactionAbility("research_waiver".to_owned()),
+        "research_waiver",
         state.phase,
         state.round,
     ));
     let answer = ask(state, content, sources, galaxy, table, &choice)?;
     if answer.is_decline() {
-        return Ok(None);
+        return Ok(false);
     }
-    let technology = TechnologyId::new(answer.id);
-    Ok(
-        crate::technology::research(state, content, sources, player, &technology)
-            .then_some(technology),
+    let Some(index) = answer
+        .id
+        .strip_prefix("waiver|")
+        .and_then(|id| id.parse::<usize>().ok())
+    else {
+        return Ok(false);
+    };
+    let Some((_, waiver)) = waivers.iter().find(|(offered, _)| *offered == index) else {
+        return Ok(false);
+    };
+    let payment = Choice::new(
+        player.clone(),
+        format!("{}: choose an infantry to return", waiver.label),
+        waiver
+            .payments
+            .iter()
+            .map(|payment| {
+                ChoiceOption::labelled(
+                    payment.id.clone(),
+                    "research_waiver_payment",
+                    payment.label.clone(),
+                )
+            })
+            .chain(std::iter::once(ChoiceOption::decline()))
+            .collect(),
     )
+    .contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::FactionAbility("research_waiver".to_owned()),
+        "research_waiver_payment",
+        state.phase,
+        state.round,
+    ));
+    let answer = ask(state, content, sources, galaxy, table, &payment)?;
+    if answer.is_decline() {
+        return Ok(false);
+    }
+    Ok(crate::technology::research_with_waiver(
+        state, content, sources, player, technology, index, &answer.id,
+    ))
 }
 
 /// Jol-Nar's Specialist Compounds: exhaust a specialty planet instead of paying, and research a
@@ -694,55 +782,69 @@ fn paid_research(
     if !crate::payment::affordable(state, content, sources, player, cost, Spend::Resources) {
         return Ok(());
     }
-    // Choose before paying, but take the payment before mutating the technology set.
-    let open = crate::technology::researchable(state, content, sources, player);
-    if open.is_empty() {
-        return Ok(());
-    }
-    let techs_owned = i64::try_from(
-        state
-            .player(player)
-            .map_or(0, |seat| seat.technologies.len()),
-    )
-    .unwrap_or(i64::MAX);
-    let choice = Choice::new(
-        player.clone(),
-        "research a technology",
-        open.iter()
-            .map(|id| research_option(content, id, cost, 0, techs_owned))
-            .chain(std::iter::once(ChoiceOption::decline()))
-            .collect(),
-    )
-    .contextualized(DecisionContext::new(
-        player.clone(),
-        DecisionSource::StrategyCard {
-            card: "Technology".to_owned(),
-            secondary: true,
-        },
-        "research_technology",
-        state.phase,
-        state.round,
-    ));
-    let answer = ask(state, content, sources, galaxy, table, &choice)?;
-    if answer.is_decline() {
-        return Ok(());
-    }
-    let Some(plan) = crate::payment::plans(state, content, sources, player, cost, Spend::Resources)
-        .into_iter()
-        .next()
-    else {
-        return Ok(());
-    };
-    if crate::payment::apply(state, player, &plan) {
-        crate::technology::research(
+    // Choose before paying. A declined optional prerequisite waiver returns here, restoring the
+    // resource plan too, so the player may choose another legal technology or decline the
+    // secondary altogether.
+    loop {
+        let open = crate::technology::researchable(state, content, sources, player);
+        if open.is_empty() {
+            return Ok(());
+        }
+        let techs_owned = i64::try_from(
+            state
+                .player(player)
+                .map_or(0, |seat| seat.technologies.len()),
+        )
+        .unwrap_or(i64::MAX);
+        let choice = Choice::new(
+            player.clone(),
+            "research a technology",
+            open.iter()
+                .map(|id| research_option(content, id, cost, 0, techs_owned))
+                .chain(std::iter::once(ChoiceOption::decline()))
+                .collect(),
+        )
+        .contextualized(DecisionContext::new(
+            player.clone(),
+            DecisionSource::StrategyCard {
+                card: "Technology".to_owned(),
+                secondary: true,
+            },
+            "research_technology",
+            state.phase,
+            state.round,
+        ));
+        let answer = ask(state, content, sources, galaxy, table, &choice)?;
+        if answer.is_decline() {
+            return Ok(());
+        }
+        let technology = TechnologyId::new(answer.id);
+        let waiver_required = crate::technology::faction_waiver_required(
             state,
             content,
             sources,
             player,
-            &TechnologyId::new(answer.id),
+            &technology,
         );
+        let Some(plan) =
+            crate::payment::plans(state, content, sources, player, cost, Spend::Resources)
+                .into_iter()
+                .next()
+        else {
+            return Ok(());
+        };
+        let before = state.clone();
+        if !crate::payment::apply(state, player, &plan) {
+            return Ok(());
+        }
+        if resolve_research(state, content, sources, galaxy, table, player, &technology)? {
+            return Ok(());
+        }
+        *state = before;
+        if !waiver_required {
+            return Ok(());
+        }
     }
-    Ok(())
 }
 
 fn ready_planets(
@@ -1625,7 +1727,7 @@ mod tests {
         assert_eq!(context.subtype, "status_redistribute_tokens");
     }
     use super::*;
-    use crate::fixtures::{a_placed_planet, game, plain_hub, put_on_planet};
+    use crate::fixtures::{a_placed_planet, game, plain_hub, put, put_on_planet, seated_game};
     use ti4_model::content_types::POK;
 
     /// A decider that answers the first offered option and keeps every `Choice` it was asked,
@@ -1646,6 +1748,74 @@ mod tests {
                     prompt: choice.prompt.clone(),
                 })
         }
+    }
+
+    #[test]
+    fn yin_commander_chooses_an_infantry_payment_and_decline_is_atomic() {
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("a");
+        let other = PlayerId::new("b");
+        let system = SystemId::new("18");
+        let technology = TechnologyId::new("ws");
+        let mut state = seated_game(&[("a", "yin"), ("b", "sol")], POK);
+        state.player_mut(&player).expect("Yin seat").leaders.insert(
+            ti4_model::id::LeaderId::new("yincommander"),
+            ti4_model::state::LeaderStatus::Unlocked,
+        );
+        state
+            .player_mut(&other)
+            .expect("other seat")
+            .technologies
+            .insert(technology.clone());
+        put(&mut state, &system, "infantry", &player, 1);
+
+        let before = state.clone();
+        let mut declined = Table::with_default(Box::new(crate::choice::Scripted::new(vec![
+            "waiver|0".to_owned(),
+            "decline".to_owned(),
+        ])));
+        assert!(
+            !resolve_research(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut declined,
+                &player,
+                &technology,
+            )
+            .expect("declining a legal optional waiver"),
+        );
+        assert_eq!(state, before, "declining the waiver spends nothing");
+
+        let mut chosen = Table::with_default(Box::new(crate::choice::Scripted::new(vec![
+            "waiver|0".to_owned(),
+            "space|18".to_owned(),
+        ])));
+        assert!(
+            resolve_research(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut chosen,
+                &player,
+                &technology,
+            )
+            .expect("selected legal infantry")
+        );
+        assert!(
+            state
+                .player(&player)
+                .expect("Yin seat")
+                .technologies
+                .contains(&technology)
+        );
+        assert!(
+            state.system_state(&system).units.iter().all(|unit| {
+                !(unit.owner == player && unit.type_id.as_str().contains("infantry"))
+            })
+        );
     }
 
     /// OBS-003e: the production/payment producers this module shares with `OBS-008c` were

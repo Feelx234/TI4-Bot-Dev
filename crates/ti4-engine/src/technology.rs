@@ -883,10 +883,20 @@ fn track_named(name: &str) -> Option<&'static str> {
     }
 }
 
-/// A faction module's way to research `alias` ignoring its prerequisites (Yin commander), if one
-/// is offered now. Read-only; the first offer is the one [`research`] uses. Callers that can ask
-/// should offer it beside Inheritance Systems and settle the cost with
-/// [`crate::factions::hooks_strategy`]'s `research_waiver_paid`.
+/// Every faction module's way to research `alias` while ignoring its prerequisites. A resolver
+/// with a decision table must offer the waiver and its exact payment targets explicitly, then call
+/// [`research_with_waiver`].
+#[must_use]
+pub(crate) fn research_waiver_offers(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) -> Vec<(usize, crate::factions::hooks_strategy::ResearchWaiver)> {
+    crate::factions::hooks_strategy::research_waiver_offers(state, content, player, alias)
+}
+
+/// The first faction module's way to research `alias` while ignoring its prerequisites.
 #[must_use]
 pub fn research_waiver_offer(
     state: &GameState,
@@ -894,10 +904,27 @@ pub fn research_waiver_offer(
     player: &PlayerId,
     alias: &TechnologyId,
 ) -> Option<crate::factions::hooks_strategy::ResearchWaiver> {
-    crate::factions::hooks_strategy::research_waiver_offers(state, content, player, alias)
+    research_waiver_offers(state, content, player, alias)
         .into_iter()
         .next()
         .map(|(_, waiver)| waiver)
+}
+
+/// Whether `alias` can only be researched now by taking a faction waiver rather than satisfying
+/// prerequisites or using Inheritance Systems. A decision-table caller uses this to ask for the
+/// optional waiver before it mutates any other research payment.
+#[must_use]
+pub(crate) fn faction_waiver_required(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) -> bool {
+    can_research(state, content, sources, player, alias)
+        && !prerequisites_met(state, content, sources, player, alias)
+        && !inheritance_systems_ready(state, content, sources, player)
+        && !research_waiver_offers(state, content, player, alias).is_empty()
 }
 
 /// Whether this player may research a technology now.
@@ -1121,7 +1148,56 @@ pub fn apply_unit_upgrades(
     }
 }
 
-/// Research a technology, having satisfied its prerequisites. `false` if it could not be.
+/// Research `alias` by taking a selected module waiver and paying its selected legal cost.
+///
+/// This is intentionally separate from [`research`]: a table-less caller cannot silently spend an
+/// optional faction ability. The payment hook revalidates its target, and a failed payment restores
+/// the state before returning `false`.
+pub fn research_with_waiver(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &TechnologyId,
+    waiver_index: usize,
+    payment: &str,
+) -> bool {
+    if !can_research(state, content, sources, player, alias)
+        || prerequisites_met(state, content, sources, player, alias)
+    {
+        return false;
+    }
+    let Some((_, waiver)) = research_waiver_offers(state, content, player, alias)
+        .into_iter()
+        .find(|(index, _)| *index == waiver_index)
+    else {
+        return false;
+    };
+    if !waiver
+        .payments
+        .iter()
+        .any(|candidate| candidate.id == payment)
+    {
+        return false;
+    }
+    let before = state.clone();
+    if !crate::factions::hooks_strategy::research_waiver_paid(
+        state,
+        content,
+        player,
+        alias,
+        waiver_index,
+        payment,
+    ) {
+        *state = before;
+        return false;
+    }
+    complete_research(state, content, sources, player, alias);
+    true
+}
+
+/// Research a technology, having satisfied its prerequisites or paying Inheritance Systems.
+/// Table-less callers never silently take an optional faction waiver. `false` if it could not be.
 pub fn research(
     state: &mut GameState,
     content: &ContentStore,
@@ -1134,17 +1210,10 @@ pub fn research(
     }
     // Researchable only through Inheritance Systems: exhaust it and pay its 2 resources now, with
     // the cheapest plan (this path has no table to ask which planets; the plans are minimal).
-    if !prerequisites_met(state, content, sources, player, alias)
-        && !inheritance_systems_ready(state, content, sources, player)
-        && let Some((index, _)) =
-            crate::factions::hooks_strategy::research_waiver_offers(state, content, player, alias)
-                .into_iter()
-                .next()
-    {
-        // A module's waiver (Yin commander): this path has no table, so the first offer is taken
-        // and the module charges its cost.
-        crate::factions::hooks_strategy::research_waiver_paid(state, content, player, alias, index);
-    } else if !prerequisites_met(state, content, sources, player, alias) {
+    if !prerequisites_met(state, content, sources, player, alias) {
+        if !inheritance_systems_ready(state, content, sources, player) {
+            return false;
+        }
         let Some(plan) = crate::payment::plans(
             state,
             content,
@@ -1165,6 +1234,18 @@ pub fn research(
             seat.exhausted_technologies.insert(TechnologyId::new("is"));
         }
     }
+    complete_research(state, content, sources, player, alias);
+    true
+}
+
+/// Apply every common consequence after a legal research and any required price have settled.
+fn complete_research(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) {
     grant(state, player, alias);
     // 90.8: the upgrade covers the unit on the faction sheet, so units already on the board
     // become the new version too -- not only the ones built after this.
@@ -1188,7 +1269,6 @@ pub fn research(
         let name = crate::promissory::faction_name(state, player);
         crate::promissory::give_back(state, &crate::promissory::note_id("ra", &name));
     }
-    true
 }
 
 #[cfg(test)]
@@ -2162,7 +2242,9 @@ mod replaced_upgrades {
 #[cfg(test)]
 mod bf_f3_tests {
     use super::*;
-    use crate::factions::hooks_strategy::{ResearchWaiver, StrategyHooks, with_test_hooks};
+    use crate::factions::hooks_strategy::{
+        ResearchWaiver, ResearchWaiverPayment, StrategyHooks, with_test_hooks,
+    };
     use crate::fixtures::game;
     use ti4_model::content_types::POK;
     use ti4_model::id::UnitTypeId;
@@ -2197,7 +2279,7 @@ mod bf_f3_tests {
     }
 
     #[test]
-    fn a_module_waiver_researches_past_the_prerequisites_and_is_paid_once() {
+    fn a_module_waiver_requires_a_selected_payment_and_is_paid_once() {
         let content = ContentStore::embedded();
         let gd = TechnologyId::new("gd");
         let waiver = StrategyHooks {
@@ -2205,12 +2287,20 @@ mod bf_f3_tests {
                 (tech.as_str() == "gd").then(|| ResearchWaiver {
                     id: "w".to_owned(),
                     label: "ignore prerequisites".to_owned(),
+                    payments: vec![ResearchWaiverPayment {
+                        id: "infantry:a".to_owned(),
+                        label: "return infantry a".to_owned(),
+                    }],
                 })
             }),
-            research_waiver_paid: Some(|state, _, player, tech| {
+            research_waiver_paid: Some(|state, _, player, tech, payment| {
+                if payment != "infantry:a" {
+                    return false;
+                }
                 state
                     .faction_marks
                     .insert(format!("paid:{player}:{tech}"), String::new());
+                true
             }),
             ..StrategyHooks::NONE
         };
@@ -2222,7 +2312,38 @@ mod bf_f3_tests {
             assert!(
                 research_waiver_offer(&state, content, &a(), &TechnologyId::new("ws")).is_none()
             );
-            assert!(research(&mut state, content, POK, &a(), &gd));
+            // The waiver index is the one `research_waiver_offers` reports for this module, not a
+            // literal position: with Yin's Brother Omar registered, this test table is no longer
+            // the first table that has a `research_waiver_offer`.
+            let index = research_waiver_offers(&state, content, &a(), &gd)
+                .into_iter()
+                .find(|(_, offered)| offered.id == "w")
+                .map(|(index, _)| index)
+                .expect("the test waiver is offered");
+            let before = state.clone();
+            assert!(!research_with_waiver(
+                &mut state,
+                content,
+                POK,
+                &a(),
+                &gd,
+                index,
+                "not-a-payment"
+            ));
+            assert_eq!(state, before, "an illegal payment is atomic");
+            assert!(
+                !research(&mut state, content, POK, &a(), &gd),
+                "table-less research does not take an optional waiver"
+            );
+            assert!(research_with_waiver(
+                &mut state,
+                content,
+                POK,
+                &a(),
+                &gd,
+                index,
+                "infantry:a"
+            ));
         });
         assert!(state.player(&a()).unwrap().technologies.contains(&gd));
         assert_eq!(state.faction_marks.len(), 1);

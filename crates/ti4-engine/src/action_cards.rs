@@ -65,6 +65,11 @@ pub fn draw(
     player: &PlayerId,
     count: usize,
 ) -> Result<Vec<ActionCardId>, IllegalChoice> {
+    if count > 0 {
+        crate::factions::hooks_economy::action_card_draw_requested(
+            state, content, table, player, count,
+        )?;
+    }
     let mut drawn = Vec::new();
     // Yssaril Scheming: "When you draw 1 or more action cards, draw 1 additional action card."
     // Asked once, before the first card leaves the deck, and only for a real draw.
@@ -4666,6 +4671,15 @@ pub fn place_units(
         return;
     };
     let type_id = ti4_model::id::UnitTypeId::new(id);
+    if crate::factions::hooks_economy::effect_placement_forbidden(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &type_id,
+    ) {
+        return;
+    }
     let count = crate::supply::allowed(
         context.state,
         context.content,
@@ -4875,6 +4889,15 @@ pub fn place_units_counted(
     ) else {
         return 0;
     };
+    if crate::factions::hooks_economy::effect_placement_forbidden(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &type_id,
+    ) {
+        return 0;
+    }
     let count = crate::supply::allowed(
         context.state,
         context.content,
@@ -5085,6 +5108,15 @@ pub fn replace_unit(
     ) else {
         return false;
     };
+    if crate::factions::hooks_economy::effect_placement_forbidden(
+        context.state,
+        context.content,
+        context.sources,
+        placer,
+        &type_id,
+    ) {
+        return false;
+    }
     if crate::supply::allowed(
         context.state,
         context.content,

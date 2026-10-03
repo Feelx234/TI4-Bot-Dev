@@ -363,6 +363,15 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Yssaril breakthrough Deepgloom Executable: when another player draws action cards, each
+        // holder of the breakthrough is asked whether the drawing player may use Scheming. The
+        // holder sees the table, the requester does not.
+        module: "yssaril.rs",
+        function: "action_card_draw_requested",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "yssaril.rs",
         function: "action_cards_drawn",
         count: 1,
@@ -1025,6 +1034,15 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
+        // Brother Omar and any other research waiver: when a faction waiver is the only way past
+        // the prerequisites, the player chooses the waiver and then its exact cost. Both questions
+        // are built in `resolve_research` and delivered through `strategy_cards::ask`.
+        module: "strategy_cards.rs",
+        function: "resolve_research",
+        count: 2,
+        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+    },
+    Producer {
         module: "strategy_cards.rs",
         function: "specialist_compounds",
         count: 2,
@@ -1168,8 +1186,12 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("naalu.rs", "foresight", 1),
     ("naalu.rs", "hero", 1),
     ("yssaril.rs", "action_cards_drawn", 1),
+    ("yssaril.rs", "action_card_draw_requested", 1),
     ("yssaril.rs", "commander_look", 1),
     ("yssaril.rs", "kyver_decisions", 1),
+    // Deepgloom Executable runs the trade window itself, so its choices are asked here rather
+    // than through `game.rs::step_trade`.
+    ("yssaril.rs", "deepgloom_transaction", 1),
     ("mentak.rs", "ask_among", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),

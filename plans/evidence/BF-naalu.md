@@ -149,6 +149,13 @@ Not run: `ti4-sim`, any live `Game` with a Naalu seat (every test drives the typ
   2 failed (`transit::` rides-free tests, not naalu), `decision_delivery_inventory` 2 failed (other agents' sites).
 * Foresight requires `ships_moved > 0` on MOVEMENT_FINISHED (review); test `foresight_needs_the_mover_to_have_moved_ships_in`.
 
+## Round 4 (Matriarch invasion seam)
+
+* Matriarch is claimed. `GroundHooks::temporary_space_commit_candidates` supplies Naalu fighters
+  only while its flagship is in the active system. `InvasionWindow` records those landings as
+  temporary and returns surviving copies to the space area after their ground combat (or before
+  control when no combat happens), so fighters can roll but cannot establish control alone.
+
 ## Round 4
 
 * `naalu_mech_te` claimed: DEPLOY on typed `RELIC_GAINED` (announced at the start of the next step by `Game::announce_gains`,

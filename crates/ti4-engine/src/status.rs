@@ -113,7 +113,19 @@ pub fn resolve_before_token_gain_with(
                 .player(&player_id)
                 .is_some_and(|player| player.technologies.contains(&TechnologyId::new("nm"))),
         );
-        if let Some((content, _)) = draw_effects.as_ref() {
+        if let Some((content, table)) = draw_effects.as_mut() {
+            if let Err(error) = crate::factions::hooks_economy::action_card_draw_requested(
+                state,
+                content,
+                table,
+                &player_id,
+                requested_draws,
+            ) {
+                if let Some(before) = snapshot {
+                    *state = before;
+                }
+                return Err(error.into());
+            }
             requested_draws += crate::factions::hooks_economy::action_card_draw_bonus(
                 state,
                 content,

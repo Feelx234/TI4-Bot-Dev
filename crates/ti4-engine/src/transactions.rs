@@ -276,7 +276,8 @@ pub fn may_transact(
     proposer: &PlayerId,
     partner: &PlayerId,
 ) -> bool {
-    are_neighbours(state, galaxy, proposer, partner)
+    crate::factions::hooks_cards::transaction_reach(state, content, proposer, partner)
+        || are_neighbours(state, galaxy, proposer, partner)
         || partners(state, content, galaxy, proposer).contains(partner)
         || partners(state, content, galaxy, partner).contains(proposer)
 }

@@ -150,6 +150,10 @@ pub struct CombatHooks {
     /// `crate::combat::direct_hittable_at`.
     pub direct_hit_immune:
         Option<fn(&GameState, &ContentStore, SourceSet, &CombatUnit<'_>) -> bool>,
+    /// Whether a unit cannot be assigned a hit produced by a unit ability. Any module's `true`
+    /// makes it ineligible; ordinary combat-roll hits never consult this hook.
+    pub ability_hit_immune:
+        Option<fn(&GameState, &ContentStore, SourceSet, &CombatUnit<'_>) -> bool>,
     /// Anti-fighter barrage hits in excess of the target's fighters.
     ///
     /// Argent Raid Formation: "When 1 or more of your units uses ANTI-FIGHTER BARRAGE: for each
@@ -182,6 +186,7 @@ impl CombatHooks {
         produced_hits: None,
         may_sustain: None,
         direct_hit_immune: None,
+        ability_hit_immune: None,
         afb_excess: None,
         space_cannon_barred: None,
         fighter_fleet_weight_halves: None,
@@ -294,6 +299,18 @@ fn direct_hit_immune_by(
     tables
         .by_ref()
         .filter_map(|table| table.direct_hit_immune)
+        .any(|hook| hook(state, content, sources, unit))
+}
+
+/// Whether any module makes this unit immune to a hit produced by a unit ability.
+pub(crate) fn ability_hit_immune(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> bool {
+    tables()
+        .filter_map(|table| table.ability_hit_immune)
         .any(|hook| hook(state, content, sources, unit))
 }
 

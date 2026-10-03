@@ -84,10 +84,12 @@ pub const MODULE: FactionModule = FactionModule {
         use_leader: Some(use_leader),
         timing_abilities: Some(timing_abilities),
         cards: CardHooks {
+            transaction_reach: Some(deepgloom_reach),
             transaction_limit_exempt: Some(transaction_limit_exempt),
             ..CardHooks::NONE
         },
         economy: EconomyHooks {
+            action_card_draw_requested: Some(action_card_draw_requested),
             action_card_draw_bonus: Some(action_card_draw_bonus),
             action_cards_drawn: Some(action_cards_drawn),
             action_card_limit: Some(action_card_limit),
@@ -175,6 +177,74 @@ fn action_card_limit(
 
 // -- Scheming ------------------------------------------------------------------------------------
 
+fn scheming_key(player: &PlayerId) -> String {
+    format!("private:#borrowed_scheming:{player}")
+}
+
+fn action_card_draw_requested(
+    state: &mut GameState,
+    content: &ContentStore,
+    table: &mut Table,
+    user: &PlayerId,
+    requested: usize,
+) -> Result<(), IllegalChoice> {
+    if requested == 0 || state.action_card_deck.is_empty() || plays_yssaril(state, user) {
+        return Ok(());
+    }
+    let owners = state
+        .players
+        .iter()
+        .filter(|p| p.id != *user && crate::breakthroughs::holds(state, &p.id, "yssarilbt"))
+        .map(|p| p.id.clone())
+        .collect::<Vec<_>>();
+    for owner in owners {
+        let choice = Choice::new(
+            owner.clone(),
+            format!("Deepgloom Executable: allow {user} to use Scheming"),
+            vec![
+                ChoiceOption::labelled("allow", "breakthrough", "allow Scheming"),
+                ChoiceOption::decline(),
+            ],
+        )
+        .contextualized(decision(
+            state,
+            &owner,
+            "yssarilbt",
+            "deepgloom_allow_scheming",
+        ));
+        let answer = table.ask_seeing(
+            &choice,
+            &Observed::new(state, content, ti4_model::content_types::DEFAULT, None),
+        )?;
+        if answer.id == "allow" {
+            state
+                .faction_marks
+                .insert(scheming_key(user), owner.to_string());
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn stage_deepgloom_transaction(state: &mut GameState, owner: &PlayerId, user: &PlayerId) {
+    state
+        .faction_marks
+        .insert(bt_key("exempt", owner, user), state.turn_seq.to_string());
+    let payload = [
+        (
+            "player".to_owned(),
+            serde_json::Value::String(owner.to_string()),
+        ),
+        (
+            "other".to_owned(),
+            serde_json::Value::String(user.to_string()),
+        ),
+    ]
+    .into_iter()
+    .collect();
+    crate::supply::stage_event(state, "DEEPGLOOM_TRANSACTION", &payload);
+}
+
 /// Scheming: "Draw 1 additional action card."
 fn action_card_draw_bonus(
     state: &GameState,
@@ -182,7 +252,9 @@ fn action_card_draw_bonus(
     player: &PlayerId,
     _requested: usize,
 ) -> usize {
-    usize::from(plays_yssaril(state, player))
+    usize::from(
+        plays_yssaril(state, player) || state.faction_marks.contains_key(&scheming_key(player)),
+    )
 }
 
 /// Scheming: "Then, choose and discard 1 action card from your hand."
@@ -197,7 +269,8 @@ fn action_cards_drawn(
     player: &PlayerId,
     _drawn: &[ActionCardId],
 ) -> Result<(), IllegalChoice> {
-    if !plays_yssaril(state, player) {
+    let borrowed = state.faction_marks.remove(&scheming_key(player));
+    if !plays_yssaril(state, player) && borrowed.is_none() {
         return Ok(());
     }
     let hand: Vec<ActionCardId> = state
@@ -221,6 +294,9 @@ fn action_cards_drawn(
         ActionCardId::new(answer.id)
     };
     hooks_cards::discard_chosen(state, player, &card);
+    if let Some(owner) = borrowed {
+        stage_deepgloom_transaction(state, &PlayerId::new(owner), player);
+    }
     Ok(())
 }
 
@@ -450,11 +526,80 @@ fn borrowed_stall_tactics(
     if !hooks_cards::discard_chosen(context.state, user, &card) {
         return false;
     }
-    context
-        .state
-        .faction_marks
-        .insert(bt_key("exempt", owner, user), turn);
+    stage_deepgloom_transaction(context.state, owner, user);
     true
+}
+
+fn deepgloom_reach(state: &GameState, _: &ContentStore, a: &PlayerId, b: &PlayerId) -> bool {
+    state
+        .faction_marks
+        .contains_key(&bt_key("negotiating", a, b))
+        || state
+            .faction_marks
+            .contains_key(&bt_key("negotiating", b, a))
+}
+
+fn deepgloom_transaction(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition = seat.clone();
+    Ability::stateful(
+        format!("breakthrough:{owner_name}:yssarilbt:DEEPGLOOM_TRANSACTION:after"),
+        seat.clone(),
+        "DEEPGLOOM_TRANSACTION",
+        Relation::After,
+        Arc::new(move |event, resolver, context| {
+            let Some(user) = event.text("other").map(PlayerId::new) else {
+                return Ok(());
+            };
+            let Some(galaxy) = context.galaxy else {
+                context
+                    .state
+                    .faction_marks
+                    .remove(&bt_key("exempt", &owner, &user));
+                return Ok(());
+            };
+            let key = bt_key("negotiating", &owner, &user);
+            context
+                .state
+                .faction_marks
+                .insert(key.clone(), "true".to_owned());
+            let mut window = crate::transactions::TradeWindow::open_with_content(
+                context.state,
+                context.content,
+                &owner,
+                &user,
+            );
+            while !window.is_complete() {
+                let Some(choice) = window.pending_choice(context.state, context.content) else {
+                    break;
+                };
+                let Ok(answer) = context.ask_seeing(&choice) else {
+                    break;
+                };
+                let result = window.resolve(context.state, context.content, galaxy, &answer);
+                if result == crate::transactions::Traded::Resolved {
+                    let payload = crate::transactions::resolved_payload(
+                        window.parties().0,
+                        window.parties().1,
+                    );
+                    let event = context
+                        .event_sequence
+                        .next("TRANSACTION_RESOLVED", payload)
+                        .expect("event id");
+                    resolver.emit_with_context(context, event, |_, _| {})?;
+                }
+            }
+            context.state.faction_marks.remove(&key);
+            context
+                .state
+                .faction_marks
+                .remove(&bt_key("exempt", &owner, &user));
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, _| {
+        event.text("player") == Some(condition.as_str())
+    }))
 }
 
 /// A transaction between a Yssaril seat and a player it allowed to use Stall Tactics this turn does
@@ -723,6 +868,7 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
         spy_net(owner_name, seat),
         commander_look(owner_name, seat),
         commander_clear(owner_name, seat),
+        deepgloom_transaction(owner_name, seat),
     ]
 }
 

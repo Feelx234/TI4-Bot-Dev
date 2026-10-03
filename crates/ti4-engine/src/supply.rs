@@ -553,7 +553,10 @@ pub fn return_captured(
     let index = seat.captured_units.iter().position(|(who, unit)| {
         who == owner && base_type_of(content, sources, unit) == base_type
     })?;
-    Some(seat.captured_units.remove(index).1)
+    let unit = seat.captured_units.remove(index).1;
+    Some(crate::factions::hooks_economy::captured_unit_return_form(
+        state, content, sources, owner, &unit,
+    ))
 }
 
 /// Return everything `captor` holds captured to its owners, e.g. when the captor leaves the game.

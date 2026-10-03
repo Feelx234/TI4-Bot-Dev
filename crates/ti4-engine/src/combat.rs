@@ -31,6 +31,14 @@ pub const SUSTAIN_KIND: &str = "sustain";
 /// The choice kind for assigning a hit to one of your own units.
 pub const CASUALTY_KIND: &str = "casualty";
 
+/// What produced hits that are being assigned.  Immunity to unit abilities must not leak onto
+/// ordinary combat rolls, which share the casualty machinery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HitOrigin {
+    CombatRoll,
+    UnitAbility,
+}
+
 /// A combat could not be resolved.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CombatError {
@@ -63,12 +71,7 @@ pub fn combatants(
     let types = catalogue(content, sources);
     let mut found = Vec::new();
     for player in &state.seating_order {
-        let has_ship = state.system_state(system).units.iter().any(|unit| {
-            &unit.owner == player
-                && types
-                    .get(unit.type_id.as_str())
-                    .is_some_and(UnitType::is_ship)
-        });
+        let has_ship = !ships_of(state, content, sources, player, system).is_empty();
         if has_ship {
             found.push(player.clone());
         }
@@ -99,7 +102,7 @@ pub fn ships_of(
     system: &SystemId,
 ) -> Vec<Unit> {
     let types = catalogue(content, sources);
-    state
+    let mut ships: Vec<Unit> = state
         .system_state(system)
         .units
         .iter()
@@ -110,7 +113,37 @@ pub fn ships_of(
                 .is_some_and(UnitType::is_ship)
         })
         .cloned()
-        .collect()
+        .collect();
+    // Eidolon Maximum is both a ship and a ground force.  Its card permits it to take part in a
+    // space battle while standing on a planet, but only alongside a real ship in the space area.
+    // Do not let a planet-only Maximum start a space combat by itself.
+    if !ships.is_empty() {
+        ships.extend(
+            state
+                .system_state(system)
+                .planet_units
+                .values()
+                .flatten()
+                .filter(|unit| &unit.owner == player && unit.type_id.as_str() == "naaz_voltron")
+                .cloned(),
+        );
+    }
+    ships
+}
+
+/// Remove one combat ship from where it actually stands.  Almost every ship is in the space
+/// area; Eidolon Maximum is the sole current exception and remains on its planet while joining
+/// the battle.
+fn remove_combat_ship(state: &mut GameState, system: &SystemId, unit: &Unit) {
+    if unit.type_id.as_str() == "naaz_voltron" {
+        for units in state.system_mut(system).planet_units.values_mut() {
+            if let Some(index) = units.iter().position(|found| found == unit) {
+                units.remove(index);
+                return;
+            }
+        }
+    }
+    state.system_mut(system).remove(std::slice::from_ref(unit));
 }
 
 /// The value a unit needs to roll, or `None` if it does not fight.
@@ -630,7 +663,7 @@ fn remove_casualty_units(
             .collect();
         for unit in matching {
             due -= 1;
-            state.system_mut(system).remove(std::slice::from_ref(&unit));
+            remove_combat_ship(state, system, &unit);
             if announce {
                 announce_ship_destroyed(state, ctx, system, player, &unit);
             }
@@ -1515,9 +1548,7 @@ fn destroy_fighters(
         let Some(fighter) = fighter else {
             return;
         };
-        state
-            .system_mut(system)
-            .remove(std::slice::from_ref(&fighter));
+        remove_combat_ship(state, system, &fighter);
     }
 }
 
@@ -1894,7 +1925,7 @@ fn offer_sustain(
 ) -> Result<usize, CombatError> {
     let types = catalogue(content, sources);
     while hits > 0 {
-        let available: Vec<usize> = state
+        let mut available: Vec<(String, Unit)> = state
             .system_state(system)
             .units
             .iter()
@@ -1904,8 +1935,24 @@ fn offer_sustain(
                     sustains_in_space(state, content, sources, system, player, unit, kind)
                 })
             })
-            .map(|(index, _)| index)
+            .map(|(index, unit)| (format!("space:{index}"), unit.clone()))
             .collect();
+        // A Maximum on a planet is a combat ship only while a normal ship shares the space area;
+        // mirror `ships_of` here so it can actually cancel a hit it was allowed to join.
+        if !state.system_state(system).units_of(player).is_empty() {
+            for (planet, units) in &state.system_state(system).planet_units {
+                for unit in units {
+                    if unit.owner == *player
+                        && unit.type_id.as_str() == "naaz_voltron"
+                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                            sustains_in_space(state, content, sources, system, player, unit, kind)
+                        })
+                    {
+                        available.push((format!("planet:{planet}"), unit.clone()));
+                    }
+                }
+            }
+        }
         if available.is_empty() {
             return Ok(hits);
         }
@@ -1921,14 +1968,13 @@ fn offer_sustain(
         // because a sampling decider would sustain on whichever type it happened to own more of.
         let mut seen = std::collections::BTreeSet::new();
         let mut options = Vec::new();
-        for index in &available {
-            let unit = &state.system_state(system).units[*index];
+        for (location, unit) in &available {
             if !seen.insert(unit.type_id.to_string()) {
                 continue;
             }
             options.push(
                 ChoiceOption::labelled(
-                    format!("sustain|{index}"),
+                    format!("sustain|{location}"),
                     SUSTAIN_KIND,
                     format!("sustain damage on {}", unit.type_id),
                 )
@@ -1983,14 +2029,28 @@ fn offer_sustain(
         if answer.is_decline() {
             return Ok(hits);
         }
-        let Some(index) = answer
-            .id
-            .strip_prefix("sustain|")
-            .and_then(|rest| rest.parse::<usize>().ok())
-        else {
+        let Some(location) = answer.id.strip_prefix("sustain|") else {
             return Ok(hits);
         };
-        if let Some(unit) = state.system_mut(system).units.get_mut(index) {
+        let sustained = if let Some(index) = location
+            .strip_prefix("space:")
+            .and_then(|rest| rest.parse::<usize>().ok())
+        {
+            state.system_mut(system).units.get_mut(index)
+        } else if let Some(planet) = location.strip_prefix("planet:") {
+            state
+                .system_mut(system)
+                .planet_units
+                .get_mut(&ti4_model::id::PlanetId::new(planet))
+                .and_then(|units| {
+                    units.iter_mut().find(|unit| {
+                        unit.owner == *player && unit.type_id.as_str() == "naaz_voltron"
+                    })
+                })
+        } else {
+            None
+        };
+        if let Some(unit) = sustained {
             let kind = unit.type_id.to_string();
             *unit = unit.sustained();
             pay_sustain_commander(state, content, player);
@@ -2061,8 +2121,39 @@ pub fn absorb_hits_seeing(
     producer: &PlayerId,
     hits: usize,
 ) -> Result<(), CombatError> {
+    absorb_hits_seeing_with_origin(
+        state,
+        content,
+        sources,
+        galaxy,
+        ctx,
+        player,
+        system,
+        producer,
+        hits,
+        HitOrigin::CombatRoll,
+    )
+}
+
+/// Assign hits with their source classified for unit-ability immunities.
+///
+/// # Errors
+/// As [`absorb_hits_seeing`].
+#[allow(clippy::too_many_arguments)]
+pub fn absorb_hits_seeing_with_origin(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    ctx: &mut Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+    producer: &PlayerId,
+    hits: usize,
+    origin: HitOrigin,
+) -> Result<(), CombatError> {
     absorb_hits_seeing_with(
-        state, content, sources, galaxy, ctx, player, system, producer, hits, false,
+        state, content, sources, galaxy, ctx, player, system, producer, hits, false, origin,
     )
 }
 
@@ -2087,6 +2178,7 @@ pub fn absorb_hits_seeing_with(
     producer: &PlayerId,
     hits: usize,
     non_fighters_first: bool,
+    origin: HitOrigin,
 ) -> Result<(), CombatError> {
     // Shields Holding and Maneuvering Jets friends cancel hits before any are assigned: the
     // round-scoped pool they grant into is spent here, the way the combat window's queue
@@ -2098,6 +2190,22 @@ pub fn absorb_hits_seeing_with(
 
     while remaining > 0 {
         let mut alive = ships_of(state, content, sources, player, system);
+        if origin == HitOrigin::UnitAbility {
+            alive.retain(|unit| {
+                !crate::factions::hooks_combat::ability_hit_immune(
+                    state,
+                    content,
+                    sources,
+                    &crate::factions::CombatUnit {
+                        player,
+                        system: Some(system),
+                        planet: None,
+                        unit_type: unit.type_id.as_str(),
+                        context: "space",
+                    },
+                )
+            });
+        }
         if alive.is_empty() {
             return Ok(()); // 15.2a
         }
@@ -2119,9 +2227,7 @@ pub fn absorb_hits_seeing_with(
             "assign_casualty",
             Some(system),
         )?;
-        state
-            .system_mut(system)
-            .remove(std::slice::from_ref(&casualty));
+        remove_combat_ship(state, system, &casualty);
         remaining -= 1;
     }
     Ok(())
@@ -2389,9 +2495,7 @@ pub fn destroy_units(
         remaining.remove(index);
     }
     for victim in victims {
-        state
-            .system_mut(system)
-            .remove(std::slice::from_ref(victim));
+        remove_combat_ship(state, system, victim);
         state
             .pending_destructions
             .push((system.clone(), player.clone(), victim.type_id.clone()));
@@ -2661,7 +2765,7 @@ pub fn retreat_to(
         destination,
     );
     for unit in &stranded {
-        state.system_mut(system).remove(std::slice::from_ref(unit));
+        remove_combat_ship(state, system, unit);
     }
 
     // 78.7d: a command token goes to the destination.
@@ -2998,9 +3102,9 @@ impl CombatWindow {
         content: &ContentStore,
         sources: SourceSet,
         player: &PlayerId,
-    ) -> Vec<usize> {
+    ) -> Vec<(String, Unit)> {
         let types = catalogue(content, sources);
-        state
+        let mut found: Vec<(String, Unit)> = state
             .system_state(&self.system)
             .units
             .iter()
@@ -3010,8 +3114,31 @@ impl CombatWindow {
                     sustains_in_space(state, content, sources, &self.system, player, unit, kind)
                 })
             })
-            .map(|(index, _)| index)
-            .collect()
+            .map(|(index, unit)| (index.to_string(), unit.clone()))
+            .collect();
+        if !state.system_state(&self.system).units_of(player).is_empty() {
+            for (planet, units) in &state.system_state(&self.system).planet_units {
+                for unit in units {
+                    if unit.owner == *player
+                        && unit.type_id.as_str() == "naaz_voltron"
+                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                            sustains_in_space(
+                                state,
+                                content,
+                                sources,
+                                &self.system,
+                                player,
+                                unit,
+                                kind,
+                            )
+                        })
+                    {
+                        found.push((format!("planet:{planet}"), unit.clone()));
+                    }
+                }
+            }
+        }
+        found
     }
 
     /// The answer the neutral-unit rules give at a pending sustain or casualty decision.
@@ -3051,8 +3178,7 @@ impl CombatWindow {
                         option
                             .id
                             .strip_prefix("destroy|")
-                            .and_then(|rest| rest.parse::<usize>().ok())
-                            .and_then(|index| units.get(index))
+                            .and_then(|id| units.get(id.parse::<usize>().ok()?))
                             .is_some_and(|unit| {
                                 unit.type_id == doomed.type_id
                                     && unit.sustained_damage == doomed.sustained_damage
@@ -3073,12 +3199,13 @@ impl CombatWindow {
         content: &ContentStore,
         sources: SourceSet,
         front: &Pending,
-    ) -> Vec<(usize, Unit)> {
+    ) -> Vec<(String, Unit)> {
         let types = catalogue(content, sources);
-        let units: Vec<(usize, Unit)> =
+        let units: Vec<(String, Unit)> =
             ships_of(state, content, sources, &front.player, &self.system)
                 .into_iter()
                 .enumerate()
+                .map(|(index, unit)| (index.to_string(), unit))
                 .collect();
         let non_fighter = |unit: &Unit| {
             types
@@ -3472,9 +3599,7 @@ impl CombatWindow {
                         "assault_cannon_destroy",
                         Some(&self.system),
                     )?;
-                    state
-                        .system_mut(&self.system)
-                        .remove(std::slice::from_ref(&casualty));
+                    remove_combat_ship(state, &self.system, &casualty);
                     announce_ship_destroyed(state, ctx, &self.system, &victim, &casualty);
                 }
                 if self.over(state, content, sources) {
@@ -3856,9 +3981,7 @@ impl CombatWindow {
                     let candidates = self.casualty_candidates(state, content, sources, &front);
                     if matches!(self.stage, Stage::Assigning { .. }) && candidates.len() == 1 {
                         let only = candidates[0].1.clone();
-                        state
-                            .system_mut(&self.system)
-                            .remove(std::slice::from_ref(&only));
+                        remove_combat_ship(state, &self.system, &only);
                         announce_ship_destroyed(state, ctx, &self.system, &front.player, &only);
                         let mut rest = queue;
                         rest[0].hits -= 1;
@@ -4127,8 +4250,7 @@ impl Window for CombatWindow {
                 // would sustain on whichever type it happened to own more of.
                 let mut seen = std::collections::BTreeSet::new();
                 let mut options = Vec::new();
-                for index in available {
-                    let unit = &state.system_state(&self.system).units[index];
+                for (index, unit) in available {
                     if !seen.insert(unit.type_id.to_string()) {
                         continue;
                     }
@@ -4186,7 +4308,7 @@ impl Window for CombatWindow {
                 let mut seen = std::collections::BTreeSet::new();
                 let mut options = Vec::new();
                 for (index, unit) in &candidates {
-                    let index = *index;
+                    let index = index.clone();
                     if !seen.insert((unit.type_id.to_string(), unit.sustained_damage)) {
                         continue;
                     }
@@ -4289,20 +4411,27 @@ impl Window for CombatWindow {
                     .map_or_else(|| self.defender.clone(), |front| front.producer.clone());
                 if option.is_decline() {
                     self.stage = Stage::Assigning { queue, round };
-                } else if let Some(index) = option
-                    .id
-                    .strip_prefix("sustain|")
-                    .and_then(|rest| rest.parse::<usize>().ok())
-                {
-                    let sustained =
+                } else if let Some(location) = option.id.strip_prefix("sustain|") {
+                    let sustained = if let Ok(index) = location.parse::<usize>() {
+                        state.system_mut(&self.system).units.get_mut(index)
+                    } else if let Some(planet) = location.strip_prefix("planet:") {
                         state
                             .system_mut(&self.system)
-                            .units
-                            .get_mut(index)
-                            .map(|unit| {
-                                *unit = unit.sustained();
-                                unit.type_id.to_string()
-                            });
+                            .planet_units
+                            .get_mut(&ti4_model::id::PlanetId::new(planet))
+                            .and_then(|units| {
+                                units.iter_mut().find(|unit| {
+                                    unit.owner == front_player
+                                        && unit.type_id.as_str() == "naaz_voltron"
+                                })
+                            })
+                    } else {
+                        None
+                    }
+                    .map(|unit| {
+                        *unit = unit.sustained();
+                        unit.type_id.to_string()
+                    });
                     // Two printed windows read this moment -- "when one of your ships uses SUSTAIN
                     // DAMAGE" and "after another player's ship uses SUSTAIN DAMAGE to cancel a hit
                     // produced by your units". Both need the *unit*, so the event names it.
@@ -4336,9 +4465,7 @@ impl Window for CombatWindow {
                     .unwrap_or(0);
                 if let Some(doomed) = units.get(index) {
                     let doomed = doomed.clone();
-                    state
-                        .system_mut(&self.system)
-                        .remove(std::slice::from_ref(&doomed));
+                    remove_combat_ship(state, &self.system, &doomed);
                     announce_ship_destroyed(state, ctx, &self.system, &front.player, &doomed);
                 }
                 if let Some(front) = queue.first_mut() {
@@ -5689,6 +5816,7 @@ mod tests {
             &attacker(),
             1,
             true,
+            HitOrigin::UnitAbility,
         )
         .unwrap();
         assert_eq!(

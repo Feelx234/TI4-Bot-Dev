@@ -35,16 +35,28 @@ pub struct SecondaryWaiver {
     pub label: String,
 }
 
+/// A selected cost for a prerequisite-ignoring research waiver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResearchWaiverPayment {
+    /// Stable id for this exact payment target. It is revalidated when the waiver resolves.
+    pub id: String,
+    /// Player-facing description of the payment target.
+    pub label: String,
+}
+
 /// A way to research a technology without its prerequisites, paid for by the module (BF-F3).
 ///
-/// Offered by [`StrategyHooks::research_waiver_offer`] beside Inheritance Systems; taking it calls
-/// [`StrategyHooks::research_waiver_paid`].
+/// The resolver offers the waiver, then one of [`Self::payments`]. The selected payment id is
+/// passed back to [`StrategyHooks::research_waiver_paid`], which must revalidate and atomically
+/// apply its cost before the technology is granted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResearchWaiver {
     /// Stable id, unique within the module (`"yin_infantry"`).
     pub id: String,
     /// What the option says ("return 1 infantry to ignore its prerequisites").
     pub label: String,
+    /// The exact legal costs the researching player may choose now.
+    pub payments: Vec<ResearchWaiverPayment>,
 }
 
 /// Hooks for this area. Every field is optional; a module sets only what it needs.
@@ -103,13 +115,16 @@ pub struct StrategyHooks {
         Option<fn(&GameState, &ContentStore, &PlayerId) -> Vec<(String, usize)>>,
     /// A way for `player` to research `tech` ignoring every prerequisite, at a cost the module pays in
     /// [`Self::research_waiver_paid`]. `None` when not available (affordability is the module's to
-    /// check). Yin commander ("return 1 of your infantry to reinforcements to ignore its
-    /// prerequisites" when the tech is owned by another player). Pure and read-only.
+    /// check). The offer names every legal payment target. Yin commander ("return 1 of your
+    /// infantry to reinforcements to ignore its prerequisites" when the tech is owned by another
+    /// player). Pure and read-only.
     pub research_waiver_offer:
         Option<fn(&GameState, &ContentStore, &PlayerId, &TechnologyId) -> Option<ResearchWaiver>>,
-    /// `player` researched `tech` using this module's waiver: pay its cost. Called once, before the
-    /// technology is granted (the same place Inheritance Systems charges its 2 resources).
-    pub research_waiver_paid: Option<fn(&mut GameState, &ContentStore, &PlayerId, &TechnologyId)>,
+    /// `player` chose `payment` while researching `tech` using this module's waiver. Revalidate and
+    /// pay that exact cost, returning whether it was applied. Called before the technology is
+    /// granted; a `false` result leaves the whole research transition unchanged.
+    pub research_waiver_paid:
+        Option<fn(&mut GameState, &ContentStore, &PlayerId, &TechnologyId, &str) -> bool>,
     /// The unit id `player` uses for `base_type` (`"cruiser"`) instead of `chosen_id`, the one the
     /// upgrade lookup picked. Any module's `Some` wins (first in [`MODULES`] order). Mentak
     /// Corsair's acquisition (`mentak_cruiser3` for a cruiser once the breakthrough is held).
@@ -219,14 +234,16 @@ pub(crate) fn research_waiver_paid(
     player: &PlayerId,
     tech: &TechnologyId,
     index: usize,
-) {
+    payment: &str,
+) -> bool {
     if let Some(hook) = tables()
         .filter(|table| table.research_waiver_offer.is_some())
         .nth(index)
         .and_then(|table| table.research_waiver_paid)
     {
-        hook(state, content, player, tech);
+        return hook(state, content, player, tech, payment);
     }
+    false
 }
 
 /// The unit id a module makes `player` use for `base_type` in place of `chosen_id`, if any.

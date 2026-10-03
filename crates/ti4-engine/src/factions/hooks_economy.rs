@@ -19,7 +19,7 @@
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{ActionCardId, PlanetId, PlayerId, SystemId};
+use ti4_model::id::{ActionCardId, PlanetId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::GameState;
 
 use crate::choice::{IllegalChoice, Table};
@@ -56,6 +56,14 @@ pub struct EconomyHooks {
     /// producers are barred is not a spot for the unit, and in `ProductionWindow::build_options`
     /// the barred producers' PRODUCTION does not count toward what that unit may use.
     pub cannot_produce: Option<fn(&GameState, &ContentStore, &PlayerId, &str, &str) -> bool>,
+    /// Whether a game effect may not place this resolved unit type from reinforcements.  This is
+    /// deliberately separate from `cannot_produce`: effects that place units are not PRODUCTION.
+    pub effect_placement_forbidden:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &UnitTypeId) -> bool>,
+    /// Form a captured unit returns to its owner's reinforcements in.  Identity defaults to the
+    /// captured type; a transforming unit may return in its unflipped form.
+    pub captured_unit_return_form:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &UnitTypeId) -> UnitTypeId>,
     /// Places in *other* systems where `player` may put a unit of `unit_base_type` produced in
     /// `system`: `(state, content, sources, player, system, unit_base_type) -> [(system, planet)]`,
     /// `None` for the space area. For Saar's commander ("When you produce fighters or infantry: You
@@ -76,6 +84,17 @@ pub struct EconomyHooks {
     /// Yssaril `scheming` ("When you draw 1 or more action cards, draw 1 additional action card").
     /// Called by `action_cards::draw` before the first card leaves the deck.
     pub action_card_draw_bonus: Option<fn(&GameState, &ContentStore, &PlayerId, usize) -> usize>,
+    /// Before a requested action-card draw is expanded by bonuses or draws a card.  A module may
+    /// ask, cancel, or otherwise alter the request atomically.
+    pub action_card_draw_requested: Option<
+        fn(
+            &mut GameState,
+            &ContentStore,
+            &mut Table,
+            &PlayerId,
+            usize,
+        ) -> Result<(), IllegalChoice>,
+    >,
     /// After `player` drew (the cards just drawn, extra draws included) and before the hand limit
     /// is enforced. For Yssaril `scheming` ("Then, choose and discard 1 action card from your
     /// hand"). Not called when nothing was requested. Atomic: ask first, mutate after. Any choice
@@ -138,8 +157,11 @@ impl EconomyHooks {
         planet_spend_value: None,
         trade_good_worth: None,
         cannot_produce: None,
+        effect_placement_forbidden: None,
+        captured_unit_return_form: None,
         production_destinations: None,
         action_card_draw_bonus: None,
+        action_card_draw_requested: None,
         action_cards_drawn: None,
         action_card_limit: None,
         action_cards_forbidden: None,
@@ -236,6 +258,33 @@ pub(crate) fn cannot_produce(
         .any(|f| f(state, content, player, unit_base, producer_base))
 }
 
+/// Whether any faction rule bars this resolved unit from being placed by a game effect.
+pub(crate) fn effect_placement_forbidden(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    unit: &UnitTypeId,
+) -> bool {
+    hooks()
+        .filter_map(|h| h.effect_placement_forbidden)
+        .any(|f| f(state, content, sources, player, unit))
+}
+
+pub(crate) fn captured_unit_return_form(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    owner: &PlayerId,
+    unit: &UnitTypeId,
+) -> UnitTypeId {
+    hooks()
+        .filter_map(|h| h.captured_unit_return_form)
+        .fold(unit.clone(), |unit, f| {
+            f(state, content, sources, owner, &unit)
+        })
+}
+
 /// Every module's [`EconomyHooks::production_destinations`], sorted, deduplicated, and without
 /// the producing system itself (its own spots are `production::placements`).
 pub(crate) fn production_destinations(
@@ -271,6 +320,19 @@ pub(crate) fn action_card_draw_bonus(
         .filter_map(|h| h.action_card_draw_bonus)
         .map(|f| f(state, content, player, requested))
         .sum()
+}
+
+pub(crate) fn action_card_draw_requested(
+    state: &mut GameState,
+    content: &ContentStore,
+    table: &mut Table,
+    player: &PlayerId,
+    requested: usize,
+) -> Result<(), IllegalChoice> {
+    for hook in hooks().filter_map(|h| h.action_card_draw_requested) {
+        hook(state, content, table, player, requested)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn action_cards_drawn(
@@ -386,6 +448,7 @@ mod tests {
         let content = ContentStore::embedded();
         let state = crate::fixtures::game(&["a", "b"]);
         let (a, planet) = (pid("a"), PlanetId::new("p"));
+        let sources = ti4_model::content_types::DEFAULT;
         assert_eq!(
             planet_spend_value(&state, content, &a, &planet, Spend::Resources, 3),
             3
@@ -398,11 +461,17 @@ mod tests {
             "infantry",
             "spacedock"
         ));
+        assert!(!effect_placement_forbidden(
+            &state,
+            content,
+            sources,
+            &a,
+            &UnitTypeId::new("infantry")
+        ));
         assert_eq!(action_card_draw_bonus(&state, content, &a, 2), 0);
         assert_eq!(action_card_limit(&state, content, &a, 7), 7);
         assert!(!action_cards_forbidden(&state, &a));
         let system = SystemId::new("s");
-        let sources = ti4_model::content_types::DEFAULT;
         assert_eq!(extra_production(&state, content, sources, &a, &system), 0);
         assert_eq!(
             extra_production_planet(&state, content, sources, &a, &system, &planet),
@@ -434,6 +503,7 @@ mod tests {
         let content = ContentStore::embedded();
         let state = crate::fixtures::game(&["a"]);
         let (a, planet) = (pid("a"), PlanetId::new("p"));
+        let sources = ti4_model::content_types::DEFAULT;
         let add_two = EconomyHooks {
             planet_spend_value: Some(|_, _, _, _, _, value| value + 2),
             action_card_draw_bonus: Some(|_, _, _, _| 1),
@@ -443,6 +513,7 @@ mod tests {
             planet_spend_value: Some(|_, _, _, _, _, value| value * 10),
             cannot_produce: Some(|_, _, _, unit, _| unit == "infantry"),
             action_cards_forbidden: Some(|_, _| true),
+            effect_placement_forbidden: Some(|_, _, _, _, unit| unit.as_str() == "mech"),
             ..EconomyHooks::NONE
         };
         with_test_hooks(add_two, || {
@@ -456,6 +527,13 @@ mod tests {
                 assert!(!cannot_produce(&state, content, &a, "cruiser", "spacedock"));
                 assert_eq!(action_card_draw_bonus(&state, content, &a, 1), 1);
                 assert!(action_cards_forbidden(&state, &a));
+                assert!(effect_placement_forbidden(
+                    &state,
+                    content,
+                    sources,
+                    &a,
+                    &UnitTypeId::new("mech")
+                ));
             });
         });
     }

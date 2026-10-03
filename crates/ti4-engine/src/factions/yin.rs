@@ -2,9 +2,9 @@
 //! `plans/BASE_FACTIONS_PLAN_2026-10-02.md` for scope.
 //!
 //! Implemented: Indoctrination (with the Moyin's Ashes DEPLOY), Devotion, Impulse Core, Yin
-//! Spinner, Van Hauge, Greyfire Mutagen, Brother Milor, and the Brother Omar unlock. Not
-//! implemented (no route; see `plans/evidence/BF-yin.md`): the Brother Omar effect, Dannel of the
-//! Tenth, and Yin Ascendant.
+//! Spinner, Van Hauge, Greyfire Mutagen, Brother Milor, and Brother Omar. Not implemented (see
+//! `plans/evidence/BF-yin.md`): Dannel of the Tenth still needs eventful ground combats, and Yin
+//! Ascendant needs an alliance-ability grant route.
 
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ use ti4_model::state::{GameState, LeaderStatus};
 use ti4_model::units::Unit;
 
 use super::hooks_combat::{CombatHooks, CombatMoment, HitSite, ProducedHits};
-use super::hooks_strategy::{ResearchWaiver, StrategyHooks};
+use super::hooks_strategy::{ResearchWaiver, ResearchWaiverPayment, StrategyHooks};
 use super::{FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption, IllegalChoice};
 use crate::decision_context::{DecisionContext, DecisionSource};
@@ -30,9 +30,8 @@ pub const MODULE: FactionModule = FactionModule {
     technologies: &["yso", "ic"],
     units: &["yin_flagship", "yin_mech"],
     promissory: &["greyfire"],
-    // yincommander (infantry waiver picks for the player) and yinhero (no ground events, one rival
-    // only) are partial: unclaimed until they are complete (f77a0347 review).
-    leaders: &["yinagent"],
+    // yinhero lacks eventful ground combats. yinbt lacks an alliance-ability grant route.
+    leaders: &["yinagent", "yincommander"],
     breakthroughs: &[],
     hooks: Hooks {
         commander_unlocked: Some(commander_unlocked),
@@ -821,12 +820,12 @@ fn extra_prerequisite_colours(
     }
 }
 
-/// Where `player`'s first infantry stands, in board order (planets before space).
-fn first_infantry(
+/// Every location where `player` may return an infantry to reinforcements, in board order.
+fn infantry_payments(
     state: &GameState,
     content: &ContentStore,
     player: &PlayerId,
-) -> Option<(SystemId, Option<PlanetId>)> {
+) -> Vec<(ResearchWaiverPayment, SystemId, Option<PlanetId>)> {
     let types = ti4_content::units::catalogue(content, DEFAULT);
     let is_mine = |unit: &Unit| {
         &unit.owner == player
@@ -834,17 +833,32 @@ fn first_infantry(
                 .get(unit.type_id.as_str())
                 .is_some_and(|kind| kind.base_type() == "infantry")
     };
+    let mut payments = Vec::new();
     for (system, board) in &state.board {
         for (planet, units) in &board.planet_units {
             if units.iter().any(is_mine) {
-                return Some((system.clone(), Some(planet.clone())));
+                payments.push((
+                    ResearchWaiverPayment {
+                        id: format!("ground|{system}|{planet}"),
+                        label: format!("return 1 infantry from {planet} in {system}"),
+                    },
+                    system.clone(),
+                    Some(planet.clone()),
+                ));
             }
         }
         if board.units.iter().any(is_mine) {
-            return Some((system.clone(), None));
+            payments.push((
+                ResearchWaiverPayment {
+                    id: format!("space|{system}"),
+                    label: format!("return 1 infantry from space in {system}"),
+                },
+                system.clone(),
+                None,
+            ));
         }
     }
-    None
+    payments
 }
 
 /// Brother Omar: "When you research a tech owned by another player, you may return 1 of your
@@ -861,22 +875,31 @@ fn research_waiver_offer(
         .any(|seat| &seat.id != player && seat.technologies.contains(tech));
     (commander_active(state, player)
         && owned_elsewhere
-        && first_infantry(state, content, player).is_some())
+        && !infantry_payments(state, content, player).is_empty())
     .then(|| ResearchWaiver {
         id: "yin_infantry".to_owned(),
         label: "return 1 infantry to reinforcements to ignore its prerequisites".to_owned(),
+        payments: infantry_payments(state, content, player)
+            .into_iter()
+            .map(|(payment, _, _)| payment)
+            .collect(),
     })
 }
 
-/// Pay the infantry. The hook has no table, so the first infantry in board order goes.
+/// Pay the player-selected infantry. The payment target is recomputed and revalidated before any
+/// mutation, so a stale choice fails without granting the technology.
 fn research_waiver_paid(
     state: &mut GameState,
     content: &ContentStore,
     player: &PlayerId,
     _tech: &TechnologyId,
-) {
-    let Some((system, planet)) = first_infantry(state, content, player) else {
-        return;
+    payment: &str,
+) -> bool {
+    let Some((_, system, planet)) = infantry_payments(state, content, player)
+        .into_iter()
+        .find(|(choice, _, _)| choice.id == payment)
+    else {
+        return false;
     };
     let types = ti4_content::units::catalogue(content, DEFAULT);
     let board = state.system_mut(&system);
@@ -893,7 +916,9 @@ fn research_waiver_paid(
         })
     {
         units.remove(index);
+        return true;
     }
+    false
 }
 
 // -- Dannel of the Tenth -------------------------------------------------------------------------
@@ -1030,21 +1055,42 @@ fn land_and_fight(
         }
     }
     for (system, planet) in &order {
-        if crate::invasion::ground_combat(
+        // `ground_combat` selects one rival owner. Dannel's text resolves combats on the chosen
+        // planet, so keep resolving while Yin still has a ground force and another rival remains.
+        while has_rival_ground_force(
             context.state,
             context.content,
             context.sources,
-            context.table,
-            context.dice,
-            context.rng,
             system,
             planet,
             player,
-        )
-        .is_err()
-        {
-            *context.state = before;
-            return false;
+        ) {
+            if crate::invasion::ground_combat(
+                context.state,
+                context.content,
+                context.sources,
+                context.table,
+                context.dice,
+                context.rng,
+                system,
+                planet,
+                player,
+            )
+            .is_err()
+            {
+                *context.state = before;
+                return false;
+            }
+            if !has_ground_force(
+                context.state,
+                context.content,
+                context.sources,
+                system,
+                planet,
+                player,
+            ) {
+                break;
+            }
         }
     }
     for (system, planet) in &order {
@@ -1060,6 +1106,50 @@ fn land_and_fight(
     true
 }
 
+/// Whether `player` has a surviving ground force on this planet.
+fn has_ground_force(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    planet: &PlanetId,
+    player: &PlayerId,
+) -> bool {
+    let types = ti4_content::units::catalogue(content, sources);
+    state
+        .system_state(system)
+        .on_planet(planet)
+        .iter()
+        .any(|unit| {
+            unit.owner == *player
+                && types
+                    .get(unit.type_id.as_str())
+                    .is_some_and(ti4_content::units::UnitType::is_ground_force)
+        })
+}
+
+/// Whether anyone other than `player` has a ground force on this planet.
+fn has_rival_ground_force(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    planet: &PlanetId,
+    player: &PlayerId,
+) -> bool {
+    let types = ti4_content::units::catalogue(content, sources);
+    state
+        .system_state(system)
+        .on_planet(planet)
+        .iter()
+        .any(|unit| {
+            unit.owner != *player
+                && types
+                    .get(unit.type_id.as_str())
+                    .is_some_and(ti4_content::units::UnitType::is_ground_force)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1073,6 +1163,9 @@ mod tests {
     }
     fn b() -> PlayerId {
         PlayerId::new("b")
+    }
+    fn c() -> PlayerId {
+        PlayerId::new("c")
     }
     fn arena() -> (GameState, SystemId) {
         (
@@ -1866,7 +1959,11 @@ mod tests {
             extra_prerequisite_colours(&state, content, &a()),
             vec![("green".to_owned(), 1)]
         );
-        assert!(research_waiver_offer(&state, content, &a(), &tech).is_some());
+        let waiver = research_waiver_offer(&state, content, &a(), &tech).expect("commander waiver");
+        assert!(
+            !waiver.payments.is_empty(),
+            "each legal infantry location is a player choice"
+        );
         assert!(
             research_waiver_offer(&state, content, &a(), &TechnologyId::new("gd")).is_none(),
             "nobody else owns it"
@@ -1878,9 +1975,31 @@ mod tests {
             &a(),
             &tech
         ));
-        let before = home_infantry(&state);
-        research_waiver_paid(&mut state, content, &a(), &tech);
-        assert_eq!(home_infantry(&state), before - 1);
+        let payment = waiver.payments[0].id.clone();
+        let before = state.clone();
+        assert!(
+            !crate::technology::research_with_waiver(
+                &mut state,
+                content,
+                DEFAULT,
+                &a(),
+                &tech,
+                0,
+                "not-an-infantry-site"
+            ),
+            "an illegal payment target changes nothing"
+        );
+        assert_eq!(state, before);
+        assert!(crate::technology::research_with_waiver(
+            &mut state,
+            content,
+            DEFAULT,
+            &a(),
+            &tech,
+            0,
+            &payment
+        ));
+        assert!(state.player(&a()).unwrap().technologies.contains(&tech));
         // Another seat's commander does nothing for Yin.
         assert!(extra_prerequisite_colours(&state, content, &b()).is_empty());
     }
@@ -2017,10 +2136,33 @@ mod tests {
     }
 
     #[test]
+    fn dannel_continues_against_every_rival_ground_force() {
+        let (_, system, planet, galaxy) = hero_state();
+        let mut state = seated_game(&[("a", "yin"), ("b", "sol"), ("c", "hacan")], DEFAULT);
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        put_on_planet(&mut state, &system, &planet, "infantry", &c(), 1);
+        let spot = format!("{system}|{planet}");
+
+        assert_eq!(
+            use_hero(&mut state, &galaxy, &[&spot, &spot, &spot]),
+            Some(true)
+        );
+        let mine = infantry_of(&state, &system, &planet, &a(), "infantry");
+        if mine > 0 {
+            assert_eq!(
+                infantry_of(&state, &system, &planet, &b(), "infantry")
+                    + infantry_of(&state, &system, &planet, &c(), "infantry"),
+                0,
+                "a surviving Yin force fights every rival on the planet"
+            );
+        }
+    }
+
+    #[test]
     fn every_claim_is_on_the_sheet_and_the_module_is_registered() {
         assert!(crate::factions::module("yin").is_some());
         let missing = crate::factions::missing(ContentStore::embedded(), DEFAULT, "yin");
         let ids: Vec<&str> = missing.iter().map(|asset| asset.id.as_str()).collect();
-        assert_eq!(ids, ["yincommander", "yinhero", "yinbt"]);
+        assert_eq!(ids, ["yinhero", "yinbt"]);
     }
 }

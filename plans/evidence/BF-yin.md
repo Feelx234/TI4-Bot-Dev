@@ -103,3 +103,26 @@ Decision sites to register: unchanged (`yin.rs::ask_one` x1 Choice, x1 AskObserv
 
 Results: `cargo test -p ti4-engine --lib factions::yin` 24 passed; clippy 0 warnings in yin.rs; rustfmt clean.
 Ledger: `yin 10/11 implemented` (missing: Breakthrough yinbt).
+
+## Correction 2026-10-03 (Codex completion)
+
+Brother Omar is now claimed. The research-waiver contract exposes every legal infantry location as a
+stable payment target; the Technology-card resolver asks first for the waiver and then for that exact
+infantry. `research_with_waiver` revalidates the selected offer and payment, snapshots state before
+charging it, and grants the technology only after the payment hook succeeds. Declining either choice
+returns to the technology choice with no state mutation. Table-less `technology::research` never
+auto-spends the optional waiver. Normal prerequisite research and the existing Inheritance Systems
+route remain unchanged.
+
+Dannel repeats the existing synchronous ground-combat call until no rival ground force remains or
+Yin has none, correcting the former one-rival-only behavior. It remains **unclaimed** because that
+resolver does not emit the required ground-combat / destruction event windows; therefore Yin
+listeners such as Indoctrination, Greyfire, and Brother Milor cannot participate. The shared route
+must expose eventful ground-combat resolution usable by a leader effect, while preserving Dannel's
+no-space-cannon condition.
+
+Focused validation before concurrent combat edits blocked rebuilding: `cargo test -p ti4-engine --lib
+factions::yin --no-fail-fast` — 25 passed, 0 failed. New focused waiver tests are present in
+`technology::bf_f3_tests` and `strategy_cards::tests`; their run is pending the unrelated combat.rs
+compile repair. The ledger is now `yin 9/11 implemented` (missing: `yinhero`, `yinbt`); `yinbt`
+remains unclaimed until the full alliance text has a grant and dispatch route.

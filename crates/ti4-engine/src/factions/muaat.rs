@@ -38,7 +38,7 @@ pub const MODULE: FactionModule = FactionModule {
     ],
     promissory: &["fires"],
     leaders: &["muaathero", "muaatagent", "muaatcommander"],
-    breakthroughs: &[],
+    breakthroughs: &["muaatbt"],
     hooks: Hooks {
         component_actions: Some(component_actions),
         perform_component: Some(perform_component),
@@ -59,6 +59,8 @@ pub const MODULE: FactionModule = FactionModule {
     },
 };
 
+const NUCLEUS: &str = "faction|muaat|nucleus";
+const STELLAR: &str = "muaatbt";
 const STAR_FORGE: &str = "faction|muaat|star_forge";
 const INFERNO: &str = "faction|muaat|inferno";
 const FIRES: &str = "faction|muaat|fires";
@@ -318,6 +320,14 @@ fn component_actions(
     // Sources are not passed to this hook; the corpus default is what games are built with.
     let sources = ti4_model::content_types::DEFAULT;
     let mut options = Vec::new();
+    if crate::legendary::available(state, player, &PlanetId::new("avernus"))
+        && !forge_options(state, content, sources, player).is_empty()
+    {
+        options.push(action(
+            NUCLEUS,
+            "The Nucleus: exhaust to use Star Forge without a token",
+        ));
+    }
     if star_forge_ready(state, content, sources, player) {
         options.push(action(
             STAR_FORGE,
@@ -346,6 +356,22 @@ fn perform_component(
 ) -> bool {
     match option.id.as_str() {
         STAR_FORGE => star_forge(context, player),
+        NUCLEUS => {
+            let planet = PlanetId::new("avernus");
+            if !crate::legendary::available(context.state, player, &planet) {
+                return false;
+            }
+            if !forge(context, player, false) {
+                return false;
+            }
+            context
+                .state
+                .player_mut(player)
+                .expect("holder seated")
+                .exhausted_legendary
+                .insert(planet);
+            true
+        }
         INFERNO => inferno(context, player),
         FIRES => fires(context, player),
         _ => false,
@@ -356,10 +382,14 @@ fn perform_component(
 /// destroyer from your reinforcements in a system that contains 1 or more of your war suns."
 /// The system and the choice are made before the token is spent; a refusal changes nothing.
 fn star_forge(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
-    let (content, sources) = (context.content, context.sources);
-    if !star_forge_ready(context.state, content, sources, player) {
+    if !star_forge_ready(context.state, context.content, context.sources, player) {
         return false;
     }
+    forge(context, player, true)
+}
+
+fn forge(context: &mut TimingContext<'_>, player: &PlayerId, spend: bool) -> bool {
+    let (content, sources) = (context.content, context.sources);
     let options = forge_options(context.state, content, sources, player);
     let offered = options
         .iter()
@@ -413,7 +443,9 @@ fn star_forge(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     if crate::action_cards::place_units_counted(context, player, system, None, base, fit) == 0 {
         return false;
     }
-    crate::supply::spend_strategy_token_staged(context.state, player, "star_forge");
+    if spend {
+        crate::supply::spend_strategy_token_staged(context.state, player, "star_forge");
+    }
     ember_colossus(context, player, system);
     true
 }
@@ -1072,13 +1104,176 @@ fn magmus(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
+// -- Stellar Genesis and the Avernus planet token -----------------------------------------------
+
+fn stellar_placement(context: &TimingContext<'_>, owner: &PlayerId) -> Vec<SystemId> {
+    if context
+        .state
+        .placed_planets
+        .contains_key(&PlanetId::new("avernus"))
+    {
+        return Vec::new();
+    }
+    let Some(galaxy) = context.galaxy else {
+        return Vec::new();
+    };
+    let adjacency = crate::movement::PlayerAdjacency::new(
+        context.state,
+        context.content,
+        context.sources,
+        galaxy,
+        owner,
+    );
+    let mut destinations = std::collections::BTreeSet::new();
+    for (system, _) in context.state.controlled_planets(owner) {
+        for adjacent in adjacency.neighbours(system.as_str()) {
+            if !ti4_content::galaxy::is_home_system(context.content, &adjacent, context.sources) {
+                destinations.insert(SystemId::new(adjacent));
+            }
+        }
+    }
+    destinations.into_iter().collect()
+}
+
+fn stellar_move(event: &Event, context: &TimingContext<'_>, owner: &PlayerId) -> Option<SystemId> {
+    if event.text("player") != Some(owner.as_str())
+        || context.state.player(owner)?.breakthrough.as_ref()?.as_str() != STELLAR
+        || event
+            .text("unit")
+            .and_then(|u| base_of(context.content, context.sources, u))
+            .as_deref()
+            != Some("warsun")
+    {
+        return None;
+    }
+    let destination = SystemId::new(event.text("system")?);
+    let origin = context
+        .state
+        .placed_planets
+        .get(&PlanetId::new("avernus"))?;
+    if *origin == destination
+        || ti4_content::galaxy::is_home_system(
+            context.content,
+            destination.as_str(),
+            context.sources,
+        )
+    {
+        return None;
+    }
+    let traversed = event.text("origin") == Some(origin.as_str())
+        || event
+            .text("path")
+            .is_some_and(|path| path.split(',').any(|id| id == origin.as_str()));
+    traversed.then_some(destination)
+}
+
+fn stellar_genesis(owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    let owner = seat.clone();
+    let condition = seat.clone();
+    let placement = Ability::stateful(
+        format!("breakthrough:{owner_name}:muaatbt:BREAKTHROUGH_GAINED:after"),
+        seat.clone(),
+        "BREAKTHROUGH_GAINED",
+        Relation::After,
+        Arc::new(move |_, resolver, context| {
+            let options = stellar_placement(context, &owner);
+            let offered = options
+                .iter()
+                .map(|id| {
+                    ChoiceOption::labelled(
+                        id.to_string(),
+                        "system",
+                        format!("place Avernus in {id}"),
+                    )
+                })
+                .collect();
+            let Ok(answer) = ask(
+                context,
+                &owner,
+                "Stellar Genesis: place Avernus",
+                STELLAR,
+                "avernus_placement",
+                offered,
+                false,
+            ) else {
+                return Ok(());
+            };
+            if let Some(system) = options.iter().find(|id| id.as_str() == answer.id) {
+                let planet = PlanetId::new("avernus");
+                if crate::planets::place(context.state, system, &planet, &owner) {
+                    crate::factions::control_gained(
+                        context.state,
+                        context.content,
+                        context.sources,
+                        &owner,
+                        system,
+                        &planet,
+                    );
+                    let payload = [
+                        (
+                            "player".to_owned(),
+                            serde_json::Value::String(owner.to_string()),
+                        ),
+                        (
+                            "system".to_owned(),
+                            serde_json::Value::String(system.to_string()),
+                        ),
+                        (
+                            "planet".to_owned(),
+                            serde_json::Value::String(planet.to_string()),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect();
+                    let event = context
+                        .event_sequence
+                        .next("PLANET_CONTROL_GAINED", payload)
+                        .expect("event id");
+                    resolver.emit_with_context(context, event, |_, _| {})?;
+                }
+            }
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event.text("player") == Some(condition.as_str())
+            && context.state.player(&condition).is_some_and(|p| {
+                p.breakthrough
+                    .as_ref()
+                    .is_some_and(|b| b.as_str() == STELLAR)
+            })
+            && !stellar_placement(context, &condition).is_empty()
+    }));
+    let owner = seat.clone();
+    let condition = seat.clone();
+    let moving = Ability::stateful(
+        format!("breakthrough:{owner_name}:muaatbt:SHIP_MOVED:after"),
+        seat.clone(),
+        "SHIP_MOVED",
+        Relation::After,
+        Arc::new(move |event, _, context| {
+            if let Some(destination) = stellar_move(event, context, &owner) {
+                crate::planets::move_placed(context.state, &PlanetId::new("avernus"), &destination);
+            }
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        stellar_move(event, context, &condition).is_some()
+    }));
+    vec![placement, moving]
+}
+
 fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
+    let mut abilities = stellar_genesis(owner_name, seat);
+    abilities.extend([
         commander_unlock(owner_name, seat),
         magmus(owner_name, seat),
         war_sun_moved(owner_name, seat),
         nova_seed(owner_name, seat),
-    ]
+    ]);
+    abilities
 }
 
 #[cfg(test)]
@@ -1183,6 +1378,150 @@ mod tests {
                 .emit_with_context(ctx, event, |_, _| {})
                 .expect("window resolves");
         });
+    }
+
+    #[test]
+    fn nucleus_uses_star_forge_without_a_token_and_exhausts_only_on_success() {
+        let mut state = muaat_game();
+        let home = home_of(&state, &a());
+        crate::planets::place(&mut state, &home, &PlanetId::new("avernus"), &a());
+        state.player_mut(&a()).unwrap().strategic_tokens = 0;
+        let before = count(&state, &home, "fighter", &a());
+        assert!(
+            component_actions(&state, content(), &a())
+                .iter()
+                .any(|o| o.id == NUCLEUS)
+        );
+        assert!(!perform(
+            &mut state,
+            None,
+            &mut scripted(&["decline"]),
+            NUCLEUS
+        ));
+        assert!(crate::legendary::available(
+            &state,
+            &a(),
+            &PlanetId::new("avernus")
+        ));
+        assert!(perform(
+            &mut state,
+            None,
+            &mut scripted(&[&format!("{home}|fighters")]),
+            NUCLEUS
+        ));
+        assert_eq!(count(&state, &home, "fighter", &a()), before + 2);
+        assert_eq!(state.player(&a()).unwrap().strategic_tokens, 0);
+        assert!(!crate::legendary::available(
+            &state,
+            &a(),
+            &PlanetId::new("avernus")
+        ));
+        assert!(!perform(&mut state, None, &mut never(), NUCLEUS));
+    }
+
+    #[test]
+    fn nucleus_is_usable_by_a_foreign_planet_holder() {
+        let mut state = sol_game();
+        let home = home_of(&state, &a());
+        put(&mut state, &home, "warsun", &a(), 1);
+        crate::planets::place(&mut state, &home, &PlanetId::new("avernus"), &a());
+        state.player_mut(&a()).unwrap().strategic_tokens = 0;
+        assert!(perform(
+            &mut state,
+            None,
+            &mut scripted(&[&format!("{home}|fighters")]),
+            NUCLEUS
+        ));
+    }
+
+    #[test]
+    fn stellar_genesis_places_at_an_adjacent_nonhome_system_and_moves_through_it() {
+        let ids = crate::fixtures::plain_systems(80)
+            .into_iter()
+            .filter(|id| {
+                !nova_blocked(content(), DEFAULT, id)
+                    && !ti4_content::galaxy::planets_in(content(), id, DEFAULT).is_empty()
+            })
+            .take(7)
+            .collect::<Vec<_>>();
+        let hub = crate::fixtures::hub_from(&ids);
+        let mut state = muaat_game();
+        let center = SystemId::new(hub.centre.clone());
+        let initial = SystemId::new(hub.outer[0].clone());
+        let destination = SystemId::new(hub.outer[1].clone());
+        let held = crate::planets::in_system(&state, content(), DEFAULT, &center)
+            .first()
+            .cloned()
+            .unwrap();
+        state.system_mut(&center).set_control(held, a());
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new(STELLAR));
+        emit(
+            &mut state,
+            Some(&hub.galaxy),
+            &mut scripted(&[initial.as_str()]),
+            "BREAKTHROUGH_GAINED",
+            &[("player", "a".into())],
+        );
+        let planet = PlanetId::new("avernus");
+        assert_eq!(state.placed_planets.get(&planet), Some(&initial));
+        assert_eq!(
+            state.board[&initial].planet_control.get(&planet),
+            Some(&a())
+        );
+        put_on_planet(&mut state, &initial, &planet, "infantry", &a(), 1);
+        state.exhausted_planets.insert(planet.clone());
+        state.board.entry(destination.clone()).or_default();
+        let payload = [
+            ("player", "a".into()),
+            ("origin", center.to_string().into()),
+            ("system", destination.to_string().into()),
+            ("unit", "muaat_warsun".into()),
+            ("path", format!("{initial},{destination}").into()),
+        ];
+        emit(
+            &mut state,
+            Some(&hub.galaxy),
+            &mut scripted(&["breakthrough:muaat:muaatbt:SHIP_MOVED:after"]),
+            "SHIP_MOVED",
+            &payload,
+        );
+        assert_eq!(state.placed_planets.get(&planet), Some(&destination));
+        assert!(state.board[&initial].on_planet(&planet).is_empty());
+        assert_eq!(state.board[&destination].on_planet(&planet).len(), 1);
+        assert_eq!(
+            state.board[&destination].planet_control.get(&planet),
+            Some(&a())
+        );
+        assert!(state.exhausted_planets.contains(&planet));
+    }
+
+    #[test]
+    fn stellar_genesis_rejects_unrelated_routes_and_non_war_suns() {
+        let mut state = muaat_game();
+        let from = sys("19");
+        let to = sys("20");
+        crate::planets::place(&mut state, &from, &PlanetId::new("avernus"), &a());
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new(STELLAR));
+        for (origin, unit) in [("21", "muaat_warsun"), ("19", "cruiser")] {
+            emit(
+                &mut state,
+                None,
+                &mut never(),
+                "SHIP_MOVED",
+                &[
+                    ("player", "a".into()),
+                    ("origin", origin.into()),
+                    ("system", to.to_string().into()),
+                    ("unit", unit.into()),
+                ],
+            );
+            assert_eq!(
+                state.placed_planets.get(&PlanetId::new("avernus")),
+                Some(&from)
+            );
+        }
     }
 
     // -- the sheet's data-driven items ----------------------------------------------------------

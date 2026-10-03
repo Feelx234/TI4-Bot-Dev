@@ -30,6 +30,7 @@ use ti4_model::content_types::SourceSet;
 use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId};
 use ti4_model::state::{GameState, LeaderStatus, TokenPool};
 
+use super::hooks_combat::CombatHooks;
 use super::hooks_economy::EconomyHooks;
 use super::hooks_ground::GroundHooks;
 use super::{CombatUnit, FactionModule, Hooks};
@@ -72,10 +73,16 @@ pub const MODULE: FactionModule = FactionModule {
             ground_combat_round_started: Some(ground_combat_round_started),
             ..GroundHooks::NONE
         },
+        combat: CombatHooks {
+            ability_hit_immune: Some(ability_hit_immune),
+            ..CombatHooks::NONE
+        },
         economy: EconomyHooks {
             explore_extra_draw: Some(explore_extra_draw),
             explored: Some(explored),
             cannot_produce: Some(cannot_produce),
+            effect_placement_forbidden: Some(effect_placement_forbidden),
+            captured_unit_return_form: Some(captured_unit_return_form),
             ..EconomyHooks::NONE
         },
         ..Hooks::NONE
@@ -1098,6 +1105,46 @@ fn cannot_produce(
     _producer_base: &str,
 ) -> bool {
     unit_base == "mech" && is_naaz(state, player) && voltron_on_board(state, player)
+}
+
+/// Eidolon Maximum: "Game effects cannot place or produce your mechs." The shared placement
+/// helper passes the resolved faction unit, so upgrades and forms cannot evade this gate.
+fn effect_placement_forbidden(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    unit: &ti4_model::id::UnitTypeId,
+) -> bool {
+    is_naaz(state, player)
+        && voltron_on_board(state, player)
+        && catalogue(content, sources)
+            .get(unit.as_str())
+            .is_some_and(|kind| kind.base_type() == "mech")
+}
+
+/// A Maximum flips back when it is removed; captured models therefore return as Eidolons.
+fn captured_unit_return_form(
+    _state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    _owner: &PlayerId,
+    unit: &ti4_model::id::UnitTypeId,
+) -> ti4_model::id::UnitTypeId {
+    if unit.as_str() == VOLTRON {
+        ti4_model::id::UnitTypeId::new("naaz_mech")
+    } else {
+        unit.clone()
+    }
+}
+
+fn ability_hit_immune(
+    _state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> bool {
+    unit.unit_type == VOLTRON
 }
 
 /// "Repair it at the start of every combat round": the player's Eidolon Maximum in the space area

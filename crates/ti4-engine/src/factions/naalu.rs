@@ -52,6 +52,7 @@ use ti4_model::state::{GameState, LeaderStatus, TokenPool};
 use ti4_model::units::Unit;
 
 use super::hooks_combat::CombatHooks;
+use super::hooks_ground::GroundHooks;
 use super::hooks_strategy::{SecondaryWaiver, StrategyHooks};
 use super::{FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption};
@@ -71,7 +72,12 @@ pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
     abilities: &["telepathic", "foresight"],
     technologies: &["ng", "hcf2"],
-    units: &["naalu_fighter", "naalu_fighter2", "naalu_mech_te"],
+    units: &[
+        "naalu_fighter",
+        "naalu_fighter2",
+        "naalu_flagship",
+        "naalu_mech_te",
+    ],
     promissory: &["gift"],
     leaders: &[HERO],
     breakthroughs: &["naalubt"],
@@ -80,6 +86,11 @@ pub const MODULE: FactionModule = FactionModule {
         combat: CombatHooks {
             fighter_fleet_weight_halves: Some(fighter_fleet_weight_halves),
             ..CombatHooks::NONE
+        },
+        ground: GroundHooks {
+            temporary_space_commit_candidates: Some(matriarch_fighters),
+            temporary_ground_force: Some(matriarch_temporary_ground_force),
+            ..GroundHooks::NONE
         },
         strategy: StrategyHooks {
             strategy_phase_ended: Some(strategy_phase_ended),
@@ -250,6 +261,57 @@ fn fighter_fleet_weight_halves(
     unit_type: &str,
 ) -> bool {
     unit_type == "naalu_fighter2" && is_naalu(state, player)
+}
+
+// -- Matriarch -------------------------------------------------------------------------------
+
+/// Matriarch lets its owner's fighters in this system join an invasion temporarily. The invasion
+/// window records that provenance and returns survivors to the space area after combat.
+fn matriarch_fighters(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    invader: &PlayerId,
+    system: &SystemId,
+) -> Vec<Unit> {
+    if !is_naalu(state, invader)
+        || !state
+            .ships_of(invader, system)
+            .into_iter()
+            .any(|unit| unit.type_id.as_str() == "naalu_flagship")
+    {
+        return Vec::new();
+    }
+    let types = catalogue(content, sources);
+    state
+        .ships_of(invader, system)
+        .into_iter()
+        .filter(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(ti4_content::units::UnitType::is_fighter)
+        })
+        .cloned()
+        .collect()
+}
+
+fn matriarch_temporary_ground_force(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    _planet: &ti4_model::id::PlanetId,
+    unit: &Unit,
+) -> bool {
+    is_naalu(state, player)
+        && catalogue(content, sources)
+            .get(unit.type_id.as_str())
+            .is_some_and(ti4_content::units::UnitType::is_fighter)
+        && state
+            .ships_of(player, system)
+            .into_iter()
+            .any(|ship| ship.type_id.as_str() == "naalu_flagship")
 }
 
 // -- Neuroglaive ---------------------------------------------------------------------------------
@@ -1471,6 +1533,29 @@ mod tests {
     }
 
     #[test]
+    fn matriarch_makes_only_its_own_fighters_temporary_ground_candidates() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+        crate::fixtures::put(&mut state, &home, "naalu_fighter", &a(), 1);
+        assert!(matriarch_fighters(&state, content, DEFAULT, &a(), &home).is_empty());
+        crate::fixtures::put(&mut state, &home, "naalu_flagship", &a(), 1);
+        let candidates = matriarch_fighters(&state, content, DEFAULT, &a(), &home);
+        let fighters_in_space = state
+            .ships_of(&a(), &home)
+            .into_iter()
+            .filter(|unit| unit.type_id.as_str() == "naalu_fighter")
+            .count();
+        assert_eq!(candidates.len(), fighters_in_space);
+        assert!(
+            candidates
+                .iter()
+                .all(|unit| unit.type_id.as_str() == "naalu_fighter")
+        );
+        assert!(matriarch_fighters(&state, content, DEFAULT, &b(), &home).is_empty());
+    }
+
+    #[test]
     fn foresight_resolves_once_after_a_real_movement_step() {
         use crate::game::{Game, TACTICAL_ACTION_ID};
         let content = ContentStore::embedded();
@@ -1576,6 +1661,6 @@ mod tests {
     fn the_claims_are_the_sheet() {
         assert_eq!(MODULE.abilities, ["telepathic", "foresight"]);
         assert!(MODULE.units.contains(&"naalu_fighter"));
-        assert!(!MODULE.units.contains(&"naalu_flagship"));
+        assert!(MODULE.units.contains(&"naalu_flagship"));
     }
 }
