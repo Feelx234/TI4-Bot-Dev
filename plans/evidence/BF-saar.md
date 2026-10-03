@@ -113,3 +113,13 @@ Commands: `cargo test -p ti4-engine --lib -- factions::saar` 14 passed, 0 failed
 | ledger | `saar 11/13 implemented` (missing saarcommander, saarbt) |
 
 New decision sites: none.
+
+## Rowl Sarrig claimed (2026-10-03, coordinator)
+
+Correction: the content text (`leaders.json` `saarcommander`) is "When you produce fighters or infantry: You may place each of those units at any of your space docks that are not blockaded." The earlier "not in or adjacent to another player's units" reading was wrong; the adjacency filter is gone.
+
+Shared seam: `EconomyHooks::production_destinations` (hooks_economy.rs) returns places in other systems; `ProductionWindow::spots` appends them as `"<system>@<planet|space>"` (`production::REMOTE_SEPARATOR`, `placement_target`) only when the unit has a legal spot in the producing system (68.10 still bars ships from a blockaded system). `place` and `standing_after` resolve the target system; the placement preview measures a remote spot against that system's own standing. The "may" is the placement choice (the producing system's own spots stay offered).
+
+Saar: blockaded = another player's ship (neutral counts) and no Saar ship in the dock's system. Fighters → space area; infantry → the dock's planet, or the space area for a Floating Factory.
+
+Tests: `the_commander_docks_are_every_unblockaded_dock` (saar.rs); `a_module_destination_in_another_system_is_offered_and_placed_there`, `a_module_destination_is_not_offered_for_a_unit_the_system_cannot_place` (production.rs). `cargo test -p ti4-engine`: lib 1916 passed, 1 ignored; integration ok. Clippy: no warnings in touched code. Ledger: `saar 12/13` (gap `saarbt`).

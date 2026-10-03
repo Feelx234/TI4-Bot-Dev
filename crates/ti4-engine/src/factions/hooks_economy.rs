@@ -56,6 +56,22 @@ pub struct EconomyHooks {
     /// producers are barred is not a spot for the unit, and in `ProductionWindow::build_options`
     /// the barred producers' PRODUCTION does not count toward what that unit may use.
     pub cannot_produce: Option<fn(&GameState, &ContentStore, &PlayerId, &str, &str) -> bool>,
+    /// Places in *other* systems where `player` may put a unit of `unit_base_type` produced in
+    /// `system`: `(state, content, sources, player, system, unit_base_type) -> [(system, planet)]`,
+    /// `None` for the space area. For Saar's commander ("When you produce fighters or infantry: You
+    /// may place each of those units at any of your space docks that are not blockaded"). Read by
+    /// `ProductionWindow::spots`, only when the unit has a legal spot in the producing system.
+    #[allow(clippy::type_complexity)]
+    pub production_destinations: Option<
+        fn(
+            &GameState,
+            &ContentStore,
+            SourceSet,
+            &PlayerId,
+            &SystemId,
+            &str,
+        ) -> Vec<(SystemId, Option<PlanetId>)>,
+    >,
     /// Action cards drawn *in addition* to `requested` when `player` draws `requested >= 1`. For
     /// Yssaril `scheming` ("When you draw 1 or more action cards, draw 1 additional action card").
     /// Called by `action_cards::draw` before the first card leaves the deck.
@@ -122,6 +138,7 @@ impl EconomyHooks {
         planet_spend_value: None,
         trade_good_worth: None,
         cannot_produce: None,
+        production_destinations: None,
         action_card_draw_bonus: None,
         action_cards_drawn: None,
         action_card_limit: None,
@@ -217,6 +234,26 @@ pub(crate) fn cannot_produce(
     hooks()
         .filter_map(|h| h.cannot_produce)
         .any(|f| f(state, content, player, unit_base, producer_base))
+}
+
+/// Every module's [`EconomyHooks::production_destinations`], sorted, deduplicated, and without
+/// the producing system itself (its own spots are `production::placements`).
+pub(crate) fn production_destinations(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit_base: &str,
+) -> Vec<(SystemId, Option<PlanetId>)> {
+    let mut out: Vec<(SystemId, Option<PlanetId>)> = hooks()
+        .filter_map(|h| h.production_destinations)
+        .flat_map(|f| f(state, content, sources, player, system, unit_base))
+        .filter(|(at, _)| at != system)
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Whether any module sets `cannot_produce` (lets `production` skip its per-producer walk).

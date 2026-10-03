@@ -62,3 +62,11 @@ Ledger: `winnu 11/11 implemented`.
 | S6 | Imperator mark is `origin|type|damaged|count`; `move_bonus` goes to the first matching ship; `SHIP_MOVED` ability consumes it when a matching ship leaves. Hook request 1 above is superseded. | `the_imperator_bonus_survives_another_ship_leaving_and_is_spent_by_its_own` |
 
 Checks: `factions::winnu` 28 passed, 0 failed; no clippy warnings in winnu.rs; rustfmt clean.
+
+## Final pass (2026-10-03): `winnuhero` stays unclaimed
+
+The only ledger gap is `winnuhero` (10/11). Its printed text is "Perform the primary ability of any strategy card". Every card but Thunder's Edge Warfare (`te6warfare`) is performed in `use_leader`. Warfare's primary returns `Ability::FreeTactical(system)`: a tactical action without a token, for which `game.rs` (the strategic-action path, ~line 1878) builds a `TacticalWindow`, sets `pending = "move"`, bumps `activation_seq`, sets `secondary_after_tactical`, and emits `SYSTEM_ACTIVATED`. A leader effect gets only a `TimingContext` and cannot do that. `perform_leader_action` (game.rs ~2381) discards the outcome, and `action_cards::perform_strategy_card` (Overrule) only records `active_system`, which no driver then consumes. Claiming the hero with Warfare excluded would be a partial implementation, so it is not claimed.
+
+Hook request (shared files, not made): let `use_leader` report a pending free tactical activation (for example `crate::leaders` returns it, or `winnuhero` stores it in `state.faction_marks["private:<p>:winnu:free_tactical"] = "<system>"`), and in `Game::perform_leader_action` after a successful `use_leader` run the same block as the `Ability::FreeTactical` arm of the strategic-action path in `game.rs` (factor it into a method taking `(active, system, window)`). The followers' Warfare secondary would then run from `StrategySecondaryWindow::foreign` as for other cards. Then `hero_cards` drops the `te6warfare` filter and the hero is added to `MODULE.leaders`.
+
+Commands: `cargo test -p ti4-engine --lib -- factions::winnu` 28 passed, 0 failed; `cargo test -p ti4-engine --lib -- factions::` 341 passed, 0 failed, 1 ignored; ledger `winnu 10/11 implemented` (`Leader winnuhero`). No code changed this pass.

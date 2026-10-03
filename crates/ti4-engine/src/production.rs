@@ -80,6 +80,20 @@ pub const PLACE_KIND: &str = "place";
 /// The id standing for a system's space area.
 pub const SPACE: &str = "space";
 
+/// Separates the system from the spot in a placement outside the producing system
+/// (`"<system>@<planet or space>"`), offered by `EconomyHooks::production_destinations`.
+pub const REMOTE_SEPARATOR: char = '@';
+
+/// A placement spot split into the system it is in and the spot there: `(system, spot)` for a
+/// remote spot, `(producing, spot)` otherwise.
+#[must_use]
+pub fn placement_target<'s>(producing: &SystemId, spot: &'s str) -> (SystemId, &'s str) {
+    match spot.split_once(REMOTE_SEPARATOR) {
+        Some((system, at)) => (SystemId::new(system), at),
+        None => (producing.clone(), spot),
+    }
+}
+
 /// What a placement leaves of the two limits it can spend (LRR 37, 16).
 ///
 /// Headroom is signed and free capacity is not. Production places units first and the limits are
@@ -1964,6 +1978,37 @@ impl ProductionWindow {
         sources: SourceSet,
         kind: UnitType<'_>,
     ) -> Vec<String> {
+        let mut spots = self.local_spots(state, content, sources, kind);
+        // A module may let the unit go elsewhere, but only a unit this system can produce at all
+        // (68.10: a blockaded dock makes no ships, wherever they would be placed).
+        if !spots.is_empty() {
+            spots.extend(
+                crate::factions::hooks_economy::production_destinations(
+                    state,
+                    content,
+                    sources,
+                    &self.player,
+                    &self.system,
+                    kind.base_type(),
+                )
+                .into_iter()
+                .map(|(system, planet)| {
+                    let at = planet.map_or_else(|| SPACE.to_owned(), |planet| planet.to_string());
+                    format!("{system}{REMOTE_SEPARATOR}{at}")
+                }),
+            );
+        }
+        spots
+    }
+
+    /// [`Self::spots`] in the producing system only.
+    fn local_spots(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        kind: UnitType<'_>,
+    ) -> Vec<String> {
         if !self.ability || kind.is_ship() {
             return placements(state, content, sources, &self.player, &self.system, &kind);
         }
@@ -2066,16 +2111,17 @@ impl ProductionWindow {
         where_to: &str,
         count: i64,
     ) -> Standing {
+        let (target, spot) = placement_target(&self.system, where_to);
         crate::fleet::standing_using(
             types,
             state,
             content,
             &self.player,
-            &self.system,
+            &target,
             Some(Arrival {
                 kind,
                 count,
-                in_space: where_to == SPACE,
+                in_space: spot == SPACE,
             }),
         )
     }
@@ -2110,6 +2156,19 @@ impl ProductionWindow {
                     .map(|spot| {
                         let after =
                             self.standing_after(&types, state, content, *kind, spot, placed);
+                        // A spot in another system is measured against that system's position.
+                        let (target, _) = placement_target(&self.system, spot);
+                        let remote_before = (target != self.system).then(|| {
+                            crate::fleet::standing_using(
+                                &types,
+                                state,
+                                content,
+                                &self.player,
+                                &target,
+                                None,
+                            )
+                        });
+                        let before = remote_before.as_ref().unwrap_or(&before);
                         placement_facts(
                             ChoiceOption::labelled(
                                 format!("place|{spot}"),
@@ -2121,10 +2180,10 @@ impl ProductionWindow {
                             .with("destination", spot.clone())
                             .with("count", i64::try_from(made).unwrap_or(1))
                             .with("placed", placed),
-                            &before,
+                            before,
                             &after,
                         )
-                        .previewed(Preview::certain(limit_deltas(&before, &after).to_vec()))
+                        .previewed(Preview::certain(limit_deltas(before, &after).to_vec()))
                     })
                     .collect(),
             )
@@ -2370,15 +2429,16 @@ impl ProductionWindow {
             &UnitTypeId::new(id),
             made,
         );
+        let (target, spot) = placement_target(&self.system, where_to);
         for _ in 0..made {
             let unit = Unit::new(UnitTypeId::new(id), self.player.clone());
-            if where_to == SPACE {
-                state.system_mut(&self.system).units.push(unit);
+            if spot == SPACE {
+                state.system_mut(&target).units.push(unit);
             } else {
                 state
-                    .system_mut(&self.system)
+                    .system_mut(&target)
                     .planet_units
-                    .entry(PlanetId::new(where_to))
+                    .entry(PlanetId::new(spot))
                     .or_default()
                     .push(unit);
             }
@@ -4509,6 +4569,104 @@ mod tests {
     /// planet or into space. Only the second consumes capacity, and this is the case that could
     /// not be answered before the destination was known -- which is why it was split out of
     /// `OBS-008c2a` rather than guessed there.
+    #[test]
+    fn a_module_destination_in_another_system_is_offered_and_placed_there() {
+        fn elsewhere(
+            _: &GameState,
+            _: &ContentStore,
+            _: SourceSet,
+            _: &PlayerId,
+            _: &SystemId,
+            unit: &str,
+        ) -> Vec<(SystemId, Option<PlanetId>)> {
+            if unit == "fighter" {
+                vec![(SystemId::new("elsewhere"), None)]
+            } else {
+                Vec::new()
+            }
+        }
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = seated();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        let hooks = crate::factions::hooks_economy::EconomyHooks {
+            production_destinations: Some(elsewhere),
+            ..crate::factions::hooks_economy::EconomyHooks::NONE
+        };
+        crate::factions::hooks_economy::with_test_hooks(hooks, || {
+            let mut window = ProductionWindow::new(&state, content, POK, &player(), &system);
+            window.credit = 10;
+            let fighter = window
+                .pending_choice(&state, content, POK)
+                .expect("production choice")
+                .options
+                .into_iter()
+                .find(|option| option.id.starts_with("build|fighter|"))
+                .expect("fighter");
+            let mut dice = crate::dice::Dice::new();
+            let mut rng = crate::rng::GameRng::new(0);
+            let mut table = Table::new();
+            let mut ctx = Resolving {
+                content,
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            window.resolve(&mut state, &mut ctx, fighter).unwrap();
+            let choice = window
+                .pending_choice(&state, content, POK)
+                .expect("two destinations: here and elsewhere");
+            let ids: Vec<&str> = choice.options.iter().map(|o| o.id.as_str()).collect();
+            assert_eq!(ids, ["place|space", "place|elsewhere@space"]);
+            let remote = choice.options[1].clone();
+            let before = state.system_state(&system).units.len();
+            window.resolve(&mut state, &mut ctx, remote).unwrap();
+            let landed = state
+                .system_state(&SystemId::new("elsewhere"))
+                .units
+                .clone();
+            assert!(landed.iter().all(|unit| unit.owner == player()));
+            assert!(!landed.is_empty(), "the fighters went to the other system");
+            assert_eq!(state.system_state(&system).units.len(), before);
+        });
+    }
+
+    #[test]
+    fn a_module_destination_is_not_offered_for_a_unit_the_system_cannot_place() {
+        fn elsewhere(
+            _: &GameState,
+            _: &ContentStore,
+            _: SourceSet,
+            _: &PlayerId,
+            _: &SystemId,
+            _: &str,
+        ) -> Vec<(SystemId, Option<PlanetId>)> {
+            vec![(SystemId::new("elsewhere"), None)]
+        }
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = seated();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        // 68.10: another player's ship bars ships here, so no destination is opened for one.
+        put(&mut state, &system, "cruiser", &PlayerId::new("enemy"), 1);
+        let hooks = crate::factions::hooks_economy::EconomyHooks {
+            production_destinations: Some(elsewhere),
+            ..crate::factions::hooks_economy::EconomyHooks::NONE
+        };
+        crate::factions::hooks_economy::with_test_hooks(hooks, || {
+            let window = ProductionWindow::new(&state, content, POK, &player(), &system);
+            let types = catalogue(content, POK);
+            let fighter = *types.get("fighter").unwrap();
+            assert!(window.spots(&state, content, POK, fighter).is_empty());
+        });
+    }
+
     #[test]
     fn obs008c2b_a_ground_force_placement_separates_space_from_a_planet() {
         let content = ContentStore::embedded();

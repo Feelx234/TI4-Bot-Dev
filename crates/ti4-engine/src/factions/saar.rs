@@ -29,6 +29,7 @@ use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::{GameState, LeaderStatus};
 use ti4_model::units::Unit;
 
+use super::hooks_economy::EconomyHooks;
 use super::hooks_movement::{MoveSite, MovementHooks};
 use super::hooks_strategy::StrategyHooks;
 use super::{FactionModule, Hooks};
@@ -54,7 +55,7 @@ pub const MODULE: FactionModule = FactionModule {
         "saar_spacedock2",
     ],
     promissory: &["ragh"],
-    leaders: &["saarhero", "saaragent"],
+    leaders: &["saarhero", "saaragent", "saarcommander"],
     breakthroughs: &[],
     hooks: Hooks {
         timing_abilities: Some(timing_abilities),
@@ -69,6 +70,10 @@ pub const MODULE: FactionModule = FactionModule {
         strategy: StrategyHooks {
             scores_without_home: Some(nomadic),
             ..StrategyHooks::NONE
+        },
+        economy: EconomyHooks {
+            production_destinations: Some(commander_docks),
+            ..EconomyHooks::NONE
         },
         ..Hooks::NONE
     },
@@ -174,50 +179,49 @@ fn commander_unlocked(
     Some(units_of_base(state, content, sources, player, "spacedock").len() >= 3)
 }
 
-/// Rowl Sarring: "When you produce fighters or infantry, you may place each of those units at any
-/// of your space docks that are not in or adjacent to a system that contains another player's
-/// units." The docks that qualify, as `(system, planet)`; `planet` is `None` for a Floating Factory
-/// in the space area (fighters only). Needs the unlocked commander; the shared production placement
-/// hook (see `plans/evidence/BF-saar.md`, Hook requests) would call this, so it is not yet claimed.
-#[allow(
-    dead_code,
-    reason = "waits for the shared production placement hook; covered by tests"
-)]
+/// Rowl Sarring: "When you produce fighters or infantry: You may place each of those units at
+/// any of your space docks that are not blockaded." (`EconomyHooks::production_destinations`.)
+/// A dock is blockaded when its system holds another player's ship and none of the Saar
+/// player's (the space-dock blockade `production::destroy_blockaded_mobile_docks` uses; neutral
+/// ships count). Fighters go to the space area; infantry go on a dock's planet, or into the space
+/// area for a Floating Factory there. The "may" is the placement choice, which keeps the
+/// producing system's own spots.
 fn commander_docks(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
-    galaxy: &ti4_content::galaxy::Galaxy,
     player: &PlayerId,
+    _producing: &SystemId,
+    unit_base: &str,
 ) -> Vec<(SystemId, Option<PlanetId>)> {
-    if !is_saar(state, player)
+    if !matches!(unit_base, "fighter" | "infantry")
+        || !is_saar(state, player)
         || leader_status(state, player, "saarcommander") != Some(LeaderStatus::Unlocked)
     {
         return Vec::new();
     }
-    let adjacency = crate::movement::PlayerAdjacency::new(state, content, sources, galaxy, player);
-    let occupied = |system: &SystemId| {
-        let board = state.system_state(system);
-        board
-            .units
+    let types = catalogue(content, sources);
+    let is_ship = |unit: &Unit| {
+        types
+            .get(unit.type_id.as_str())
+            .is_some_and(UnitType::is_ship)
+    };
+    let blockaded = |system: &SystemId| {
+        let units = &state.system_state(system).units;
+        units
             .iter()
-            .any(|unit| &unit.owner != player && !crate::neutral_units::is_neutral(&unit.owner))
-            || board.planet_units.values().any(|units| {
-                units.iter().any(|unit| {
-                    &unit.owner != player && !crate::neutral_units::is_neutral(&unit.owner)
-                })
-            })
+            .any(|unit| &unit.owner != player && is_ship(unit))
+            && !units
+                .iter()
+                .any(|unit| &unit.owner == player && is_ship(unit))
     };
     units_of_base(state, content, sources, player, "spacedock")
         .into_iter()
-        .filter(|(system, _, _)| {
-            !occupied(system)
-                && !adjacency
-                    .neighbours(system.as_str())
-                    .iter()
-                    .any(|n| occupied(&SystemId::new(n.clone())))
+        .filter(|(system, _, _)| !blockaded(system))
+        .map(|(system, planet, _)| match planet {
+            Some(planet) if unit_base == "infantry" => (system, Some(planet)),
+            _ => (system, None),
         })
-        .map(|(system, planet, _)| (system, planet))
         .collect()
 }
 
@@ -1055,13 +1059,12 @@ mod tests {
     }
 
     #[test]
-    fn the_commander_docks_exclude_systems_in_or_next_to_other_players_units() {
+    fn the_commander_docks_are_every_unblockaded_dock() {
         let content = ContentStore::embedded();
         let mut state = game();
         let hub = crate::fixtures::plain_hub();
         let dock = SystemId::new(hub.outer[0].clone());
-        let next_to = SystemId::new(hub.centre.clone());
-        // The fixture seeds ships around the hub: start from an empty neighbourhood.
+        let home = SystemId::new(hub.centre.clone());
         for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
             let board = state.system_mut(&SystemId::new(id.clone()));
             board.units.clear();
@@ -1071,36 +1074,49 @@ mod tests {
             .system_mut(&dock)
             .units
             .push(Unit::new(UnitTypeId::new("saar_spacedock"), a()));
-        let docks = |state: &GameState| {
-            commander_docks(state, content, DEFAULT, &hub.galaxy, &a())
+        let docks = |state: &GameState, unit: &str| {
+            commander_docks(state, content, DEFAULT, &a(), &home, unit)
                 .into_iter()
                 .filter(|(system, _)| system == &dock)
-                .count()
+                .collect::<Vec<_>>()
         };
-        assert_eq!(docks(&state), 0, "commander still locked");
+        assert!(
+            docks(&state, "fighter").is_empty(),
+            "commander still locked"
+        );
         state
             .player_mut(&a())
             .unwrap()
             .leaders
             .insert(LeaderId::new("saarcommander"), LeaderStatus::Unlocked);
-        assert_eq!(docks(&state), 1, "an empty neighbourhood qualifies");
-        state
-            .system_mut(&next_to)
-            .units
-            .push(Unit::new(UnitTypeId::new("cruiser"), b()));
+        assert_eq!(docks(&state, "fighter"), [(dock.clone(), None)]);
         assert_eq!(
-            docks(&state),
-            0,
-            "an adjacent system holds another player's ship"
+            docks(&state, "infantry"),
+            [(dock.clone(), None)],
+            "Floating Factory: space"
         );
-        state.system_mut(&next_to).units.clear();
+        assert!(
+            docks(&state, "mech").is_empty(),
+            "fighters and infantry only"
+        );
+        assert!(docks(&state, "cruiser").is_empty());
+        // An enemy ship blockades the dock; one of the Saar player's own ships lifts it.
         state
             .system_mut(&dock)
             .units
             .push(Unit::new(UnitTypeId::new("cruiser"), b()));
-        assert_eq!(docks(&state), 0, "the dock's own system holds one");
+        assert!(docks(&state, "fighter").is_empty(), "blockaded");
+        state
+            .system_mut(&dock)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), a()));
+        assert_eq!(
+            docks(&state, "fighter").len(),
+            1,
+            "not blockaded with a friendly ship"
+        );
         let sol = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
-        assert!(commander_docks(&sol, content, DEFAULT, &hub.galaxy, &a()).is_empty());
+        assert!(commander_docks(&sol, content, DEFAULT, &a(), &home, "fighter").is_empty());
     }
 
     #[test]
