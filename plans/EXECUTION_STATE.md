@@ -36,6 +36,19 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
 - BF-01 + factions wave C/D committed and reviewed: `plans/evidence/BF-wave-C.md`. Ledger 92/145
   over the 12 factions. Next: shared follow-up packages listed there; two items need operator
   approval (typed SHIP_MOVED for no-cargo moves, typed SYSTEM_ACTIVATED for free tactical action).
+- Codex continuation 2026-10-03: Claude advanced BF through `9a768524`, `083ff72b`, and
+  `c5632448`; a clean commit check at `c5632448` passed ti4-engine (1,881 lib tests, 1 ignored;
+  all integration/doc tests). The twelve-faction ledger is now 121/145 claimed; see
+  `plans/evidence/BF-CODEX-2026-10-03.md` for the clean 30-seed six-faction behavior comparison.
+  The retired v45 behavior gate was already outside four intervals at `274e39dd`; the approved
+  event commit `9a768524` changes VP measures and raises the outside count to five. Proposed bounds
+  are recorded, not applied. A focused Yssaril status-draw atomicity fix and negative test landed
+  as `c79d38f3` (`plans/evidence/BF-STATUS-DRAW-ATOMIC.md`): 1,882 engine lib tests passed,
+  1 ignored, integrations/doc tests passed; Terra independent review found no actionable issue.
+  In the reused clean checkout, ti4-sim had 50 pass, 1 ignored, 1 missing-map-pool-fixture failure.
+  Another session's uncommitted faction, game income and model/training/review edits remain separate.
+  Next: let the active faction edits finish, re-run the ledger and affected tests, then close the
+  remaining 24 faction assets without widening `IN_SCOPE_FACTIONS` until authorized.
 - Operator: ignore `ti4-review` semantic_golden.
 - Blocked: typed status-phase events need `game.rs`, which carries another session's uncommitted
   edits (Arborec `mitosis`/`bio`/mech).
