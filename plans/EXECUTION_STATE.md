@@ -48,7 +48,16 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
   In the reused clean checkout, ti4-sim had 50 pass, 1 ignored, 1 missing-map-pool-fixture failure.
   Another session's uncommitted faction, game income and model/training/review edits remain separate.
   Next: let the active faction edits finish, re-run the ledger and affected tests, then close the
-  remaining 24 faction assets without widening `IN_SCOPE_FACTIONS` until authorized.
+  remaining 23 faction assets without widening `IN_SCOPE_FACTIONS` until authorized.
+- Codex Ghost Particle Synthesis follow-up `8a9e437d`: production capacity and combined-cost
+    discount implemented and independently Terra-reviewed; full ti4-engine suite 1,884 passed,
+    1 ignored, integrations and doctests passed. Ghost is now 11/12; the twelve-faction ledger is
+    122/145 on this committed branch. See `plans/evidence/BF-ghostbt.md`. The remaining Ghost
+    commander effect still needs accurate wormhole traversal and capacity timing.
+- Review note for the separate uncommitted `game.rs` gain scan: Fracture emits
+    `FRACTURE_RELIC_GAINED` immediately, while the scan may emit `RELIC_GAINED` for that same
+    relic at the next step; verify and prevent a duplicate Naalu Iconoclast offer before claiming
+    that route. The scan is not part of the committed branch.
 - Operator: ignore `ti4-review` semantic_golden.
 - Blocked: typed status-phase events need `game.rs`, which carries another session's uncommitted
   edits (Arborec `mitosis`/`bio`/mech).
