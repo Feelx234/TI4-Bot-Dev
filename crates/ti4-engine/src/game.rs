@@ -908,10 +908,35 @@ impl<'a> Game<'a> {
 
     /// Create a game with explicit deciders for generated choices.
     #[must_use]
-    pub fn with_table(state: GameState, content: &'a ContentStore, table: Table) -> Self {
+    pub fn with_table(mut state: GameState, content: &'a ContentStore, table: Table) -> Self {
         // The dice follow the seed setup recorded. This used to be a literal zero, so every game
         // built here -- which is every training rollout and every evaluation -- shared one stream.
         let seed = state.rng_seed;
+        // Loaded cards are not newly gained. Preserve a saved baseline so gains pending in
+        // an in-progress state still receive their window after reconstruction.
+        if crate::supply::staging_enabled(&state) {
+            for seat in &state.players {
+                let breakthrough = seat
+                    .breakthrough
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
+                let relics = seat
+                    .relics
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                state
+                    .faction_marks
+                    .entry(format!("private:#seen:breakthrough:{}", seat.id))
+                    .or_insert(breakthrough);
+                state
+                    .faction_marks
+                    .entry(format!("private:#seen:relics:{}", seat.id))
+                    .or_insert(relics);
+            }
+        }
         let mut timing =
             Resolver::new(state.initiative_order(), state.active.clone(), Table::new());
         // Standing reaction slots, registered once while the game is seated. The resolver has no
@@ -5250,6 +5275,82 @@ mod tests {
     use crate::setup::start_game;
     use crate::timing::{Ability, Relation};
     use crate::tokens::STATUS_TOKENS;
+
+    #[test]
+    fn preexisting_cards_are_not_announced_as_gains_on_resume() {
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("b");
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "naalu"), ("b", "sol")],
+            ti4_model::content_types::DEFAULT,
+        );
+        state
+            .player_mut(&player)
+            .unwrap()
+            .relics
+            .push(ti4_model::id::RelicId::new("codex"));
+        state.player_mut(&player).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("solbt"));
+        let mut game = Game::new(state, content);
+        game.announce_gains().unwrap();
+        assert!(
+            !game
+                .events
+                .iter()
+                .any(|event| event == "RELIC_GAINED" || event == "BREAKTHROUGH_GAINED")
+        );
+        game.state
+            .player_mut(&player)
+            .unwrap()
+            .relics
+            .push(ti4_model::id::RelicId::new("obsidian"));
+        game.announce_gains().unwrap();
+        game.announce_gains().unwrap();
+        assert_eq!(
+            game.events
+                .iter()
+                .filter(|event| event.as_str() == "RELIC_GAINED")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn saved_gain_baselines_keep_pending_gains_after_reconstruction() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "naalu"), ("b", "sol")],
+            ti4_model::content_types::DEFAULT,
+        );
+        state
+            .player_mut(&PlayerId::new("b"))
+            .unwrap()
+            .relics
+            .push(ti4_model::id::RelicId::new("codex"));
+        state
+            .faction_marks
+            .insert("private:#seen:relics:b".to_owned(), String::new());
+        let mut game = Game::new(state, content);
+        game.announce_gains().unwrap();
+        assert_eq!(
+            game.events
+                .iter()
+                .filter(|event| event.as_str() == "RELIC_GAINED")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn gain_baselines_do_not_change_original_faction_state() {
+        let state = crate::fixtures::seated_game(
+            &[("a", "sol"), ("b", "hacan")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let marks = state.faction_marks.clone();
+        let game = Game::new(state, ContentStore::embedded());
+        assert_eq!(game.state.faction_marks, marks);
+    }
 
     #[test]
     fn ship_moved_wormholes_count_ghost_cross_links_but_not_plain_ability_links() {

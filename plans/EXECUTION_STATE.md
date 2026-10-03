@@ -27,9 +27,10 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
   after its commander seam at ec8e957c. Full engine suite at ec8e957c: 1,916 passed, 1 ignored,
   integrations and doctests passed. Six-original-faction 30-seed diagnostic matches c5632448
   at all ten metrics. Evidence: BF-CODEX-SOAK-2026-10-03.md.
-  Root is fixing the confirmed initial relic/breakthrough baseline issue; Terra agents have
-  disjoint Yin faction work and read-only Naalu/Naaz hook audits. Next: integrate the reviewed
-  baseline fix while preserving the uncommitted game.rs income hunks, then finish shared seams.
+  The initial relic/breakthrough baseline fix passed independent Terra review and the full engine
+  suite (1,919 passed, 1 ignored; integrations/doctests passed). Evidence: BF-CODEX-RELIC-BASELINE.md.
+  Terra agents are implementing disjoint Naalu invasion, Yin research and Naaz combat seams.
+  Next: complete remaining shared hooks and review each package; preserve game.rs income hunks.
 
 - **Work split (operator, 2026-10-03), Claude ↔ Codex on `wp/base-factions`:**
   - **Claude owns:** all shared engine files (`crates/ti4-engine/src/*.rs` outside `factions/<alias>.rs`,

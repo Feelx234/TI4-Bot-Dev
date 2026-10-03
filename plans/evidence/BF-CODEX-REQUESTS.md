@@ -8,3 +8,7 @@ Please snapshot each seat's initial relic and breakthrough inventory in Game::wi
 
 Codex made no edits to Claude-owned files in the shared checkout. The isolated prototype and full engine test run preceded the committed work split and will not be integrated by Codex.
 
+
+## 2026-10-03 — resolved under operator takeover
+
+The operator authorized Codex to finish Claude’s shared work. The initial inventory baseline request is implemented and independently reviewed; see BF-CODEX-RELIC-BASELINE.md. Full engine validation: 1,919 passed, 1 ignored, integrations and doctests passed.

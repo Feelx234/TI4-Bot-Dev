@@ -1424,17 +1424,17 @@ mod tests {
             .find(|(_, owner)| **owner == a())
             .map(|(planet, _)| planet.clone())
             .expect("a controlled planet");
-        state
-            .player_mut(&b())
-            .unwrap()
-            .relics
-            .push(ti4_model::id::RelicId::new("the_crown_of_emphidia"));
         let table = scripted(&[
             "unit:naalu:naalu_mech_te:RELIC_GAINED:after",
             &format!("{home}|{planet}"),
         ]);
         let mut game = Game::with_table(state, content, table).with_sources(DEFAULT);
-        let _ = game.step();
+        game.state
+            .player_mut(&b())
+            .unwrap()
+            .relics
+            .push(ti4_model::id::RelicId::new("the_crown_of_emphidia"));
+        assert_eq!(game.step().error, None);
         let mechs = game
             .state
             .system_state(&home)
@@ -1443,7 +1443,7 @@ mod tests {
             .filter(|u| u.type_id.as_str() == "naalu_mech_te")
             .count();
         assert_eq!(mechs, 1, "events: {:?}", game.events);
-        let _ = game.step();
+        assert_eq!(game.step().error, None);
         let again = game
             .state
             .system_state(&home)
