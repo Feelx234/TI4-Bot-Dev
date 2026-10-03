@@ -84,3 +84,25 @@ sardakk   10/12 implemented
     Leader sardakkcommander
     Leader sardakkhero
 ```
+
+## Update 2026-10-03 (commander adjacency, hero)
+
+* `sardakkcommander`: done and claimed. `commit_candidates` now uses the map: adjacent systems without the
+  invader's command token (supernovas excluded; other anomaly movement restrictions are not modelled).
+  Test: `the_commander_reaches_adjacent_systems_without_the_invaders_tokens`.
+* `sardakkhero`: done and claimed. `skip_to_commit` asks Sh'val's question (unlocked hero, owner has ships in
+  the active system; the engine cannot say which ships *moved in*), `GROUND_COMMITMENT_FINISHED` purges the
+  hero and returns the owner's ships in the system. Real-Game tests (seated_game + Game::with_table +
+  galaxy, movement -> skip -> commit): `the_hero_skips_to_the_commitment_then_is_purged_and_returns_the_ships`,
+  `the_hero_may_be_declined_and_is_not_offered_while_locked`. Ground forces left in the space area are not
+  touched.
+* New decision site: `skip_to_commit` (1 Choice, 1 AskObserved).
+* Ledger: `sardakk 12/12 implemented`. `cargo test -p ti4-engine --lib -- factions::sardakk`: 25 passed;
+  clippy: 0 warnings in `sardakk.rs`; rustfmt applied.
+
+## Update 2026-10-03 (hero review fixes)
+
+`skip_to_commit` now requires `ships_moved_this_activation > 0`, a planet in the system, and ground forces
+in the space area or commander candidates. Tests: positive path moves a cruiser in through a real `Game`;
+`the_hero_is_not_offered_without_a_moved_ship_or_anything_to_land`. `factions::sardakk`: 26 passed; clippy 0
+warnings in `sardakk.rs`; rustfmt applied. Ledger `sardakk 12/12 implemented`.

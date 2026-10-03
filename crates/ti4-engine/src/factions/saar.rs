@@ -29,7 +29,7 @@ use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::{GameState, LeaderStatus};
 use ti4_model::units::Unit;
 
-use super::hooks_movement::MovementHooks;
+use super::hooks_movement::{MoveSite, MovementHooks};
 use super::hooks_strategy::StrategyHooks;
 use super::{FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption, Resolving, TimingHandle, Window};
@@ -45,11 +45,16 @@ const RAGH_NOTE: &str = "ragh:saar";
 /// What this faction implements.
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
-    abilities: &["nomadic"],
-    technologies: &["cm"],
-    units: &["saar_flagship"],
+    abilities: &["nomadic", "scavenge"],
+    technologies: &["cm", "ffac2"],
+    units: &[
+        "saar_flagship",
+        "saar_mech",
+        "saar_spacedock",
+        "saar_spacedock2",
+    ],
     promissory: &["ragh"],
-    leaders: &["saarhero"],
+    leaders: &["saarhero", "saaragent"],
     breakthroughs: &[],
     hooks: Hooks {
         timing_abilities: Some(timing_abilities),
@@ -58,6 +63,7 @@ pub const MODULE: FactionModule = FactionModule {
         use_leader: Some(use_leader),
         movement: MovementHooks {
             cannot_activate: Some(chaos_mapping_blocks_activation),
+            move_bonus: Some(agent_move_bonus),
             ..MovementHooks::NONE
         },
         strategy: StrategyHooks {
@@ -176,6 +182,7 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
         scavenger_zeta(owner_name, seat),
         ragh_call(owner_name, seat),
         chaos_mapping_production(owner_name, seat),
+        agent(owner_name, seat),
     ]
 }
 
@@ -572,6 +579,153 @@ fn produce(
     crate::production::produce_by_ability(state, &mut ctx, galaxy, player, system, Some(1))
         .map_err(TimingError::IllegalChoice)?;
     Ok(())
+}
+
+// -- Captain Mendosa -----------------------------------------------------------------------------
+
+/// `GameState::faction_marks` key for the ship the agent boosted, valued
+/// `"<activation_seq>|<origin>|<index>|<bonus>"`, per activating player.
+fn agent_key(player: &PlayerId) -> String {
+    format!("saar:agent:boost:{player}")
+}
+
+/// The highest printed move value of any ship on the board.
+fn highest_move(state: &GameState, content: &ContentStore, sources: SourceSet) -> i64 {
+    let types = catalogue(content, sources);
+    state
+        .board
+        .values()
+        .flat_map(|board| board.units.iter())
+        .filter_map(|unit| types.get(unit.type_id.as_str()))
+        .filter(|kind| kind.is_ship())
+        .map(UnitType::move_value)
+        .max()
+        .unwrap_or(0)
+}
+
+/// `activator`'s ships that are slower than the fastest ship on the board:
+/// `(origin, index in ships_of, bonus, label)`.
+fn agent_ships(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    activator: &PlayerId,
+) -> Vec<(SystemId, usize, i64, String)> {
+    let top = highest_move(state, content, sources);
+    let types = catalogue(content, sources);
+    let mut found = Vec::new();
+    for system in state.board.keys() {
+        for (index, unit) in state.ships_of(activator, system).into_iter().enumerate() {
+            let Some(kind) = types.get(unit.type_id.as_str()) else {
+                continue;
+            };
+            let own = kind.move_value();
+            if kind.is_ship() && own < top {
+                found.push((
+                    system.clone(),
+                    index,
+                    top - own,
+                    format!("{} in {system} (move {own} to {top})", unit.type_id),
+                ));
+            }
+        }
+    }
+    found
+}
+
+/// Captain Mendosa: "When a player activates a system: You may exhaust this card to increase the
+/// move value of 1 of that player's ships to match the move value of the ship on the game board that
+/// has the highest move value." The boost is remembered against this activation and read by
+/// [`agent_move_bonus`].
+fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("leader:{owner_name}:saaragent:SYSTEM_ACTIVATED:after"),
+        seat.clone(),
+        "SYSTEM_ACTIVATED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            let Some(activator) = event.text("player").map(PlayerId::new) else {
+                return Ok(());
+            };
+            if leader_status(context.state, &owner, "saaragent") != Some(LeaderStatus::Readied) {
+                return Ok(());
+            }
+            let ships = agent_ships(context.state, context.content, context.sources, &activator);
+            if ships.is_empty() {
+                return Ok(());
+            }
+            let options = ships
+                .iter()
+                .enumerate()
+                .map(|(n, (_, _, _, label))| {
+                    ChoiceOption::labelled(format!("ship|{n}"), "ship", label.clone())
+                })
+                .collect();
+            let answer = ask(
+                context,
+                &owner,
+                "Captain Mendosa: raise which of the activating player's ships".to_owned(),
+                "saaragent",
+                "agent_ship",
+                options,
+                true,
+            )
+            .map_err(illegal)?;
+            let Some((origin, index, bonus, _)) = ships
+                .iter()
+                .enumerate()
+                .find(|(n, _)| answer.id == format!("ship|{n}"))
+                .map(|(_, ship)| ship)
+            else {
+                return Ok(());
+            };
+            if !crate::leaders::exhaust(context.state, &owner, &LeaderId::new("saaragent")) {
+                return Ok(());
+            }
+            let seq = context.state.activation_seq;
+            context.state.faction_marks.insert(
+                agent_key(&activator),
+                format!("{seq}|{origin}|{index}|{bonus}"),
+            );
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        leader_status(context.state, &condition_owner, "saaragent") == Some(LeaderStatus::Readied)
+            && event.text("player").is_some_and(|activator| {
+                !agent_ships(
+                    context.state,
+                    context.content,
+                    context.sources,
+                    &PlayerId::new(activator),
+                )
+                .is_empty()
+            })
+    }))
+}
+
+/// The boost the agent granted to one ship for this activation.
+fn agent_move_bonus(state: &GameState, site: &MoveSite<'_>) -> i32 {
+    let Some(mark) = state.faction_marks.get(&agent_key(site.player)) else {
+        return 0;
+    };
+    let mut parts = mark.split('|');
+    let (Some(seq), Some(origin), Some(index), Some(bonus)) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return 0;
+    };
+    if seq == state.activation_seq.to_string()
+        && origin == site.origin.as_str()
+        && Some(index) == site.index.map(|i| i.to_string()).as_deref()
+    {
+        bonus.parse().unwrap_or(0)
+    } else {
+        0
+    }
 }
 
 // -- Gurno Aggero --------------------------------------------------------------------------------
@@ -1060,5 +1214,192 @@ mod tests {
             &[("player", "a")],
         );
         assert_eq!(state.board, before);
+    }
+
+    fn asteroid_field() -> SystemId {
+        let content = ContentStore::embedded();
+        (1..=100)
+            .map(|n| n.to_string())
+            .find(|id| {
+                ti4_content::galaxy::system(content, id, DEFAULT)
+                    .is_some_and(|tile| tile.is_asteroid_field())
+            })
+            .map(SystemId::new)
+            .expect("an asteroid field tile")
+    }
+
+    #[test]
+    fn chaos_mapping_bars_other_players_from_an_asteroid_field_holding_a_cm_ship() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        let field = asteroid_field();
+        state
+            .system_mut(&field)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), a()));
+        let barred = |state: &GameState, who: &PlayerId| {
+            chaos_mapping_blocks_activation(state, content, DEFAULT, who, &field)
+        };
+        state
+            .player_mut(&a())
+            .unwrap()
+            .technologies
+            .remove(&ti4_model::id::TechnologyId::new("cm"));
+        assert!(!barred(&state, &b()), "no technology");
+        state
+            .player_mut(&a())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("cm"));
+        assert!(barred(&state, &b()));
+        assert!(!barred(&state, &a()), "not the owner");
+        state.system_mut(&field).units.clear();
+        assert!(!barred(&state, &b()), "no ship left");
+    }
+
+    #[test]
+    fn nomadic_scores_without_the_home_planets_and_others_still_need_them() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        for who in [a(), b()] {
+            let held: Vec<(SystemId, PlanetId)> = state
+                .controlled_planets(&who)
+                .into_iter()
+                .map(|(s, p)| (s.clone(), p.clone()))
+                .collect();
+            for (system, planet) in held {
+                state.system_mut(&system).planet_control.remove(&planet);
+            }
+        }
+        let home = |state: &GameState, who: &PlayerId| {
+            crate::objectives::controls_home_system(&crate::objectives::Position::new(
+                state, content, DEFAULT, who,
+            ))
+        };
+        assert!(home(&state, &a()), "Nomadic");
+        assert!(!home(&state, &b()), "61.16 still binds Sol");
+    }
+
+    #[test]
+    fn floating_factories_move_as_ships_and_a_blockade_destroys_them() {
+        let content = ContentStore::embedded();
+        let types = catalogue(content, DEFAULT);
+        let ffac2 = types.get("saar_spacedock2").expect("ffac2 unit");
+        assert!(ffac2.moves_as_ship());
+        assert_eq!(ffac2.move_value(), 2);
+        let mut state = game();
+        let hub = crate::fixtures::plain_hub();
+        let origin = SystemId::new(hub.outer[0].clone());
+        let active = SystemId::new(hub.centre.clone());
+        state
+            .system_mut(&origin)
+            .units
+            .push(Unit::new(UnitTypeId::new("saar_spacedock"), a()));
+        let moves =
+            crate::tactical::movable_into(&state, content, DEFAULT, &hub.galaxy, &a(), &active);
+        assert!(
+            moves
+                .iter()
+                .any(|m| m.origin == origin && m.unit.type_id.as_str() == "saar_spacedock"),
+            "the dock is offered as a mover"
+        );
+        state
+            .system_mut(&origin)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), b()));
+        let gone = crate::production::destroy_blockaded_mobile_docks(
+            &mut state, content, DEFAULT, &origin,
+        );
+        assert_eq!(gone.len(), 1);
+    }
+
+    #[test]
+    fn the_agent_raises_one_ship_to_the_fastest_move_on_the_board() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        let hub = crate::fixtures::plain_hub();
+        let origin = SystemId::new(hub.outer[0].clone());
+        state
+            .system_mut(&origin)
+            .units
+            .push(Unit::new(UnitTypeId::new("carrier"), b()));
+        state
+            .system_mut(&SystemId::new(hub.outer[1].clone()))
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), a()));
+        state.activation_seq = 7;
+        let ships = agent_ships(&state, content, DEFAULT, &b());
+        let n = ships
+            .iter()
+            .position(|(system, ..)| system == &origin)
+            .expect("the carrier is slower");
+        let (_, index, bonus, _) = ships[n].clone();
+        let types = catalogue(content, DEFAULT);
+        let carrier = types.get("carrier").unwrap();
+        let (pb, o) = (b(), origin.clone());
+        let site = |idx: Option<usize>| MoveSite {
+            player: &pb,
+            origin: &o,
+            index: idx,
+            ship: carrier,
+        };
+        assert_eq!(
+            agent_move_bonus(&state, &site(Some(index))),
+            0,
+            "nothing chosen yet"
+        );
+        emit(
+            &mut state,
+            &mut scripted(&[
+                "leader:saar:saaragent:SYSTEM_ACTIVATED:after",
+                &format!("ship|{n}"),
+            ]),
+            "SYSTEM_ACTIVATED",
+            &[("player", "b"), ("system", hub.centre.as_str())],
+        );
+        assert_eq!(
+            leader_status(&state, &a(), "saaragent"),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            i64::from(agent_move_bonus(&state, &site(Some(index)))),
+            bonus
+        );
+        assert_eq!(
+            agent_move_bonus(&state, &site(None)),
+            0,
+            "needs the ship index"
+        );
+        state.activation_seq = 8;
+        assert_eq!(
+            agent_move_bonus(&state, &site(Some(index))),
+            0,
+            "next activation"
+        );
+    }
+
+    #[test]
+    fn the_agent_is_not_offered_exhausted_or_in_a_game_without_saar() {
+        let mut state = game();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("saaragent"), LeaderStatus::Exhausted);
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "SYSTEM_ACTIVATED",
+            &[("player", "b"), ("system", "18")],
+        );
+        assert!(state.faction_marks.is_empty());
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "SYSTEM_ACTIVATED",
+            &[("player", "b"), ("system", "18")],
+        );
+        assert!(state.faction_marks.is_empty());
     }
 }

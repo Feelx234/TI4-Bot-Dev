@@ -27,9 +27,11 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_content::units::catalogue;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, TechnologyId};
+use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId};
 use ti4_model::state::{GameState, LeaderStatus, TokenPool};
 
+use super::hooks_economy::EconomyHooks;
+use super::hooks_ground::GroundHooks;
 use super::{CombatUnit, FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption};
 use crate::decision_context::{DecisionContext, DecisionSource};
@@ -50,9 +52,9 @@ const TYPES: [&str; 3] = ["CULTURAL", "HAZARDOUS", "INDUSTRIAL"];
 /// claimed: see the evidence file.
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
-    abilities: &["fabrication"],
-    technologies: &[],
-    units: &["naaz_flagship"],
+    abilities: &["fabrication", "distant_suns"],
+    technologies: &["pfa", "sc"],
+    units: &["naaz_flagship", "naaz_mech", "naaz_mech_space"],
     promissory: &[BMF],
     leaders: &[AGENT, COMMANDER, HERO],
     breakthroughs: &[],
@@ -66,6 +68,15 @@ pub const MODULE: FactionModule = FactionModule {
         unit_roll_modifier: Some(unit_roll_modifier),
         unit_dice: Some(unit_dice),
         space_combat_round_started: Some(space_combat_round_started),
+        ground: GroundHooks {
+            ground_combat_round_started: Some(ground_combat_round_started),
+            ..GroundHooks::NONE
+        },
+        economy: EconomyHooks {
+            explore_extra_draw: Some(explore_extra_draw),
+            explored: Some(explored),
+            ..EconomyHooks::NONE
+        },
         ..Hooks::NONE
     },
 };
@@ -377,6 +388,49 @@ fn fabricate_token(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     context.state.gain_token(player, *pool, 1) > 0
 }
 
+// -- Distant Suns and Pre-Fab Arcologies ----------------------------------------------------------
+
+/// Distant Suns: "When you explore a planet that contains 1 of your mechs: You may draw 1
+/// additional card; choose 1 to resolve and discard the rest." The shared route draws and asks.
+fn explore_extra_draw(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    planet: &PlanetId,
+) -> bool {
+    if !is_naaz(state, player) {
+        return false;
+    }
+    let types = catalogue(content, sources);
+    state.board.values().any(|here| {
+        here.planet_units.get(planet).is_some_and(|units| {
+            units.iter().any(|unit| {
+                &unit.owner == player
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(|kind| kind.base_type() == "mech")
+            })
+        })
+    })
+}
+
+/// Pre-Fab Arcologies: "After you explore a planet, ready that planet."
+fn explored(
+    state: &mut GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    player: &PlayerId,
+    planet: &PlanetId,
+) {
+    if state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("pfa")))
+    {
+        state.exhausted_planets.remove(planet);
+    }
+}
+
 // -- Supercharge ---------------------------------------------------------------------------------
 
 fn supercharge_key(player: &PlayerId) -> String {
@@ -390,13 +444,37 @@ fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
     })
 }
 
-/// Space combat rounds only: the shared engine has no hook at the start of a ground combat round.
 fn space_combat_round_started(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
     table: &mut crate::choice::Table,
     player: &PlayerId,
+) {
+    offer_supercharge(state, content, sources, table, player, "space");
+}
+
+fn ground_combat_round_started(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+    _system: &SystemId,
+    _planet: &PlanetId,
+) {
+    offer_supercharge(state, content, sources, table, player, "ground");
+}
+
+/// "At the start of a combat round": the mark names the kind of combat and the round sequence, so
+/// it lapses by itself when the round moves on.
+fn offer_supercharge(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+    context: &str,
 ) {
     state.faction_marks.remove(&supercharge_key(player));
     if !technology_ready(state, player, "sc") {
@@ -423,7 +501,7 @@ fn space_combat_round_started(
     let seq = state.combat_round_seq;
     state
         .faction_marks
-        .insert(supercharge_key(player), seq.to_string());
+        .insert(supercharge_key(player), format!("{context}:{seq}"));
     if let Some(seat) = state.player_mut(player) {
         seat.exhausted_technologies.insert(TechnologyId::new("sc"));
     }
@@ -436,9 +514,8 @@ fn unit_roll_modifier(
     unit: &CombatUnit<'_>,
 ) -> i64 {
     i64::from(
-        unit.context == "space"
-            && state.faction_marks.get(&supercharge_key(unit.player))
-                == Some(&state.combat_round_seq.to_string()),
+        state.faction_marks.get(&supercharge_key(unit.player))
+            == Some(&format!("{}:{}", unit.context, state.combat_round_seq)),
     )
 }
 
@@ -737,7 +814,6 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use ti4_model::content_types::DEFAULT;
-    use ti4_model::id::SystemId;
 
     fn a() -> PlayerId {
         PlayerId::new("a")
@@ -1007,6 +1083,133 @@ mod tests {
         assert!(!technology_ready(&state, &a(), "sc"));
         state.combat_round_seq += 1;
         assert_eq!(probe(&state), 0, "only the round it was used in");
+    }
+
+    #[test]
+    fn supercharge_also_starts_ground_combat_rounds() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        let (system, planet) = (SystemId::new("18"), PlanetId::new("mr"));
+        let probe = |state: &GameState, context: &str| {
+            unit_roll_modifier(
+                state,
+                content,
+                DEFAULT,
+                &CombatUnit {
+                    player: &a(),
+                    system: Some(&system),
+                    planet: Some(&planet),
+                    unit_type: "naaz_mech",
+                    context,
+                },
+            )
+        };
+        let ask = |state: &mut GameState, answers: &[&str]| {
+            ground_combat_round_started(
+                state,
+                content,
+                DEFAULT,
+                &mut scripted(answers),
+                &a(),
+                &system,
+                &planet,
+            );
+        };
+        ask(&mut state, &["sc"]);
+        assert_eq!(probe(&state, "ground"), 0, "not owned: not asked");
+        crate::technology::grant(&mut state, &a(), &TechnologyId::new("sc"));
+        ask(&mut state, &["decline"]);
+        assert_eq!(probe(&state, "ground"), 0);
+        ask(&mut state, &["sc"]);
+        assert_eq!(probe(&state, "ground"), 1);
+        assert_eq!(
+            probe(&state, "space"),
+            0,
+            "a ground round's use is not a space round's"
+        );
+        assert!(!technology_ready(&state, &a(), "sc"));
+    }
+
+    // -- Distant Suns and Pre-Fab Arcologies -------------------------------------------------------
+
+    fn system_of(planet: &PlanetId) -> SystemId {
+        let catalogue = ti4_content::galaxy::all_planets(ContentStore::embedded(), DEFAULT);
+        SystemId::new(catalogue[planet.as_str()].system_id().unwrap())
+    }
+
+    fn deck_len(state: &GameState, planet: &PlanetId) -> usize {
+        let deck = crate::exploration::trait_of(ContentStore::embedded(), DEFAULT, planet).unwrap();
+        state.exploration_decks[&deck].len()
+    }
+
+    fn explore_once(state: &mut GameState, who: &PlayerId, planet: &PlanetId) {
+        let deck = crate::exploration::trait_of(ContentStore::embedded(), DEFAULT, planet).unwrap();
+        crate::exploration::explore(state, ContentStore::embedded(), who, &deck, Some(planet))
+            .expect("a card");
+    }
+
+    #[test]
+    fn distant_suns_draws_an_extra_card_for_a_planet_with_a_mech() {
+        let mut state = game();
+        let planet = take_explorable(&mut state, &a());
+        let system = system_of(&planet);
+        let before = deck_len(&state, &planet);
+        explore_once(&mut state, &a(), &planet);
+        assert_eq!(deck_len(&state, &planet), before - 1, "no mech: one card");
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_mech", &a(), 1);
+        explore_once(&mut state, &a(), &planet);
+        assert_eq!(deck_len(&state, &planet), before - 3, "a mech: one extra");
+        // Another player's mech does not count, and neither does a Sol player's own.
+        let other = take_explorable(&mut state, &b());
+        crate::fixtures::put_on_planet(&mut state, &system_of(&other), &other, "sol_mech", &b(), 1);
+        let held = deck_len(&state, &other);
+        explore_once(&mut state, &b(), &other);
+        assert_eq!(deck_len(&state, &other), held - 1);
+    }
+
+    #[test]
+    fn pre_fab_arcologies_readies_the_planet_after_exploring() {
+        let mut state = game();
+        let planet = take_explorable(&mut state, &a());
+        state.exhausted_planets.insert(planet.clone());
+        explore_once(&mut state, &a(), &planet);
+        assert!(state.exhausted_planets.contains(&planet), "no technology");
+        crate::technology::grant(&mut state, &a(), &TechnologyId::new("pfa"));
+        explore_once(&mut state, &a(), &planet);
+        assert!(!state.exhausted_planets.contains(&planet));
+    }
+
+    // -- Eidolon forms ---------------------------------------------------------------------------
+
+    #[test]
+    fn the_eidolon_is_a_ship_in_the_active_space_area_and_flips_back() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        crate::fixtures::put(&mut state, &system, "naaz_mech", &a(), 1);
+        let kinds = |state: &GameState| -> Vec<String> {
+            state
+                .system_state(&system)
+                .units
+                .iter()
+                .filter(|unit| unit.owner == a())
+                .map(|unit| unit.type_id.to_string())
+                .collect()
+        };
+        let flipped =
+            crate::fleet::flip_to_ship_forms(&mut state, content, DEFAULT, &[a()], &system);
+        assert_eq!(flipped.len(), 1);
+        assert_eq!(kinds(&state), ["naaz_mech_space"]);
+        let types = catalogue(content, DEFAULT);
+        assert!(types["naaz_mech_space"].is_ship() && !types["naaz_mech"].is_ship());
+        crate::fleet::flip_to_ground_forms(&mut state, content, DEFAULT, &[a()], &system);
+        assert_eq!(kinds(&state), ["naaz_mech"]);
+        // Another faction's mech never flips.
+        crate::fixtures::put(&mut state, &system, "sol_mech", &b(), 1);
+        assert!(
+            crate::fleet::flip_to_ship_forms(&mut state, content, DEFAULT, &[b()], &system)
+                .is_empty()
+        );
     }
 
     // -- Garv and Gunn ---------------------------------------------------------------------------

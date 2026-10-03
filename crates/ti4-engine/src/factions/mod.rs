@@ -217,6 +217,15 @@ pub struct Hooks {
     /// One unit's combat dice, given the count so far. Adjust the count (add, multiply); an
     /// effect that sets an absolute number must say why it overrides earlier modules.
     pub unit_dice: Option<fn(&GameState, &ContentStore, SourceSet, &CombatUnit<'_>, i64) -> i64>,
+    /// After the movement step of `player`'s tactical action into `system`: whether to skip directly
+    /// to the "Commit Ground Forces" step (no space cannon offense, space combat or bombardment).
+    /// The module asks its own optional question and returns `Some(true)` when the player takes it;
+    /// `None` when it has nothing to offer. What follows the commitment (a hero's purge) is the
+    /// module's, on `GROUND_COMMITMENT_FINISHED`.
+    ///
+    /// Sardakk N'orr hero Sh'val, Harbinger: "After you move ships into the active system: You may
+    /// skip directly to the 'Commit Ground Forces' step."
+    pub skip_to_commit: Option<fn(&mut TimingContext<'_>, &PlayerId, &SystemId) -> Option<bool>>,
     /// Space-combat hooks (`hooks_combat.rs`).
     pub combat: hooks_combat::CombatHooks,
     /// Invasion and ground-combat hooks (`hooks_ground.rs`).
@@ -255,6 +264,7 @@ impl Hooks {
         timing_abilities: None,
         unit_roll_modifier: None,
         unit_dice: None,
+        skip_to_commit: None,
         combat: hooks_combat::CombatHooks::NONE,
         ground: hooks_ground::GroundHooks::NONE,
         economy: hooks_economy::EconomyHooks::NONE,
@@ -497,6 +507,29 @@ pub(crate) fn unit_dice(
     hooks()
         .filter_map(|h| h.unit_dice)
         .fold(dice, |dice, f| f(state, content, sources, unit, dice))
+}
+
+/// Ships that arrived in the active system during the current activation's movement step, as
+/// counted by the game (also `MOVEMENT_FINISHED`'s `ships_moved`). Readable until the movement
+/// step's windows (incl. [`Hooks::skip_to_commit`]) have closed. "After you move ships into the
+/// active system" holds only when this is above zero.
+#[must_use]
+pub fn ships_moved_this_activation(state: &GameState) -> u32 {
+    state
+        .faction_marks
+        .get(&format!("private:#moved:{}", state.activation_seq))
+        .and_then(|count| count.parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+pub(crate) fn skip_to_commit(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    hooks()
+        .filter_map(|h| h.skip_to_commit)
+        .any(|f| f(context, player, system) == Some(true))
 }
 
 pub(crate) fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {

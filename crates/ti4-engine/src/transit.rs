@@ -1238,7 +1238,7 @@ mod tests {
         for _ in 0..3 {
             state.system_mut(&origin).units.push(unit("infantry"));
         }
-        state.system_mut(&origin).units.push(unit("argent_mech"));
+        state.system_mut(&origin).units.push(unit("mech"));
         let ship = unit("carrier");
         state.system_mut(&origin).units.push(ship.clone());
         let content = ContentStore::embedded();
@@ -1266,7 +1266,7 @@ mod tests {
         state.system_mut(&origin).units.push(unit("infantry"));
         assert_eq!(run(&state), (4, true, 0));
         let hooks = crate::factions::hooks_movement::MovementHooks {
-            free_cargo: Some(|_, _, _, unit| unit.type_id.as_str() == "argent_mech"),
+            free_cargo: Some(|_, _, _, unit| unit.type_id.as_str() == "mech"),
             ..crate::factions::hooks_movement::MovementHooks::NONE
         };
         crate::factions::hooks_movement::with_test_hooks(hooks, || {
@@ -2129,13 +2129,7 @@ mod relocation_tests {
         let mut t = table();
         with_carrier(
             &mut t,
-            &[
-                "infantry",
-                "infantry",
-                "infantry",
-                "infantry",
-                "argent_mech",
-            ],
+            &["infantry", "infantry", "infantry", "infantry", "mech"],
         );
         let (from, to, player) = (t.from.clone(), t.beside.clone(), a());
         let ships = [ship("carrier", &player)];
@@ -2143,13 +2137,7 @@ mod relocation_tests {
         let all = cargo_of(
             &t.state,
             &from,
-            &[
-                "infantry",
-                "infantry",
-                "infantry",
-                "infantry",
-                "argent_mech",
-            ],
+            &["infantry", "infantry", "infantry", "infantry", "mech"],
         );
         let neutral = relocate_ships_with_cargo(
             &mut t.state,
@@ -2165,7 +2153,7 @@ mod relocation_tests {
             "5 units, 4 slots"
         );
         let hooks = crate::factions::hooks_movement::MovementHooks {
-            free_cargo: Some(|_, _, _, unit| unit.type_id.as_str() == "argent_mech"),
+            free_cargo: Some(|_, _, _, unit| unit.type_id.as_str() == "mech"),
             ..crate::factions::hooks_movement::MovementHooks::NONE
         };
         crate::factions::hooks_movement::with_test_hooks(hooks, || {

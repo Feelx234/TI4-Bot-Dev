@@ -72,13 +72,13 @@ const HERO_LIMIT: i64 = 1000;
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
     abilities: &["mitosis"],
-    // `lw2` and `arborec_infantry2` are not claimed: their destruction roll fires only where
-    // `GROUND_FORCE_DESTROYED` is emitted (invasion paths). `arborechero` is not claimed: its
-    // production announces no `UNITS_PRODUCED`.
+    // `lw2` / `arborec_infantry2` are live for invasion, action-card and agenda destruction, but
+    // not for infantry destroyed as cargo with their ship (no GROUND_FORCE_DESTROYED there yet):
+    // unclaimed until that path announces (coordinator review, 2026-10-03).
     technologies: &["bio"],
     units: &["arborec_flagship", "arborec_infantry", "arborec_mech"],
     promissory: &["stymie"],
-    leaders: &["arborecagent", "arboreccommander"],
+    leaders: &["arborecagent", "arboreccommander", "arborechero"],
     breakthroughs: &["arborecbt"],
     hooks: Hooks {
         component_actions: Some(component_actions),
@@ -2848,5 +2848,71 @@ mod tests {
         assert!(!done, "refused without the card");
         assert!(state.system_state(&home).command_tokens.contains(&a()));
         let _ = home3;
+    }
+
+    #[test]
+    fn a_staged_destruction_from_a_card_or_agenda_reaches_letani_warrior_ii() {
+        // Plague and the agenda clears stage `GROUND_FORCE_DESTROYED`; the flush announces it.
+        let flush = |state: &mut GameState, faces: &[u32]| {
+            let mut resolver = crate::fixtures::armed_resolver(state);
+            let mut dice = crate::dice::Dice::from_faces(faces.iter().copied());
+            let mut rng = crate::rng::GameRng::new(0);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut table = silent();
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(TimingHandle {
+                    resolver: &mut resolver,
+                    sequence: &mut sequence,
+                    galaxy: None,
+                }),
+            };
+            crate::factions::hooks_ground::announce_staged_events(state, &mut ctx);
+            dice.history().len()
+        };
+        let stage = |state: &mut GameState, unit: &str| {
+            let home = home_of(state, &a());
+            let planet = planets_in_home(state, &a())[0].clone();
+            crate::factions::hooks_ground::stage_ground_force_destroyed(
+                state,
+                &home,
+                &planet,
+                &Unit::new(UnitTypeId::new(unit), a()),
+                "action_card:plague",
+            );
+        };
+        let mut state = game();
+        learn(&mut state, &a(), "lw2");
+        stage(&mut state, "arborec_infantry2");
+        assert_eq!(flush(&mut state, &[6]), 1);
+        assert_eq!(on_card(&state, &a()), 1);
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
+        stage(&mut state, "arborec_infantry2");
+        flush(&mut state, &[2]);
+        assert_eq!(on_card(&state, &a()), 1, "a 2 does not return it");
+        stage(&mut state, "arborec_infantry");
+        assert_eq!(flush(&mut state, &[9]), 0, "Letani Warrior I does not roll");
+    }
+
+    #[test]
+    fn the_heros_production_is_announced_as_units_produced() {
+        let (mut state, _) = flagship_game();
+        set_leader(&mut state, &a(), "arborechero", LeaderStatus::Unlocked);
+        let leader = LeaderId::new("arborechero");
+        let (mut table, _) = steered(&["build|cruiser|1"]);
+        with_context(&mut state, &mut table, |ctx| {
+            crate::leaders::use_leader(ctx, &a(), &leader)
+        });
+        assert!(
+            state
+                .faction_marks
+                .values()
+                .any(|row| row.contains("UNITS_PRODUCED")),
+            "staged for the game to flush after the leader action"
+        );
     }
 }

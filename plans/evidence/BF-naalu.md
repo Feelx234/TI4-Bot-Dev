@@ -134,3 +134,17 @@ Not run: `ti4-sim`, any live `Game` with a Naalu seat (every test drives the typ
   changes nothing.
 * S4 `timing_abilities` registers Foresight, Z'eu and Iconoclast only under `cfg!(test)`; real games get none of them
   until a running-`Game` test proves them. Coordinator removed `foresight` from `MODULE.abilities`.
+
+## Round 3 (new shared routes: BF-F2, BF-F5, MOVEMENT_FINISHED)
+
+* Foresight now resolves once per movement step on typed `MOVEMENT_FINISHED` (player, system), live, claimed. Proven in
+  a running `Game` (`foresight_resolves_once_after_a_real_movement_step`: activate, move in, Foresight, Naalu ships and
+  the strategy token end in the neighbour, no combat in the active system).
+* `hcf2` and `naalu_fighter2` claimed: `CombatHooks::fighter_fleet_weight_halves` set; test through `fleet::standing`
+  (4 excess fighter IIs charge 2 ships; 4 without the hook).
+* Z'eu moved to typed `COMMAND_TOKEN_PLACED` (activation emits it; other sites do not yet). Partial, still gated to test
+  builds and unclaimed. Iconoclast: no new route (needs `RELIC_GAINED`); flagship: none; commander: none.
+* Decision sites unchanged (`foresight` 1+1, `hero` 1+1).
+* Commands: `factions::naalu` 20 passed; `factions::` 289 passed; clippy clean for naalu.rs; full suite lib 1857 passed,
+  2 failed (`transit::` rides-free tests, not naalu), `decision_delivery_inventory` 2 failed (other agents' sites).
+* Foresight requires `ships_moved > 0` on MOVEMENT_FINISHED (review); test `foresight_needs_the_mover_to_have_moved_ships_in`.

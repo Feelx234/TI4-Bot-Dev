@@ -61,13 +61,13 @@ pub const MODULE: FactionModule = FactionModule {
         "sardakk_mech",
     ],
     promissory: &["tekklar"],
-    // `sardakkagent` only: the commander is partial (no adjacent systems) and the hero is blocked.
-    leaders: &["sardakkagent"],
+    leaders: &["sardakkagent", "sardakkcommander", "sardakkhero"],
     breakthroughs: &["sardakkbt"],
     hooks: Hooks {
         unit_roll_modifier: Some(unit_roll_modifier),
         timing_abilities: Some(timing_abilities),
         commander_unlocked: Some(commander_unlocked),
+        skip_to_commit: Some(skip_to_commit),
         ground: GroundHooks {
             ground_rolls_extra_hits: Some(ground_rolls_extra_hits),
             commit_candidates: Some(commit_candidates),
@@ -247,14 +247,11 @@ fn commander_unlocked(
 
 /// The commander's extra commit sources: one ground force from each planet in the active system.
 ///
-/// PARTIAL: the adjacent-systems half ("each planet in adjacent systems that do not contain 1 of
-/// your command tokens") needs the map, which this hook is not given. See the hook request in the
-/// evidence file.
 fn commit_candidates(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
-    _galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
     invader: &PlayerId,
     system: &SystemId,
     already: &[CommitOrigin],
@@ -263,28 +260,175 @@ fn commit_candidates(
         return Vec::new();
     }
     let types = catalogue(content, sources);
-    let board = state.system_state(system);
     let mut found = Vec::new();
-    for planet in board.planet_units.keys() {
-        if already.iter().any(|(_, from)| from == planet) {
-            continue; // "up to 1 ground force from each planet"
+    let mut take_from = |from: &SystemId| {
+        let board = state.system_state(from);
+        for planet in board.planet_units.keys() {
+            if already.iter().any(|(_, origin)| origin == planet) {
+                continue; // "up to 1 ground force from each planet"
+            }
+            let mut seen: Vec<&Unit> = Vec::new();
+            for unit in board.on_planet_of(planet, invader) {
+                let ground = types
+                    .get(unit.type_id.as_str())
+                    .is_some_and(UnitType::is_ground_force);
+                if ground && !seen.contains(&unit) {
+                    seen.push(unit);
+                    found.push(CommitCandidate {
+                        system: from.clone(),
+                        planet: planet.clone(),
+                        unit: unit.clone(),
+                    });
+                }
+            }
         }
-        let mut seen: Vec<&Unit> = Vec::new();
-        for unit in board.on_planet_of(planet, invader) {
-            let ground = types
-                .get(unit.type_id.as_str())
-                .is_some_and(UnitType::is_ground_force);
-            if ground && !seen.contains(&unit) {
-                seen.push(unit);
-                found.push(CommitCandidate {
-                    system: system.clone(),
-                    planet: planet.clone(),
-                    unit: unit.clone(),
-                });
+    };
+    take_from(system);
+    // Adjacent systems that hold none of the invader's command tokens. A supernova cannot be
+    // moved out of; other anomaly restrictions are not modelled (see the evidence file).
+    if let Some(galaxy) = galaxy {
+        for adjacent in galaxy.adjacent(system.as_str()) {
+            let adjacent = SystemId::new(adjacent);
+            let blocked = state
+                .system_state(&adjacent)
+                .command_tokens
+                .contains(invader)
+                || ti4_content::galaxy::system(content, adjacent.as_str(), sources)
+                    .is_some_and(|tile| tile.is_supernova());
+            if !blocked {
+                take_from(&adjacent);
             }
         }
     }
     found
+}
+
+// -- Sh'val, Harbinger ---------------------------------------------------------------------------
+
+/// `GameState::faction_marks` key while the hero's skip is under way, valued `"<player>|<system>"`.
+const HERO_MARK: &str = "sardakk:hero:skip";
+
+/// Sh'val: "After you move ships into the active system: You may skip directly to the 'Commit
+/// Ground Forces' step." Asked once movement is over, only for an unlocked hero, after ships moved
+/// into the active system, and when a landing is possible.
+fn skip_to_commit(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Option<bool> {
+    if leader_status(context.state, player, "sardakkhero") != Some(LeaderStatus::Unlocked) {
+        return None;
+    }
+    // "After you move ships into the active system".
+    if crate::factions::ships_moved_this_activation(context.state) == 0 {
+        return None;
+    }
+    // Skipping ends the invasion at the commitment: offer it only when a landing can happen, or the
+    // commitment never finishes and the hero would never be spent.
+    let types = catalogue(context.content, context.sources);
+    let has_ground = context.state.system_state(system).units.iter().any(|unit| {
+        &unit.owner == player
+            && types
+                .get(unit.type_id.as_str())
+                .is_some_and(UnitType::is_ground_force)
+    });
+    let has_candidates = !commit_candidates(
+        context.state,
+        context.content,
+        context.sources,
+        context.galaxy,
+        player,
+        system,
+        &[],
+    )
+    .is_empty();
+    let has_planet =
+        !ti4_content::galaxy::planets_in(context.content, system.as_str(), context.sources)
+            .is_empty();
+    if !has_planet || !(has_ground || has_candidates) {
+        return None;
+    }
+    let choice = Choice::new(
+        player.clone(),
+        "Sh'val: skip directly to the Commit Ground Forces step".to_owned(),
+        vec![
+            ChoiceOption::labelled("skip".to_owned(), "leader", "skip to commit".to_owned()),
+            ChoiceOption::decline(),
+        ],
+    )
+    .contextualized(decision(
+        context,
+        player,
+        "sardakkhero",
+        "sardakk_hero_skip",
+    ));
+    let answer = context.ask_seeing(&choice).ok()?;
+    if answer.is_decline() {
+        return Some(false);
+    }
+    context
+        .state
+        .faction_marks
+        .insert(HERO_MARK.to_owned(), format!("{player}|{system}"));
+    Some(true)
+}
+
+/// After the hero's commitment: purge the card and return the owner's ships in the active system
+/// to reinforcements.
+fn hero_finish(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("leader:{owner_name}:sardakkhero:GROUND_COMMITMENT_FINISHED:after"),
+        seat.clone(),
+        "GROUND_COMMITMENT_FINISHED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            let Some(system) = event.text("system").map(SystemId::new) else {
+                return Ok(());
+            };
+            let types = catalogue(context.content, context.sources);
+            context.state.faction_marks.remove(HERO_MARK);
+            crate::leaders::purge(context.state, &owner, &LeaderId::new("sardakkhero"));
+            context.state.system_mut(&system).units.retain(|unit| {
+                !(unit.owner == owner
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(UnitType::is_ship))
+            });
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        context
+            .state
+            .faction_marks
+            .get(HERO_MARK)
+            .is_some_and(|mark| {
+                let expected = format!(
+                    "{condition_owner}|{}",
+                    event.text("system").unwrap_or_default()
+                );
+                *mark == expected && event.text("player") == Some(condition_owner.as_str())
+            })
+    }))
+}
+
+/// A skip that never reached its commitment must not leak into a later turn.
+fn hero_unmark_turn(owner_name: &str, seat: &PlayerId) -> Ability {
+    Ability::stateful(
+        format!("leader:{owner_name}:sardakkhero_turn:TURN_BEGAN:after"),
+        seat.clone(),
+        "TURN_BEGAN",
+        Relation::After,
+        Arc::new(|_event, _resolver, context| {
+            context.state.faction_marks.remove(HERO_MARK);
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(|_event, _, context| {
+        context.state.faction_marks.contains_key(HERO_MARK)
+    }))
 }
 
 // -- timing abilities ----------------------------------------------------------------------------
@@ -300,6 +444,8 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
         tactical_unmark(owner_name, seat, "TURN_BEGAN", "turn"),
         tactical_unmark(owner_name, seat, "STRATEGIC_ACTION_BEGAN", "strategic"),
         agent(owner_name, seat),
+        hero_finish(owner_name, seat),
+        hero_unmark_turn(owner_name, seat),
         supremacy(owner_name, seat, "SPACE_COMBAT_ENDED"),
         supremacy(owner_name, seat, "GROUND_COMBAT_ENDED"),
     ]
@@ -1972,5 +2118,236 @@ mod tests {
             .map(|choice| choice.prompt.clone())
             .collect();
         assert!(asked.is_empty(), "{asked:?}");
+    }
+
+    // -- Sh'val, Harbinger: through a real Game ---------------------------------------------------
+
+    /// Plays a tactical action on `system`: moves nothing, answers Sh'val with `skip_answer`,
+    /// commits the first unit to `planet`, and takes the first option for everything else.
+    struct HeroDecider {
+        system: SystemId,
+        planet: PlanetId,
+        skip_answer: &'static str,
+        moved: bool,
+        asked: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl crate::choice::Decider for HeroDecider {
+        fn choose(
+            &mut self,
+            choice: &Choice,
+        ) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+            self.asked.lock().unwrap().push(choice.prompt.clone());
+            let find = |id: &str| choice.options.iter().find(|o| o.id == id).cloned();
+            let wanted = [
+                crate::game::TACTICAL_ACTION_ID.to_owned(),
+                self.system.to_string(),
+                "done_moving".to_owned(),
+                format!("commit|0|{}", self.planet),
+                "done_committing".to_owned(),
+            ];
+            if choice.prompt.starts_with("Sh'val") {
+                return find(self.skip_answer).ok_or_else(|| {
+                    crate::choice::IllegalChoice::NoOptions {
+                        player: choice.player.clone(),
+                        prompt: choice.prompt.clone(),
+                    }
+                });
+            }
+            if choice.player == a()
+                && !self.moved
+                && let Some(option) = choice.options.iter().find(|o| o.id.starts_with("move|"))
+            {
+                self.moved = true;
+                return Ok(option.clone());
+            }
+            for id in &wanted {
+                if choice.player == a()
+                    && let Some(option) = find(id)
+                {
+                    return Ok(option);
+                }
+            }
+            choice
+                .options
+                .first()
+                .cloned()
+                .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                })
+        }
+    }
+
+    /// A game where a (Sardakk, hero `status`) has a cruiser and an infantry in a system whose
+    /// only planet b controls with an infantry. Returns what Sh'val's question and the turn did.
+    fn hero_game(
+        status: LeaderStatus,
+        skip_answer: &'static str,
+        ship_moves_in: bool,
+        ground_forces: bool,
+    ) -> (GameState, SystemId, Vec<String>, Vec<String>) {
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let mut ids = vec![system.to_string()];
+        ids.extend(
+            crate::fixtures::plain_systems(9)
+                .into_iter()
+                .filter(|id| id != system.as_str())
+                .take(6),
+        );
+        let hub = crate::fixtures::hub_from(&ids);
+        let mut state = game();
+        state.phase = ti4_model::state::Phase::Action;
+        state.active = Some(a());
+        state.system_mut(&system).units.clear();
+        crate::fixtures::put(&mut state, &system, "carrier", &a(), 1);
+        if ground_forces {
+            crate::fixtures::put(&mut state, &system, "infantry", &a(), 1);
+        }
+        if ship_moves_in {
+            let origin = SystemId::new(hub.outer[0].as_str());
+            state.system_mut(&origin).units.clear();
+            crate::fixtures::put(&mut state, &origin, "cruiser", &a(), 1);
+        }
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "sol_infantry", &b(), 1);
+        state.system_mut(&system).set_control(planet.clone(), b());
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("sardakkhero"), status);
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let table = crate::choice::Table::with_default(Box::new(HeroDecider {
+            system: system.clone(),
+            planet,
+            skip_answer,
+            moved: false,
+            asked: std::sync::Arc::clone(&asked),
+        }));
+        let mut game = crate::game::Game::with_table(state, ContentStore::embedded(), table)
+            .with_galaxy(hub.galaxy);
+        for _ in 0..80 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        let events = game.events.clone();
+        let asked = asked.lock().unwrap().clone();
+        (game.state.clone(), system, asked, events)
+    }
+
+    #[test]
+    fn the_hero_skips_to_the_commitment_then_is_purged_and_returns_the_ships() {
+        let (state, system, asked, events) = hero_game(LeaderStatus::Unlocked, "skip", true, true);
+        assert!(
+            events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE"),
+            "{events:?}"
+        );
+        assert!(asked.iter().any(|p| p.starts_with("Sh'val")), "{asked:?}");
+        assert_eq!(
+            leader_status(&state, &a(), "sardakkhero"),
+            Some(LeaderStatus::Purged)
+        );
+        assert_eq!(
+            count(&state, &system, &a(), "carrier"),
+            0,
+            "ships returned to reinforcements"
+        );
+        assert!(!state.faction_marks.contains_key(HERO_MARK));
+    }
+
+    #[test]
+    fn the_hero_may_be_declined_and_is_not_offered_while_locked() {
+        let (state, system, asked, _) = hero_game(LeaderStatus::Unlocked, "decline", true, true);
+        assert!(asked.iter().any(|p| p.starts_with("Sh'val")));
+        assert_eq!(
+            leader_status(&state, &a(), "sardakkhero"),
+            Some(LeaderStatus::Unlocked)
+        );
+        assert_eq!(count(&state, &system, &a(), "carrier"), 1);
+
+        let (state, system, asked, _) = hero_game(LeaderStatus::Locked, "skip", true, true);
+        assert!(!asked.iter().any(|p| p.starts_with("Sh'val")), "{asked:?}");
+        assert_eq!(
+            leader_status(&state, &a(), "sardakkhero"),
+            Some(LeaderStatus::Locked)
+        );
+        assert_eq!(count(&state, &system, &a(), "carrier"), 1);
+    }
+
+    #[test]
+    fn the_hero_is_not_offered_without_a_moved_ship_or_anything_to_land() {
+        for (moves, ground, why) in [
+            (false, true, "no ship moved in"),
+            (true, false, "no ground forces to land"),
+        ] {
+            let (state, system, asked, _) =
+                hero_game(LeaderStatus::Unlocked, "skip", moves, ground);
+            assert!(
+                !asked.iter().any(|p| p.starts_with("Sh'val")),
+                "{why}: {asked:?}"
+            );
+            assert_eq!(
+                leader_status(&state, &a(), "sardakkhero"),
+                Some(LeaderStatus::Unlocked),
+                "{why}"
+            );
+            assert_eq!(count(&state, &system, &a(), "carrier"), 1, "{why}");
+        }
+    }
+
+    // -- the commander's adjacent systems --------------------------------------------------------
+
+    #[test]
+    fn the_commander_reaches_adjacent_systems_without_the_invaders_tokens() {
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let mut ids = vec![system.to_string()];
+        ids.extend(
+            crate::fixtures::plain_systems(9)
+                .into_iter()
+                .filter(|id| id != system.as_str())
+                .take(6),
+        );
+        let hub = crate::fixtures::hub_from(&ids);
+        let (near, near_planet) = {
+            // Any adjacent system with a planet stands in: put the planet there by hand.
+            let near = SystemId::new(hub.outer[0].as_str());
+            (near, PlanetId::new("test-near"))
+        };
+        let mut state = game();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("sardakkcommander"), LeaderStatus::Unlocked);
+        crate::fixtures::put_on_planet(&mut state, &near, &near_planet, "infantry", &a(), 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+        let content = ContentStore::embedded();
+        let ask = |state: &GameState, galaxy| {
+            crate::factions::hooks_ground::commit_candidates(
+                state,
+                content,
+                DEFAULT,
+                galaxy,
+                &a(),
+                &system,
+                &[],
+            )
+        };
+        assert_eq!(
+            ask(&state, None).len(),
+            1,
+            "without a map only the active system"
+        );
+        let with_map = ask(&state, Some(&hub.galaxy));
+        assert_eq!(with_map.len(), 2, "{with_map:?}");
+        assert!(with_map.iter().any(|c| c.system == near));
+        state.system_mut(&near).place_token(a());
+        assert_eq!(
+            ask(&state, Some(&hub.galaxy)).len(),
+            1,
+            "a command token closes it"
+        );
     }
 }

@@ -25,13 +25,16 @@
 use std::sync::Arc;
 
 use ti4_content::ContentStore;
-use ti4_content::units::catalogue;
+use ti4_content::units::{UnitType, catalogue};
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlayerId, SystemId};
+use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId};
 use ti4_model::state::{GameState, LeaderStatus};
 use ti4_model::units::Unit;
 
+use super::hooks_cards::CardHooks;
 use super::hooks_combat::{AfbExcess, CombatHooks};
+use super::hooks_economy::EconomyHooks;
+use super::hooks_movement::MovementHooks;
 use super::{FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption, IllegalChoice};
 use crate::decision_context::{DecisionContext, DecisionSource};
@@ -47,22 +50,41 @@ const SWA2_UNIT: &str = "argent_destroyer2";
 /// What this faction implements.
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
-    // `zeal` is partial (no voting-order route) and so is not claimed.
-    abilities: &["raid_formation"],
-    technologies: &["swa2"],
-    // `argent_destroyer` is statistics only (verified data-driven by a test); the flagship and
-    // mech have clauses with no route yet.
-    units: &["argent_destroyer", "argent_destroyer2"],
+    abilities: &["raid_formation", "zeal"],
+    technologies: &["swa2", "ah"],
+    // `argent_destroyer` is statistics only (verified data-driven by a test).
+    units: &[
+        "argent_destroyer",
+        "argent_destroyer2",
+        "argent_flagship",
+        "argent_mech",
+    ],
     promissory: &["ambuscade"],
-    leaders: &["argentcommander"],
-    breakthroughs: &[],
+    leaders: &["argentcommander", "argenthero"],
+    breakthroughs: &["argentbt"],
     hooks: Hooks {
         vote_bonus: Some(vote_bonus),
         commander_unlocked: Some(commander_unlocked),
+        leader_action: Some(leader_action),
+        use_leader: Some(use_leader),
         timing_abilities: Some(timing_abilities),
         combat: CombatHooks {
             afb_excess: Some(afb_excess),
+            space_cannon_barred: Some(space_cannon_barred),
             ..CombatHooks::NONE
+        },
+        movement: MovementHooks {
+            blocks_passage: Some(blocks_passage),
+            free_cargo: Some(free_cargo),
+            ..MovementHooks::NONE
+        },
+        economy: EconomyHooks {
+            extra_production_planet: Some(extra_production_planet),
+            ..EconomyHooks::NONE
+        },
+        cards: CardHooks {
+            votes_first: Some(votes_first),
+            ..CardHooks::NONE
         },
         ..Hooks::NONE
     },
@@ -101,6 +123,110 @@ fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
     } else {
         0
     }
+}
+
+/// Zeal: "You always vote first during the agenda phase."
+fn votes_first(state: &GameState, player: &PlayerId) -> bool {
+    is_argent(state, player)
+}
+
+// -- the flagship, the mech and Aerie Hololattice --------------------------------------------
+
+fn owns_technology(state: &GameState, player: &PlayerId, technology: &str) -> bool {
+    state.player(player).is_some_and(|seat| {
+        seat.technologies
+            .contains(&ti4_model::id::TechnologyId::new(technology))
+    })
+}
+
+/// Quetzecoatl: "Other players cannot use SPACE CANNON against your ships in this system."
+fn space_cannon_barred(
+    state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    shooter: &PlayerId,
+    target_owner: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    shooter != target_owner
+        && is_argent(state, target_owner)
+        && state
+            .system_state(system)
+            .units
+            .iter()
+            .any(|unit| &unit.owner == target_owner && unit.type_id.as_str() == "argent_flagship")
+}
+
+/// Aerie Sentinel: "This unit does not count against capacity if it is being transported ..."
+/// (the space-area clause is the mech's `capacityUsed 0`).
+fn free_cargo(
+    _state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    unit: &Unit,
+) -> bool {
+    unit.type_id.as_str() == "argent_mech"
+}
+
+/// Whether `player` has a structure of theirs in the system (space area or any planet).
+fn structure_in(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: Option<&PlanetId>,
+) -> bool {
+    let types = catalogue(content, sources);
+    let is_structure = |unit: &&Unit| {
+        &unit.owner == player
+            && types
+                .get(unit.type_id.as_str())
+                .is_some_and(UnitType::is_structure)
+    };
+    let board = state.system_state(system);
+    match planet {
+        Some(planet) => board.on_planet(planet).iter().any(|u| is_structure(&u)),
+        None => {
+            board.units.iter().any(|u| is_structure(&u))
+                || board
+                    .planet_units
+                    .values()
+                    .any(|units| units.iter().any(|u| is_structure(&u)))
+        }
+    }
+}
+
+/// Aerie Hololattice: "Other players cannot move ships through systems that contain your
+/// structures."
+fn blocks_passage(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    mover: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    state.players.iter().any(|seat| {
+        &seat.id != mover
+            && owns_technology(state, &seat.id, "ah")
+            && structure_in(state, content, sources, &seat.id, system, None)
+    })
+}
+
+/// Aerie Hololattice: "Each planet that contains 1 or more of your structures gains the
+/// PRODUCTION 1 ability as if it were a unit."
+fn extra_production_planet(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> i64 {
+    i64::from(
+        owns_technology(state, player, "ah")
+            && structure_in(state, content, sources, player, system, Some(planet)),
+    )
 }
 
 // -- Raid Formation ------------------------------------------------------------------------------
@@ -231,14 +357,538 @@ fn commander_unlocked(
     Some(count >= 6)
 }
 
+// -- the hero ------------------------------------------------------------------------------------
+
+/// Systems Flock Migration may send ships to: they hold the player's command token and no other
+/// player's ships.
+fn hero_destinations(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Vec<SystemId> {
+    state
+        .systems_with_token(player)
+        .into_iter()
+        .filter(|system| {
+            crate::combat::opponent_with_ships(state, content, sources, player, system).is_none()
+        })
+        .cloned()
+        .collect()
+}
+
+/// Each distinct ship (system, type, damage) the hero could lift.
+fn hero_ships(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Vec<(SystemId, Unit)> {
+    let types = catalogue(content, sources);
+    let mut found: Vec<(SystemId, Unit)> = Vec::new();
+    for (system, board) in &state.board {
+        for unit in board.units_of(player) {
+            if types
+                .get(unit.type_id.as_str())
+                .is_some_and(UnitType::is_ship)
+                && !found.iter().any(|(at, seen)| at == system && seen == unit)
+            {
+                found.push((system.clone(), unit.clone()));
+            }
+        }
+    }
+    found
+}
+
+fn leader_action(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Option<bool> {
+    if leader.as_str() != "argenthero" {
+        return None;
+    }
+    let sources = SourceSet::all();
+    let destinations = hero_destinations(state, content, sources, player);
+    Some(
+        is_argent(state, player)
+            && hero_ships(state, content, sources, player)
+                .iter()
+                .any(|(from, _)| destinations.iter().any(|to| to != from)),
+    )
+}
+
+fn ask_option(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    prompt: &str,
+    subtype: &str,
+    options: Vec<ChoiceOption>,
+) -> Result<ChoiceOption, IllegalChoice> {
+    ask_option_for(context, player, "argenthero", prompt, subtype, options)
+}
+
+fn ask_option_for(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    source: &str,
+    prompt: &str,
+    subtype: &str,
+    mut options: Vec<ChoiceOption>,
+) -> Result<ChoiceOption, IllegalChoice> {
+    options.push(ChoiceOption::decline());
+    let choice = Choice::new(player.clone(), prompt.to_owned(), options).contextualized(decision(
+        context.state,
+        player,
+        source,
+        subtype,
+    ));
+    context.ask_seeing(&choice)
+}
+
+/// Mirik Aun Sissiri, Helix Protocol: Flock Migration. "ACTION: Move any number of your ships from
+/// any systems to any number of other systems that contain 1 of your command tokens and no other
+/// players' ships. Then, purge this card." One ship (with its cargo) per step; declining the first
+/// step leaves everything untouched, declining a later one ends the move. Cargo is not landed
+/// (it is set down in the destination's space area).
+fn use_leader(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Option<bool> {
+    if leader.as_str() != "argenthero" || !is_argent(context.state, player) {
+        return None;
+    }
+    let Some(galaxy) = context.galaxy else {
+        return Some(false);
+    };
+    Some(migrate(
+        context,
+        player,
+        galaxy,
+        None,
+        true,
+        "flock_migration",
+    ))
+}
+
+/// The move shared by the hero and the breakthrough: ships, one at a time, to systems that hold
+/// the player's command token and no other player's ships. `scope` limits sources and
+/// destinations to those systems (the breakthrough's "active system and adjacent systems").
+/// Returns whether any ship moved.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one pass of questions, then the move"
+)]
+fn migrate(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    scope: Option<&[SystemId]>,
+    with_cargo: bool,
+    reason: &'static str,
+) -> bool {
+    let mut moved = false;
+    loop {
+        let mut destinations =
+            hero_destinations(context.state, context.content, context.sources, player);
+        if let Some(scope) = scope {
+            destinations.retain(|system| scope.contains(system));
+        }
+        let ships: Vec<(SystemId, Unit)> =
+            hero_ships(context.state, context.content, context.sources, player)
+                .into_iter()
+                .filter(|(from, _)| scope.is_none_or(|scope| scope.contains(from)))
+                .filter(|(from, _)| destinations.iter().any(|to| to != from))
+                .collect();
+        if ships.is_empty() {
+            break;
+        }
+        let options = ships
+            .iter()
+            .enumerate()
+            .map(|(index, (from, unit))| {
+                ChoiceOption::labelled(
+                    format!("ship|{index}"),
+                    "flock_migration_ship",
+                    format!("move {} from {from}", unit.type_id),
+                )
+            })
+            .collect();
+        let Ok(answer) = ask_option(
+            context,
+            player,
+            "Flock Migration: choose a ship to move",
+            "flock_migration_ship",
+            options,
+        ) else {
+            break;
+        };
+        let Some((from, ship)) = answer
+            .id
+            .strip_prefix("ship|")
+            .and_then(|n| n.parse::<usize>().ok())
+            .and_then(|n| ships.get(n))
+            .cloned()
+        else {
+            break;
+        };
+        let targets: Vec<SystemId> = destinations.into_iter().filter(|to| to != &from).collect();
+        let options = targets
+            .iter()
+            .map(|to| {
+                ChoiceOption::labelled(
+                    format!("to|{to}"),
+                    "flock_migration_to",
+                    format!("move it to {to}"),
+                )
+            })
+            .collect();
+        let Ok(answer) = ask_option(
+            context,
+            player,
+            "Flock Migration: choose the destination",
+            "flock_migration_to",
+            options,
+        ) else {
+            break;
+        };
+        let Some(to) = answer.id.strip_prefix("to|").map(SystemId::new) else {
+            break;
+        };
+        if !targets.contains(&to) {
+            break;
+        }
+        // Cargo, one unit at a time, until the ship is full or the player stops.
+        let mut offered = crate::transit::loadable(
+            context.state,
+            context.content,
+            context.sources,
+            player,
+            &from,
+        );
+        let mut cargo = Vec::new();
+        let capacity = crate::transit::capacity_of(context.content, context.sources, &ship);
+        while with_cargo
+            && !offered.is_empty()
+            && i64::try_from(cargo.len()).unwrap_or(i64::MAX) < capacity + 8
+        {
+            let options = offered
+                .iter()
+                .enumerate()
+                .map(|(index, load)| {
+                    ChoiceOption::labelled(
+                        format!("cargo|{index}"),
+                        "flock_migration_cargo",
+                        format!("carry {}", load.unit.type_id),
+                    )
+                })
+                .collect();
+            let Ok(answer) = ask_option(
+                context,
+                player,
+                "Flock Migration: carry a unit aboard (it cannot be landed)",
+                "flock_migration_cargo",
+                options,
+            ) else {
+                break;
+            };
+            let Some(index) = answer
+                .id
+                .strip_prefix("cargo|")
+                .and_then(|n| n.parse::<usize>().ok())
+                .filter(|n| *n < offered.len())
+            else {
+                break;
+            };
+            cargo.push(offered.remove(index));
+        }
+        let ships = [ship];
+        let relocation = crate::transit::Relocation {
+            player,
+            from: &from,
+            to: &to,
+            ships: &ships,
+            require_adjacent: false,
+            forbid_foreign_ships_at_destination: true,
+            refuse_fleet_overflow: false,
+            reason,
+        };
+        let done = crate::transit::relocate_ships_with_cargo(
+            context.state,
+            context.content,
+            context.sources,
+            galaxy,
+            &relocation,
+            &cargo,
+        )
+        .or_else(|_| {
+            crate::transit::relocate_ships(
+                context.state,
+                context.content,
+                context.sources,
+                galaxy,
+                &relocation,
+            )
+        });
+        if done.is_err() {
+            break;
+        }
+        moved = true;
+    }
+    moved
+}
+
+// -- the breakthrough ----------------------------------------------------------------------------
+
+/// `GameState::faction_marks` key for the system this player activated with Wing Transfer in play,
+/// remembered until `ACTION_COMPLETED` (which names only the player) so the move can be offered.
+fn wing_transfer_key(player: &PlayerId) -> String {
+    format!("argent:wing_transfer:{player}")
+}
+
+/// Whether the system holds at least one unit and every unit in it (space or planets) is
+/// `player`'s.
+fn only_units_of(state: &GameState, player: &PlayerId, system: &SystemId) -> bool {
+    let board = state.system_state(system);
+    let all: Vec<&Unit> = board
+        .units
+        .iter()
+        .chain(board.planet_units.values().flatten())
+        .collect();
+    !all.is_empty() && all.iter().all(|unit| &unit.owner == player)
+}
+
+/// Adjacent systems Wing Transfer may put a token in: only the player's units, no token of
+/// theirs yet, and one still in reinforcements.
+fn wing_transfer_targets(
+    state: &GameState,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    active: &SystemId,
+) -> Vec<SystemId> {
+    if !only_units_of(state, player, active) {
+        return Vec::new();
+    }
+    galaxy
+        .adjacent(active.as_str())
+        .into_iter()
+        .map(SystemId::new)
+        .filter(|system| {
+            only_units_of(state, player, system)
+                && crate::tokens::can_place_command_token(state, player, system)
+        })
+        .collect()
+}
+
+fn holds_wing_transfer(state: &GameState, player: &PlayerId) -> bool {
+    is_argent(state, player) && crate::breakthroughs::holds(state, player, "argentbt")
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one pass of questions, then the move"
+)]
+fn wing_transfer_timing(owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    // The two clauses are independent: activating a system that contains only your units earns
+    // the end-of-action move whether or not any token is placed. This records the activation; the
+    // optional placement below only adds tokens.
+    let (marker, marker_seat) = (seat.clone(), seat.clone());
+    let mark = Ability::stateful(
+        format!("breakthrough:{owner_name}:argentbt_mark:SYSTEM_ACTIVATED:when"),
+        seat.clone(),
+        "SYSTEM_ACTIVATED",
+        Relation::When,
+        Arc::new(move |event, _resolver, context| {
+            if let Some(active) = event.text("system") {
+                context
+                    .state
+                    .faction_marks
+                    .insert(wing_transfer_key(&marker), active.to_owned());
+            }
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event.text("player") == Some(marker_seat.as_str())
+            && holds_wing_transfer(context.state, &marker_seat)
+            && event.text("system").is_some_and(|active| {
+                only_units_of(context.state, &marker_seat, &SystemId::new(active))
+            })
+    }));
+    let (placer, placer_seat) = (seat.clone(), seat.clone());
+    let place = Ability::stateful(
+        format!("breakthrough:{owner_name}:argentbt:SYSTEM_ACTIVATED:when"),
+        seat.clone(),
+        "SYSTEM_ACTIVATED",
+        Relation::When,
+        Arc::new(move |event, _resolver, context| {
+            let Some(active) = event.text("system").map(SystemId::new) else {
+                return Ok(());
+            };
+            wing_transfer_place(context, &placer, &active)
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event.text("player") == Some(placer_seat.as_str())
+            && holds_wing_transfer(context.state, &placer_seat)
+            && event.text("system").is_some_and(|active| {
+                context.galaxy.is_some_and(|galaxy| {
+                    !wing_transfer_targets(
+                        context.state,
+                        galaxy,
+                        &placer_seat,
+                        &SystemId::new(active),
+                    )
+                    .is_empty()
+                })
+            })
+    }));
+
+    let (mover, mover_seat) = (seat.clone(), seat.clone());
+    let finish = Ability::stateful(
+        format!("breakthrough:{owner_name}:argentbt:ACTION_COMPLETED:after"),
+        seat.clone(),
+        "ACTION_COMPLETED",
+        Relation::After,
+        Arc::new(move |_event, _resolver, context| {
+            let Some(active) = context
+                .state
+                .faction_marks
+                .remove(&wing_transfer_key(&mover))
+                .map(SystemId::new)
+            else {
+                return Ok(());
+            };
+            let Some(galaxy) = context.galaxy else {
+                return Ok(());
+            };
+            let mut scope = vec![active.clone()];
+            scope.extend(
+                galaxy
+                    .adjacent(active.as_str())
+                    .into_iter()
+                    .map(SystemId::new)
+                    .filter(|system| {
+                        context
+                            .state
+                            .system_state(system)
+                            .command_tokens
+                            .contains(&mover)
+                    }),
+            );
+            if scope.len() > 1 {
+                migrate(
+                    context,
+                    &mover,
+                    galaxy,
+                    Some(&scope),
+                    false,
+                    "wing_transfer",
+                );
+            }
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event.text("player") == Some(mover_seat.as_str())
+            && context
+                .state
+                .faction_marks
+                .contains_key(&wing_transfer_key(&mover_seat))
+    }));
+
+    // A turn that ends without `ACTION_COMPLETED` forgets the activation.
+    let forget_seat = seat.clone();
+    let forget_when = seat.clone();
+    let forget = Ability::stateful(
+        format!("breakthrough:{owner_name}:argentbt_forget:TURN_BEGAN:after"),
+        seat.clone(),
+        "TURN_BEGAN",
+        Relation::After,
+        Arc::new(move |_event, _resolver, context| {
+            context
+                .state
+                .faction_marks
+                .remove(&wing_transfer_key(&forget_seat));
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |_event, _, context| {
+        context
+            .state
+            .faction_marks
+            .contains_key(&wing_transfer_key(&forget_when))
+    }));
+    vec![mark, place, finish, forget]
+}
+
+/// Wing Transfer, first half: "When you activate a system that contains only your units, you may
+/// place command tokens from your reinforcements into any systems adjacent to that system that
+/// contain only your units". Also remembers the activation for the second half.
+fn wing_transfer_place(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    active: &SystemId,
+) -> Result<(), TimingError> {
+    let Some(galaxy) = context.galaxy else {
+        return Ok(());
+    };
+    context
+        .state
+        .faction_marks
+        .insert(wing_transfer_key(player), active.to_string());
+    loop {
+        let targets = wing_transfer_targets(context.state, galaxy, player, active);
+        if targets.is_empty() {
+            return Ok(());
+        }
+        let options = targets
+            .iter()
+            .map(|system| {
+                ChoiceOption::labelled(
+                    format!("token|{system}"),
+                    "wing_transfer_token",
+                    format!("place a command token in {system}"),
+                )
+            })
+            .collect();
+        let answer = ask_option_for(
+            context,
+            player,
+            "argentbt",
+            "Wing Transfer: place a command token in an adjacent system",
+            "wing_transfer_token",
+            options,
+        )
+        .map_err(illegal)?;
+        let Some(system) = answer.id.strip_prefix("token|").map(SystemId::new) else {
+            return Ok(());
+        };
+        if !targets.contains(&system)
+            || !crate::tokens::place_command_token_from_reinforcements(
+                context.state,
+                player,
+                &system,
+            )
+        {
+            return Ok(());
+        }
+    }
+}
+
 // -- timing abilities ----------------------------------------------------------------------------
 
 fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
+    let mut abilities = vec![
         strike_wing(owner_name, seat),
         extra_die(owner_name, seat, Source::Ambuscade),
         extra_die(owner_name, seat, Source::Commander),
-    ]
+    ];
+    abilities.extend(wing_transfer_timing(owner_name, seat));
+    abilities
 }
 
 fn is_unit_ability_roll(set: &ti4_model::state::RerollSet) -> bool {
@@ -949,6 +1599,392 @@ mod tests {
             ),
             None
         );
+    }
+
+    // -- Zeal, the flagship, the mech and Aerie Hololattice ----------------------------------
+
+    #[test]
+    fn zeal_seats_the_argent_player_first_in_the_voting_order() {
+        let state = seated_game(&[("a", "sol"), ("b", "argent")], DEFAULT);
+        assert!(crate::factions::hooks_cards::votes_first(&state, &b()));
+        assert!(!crate::factions::hooks_cards::votes_first(&state, &a()));
+    }
+
+    #[test]
+    fn the_flagship_bars_other_players_space_cannon_against_its_owner_in_its_system() {
+        let (mut state, system) = arena();
+        let content = ContentStore::embedded();
+        let barred =
+            |state: &GameState, shooter: &PlayerId, target: &PlayerId, system: &SystemId| {
+                crate::factions::hooks_combat::space_cannon_barred(
+                    state, content, DEFAULT, shooter, target, system,
+                )
+            };
+        assert!(!barred(&state, &b(), &a(), &system), "no flagship yet");
+        put(&mut state, &system, "argent_flagship", &a(), 1);
+        assert!(barred(&state, &b(), &a(), &system));
+        assert!(
+            !barred(&state, &a(), &a(), &system),
+            "its owner's own guns fire"
+        );
+        assert!(
+            !barred(&state, &a(), &b(), &system),
+            "protects only its owner's ships"
+        );
+        assert!(
+            !barred(&state, &b(), &a(), &SystemId::new("19")),
+            "this system only"
+        );
+    }
+
+    #[test]
+    fn the_mech_rides_free_and_no_other_unit_does() {
+        let state = seated_game(&[("a", "argent"), ("b", "sol")], DEFAULT);
+        let content = ContentStore::embedded();
+        let free = |kind: &str, who: &PlayerId| {
+            crate::factions::hooks_movement::free_cargo(
+                &state,
+                content,
+                DEFAULT,
+                &Unit::new(ti4_model::id::UnitTypeId::new(kind), who.clone()),
+            )
+        };
+        assert!(free("argent_mech", &a()));
+        assert!(!free("infantry", &a()));
+        assert!(!free("sol_mech", &b()));
+        let mech = catalogue(content, DEFAULT)["argent_mech"];
+        assert_eq!(mech.capacity_cost(), 0, "and costs nothing in a space area");
+    }
+
+    fn hololattice() -> (GameState, SystemId, PlanetId) {
+        let mut state = seated_game(&[("a", "argent"), ("b", "sol")], DEFAULT);
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("ah"));
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &a(), 1);
+        (state, system, planet)
+    }
+
+    #[test]
+    fn aerie_hololattice_blocks_passage_and_adds_production_only_for_its_owner() {
+        let (mut state, system, planet) = hololattice();
+        let content = ContentStore::embedded();
+        let blocks = |state: &GameState, mover: &PlayerId, system: &SystemId| {
+            crate::factions::hooks_movement::blocks_passage(state, content, DEFAULT, mover, system)
+        };
+        let production = |state: &GameState, who: &PlayerId, planet: &PlanetId| {
+            crate::factions::hooks_economy::extra_production_planet(
+                state, content, DEFAULT, who, &system, planet,
+            )
+        };
+        assert!(blocks(&state, &b(), &system));
+        assert!(!blocks(&state, &a(), &system), "the owner passes");
+        assert_eq!(production(&state, &a(), &planet), 1);
+        assert_eq!(production(&state, &b(), &planet), 0);
+        // Without the technology, or without a structure, nothing happens.
+        state.player_mut(&a()).unwrap().technologies.clear();
+        assert!(!blocks(&state, &b(), &system));
+        assert_eq!(production(&state, &a(), &planet), 0);
+        let (mut bare, system, planet) = hololattice();
+        bare.system_mut(&system).planet_units.clear();
+        assert!(!crate::factions::hooks_movement::blocks_passage(
+            &bare,
+            content,
+            DEFAULT,
+            &b(),
+            &system
+        ));
+        assert_eq!(
+            crate::factions::hooks_economy::extra_production_planet(
+                &bare,
+                content,
+                DEFAULT,
+                &a(),
+                &system,
+                &planet
+            ),
+            0
+        );
+    }
+
+    // -- the hero --------------------------------------------------------------------------------
+
+    fn hero_board() -> (GameState, ti4_content::galaxy::Galaxy, [SystemId; 3]) {
+        let mut state = seated_game(&[("a", "argent"), ("b", "sol")], DEFAULT);
+        let content = ContentStore::embedded();
+        let ids: Vec<String> = crate::fixtures::plain_systems(14)
+            .into_iter()
+            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .take(6)
+            .collect();
+        let mut tiles = vec!["18"];
+        tiles.extend(ids.iter().map(String::as_str));
+        let galaxy = ti4_content::galaxy::Galaxy::build(content, &tiles, DEFAULT, 2).unwrap();
+        let sys = |i: usize| SystemId::new(ids[i].as_str());
+        let (from, safe, held) = (sys(0), sys(2), sys(4));
+        put(&mut state, &from, "carrier", &a(), 1);
+        put(&mut state, &from, "infantry", &a(), 1);
+        state.system_mut(&safe).command_tokens.insert(a());
+        state.system_mut(&held).command_tokens.insert(a());
+        put(&mut state, &held, "cruiser", &b(), 1);
+        (state, galaxy, [from, safe, held])
+    }
+
+    fn fly(
+        state: &mut GameState,
+        galaxy: &ti4_content::galaxy::Galaxy,
+        answers: &[&str],
+    ) -> Option<bool> {
+        let mut table = scripted(answers);
+        with_context(state, DEFAULT, Some(galaxy), &mut table, |ctx| {
+            use_leader(ctx, &a(), &LeaderId::new("argenthero"))
+        })
+    }
+
+    #[test]
+    fn flock_migration_moves_a_ship_and_its_cargo_to_a_tokened_empty_system() {
+        let (mut state, galaxy, [from, safe, held]) = hero_board();
+        assert_eq!(
+            leader_action(
+                &state,
+                ContentStore::embedded(),
+                &a(),
+                &LeaderId::new("argenthero")
+            ),
+            Some(true)
+        );
+        // Only the system with a token and no foreign ships is offered: `held` is not.
+        let done = fly(
+            &mut state,
+            &galaxy,
+            &[
+                "ship|0",
+                &format!("to|{safe}"),
+                "cargo|0",
+                "decline",
+                "decline",
+            ],
+        );
+        assert_eq!(done, Some(true));
+        assert_eq!(count(&state, &from, &a(), "carrier"), 0);
+        assert_eq!(count(&state, &safe, &a(), "carrier"), 1);
+        assert_eq!(
+            count(&state, &safe, &a(), "infantry"),
+            1,
+            "the cargo came along, in space"
+        );
+        assert_eq!(count(&state, &held, &a(), "carrier"), 0);
+    }
+
+    #[test]
+    fn flock_migration_declined_changes_nothing_and_is_not_offered_without_a_destination() {
+        let (mut state, galaxy, [from, _, held]) = hero_board();
+        let before = state.clone();
+        assert_eq!(fly(&mut state, &galaxy, &["decline"]), Some(false));
+        assert_eq!(count(&state, &from, &a(), "carrier"), 1);
+        assert_eq!(state.board, before.board);
+        // Another player's hero text is not this module's; the other seat's ships are not offered.
+        let content = ContentStore::embedded();
+        assert_eq!(
+            leader_action(&state, content, &a(), &LeaderId::new("argentagent")),
+            None
+        );
+        // Remove the only safe destination: nothing to offer.
+        let (mut bare, _, [_, safe, _]) = hero_board();
+        bare.system_mut(&safe).command_tokens.clear();
+        assert_eq!(
+            leader_action(&bare, content, &a(), &LeaderId::new("argenthero")),
+            Some(false)
+        );
+        // A system holding a foreign ship is never a destination.
+        assert!(!hero_destinations(&state, content, DEFAULT, &a()).contains(&held));
+        // Not Argent's: sol's seat is told nothing.
+        assert_eq!(
+            leader_action(&state, content, &b(), &LeaderId::new("argenthero")),
+            Some(false)
+        );
+    }
+
+    // -- Wing Transfer ---------------------------------------------------------------------------
+
+    /// Active system `m` and a neighbour `n`, both holding only `a`'s units, and a third system `f`
+    /// beside `m` with `b`'s ship.
+    fn wing_board() -> (GameState, ti4_content::galaxy::Galaxy, SystemId, SystemId) {
+        let mut state = seated_game(&[("a", "argent"), ("b", "sol")], DEFAULT);
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("argentbt"));
+        let content = ContentStore::embedded();
+        let ids: Vec<String> = crate::fixtures::plain_systems(14)
+            .into_iter()
+            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .take(6)
+            .collect();
+        let mut tiles = vec!["18"];
+        tiles.extend(ids.iter().map(String::as_str));
+        let galaxy = ti4_content::galaxy::Galaxy::build(content, &tiles, DEFAULT, 2).unwrap();
+        let active = SystemId::new(ids[0].as_str());
+        let near = galaxy
+            .adjacent(active.as_str())
+            .into_iter()
+            .find(|id| ids.iter().any(|plain| plain == id))
+            .map(SystemId::new)
+            .expect("a ring neighbour");
+        put(&mut state, &active, "carrier", &a(), 1);
+        state.system_mut(&active).command_tokens.insert(a());
+        put(&mut state, &near, "cruiser", &a(), 1);
+        (state, galaxy, active, near)
+    }
+
+    fn emit_with(
+        state: &mut GameState,
+        galaxy: &ti4_content::galaxy::Galaxy,
+        answers: &[&str],
+        event_type: &str,
+        pairs: &[(&str, &str)],
+    ) {
+        let mut resolver = armed_resolver(state);
+        let mut table = scripted(answers);
+        with_context(state, DEFAULT, Some(galaxy), &mut table, |ctx| {
+            let payload = pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+                .collect();
+            let event = ctx.event_sequence.next(event_type, payload).expect("id");
+            resolver
+                .emit_with_context(ctx, event, |_, _| {})
+                .expect("window resolves");
+        });
+    }
+
+    #[test]
+    fn wing_transfer_keeps_the_move_when_no_token_is_placed() {
+        // The clauses are independent: declining the optional placement still earns the
+        // end-of-action move among the active system and adjacent systems with your tokens.
+        let (mut state, galaxy, active, _near) = wing_board();
+        let before = state.tokens_in_reinforcements(&a());
+        emit_with(
+            &mut state,
+            &galaxy,
+            &[
+                "breakthrough:argent:argentbt_mark:SYSTEM_ACTIVATED:when",
+                "decline",
+            ],
+            "SYSTEM_ACTIVATED",
+            &[("player", "a"), ("system", active.as_str())],
+        );
+        assert_eq!(
+            state.tokens_in_reinforcements(&a()),
+            before,
+            "nothing placed"
+        );
+        assert_eq!(
+            state
+                .faction_marks
+                .get(&wing_transfer_key(&a()))
+                .map(String::as_str),
+            Some(active.as_str()),
+            "the activation is remembered for the end of the action"
+        );
+    }
+
+    #[test]
+    fn wing_transfer_places_tokens_then_moves_ships_among_the_tokened_systems() {
+        let (mut state, galaxy, active, near) = wing_board();
+        let before = state.tokens_in_reinforcements(&a());
+        emit_with(
+            &mut state,
+            &galaxy,
+            &[
+                "breakthrough:argent:argentbt:SYSTEM_ACTIVATED:when",
+                &format!("token|{near}"),
+                "decline",
+            ],
+            "SYSTEM_ACTIVATED",
+            &[("player", "a"), ("system", active.as_str())],
+        );
+        assert!(state.system_state(&near).command_tokens.contains(&a()));
+        assert_eq!(state.tokens_in_reinforcements(&a()), before - 1);
+        assert!(state.faction_marks.contains_key(&wing_transfer_key(&a())));
+        // At the end of the action the carrier may fly to the neighbour.
+        let pick = hero_ships(&state, ContentStore::embedded(), DEFAULT, &a())
+            .into_iter()
+            .filter(|(system, _)| system == &active || system == &near)
+            .position(|(system, unit)| system == active && unit.type_id.as_str() == "carrier")
+            .expect("the carrier is offered");
+        emit_with(
+            &mut state,
+            &galaxy,
+            &[&format!("ship|{pick}"), &format!("to|{near}"), "decline"],
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        assert_eq!(
+            count(&state, &near, &a(), "carrier"),
+            1,
+            "it flew to the neighbour"
+        );
+        assert!(
+            !state.faction_marks.contains_key(&wing_transfer_key(&a())),
+            "spent"
+        );
+        assert_eq!(count(&state, &active, &a(), "carrier"), 0);
+    }
+
+    #[test]
+    fn wing_transfer_needs_the_breakthrough_and_systems_with_only_the_players_units() {
+        // Not held: nothing is offered.
+        let (mut state, galaxy, active, near) = wing_board();
+        state.player_mut(&a()).unwrap().breakthrough = None;
+        emit_with(
+            &mut state,
+            &galaxy,
+            &[
+                "breakthrough:argent:argentbt:SYSTEM_ACTIVATED:when",
+                &format!("token|{near}"),
+            ],
+            "SYSTEM_ACTIVATED",
+            &[("player", "a"), ("system", active.as_str())],
+        );
+        assert!(!state.system_state(&near).command_tokens.contains(&a()));
+        assert!(state.faction_marks.is_empty());
+        // Another player's unit in the adjacent system, or in the active one, bars the placement.
+        let (mut state, galaxy, active, near) = wing_board();
+        put(&mut state, &near, "cruiser", &b(), 1);
+        emit_with(
+            &mut state,
+            &galaxy,
+            &[
+                "breakthrough:argent:argentbt:SYSTEM_ACTIVATED:when",
+                &format!("token|{near}"),
+            ],
+            "SYSTEM_ACTIVATED",
+            &[("player", "a"), ("system", active.as_str())],
+        );
+        assert!(!state.system_state(&near).command_tokens.contains(&a()));
+        // Declining places nothing but the action's end still finds no mark.
+        let (mut state, galaxy, active, near) = wing_board();
+        emit_with(
+            &mut state,
+            &galaxy,
+            &["decline"],
+            "SYSTEM_ACTIVATED",
+            &[("player", "a"), ("system", active.as_str())],
+        );
+        assert!(!state.system_state(&near).command_tokens.contains(&a()));
+        assert!(state.faction_marks.is_empty());
+        // Another player's activation is none of ours.
+        let (mut state, galaxy, active, near) = wing_board();
+        emit_with(
+            &mut state,
+            &galaxy,
+            &[],
+            "SYSTEM_ACTIVATED",
+            &[("player", "b"), ("system", active.as_str())],
+        );
+        assert!(!state.system_state(&near).command_tokens.contains(&a()));
     }
 
     // -- no Argent, no Argent abilities ----------------------------------------------------------

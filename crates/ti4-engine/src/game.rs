@@ -299,6 +299,50 @@ impl AftermathWindow {
         })
     }
 
+    /// The aftermath of an action that skipped directly to "Commit Ground Forces" (Sardakk hero):
+    /// no space cannon offense, no space combat, no bombardment — the invasion opens at its commit
+    /// step. Capacity is still settled first, as movement may have stranded cargo.
+    fn at_commit_step(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        galaxy: Option<&Galaxy>,
+        notes_at_tactical_start: crate::combat::NoteHoldings,
+    ) -> Result<Self, GameError> {
+        crate::fleet::enforce_seeing(
+            state,
+            ctx.content,
+            ctx.sources,
+            galaxy,
+            ctx.table,
+            player,
+            system,
+        )
+        .map_err(GameError::IllegalChoice)?;
+        let before_combat = crate::combat::before_combat_with_notes(
+            state,
+            ctx.content,
+            ctx.sources,
+            system,
+            notes_at_tactical_start.clone(),
+        );
+        let mut invasion = crate::invasion::InvasionWindow::at_commit_step(state, player, system);
+        if let Some(galaxy) = galaxy {
+            invasion = invasion.with_galaxy(galaxy);
+        }
+        Ok(Self {
+            player: player.clone(),
+            system: system.clone(),
+            stage: Aftermath::Invading(Box::new(invasion)),
+            log: Vec::new(),
+            before_combat,
+            feats_noted: true,
+            pending_event_scoring: None,
+            notes_at_tactical_start,
+        })
+    }
+
     fn take_event_scoring(&mut self) -> Option<(FeatOccurrence, EventScoreLimit)> {
         self.pending_event_scoring.take()
     }
@@ -2571,6 +2615,19 @@ impl<'a> Game<'a> {
         if !matches!(outcome, MoveOutcome::Arrived { .. }) {
             return;
         }
+        // Counted for MOVEMENT_FINISHED's `ships_moved`: "after you move ships into the active
+        // system" needs to know that something did. A private mark, so it survives a restored
+        // or branched game and no seat sees it.
+        let key = format!("private:#moved:{}", self.state.activation_seq);
+        let moved = self
+            .state
+            .faction_marks
+            .get(&key)
+            .and_then(|count| count.parse::<u32>().ok())
+            .unwrap_or(0);
+        self.state
+            .faction_marks
+            .insert(key, (moved + 1).to_string());
         // Three printed windows read "after a player moves ships into" a system; Naalu Foresight
         // also needs which system (always the active one) and where the ship came from.
         let mut payload = BTreeMap::new();
@@ -2793,6 +2850,10 @@ impl<'a> Game<'a> {
     /// all four here. Announcing the gap and moving on keeps a driven game playable while making
     /// it plain that moving into an enemy system currently has no consequence — the same choice
     /// made for unimplemented agenda effects.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the movement-step close, its hooks and the aftermath opening are one boundary"
+    )]
     fn finish_tactical(&mut self) -> StepResult {
         let tactical = self
             .tactical
@@ -2815,9 +2876,33 @@ impl<'a> Game<'a> {
             "system".to_owned(),
             serde_json::Value::String(system.to_string()),
         );
+        let ships_moved = crate::factions::ships_moved_this_activation(&self.state);
+        moved.insert(
+            "ships_moved".to_owned(),
+            serde_json::Value::from(ships_moved),
+        );
         if let Err(error) = self.emit_typed("MOVEMENT_FINISHED", moved) {
             return self.result(false, Some(error));
         }
+        // "After you move ships into the active system: you may skip directly to the Commit Ground
+        // Forces step" (Sardakk hero). Asked once movement is over, before anything shoots.
+        let skip_to_commit = {
+            let mut context = TimingContext {
+                state: &mut self.state,
+                content: self.content,
+                sources: self.sources,
+                table: &mut self.table,
+                dice: &mut self.dice,
+                rng: &mut self.rng,
+                event_sequence: &mut self.event_sequence,
+                galaxy: self.galaxy.as_ref(),
+            };
+            crate::factions::skip_to_commit(&mut context, &player, &system)
+        };
+        // The count has served the movement step's windows.
+        self.state
+            .faction_marks
+            .remove(&format!("private:#moved:{}", self.state.activation_seq));
         // Floating Factories that end movement among another player's ships are destroyed.
         let _ = crate::production::destroy_blockaded_mobile_docks(
             &mut self.state,
@@ -2846,14 +2931,25 @@ impl<'a> Game<'a> {
                 galaxy: galaxy.as_ref(),
             }),
         };
-        let opened = AftermathWindow::new(
-            &mut self.state,
-            &mut ctx,
-            &player,
-            &system,
-            galaxy.as_ref(),
-            notes_at_start,
-        );
+        let opened = if skip_to_commit {
+            AftermathWindow::at_commit_step(
+                &mut self.state,
+                &mut ctx,
+                &player,
+                &system,
+                galaxy.as_ref(),
+                notes_at_start,
+            )
+        } else {
+            AftermathWindow::new(
+                &mut self.state,
+                &mut ctx,
+                &player,
+                &system,
+                galaxy.as_ref(),
+                notes_at_start,
+            )
+        };
         let mut window = match opened {
             Ok(window) => window,
             Err(error) => {

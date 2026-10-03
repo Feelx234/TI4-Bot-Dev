@@ -75,3 +75,16 @@ Note: an earlier run failed to compile because of another agent's `saar.rs` (`ac
 * N5: Fabrication/BMF with only frontier fragments offers one type, not three equivalent ones (`purge_for_relic`).
 * N4 (Hook request 5, shared): the agent's `TURN_PASSED` window never fires after the last turn of the action phase because `TURN_PASSED` is skipped there; `game.rs` should emit it for the final pass too.
 * Decision sites: unchanged in number and names (`ask` callers: `purge_for_relic`, `fabricate_token`, `agent`, `use_leader`; `space_combat_round_started`).
+
+## Wave F routes (BF-F1/F2/F3)
+
+| Item | Status | Tests |
+|---|---|---|
+| `distant_suns` | done, claimed. `EconomyHooks::explore_extra_draw`: Naaz seat with a mech (any `mech` base type) on the explored planet; the shared route draws the second card and asks which to resolve (decision site is in `exploration.rs`) | `distant_suns_draws_an_extra_card_for_a_planet_with_a_mech` (no mech, other player's mech: one card) |
+| `pfa` | done, claimed. `EconomyHooks::explored`: owner of `pfa` removes the planet from `exhausted_planets` | `pre_fab_arcologies_readies_the_planet_after_exploring` |
+| `sc` | done, claimed. `GroundHooks::ground_combat_round_started` shares `offer_supercharge` with the space hook; the mark is `<space|ground>:<combat_round_seq>` | `supercharge_adds_one_for_the_round_it_was_exhausted_in`, `supercharge_also_starts_ground_combat_rounds` |
+| `naaz_mech`, `naaz_mech_space` | claimed: flips are wired at space-combat start/end, landing and retreat (BF-F1/F2); stats and ship/ground status are data. My test calls `fleet::flip_to_ship_forms/_ground_forms`; the combat/landing call sites are tested in `combat::space_routes_tests` and `invasion::ground_routes`, not here | `the_eidolon_is_a_ship_in_the_active_space_area_and_flips_back` |
+| `naazagent` | the final-pass `TURN_PASSED` route is the coordinator's (BF-F-N); no change in my file and no test of that emit here |  |
+| `naaz_voltron`, `naazbt` | still not started: grep finds no breakthrough or Eidolon Maximum code outside `fleet.rs` (`other_form` is `None` for it). Same blockers as Hook request 4 | |
+
+New decision sites in `naaz.rs`: none (`offer_supercharge` is the former `space_combat_round_started` ask, now also reached from the ground hook).

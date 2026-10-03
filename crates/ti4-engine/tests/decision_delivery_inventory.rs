@@ -267,6 +267,18 @@ struct Producer {
 
 const PRODUCERS: &[Producer] = &[
     Producer {
+        module: "argent.rs",
+        function: "ask_option_for",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "sardakk.rs",
+        function: "skip_to_commit",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "muaat.rs",
         function: "ask",
         count: 1,
@@ -280,7 +292,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "naaz.rs",
-        function: "space_combat_round_started",
+        function: "offer_supercharge",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1133,9 +1145,11 @@ const PRODUCERS: &[Producer] = &[
 
 const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     // BF faction modules (crates/ti4-engine/src/factions/).
+    ("argent.rs", "ask_option_for", 1),
+    ("sardakk.rs", "skip_to_commit", 1),
     ("muaat.rs", "ask", 1),
     ("naaz.rs", "ask", 1),
-    ("naaz.rs", "space_combat_round_started", 1),
+    ("naaz.rs", "offer_supercharge", 1),
     ("saar.rs", "ask", 1),
     ("arborec.rs", "agent_use", 2),
     ("arborec.rs", "bioplasmosis", 1),

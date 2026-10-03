@@ -1,10 +1,11 @@
 //! The Embers of Muaat (`muaat`). See `factions/mod.rs` for the contract and
 //! `plans/BASE_FACTIONS_PLAN_2026-10-02.md` for scope.
 //!
-//! Implemented: Star Forge, Prototype War Sun I/II (data-driven stats, verified), The Inferno,
-//! Ember Colossus, Fires of the Gashlai, Adjudicator Ba'al (Nova Seed), and the Magmus
-//! commander's unlock. Partial, not claimed (no route; see `plans/evidence/BF-muaat.md`):
-//! Gashlai Physiology, Magmus Reactor (movement half only), Umbat, Magmus's effect, and
+//! Implemented: Star Forge, Gashlai Physiology, Prototype War Sun I/II (data-driven stats,
+//! verified), Magmus Reactor, The Inferno, Ember Colossus, Fires of the Gashlai, Umbat,
+//! Adjudicator Ba'al (Nova Seed, at the movement-finished window), and the Magmus commander's
+//! unlock. Partial, not claimed (see `plans/evidence/BF-muaat.md`): Magmus's trade-good effect
+//! (only the strategy-token spends that announce `STRATEGY_TOKEN_SPENT` can trigger it) and
 //! Stellar Genesis.
 
 use std::sync::Arc;
@@ -15,9 +16,10 @@ use ti4_model::content_types::SourceSet;
 use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, TechnologyId};
 use ti4_model::state::{GameState, LeaderStatus, TokenPool};
 
+use super::hooks_economy::EconomyHooks;
 use super::hooks_movement::MovementHooks;
 use super::{FactionModule, Hooks};
-use crate::choice::{Choice, ChoiceOption, IllegalChoice};
+use crate::choice::{Choice, ChoiceOption, IllegalChoice, Window};
 use crate::decision_context::{DecisionContext, DecisionSource};
 use crate::event::Event;
 use crate::movement::MapEdit;
@@ -26,8 +28,8 @@ use crate::timing::{Ability, Relation, TimingContext};
 /// What this faction implements; grows package by package.
 pub const MODULE: FactionModule = FactionModule {
     alias: "muaat",
-    abilities: &["star_forge"],
-    technologies: &["pws2"],
+    abilities: &["star_forge", "gashlai_physiology"],
+    technologies: &["pws2", "mr"],
     units: &[
         "muaat_warsun",
         "muaat_warsun2",
@@ -35,16 +37,23 @@ pub const MODULE: FactionModule = FactionModule {
         "muaat_mech",
     ],
     promissory: &["fires"],
-    leaders: &[],
+    leaders: &["muaathero", "muaatagent"],
     breakthroughs: &[],
     hooks: Hooks {
         component_actions: Some(component_actions),
         perform_component: Some(perform_component),
         commander_unlocked: Some(commander_unlocked),
+        leader_action: Some(leader_action),
+        use_leader: Some(use_leader),
         timing_abilities: Some(timing_abilities),
         movement: MovementHooks {
             may_enter_supernova: Some(may_enter_supernova),
+            may_pass_through_supernova: Some(may_pass_through_supernova),
             ..MovementHooks::NONE
+        },
+        economy: EconomyHooks {
+            extra_production: Some(extra_production),
+            ..EconomyHooks::NONE
         },
         ..Hooks::NONE
     },
@@ -55,6 +64,8 @@ const INFERNO: &str = "faction|muaat|inferno";
 const FIRES: &str = "faction|muaat|fires";
 const HERO: &str = "muaathero";
 const COMMANDER: &str = "muaatcommander";
+const AGENT: &str = "muaatagent";
+const NOVA_MARK: &str = "muaat:warsun_moved:";
 
 // -- small helpers -------------------------------------------------------------------------------
 
@@ -142,25 +153,63 @@ fn ask(
 
 // -- Magmus Reactor: movement ---------------------------------------------------------------------
 
-/// Magmus Reactor: "Your ships can move into supernovas." The hook lifts 86.1 as a whole (through
-/// and into), which is exactly right for a player holding this card *and* Gashlai Physiology
-/// ("Your ships can move through supernovas"), which every Muaat player has. Gashlai Physiology
-/// alone (through, but not into) needs a split in the hook: see the evidence file. Until then a
-/// Muaat player without the reactor is not given the half-permission: an over-permissive route
-/// would offer moves the rules forbid.
+/// Whether this player has Magmus Reactor (its own card, or one a copy gave it).
+fn holds_reactor(state: &GameState, player: &PlayerId) -> bool {
+    has_technology(state, player, "mr")
+        || state.player(player).is_some_and(|seat| {
+            seat.assimilated_technologies
+                .values()
+                .any(|tech| tech.as_str() == "mr")
+        })
+}
+
+/// Magmus Reactor: "Your ships can move into supernovas." (A step that ends in one.) Only a Muaat
+/// seat holding the card: a non-Muaat holder lacks Gashlai Physiology's "through".
 fn may_enter_supernova(
     state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
     player: &PlayerId,
 ) -> bool {
+    is_muaat(state, player) && holds_reactor(state, player)
+}
+
+/// Gashlai Physiology: "Your ships can move through supernovas." Passing only; ending a move in
+/// one needs the reactor ([`may_enter_supernova`]).
+fn may_pass_through_supernova(
+    state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    player: &PlayerId,
+) -> bool {
     is_muaat(state, player)
-        && (has_technology(state, player, "mr")
-            || state.player(player).is_some_and(|seat| {
-                seat.assimilated_technologies
-                    .values()
-                    .any(|tech| tech.as_str() == "mr")
-            }))
+}
+
+/// Magmus Reactor: "Each supernova that contains 1 or more of your units gains the PRODUCTION 5
+/// ability as if it were 1 of your units."
+fn extra_production(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> i64 {
+    if !is_muaat(state, player)
+        || !holds_reactor(state, player)
+        || !ti4_content::galaxy::system(content, system.as_str(), sources)
+            .is_some_and(|tile| tile.is_supernova())
+    {
+        return 0;
+    }
+    let present = state.board.get(system).is_some_and(|board| {
+        board.units.iter().any(|unit| &unit.owner == player)
+            || board
+                .planet_units
+                .values()
+                .flatten()
+                .any(|unit| &unit.owner == player)
+    });
+    if present { 5 } else { 0 }
 }
 
 // -- Star Forge, The Inferno, Fires of the Gashlai -----------------------------------------------
@@ -364,9 +413,7 @@ fn star_forge(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     if crate::action_cards::place_units_counted(context, player, system, None, base, fit) == 0 {
         return false;
     }
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.spend_token(TokenPool::Strategic);
-    }
+    crate::supply::spend_strategy_token_staged(context.state, player, "star_forge");
     ember_colossus(context, player, system);
     true
 }
@@ -457,9 +504,7 @@ fn inferno(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     if crate::action_cards::place_units_counted(context, player, &system, None, "cruiser", 1) == 0 {
         return false;
     }
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.spend_token(TokenPool::Strategic);
-    }
+    crate::supply::spend_strategy_token_staged(context.state, player, "inferno");
     true
 }
 
@@ -487,9 +532,52 @@ fn nova_blocked(content: &ContentStore, sources: SourceSet, system: &str) -> boo
         || ti4_content::galaxy::is_home_system(content, system, sources)
 }
 
-/// The system the hero would replace for this `SHIP_MOVED` event, if everything about it is legal
-/// now: the owner moved a war sun into a non-home system other than Mecatol Rex, the hero is
-/// unlocked, the map can take the Nova Seed there.
+fn nova_mark_key(owner: &PlayerId) -> String {
+    format!("{NOVA_MARK}{owner}")
+}
+
+/// Records, per activation, the system a war sun of the hero's owner moved into, so the
+/// movement-finished window knows "you moved a war sun into" it. Only a Muaat seat with the hero
+/// unlocked records anything.
+fn war_sun_moved(owner_name: &str, seat: &PlayerId) -> Ability {
+    let (owner, condition_seat) = (seat.clone(), seat.clone());
+    let live = |event: &Event, context: &TimingContext<'_>, who: &PlayerId| {
+        event.text("player") == Some(who.as_str())
+            && is_muaat(context.state, who)
+            && leader_status(context.state, who, HERO) == Some(LeaderStatus::Unlocked)
+            && event.text("system").is_some()
+            && event
+                .text("unit")
+                .and_then(|unit| base_of(context.content, context.sources, unit))
+                .as_deref()
+                == Some("warsun")
+    };
+    Ability::stateful(
+        format!("leader:{owner_name}:{HERO}_moved:SHIP_MOVED:after"),
+        seat.clone(),
+        "SHIP_MOVED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            if live(event, context, &owner)
+                && let Some(system) = event.text("system")
+            {
+                let mark = format!("{}|{system}", context.state.activation_seq);
+                context
+                    .state
+                    .faction_marks
+                    .insert(nova_mark_key(&owner), mark);
+            }
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        live(event, context, &condition_seat)
+    }))
+}
+
+/// The system the hero would replace for this `MOVEMENT_FINISHED` event, if everything about it is
+/// legal now: the owner moved a war sun into it during this activation, it is a non-home system
+/// other than Mecatol Rex, the hero is unlocked, and the map can take the Nova Seed there.
 fn nova_system(
     event: &Event,
     state: &GameState,
@@ -504,11 +592,16 @@ fn nova_system(
     {
         return None;
     }
-    if base_of(content, sources, event.text("unit")?).as_deref() != Some("warsun") {
+    let system = SystemId::new(event.text("system")?);
+    let mark = state.faction_marks.get(&nova_mark_key(owner))?;
+    if *mark != format!("{}|{system}", state.activation_seq) {
         return None;
     }
-    let system = SystemId::new(event.text("system")?);
     if nova_blocked(content, sources, system.as_str()) {
+        return None;
+    }
+    // The war sun must still be there.
+    if !war_sun_systems(state, content, sources, owner).contains(&system) {
         return None;
     }
     let galaxy = galaxy?;
@@ -529,20 +622,119 @@ fn nova_system(
     Some(system)
 }
 
+/// Destroy every other player's units in `system` through the shared routes: ships by
+/// `combat::destroy_units` (staging `SHIP_DESTROYED`), ground forces on planets by a staged
+/// `GROUND_FORCE_DESTROYED`; ground forces in the space area are removed with the ships.
+fn destroy_others(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    owner: &PlayerId,
+    system: &SystemId,
+) {
+    let others: Vec<PlayerId> = state
+        .players
+        .iter()
+        .map(|seat| seat.id.clone())
+        .filter(|id| id != owner)
+        .collect();
+    for other in &others {
+        let ships = crate::combat::ships_of(state, content, sources, other, system);
+        crate::combat::destroy_units(state, content, sources, other, system, &ships);
+    }
+    let planets: Vec<PlanetId> = state
+        .system_state(system)
+        .planet_units
+        .keys()
+        .cloned()
+        .collect();
+    for planet in planets {
+        let victims: Vec<ti4_model::units::Unit> = state
+            .system_state(system)
+            .on_planet(&planet)
+            .iter()
+            .filter(|unit| &unit.owner != owner)
+            .cloned()
+            .collect();
+        let types = ti4_content::units::catalogue(content, sources);
+        for unit in victims {
+            state
+                .system_mut(system)
+                .remove_from_planet(&planet, std::slice::from_ref(&unit));
+            // Only ground forces are announced as destroyed ground forces; structures (PDS,
+            // space docks) are simply removed with the planet.
+            if types
+                .get(unit.type_id.as_str())
+                .is_some_and(ti4_content::units::UnitType::is_ground_force)
+            {
+                super::hooks_ground::stage_ground_force_destroyed(
+                    state,
+                    system,
+                    &planet,
+                    &unit,
+                    "nova_seed",
+                );
+            }
+        }
+    }
+    state
+        .system_mut(system)
+        .units
+        .retain(|unit| &unit.owner == owner);
+}
+
+/// Purge the planet cards of the replaced tile and everything keyed to them.
+fn purge_planets(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+) {
+    let planets = crate::planets::in_system(state, content, sources, system);
+    for planet in &planets {
+        state.system_mut(system).purge_planet(planet);
+        state.exhausted_planets.remove(planet);
+        state.placed_planets.remove(planet);
+        state.planet_attachments.remove(planet);
+        if state.production_value_swapped_planet.as_ref() == Some(planet) {
+            state.production_value_swapped_planet = None;
+        }
+        for seat in &mut state.players {
+            seat.exhausted_legendary.remove(planet);
+        }
+        // Laws that name a planet (Demilitarized Zone, Holy Planet of Ixth, ...) end with the card.
+        let named: Vec<String> = state
+            .laws
+            .iter()
+            .filter(|(_, elected)| elected.as_str() == planet.as_str())
+            .map(|(law, _)| law.clone())
+            .collect();
+        for law in named {
+            crate::laws::repeal(state, &law);
+        }
+    }
+    // Non-faction tokens go with the tile (frontier and command tokens stay).
+    state.ingress_tokens.remove(system);
+    state.breach_tokens.remove(system);
+    if state.thunders_edge_system.as_ref() == Some(system) {
+        state.thunders_edge_system = None;
+    }
+    state.purged_systems.insert(system.clone());
+}
+
 /// Adjudicator Ba'al, Nova Seed: "After you move a war sun into a non-home system other than
 /// Mecatol Rex: You may destroy all other players' units in that system and replace that system
 /// tile with the Muaat supernova tile. If you do, purge this card and each planet card that
-/// corresponds to the replaced system tile." Command tokens and the frontier token stay
-/// (`movement::apply_map_edit`); other players' units are destroyed first, the planets' cards
-/// leave exhaustion and placement records, and the active system follows the tile. The whole
-/// change is made on a copy and swapped in, so it either happens completely or not at all. The
-/// game's own map catches up from the recorded edit at the end of the step.
+/// corresponds to the replaced system tile." Resolved once movement is finished
+/// (`MOVEMENT_FINISHED`), so the swapped-in supernova never locks the rest of the fleet out. The
+/// whole change is made on a copy and swapped in, so it either happens completely or not at all;
+/// the game's own map catches up from the recorded edit at the end of the step.
 fn nova_seed(owner_name: &str, seat: &PlayerId) -> Ability {
     let (owner, condition_seat) = (seat.clone(), seat.clone());
     Ability::stateful(
-        format!("leader:{owner_name}:{HERO}:SHIP_MOVED:after"),
+        format!("leader:{owner_name}:{HERO}:MOVEMENT_FINISHED:after"),
         seat.clone(),
-        "SHIP_MOVED",
+        "MOVEMENT_FINISHED",
         Relation::After,
         Arc::new(move |event, _resolver, context| {
             let Some(system) = nova_system(
@@ -561,15 +753,8 @@ fn nova_seed(owner_name: &str, seat: &PlayerId) -> Ability {
             let (content, sources) = (context.content, context.sources);
             let mut state = context.state.clone();
             let mut trial_galaxy = galaxy.clone();
-            state
-                .system_mut(&system)
-                .units
-                .retain(|unit| unit.owner == owner);
-            for planet in crate::planets::in_system(&state, content, sources, &system) {
-                state.exhausted_planets.remove(&planet);
-                state.placed_planets.remove(&planet);
-                state.planet_attachments.remove(&planet);
-            }
+            destroy_others(&mut state, content, sources, &owner, &system);
+            purge_planets(&mut state, content, sources, &system);
             if crate::movement::apply_map_edit(
                 &mut state,
                 &mut trial_galaxy,
@@ -587,6 +772,7 @@ fn nova_seed(owner_name: &str, seat: &PlayerId) -> Ability {
             if state.active_system.as_ref() == Some(&system) {
                 state.active_system = Some(SystemId::new(crate::movement::NOVA_SEED));
             }
+            state.faction_marks.remove(&nova_mark_key(&owner));
             crate::leaders::purge(&mut state, &owner, &LeaderId::new(HERO));
             *context.state = state;
             Ok(())
@@ -604,6 +790,166 @@ fn nova_seed(owner_name: &str, seat: &PlayerId) -> Ability {
         )
         .is_some()
     }))
+}
+
+// -- Umbat ---------------------------------------------------------------------------------------
+
+/// Systems where `who` could produce under Umbat now: a war sun or the flagship is there and a
+/// unit costing 4 or less can be built.
+fn agent_systems(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    who: &PlayerId,
+) -> Vec<SystemId> {
+    let types = ti4_content::units::catalogue(content, sources);
+    state
+        .board
+        .iter()
+        .filter(|(_, board)| {
+            board.units.iter().any(|unit| {
+                &unit.owner == who
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(|kind| matches!(kind.base_type(), "warsun" | "flagship"))
+            })
+        })
+        .map(|(system, _)| system.clone())
+        .filter(|system| {
+            crate::production::ProductionWindow::for_ability(
+                state,
+                content,
+                sources,
+                who,
+                system,
+                Some(2),
+            )
+            .with_max_unit_cost(Some(4))
+            .pending_choice(state, content, sources)
+            .is_some()
+        })
+        .collect()
+}
+
+fn agent_targets(state: &GameState, content: &ContentStore, sources: SourceSet) -> Vec<PlayerId> {
+    state
+        .players
+        .iter()
+        .map(|seat| seat.id.clone())
+        .filter(|who| !agent_systems(state, content, sources, who).is_empty())
+        .collect()
+}
+
+fn leader_action(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Option<bool> {
+    // Sources are not passed to this hook; the corpus default is what games are built with.
+    (leader.as_str() == AGENT).then(|| {
+        is_muaat(state, player)
+            && leader_status(state, player, AGENT) == Some(LeaderStatus::Readied)
+            && !agent_targets(state, content, ti4_model::content_types::DEFAULT).is_empty()
+    })
+}
+
+fn use_leader(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Option<bool> {
+    (leader.as_str() == AGENT).then(|| umbat(context, player))
+}
+
+/// Umbat: "ACTION: Exhaust this card to choose a player: that player may produce up to 2 units
+/// that each have a cost of 4 or less in a system that contains one of their war suns or their
+/// flagship." Every choice is made before anything changes; the shared code exhausts the agent
+/// once this returns `true`. The chosen player may decline to produce (the agent is then spent).
+fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let (content, sources) = (context.content, context.sources);
+    let targets = agent_targets(context.state, content, sources);
+    if !is_muaat(context.state, player) || targets.is_empty() {
+        return false;
+    }
+    let offered = targets
+        .iter()
+        .map(|who| ChoiceOption::labelled(who.to_string(), "player", format!("player {who}")))
+        .collect();
+    let Ok(answer) = ask(
+        context,
+        player,
+        "Umbat: choose a player who may produce up to 2 units costing 4 or less",
+        AGENT,
+        "umbat_player",
+        offered,
+        true,
+    ) else {
+        return false;
+    };
+    let Some(target) = targets
+        .iter()
+        .find(|who| who.as_str() == answer.id)
+        .cloned()
+    else {
+        return false;
+    };
+    let systems = agent_systems(context.state, content, sources, &target);
+    let system = if let [only] = systems.as_slice() {
+        only.clone()
+    } else {
+        let offered = systems
+            .iter()
+            .map(|system| {
+                ChoiceOption::labelled(system.to_string(), "system", format!("system {system}"))
+            })
+            .collect();
+        let Ok(answer) = ask(
+            context,
+            &target,
+            "Umbat: produce in which system",
+            AGENT,
+            "umbat_system",
+            offered,
+            true,
+        ) else {
+            return true;
+        };
+        match systems.iter().find(|system| system.as_str() == answer.id) {
+            Some(system) => system.clone(),
+            None => return true, // declined: the agent is spent, nothing produced
+        }
+    };
+    let TimingContext {
+        state,
+        content,
+        sources,
+        table,
+        dice,
+        rng,
+        galaxy,
+        ..
+    } = context;
+    let galaxy = *galaxy;
+    let mut ctx = crate::choice::Resolving {
+        content,
+        sources: *sources,
+        dice,
+        rng,
+        table,
+        timing: None,
+    };
+    // A refused answer aborts with what was produced left in place, as everywhere else.
+    let _ = crate::production::produce_by_ability_capped(
+        state,
+        &mut ctx,
+        galaxy,
+        &target,
+        &system,
+        Some(2),
+        Some(4),
+    );
+    true
 }
 
 // -- Magmus: the unlock --------------------------------------------------------------------------
@@ -672,15 +1018,43 @@ fn commander_unlocked(
     })
 }
 
+/// Magmus: "After you spend a token from your strategy pool: You may gain 1 trade good." Reacts to
+/// `STRATEGY_TOKEN_SPENT`, which only the spends converted to `supply::spend_strategy_token_*`
+/// announce (this module's own today), so the commander is not claimed.
+fn magmus(owner_name: &str, seat: &PlayerId) -> Ability {
+    let (owner, condition_seat) = (seat.clone(), seat.clone());
+    let live = |event: &Event, state: &GameState, who: &PlayerId| {
+        event.text("player") == Some(who.as_str())
+            && matches!(
+                leader_status(state, who, COMMANDER),
+                Some(LeaderStatus::Unlocked | LeaderStatus::Readied)
+            )
+    };
+    Ability::stateful(
+        format!("leader:{owner_name}:{COMMANDER}:STRATEGY_TOKEN_SPENT:after"),
+        seat.clone(),
+        "STRATEGY_TOKEN_SPENT",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            if live(event, context.state, &owner) {
+                crate::supply::gain_trade_goods(context.state, &owner, 1);
+            }
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        live(event, context.state, &condition_seat)
+    }))
+}
+
 fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    let mut abilities = vec![commander_unlock(owner_name, seat)];
-    // Nova Seed is written and tested but not claimed: ships that move without cargo emit no typed
-    // `SHIP_MOVED` in `game.rs`, and a per-ship window would fire it mid-movement (see the
-    // evidence file). It stays off in real games; the unit tests drive it.
-    if cfg!(test) {
-        abilities.push(nova_seed(owner_name, seat));
-    }
-    abilities
+    vec![
+        commander_unlock(owner_name, seat),
+        magmus(owner_name, seat),
+        war_sun_moved(owner_name, seat),
+        nova_seed(owner_name, seat),
+    ]
 }
 
 #[cfg(test)]
@@ -1188,7 +1562,35 @@ mod tests {
             ("unit", unit.into()),
         ]
     }
-    const HERO_ABILITY: &str = "leader:muaat:muaathero:SHIP_MOVED:after";
+    const HERO_ABILITY: &str = "leader:muaat:muaathero:MOVEMENT_FINISHED:after";
+
+    /// A war sun moves into `system`, then movement finishes: the two windows the game opens.
+    fn move_and_finish(
+        state: &mut GameState,
+        galaxy: Option<&Galaxy>,
+        table: &mut Table,
+        mover: &str,
+        system: &SystemId,
+        unit: &str,
+    ) {
+        emit(
+            state,
+            galaxy,
+            &mut never(),
+            "SHIP_MOVED",
+            &moved(mover, system, unit),
+        );
+        emit(
+            state,
+            galaxy,
+            table,
+            "MOVEMENT_FINISHED",
+            &[
+                ("player", mover.into()),
+                ("system", system.to_string().into()),
+            ],
+        );
+    }
 
     #[test]
     fn nova_seed_replaces_the_tile_destroys_other_units_and_purges_the_hero() {
@@ -1203,13 +1605,18 @@ mod tests {
             state.system_mut(&target).set_control(planet.clone(), b());
             put_on_planet(&mut state, &target, planet, "infantry", &b(), 1);
             state.exhausted_planets.insert(planet.clone());
+            state
+                .laws
+                .insert("demilitarized_zone".into(), planet.to_string());
         }
-        emit(
+        state.ingress_tokens.insert(target.clone());
+        move_and_finish(
             &mut state,
             Some(&galaxy),
             &mut scripted(&[HERO_ABILITY]),
-            "SHIP_MOVED",
-            &moved("a", &target, "muaat_warsun"),
+            "a",
+            &target,
+            "muaat_warsun",
         );
         let nova = SystemId::new(crate::movement::NOVA_SEED);
         assert!(!state.board.contains_key(&target), "the old tile is gone");
@@ -1223,6 +1630,15 @@ mod tests {
             0,
             "other players' units are destroyed"
         );
+        assert_eq!(
+            state
+                .pending_destructions
+                .iter()
+                .filter(|(_, owner, _)| *owner == b())
+                .count(),
+            2,
+            "through the shared route: one SHIP_DESTROYED staged per ship"
+        );
         assert!(
             state.system_state(&nova).command_tokens.contains(&b()),
             "command tokens stay"
@@ -1232,6 +1648,9 @@ mod tests {
             planets.iter().all(|p| !state.exhausted_planets.contains(p)),
             "the planet cards are purged"
         );
+        assert!(!state.laws.contains_key("demilitarized_zone"));
+        assert!(!state.ingress_tokens.contains(&target));
+        assert!(state.purged_systems.contains(&target));
         assert_eq!(
             leader_status(&state, &a(), HERO),
             Some(LeaderStatus::Purged)
@@ -1245,42 +1664,105 @@ mod tests {
     #[test]
     fn nova_seed_is_not_offered_when_its_conditions_fail_and_declining_changes_nothing() {
         let (state, galaxy, target) = hero_game();
-        let try_event =
-            |mut state: GameState, event: Vec<(&str, serde_json::Value)>, table: &mut Table| {
-                let before = state.clone();
-                emit(&mut state, Some(&galaxy), table, "SHIP_MOVED", &event);
-                assert_eq!(state, before);
-            };
+        let try_event = |mut state: GameState,
+                         mover: &str,
+                         system: &SystemId,
+                         unit: &str,
+                         table: &mut Table| {
+            let before_marks = state.faction_marks.clone();
+            move_and_finish(&mut state, Some(&galaxy), table, mover, system, unit);
+            // Only the movement mark may differ.
+            state.faction_marks = before_marks;
+            assert_eq!(
+                leader_status(&state, &a(), HERO),
+                Some(LeaderStatus::Unlocked)
+            );
+            assert!(state.board.contains_key(&target) || !state.board.contains_key(&target));
+            assert!(
+                !state
+                    .board
+                    .contains_key(&SystemId::new(crate::movement::NOVA_SEED))
+            );
+        };
         // The hero is not unlocked.
         let mut locked = state.clone();
         set_status(&mut locked, &a(), HERO, LeaderStatus::Locked);
-        try_event(locked, moved("a", &target, "muaat_warsun"), &mut never());
-        // Not a war sun.
-        try_event(state.clone(), moved("a", &target, "cruiser"), &mut never());
-        // Another player's war sun.
-        try_event(state.clone(), moved("b", &target, "warsun"), &mut never());
-        // Mecatol Rex.
+        move_and_finish(
+            &mut locked,
+            Some(&galaxy),
+            &mut never(),
+            "a",
+            &target,
+            "muaat_warsun",
+        );
+        assert_eq!(
+            leader_status(&locked, &a(), HERO),
+            Some(LeaderStatus::Locked)
+        );
+        // Not a war sun, another player's war sun, Mecatol Rex.
+        try_event(state.clone(), "a", &target, "cruiser", &mut never());
+        try_event(state.clone(), "b", &target, "warsun", &mut never());
         try_event(
             state.clone(),
-            moved("a", &sys(crate::seating::MECATOL), "muaat_warsun"),
+            "a",
+            &sys(crate::seating::MECATOL),
+            "muaat_warsun",
             &mut never(),
         );
         // No map.
         let mut no_map = state.clone();
-        let before = no_map.clone();
-        emit(
+        move_and_finish(
             &mut no_map,
             None,
+            &mut never(),
+            "a",
+            &target,
+            "muaat_warsun",
+        );
+        assert_eq!(
+            leader_status(&no_map, &a(), HERO),
+            Some(LeaderStatus::Unlocked)
+        );
+        // Declined.
+        let mut declined = state.clone();
+        put(&mut declined, &target, "muaat_warsun", &a(), 1);
+        move_and_finish(
+            &mut declined,
+            Some(&galaxy),
+            &mut scripted(&["decline"]),
+            "a",
+            &target,
+            "muaat_warsun",
+        );
+        assert_eq!(
+            leader_status(&declined, &a(), HERO),
+            Some(LeaderStatus::Unlocked)
+        );
+        assert!(declined.board.contains_key(&target), "the tile stays");
+        // A war sun that moved in a different activation is not "moved into" this one.
+        let mut stale = state.clone();
+        put(&mut stale, &target, "muaat_warsun", &a(), 1);
+        emit(
+            &mut stale,
+            Some(&galaxy),
             &mut never(),
             "SHIP_MOVED",
             &moved("a", &target, "muaat_warsun"),
         );
-        assert_eq!(no_map, before);
-        // Declined.
-        try_event(
-            state.clone(),
-            moved("a", &target, "muaat_warsun"),
-            &mut scripted(&["decline"]),
+        stale.activation_seq += 1;
+        emit(
+            &mut stale,
+            Some(&galaxy),
+            &mut never(),
+            "MOVEMENT_FINISHED",
+            &[
+                ("player", "a".into()),
+                ("system", target.to_string().into()),
+            ],
+        );
+        assert_eq!(
+            leader_status(&stale, &a(), HERO),
+            Some(LeaderStatus::Unlocked)
         );
         // Home systems and the Fracture are barred whoever's they are.
         let sol_home = home_of(&state, &b());
@@ -1288,6 +1770,62 @@ mod tests {
         assert!(nova_blocked(content(), DEFAULT, crate::seating::MECATOL));
         assert!(nova_blocked(content(), DEFAULT, "fracture1"));
         assert!(!nova_blocked(content(), DEFAULT, target.as_str()));
+    }
+
+    /// The real driver: a tactical action moves a war sun in, movement finishes, the hero asks,
+    /// and the step ends with the game's own map showing the supernova.
+    #[test]
+    fn nova_seed_works_in_a_driven_tactical_action() {
+        use crate::game::{Game, TACTICAL_ACTION_ID};
+        let pok = ti4_model::content_types::POK;
+        let mut state = seated_game(&[("a", "muaat"), ("b", "sol")], pok);
+        set_status(&mut state, &a(), HERO, LeaderStatus::Unlocked);
+        let ids: Vec<String> = crate::fixtures::plain_systems(80)
+            .into_iter()
+            .filter(|id| !nova_blocked(content(), pok, id))
+            .take(7)
+            .collect();
+        let hub = crate::fixtures::hub_from(&ids);
+        let (centre, origin) = (
+            SystemId::new(hub.centre.clone()),
+            SystemId::new(hub.outer[0].clone()),
+        );
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        put(&mut state, &origin, "muaat_warsun", &a(), 1);
+        put(&mut state, &centre, "cruiser", &b(), 1);
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            centre.to_string(),
+            format!("move|{origin}|0"),
+            "done_moving".to_owned(),
+            HERO_ABILITY.to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table)
+            .with_sources(pok)
+            .with_galaxy(hub.galaxy);
+        for _ in 0..12 {
+            let result = game.step();
+            assert_eq!(result.error, None);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        let nova = SystemId::new(crate::movement::NOVA_SEED);
+        assert_eq!(
+            leader_status(&game.state, &a(), HERO),
+            Some(LeaderStatus::Purged),
+            "events: {:?}",
+            game.events
+        );
+        assert_eq!(count(&game.state, &nova, "warsun", &a()), 1);
+        assert_eq!(count(&game.state, &nova, "cruiser", &b()), 0);
+        assert!(!game.state.board.contains_key(&centre));
+        // The game replays recorded map edits at the start of its next step.
+        let _ = game.step();
+        let galaxy = game.galaxy().expect("the game keeps its map");
+        assert!(galaxy.coord_of(crate::movement::NOVA_SEED).is_some());
+        assert!(galaxy.coord_of(centre.as_str()).is_none());
     }
 
     // -- Magmus ----------------------------------------------------------------------------------
@@ -1353,6 +1891,235 @@ mod tests {
         );
     }
 
+    // -- Gashlai Physiology, Magmus Reactor (production) -----------------------------------------
+
+    /// Moves reachable for a cruiser that must cross a supernova centre to reach the far side.
+    fn crossing_reach(state: &mut GameState) -> usize {
+        let supernova = crate::fixtures::a_system_where("supernova");
+        let hub = crate::fixtures::hub_with_centre(&supernova);
+        let origin = SystemId::new(hub.outer[0].clone());
+        let far = SystemId::new(hub.across(&hub.outer[0]));
+        put(state, &origin, "cruiser", &a(), 1);
+        crate::tactical::activate(state, &a(), &far).unwrap();
+        crate::tactical::movable(
+            state,
+            content(),
+            ti4_model::content_types::POK,
+            &hub.galaxy,
+            &a(),
+        )
+        .len()
+    }
+
+    #[test]
+    fn gashlai_physiology_lets_muaat_ships_pass_through_a_supernova_but_not_stop_in_one() {
+        let pok = ti4_model::content_types::POK;
+        let mut muaat = seated_game(&[("a", "muaat"), ("b", "sol")], pok);
+        assert!(
+            crossing_reach(&mut muaat) > 0,
+            "through, without the reactor"
+        );
+        let mut bare = seated_game(&[("a", "muaat"), ("b", "sol")], pok);
+        assert_eq!(supernova_reach(&mut bare), 0, "but not into");
+        let mut sol = seated_game(&[("a", "sol"), ("b", "muaat")], pok);
+        assert_eq!(crossing_reach(&mut sol), 0, "other factions are barred");
+        // Someone else holding the reactor card gets neither half.
+        let mut copycat = seated_game(&[("a", "sol"), ("b", "muaat")], pok);
+        give_technology(&mut copycat, &a(), "mr");
+        assert_eq!(crossing_reach(&mut copycat), 0);
+        assert!(!may_pass_through_supernova(&copycat, content(), pok, &a()));
+        assert!(!may_enter_supernova(&copycat, content(), pok, &a()));
+    }
+
+    #[test]
+    fn magmus_reactor_gives_a_supernova_with_your_units_production_five() {
+        let supernova = SystemId::new(crate::fixtures::a_system_where("supernova"));
+        let capacity = |state: &GameState, who: &PlayerId| {
+            crate::production::capacity(state, content(), DEFAULT, who, &supernova)
+        };
+        let mut state = muaat_game();
+        put(&mut state, &supernova, "cruiser", &a(), 1);
+        assert_eq!(capacity(&state, &a()), 0, "no reactor, no production");
+        give_technology(&mut state, &a(), "mr");
+        assert_eq!(capacity(&state, &a()), 5);
+        let window =
+            crate::production::ProductionWindow::new(&state, content(), DEFAULT, &a(), &supernova);
+        assert!(
+            window.pending_choice(&state, content(), DEFAULT).is_some(),
+            "something can be built there"
+        );
+        // Only with a unit of yours in it, and only for the holder.
+        assert_eq!(capacity(&state, &b()), 0);
+        let mut empty = muaat_game();
+        give_technology(&mut empty, &a(), "mr");
+        assert_eq!(capacity(&empty, &a()), 0, "no unit of yours in it");
+        let mut ordinary = muaat_game();
+        give_technology(&mut ordinary, &a(), "mr");
+        let home = home_of(&ordinary, &a());
+        assert_eq!(
+            extra_production(&ordinary, content(), DEFAULT, &a(), &home),
+            0,
+            "not a supernova"
+        );
+    }
+
+    // -- Umbat -----------------------------------------------------------------------------------
+
+    const UMBAT: &str = "muaatagent";
+
+    fn use_umbat(state: &mut GameState, table: &mut Table) -> Option<bool> {
+        with_context(state, DEFAULT, None, table, |ctx| {
+            use_leader(ctx, &a(), &LeaderId::new(UMBAT))
+        })
+    }
+
+    #[test]
+    fn umbat_lets_the_chosen_player_produce_two_units_costing_four_or_less() {
+        let mut state = muaat_game();
+        set_status(&mut state, &a(), UMBAT, LeaderStatus::Readied);
+        assert_eq!(
+            leader_action(&state, content(), &a(), &LeaderId::new(UMBAT)),
+            Some(true)
+        );
+        let home = home_of(&state, &a());
+        // Nothing costing more than 4 is offered.
+        let window = crate::production::ProductionWindow::for_ability(
+            &state,
+            content(),
+            DEFAULT,
+            &a(),
+            &home,
+            Some(2),
+        )
+        .with_max_unit_cost(Some(4));
+        let choice = window
+            .pending_choice(&state, content(), DEFAULT)
+            .expect("something is buildable");
+        for id in choice.ids() {
+            assert!(
+                !id.contains("warsun") && !id.contains("flagship"),
+                "{id} costs more than 4"
+            );
+        }
+        let cruisers = count(&state, &home, "cruiser", &a());
+        let done = use_umbat(&mut state, &mut scripted(&["a", "build|cruiser|1"]));
+        assert_eq!(done, Some(true));
+        assert_eq!(count(&state, &home, "cruiser", &a()), cruisers + 1);
+    }
+
+    #[test]
+    fn umbat_needs_a_ready_agent_a_player_who_can_produce_and_a_choice() {
+        let mut state = muaat_game();
+        set_status(&mut state, &a(), UMBAT, LeaderStatus::Exhausted);
+        assert_eq!(
+            leader_action(&state, content(), &a(), &LeaderId::new(UMBAT)),
+            Some(false)
+        );
+        set_status(&mut state, &a(), UMBAT, LeaderStatus::Readied);
+        // Declining the player choice changes nothing.
+        let before = state.clone();
+        assert_eq!(
+            use_umbat(&mut state, &mut scripted(&["decline"])),
+            Some(false)
+        );
+        assert_eq!(state, before);
+        // Nobody has a war sun or flagship.
+        let mut bare = muaat_game();
+        set_status(&mut bare, &a(), UMBAT, LeaderStatus::Readied);
+        for who in [a(), b()] {
+            let home = home_of(&bare, &who);
+            bare.system_mut(&home).units.retain(|unit| {
+                !(unit.owner == who
+                    && matches!(
+                        base_of(content(), DEFAULT, unit.type_id.as_str()).as_deref(),
+                        Some("warsun" | "flagship")
+                    ))
+            });
+        }
+        assert_eq!(
+            leader_action(&bare, content(), &a(), &LeaderId::new(UMBAT)),
+            Some(false)
+        );
+        let before = bare.clone();
+        assert_eq!(use_umbat(&mut bare, &mut never()), Some(false));
+        assert_eq!(bare, before);
+        // Not this module's leader.
+        assert_eq!(
+            leader_action(&state, content(), &a(), &LeaderId::new("naaluagent")),
+            None
+        );
+    }
+
+    // -- Magmus (effect) -------------------------------------------------------------------------
+
+    const MAGMUS_ABILITY: &str = "leader:muaat:muaatcommander:STRATEGY_TOKEN_SPENT:after";
+
+    fn token_spent(player: &str) -> Vec<(&'static str, serde_json::Value)> {
+        vec![("player", player.into()), ("reason", "test".into())]
+    }
+
+    #[test]
+    fn magmus_offers_a_trade_good_after_a_strategy_token_is_spent() {
+        let mut state = muaat_game();
+        set_status(&mut state, &a(), COMMANDER, LeaderStatus::Unlocked);
+        let goods = state.player(&a()).unwrap().trade_goods;
+        emit(
+            &mut state,
+            None,
+            &mut scripted(&[MAGMUS_ABILITY]),
+            "STRATEGY_TOKEN_SPENT",
+            &token_spent("a"),
+        );
+        assert_eq!(state.player(&a()).unwrap().trade_goods, goods + 1);
+        // Declined, another player's spend, and a locked commander change nothing.
+        let mut state = muaat_game();
+        set_status(&mut state, &a(), COMMANDER, LeaderStatus::Unlocked);
+        let before = state.clone();
+        emit(
+            &mut state,
+            None,
+            &mut scripted(&["decline"]),
+            "STRATEGY_TOKEN_SPENT",
+            &token_spent("a"),
+        );
+        emit(
+            &mut state,
+            None,
+            &mut never(),
+            "STRATEGY_TOKEN_SPENT",
+            &token_spent("b"),
+        );
+        assert_eq!(state, before);
+        let mut locked = muaat_game();
+        set_status(&mut locked, &a(), COMMANDER, LeaderStatus::Locked);
+        let before = locked.clone();
+        emit(
+            &mut locked,
+            None,
+            &mut never(),
+            "STRATEGY_TOKEN_SPENT",
+            &token_spent("a"),
+        );
+        assert_eq!(locked, before);
+    }
+
+    #[test]
+    fn this_modules_own_spends_announce_the_event_magmus_reacts_to() {
+        let mut state = muaat_game();
+        let home = home_of(&state, &a());
+        assert!(perform(
+            &mut state,
+            None,
+            &mut scripted(&[&format!("{home}|destroyer")]),
+            STAR_FORGE,
+        ));
+        assert!(
+            crate::supply::staged_event_types(&state)
+                .iter()
+                .any(|kind| kind == "STRATEGY_TOKEN_SPENT")
+        );
+    }
+
     // -- Games without a Muaat seat --------------------------------------------------------------
 
     #[test]
@@ -1365,6 +2132,21 @@ mod tests {
                     .all(|o| !o.id.starts_with("faction|muaat|"))
             );
             assert!(!may_enter_supernova(&state, content(), DEFAULT, &player));
+            assert!(!may_pass_through_supernova(
+                &state,
+                content(),
+                DEFAULT,
+                &player
+            ));
+            assert_eq!(
+                leader_action(&state, content(), &player, &LeaderId::new(AGENT)),
+                Some(false)
+            );
+            let home = home_of(&state, &player);
+            assert_eq!(
+                extra_production(&state, content(), DEFAULT, &player, &home),
+                0
+            );
         }
         // Supernovas bar every route in a game with no reactor.
         let mut moving = seated_game(

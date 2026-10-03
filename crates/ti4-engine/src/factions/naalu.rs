@@ -51,6 +51,7 @@ use ti4_model::id::{LeaderId, PlayerId, SystemId, TechnologyId};
 use ti4_model::state::{GameState, LeaderStatus, TokenPool};
 use ti4_model::units::Unit;
 
+use super::hooks_combat::CombatHooks;
 use super::hooks_strategy::{SecondaryWaiver, StrategyHooks};
 use super::{FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption};
@@ -68,16 +69,18 @@ const GIFT_MARK: &str = "naalu:gift_round";
 /// What this faction implements. Only what is whole and tested: the rest is in the module docs.
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
-    // `foresight` is implemented and tested, but unclaimed: the live game emits the typed
-    // SHIP_MOVED only for ships that carried cargo (coordinator note, BF-naalu evidence).
-    abilities: &["telepathic"],
-    technologies: &["ng"],
-    units: &["naalu_fighter"],
+    abilities: &["telepathic", "foresight"],
+    technologies: &["ng", "hcf2"],
+    units: &["naalu_fighter", "naalu_fighter2"],
     promissory: &["gift"],
     leaders: &[HERO],
     breakthroughs: &["naalubt"],
     hooks: Hooks {
         timing_abilities: Some(timing_abilities),
+        combat: CombatHooks {
+            fighter_fleet_weight_halves: Some(fighter_fleet_weight_halves),
+            ..CombatHooks::NONE
+        },
         strategy: StrategyHooks {
             strategy_phase_ended: Some(strategy_phase_ended),
             secondary_waivers: Some(secondary_waivers),
@@ -237,6 +240,18 @@ fn gift_return(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
+// -- Hybrid Crystal Fighter II -------------------------------------------------------------------
+
+/// Excess Hybrid Crystal Fighter IIs weigh half a ship against the fleet pool (`fleet::standing`).
+fn fighter_fleet_weight_halves(
+    state: &GameState,
+    _content: &ContentStore,
+    player: &PlayerId,
+    unit_type: &str,
+) -> bool {
+    unit_type == "naalu_fighter2" && is_naalu(state, player)
+}
+
 // -- Neuroglaive ---------------------------------------------------------------------------------
 
 fn neuroglaive_ready(
@@ -352,6 +367,10 @@ fn foresight_window(
     if mover == seat.as_str() || !is_naalu(context.state, seat) {
         return None;
     }
+    // "moves ships into a system": a movement step that brought nothing in does not count.
+    if event.integer("ships_moved").unwrap_or(0) <= 0 {
+        return None;
+    }
     let from = SystemId::new(event.text("system")?);
     if context
         .state
@@ -379,9 +398,9 @@ fn foresight_window(
 fn foresight(owner_name: &str, seat: &PlayerId) -> Ability {
     let (owner, condition_seat) = (seat.clone(), seat.clone());
     Ability::stateful(
-        format!("ability:{owner_name}:foresight:SHIP_MOVED:after"),
+        format!("ability:{owner_name}:foresight:MOVEMENT_FINISHED:after"),
         seat.clone(),
-        "SHIP_MOVED",
+        "MOVEMENT_FINISHED",
         Relation::After,
         Arc::new(move |event, _resolver, context| {
             let Some((from, destinations)) = foresight_window(context, event, &owner) else {
@@ -493,9 +512,9 @@ fn agent_ready(
 fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
     let (owner, condition_seat) = (seat.clone(), seat.clone());
     Ability::stateful(
-        format!("leader:{owner_name}:{AGENT}:SYSTEM_ACTIVATED:after"),
+        format!("leader:{owner_name}:{AGENT}:COMMAND_TOKEN_PLACED:after"),
         seat.clone(),
-        "SYSTEM_ACTIVATED",
+        "COMMAND_TOKEN_PLACED",
         Relation::After,
         Arc::new(move |event, _resolver, context| {
             let Some((player, system)) = agent_ready(context, event, &owner) else {
@@ -699,14 +718,14 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
         gift(owner_name, seat),
         gift_return(owner_name, seat),
         neuroglaive(owner_name, seat),
+        foresight(owner_name, seat),
         hero(owner_name, seat),
     ];
-    // Foresight, Z'eu and Iconoclast are written and unit-tested but not claimed: their events are
-    // not wired in `game.rs` (see the evidence file), so they stay off in real games until a test
-    // with a running `Game` proves them. The unit tests drive them directly.
+    // Z'eu and Iconoclast are written and unit-tested but not claimed (Z'eu covers only the
+    // activation token; Iconoclast only some relic gains), so they stay off in real games.
+    // The unit tests drive them directly.
     if cfg!(test) {
         abilities.extend([
-            foresight(owner_name, seat),
             agent(owner_name, seat),
             mech(owner_name, seat, "RELIC_GAINED"),
             mech(owner_name, seat, "FRACTURE_RELIC_GAINED"),
@@ -738,7 +757,14 @@ mod tests {
     fn payload(pairs: &[(&str, &str)]) -> BTreeMap<String, serde_json::Value> {
         pairs
             .iter()
-            .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+            .map(|(k, v)| {
+                let value = if *k == "ships_moved" {
+                    serde_json::Value::from(v.parse::<i64>().unwrap())
+                } else {
+                    serde_json::Value::from(*v)
+                };
+                ((*k).to_owned(), value)
+            })
             .collect()
     }
 
@@ -856,8 +882,16 @@ mod tests {
                 vec![("player", "a"), ("system", other.as_str())],
             ),
             (
-                "SHIP_MOVED",
-                vec![("player", "a"), ("system", home.as_str())],
+                "MOVEMENT_FINISHED",
+                vec![
+                    ("player", "a"),
+                    ("system", home.as_str()),
+                    ("ships_moved", "1"),
+                ],
+            ),
+            (
+                "COMMAND_TOKEN_PLACED",
+                vec![("player", "a"), ("system", other.as_str())],
             ),
             ("RELIC_GAINED", vec![("player", "a")]),
             ("FRACTURE_RELIC_GAINED", vec![("player", "a")]),
@@ -971,7 +1005,11 @@ mod tests {
             &mut t.state,
             &mut scripted(&[NG_ABILITY]),
             "SYSTEM_ACTIVATED",
-            &[("player", "b"), ("system", t.from.as_str())],
+            &[
+                ("player", "b"),
+                ("system", t.from.as_str()),
+                ("ships_moved", "1"),
+            ],
         );
         assert_eq!(t.state.player(&b()).unwrap().fleet_tokens, before - 1);
         assert_eq!(t.state.player(&a()).unwrap().fleet_tokens, mine);
@@ -1002,7 +1040,11 @@ mod tests {
             &mut t.state,
             &mut scripted(&[]),
             "SYSTEM_ACTIVATED",
-            &[("player", "a"), ("system", t.from.as_str())],
+            &[
+                ("player", "a"),
+                ("system", t.from.as_str()),
+                ("ships_moved", "1"),
+            ],
         );
         assert_eq!(t.state.player(&b()).unwrap().fleet_tokens, before);
         assert_eq!(t.state.player(&a()).unwrap().fleet_tokens, mine);
@@ -1010,7 +1052,7 @@ mod tests {
 
     // -- Foresight -------------------------------------------------------------------------------
 
-    const FORESIGHT_ABILITY: &str = "ability:naalu:foresight:SHIP_MOVED:after";
+    const FORESIGHT_ABILITY: &str = "ability:naalu:foresight:MOVEMENT_FINISHED:after";
 
     #[test]
     fn foresight_moves_the_ships_and_spends_a_strategy_token_into_the_new_system() {
@@ -1024,8 +1066,12 @@ mod tests {
             &mut t.state,
             Some(&t.galaxy),
             &mut scripted(&[FORESIGHT_ABILITY, &answer]),
-            "SHIP_MOVED",
-            &[("player", "b"), ("system", t.from.as_str())],
+            "MOVEMENT_FINISHED",
+            &[
+                ("player", "b"),
+                ("system", t.from.as_str()),
+                ("ships_moved", "1"),
+            ],
         );
         assert!(t.state.ships_of(&a(), &t.from).is_empty());
         let there = t.state.ships_of(&a(), &t.beside);
@@ -1049,8 +1095,12 @@ mod tests {
             &mut t.state,
             Some(&t.galaxy),
             &mut scripted(&[]),
-            "SHIP_MOVED",
-            &[("player", "a"), ("system", t.from.as_str())],
+            "MOVEMENT_FINISHED",
+            &[
+                ("player", "a"),
+                ("system", t.from.as_str()),
+                ("ships_moved", "1"),
+            ],
         );
         assert_eq!(t.state.ships_of(&a(), &t.from).len(), 2);
         // No strategy token.
@@ -1059,8 +1109,12 @@ mod tests {
             &mut t.state,
             Some(&t.galaxy),
             &mut scripted(&[]),
-            "SHIP_MOVED",
-            &[("player", "b"), ("system", t.from.as_str())],
+            "MOVEMENT_FINISHED",
+            &[
+                ("player", "b"),
+                ("system", t.from.as_str()),
+                ("ships_moved", "1"),
+            ],
         );
         assert_eq!(t.state.ships_of(&a(), &t.from).len(), 2);
         // Every neighbour holds another player's ships or Naalu's own token.
@@ -1095,10 +1149,31 @@ mod tests {
             &mut full.state,
             Some(&full.galaxy),
             &mut scripted(&[]),
-            "SHIP_MOVED",
-            &[("player", "b"), ("system", full.from.as_str())],
+            "MOVEMENT_FINISHED",
+            &[
+                ("player", "b"),
+                ("system", full.from.as_str()),
+                ("ships_moved", "1"),
+            ],
         );
         assert_eq!(full.state.ships_of(&a(), &full.from).len(), 2);
+    }
+
+    #[test]
+    fn foresight_needs_the_mover_to_have_moved_ships_in() {
+        let mut t = board();
+        emit_in(
+            &mut t.state,
+            Some(&t.galaxy),
+            &mut scripted(&[]),
+            "MOVEMENT_FINISHED",
+            &[
+                ("player", "b"),
+                ("system", t.from.as_str()),
+                ("ships_moved", "0"),
+            ],
+        );
+        assert_eq!(t.state.ships_of(&a(), &t.from).len(), 2);
     }
 
     #[test]
@@ -1219,7 +1294,7 @@ mod tests {
 
     // -- Z'eu ------------------------------------------------------------------------------------
 
-    const AGENT_ABILITY: &str = "leader:naalu:naaluagent-te:SYSTEM_ACTIVATED:after";
+    const AGENT_ABILITY: &str = "leader:naalu:naaluagent-te:COMMAND_TOKEN_PLACED:after";
 
     #[test]
     fn the_agent_returns_an_activation_token_and_exhausts() {
@@ -1228,8 +1303,12 @@ mod tests {
         emit(
             &mut t.state,
             &mut scripted(&[AGENT_ABILITY]),
-            "SYSTEM_ACTIVATED",
-            &[("player", "b"), ("system", t.from.as_str())],
+            "COMMAND_TOKEN_PLACED",
+            &[
+                ("player", "b"),
+                ("system", t.from.as_str()),
+                ("ships_moved", "1"),
+            ],
         );
         assert!(
             !t.state
@@ -1252,8 +1331,12 @@ mod tests {
         emit(
             &mut t.state,
             &mut scripted(&[]),
-            "SYSTEM_ACTIVATED",
-            &[("player", "b"), ("system", t.from.as_str())],
+            "COMMAND_TOKEN_PLACED",
+            &[
+                ("player", "b"),
+                ("system", t.from.as_str()),
+                ("ships_moved", "1"),
+            ],
         );
         assert_eq!(
             leader_status(&t.state, &a(), AGENT),
@@ -1263,8 +1346,12 @@ mod tests {
         emit(
             &mut t.state,
             &mut scripted(&["decline"]),
-            "SYSTEM_ACTIVATED",
-            &[("player", "b"), ("system", t.from.as_str())],
+            "COMMAND_TOKEN_PLACED",
+            &[
+                ("player", "b"),
+                ("system", t.from.as_str()),
+                ("ships_moved", "1"),
+            ],
         );
         assert!(
             t.state
@@ -1344,12 +1431,110 @@ mod tests {
     }
 
     #[test]
-    fn the_claims_are_the_sheet() {
-        assert_eq!(
-            MODULE.abilities,
-            ["telepathic"],
-            "foresight waits on the live SHIP_MOVED"
+    fn foresight_resolves_once_after_a_real_movement_step() {
+        use crate::game::{Game, TACTICAL_ACTION_ID};
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", FACTION)], DEFAULT);
+        crate::promissory::deal(&mut state, content, DEFAULT);
+        let ids: Vec<String> = crate::fixtures::plain_systems(12)
+            .into_iter()
+            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .take(8)
+            .collect();
+        let mut tiles = vec!["18"];
+        tiles.extend(ids.iter().map(String::as_str));
+        let galaxy = Galaxy::build(content, &tiles, DEFAULT, 2).unwrap();
+        let ring: Vec<String> = ids.clone();
+        let from = SystemId::new(ring[0].as_str());
+        let near: Vec<String> = galaxy
+            .adjacent(from.as_str())
+            .into_iter()
+            .filter(|id| ring.iter().any(|plain| plain == id))
+            .map(ToOwned::to_owned)
+            .collect();
+        assert!(near.len() >= 2);
+        let (src, beside) = (
+            SystemId::new(near[0].as_str()),
+            SystemId::new(near[1].as_str()),
         );
+        state.phase = ti4_model::state::Phase::Action;
+        state.active = Some(a());
+        crate::fixtures::put(&mut state, &from, "cruiser", &b(), 2);
+        crate::fixtures::put(&mut state, &src, "destroyer", &a(), 1);
+        let tokens = state.player(&b()).unwrap().strategic_tokens;
+        let ability = "ability:naalu:foresight:MOVEMENT_FINISHED:after";
+        let script: Vec<String> = vec![
+            TACTICAL_ACTION_ID.to_owned(),
+            from.to_string(),
+            // Z'eu is registered only in test builds; decline its activation window.
+            "decline".to_owned(),
+            format!("move|{src}|0"),
+            "done_moving".to_owned(),
+            ability.to_owned(),
+            format!("system|{beside}"),
+        ];
+        let table =
+            crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(script)));
+        let mut game = Game::with_table(state, content, table).with_galaxy(galaxy);
+        for _ in 0..12 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        assert!(game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE"));
+        assert!(
+            game.state.ships_of(&b(), &from).is_empty(),
+            "Naalu left before combat"
+        );
+        assert_eq!(game.state.ships_of(&b(), &beside).len(), 2);
+        assert_eq!(game.state.ships_of(&a(), &from).len(), 1);
+        assert_eq!(
+            game.state.player(&b()).unwrap().strategic_tokens,
+            tokens - 1
+        );
+    }
+
+    #[test]
+    fn excess_hybrid_crystal_fighters_weigh_half_a_ship_for_naalu_only() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        assert!(fighter_fleet_weight_halves(
+            &state,
+            content,
+            &a(),
+            "naalu_fighter2"
+        ));
+        assert!(!fighter_fleet_weight_halves(
+            &state,
+            content,
+            &a(),
+            "naalu_fighter"
+        ));
+        assert!(!fighter_fleet_weight_halves(
+            &state,
+            content,
+            &b(),
+            "naalu_fighter2"
+        ));
+        // Through the real fleet arithmetic: four excess fighter IIs cost two ships, not four.
+        let system = SystemId::new(crate::fixtures::plain_systems(1)[0].as_str());
+        state.board.entry(system.clone()).or_default();
+        crate::fixtures::put(&mut state, &system, "naalu_fighter2", &a(), 4);
+        let standing = crate::fleet::standing(&state, content, DEFAULT, &a(), &system, None);
+        assert_eq!(standing.fleet_charged, 2);
+        let mut plain = state.clone();
+        plain.player_mut(&a()).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        let full = crate::fleet::standing(&plain, content, DEFAULT, &a(), &system, None);
+        assert_eq!(
+            full.fleet_charged, 4,
+            "without the hook an excess fighter II costs a ship"
+        );
+    }
+
+    #[test]
+    fn the_claims_are_the_sheet() {
+        assert_eq!(MODULE.abilities, ["telepathic", "foresight"]);
         assert!(MODULE.units.contains(&"naalu_fighter"));
         assert!(!MODULE.units.contains(&"naalu_flagship"));
     }

@@ -70,3 +70,19 @@ Ledger line: `saar       5/13 implemented` (missing: nomadic, cm, ffac2, saar_sp
 Decision sites: unchanged (`ask` callers `ragh_call`, `chaos_mapping_production` (test-only registration), `hero`; none renamed).
 
 Checks: `factions::saar` 9 passed; clippy no warning in `saar.rs`; rustfmt run. Ledger: `saar 3/13 implemented` (claimed: saar_flagship, ragh, saarhero).
+
+## Update after routes F1/F3/F4 (Codex's Nomadic and Chaos Mapping verified)
+
+| Item | Status |
+|---|---|
+| `nomadic` (Codex: `StrategyHooks::scores_without_home`) | claimed; test `nomadic_scores_without_the_home_planets_and_others_still_need_them` (Saar passes `controls_home_system` with no home planets, Sol does not) |
+| `cm` (Codex: `cannot_activate` plus the start-of-turn production, now registered live) | claimed; tests `chaos_mapping_bars_other_players_from_an_asteroid_field_holding_a_cm_ship`, `chaos_mapping_production_needs_the_technology_the_action_phase_and_a_producer`. The production run itself (full window) is not driven by a test |
+| `scavenge`, `saar_mech` DEPLOY | claimed again: control gains now emit `PLANET_CONTROL_GAINED` from invasion, Maxis and Thunder's Edge placement (BF-F1); tests unchanged (emit-level) |
+| `ffac2`, `saar_spacedock`, `saar_spacedock2` | claimed: `movable_into` offers the dock as a mover (BF-F4), blockade destruction runs after movement and space combat (`game.rs`, `combat.rs`), retreat includes `moves_as_ship` (`combat.rs:2636`); test `floating_factories_move_as_ships_and_a_blockade_destroys_them` covers the offer and the destruction function, not the game.rs/combat.rs call sites or a retreat |
+| `saaragent` Captain Mendosa | claimed: `SYSTEM_ACTIVATED` window, agent owner picks a slower ship of the activator, exhausts; `MovementHooks::move_bonus` returns the gap to the fastest printed ship move, keyed on `activation_seq`, origin and ship index; test `the_agent_raises_one_ship_to_the_fastest_move_on_the_board` (bonus read through the hook, not through a full tactical action) |
+| `saarcommander` | still partial (unlock only): effect "place produced fighters/infantry at any non-blockaded dock" needs a production placement-spot override; no hook exists (F3 added only extra production and cost reduction). Hook request |
+| `saarbt` Deorbit Barrage | not implemented (ACTION with variable resource spend, dice, hits on a ground force up to 2 systems from an asteroid field with own ships); needs a payment API for "spend any amount of resources" and a hit-assignment helper for a chosen planet; not attempted |
+
+Agent rules question: "highest move value" is the printed value among ships on the board (all players), not boosted values. New decision sites: `saar::agent` (1, via `ask`; subtype `agent_ship`). Existing: `ragh_call`, `chaos_mapping_production`, `hero`.
+
+Commands: `cargo test -p ti4-engine --lib -- factions::saar` 14 passed, 0 failed; clippy no warning in `saar.rs`; rustfmt run. Ledger: `saar 11/13 implemented` (missing saarcommander, saarbt).

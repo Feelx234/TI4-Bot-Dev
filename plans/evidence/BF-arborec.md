@@ -67,3 +67,10 @@ Production questions flow through `production::produce_by_ability` (already regi
 - Decision sites: no new or renamed ones (Mitosis question unchanged in count; it now also appears for a lone replacement).
 - Results: `factions::arborec` 38 passed; clippy clean in arborec.rs; rustfmt applied.
 - Ledger: `arborec    9/12 implemented` (gaps: `lw2`, `arborec_infantry2`, `arborechero`).
+
+## Route update (F1/F3)
+
+- `lw2` and `arborec_infantry2` claimed: staged `GROUND_FORCE_DESTROYED` (Plague, Unstable Planet, agenda clears) reaches the roll when flushed (`a_staged_destruction_from_a_card_or_agenda_reaches_letani_warrior_ii`). Remaining path with no roll: Letani Warriors aboard a ship destroyed in space (they die with the ship; no ground-force event), and the synchronous test-only invasion entry points.
+- `arborechero` claimed: ability production without a timing handle stages `UNITS_PRODUCED` (`the_heros_production_is_announced_as_units_produced`).
+- New decision sites: none.
+- Results: `factions::arborec` 40 passed; clippy clean in arborec.rs; rustfmt applied. Ledger: `arborec   12/12 implemented`.

@@ -107,3 +107,20 @@ Seed "use it?" is the resolver's own optional-ability question.)
 4. **Nits 7/8 (rules decisions, recorded).** Destroying other players' units by removal (no destruction events) and dropping
    attachments with the purged planets are decisions pending the shared-helper route in item 1; Star Forge placing one fighter
    when only one fits is a decision.
+
+## Wave F update (shared routes of commit 083ff72b)
+
+| Item | Status now | Tests |
+|---|---|---|
+| `gashlai_physiology` | done, claimed: `may_pass_through_supernova` for any Muaat seat (through only; ending in a supernova still needs `mr`) | `gashlai_physiology_lets_muaat_ships_pass_through_a_supernova_but_not_stop_in_one` |
+| `mr` | done, claimed: `may_enter_supernova` (Muaat seat holding `mr`, own or assimilated) + `EconomyHooks::extra_production` = 5 in a supernova holding a unit of the holder | `magmus_reactor_lets_ships_move_into_a_supernova_and_only_with_the_reactor`, `magmus_reactor_gives_a_supernova_with_your_units_production_five` |
+| `muaatagent` Umbat | done, claimed: `leader_action`/`use_leader`, `produce_by_ability_capped(limit 2, max cost 4)`; the chosen player picks the system and may decline (agent still spent) | `umbat_lets_the_chosen_player_produce_two_units_costing_four_or_less`, `umbat_needs_a_ready_agent_a_player_who_can_produce_and_a_choice` |
+| `muaathero` | done, claimed, live: a `SHIP_MOVED` ability records the activation and system of a war sun move (Muaat seat, hero unlocked only); Nova Seed is an optional ability on `MOVEMENT_FINISHED`. Destruction goes through `combat::destroy_units` (staged `SHIP_DESTROYED`) and staged `GROUND_FORCE_DESTROYED`; planets are marked purged (`SystemState::purge_planet`, `purged_systems`), exhausted/placed/attachment/legendary/swapped-planet records cleared, planet-naming laws repealed, ingress/breach/Thunder's Edge tokens dropped | `nova_seed_replaces_the_tile_destroys_other_units_and_purges_the_hero`, `nova_seed_is_not_offered_when_its_conditions_fail_and_declining_changes_nothing`, `nova_seed_works_in_a_driven_tactical_action` (real `Game` steps: tactical action, move, done moving, hero ability, map shows the supernova after the next step's replay) |
+| `muaatcommander` | partial, not claimed: unlock done; effect (optional trade good on `STRATEGY_TOKEN_SPENT`) works, but the event is announced only by the spends in this module (Star Forge, The Inferno via `spend_strategy_token_staged`, flushed by `game.rs`). Other spend sites (`strategy.rs:382`, `agenda_effects.rs:1038`, `entropic_scars.rs:174`, `faction_techs.rs:114,325`, `naalu.rs:460`) still call `spend_token` directly | `magmus_offers_a_trade_good_after_a_strategy_token_is_spent`, `this_modules_own_spends_announce_the_event_magmus_reacts_to` |
+| `muaatbt` | still blocked (hook request 5 below) | none |
+
+Remaining hook request: breakthrough-gained event, Avernus planet-token placement/movement (see request 5 above).
+
+Notes: the game replays recorded map edits at the start of its next step, so the rest of the step that fires Nova Seed (`finish_tactical`) still reads the old map; the system holds only the Muaat player's units afterwards (no combat, no planets) but a Magmus Reactor production in the active system in the same step would read the stale map. `active_system` is moved to tile 81 immediately. Decision sites: unchanged, `muaat.rs::ask` (Choice 1, AskObserved 1; now also Umbat player and system questions and Star Forge/Ember Colossus). The Umbat production window's own questions are `production.rs`'s.
+
+Commands: `cargo test -p ti4-engine --lib -- factions::muaat` -> 23 passed; `-- factions::` -> 306 passed, 1 ignored; clippy: nothing in `muaat.rs`; rustfmt run; full `cargo test -p ti4-engine -q --no-fail-fast`: lib 1874 passed, 2 failed (`transit::` free-cargo tests, not Muaat), `decision_delivery_inventory` 2 of 4 failing (other sites). Ledger: `muaat 11/13 implemented` (gaps: `muaatcommander`, `muaatbt`).
