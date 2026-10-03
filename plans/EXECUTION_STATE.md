@@ -48,12 +48,21 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
   In the reused clean checkout, ti4-sim had 50 pass, 1 ignored, 1 missing-map-pool-fixture failure.
   Another session's uncommitted faction, game income and model/training/review edits remain separate.
   Next: let the active faction edits finish, re-run the ledger and affected tests, then close the
-  remaining 23 faction assets without widening `IN_SCOPE_FACTIONS` until authorized.
+  remaining 22 faction assets without widening `IN_SCOPE_FACTIONS` until authorized.
 - Codex Ghost Particle Synthesis follow-up `8a9e437d`: production capacity and combined-cost
     discount implemented and independently Terra-reviewed; full ti4-engine suite 1,884 passed,
     1 ignored, integrations and doctests passed. Ghost is now 11/12; the twelve-faction ledger is
     122/145 on this committed branch. See `plans/evidence/BF-ghostbt.md`. The remaining Ghost
     commander effect still needs accurate wormhole traversal and capacity timing.
+- Codex Ghost completion follow-ups `dc9ea910` and `d69bba8e`: corrected
+  `SHIP_MOVED.wormholes` for Quantum Entanglement and other map wormholes, then implemented Sai
+  Seravus at `MOVEMENT_FINISHED`. Ghost is now 12/12 and the committed twelve-faction ledger
+  123/145. Clean full ti4-engine suite: 1,889 passed, 1 ignored, integrations and doctests passed;
+  live tactical movement test passed. The 30-seed six-original-faction comparison remained
+  identical at every point after the shared route correction. Both packages had independent Terra
+  reviews with no actionable findings. Evidence: `BF-ghostcommander-route.md` and
+  `BF-ghostcommander.md`. Ghost's 200-game seated soak and plan-required frontier exit review
+  remain pending; the operator prohibits subagents above Terra.
 - Review note for the separate uncommitted `game.rs` gain scan: Fracture emits
     `FRACTURE_RELIC_GAINED` immediately, while the scan may emit `RELIC_GAINED` for that same
     relic at the next step; verify and prevent a duplicate Naalu Iconoclast offer before claiming
