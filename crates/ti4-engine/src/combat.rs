@@ -1912,6 +1912,39 @@ fn sustains_in_space(
         )
 }
 
+/// Whether a hit of `origin` may be assigned to a unit of `player`'s at `system` at all.
+///
+/// SUSTAIN DAMAGE is part of *assigning* a hit, not a separate cancellation: a unit that cannot be
+/// assigned a hit from a unit ability (Naaz Eidolon Maximum, "it cannot be assigned hits from unit
+/// abilities") is not asked to spend its sustain on that hit either. A hit nothing can take is
+/// discarded (15.2a).
+fn assignable_to_hit(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit_type: &str,
+    origin: HitOrigin,
+) -> bool {
+    origin != HitOrigin::UnitAbility
+        || !crate::factions::hooks_combat::ability_hit_immune(
+            state,
+            content,
+            sources,
+            &crate::factions::CombatUnit {
+                player,
+                system: Some(system),
+                planet: None,
+                unit_type,
+                context: "space",
+            },
+        )
+}
+
+/// Offer every available SUSTAIN DAMAGE until the hits run out or the player takes them.
+///
+/// Only units that could actually be assigned a hit of `origin` are offered.
 fn offer_sustain(
     state: &mut GameState,
     content: &ContentStore,
@@ -1922,6 +1955,7 @@ fn offer_sustain(
     system: &SystemId,
     producer: &PlayerId,
     mut hits: usize,
+    origin: HitOrigin,
 ) -> Result<usize, CombatError> {
     let types = catalogue(content, sources);
     while hits > 0 {
@@ -1933,7 +1967,15 @@ fn offer_sustain(
             .filter(|(_, unit)| {
                 types.get(unit.type_id.as_str()).is_some_and(|kind| {
                     sustains_in_space(state, content, sources, system, player, unit, kind)
-                })
+                }) && assignable_to_hit(
+                    state,
+                    content,
+                    sources,
+                    player,
+                    system,
+                    unit.type_id.as_str(),
+                    origin,
+                )
             })
             .map(|(index, unit)| (format!("space:{index}"), unit.clone()))
             .collect();
@@ -1947,6 +1989,15 @@ fn offer_sustain(
                         && types.get(unit.type_id.as_str()).is_some_and(|kind| {
                             sustains_in_space(state, content, sources, system, player, unit, kind)
                         })
+                        && assignable_to_hit(
+                            state,
+                            content,
+                            sources,
+                            player,
+                            system,
+                            unit.type_id.as_str(),
+                            origin,
+                        )
                     {
                         available.push((format!("planet:{planet}"), unit.clone()));
                     }
@@ -2185,27 +2236,22 @@ pub fn absorb_hits_seeing_with(
     // spends it, so a cancelled cannon or barrage hit is one nobody has to absorb.
     let hits = hits.saturating_sub(spend_cancellations(state, player, hits));
     let mut remaining = offer_sustain(
-        state, content, sources, galaxy, ctx, player, system, producer, hits,
+        state, content, sources, galaxy, ctx, player, system, producer, hits, origin,
     )?;
 
     while remaining > 0 {
         let mut alive = ships_of(state, content, sources, player, system);
-        if origin == HitOrigin::UnitAbility {
-            alive.retain(|unit| {
-                !crate::factions::hooks_combat::ability_hit_immune(
-                    state,
-                    content,
-                    sources,
-                    &crate::factions::CombatUnit {
-                        player,
-                        system: Some(system),
-                        planet: None,
-                        unit_type: unit.type_id.as_str(),
-                        context: "space",
-                    },
-                )
-            });
-        }
+        alive.retain(|unit| {
+            assignable_to_hit(
+                state,
+                content,
+                sources,
+                player,
+                system,
+                unit.type_id.as_str(),
+                origin,
+            )
+        });
         if alive.is_empty() {
             return Ok(()); // 15.2a
         }
@@ -5085,6 +5131,7 @@ mod tests {
             &system,
             &attacker(),
             2,
+            HitOrigin::CombatRoll,
         )
         .expect("the offer resolves");
         assert_eq!(
@@ -5108,6 +5155,7 @@ mod tests {
             &system,
             &attacker(),
             2,
+            HitOrigin::CombatRoll,
         )
         .expect("the offer resolves");
         assert_eq!(left, 0, "with it, the same one ship cancels both");
@@ -6866,6 +6914,7 @@ mod tests {
             &system,
             &attacker(),
             1,
+            HitOrigin::CombatRoll,
         )
         .unwrap();
         let sustain_asked = sustain_seen.borrow();
@@ -7177,6 +7226,7 @@ mod tests {
             &system,
             &attacker(),
             1,
+            HitOrigin::CombatRoll,
         )
         .unwrap();
         let asked = seen.borrow();

@@ -2006,6 +2006,142 @@ mod tests {
         );
     }
 
+    /// Assign `hits` to `a`'s fleet in `system` through the shared absorption path, with the hits
+    /// labelled `origin` and a decider that either always takes SUSTAIN DAMAGE when one is offered
+    /// or always declines it. The producer is `b`, so nothing here is `a`'s own ability firing.
+    fn assign(
+        state: &mut GameState,
+        system: &SystemId,
+        hits: usize,
+        origin: crate::combat::HitOrigin,
+        take_sustain: bool,
+    ) {
+        let content = ContentStore::embedded();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let decider: Box<dyn crate::choice::Decider> = if take_sustain {
+            Box::new(crate::choice::FirstOption)
+        } else {
+            Box::new(crate::choice::AlwaysDecline)
+        };
+        let mut table = crate::choice::Table::with_default(decider);
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        crate::combat::absorb_hits_seeing_with_origin(
+            state,
+            content,
+            DEFAULT,
+            None,
+            &mut ctx,
+            &a(),
+            system,
+            &b(),
+            hits,
+            origin,
+        )
+        .expect("the hits are assigned");
+    }
+
+    /// A Maximum and a fighter in the space area of system 18, in that order.
+    fn maximum_and_a_fighter(state: &mut GameState) -> SystemId {
+        let system = SystemId::new("18");
+        crate::fixtures::put(state, &system, "naaz_voltron", &a(), 1);
+        crate::fixtures::put(state, &system, "fighter", &a(), 1);
+        system
+    }
+
+    /// `a`'s Maximum in `system`, undamaged and still whole.
+    fn maximum_whole(state: &GameState, system: &SystemId) -> bool {
+        state
+            .system_state(system)
+            .units
+            .iter()
+            .any(|unit| is_voltron(unit, &a()) && !unit.sustained_damage)
+    }
+
+    #[test]
+    fn a_maximum_is_never_assigned_a_hit_from_a_unit_ability() {
+        let mut state = game();
+        let system = maximum_and_a_fighter(&mut state);
+        // A decider that takes every SUSTAIN DAMAGE it is offered: if the Maximum were eligible for
+        // an ability hit at all, that is where the hit would end up.
+        assign(
+            &mut state,
+            &system,
+            1,
+            crate::combat::HitOrigin::UnitAbility,
+            true,
+        );
+        assert!(
+            maximum_whole(&state, &system),
+            "the Maximum was damaged or destroyed by a hit from a unit ability"
+        );
+        assert_eq!(
+            state
+                .system_state(&system)
+                .units
+                .iter()
+                .filter(|unit| unit.type_id.as_str() == "fighter")
+                .count(),
+            0,
+            "the fighter is the unit the hit could be assigned to"
+        );
+    }
+
+    #[test]
+    fn an_ability_hit_is_discarded_when_nothing_else_can_take_it() {
+        let mut state = game();
+        let system = SystemId::new("18");
+        crate::fixtures::put(&mut state, &system, "naaz_voltron", &a(), 1);
+        assign(
+            &mut state,
+            &system,
+            1,
+            crate::combat::HitOrigin::UnitAbility,
+            true,
+        );
+        assert!(
+            maximum_whole(&state, &system),
+            "15.2a discards a hit that cannot be assigned; the Maximum is not a unit an ability hit can be assigned to, and its SUSTAIN DAMAGE is not a way of making it assignable"
+        );
+        assert_eq!(voltrons(&state, &a()), 1);
+    }
+
+    #[test]
+    fn a_maximum_takes_ordinary_combat_hits() {
+        let mut state = game();
+        let system = maximum_and_a_fighter(&mut state);
+        // Declining SUSTAIN DAMAGE: the hit lands, and the Maximum is an ordinary ship here.
+        assign(
+            &mut state,
+            &system,
+            1,
+            crate::combat::HitOrigin::CombatRoll,
+            false,
+        );
+        assert_eq!(
+            voltrons(&state, &a()),
+            0,
+            "a combat-roll hit destroys the Maximum when its SUSTAIN DAMAGE is declined"
+        );
+        assert_eq!(
+            state
+                .system_state(&system)
+                .units
+                .iter()
+                .filter(|unit| unit.type_id.as_str() == "fighter")
+                .count(),
+            1,
+            "the fighter is untouched"
+        );
+    }
+
     #[test]
     fn a_game_without_naaz_is_not_offered_absolute_synergy() {
         let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);

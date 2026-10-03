@@ -10113,3 +10113,61 @@ hit is suppressed by Eidolon immunity while a `HitOrigin::CombatRoll` hit is not
 `naaz_voltron` if the Voltron unit behaviour the wave implemented is real. After that the remaining
 base-faction gaps are the eight leaders/breakthroughs already listed in the wave-D queue. Obtain a
 tier C review of this commit before extending the wave further.
+
+## 2026-10-04 — BF-NAAZ-EIDOLON: the Eidolon Maximum is not offered a hit it cannot take
+
+Objective: close the one Eidolon Maximum clause that BF-COMBAT-ORIGIN had made possible but had not
+asserted — "It cannot be assigned hits from unit abilities" — and claim `naaz_voltron` only if the
+behaviour turned out to be real. Evidence and exact commands: `plans/evidence/BF-NAAZ-EIDOLON.md`.
+
+Inherited state: `wp/base-factions` at `920c852c`, tree intentionally dirty (the other session's
+`game.rs` round-income experiment plus the ML/replayer paths).
+
+Done and committed on this package:
+
+- Fixtures first. Three tests in `factions::naaz::tests`: an ability hit against a Maximum plus a
+  fighter, an ability hit against a Maximum alone, and a combat-roll hit against the same position
+  with sustain declined. Two of them failed against `920c852c`; the combat-roll control passed.
+- The failure was real, not a missing test. `offer_sustain` ran before the eligibility filter, so the
+  engine asked the player to spend the Maximum's SUSTAIN DAMAGE on a hit that could never have been
+  assigned to it; accepting cancelled the hit and damaged the Maximum instead of 15.2a discarding it.
+- `combat.rs` now has one predicate, `assignable_to_hit`, used by **both** the sustain offer and the
+  casualty filter. `offer_sustain` takes `origin: HitOrigin` and offers only units that could take
+  the hit — including the `planet:<id>` branch that lets a planet-standing Maximum sustain next to a
+  real ship. Four existing `offer_sustain` tests pass `HitOrigin::CombatRoll`.
+
+Measured: `cargo test -p ti4-engine --lib naaz::tests` 29/0/0. `cargo test -p ti4-engine -q
+--no-fail-fast -j 4` → **1931 + 1 + 4 + 5 passed, 0 failed, 1 ignored**, doctests clean (1928 →
+1931 is this package's three fixtures). `cargo fmt -p ti4-engine -- --check` clean. `cargo clippy -p
+ti4-engine --all-targets -j 4` → 14 lib / 18 lib-test (14 duplicates) / 1 `ti4-model`, identical to
+the counts recorded for `920c852c`; nothing points at `naaz.rs`. Twelve concurrent 200-seated faction
+soaks run alongside the six-faction diagnostic (13 processes, 32 cores, 415 s wall) → 2,400 games,
+**0 failures**. `rebaseline_behavior` reproduces the recorded point **exactly on all ten metrics**,
+so the shared-path change is behaviour-neutral for the original six. `cargo test -p ti4-sim --lib`
+51/0/1. Ledger unchanged at **136/147**, `naaz 11/13`.
+
+Decisions: **`naaz_voltron` and `naazbt` stay unclaimed.** The immunity is real and now tested, but
+the card is not implemented end to end: produced hits (Ambush, Impulse Core, Devotion) and the
+bombardment / space-cannon-defence paths still label their hits `HitOrigin::CombatRoll`, effect
+placement of mechs is not gated, and a captured Maximum is not re-typed on release. Claiming the unit
+would read as coverage of the card. Environment: nineteen `grep` processes left running by earlier
+sessions (oldest four days) were scanning `out/` and `target-cuda-repack/`; while they ran,
+`cargo test -p ti4-engine --lib` failed twice with `rustc-LLVM ERROR: out of memory` /
+`STATUS_STACK_BUFFER_OVERRUN`. Killing them fixed the build with no code change, and they were the
+reason a plain recursive `grep` looked endless — use `git grep` in this repository.
+
+Not cleared: no independent review for this package or for `920c852c` (tier C/D still owed). No
+fixture pins a planet-standing Maximum joining its system's space combat through a real combat window,
+even though `ships_of` and `offer_sustain` both implement it. Eleven base-faction assets remain
+unclaimed. The five metrics outside the retired behaviour bounds are unchanged.
+
+Working tree after this commit: intentionally still dirty — the `game.rs` round-income experiment,
+`crates/ti4-mlp/**`, `crates/ti4-policy/**`, `crates/ti4-training/**`, `crates/ti4-replayer/**`,
+`crates/ti4-review/**`, `scripts/`, `plans/INDEX.md`, `plans/evidence/BF-ghost.md`,
+`target-cuda-repack/`. No command in this package wrote to the historical Python reference.
+
+Next safe action: decide which hit producers are "unit abilities" and label them
+(`ProducedHits`, `invasion.rs` bombardment and space-cannon defence), with fixtures for at least
+Ambush and one bombardment case — the remaining half of BF-naaz hook request 6 and the precondition
+for claiming `naaz_voltron`. Obtain a tier C review of `920c852c` and this commit before extending
+the wave further.
