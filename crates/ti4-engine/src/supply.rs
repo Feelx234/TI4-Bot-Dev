@@ -406,6 +406,16 @@ pub fn spend_strategy_token_announced(
     spent
 }
 
+/// Stage `STRATEGY_TOKEN_SPENT` for a token the caller has already spent from `player`'s strategy
+/// pool (a site that pays the token itself). A no-op when no faction module is seated.
+pub fn note_strategy_token_spent(state: &mut GameState, player: &PlayerId, reason: &str) {
+    stage_event(
+        state,
+        "STRATEGY_TOKEN_SPENT",
+        &token_spent_payload(player, reason),
+    );
+}
+
 /// [`spend_strategy_token_announced`] for a site with no timing handle: the event is staged.
 pub fn spend_strategy_token_staged(state: &mut GameState, player: &PlayerId, reason: &str) -> bool {
     let spent = state

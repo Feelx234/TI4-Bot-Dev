@@ -475,9 +475,7 @@ fn foresight(owner_name: &str, seat: &PlayerId) -> Ability {
                 context.state.system_mut(&from).remove(&carried);
                 context.state.system_mut(&to).add(&carried);
             }
-            if let Some(player) = context.state.player_mut(&owner) {
-                player.spend_token(TokenPool::Strategic);
-            }
+            crate::supply::spend_strategy_token_staged(context.state, &owner, "naalu");
             context.state.system_mut(&to).place_token(owner.clone());
             Ok(())
         }),

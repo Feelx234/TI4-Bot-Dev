@@ -116,6 +116,7 @@ pub fn offer_nullification_field(
             continue;
         }
         seat.exhausted_technologies.insert(TechnologyId::new("nf"));
+        crate::supply::note_strategy_token_spent(state, &holder, "nullification_field");
         return Some(holder);
     }
     None
@@ -328,6 +329,7 @@ pub fn offer_quantum_datahub(
     }
     seat.trade_goods -= QUANTUM_DATAHUB_GOODS;
     state.player_mut(&partner)?.trade_goods += QUANTUM_DATAHUB_GOODS;
+    crate::supply::note_strategy_token_spent(state, &holder, "quantum_datahub");
     crate::supply::note_trade_goods_gained(
         state,
         &partner,

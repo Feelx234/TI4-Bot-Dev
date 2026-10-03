@@ -458,6 +458,7 @@ pub fn turn_started(
         && seat.tokens(ti4_model::state::TokenPool::Strategic) > 0
     {
         seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
+        crate::supply::note_strategy_token_spent(state, player, "military_support");
     }
     let spot = state
         .controlled_planets(&holder)

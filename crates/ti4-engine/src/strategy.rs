@@ -382,6 +382,11 @@ impl StrategySecondaryWindow {
                 if !player.spend_token(TokenPool::Strategic) {
                     return Err(StrategySecondaryError::NoStrategyToken(choice.player));
                 }
+                crate::supply::note_strategy_token_spent(
+                    state,
+                    &choice.player,
+                    "strategy_secondary",
+                );
             }
             SecondaryResolution::Followed
         };

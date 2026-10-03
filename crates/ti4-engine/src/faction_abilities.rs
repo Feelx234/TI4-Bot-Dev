@@ -400,6 +400,7 @@ fn production_biomes(context: &mut crate::timing::TimingContext<'_>, player: &Pl
     context
         .state
         .gain_token(player, ti4_model::state::TokenPool::Strategic, -1);
+    crate::supply::note_strategy_token_spent(context.state, player, "production_biomes");
     if let Some(seat) = context.state.player_mut(player) {
         seat.exhausted_technologies
             .insert(ti4_model::id::TechnologyId::new("pm"));
@@ -490,6 +491,7 @@ pub fn perform_component(
     context
         .state
         .gain_token(player, ti4_model::state::TokenPool::Strategic, -1);
+    crate::supply::note_strategy_token_spent(context.state, player, "orbital_drop");
     crate::action_cards::place_units(context, player, &system, Some(&planet), "infantry", 2);
 
     let mech = ti4_content::units::faction_unit(context.content, "sol", "mech", context.sources)

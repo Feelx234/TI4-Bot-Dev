@@ -1059,6 +1059,7 @@ fn instinct_training(owner_name: &str, player: &PlayerId) -> Ability {
                 seat.exhausted_technologies
                     .insert(ti4_model::id::TechnologyId::new("it"));
             }
+            crate::supply::note_strategy_token_spent(context.state, &owner, "instinct_training");
             event.cancel();
             Ok(())
         }),

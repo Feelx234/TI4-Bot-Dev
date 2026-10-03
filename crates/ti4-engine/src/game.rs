@@ -4204,6 +4204,7 @@ impl<'a> Game<'a> {
             if let Some(seat) = self.state.player_mut(&owner) {
                 seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
             }
+            crate::supply::note_strategy_token_spent(&mut self.state, &owner, "political_favor");
             let replacement = self.state.agenda_deck.remove(0);
             self.state.agenda_veto_replacement = Some(replacement);
             crate::promissory::give_back(&mut self.state, &note);

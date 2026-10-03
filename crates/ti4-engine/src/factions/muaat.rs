@@ -37,7 +37,7 @@ pub const MODULE: FactionModule = FactionModule {
         "muaat_mech",
     ],
     promissory: &["fires"],
-    leaders: &["muaathero", "muaatagent"],
+    leaders: &["muaathero", "muaatagent", "muaatcommander"],
     breakthroughs: &[],
     hooks: Hooks {
         component_actions: Some(component_actions),

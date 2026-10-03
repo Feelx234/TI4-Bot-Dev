@@ -124,3 +124,41 @@ Remaining hook request: breakthrough-gained event, Avernus planet-token placemen
 Notes: the game replays recorded map edits at the start of its next step, so the rest of the step that fires Nova Seed (`finish_tactical`) still reads the old map; the system holds only the Muaat player's units afterwards (no combat, no planets) but a Magmus Reactor production in the active system in the same step would read the stale map. `active_system` is moved to tile 81 immediately. Decision sites: unchanged, `muaat.rs::ask` (Choice 1, AskObserved 1; now also Umbat player and system questions and Star Forge/Ember Colossus). The Umbat production window's own questions are `production.rs`'s.
 
 Commands: `cargo test -p ti4-engine --lib -- factions::muaat` -> 23 passed; `-- factions::` -> 306 passed, 1 ignored; clippy: nothing in `muaat.rs`; rustfmt run; full `cargo test -p ti4-engine -q --no-fail-fast`: lib 1874 passed, 2 failed (`transit::` free-cargo tests, not Muaat), `decision_delivery_inventory` 2 of 4 failing (other sites). Ledger: `muaat 11/13 implemented` (gaps: `muaatcommander`, `muaatbt`).
+
+## Audit 2026-10-03 (Magmus spend sites, Stellar Genesis)
+
+No code change. Only `muaat.rs` (Star Forge, The Inferno) calls `supply::spend_strategy_token_staged`; nothing calls `_announced`.
+Magmus stays unclaimed. Unlock ("produce a war sun", `UNITS_PRODUCED`) and the optional "you may" (`with_optional(true)`) are correct.
+
+Strategy-pool removal sites, none announcing `STRATEGY_TOKEN_SPENT` (engine `src/`, non-test):
+
+| Site | What | Is it a "spend"? |
+|---|---|---|
+| `strategy.rs:382` | secondary ability token (`spend_token`) | yes, convert (no timing handle: staged) |
+| `reactions.rs:1058` | Instinct Training `strategic_tokens -= 1` | yes, convert (has `context`; announced) |
+| `faction_abilities.rs:402` | Production Biomes-style (`gain_token(.., -1)`, +4 TG) | yes, convert |
+| `faction_abilities.rs:492` | Orbital Drop (`gain_token(.., -1)`) | yes, convert |
+| `faction_techs.rs:115`, `:326` | `seat.spend_token(Strategic)` | yes, convert |
+| `entropic_scars.rs:174` | `seat.spend_token(Strategic)` | yes, convert |
+| `factions/naalu.rs:479` | `player.spend_token(Strategic)` | yes, convert |
+| `promissory.rs:460` | Military Support (`gain_token_uncapped(.., -1)`) | yes, convert (owner spends) |
+| `game.rs:4232` | Political Favor (`gain_token_uncapped(.., -1)`) | yes, convert (owner spends) |
+| `agenda_effects.rs:1051` | agenda discards the fullest pool by `spend_token(pool)` | not a player spend; leave (a forced loss) |
+
+Converting a site: replace the decrement with `supply::spend_strategy_token_announced(state, ctx, player, "<reason>")` where a `Resolving` exists, else `spend_strategy_token_staged` (flushed by `game.rs`). Keep each site atomic: spend only after every check passes.
+
+Stellar Genesis (`muaatbt`) stays blocked. `BREAKTHROUGH_GAINED` now exists (`game.rs::announce_gains`), so the placement half is feasible
+(non-home system adjacent to a controlled planet, `planets::place`, ready the card), but the printed text also needs:
+(a) "move one of your war suns out of or through Avernus's system": `SHIP_MOVED` (`game.rs` ~2743-2777) carries `origin` and `system` but not the route; request: add a `path` payload key (comma-joined systems from `path` in that function), so "through" is decidable;
+(b) a way to move a placed planet token with its control and units (`placed_planets` entry, `board` planet state, `exhausted_planets`); no helper exists;
+(c) the planet's legendary action (The Nucleus: exhaust to use Star Forge without a command/strategy token), which is not wired and needs a `star_forge` variant that skips the spend.
+Claiming only the placement would misstate the card, so nothing was added.
+
+Commands: `cargo test -p ti4-engine --lib -- factions::muaat` -> 23 passed; 0 failed. Ledger: `muaat 11/13 implemented` (gaps `muaatcommander`, `muaatbt`).
+No new decision sites.
+
+## Magmus claimed (2026-10-03, coordinator)
+
+Every strategy-pool spend now announces `STRATEGY_TOKEN_SPENT` (staged via new `supply::note_strategy_token_spent`, or `spend_strategy_token_staged`): strategy.rs secondary token, reactions.rs Instinct Training, faction_abilities.rs Production Biomes + Orbital Drop, faction_techs.rs Nullification Field + Quantum Datahub, entropic_scars.rs, naalu.rs, promissory.rs Military Support, game.rs Political Favor. Agenda pool discard (agenda_effects.rs) is a forced loss, not a spend, and is left alone. The gain arrives at the next staged-event flush (same convention as other staged events). `muaatcommander` claimed.
+
+Checks: `cargo test -p ti4-engine` — lib 1904 passed, 1 ignored; integration binaries ok. Ledger: `muaat 12/13 implemented` (gap `muaatbt`: needs SHIP_MOVED `path`, planet-token move, Nucleus Star Forge variant).
