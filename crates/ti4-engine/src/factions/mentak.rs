@@ -4,9 +4,8 @@
 //! Implemented: Ambush, Pillage (on a trade-goods-gained event and on a resolved transaction),
 //! Mirror Computing (the only place the trade-good worth is decided), Salvage Operations, Promise
 //! of Protection (the Pillage bar and the return on activation), Fourth Moon, Moll Terminus, the
-//! Corsair's passage, Suffi An, S'ula Mentarion and Ipswitch. Not implemented (no route; see
-//! `plans/evidence/BF-mentak.md`): The Table's Grace, which must make the Corsair the unit a
-//! Mentak player with Cruiser II places.
+//! Corsair's passage, Suffi An, S'ula Mentarion, Ipswitch and The Table's Grace (the Corsair
+//! stands in for Cruiser II; gaining the breakthrough flips the ships already on the board).
 
 use std::sync::Arc;
 
@@ -31,15 +30,12 @@ use ti4_model::id::UnitTypeId;
 /// What this faction implements; grows package by package.
 pub const MODULE: FactionModule = FactionModule {
     alias: "mentak",
-    // Not claimed: `pillage` and `mentakagent` (several trade-goods gain sites still do not emit),
-    // `mentakbt` (gaining it does not convert ships already on the board; some card placements
-    // ignore the unit-form override). See the evidence.
-    abilities: &["ambush"],
+    abilities: &["ambush", "pillage"],
     technologies: &["mc", "so"],
     units: &["mentak_flagship", "mentak_mech", "mentak_cruiser3"],
     promissory: &["pop"],
-    leaders: &["mentakcommander", "mentakhero"],
-    breakthroughs: &[],
+    leaders: &["mentakagent", "mentakcommander", "mentakhero"],
+    breakthroughs: &["mentakbt"],
     hooks: Hooks {
         commander_unlocked: Some(commander_unlocked),
         timing_abilities: Some(timing_abilities),
@@ -71,6 +67,7 @@ pub const MODULE: FactionModule = FactionModule {
 const FLAGSHIP: &str = "mentak_flagship";
 const MECH: &str = "mentak_mech";
 const CORSAIR: &str = "mentak_cruiser3";
+const BREAKTHROUGH: &str = "mentakbt";
 const AGENT: &str = "mentakagent";
 const COMMANDER: &str = "mentakcommander";
 const HERO: &str = "mentakhero";
@@ -240,8 +237,45 @@ fn unit_form_override(
     (base_type == "cruiser"
         && chosen_id == "cruiser2"
         && is_mentak(state, player)
-        && crate::breakthroughs::holds(state, player, "mentakbt"))
+        && crate::breakthroughs::holds(state, player, BREAKTHROUGH))
     .then(|| UnitTypeId::new(CORSAIR))
+}
+
+/// Whether `event` announces that `player` gained The Table's Grace.
+fn grace_gained(event: &Event, state: &GameState, player: &PlayerId) -> bool {
+    event.text("player") == Some(player.as_str())
+        && event.text("breakthrough") == Some(BREAKTHROUGH)
+        && is_mentak(state, player)
+        && crate::breakthroughs::holds(state, player, BREAKTHROUGH)
+}
+
+/// The Table's Grace, on gaining it: "If you have the Cruiser II unit upgrade technology, flip this
+/// card and place it on top of cruiser II." The Cruiser IIs already on the board become Corsairs
+/// (`technology::apply_unit_upgrades`); later placements and research ask [`unit_form_override`].
+/// Announced as `BREAKTHROUGH_GAINED` at the next step (`Game::announce_gains`).
+fn tables_grace(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("breakthrough:{owner_name}:{BREAKTHROUGH}:BREAKTHROUGH_GAINED:after"),
+        seat.clone(),
+        "BREAKTHROUGH_GAINED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            if grace_gained(event, context.state, &owner) {
+                crate::technology::apply_unit_upgrades(
+                    context.state,
+                    context.content,
+                    context.sources,
+                    &owner,
+                );
+            }
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        grace_gained(event, context.state, &condition_owner)
+    }))
 }
 
 // -- Ambush --------------------------------------------------------------------------------------
@@ -339,6 +373,7 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
     vec![
         pillage(owner_name, seat, "TRADE_GOODS_GAINED"),
         pillage(owner_name, seat, "TRANSACTION_RESOLVED"),
+        tables_grace(owner_name, seat),
         salvage_trade_good(owner_name, seat),
         salvage_ship(owner_name, seat),
         promise_of_protection(owner_name, seat),
@@ -355,6 +390,34 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
 fn protected(state: &GameState, owner: &PlayerId, target: &PlayerId) -> bool {
     let note = crate::promissory::note_id("pop", &crate::promissory::faction_name(state, owner));
     state.promissory_notes.get(&note) == Some(target) && state.promissory_faceup.contains(&note)
+}
+
+/// Prefix of the rows `supply::stage_event` keeps (private to `supply.rs`; a test below fails if it
+/// drifts).
+const STAGED_EVENT_PREFIX: &str = "private:#staged:event:";
+
+/// Whether a `TRADE_GOODS_GAINED` from a transaction is staged for `player` and not yet announced.
+///
+/// A resolved transaction stages one such event per party that gained goods (21.5), and
+/// `TRANSACTION_RESOLVED` is emitted before they are flushed. The two are one moment, so
+/// `TRANSACTION_RESOLVED` leaves a party with a pending gain to that event and offers Pillage once.
+fn transaction_gain_pending(state: &GameState, player: &PlayerId) -> bool {
+    state
+        .faction_marks
+        .range(STAGED_EVENT_PREFIX.to_owned()..)
+        .take_while(|(key, _)| key.starts_with(STAGED_EVENT_PREFIX))
+        .filter_map(|(_, text)| serde_json::from_str::<serde_json::Value>(text).ok())
+        .any(|record| {
+            record.get("type").and_then(serde_json::Value::as_str) == Some("TRADE_GOODS_GAINED")
+                && record
+                    .pointer("/payload/player")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(player.as_str())
+                && record
+                    .pointer("/payload/source")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("transaction")
+        })
 }
 
 /// Neighbours `owner` may pillage now, out of those the event concerns.
@@ -388,6 +451,9 @@ fn pillage_targets(
     concerned
         .into_iter()
         .filter(|target| target != owner)
+        .filter(|target| {
+            event.event_type != "TRANSACTION_RESOLVED" || !transaction_gain_pending(state, target)
+        })
         .filter(|target| crate::transactions::are_neighbours(state, galaxy, owner, target))
         .filter(|target| {
             state
@@ -484,7 +550,7 @@ fn pillage_effect(
     if !taken {
         return Ok(());
     }
-    crate::supply::gain_trade_goods_staged(context.state, owner, 1, "mentakagent");
+    crate::supply::gain_trade_goods_staged(context.state, owner, 1, "pillage");
     if let Err(error) = suffi_an(context, owner, &target) {
         *context.state = before;
         return Err(error);
@@ -1299,6 +1365,43 @@ mod tests {
     }
 
     #[test]
+    fn gaining_the_tables_grace_flips_the_cruiser_iis_already_on_the_board() {
+        let (mut state, system) = arena();
+        give_tech(&mut state, &a(), "cr2");
+        put(&mut state, &system, "cruiser2", &a(), 2);
+        put(&mut state, &system, "cruiser2", &b(), 1);
+        let gained = |who: &str| vec![("player", who.into()), ("breakthrough", "mentakbt".into())];
+        // Announced before the seat holds it, or for another seat: nothing changes.
+        emit(&mut state, &[], "BREAKTHROUGH_GAINED", &gained("a")).unwrap();
+        assert_eq!(count(&state, &system, "cruiser2", &a()), 2);
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("mentakbt"));
+        emit(&mut state, &[], "BREAKTHROUGH_GAINED", &gained("b")).unwrap();
+        assert_eq!(count(&state, &system, "cruiser2", &a()), 2);
+        emit(&mut state, &[], "BREAKTHROUGH_GAINED", &gained("a")).unwrap();
+        assert_eq!(count(&state, &system, CORSAIR, &a()), 2);
+        assert_eq!(count(&state, &system, "cruiser2", &a()), 0);
+        assert_eq!(count(&state, &system, "cruiser2", &b()), 1);
+    }
+
+    #[test]
+    fn the_tables_grace_does_nothing_without_cruiser_ii() {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &a(), 1);
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("mentakbt"));
+        let before = state.clone();
+        emit(
+            &mut state,
+            &[],
+            "BREAKTHROUGH_GAINED",
+            &[("player", "a".into()), ("breakthrough", "mentakbt".into())],
+        )
+        .unwrap();
+        assert_eq!(state, before);
+    }
+
+    #[test]
     fn the_tables_grace_needs_the_breakthrough_the_upgrade_and_a_mentak_seat() {
         let content = ContentStore::embedded();
         let override_for = |state: &GameState, who: &PlayerId| {
@@ -1513,6 +1616,89 @@ mod tests {
         assert!(state.promissory_faceup.contains(&note), "a play-area note");
         emit(&mut state, &[], "TRADE_GOODS_GAINED", &gained("b")).unwrap();
         assert_eq!(state.player(&b()).unwrap().trade_goods, 5);
+    }
+
+    fn from_transaction(who: &str) -> Vec<(&'static str, serde_json::Value)> {
+        vec![
+            ("player", who.into()),
+            ("amount", 1.into()),
+            ("source", "transaction".into()),
+        ]
+    }
+
+    #[test]
+    fn the_staged_event_prefix_matches_supply() {
+        let (mut state, _) = neighbours();
+        crate::supply::note_trade_goods_gained(&mut state, &b(), 1, "transaction");
+        assert!(transaction_gain_pending(&state, &b()));
+        assert!(!transaction_gain_pending(&state, &a()));
+        crate::supply::note_trade_goods_gained(&mut state, &a(), 1, "relic");
+        assert!(!transaction_gain_pending(&state, &a()), "other sources");
+    }
+
+    #[test]
+    fn a_transaction_that_moves_goods_offers_pillage_once() {
+        let (mut state, _) = neighbours();
+        state.player_mut(&b()).unwrap().trade_goods = 5;
+        state.player_mut(&b()).unwrap().commodities = 0;
+        // The deal stages the party's gain before TRANSACTION_RESOLVED is emitted.
+        crate::supply::note_trade_goods_gained(&mut state, &b(), 1, "transaction");
+        let parties = [("proposer", "b".into()), ("partner", "c".into())];
+        // Not offered here (an unscripted question would be an error); the gain event offers it.
+        emit(&mut state, &[], "TRANSACTION_RESOLVED", &parties).unwrap();
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 5);
+        emit(
+            &mut state,
+            &[PILLAGE_GAIN],
+            "TRADE_GOODS_GAINED",
+            &from_transaction("b"),
+        )
+        .unwrap();
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 4);
+        assert_eq!(state.player(&a()).unwrap().trade_goods, 1);
+    }
+
+    #[test]
+    fn the_flush_after_a_transaction_resolves_pillage_exactly_once() {
+        let (mut state, _) = neighbours();
+        state.player_mut(&b()).unwrap().trade_goods = 5;
+        state.player_mut(&b()).unwrap().commodities = 0;
+        state.player_mut(&a()).unwrap().trade_goods = 0;
+        crate::supply::note_trade_goods_gained(&mut state, &b(), 1, "transaction");
+        assert_eq!(crate::supply::staged_events(&state), 1);
+        let mut resolver = armed_resolver(&state);
+        let galaxy = crate::fixtures::plain_hub().galaxy;
+        let content = ContentStore::embedded();
+        let mut sequence = crate::event::EventSequence::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        // Only one answer is scripted: a second offer would fail the call.
+        let mut table = scripted(&[PILLAGE_GAIN]);
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: Some(&galaxy),
+            }),
+        };
+        // First the resolution (no staged flush yet), then the flush at the next step.
+        crate::factions::hooks_economy::emit(
+            &mut ctx,
+            &mut state,
+            "TRANSACTION_RESOLVED",
+            crate::transactions::resolved_payload(&b(), &PlayerId::new("c")),
+        );
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 5, "deferred");
+        // The transaction's gain, then the Mentak player's own pillaged good (staged by the take).
+        assert_eq!(crate::supply::flush_staged_events(&mut state, &mut ctx), 2);
+        assert_eq!(crate::supply::staged_events(&state), 0);
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 4);
+        assert_eq!(state.player(&a()).unwrap().trade_goods, 1);
     }
 
     #[test]
@@ -1907,6 +2093,10 @@ mod tests {
         let events: Vec<(&str, Vec<(&str, serde_json::Value)>)> = vec![
             ("TRADE_GOODS_GAINED", gained("b")),
             ("TRANSACTION_RESOLVED", vec![]),
+            (
+                "BREAKTHROUGH_GAINED",
+                vec![("player", "a".into()), ("breakthrough", "mentakbt".into())],
+            ),
             ("SPACE_COMBAT_STARTED", started(&system)),
             ("SPACE_COMBAT_ENDED", ended(&system, Some("a"))),
             ("SPACE_COMBAT_WON", won(&system)),

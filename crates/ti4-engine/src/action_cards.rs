@@ -2069,7 +2069,12 @@ fn diplomatic_pressure(context: &mut crate::timing::TimingContext<'_>, player: &
 /// vote-close does not have (Technology Rider's research, Sanction's token returns) is
 /// recorded in the prediction itself and not performed here.
 #[allow(clippy::too_many_lines)] // one arm per rider: a table, not a story
-fn rider_payoff(state: &mut GameState, player: &PlayerId, card: Option<&str>) {
+fn rider_payoff(
+    state: &mut GameState,
+    table: Option<(&ContentStore, &mut Table)>,
+    player: &PlayerId,
+    card: Option<&str>,
+) {
     match card {
         Some("lead_rider") => {
             // "gain 3 command tokens" is a supply of reinforcements, not a placement: the
@@ -2083,15 +2088,21 @@ fn rider_payoff(state: &mut GameState, player: &PlayerId, card: Option<&str>) {
             crate::supply::note_trade_goods_gained(state, player, 5, "trade_rider");
         }
         Some("politic_rider") => {
-            // Three action cards, the hand limit applied later by whoever owns a table (the
-            // same idiom the Unconventional Measures arm uses), and the speaker token.
-            for _ in 0..3 {
-                if state.action_card_deck.is_empty() {
-                    break;
-                }
-                let top = state.action_card_deck.remove(0);
-                if let Some(seat) = state.player_mut(player) {
-                    seat.action_cards.push(top);
+            // Three action cards and the speaker token. With a table the cards come through the
+            // shared `draw`, so draw effects (Yssaril Scheming) and the hand limit apply; an
+            // illegal decider answer there leaves the cards drawn, as Unconventional Measures
+            // does. Without one (unit tests) the deck is popped and the limit applied later.
+            if let Some((content, table)) = table {
+                let _ = draw(state, content, table, player, 3);
+            } else {
+                for _ in 0..3 {
+                    if state.action_card_deck.is_empty() {
+                        break;
+                    }
+                    let top = state.action_card_deck.remove(0);
+                    if let Some(seat) = state.player_mut(player) {
+                        seat.action_cards.push(top);
+                    }
                 }
             }
             state.speaker = player.clone();
@@ -2208,6 +2219,25 @@ fn rider_payoff(state: &mut GameState, player: &PlayerId, card: Option<&str>) {
 /// Rider's research, Sanction's token returns) is likewise recorded but not performed at this
 /// call site, which has none of the three.
 pub fn resolve_predictions(state: &mut GameState, outcome: &str) -> Vec<PlayerId> {
+    resolve_predictions_inner(state, None, outcome)
+}
+
+/// [`resolve_predictions`] with the game's content and table, so a payoff that draws action
+/// cards (Politics Rider) goes through [`draw`] and its draw effects.
+pub fn resolve_predictions_with(
+    state: &mut GameState,
+    content: &ContentStore,
+    table: &mut Table,
+    outcome: &str,
+) -> Vec<PlayerId> {
+    resolve_predictions_inner(state, Some((content, table)), outcome)
+}
+
+fn resolve_predictions_inner(
+    state: &mut GameState,
+    mut table: Option<(&ContentStore, &mut Table)>,
+    outcome: &str,
+) -> Vec<PlayerId> {
     let predictions = std::mem::take(&mut state.agenda_predictions);
     let mut paid = Vec::new();
     for (player, predicted) in predictions {
@@ -2218,7 +2248,10 @@ pub fn resolve_predictions(state: &mut GameState, outcome: &str) -> Vec<PlayerId
         if !hit {
             continue;
         }
-        rider_payoff(state, &player, card);
+        let held = table
+            .as_mut()
+            .map(|(content, table)| (*content, &mut **table));
+        rider_payoff(state, held, &player, card);
 
         paid.push(player);
     }

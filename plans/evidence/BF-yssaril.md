@@ -119,3 +119,9 @@ yssaril   10/12 implemented
 - `yssarilbt`: partial, not claimed. Built: another player's Stall Tactics by the owner's leave (`faction|yssaril|bt_stall|<owner>`, owner asked, refusal remembered per turn), and `transaction_limit_exempt` for the pair for that turn (public marks `yssaril:bt:{exempt,declined}:<owner>:<user>` = turn_seq). Not expressible: the Scheming half (no consent point inside `draw`'s hooks); the owner's transaction is the ordinary one, not opened by the module. Tests: `an_allowed_stall_tactics_discards_for_the_user_and_exempts_their_transaction`, `a_refused_stall_tactics_changes_nothing_but_is_not_offered_again`, `deepgloom_needs_the_breakthrough_and_a_card`.
 - New decision site: `yssaril.rs::borrowed_stall_tactics` (Choice 1, AskObserved 1). Others unchanged.
 - Results: `factions::yssaril` 28 passed; clippy none in yssaril.rs; rustfmt applied. Ledger: `yssaril 10/12` (missing `scheming`, `yssarilbt`).
+
+## Scheming claimed (2026-10-03, coordinator)
+
+Politics Rider's 3-card payoff now goes through `action_cards::draw` when the game pays predictions (`resolve_predictions_with`, called from `Game::resolve_agenda_outcome` with the game's content and table), so Scheming's extra draw + discard and the hand limit apply. The status-phase draw already applies the draw hooks (`resolve_before_token_gain_with`); Unconventional Measures uses `draw_announced`. No raw deck pop remains outside tests and the table-less `resolve_predictions` path. Test: `a_politics_rider_paid_with_a_table_draws_through_scheming`. `scheming` claimed; `yssarilagent` and `yssarilbt` remain unclaimed.
+
+Checks: `cargo test -p ti4-engine` — lib 1913 passed, 1 failed (an in-progress Saar agent test in saar.rs, not part of this commit), integration binaries ok.

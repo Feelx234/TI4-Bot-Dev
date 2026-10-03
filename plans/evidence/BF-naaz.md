@@ -88,3 +88,37 @@ Note: an earlier run failed to compile because of another agent's `saar.rs` (`ac
 | `naaz_voltron`, `naazbt` | still not started: grep finds no breakthrough or Eidolon Maximum code outside `fleet.rs` (`other_form` is `None` for it). Same blockers as Hook request 4 | |
 
 New decision sites in `naaz.rs`: none (`offer_supercharge` is the former `space_combat_round_started` ask, now also reached from the ground hook).
+
+## Wave G: Absolute Synergy / Eidolon Maximum (`naazbt`, `naaz_voltron`)
+
+Live, **not claimed**. Ledger after: `naaz 11/13 implemented`; missing `naaz_voltron`, `naazbt`.
+
+| Card text | Status | Test |
+|---|---|---|
+| "When you have 4 mechs in the same system, you may return 3 ... flip this card and place it on top of your mech card" | done as an optional window on `BREAKTHROUGH_GAINED` and `ACTION_COMPLETED` (own action), `breakthrough:<owner>:naazbt:<EVENT>:after`; asks system (if >1) and which mech stays (if >1 spot); the undamaged mech stays; 3 removed, survivor retyped `naaz_voltron`. Card is "flipped" exactly while a `naaz_voltron` is on the board (so destroy/remove flips back with no state) | `four_mechs_in_one_system_flip_into_one_eidolon_maximum`, `the_survivor_is_the_mech_the_player_keeps_and_planets_are_offered`, `absolute_synergy_needs_the_card_and_four_mechs_in_one_system` |
+| "Repair it at the start of every combat round" | done: `space_combat_round_started` (active system space area) and `ground_combat_round_started` (that planet) | `the_maximum_is_repaired_at_the_start_of_each_combat_round` |
+| "Game effects cannot place or produce your mechs" | production half done via `EconomyHooks::cannot_produce` ("mech" while a Maximum stands); placement by effects is not gated | `production_of_mechs_is_barred_while_the_maximum_stands` |
+| "cannot be assigned hits from unit abilities" | **blocked** | none |
+| "both a ship and ground force" / notes: joins space combat from a planet if its owner has ships | **blocked** | none |
+
+Neutrality: `a_game_without_naaz_is_not_offered_absolute_synergy`.
+
+### Hook requests (shared files; not made)
+5. `combat.rs` (`combatants` ~line 57, `ships_of` ~line 76, and the hit/casualty paths): a `naaz_voltron` standing on a planet must count as a ship of its owner for the space combat of its system when the owner also has ships in the space area (unit rolls, hit assignment, destruction from `planet_units`), and for retreat/movement (`tactical.rs` ~line 350 only scans `ships_of` the space area). Today only space-area units are ships.
+6. Hits from unit abilities (Space Cannon, Bombardment, Assault Cannon, `produced_hits` Ambush/Impulse Core/Devotion): new `CombatHooks` field, e.g. `ability_hit_immune: Option<fn(&GameState, &ContentStore, SourceSet, &CombatUnit<'_>) -> bool>`, consulted wherever an ability's hit picks a casualty (`combat.rs` `space_cannon_offense` assignment, `invasion.rs` bombardment/space cannon defense, `absorb_hits_seeing` for the produced-hit paths) so the unit is skipped and the hit is lost if nothing else can take it. `direct_hit_immune` is not it (Direct Hit is an action card).
+7. Effect placement of mechs: `action_cards::place_units` (and other direct placers) should refuse a unit whose base type is `mech` when `hooks_economy::cannot_produce`-style gate says so; no existing hook covers placement (no Naaz-barred mech placers exist today, but the card names "game effects").
+8. Captured Maximum (Mentak): a captured `naaz_voltron` is off the board so the card reads as flipped back, but `release_all_captured` would return a `naaz_voltron` record; the return should re-type to the mech form.
+
+### Decision sites to register
+`absolute_synergy` (closure registered per event, both ids below): up to 2 via `ask`: `synergy_system` (only if mechs stand in >1 qualifying system), `synergy_survivor` (only if they stand on >1 spot). The optional-ability prompt itself comes from the resolver. Ability ids: `breakthrough:<owner>:naazbt:BREAKTHROUGH_GAINED:after`, `breakthrough:<owner>:naazbt:ACTION_COMPLETED:after`.
+
+### Commands (LIBTORCH=D:/Projects/ti4-engine-rs/out/libtorch-2.9.1-cpu, CARGO_BUILD_JOBS=2)
+Two earlier builds died with `rustc-LLVM ERROR: out of memory` (concurrent builds); rerun with `CARGO_BUILD_JOBS=2` compiled.
+
+| Command | Result |
+|---|---|
+| `cargo test -p ti4-engine --lib -- factions::naaz` | 26 passed, 0 failed |
+| `cargo test -p ti4-engine --lib -- factions::` | 340 passed, 1 failed (`factions::saar::tests::the_commander_docks_exclude_systems_in_or_next_to_other_players_units`, not my file), 1 ignored |
+| `cargo clippy -p ti4-engine --all-targets` | no warning in `naaz.rs` |
+| `rustfmt --edition 2024 crates/ti4-engine/src/factions/naaz.rs` | clean |
+| ledger | `naaz 11/13 implemented`; `Unit naaz_voltron`, `Breakthrough naazbt` missing |

@@ -65,9 +65,9 @@ const BT_STALL_PREFIX: &str = "faction|yssaril|bt_stall|";
 /// What this faction implements.
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
-    // `scheming` is implemented for `action_cards::draw` callers but not claimed: the status-phase
-    // and agenda draws bypass `draw` (see the evidence).
-    abilities: &["stall_tactics", "crafty"],
+    // `scheming`: every draw in a running game goes through `action_cards::draw` or the status
+    // phase's draw hooks, Politics Rider included since the f77a0347 review fix.
+    abilities: &["stall_tactics", "crafty", "scheming"],
     technologies: &["tp", "mi"],
     units: &["yssaril_flagship", "yssaril_mech"],
     promissory: &["spynet"],
@@ -1034,6 +1034,29 @@ mod tests {
         );
         assert!(hooks_cards::has_staged(&state), "its discard is staged");
         assert_eq!(state.action_card_deck.len(), 1);
+    }
+
+    #[test]
+    fn a_politics_rider_paid_with_a_table_draws_through_scheming() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        deal(&mut state, "a", &[]);
+        state.action_card_deck = ["bribery", "flank_speed", "skilled_retreat", "sabotage"]
+            .iter()
+            .map(|name| ActionCardId::new(*name))
+            .collect();
+        state
+            .agenda_predictions
+            .insert(a(), "for|politic_rider".to_owned());
+        let mut table = scripted(&["bribery"]);
+        let paid =
+            crate::action_cards::resolve_predictions_with(&mut state, content, &mut table, "for");
+        assert_eq!(paid, [a()]);
+        let held = hand(&state, "a");
+        assert_eq!(held.len(), 3, "3 + 1 additional, 1 discarded");
+        assert!(!held.contains(&"bribery".to_owned()));
+        assert!(state.action_card_deck.is_empty());
+        assert_eq!(state.speaker, a());
     }
 
     #[test]

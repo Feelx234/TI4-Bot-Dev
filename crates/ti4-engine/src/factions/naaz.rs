@@ -19,8 +19,8 @@
 //!   2 readied or unchosen strategy cards. During this action, spend command tokens from your
 //!   reinforcements instead of your strategy pool. Then, purge this card."
 //!
-//! Not implemented here, see the evidence file: Distant Suns and Pre-Fab Arcologies (no explore
-//! hook), the mech flip (shared code never flips), the Eidolon Maximum and Absolute Synergy.
+//! Absolute Synergy and the Eidolon Maximum are live but unclaimed (shared seams missing): see the
+//! evidence file.
 
 use std::sync::Arc;
 
@@ -48,8 +48,8 @@ const BMF_ACTION: &str = "faction|naaz|bmf";
 /// The three decks a fragment type can name; frontier fragments stand in for any of them.
 const TYPES: [&str; 3] = ["CULTURAL", "HAZARDOUS", "INDUSTRIAL"];
 
-/// What this faction implements. `sc`, the mech forms, `distant_suns`, `pfa` and `naazbt` are not
-/// claimed: see the evidence file.
+/// What this faction implements. `naaz_voltron` and `naazbt` are live but not claimed: see the
+/// evidence file.
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
     abilities: &["fabrication", "distant_suns"],
@@ -75,6 +75,7 @@ pub const MODULE: FactionModule = FactionModule {
         economy: EconomyHooks {
             explore_extra_draw: Some(explore_extra_draw),
             explored: Some(explored),
+            cannot_produce: Some(cannot_produce),
             ..EconomyHooks::NONE
         },
         ..Hooks::NONE
@@ -451,6 +452,9 @@ fn space_combat_round_started(
     table: &mut crate::choice::Table,
     player: &PlayerId,
 ) {
+    if let Some(system) = state.active_system.clone() {
+        repair_voltron(state, player, &system, None);
+    }
     offer_supercharge(state, content, sources, table, player, "space");
 }
 
@@ -460,9 +464,10 @@ fn ground_combat_round_started(
     sources: SourceSet,
     table: &mut crate::choice::Table,
     player: &PlayerId,
-    _system: &SystemId,
-    _planet: &PlanetId,
+    system: &SystemId,
+    planet: &PlanetId,
 ) {
+    repair_voltron(state, player, system, Some(planet));
     offer_supercharge(state, content, sources, table, player, "ground");
 }
 
@@ -803,10 +808,326 @@ fn use_leader(
     Some(true)
 }
 
+// -- Absolute Synergy and the Eidolon Maximum -------------------------------------------------------
+//
+// `naazbt`: "When you have 4 mechs in the same system, you may return 3 of those mechs to your
+// reinforcements to flip this card and place it on top of your mech card." Eidolon Maximum
+// (`naaz_voltron`): "This unit is both a ship and ground force. It cannot be assigned hits from unit
+// abilities. Repair it at the start of every combat round. Game effects cannot place or produce
+// your mechs. When this unit is destroyed or removed, flip this card and return it to your play
+// area."
+//
+// Live but NOT claimed: see the evidence file for the missing shared seams (hits from unit
+// abilities, space combat from a planet, effect placement of mechs). The card is flipped exactly
+// while a `naaz_voltron` stands on the board, so "destroyed or removed, flip back" needs no
+// bookkeeping that could go stale. Mech plastic is 4 (`supply::plastic`), so 4 mechs in a system
+// are all of them.
+
+const VOLTRON: &str = "naaz_voltron";
+const BREAKTHROUGH: &str = "naazbt";
+
+/// Where a mech stands inside its system: the space area (`None`) or one planet.
+type Spot = Option<PlanetId>;
+
+fn is_voltron(unit: &ti4_model::units::Unit, player: &PlayerId) -> bool {
+    &unit.owner == player && unit.type_id.as_str() == VOLTRON
+}
+
+/// Whether the player's Absolute Synergy is flipped: an Eidolon Maximum is on the board.
+fn voltron_on_board(state: &GameState, player: &PlayerId) -> bool {
+    state.board.values().any(|here| {
+        here.units.iter().any(|unit| is_voltron(unit, player))
+            || here
+                .planet_units
+                .values()
+                .any(|units| units.iter().any(|unit| is_voltron(unit, player)))
+    })
+}
+
+/// A Naaz mech in either form (not the Maximum) of `player`.
+fn is_eidolon(
+    types: &std::collections::BTreeMap<&str, ti4_content::units::UnitType<'_>>,
+    unit: &ti4_model::units::Unit,
+    player: &PlayerId,
+) -> bool {
+    &unit.owner == player
+        && unit.type_id.as_str().starts_with("naaz_")
+        && unit.type_id.as_str() != VOLTRON
+        && types
+            .get(unit.type_id.as_str())
+            .is_some_and(|kind| kind.base_type() == "mech")
+}
+
+/// Every mech of `player` in `system` as `(spot, index in that spot's list)`, board order.
+fn eidolons_in(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<(Spot, usize)> {
+    let types = catalogue(content, sources);
+    let Some(here) = state.board.get(system) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for (index, unit) in here.units.iter().enumerate() {
+        if is_eidolon(&types, unit, player) {
+            found.push((None, index));
+        }
+    }
+    for (planet, units) in &here.planet_units {
+        for (index, unit) in units.iter().enumerate() {
+            if is_eidolon(&types, unit, player) {
+                found.push((Some(planet.clone()), index));
+            }
+        }
+    }
+    found
+}
+
+/// The systems that hold 4 of the player's mechs, with the distinct spots those mechs stand on.
+fn synergy_sites(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Vec<(SystemId, Vec<Spot>)> {
+    if !is_naaz(state, player)
+        || !crate::breakthroughs::holds(state, player, BREAKTHROUGH)
+        || voltron_on_board(state, player)
+    {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    for system in state.board.keys() {
+        let mechs = eidolons_in(state, content, sources, player, system);
+        if mechs.len() >= 4 {
+            let mut spots: Vec<Spot> = Vec::new();
+            for (spot, _) in mechs {
+                if !spots.contains(&spot) {
+                    spots.push(spot);
+                }
+            }
+            found.push((system.clone(), spots));
+        }
+    }
+    found
+}
+
+fn pool_mut<'a>(
+    state: &'a mut GameState,
+    system: &SystemId,
+    spot: &Spot,
+) -> Option<&'a mut Vec<ti4_model::units::Unit>> {
+    let here = state.board.get_mut(system)?;
+    match spot {
+        None => Some(&mut here.units),
+        Some(planet) => here.planet_units.get_mut(planet),
+    }
+}
+
+/// Return 3 of the 4 mechs in `system` and make the one at `spot` (the undamaged one if there is
+/// a choice) the Eidolon Maximum. `false` and untouched unless the system holds 4 mechs with one
+/// at `spot`.
+fn flip_synergy(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    spot: &Spot,
+) -> bool {
+    let mechs = eidolons_in(state, content, sources, player, system);
+    if mechs.len() < 4 {
+        return false;
+    }
+    let damaged = |state: &GameState, (at, index): &(Spot, usize)| -> bool {
+        let here = &state.board[system];
+        let unit = match at {
+            None => here.units.get(*index),
+            Some(planet) => here.planet_units.get(planet).and_then(|u| u.get(*index)),
+        };
+        unit.is_some_and(|unit| unit.sustained_damage)
+    };
+    let Some(keep) = mechs
+        .iter()
+        .filter(|(at, _)| at == spot)
+        .min_by_key(|entry| damaged(state, entry))
+        .cloned()
+    else {
+        return false;
+    };
+    let mut doomed: Vec<(Spot, usize)> = mechs
+        .into_iter()
+        .filter(|entry| *entry != keep)
+        .take(3)
+        .collect();
+    // Remove from the back of each list so earlier indices stay valid.
+    doomed.sort_by(|a, b| b.1.cmp(&a.1));
+    for (at, index) in &doomed {
+        if let Some(pool) = pool_mut(state, system, at) {
+            pool.remove(*index);
+        }
+    }
+    // The survivor's index shifts down by the number removed before it in the same list.
+    let shift = doomed
+        .iter()
+        .filter(|(at, index)| *at == keep.0 && *index < keep.1)
+        .count();
+    if let Some(unit) =
+        pool_mut(state, system, &keep.0).and_then(|pool| pool.get_mut(keep.1 - shift))
+    {
+        unit.type_id = ti4_model::id::UnitTypeId::new(VOLTRON);
+    }
+    true
+}
+
+/// Absolute Synergy as an optional "when you have 4 mechs in the same system" window. The state
+/// has no event of its own, so it is offered when the breakthrough is gained and after each action
+/// (where mechs arrive: production, movement, landing).
+fn absolute_synergy(owner_name: &str, seat: &PlayerId, event_type: &'static str) -> Ability {
+    let (owner, condition_owner) = (seat.clone(), seat.clone());
+    Ability::stateful(
+        format!("breakthrough:{owner_name}:{BREAKTHROUGH}:{event_type}:after"),
+        seat.clone(),
+        event_type,
+        Relation::After,
+        Arc::new(move |_event, _resolver, context| {
+            let sites = synergy_sites(context.state, context.content, context.sources, &owner);
+            // Every question first.
+            let (system, spots) = match sites.as_slice() {
+                [] => return Ok(()),
+                [only] => only.clone(),
+                _ => {
+                    let options = sites
+                        .iter()
+                        .map(|(system, _)| {
+                            ChoiceOption::labelled(
+                                system.to_string(),
+                                "system",
+                                format!("flip with the mechs in system {system}"),
+                            )
+                        })
+                        .collect();
+                    let Some(id) = ask(
+                        context,
+                        &owner,
+                        BREAKTHROUGH,
+                        "synergy_system",
+                        "Absolute Synergy: which system's mechs",
+                        options,
+                    ) else {
+                        return Ok(());
+                    };
+                    let Some(site) = sites.iter().find(|(system, _)| system.as_str() == id) else {
+                        return Ok(());
+                    };
+                    site.clone()
+                }
+            };
+            let spot = if let [only] = spots.as_slice() {
+                only.clone()
+            } else {
+                let options = spots
+                    .iter()
+                    .map(|spot| match spot {
+                        None => ChoiceOption::labelled(
+                            "space".to_owned(),
+                            "spot",
+                            "keep the mech in the space area".to_owned(),
+                        ),
+                        Some(planet) => ChoiceOption::labelled(
+                            planet.to_string(),
+                            "spot",
+                            format!("keep the mech on {planet}"),
+                        ),
+                    })
+                    .collect();
+                let Some(id) = ask(
+                    context,
+                    &owner,
+                    BREAKTHROUGH,
+                    "synergy_survivor",
+                    "Absolute Synergy: which mech becomes the Eidolon Maximum",
+                    options,
+                ) else {
+                    return Ok(());
+                };
+                let Some(spot) = spots.iter().find(|spot| match spot {
+                    None => id == "space",
+                    Some(planet) => planet.as_str() == id,
+                }) else {
+                    return Ok(());
+                };
+                spot.clone()
+            };
+            flip_synergy(
+                context.state,
+                context.content,
+                context.sources,
+                &owner,
+                &system,
+                &spot,
+            );
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event
+            .text("player")
+            .is_none_or(|player| player == condition_owner.as_str())
+            && !synergy_sites(
+                context.state,
+                context.content,
+                context.sources,
+                &condition_owner,
+            )
+            .is_empty()
+    }))
+}
+
+/// "Game effects cannot place or produce your mechs": production only; placement by other effects
+/// is a shared seam (see the evidence file).
+fn cannot_produce(
+    state: &GameState,
+    _content: &ContentStore,
+    player: &PlayerId,
+    unit_base: &str,
+    _producer_base: &str,
+) -> bool {
+    unit_base == "mech" && is_naaz(state, player) && voltron_on_board(state, player)
+}
+
+/// "Repair it at the start of every combat round": the player's Eidolon Maximum in the space area
+/// of `system` (space combat) or on `planet` (ground combat).
+fn repair_voltron(
+    state: &mut GameState,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: Option<&PlanetId>,
+) {
+    if !is_naaz(state, player) {
+        return;
+    }
+    let spot: Spot = planet.cloned();
+    if let Some(pool) = pool_mut(state, system, &spot) {
+        for unit in pool.iter_mut().filter(|unit| is_voltron(unit, player)) {
+            unit.sustained_damage = false;
+        }
+    }
+}
+
 // -- timing abilities ----------------------------------------------------------------------------
 
 fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![agent(owner_name, seat), commander(owner_name, seat)]
+    vec![
+        agent(owner_name, seat),
+        commander(owner_name, seat),
+        absolute_synergy(owner_name, seat, "BREAKTHROUGH_GAINED"),
+        absolute_synergy(owner_name, seat, "ACTION_COMPLETED"),
+    ]
 }
 
 #[cfg(test)]
@@ -1385,6 +1706,283 @@ mod tests {
             .insert(card.clone());
         state.unclaimed_strategy_cards.retain(|c| *c != card);
         assert!(!hero_cards(&state).contains(&card));
+    }
+
+    // -- Absolute Synergy and the Eidolon Maximum ------------------------------------------------
+
+    const SYNERGY: &str = "breakthrough:naaz:naazbt:ACTION_COMPLETED:after";
+
+    fn give_breakthrough(state: &mut GameState) {
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new(BREAKTHROUGH));
+    }
+    fn mechs(state: &GameState, who: &PlayerId) -> Vec<(SystemId, Spot, String)> {
+        let content = ContentStore::embedded();
+        let mut found = Vec::new();
+        for system in state.board.keys() {
+            for (spot, index) in eidolons_in(state, content, DEFAULT, who, system) {
+                let here = &state.board[system];
+                let unit = match &spot {
+                    None => &here.units[index],
+                    Some(planet) => &here.planet_units[planet][index],
+                };
+                found.push((system.clone(), spot.clone(), unit.type_id.to_string()));
+            }
+        }
+        found
+    }
+    fn voltrons(state: &GameState, who: &PlayerId) -> usize {
+        state
+            .board
+            .values()
+            .map(|here| {
+                here.units
+                    .iter()
+                    .chain(here.planet_units.values().flatten())
+                    .filter(|unit| is_voltron(unit, who))
+                    .count()
+            })
+            .sum()
+    }
+    /// Four mechs in the home system: the starting one is topped up with space-area mechs.
+    /// Take every Naaz mech off the board (the starting one included).
+    fn strip_mechs(state: &mut GameState) {
+        for here in state.board.values_mut() {
+            here.units
+                .retain(|unit| !unit.type_id.as_str().starts_with("naaz_mech"));
+            for units in here.planet_units.values_mut() {
+                units.retain(|unit| !unit.type_id.as_str().starts_with("naaz_mech"));
+            }
+        }
+    }
+    fn four_mechs_home(state: &mut GameState) -> SystemId {
+        let system = SystemId::new("18");
+        strip_mechs(state);
+        crate::fixtures::put(state, &system, "naaz_mech_space", &a(), 4);
+        system
+    }
+
+    #[test]
+    fn four_mechs_in_one_system_flip_into_one_eidolon_maximum() {
+        let mut state = game();
+        give_breakthrough(&mut state);
+        let system = four_mechs_home(&mut state);
+        assert_eq!(mechs(&state, &a()).len(), 4);
+        emit(
+            &mut state,
+            &mut scripted(&[SYNERGY, "space"]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        assert_eq!(voltrons(&state, &a()), 1);
+        assert!(
+            mechs(&state, &a()).is_empty(),
+            "three returned, one flipped"
+        );
+        let held = crate::supply::held(&state, ContentStore::embedded(), DEFAULT, &a(), "mech");
+        assert_eq!(held, 1, "three are back in the reinforcements");
+        assert!(
+            state
+                .system_state(&system)
+                .units
+                .iter()
+                .any(|unit| is_voltron(unit, &a()))
+        );
+    }
+
+    #[test]
+    fn absolute_synergy_needs_the_card_and_four_mechs_in_one_system() {
+        let mut state = game();
+        // No breakthrough.
+        four_mechs_home(&mut state);
+        let before = state.board.clone();
+        emit(
+            &mut state,
+            &mut scripted(&[SYNERGY, "space"]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        assert_eq!(state.board, before, "not held");
+        // Held, but another player's turn.
+        give_breakthrough(&mut state);
+        emit(
+            &mut state,
+            &mut scripted(&[SYNERGY, "space"]),
+            "ACTION_COMPLETED",
+            &[("player", "b")],
+        );
+        assert_eq!(state.board, before, "someone else's action");
+        // Four mechs, but in two systems.
+        let mut split = game();
+        give_breakthrough(&mut split);
+        crate::fixtures::put(&mut split, &SystemId::new("18"), "naaz_mech_space", &a(), 1);
+        crate::fixtures::put(&mut split, &SystemId::new("19"), "naaz_mech_space", &a(), 2);
+        assert_eq!(mechs(&split, &a()).len(), 4);
+        let before = split.board.clone();
+        emit(
+            &mut split,
+            &mut scripted(&[SYNERGY, "space"]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        assert_eq!(split.board, before, "four mechs, never four in one system");
+        // Declined.
+        give_breakthrough(&mut state);
+        let before = state.board.clone();
+        emit(
+            &mut state,
+            &mut scripted(&["decline"]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        assert_eq!(state.board, before);
+    }
+
+    #[test]
+    fn the_survivor_is_the_mech_the_player_keeps_and_planets_are_offered() {
+        let mut state = game();
+        give_breakthrough(&mut state);
+        let system = SystemId::new("18");
+        strip_mechs(&mut state);
+        let planet = PlanetId::new("mr");
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_mech", &a(), 1);
+        let total = eidolons_in(&state, ContentStore::embedded(), DEFAULT, &a(), &system).len();
+        crate::fixtures::put(&mut state, &system, "naaz_mech_space", &a(), 4 - total);
+        assert_eq!(mechs(&state, &a()).len(), 4);
+        emit(
+            &mut state,
+            &mut scripted(&[SYNERGY, planet.as_str()]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        assert_eq!(voltrons(&state, &a()), 1);
+        assert!(
+            state
+                .system_state(&system)
+                .on_planet(&planet)
+                .iter()
+                .any(|unit| is_voltron(unit, &a())),
+            "the mech on the planet is the one that stays"
+        );
+        assert!(
+            !state
+                .system_state(&system)
+                .units
+                .iter()
+                .any(|unit| is_voltron(unit, &a()))
+        );
+    }
+
+    #[test]
+    fn production_of_mechs_is_barred_while_the_maximum_stands() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        assert!(!cannot_produce(&state, content, &a(), "mech", "spacedock"));
+        crate::fixtures::put(&mut state, &SystemId::new("18"), "naaz_voltron", &a(), 1);
+        assert!(cannot_produce(&state, content, &a(), "mech", "spacedock"));
+        assert!(!cannot_produce(
+            &state,
+            content,
+            &a(),
+            "infantry",
+            "spacedock"
+        ));
+        assert!(
+            !cannot_produce(&state, content, &b(), "mech", "spacedock"),
+            "another player's mechs"
+        );
+        // Destroyed or removed: the card is back.
+        state
+            .system_mut(&SystemId::new("18"))
+            .units
+            .retain(|unit| !is_voltron(unit, &a()));
+        assert!(!cannot_produce(&state, content, &a(), "mech", "spacedock"));
+    }
+
+    #[test]
+    fn the_maximum_is_repaired_at_the_start_of_each_combat_round() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        crate::fixtures::put(&mut state, &system, "naaz_voltron", &a(), 1);
+        state
+            .system_mut(&system)
+            .units
+            .last_mut()
+            .unwrap()
+            .sustained_damage = true;
+        state.active_system = Some(system.clone());
+        // Another player's round start does not repair it.
+        space_combat_round_started(&mut state, content, DEFAULT, &mut scripted(&[]), &b());
+        assert!(
+            state
+                .system_state(&system)
+                .units
+                .last()
+                .unwrap()
+                .sustained_damage
+        );
+        space_combat_round_started(&mut state, content, DEFAULT, &mut scripted(&[]), &a());
+        assert!(
+            !state
+                .system_state(&system)
+                .units
+                .last()
+                .unwrap()
+                .sustained_damage
+        );
+        // Ground: on the planet, not elsewhere.
+        let planet = PlanetId::new("mr");
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_voltron", &a(), 1);
+        state
+            .system_mut(&system)
+            .planet_units
+            .get_mut(&planet)
+            .unwrap()
+            .iter_mut()
+            .for_each(|unit| unit.sustained_damage = true);
+        ground_combat_round_started(
+            &mut state,
+            content,
+            DEFAULT,
+            &mut scripted(&[]),
+            &a(),
+            &system,
+            &planet,
+        );
+        assert!(
+            state
+                .system_state(&system)
+                .on_planet(&planet)
+                .iter()
+                .all(|unit| !unit.sustained_damage)
+        );
+    }
+
+    #[test]
+    fn a_game_without_naaz_is_not_offered_absolute_synergy() {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        let before = state.clone();
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "BREAKTHROUGH_GAINED",
+            &[("player", "a"), ("breakthrough", "naazbt")],
+        );
+        assert_eq!(state.board, before.board);
+        assert!(!cannot_produce(
+            &state,
+            ContentStore::embedded(),
+            &a(),
+            "mech",
+            "spacedock"
+        ));
     }
 
     #[test]

@@ -4336,7 +4336,12 @@ impl<'a> Game<'a> {
         // Imperial Rider pays out before the agenda's own effect, and clears the
         // predictions. A prediction left behind would pay again on the next agenda,
         // for a card that was spent on this one.
-        for player in crate::action_cards::resolve_predictions(&mut self.state, outcome) {
+        for player in crate::action_cards::resolve_predictions_with(
+            &mut self.state,
+            self.content,
+            &mut self.table,
+            outcome,
+        ) {
             self.emit(&format!("AGENDA_PREDICTION_CORRECT:{player}"));
         }
 
