@@ -19,6 +19,16 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
 
 ### Base-faction completion (BF), 2026-10-02
 
+- **Work split (operator, 2026-10-03), Claude ↔ Codex on `wp/base-factions`:**
+  - **Claude owns:** all shared engine files (`crates/ti4-engine/src/*.rs` outside `factions/<alias>.rs`,
+    `factions/mod.rs`, `factions/hooks_*.rs`, `tests/decision_delivery_inventory.rs`) and the faction
+    files with remaining gaps: mentak, muaat, naaz, saar, argent, naalu, winnu, yin, yssaril.
+  - **Codex owns:** ghost (done), sardakk and arborec (done — re-verify only), the per-faction 200-game
+    seated soak harness and runs (new files only), read-only reviews of Claude's commits, evidence and
+    ledger reconciliation. Codex must not edit the files Claude owns; requests go in
+    `plans/evidence/BF-CODEX-REQUESTS.md` (append-only).
+  - Both: commit only own paths; never touch the other session's `game.rs` income experiment hunks.
+
 - **Handover for Codex: `plans/HANDOVER_2026-10-03_BASE_FACTIONS_CODEX.md` — read it first.**
 
 - Plan: `plans/BASE_FACTIONS_PLAN_2026-10-02.md` — 12 factions (10 remaining base + Argent +
