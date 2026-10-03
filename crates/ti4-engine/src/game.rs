@@ -20,7 +20,7 @@ use crate::objectives::{EventScoreLimit, ScoringError, ScoringWindow};
 use crate::phase::{PhaseOutcome, advance_phase, advance_turn, begin_next_round};
 use crate::rng::GameRng;
 use crate::status::{
-    StatusPhaseError, StatusPhaseReport, resolve_after_token_gain, resolve_before_token_gain,
+    StatusPhaseError, StatusPhaseReport, resolve_after_token_gain, resolve_before_token_gain_with,
 };
 use crate::strategy::{
     ACTION_KIND, SecondaryResolution, StrategyActionError, StrategySecondaryError,
@@ -1502,6 +1502,7 @@ impl<'a> Game<'a> {
                 // advances it whether or not the relic did anything worth having.
                 if answer.id.starts_with("faction|") {
                     let done = self.play_faction_action(&active, &answer);
+                    self.announce_staged_destructions();
                     self.announce_staged_cards()?;
                     // Extreme Duress bites once the action is taken: the played card is
                     // already out of the hand, so only what is left gets discarded.
@@ -1526,6 +1527,7 @@ impl<'a> Game<'a> {
                     // it is only settled for a use that is one.
                     let takes_turn = crate::leaders::uses_the_action(self.content, &leader);
                     let done = self.perform_leader_action(&active, &leader);
+                    self.announce_staged_destructions();
                     self.announce_staged_cards()?;
                     if takes_turn {
                         self.settle_extreme_duress(&active, false)?;
@@ -1826,6 +1828,25 @@ impl<'a> Game<'a> {
                         });
                         self.secondary_after_tactical = Some(window);
                         self.emit("SYSTEM_ACTIVATED");
+                        // Typed as the ordinary activation is, so "after you activate a system"
+                        // windows open for a free tactical action too.
+                        if let (Some(system), Some(player)) = (
+                            self.state.active_system.clone(),
+                            self.tactical
+                                .as_ref()
+                                .map(|tactical| tactical.player.clone()),
+                        ) {
+                            let mut payload = BTreeMap::new();
+                            payload.insert(
+                                "player".to_owned(),
+                                serde_json::Value::String(player.to_string()),
+                            );
+                            payload.insert(
+                                "system".to_owned(),
+                                serde_json::Value::String(system.to_string()),
+                            );
+                            self.emit_typed("SYSTEM_ACTIVATED", payload)?;
+                        }
                         self.emit("FREE_TACTICAL_ACTION");
                     }
                     crate::strategy_cards::Ability::Resolved
@@ -2052,6 +2073,37 @@ impl<'a> Game<'a> {
         // a card taken); announce them now rather than at the next component action.
         self.announce_staged_cards()?;
         Ok(!emitted.cancelled)
+    }
+
+    /// Announce ship destructions an effect staged without a resolver (a leader or component
+    /// action calling `combat::destroy_units`), so SHIP_DESTROYED windows open at the effect rather
+    /// than at the next combat. A no-op when nothing is staged.
+    fn announce_staged_destructions(&mut self) {
+        if self.state.pending_destructions.is_empty() {
+            return;
+        }
+        let galaxy = self.galaxy.clone();
+        let logged = self.timing.log().len();
+        let mut dice = std::mem::take(&mut self.dice);
+        let mut rng = self.rng.clone();
+        {
+            let mut ctx = Resolving {
+                content: self.content,
+                sources: self.sources,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut self.table,
+                timing: Some(crate::choice::TimingHandle {
+                    resolver: &mut self.timing,
+                    sequence: &mut self.event_sequence,
+                    galaxy: galaxy.as_ref(),
+                }),
+            };
+            crate::combat::announce_staged_destructions(&mut self.state, &mut ctx);
+        }
+        self.dice = dice;
+        self.rng = rng;
+        self.mirror_timing_log(logged);
     }
 
     /// Announce card moves a faction effect staged (discards, takes) through the resolver, so
@@ -2428,7 +2480,7 @@ impl<'a> Game<'a> {
                     if let Some(destination) = self.state.active_system.clone() {
                         crate::exploration::flip_ion_storm(&mut self.state, &origin, &destination);
                     }
-                    self.note_arrival(&window.player, &origin, &ship, &outcome);
+                    self.note_arrival(&window.player, &origin, &ship, &path, &outcome);
                     self.emit(match outcome {
                         MoveOutcome::Arrived { .. } => "SHIP_MOVED",
                         MoveOutcome::LostToGravityRift { .. } => "SHIP_LOST_TO_GRAVITY_RIFT",
@@ -2459,6 +2511,7 @@ impl<'a> Game<'a> {
         player: &PlayerId,
         origin: &SystemId,
         ship: &ti4_model::units::Unit,
+        path: &[String],
         outcome: &MoveOutcome,
     ) {
         if !matches!(outcome, MoveOutcome::Arrived { .. }) {
@@ -2485,6 +2538,22 @@ impl<'a> Game<'a> {
             "unit".to_owned(),
             serde_json::Value::String(ship.type_id.to_string()),
         );
+        // Hops of the route that went through a wormhole rather than across a hex edge (Creuss
+        // commander Sai Seravus: "ships that moved through 1 or more wormholes").
+        if let Some(galaxy) = self.galaxy.as_ref() {
+            let mut previous = origin.as_str();
+            let mut wormholes = 0_u32;
+            for step in path {
+                let through_wormhole = step != previous
+                    && galaxy.distance(previous, step) != Some(1)
+                    && !galaxy
+                        .wormhole_kinds(previous)
+                        .is_disjoint(&galaxy.wormhole_kinds(step));
+                wormholes += u32::from(through_wormhole);
+                previous = step.as_str();
+            }
+            payload.insert("wormholes".to_owned(), serde_json::Value::from(wormholes));
+        }
         let _ = self.emit_typed("SHIP_MOVED", payload);
     }
 
@@ -2608,8 +2677,14 @@ impl<'a> Game<'a> {
             &path,
         );
         if hold.is_complete() {
-            // No capacity, or nothing to carry: sail immediately.
+            // No capacity, or nothing to carry: sail immediately. The same after-move steps as a
+            // ship that loaded cargo: the ion storm flips if crossed, and the arrival is announced
+            // as a typed SHIP_MOVED so "after a player moves ships into" windows open.
             let outcome = self.sail(origin, &ship, &path, Vec::new());
+            if let Some(destination) = self.state.active_system.clone() {
+                crate::exploration::flip_ion_storm(&mut self.state, origin, &destination);
+            }
+            self.note_arrival(&window.player, origin, &ship, &path, &outcome);
             self.emit(match outcome {
                 MoveOutcome::Arrived { .. } => "SHIP_MOVED",
                 MoveOutcome::LostToGravityRift { .. } => "SHIP_LOST_TO_GRAVITY_RIFT",
@@ -2675,6 +2750,20 @@ impl<'a> Game<'a> {
         let (Some((player, notes_at_start)), Some(system)) = (tactical, system) else {
             return self.close_tactical();
         };
+        // The movement step is over (LRR 89.2 → 89.3): one typed window for effects that read "after
+        // you move ships" as a whole rather than per ship (Naalu Foresight, Muaat Nova Seed).
+        let mut moved = BTreeMap::new();
+        moved.insert(
+            "player".to_owned(),
+            serde_json::Value::String(player.to_string()),
+        );
+        moved.insert(
+            "system".to_owned(),
+            serde_json::Value::String(system.to_string()),
+        );
+        if let Err(error) = self.emit_typed("MOVEMENT_FINISHED", moved) {
+            return self.result(false, Some(error));
+        }
 
         let mut dice = std::mem::take(&mut self.dice);
         let mut rng = self.rng.clone();
@@ -3430,7 +3519,8 @@ impl<'a> Game<'a> {
                 self.events.push(format!("LEADER_UNLOCKED:{leader}"));
             }
         }
-        match resolve_before_token_gain(&mut self.state) {
+        match resolve_before_token_gain_with(&mut self.state, Some((self.content, &mut self.table)))
+        {
             Ok(report) if report.game_ended => {
                 self.emit("GAME_FINISHED");
                 self.result(false, None)
@@ -4642,6 +4732,17 @@ impl<'a> Game<'a> {
                 .transient_flags
                 .has(TransientFlags::PUPPET_ACTION)
         {
+            // The last turn of the action phase still ends: its "when a player's turn ends"
+            // windows open (Naaz agent), there is just no next turn to pass to.
+            if let Some(ended) = ended {
+                self.emit("TURN_PASSED");
+                let mut payload = BTreeMap::new();
+                payload.insert(
+                    "player".to_owned(),
+                    serde_json::Value::String(ended.to_string()),
+                );
+                self.emit_typed("TURN_PASSED", payload)?;
+            }
             return Ok(());
         }
         let Some(ended) = ended else {
