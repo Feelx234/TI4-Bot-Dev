@@ -254,6 +254,27 @@ pub struct AbilityRegistry {
     cannot: Vec<CannotEffect>,
 }
 
+/// Rollback resolver bookkeeping and its own decision log without rewinding decider input.
+/// Contextual callers must separately checkpoint `TimingContext.table.log`.
+#[derive(Clone)]
+pub(crate) struct ResolverCheckpoint {
+    table_log: crate::choice::DecisionLog,
+    registry: AbilityRegistry,
+    initiative_order: Vec<PlayerId>,
+    seating_order: Vec<PlayerId>,
+    active_player: Option<PlayerId>,
+    speaker: Option<PlayerId>,
+    phase: Phase,
+    log: Vec<String>,
+    applied_events: Vec<Event>,
+    relation_being_resolved: Option<Relation>,
+    emission_stack: Vec<(String, u64)>,
+    maximum_depth: usize,
+    used: BTreeSet<(String, FrequencyScope)>,
+    round_number: u64,
+    turn_number: u64,
+}
+
 /// A timing-window resolver.
 ///
 /// It owns registration, player order, and decision routing. Frequency scopes are deliberately
@@ -278,6 +299,44 @@ pub struct Resolver {
 }
 
 impl Resolver {
+    pub(crate) fn checkpoint(&self) -> ResolverCheckpoint {
+        ResolverCheckpoint {
+            table_log: self.table.log.clone(),
+            registry: self.registry.clone(),
+            initiative_order: self.initiative_order.clone(),
+            seating_order: self.seating_order.clone(),
+            active_player: self.active_player.clone(),
+            speaker: self.speaker.clone(),
+            phase: self.phase,
+            log: self.log.clone(),
+            applied_events: self.applied_events.clone(),
+            relation_being_resolved: self.relation_being_resolved,
+            emission_stack: self.emission_stack.clone(),
+            maximum_depth: self.maximum_depth,
+            used: self.used.clone(),
+            round_number: self.round_number,
+            turn_number: self.turn_number,
+        }
+    }
+
+    pub(crate) fn restore(&mut self, checkpoint: ResolverCheckpoint) {
+        self.table.log = checkpoint.table_log;
+        self.registry = checkpoint.registry;
+        self.initiative_order = checkpoint.initiative_order;
+        self.seating_order = checkpoint.seating_order;
+        self.active_player = checkpoint.active_player;
+        self.speaker = checkpoint.speaker;
+        self.phase = checkpoint.phase;
+        self.log = checkpoint.log;
+        self.applied_events = checkpoint.applied_events;
+        self.relation_being_resolved = checkpoint.relation_being_resolved;
+        self.emission_stack = checkpoint.emission_stack;
+        self.maximum_depth = checkpoint.maximum_depth;
+        self.used = checkpoint.used;
+        self.round_number = checkpoint.round_number;
+        self.turn_number = checkpoint.turn_number;
+    }
+
     /// Construct an action-phase resolver with the supplied initiative order and table.
     #[must_use]
     pub fn new(
@@ -955,6 +1014,40 @@ mod tests {
     use proptest::prelude::*;
     use ti4_content::ContentStore;
     use ti4_model::content_types::POK;
+
+    #[test]
+    fn checkpoint_restores_standalone_decision_log_without_rewinding_input() {
+        let player = PlayerId::new("a");
+        let mut resolver = Resolver::new(
+            vec![player.clone()],
+            Some(player.clone()),
+            Table::with_default(Box::new(Scripted::new([
+                "copy".to_owned(),
+                "decline".to_owned(),
+            ]))),
+        );
+        resolver.register([Ability::stateful(
+            "copy",
+            player,
+            "E",
+            Relation::After,
+            Arc::new(|_, _, _| Ok(())),
+        )
+        .with_optional(true)]);
+        let checkpoint = resolver.checkpoint();
+        let log_before = resolver.table.log.clone();
+        assert!(matches!(
+            resolver.emit(Event::new(1, "E", BTreeMap::new()), |_| {}),
+            Err(TimingError::StatefulContextRequired(_))
+        ));
+        assert!(resolver.table.log.len() > log_before.len());
+        resolver.restore(checkpoint);
+        assert_eq!(resolver.table.log, log_before);
+        resolver
+            .emit(Event::new(1, "E", BTreeMap::new()), |_| {})
+            .unwrap();
+        assert_eq!(resolver.table.log.records.last().unwrap().chosen, "decline");
+    }
 
     type GeneratedAbility = (u8, bool, bool, bool, u8, bool);
 
