@@ -676,16 +676,79 @@ fn emissary_taivra(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
-fn agent_usable(
+/// Ssruu copies Emissary Taivra's activation link. The source and borrower have separate timing
+/// abilities so the optional copied effect is controlled by the Ssruu holder, not the Ghost.
+fn borrowed_emissary_taivra(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (condition_source, condition_borrower) = (source.clone(), borrower.clone());
+    let (effect_source, effect_borrower) = (source.clone(), borrower.clone());
+    Ability::stateful(
+        format!("leader:{owner_name}:{source}:yssarilagent:ghostagent:SYSTEM_ACTIVATED:after"),
+        borrower.clone(),
+        "SYSTEM_ACTIVATED",
+        Relation::After,
+        Arc::new(move |event, _, context| {
+            let Some(system) = event.text("system").map(SystemId::new) else {
+                return Ok(());
+            };
+            if !has_borrowable_ghost_agent(
+                context.state,
+                context.content,
+                &effect_source,
+                &effect_borrower,
+            ) || !agent_target_usable(context.state, context.galaxy, &system)
+            {
+                return Ok(());
+            }
+            if crate::leaders::exhaust(
+                context.state,
+                &effect_borrower,
+                &LeaderId::new("yssarilagent"),
+            ) {
+                let mark = format!("{}|{system}", context.state.activation_seq);
+                context
+                    .state
+                    .faction_marks
+                    .insert(AGENT_LINK_KEY.to_owned(), mark);
+                super::hooks_cards::borrowed_agent_used(
+                    context,
+                    &effect_borrower,
+                    &LeaderId::new("ghostagent"),
+                );
+            }
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event
+            .text("system")
+            .map(SystemId::new)
+            .is_some_and(|system| {
+                has_borrowable_ghost_agent(
+                    context.state,
+                    context.content,
+                    &condition_source,
+                    &condition_borrower,
+                ) && agent_target_usable(context.state, context.galaxy, &system)
+            })
+    }))
+}
+
+fn has_borrowable_ghost_agent(
     state: &GameState,
-    galaxy: Option<&Galaxy>,
-    owner: &PlayerId,
-    system: &SystemId,
+    content: &ContentStore,
+    source: &PlayerId,
+    borrower: &PlayerId,
 ) -> bool {
-    agent_ready(state, owner)
-        && wormholes_at(state, system)
-            .iter()
-            .any(|kind| kind != "DELTA")
+    super::hooks_cards::borrowable_agents(state, content, borrower)
+        .iter()
+        .any(|(owner, agent)| owner == source && agent.as_str() == "ghostagent")
+}
+
+fn agent_target_usable(state: &GameState, galaxy: Option<&Galaxy>, system: &SystemId) -> bool {
+    wormholes_at(state, system)
+        .iter()
+        .any(|kind| kind != "DELTA")
         && galaxy.is_some_and(|galaxy| {
             galaxy
                 .wormhole_systems()
@@ -694,14 +757,40 @@ fn agent_usable(
         })
 }
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
+fn agent_usable(
+    state: &GameState,
+    galaxy: Option<&Galaxy>,
+    owner: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    agent_ready(state, owner) && agent_target_usable(state, galaxy, system)
+}
+
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    let mut abilities = vec![
         icarus_drive(owner_name, seat),
         iff(owner_name, seat),
         emissary_taivra(owner_name, seat),
         commander_moved(owner_name, seat),
         commander_finished(owner_name, seat),
-    ]
+    ];
+    // The static card roster determines which copied listener exists. Its condition reads live
+    // readiness through `borrowable_agents`, so a resolver survives card exhaustion/readying.
+    if state
+        .player(seat)
+        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new("ghostagent")))
+    {
+        for candidate in &state.players {
+            if &candidate.id != seat
+                && candidate
+                    .leaders
+                    .contains_key(&LeaderId::new("yssarilagent"))
+            {
+                abilities.push(borrowed_emissary_taivra(owner_name, seat, &candidate.id));
+            }
+        }
+    }
+    abilities
 }
 
 // -- Sai Seravus -------------------------------------------------------------------------------
@@ -1002,6 +1091,9 @@ mod tests {
     fn b() -> PlayerId {
         PlayerId::new("b")
     }
+    fn c() -> PlayerId {
+        PlayerId::new("c")
+    }
     fn sys(id: &str) -> SystemId {
         SystemId::new(id)
     }
@@ -1023,6 +1115,51 @@ mod tests {
         Table::with_default(Box::new(Never))
     }
 
+    struct BorrowGhostAgent;
+    impl Decider for BorrowGhostAgent {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            if let Some(_option) = choice
+                .options
+                .iter()
+                .find(|option| option.id == "leader:ghost:ghostagent:SYSTEM_ACTIVATED:after")
+            {
+                assert_eq!(
+                    choice.player,
+                    a(),
+                    "native branch is independently declined"
+                );
+                return choice
+                    .options
+                    .iter()
+                    .find(|option| option.is_decline())
+                    .cloned()
+                    .ok_or_else(|| IllegalChoice::NoOptions {
+                        player: choice.player.clone(),
+                        prompt: choice.prompt.clone(),
+                    });
+            }
+            if let Some(option) = choice.options.iter().find(|option| {
+                option
+                    .id
+                    .contains(":yssarilagent:ghostagent:SYSTEM_ACTIVATED:after")
+            }) {
+                assert_eq!(
+                    choice.player,
+                    b(),
+                    "the copied optional window belongs to Ssruu"
+                );
+                return Ok(option.clone());
+            }
+            panic!(
+                "unexpected copied-agent decision for {}: {}",
+                choice.player, choice.prompt
+            );
+        }
+    }
+    fn borrow_ghost_agent() -> Table {
+        Table::with_default(Box::new(BorrowGhostAgent))
+    }
+
     /// Alpha: 39 and 26; beta: 40 and 25; delta: the gate; plain: 18, 19, 20, 21.
     fn galaxy() -> Galaxy {
         let mut galaxy = Galaxy::build(
@@ -1037,6 +1174,9 @@ mod tests {
     }
     fn ghost_game() -> GameState {
         seated_game(&[("a", "ghost"), ("b", "sol")], DEFAULT)
+    }
+    fn ghost_ssruu_game() -> GameState {
+        seated_game(&[("a", "ghost"), ("b", "yssaril"), ("c", "sol")], DEFAULT)
     }
     fn sol_game() -> GameState {
         seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT)
@@ -1906,6 +2046,197 @@ mod tests {
             &activated("b", "39"),
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn ssruu_copies_emissary_taivra_for_readied_or_exhausted_source() {
+        let galaxy = galaxy();
+        for source_status in [LeaderStatus::Readied, LeaderStatus::Exhausted] {
+            let mut state = ghost_ssruu_game();
+            state
+                .player_mut(&a())
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new("ghostagent"), source_status);
+            state
+                .player_mut(&b())
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+            activate(&mut state, &c(), "39");
+            emit(
+                &mut state,
+                Some(&galaxy),
+                &mut borrow_ghost_agent(),
+                "SYSTEM_ACTIVATED",
+                &activated("c", "39"),
+            );
+
+            assert_eq!(agent_link(&state), Some(sys("39")));
+            assert_eq!(
+                leader_status(&state, &a(), "ghostagent"),
+                Some(source_status),
+                "the copied route leaves the source unchanged"
+            );
+            assert_eq!(
+                leader_status(&state, &b(), "yssarilagent"),
+                Some(LeaderStatus::Exhausted),
+                "only Ssruu exhausts"
+            );
+            let adjacency = PlayerAdjacency::new(&state, content(), DEFAULT, &galaxy, &c());
+            assert!(adjacency.are_adjacent("39", "40"));
+        }
+    }
+
+    #[test]
+    fn borrowed_agent_readiness_is_live_after_resolver_registration() {
+        let galaxy = galaxy();
+        let mut state = ghost_ssruu_game();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("ghostagent"), LeaderStatus::Exhausted);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Exhausted);
+        activate(&mut state, &c(), "39");
+        let mut resolver = armed_resolver(&state);
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("ghostagent"), LeaderStatus::Readied);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        let mut table = borrow_ghost_agent();
+        with_context(&mut state, DEFAULT, Some(&galaxy), &mut table, |context| {
+            let event = context
+                .event_sequence
+                .next(
+                    "SYSTEM_ACTIVATED",
+                    activated("c", "39")
+                        .into_iter()
+                        .map(|(key, value)| (key.to_owned(), value))
+                        .collect(),
+                )
+                .expect("an event id");
+            resolver
+                .emit_with_context(context, event, |_, _| {})
+                .expect("the live borrowed agent resolves");
+        });
+        assert_eq!(agent_link(&state), Some(sys("39")));
+        assert_eq!(
+            leader_status(&state, &a(), "ghostagent"),
+            Some(LeaderStatus::Readied)
+        );
+        assert_eq!(
+            leader_status(&state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+    }
+
+    #[test]
+    fn copied_agent_rejects_unavailable_cards_and_illegal_wormhole_targets() {
+        let galaxy = galaxy();
+        for (source_status, borrower_status, remove_source, system) in [
+            (
+                Some(LeaderStatus::Locked),
+                Some(LeaderStatus::Readied),
+                false,
+                "39",
+            ),
+            (Some(LeaderStatus::Exhausted), None, false, "39"),
+            (
+                Some(LeaderStatus::Exhausted),
+                Some(LeaderStatus::Exhausted),
+                false,
+                "39",
+            ),
+            (None, Some(LeaderStatus::Readied), true, "39"),
+            (
+                Some(LeaderStatus::Exhausted),
+                Some(LeaderStatus::Readied),
+                false,
+                "17",
+            ),
+            (
+                Some(LeaderStatus::Exhausted),
+                Some(LeaderStatus::Readied),
+                false,
+                "19",
+            ),
+        ] {
+            let mut state = ghost_ssruu_game();
+            if remove_source {
+                state
+                    .player_mut(&a())
+                    .unwrap()
+                    .leaders
+                    .remove(&LeaderId::new("ghostagent"));
+            } else if let Some(status) = source_status {
+                state
+                    .player_mut(&a())
+                    .unwrap()
+                    .leaders
+                    .insert(LeaderId::new("ghostagent"), status);
+            }
+            if let Some(status) = borrower_status {
+                state
+                    .player_mut(&b())
+                    .unwrap()
+                    .leaders
+                    .insert(LeaderId::new("yssarilagent"), status);
+            } else {
+                state
+                    .player_mut(&b())
+                    .unwrap()
+                    .leaders
+                    .remove(&LeaderId::new("yssarilagent"));
+            }
+            activate(&mut state, &c(), system);
+            let before = state.clone();
+            emit(
+                &mut state,
+                Some(&galaxy),
+                &mut never(),
+                "SYSTEM_ACTIVATED",
+                &activated("c", system),
+            );
+            assert_eq!(state, before, "invalid copied-agent case {system}");
+            assert_eq!(leader_status(&state, &a(), "ghostagent"), source_status);
+            assert_eq!(leader_status(&state, &b(), "yssarilagent"), borrower_status);
+        }
+
+        let one_wormhole = Galaxy::build(content(), &["18", "19", "39"], DEFAULT, 3)
+            .expect("a map with only system 39 holding a wormhole");
+        assert_eq!(one_wormhole.wormhole_systems().len(), 1);
+        let mut state = ghost_ssruu_game();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("ghostagent"), LeaderStatus::Exhausted);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        activate(&mut state, &c(), "39");
+        let before = state.clone();
+        emit(
+            &mut state,
+            Some(&one_wormhole),
+            &mut never(),
+            "SYSTEM_ACTIVATED",
+            &activated("c", "39"),
+        );
+        assert_eq!(state, before, "there is no other wormhole system");
     }
 
     // -- Sai Seravus -----------------------------------------------------------------------------
