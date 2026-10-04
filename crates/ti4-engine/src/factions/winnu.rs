@@ -782,6 +782,63 @@ fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
+/// Ssruu copies Berekar Berekon's production discount. Its holder controls the optional window;
+/// the recipient's agent stays in the state it had when copied.
+fn borrowed_agent(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (condition_source, condition_borrower) = (source.clone(), borrower.clone());
+    let (effect_source, effect_borrower) = (source.clone(), borrower.clone());
+    Ability::stateful(
+        format!("leader:{owner_name}:{source}:yssarilagent:{AGENT}:PRODUCTION_USED:after"),
+        borrower.clone(),
+        "PRODUCTION_USED",
+        Relation::After,
+        Arc::new(move |_event, _, context| {
+            if !has_borrowable_winnu_agent(
+                context.state,
+                context.content,
+                &effect_source,
+                &effect_borrower,
+            ) {
+                return Ok(());
+            }
+            if crate::leaders::exhaust(
+                context.state,
+                &effect_borrower,
+                &LeaderId::new("yssarilagent"),
+            ) {
+                // Read back by `ProductionWindow::refresh` immediately after this event.
+                context.state.production_discount_remaining += 2;
+                super::hooks_cards::borrowed_agent_used(
+                    context,
+                    &effect_borrower,
+                    &LeaderId::new(AGENT),
+                );
+            }
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |_event, _, context| {
+        has_borrowable_winnu_agent(
+            context.state,
+            context.content,
+            &condition_source,
+            &condition_borrower,
+        )
+    }))
+}
+
+fn has_borrowable_winnu_agent(
+    state: &GameState,
+    content: &ContentStore,
+    source: &PlayerId,
+    borrower: &PlayerId,
+) -> bool {
+    super::hooks_cards::borrowable_agents(state, content, borrower)
+        .iter()
+        .any(|(owner, agent)| owner == source && agent.as_str() == AGENT)
+}
+
 // -- Rickar Rickani ------------------------------------------------------------------------------
 
 /// Control Mecatol Rex; the combat half of the unlock is `commander_unlock`.
@@ -1246,8 +1303,8 @@ fn use_leader(
 
 // -- timing abilities ----------------------------------------------------------------------------
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    let mut abilities = vec![
         gained_mark(owner_name, seat),
         gained_clear(owner_name, seat),
         reclamation(owner_name, seat),
@@ -1260,12 +1317,30 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
         imperator_consume(owner_name, seat),
         tactical_mark(owner_name, seat),
         imperator_clear(owner_name, seat),
-    ]
+    ];
+    // Register from the static card roster rather than current readiness: the live condition
+    // below sees agents readied or exhausted after resolver construction.
+    if state
+        .player(seat)
+        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new(AGENT)))
+    {
+        for candidate in &state.players {
+            if &candidate.id != seat
+                && candidate
+                    .leaders
+                    .contains_key(&LeaderId::new("yssarilagent"))
+            {
+                abilities.push(borrowed_agent(owner_name, seat, &candidate.id));
+            }
+        }
+    }
+    abilities
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::choice::Window;
     use std::collections::BTreeMap;
     use ti4_model::content_types::DEFAULT;
 
@@ -1277,6 +1352,17 @@ mod tests {
     }
     fn game() -> GameState {
         crate::fixtures::seated_game(&[("a", FACTION), ("b", "sol")], DEFAULT)
+    }
+
+    fn payload(pairs: &[(&str, &str)]) -> BTreeMap<String, serde_json::Value> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
+            .collect()
+    }
+
+    fn ssruu_game() -> GameState {
+        crate::fixtures::seated_game(&[("a", FACTION), ("b", "yssaril"), ("c", "sol")], DEFAULT)
     }
 
     fn payload(pairs: &[(&str, &str)]) -> BTreeMap<String, serde_json::Value> {
@@ -1308,6 +1394,53 @@ mod tests {
         crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(
             answers.iter().map(|s| (*s).to_owned()),
         )))
+    }
+
+    #[derive(Debug)]
+    struct BorrowWinnuAgent;
+    impl crate::choice::Decider for BorrowWinnuAgent {
+        fn choose(
+            &mut self,
+            choice: &Choice,
+        ) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+            if choice.player == a()
+                && choice
+                    .options
+                    .iter()
+                    .any(|option| option.id == AGENT_ABILITY)
+            {
+                return choice
+                    .options
+                    .iter()
+                    .find(|option| option.is_decline())
+                    .cloned()
+                    .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                        player: choice.player.clone(),
+                        prompt: choice.prompt.clone(),
+                    });
+            }
+            if let Some(option) = choice.options.iter().find(|option| {
+                option
+                    .id
+                    .contains(":yssarilagent:winnuagent:PRODUCTION_USED:after")
+            }) {
+                assert_eq!(choice.player, b(), "copied ability is controlled by Ssruu");
+                return Ok(option.clone());
+            }
+            choice
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .cloned()
+                .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                })
+        }
+    }
+
+    fn borrow_winnu_agent_table() -> crate::choice::Table {
+        crate::choice::Table::with_default(Box::new(BorrowWinnuAgent))
     }
 
     fn count_on(
@@ -1824,6 +1957,206 @@ mod tests {
             &[("player", "a"), ("system", "18")],
         );
         assert_eq!(state.production_discount_remaining, 0);
+    }
+
+    #[test]
+    fn ssruu_copies_winnu_production_discount_for_readied_or_exhausted_source() {
+        let content = ContentStore::embedded();
+        let borrower = b();
+        let target = PlayerId::new("c");
+        for source_status in [LeaderStatus::Readied, LeaderStatus::Exhausted] {
+            let mut state = ssruu_game();
+            state
+                .player_mut(&a())
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new(AGENT), source_status);
+            state
+                .player_mut(&borrower)
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            state
+                .system_mut(&system)
+                .set_control(planet.clone(), target.clone());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &target, 1);
+            state.player_mut(&target).unwrap().trade_goods = 0;
+            state.exhausted_planets.extend(
+                state
+                    .controlled_planets(&target)
+                    .into_iter()
+                    .map(|(_, planet)| planet.clone())
+                    .collect::<Vec<_>>(),
+            );
+
+            emit(
+                &mut state,
+                &mut borrow_winnu_agent_table(),
+                "PRODUCTION_USED",
+                &[("player", "c"), ("system", system.as_str())],
+            );
+            assert_eq!(state.production_discount_remaining, 2);
+            assert_eq!(
+                leader_status(&state, &borrower, "yssarilagent"),
+                Some(LeaderStatus::Exhausted)
+            );
+            assert_eq!(
+                leader_status(&state, &a(), AGENT),
+                Some(source_status),
+                "native optional branch is declined for a ready source"
+            );
+
+            let mut window = crate::production::ProductionWindow::new(
+                &state, content, DEFAULT, &target, &system,
+            );
+            window.refresh(&state, content, DEFAULT);
+            let offer = window
+                .pending_choice(&state, content, DEFAULT)
+                .expect("the spacedock offers production");
+            let cruiser = offer
+                .options
+                .iter()
+                .find(|option| option.id == "build|cruiser|1")
+                .expect("the combined discount makes a zero-resource cruiser affordable")
+                .clone();
+            assert_eq!(
+                cruiser.payload.get("cost").and_then(|value| value.as_i64()),
+                Some(0)
+            );
+            assert_eq!(
+                cruiser
+                    .payload
+                    .get("discount")
+                    .and_then(|value| value.as_i64()),
+                Some(2)
+            );
+
+            let mut dice = crate::dice::Dice::new();
+            let mut rng = crate::rng::GameRng::new(31);
+            let mut table = crate::choice::Table::default();
+            let mut resolving = crate::choice::Resolving {
+                content,
+                sources: DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            crate::choice::Window::resolve(&mut window, &mut state, &mut resolving, cruiser)
+                .expect("the discounted cruiser places without a payment choice");
+            assert_eq!(state.player(&target).unwrap().trade_goods, 0);
+            assert!(
+                state
+                    .system_state(&system)
+                    .units
+                    .iter()
+                    .any(|unit| { unit.owner == target && unit.type_id.as_str() == "cruiser" })
+            );
+        }
+    }
+
+    #[test]
+    fn borrowed_agent_readiness_is_live_and_registration_uses_the_static_roster() {
+        let mut state = ssruu_game();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Exhausted);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Exhausted);
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Readied);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        let mut table = borrow_winnu_agent_table();
+        crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |context| {
+            let event = context
+                .event_sequence
+                .next(
+                    "PRODUCTION_USED",
+                    payload(&[("player", "c"), ("system", "18")]),
+                )
+                .expect("an event id");
+            resolver
+                .emit_with_context(context, event, |_, _| {})
+                .expect("the live copy resolves");
+        });
+        assert_eq!(state.production_discount_remaining, 2);
+        assert_eq!(
+            leader_status(&state, &a(), AGENT),
+            Some(LeaderStatus::Readied)
+        );
+        assert_eq!(
+            leader_status(&state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+    }
+
+    #[test]
+    fn borrowed_agent_is_inert_without_ready_ssruu_or_an_available_source() {
+        for (source_status, borrower_status, remove_source) in [
+            (Some(LeaderStatus::Readied), None, false),
+            (
+                Some(LeaderStatus::Readied),
+                Some(LeaderStatus::Exhausted),
+                false,
+            ),
+            (
+                Some(LeaderStatus::Locked),
+                Some(LeaderStatus::Readied),
+                false,
+            ),
+            (None, Some(LeaderStatus::Readied), true),
+        ] {
+            let mut state = ssruu_game();
+            if remove_source {
+                state
+                    .player_mut(&a())
+                    .unwrap()
+                    .leaders
+                    .remove(&LeaderId::new(AGENT));
+            } else if let Some(status) = source_status {
+                state
+                    .player_mut(&a())
+                    .unwrap()
+                    .leaders
+                    .insert(LeaderId::new(AGENT), status);
+            }
+            if let Some(status) = borrower_status {
+                state
+                    .player_mut(&b())
+                    .unwrap()
+                    .leaders
+                    .insert(LeaderId::new("yssarilagent"), status);
+            } else {
+                state
+                    .player_mut(&b())
+                    .unwrap()
+                    .leaders
+                    .remove(&LeaderId::new("yssarilagent"));
+            }
+            emit(
+                &mut state,
+                &mut crate::choice::Table::with_default(Box::new(crate::choice::AlwaysDecline)),
+                "PRODUCTION_USED",
+                &[("player", "c"), ("system", "18")],
+            );
+            assert_eq!(state.production_discount_remaining, 0);
+            assert_eq!(leader_status(&state, &a(), AGENT), source_status);
+            assert_eq!(leader_status(&state, &b(), "yssarilagent"), borrower_status);
+        }
     }
 
     // -- Rickar Rickani --------------------------------------------------------------------------
