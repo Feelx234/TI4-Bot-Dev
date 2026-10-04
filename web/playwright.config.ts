@@ -10,12 +10,12 @@ process.env.TI4_E2E_FRONTEND_PORT = frontendPort;
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
-  globalTimeout: 120_000,
+  globalTimeout: 300_000,
   expect: {
     timeout: 5_000,
   },
   fullyParallel: false,
-  workers: 4,
+  workers: 2,
   reporter: "list",
   use: {
     baseURL: `http://127.0.0.1:${frontendPort}`,

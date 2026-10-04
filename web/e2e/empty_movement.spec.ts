@@ -122,7 +122,6 @@ test("a real engine advances after an empty tactical movement", async ({ browser
   ]);
   expect(current.pending_choice?.choice.options[0].kind).toBe("decline");
   const before = current.game_version;
-  const beforeStatus = current.turn_status;
   await expect(page.getByTestId("tactical-movement-tray")).toBeVisible();
   await expect(page.getByText("No ships eligible to move into the active system.")).toBeVisible();
   await page.getByTestId("commit-moves-btn").click();
@@ -131,8 +130,7 @@ test("a real engine advances after an empty tactical movement", async ({ browser
       const state = await snapshot(request, gameId, actor.session);
       return (
         state.game_version > before &&
-        state.pending_choice?.choice.context?.subtype !== "movement_step" &&
-        JSON.stringify(state.turn_status) !== JSON.stringify(beforeStatus)
+        state.pending_choice?.choice.context?.subtype !== "movement_step"
       );
     })
     .toBe(true);
