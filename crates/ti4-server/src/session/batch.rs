@@ -301,21 +301,53 @@ impl MovementStep {
 #[derive(Debug, Clone, Serialize)]
 pub struct BatchFailure {
     pub failed_step: usize,
+    /// Stable machine-readable reason.
     pub reason: String,
     pub expected: String,
+    /// Kinds of the options offered at the failed step (only for the batch's own seat).
     pub offered_summary: Vec<String>,
+    /// Human-readable explanation of what went wrong and where.
+    pub message: String,
+    pub planned_steps: usize,
+    /// The decision the engine offered instead of the planned step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offered: Option<Box<OfferedDecision>>,
+}
+
+/// What the engine asked at a failed step. Option ids and the prompt are only filled in when
+/// the decision belongs to the batch's own seat, so another seat's private choice never leaks.
+#[derive(Debug, Clone, Serialize)]
+pub struct OfferedDecision {
+    pub subtype: Option<String>,
+    pub own_seat: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub option_ids: Vec<String>,
 }
 
 impl BatchFailure {
     fn new(step: usize, reason: impl Into<String>, expected: impl Into<String>) -> Self {
+        let reason = reason.into();
+        let expected = expected.into();
         Self {
             failed_step: step,
-            reason: reason.into(),
-            expected: expected.into(),
+            message: format!("step {step}: {reason} (expected {expected})"),
+            reason,
+            expected,
             offered_summary: Vec::new(),
+            planned_steps: 0,
+            offered: None,
         }
     }
+
+    fn with_planned_steps(mut self, planned_steps: usize) -> Self {
+        self.planned_steps = planned_steps;
+        self
+    }
 }
+
+const MAX_REPORTED_OPTIONS: usize = 16;
 
 struct Script {
     prefix: VecDeque<DecisionRecord>,
@@ -422,29 +454,46 @@ impl Decider for PrivateDecider {
         } else {
             Vec::new()
         };
-        if matches.len() != 1 {
-            script.failure = Some(BatchFailure {
-                failed_step: index,
-                reason: if !context_ok || choice.player != script.actor {
-                    "workflow interrupted"
-                } else if matches.is_empty() {
-                    "option unavailable"
-                } else {
-                    "ambiguous option"
-                }
-                .into(),
-                expected,
-                offered_summary: if choice.player == script.actor {
-                    choice
-                        .options
-                        .iter()
-                        .take(16)
-                        .map(|o| o.kind.clone())
-                        .collect()
-                } else {
-                    Vec::new()
-                },
+        let own_seat = choice.player == script.actor;
+        let offered_subtype = choice.context.as_ref().map(|c| c.subtype.clone());
+        // The engine takes a lone payment option without asking, so a payment can settle before
+        // every planned step is consumed. Once the actor is no longer being asked to pay, the
+        // remaining payment steps were already covered and the batch ends at this boundary.
+        let payment_settled = script.kind == BatchKind::Payment
+            && index > 0
+            && !(own_seat
+                && offered_subtype
+                    .as_deref()
+                    .is_some_and(|s| s == "pay_resources" || s == "pay_influence"))
+            && script.steps[index..]
+                .iter()
+                .all(|s| matches!(s, MovementStep::Exhaust { .. } | MovementStep::TradeGood));
+        if matches.len() != 1 && payment_settled {
+            script.steps.truncate(index);
+            script.finished = true;
+            return Err(IllegalChoice::DeciderFailed {
+                player: choice.player.clone(),
+                prompt: choice.prompt.clone(),
+                reason: "batch boundary reached".into(),
             });
+        }
+        if matches.len() != 1 {
+            let reason = if !context_ok || !own_seat {
+                "workflow interrupted"
+            } else if matches.is_empty() {
+                "option unavailable"
+            } else {
+                "ambiguous option"
+            };
+            script.failure = Some(step_rejection(
+                choice,
+                own_seat,
+                reason,
+                index,
+                expected,
+                matches.len(),
+                script.steps.len(),
+            ));
             return Err(IllegalChoice::DeciderFailed {
                 player: choice.player.clone(),
                 prompt: choice.prompt.clone(),
@@ -464,6 +513,64 @@ impl Decider for PrivateDecider {
     }
 }
 
+/// Describes why the engine's offer could not take a planned step, without exposing another
+/// seat's private options.
+fn step_rejection(
+    choice: &Choice,
+    own_seat: bool,
+    reason: &str,
+    index: usize,
+    expected: String,
+    matching: usize,
+    planned_steps: usize,
+) -> BatchFailure {
+    let subtype = choice.context.as_ref().map(|c| c.subtype.clone());
+    let asked = match (&subtype, own_seat) {
+        (Some(subtype), true) => format!("your {subtype} decision"),
+        (Some(subtype), false) => format!("another seat's {subtype} decision"),
+        (None, true) => format!("your decision \"{}\"", choice.prompt),
+        (None, false) => "another seat's decision".to_owned(),
+    };
+    let detail = match reason {
+        "workflow interrupted" => format!(
+            "the engine moved on to {asked} before planned step {index} ({expected}) could be applied"
+        ),
+        "option unavailable" => format!(
+            "planned step {index} ({expected}) is not among the {} options offered for {asked}",
+            choice.options.len()
+        ),
+        _ => format!(
+            "planned step {index} ({expected}) matches {matching} options offered for {asked}"
+        ),
+    };
+    let own_options = |field: fn(&ChoiceOption) -> String| -> Vec<String> {
+        if own_seat {
+            choice
+                .options
+                .iter()
+                .take(MAX_REPORTED_OPTIONS)
+                .map(field)
+                .collect()
+        } else {
+            Vec::new()
+        }
+    };
+    BatchFailure {
+        failed_step: index,
+        reason: reason.into(),
+        message: format!("{reason}: {detail}"),
+        expected,
+        offered_summary: own_options(|o| o.kind.clone()),
+        planned_steps,
+        offered: Some(Box::new(OfferedDecision {
+            subtype,
+            own_seat,
+            prompt: own_seat.then(|| choice.prompt.clone()),
+            option_ids: own_options(|o| o.id.clone()),
+        })),
+    }
+}
+
 /// Replays the prefix and proves every staged choice against a fresh engine offer.
 pub fn simulate(
     config: &SessionConfig,
@@ -471,63 +578,87 @@ pub fn simulate(
     actor: &PlayerId,
     plan: &MovementPlan,
 ) -> Result<Simulation, BatchFailure> {
-    let valid = match plan.kind {
-        BatchKind::TacticalMovement => {
-            !plan.destination.is_empty()
-                && plan.destination.len() <= 64
-                && matches!(plan.steps.last(), Some(MovementStep::DoneMoving))
-                && plan.steps[..plan.steps.len().saturating_sub(1)]
-                    .iter()
-                    .all(|s| {
-                        matches!(
-                            s,
-                            MovementStep::Move { .. }
-                                | MovementStep::Load { .. }
-                                | MovementStep::DoneLoading
-                        )
-                    })
+    if let Some(problem) = plan_problem(plan) {
+        let mut failure =
+            BatchFailure::new(0, "invalid batch plan", "valid workflow steps required")
+                .with_planned_steps(plan.steps.len());
+        failure.message = format!("invalid batch plan: {problem}");
+        return Err(failure);
+    }
+    simulate_script(config, prefix, actor, plan).map_err(|failure| {
+        let planned = plan.steps.len();
+        if failure.planned_steps == 0 {
+            failure.with_planned_steps(planned)
+        } else {
+            failure
         }
-        BatchKind::Payment => {
-            plan.destination.is_empty()
-                && plan
-                    .steps
-                    .iter()
-                    .all(|s| matches!(s, MovementStep::Exhaust { .. } | MovementStep::TradeGood))
-        }
-        BatchKind::AgendaVotePlanets => {
-            plan.destination.is_empty()
-                && plan.steps.iter().all(|s| {
-                    matches!(
-                        s,
-                        MovementStep::VotePlanet { .. } | MovementStep::DoneVoting
-                    )
-                })
-                && plan.steps[..plan.steps.len().saturating_sub(1)]
-                    .iter()
-                    .all(|s| !matches!(s, MovementStep::DoneVoting))
-        }
-        BatchKind::Production => {
-            !plan.destination.is_empty()
-                && plan.destination.len() <= 64
-                && plan.steps.iter().all(|s| {
-                    matches!(
-                        s,
-                        MovementStep::Produce { count: 1..=100, .. } | MovementStep::DoneProducing
-                    )
-                })
-                && plan.steps[..plan.steps.len().saturating_sub(1)]
-                    .iter()
-                    .all(|s| !matches!(s, MovementStep::DoneProducing))
-        }
-    };
-    if !valid || plan.steps.is_empty() || plan.steps.len() > 100 {
-        return Err(BatchFailure::new(
-            0,
-            "invalid batch plan",
-            "valid workflow steps required",
+    })
+}
+
+/// Explains why a plan cannot be a batch of its kind, or `None` when its shape is valid.
+fn plan_problem(plan: &MovementPlan) -> Option<String> {
+    if plan.steps.is_empty() {
+        return Some("the plan has no steps".to_owned());
+    }
+    if plan.steps.len() > 100 {
+        return Some(format!(
+            "the plan has {} steps; at most 100 are allowed",
+            plan.steps.len()
         ));
     }
-    simulate_script(config, prefix, actor, plan)
+    let body = &plan.steps[..plan.steps.len() - 1];
+    let last = plan.steps.last();
+    let destination_needed = matches!(
+        plan.kind,
+        BatchKind::TacticalMovement | BatchKind::Production
+    );
+    if destination_needed && (plan.destination.is_empty() || plan.destination.len() > 64) {
+        return Some("a destination system id of 1 to 64 characters is required".to_owned());
+    }
+    if !destination_needed && !plan.destination.is_empty() {
+        return Some(format!("{:?} plans must not name a destination", plan.kind));
+    }
+    let problem = match plan.kind {
+        BatchKind::TacticalMovement => (!matches!(last, Some(MovementStep::DoneMoving)))
+            .then_some("a movement plan must end with done_moving")
+            .or_else(|| {
+                (!body.iter().all(|s| {
+                    matches!(
+                        s,
+                        MovementStep::Move { .. } | MovementStep::Load { .. } | MovementStep::DoneLoading
+                    )
+                }))
+                .then_some("a movement plan may only contain move, load and done_loading before done_moving")
+            }),
+        BatchKind::Payment => (!plan
+            .steps
+            .iter()
+            .all(|s| matches!(s, MovementStep::Exhaust { .. } | MovementStep::TradeGood)))
+        .then_some("a payment plan may only contain exhaust and trade_good steps"),
+        BatchKind::AgendaVotePlanets => (!plan
+            .steps
+            .iter()
+            .all(|s| matches!(s, MovementStep::VotePlanet { .. } | MovementStep::DoneVoting)))
+        .then_some("a vote plan may only contain vote_planet and done_voting steps")
+        .or_else(|| {
+            body.iter()
+                .any(|s| matches!(s, MovementStep::DoneVoting))
+                .then_some("done_voting may only be the last step")
+        }),
+        BatchKind::Production => (!plan.steps.iter().all(|s| {
+            matches!(
+                s,
+                MovementStep::Produce { count: 1..=100, .. } | MovementStep::DoneProducing
+            )
+        }))
+        .then_some("a production plan may only contain produce steps with a count of 1 to 100 and done_producing")
+        .or_else(|| {
+            body.iter()
+                .any(|s| matches!(s, MovementStep::DoneProducing))
+                .then_some("done_producing may only be the last step")
+        }),
+    };
+    problem.map(str::to_owned)
 }
 
 /// Reconstruct the view at the first unrecorded choice when a session is recovered
@@ -619,7 +750,7 @@ fn simulate_script(
                 ));
             }
             if game.table.log.records.get(..prefix.len()) != Some(prefix)
-                || game.table.log.records.len() != prefix.len() + plan.steps.len()
+                || game.table.log.records.len() != prefix.len() + guard.steps.len()
             {
                 return Err(BatchFailure::new(0, "replay diverged", "recorded prefix"));
             }
@@ -746,6 +877,59 @@ mod tests {
         let script = decider.0.lock().unwrap();
         assert_eq!(script.next, 1);
         assert_eq!(script.failure.as_ref().unwrap().failed_step, 1);
+    }
+
+    #[test]
+    fn payment_ends_at_the_boundary_when_the_engine_settles_the_rest() {
+        // Jord pays 2 of 3; the engine then spends the lone remaining trade good itself and
+        // moves on, so the planned trade good step must not reject the batch.
+        let mut decider = decider(
+            BatchKind::Payment,
+            vec![
+                MovementStep::Exhaust {
+                    planet: "jord".into(),
+                },
+                MovementStep::TradeGood,
+            ],
+        );
+        let pay = offered(
+            "pay_influence",
+            vec![
+                ChoiceOption::labelled("exhaust|jord", "pay", "exhaust"),
+                ChoiceOption::labelled("trade_good", "pay", "spend"),
+            ],
+        );
+        assert_eq!(decider.choose(&pay).unwrap().id, "exhaust|jord");
+        let next = offered(
+            "gain_command_token",
+            vec![ChoiceOption::labelled("tactic", "pool", "tactic pool")],
+        );
+        assert!(decider.choose(&next).is_err());
+        let script = decider.0.lock().unwrap();
+        assert!(script.finished);
+        assert!(script.failure.is_none());
+        assert_eq!(script.steps.len(), 1);
+    }
+
+    #[test]
+    fn payment_that_never_starts_still_reports_the_interruption() {
+        let mut decider = decider(BatchKind::Payment, vec![MovementStep::TradeGood]);
+        let next = offered(
+            "gain_command_token",
+            vec![ChoiceOption::labelled("tactic", "pool", "tactic pool")],
+        );
+        assert!(decider.choose(&next).is_err());
+        let script = decider.0.lock().unwrap();
+        let failure = script.failure.as_ref().unwrap();
+        assert_eq!(failure.reason, "workflow interrupted");
+        let offered = failure.offered.as_ref().unwrap();
+        assert_eq!(offered.subtype.as_deref(), Some("gain_command_token"));
+        assert_eq!(offered.option_ids, vec!["tactic".to_owned()]);
+        assert!(
+            failure.message.contains("gain_command_token"),
+            "{}",
+            failure.message
+        );
     }
 
     #[test]

@@ -749,7 +749,7 @@ fn host_rewinds_replays_and_branches_durably() {
             session.game_version(),
             HistoryAction::Undo
         ),
-        Err(HistoryError::Forbidden)
+        Err(HistoryError::Forbidden(_))
     ));
     assert!(matches!(
         registry.change_history("history_game", &host_token, version, HistoryAction::Undo),
@@ -826,7 +826,7 @@ fn host_rewinds_replays_and_branches_durably() {
             forked.game_version(),
             HistoryAction::Redo
         ),
-        Err(HistoryError::InvalidTarget)
+        Err(HistoryError::InvalidTarget(_))
     ));
     forked.stop();
     let recovered = store.recover_session("history_game").unwrap();

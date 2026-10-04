@@ -319,13 +319,18 @@ export class GameSessionClient {
     if (!response.ok) {
       if (response.status !== 500 && response.status !== 502 && response.status !== 503)
         this.pendingBatch = null;
-      const failure = (await response.json()) as {
-        failed_step?: number;
-        reason?: string;
-        expected?: string;
-      };
+      const body = await response.text();
+      let failure: { failed_step?: number; reason?: string; expected?: string; message?: string };
+      try {
+        failure = JSON.parse(body);
+      } catch {
+        failure = { message: body || `HTTP ${response.status}` };
+      }
+      // The server explains the rejection in `message`; older servers only send the reason.
       throw new Error(
-        `Batch step ${(failure.failed_step ?? 0) + 1}: ${failure.reason ?? "batch rejected"}${failure.expected ? ` (${failure.expected})` : ""}`,
+        failure.message
+          ? `Batch rejected: ${failure.message}`
+          : `Batch step ${(failure.failed_step ?? 0) + 1}: ${failure.reason ?? "batch rejected"}${failure.expected ? ` (${failure.expected})` : ""}`,
       );
     }
     this.pendingBatch = null;
@@ -418,7 +423,10 @@ export class GameSessionClient {
   private async loadSnapshot(): Promise<void> {
     try {
       const response = await fetch(this.snapshotUrl(), { headers: this.snapshotHeaders() });
-      if (!response.ok) throw new Error(`Snapshot request failed (${response.status})`);
+      if (!response.ok)
+        throw new Error(
+          `Snapshot request failed (${response.status}): ${await response.text().catch(() => "")}`,
+        );
       this.ingestHttpSnapshot(await response.json());
     } catch (error) {
       if (!this.stopped)

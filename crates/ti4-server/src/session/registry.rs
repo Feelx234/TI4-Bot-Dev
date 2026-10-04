@@ -204,10 +204,24 @@ mod committed_worker_tests {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HistoryError {
     NotFound,
-    Forbidden,
+    Forbidden(String),
     Conflict(String),
-    InvalidTarget,
+    InvalidTarget(String),
     Storage(String),
+}
+
+impl HistoryError {
+    /// Human-readable explanation for the requesting client.
+    #[must_use]
+    pub fn message(&self) -> String {
+        match self {
+            Self::NotFound => "Game not found".to_owned(),
+            Self::Forbidden(why) => format!("History change forbidden: {why}"),
+            Self::Conflict(why) => format!("History change conflicts with the game: {why}"),
+            Self::InvalidTarget(why) => format!("Invalid history target: {why}"),
+            Self::Storage(why) => format!("History could not be saved: {why}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -223,9 +237,28 @@ pub struct BatchResult {
 #[derive(Debug, Clone, Serialize)]
 pub struct BatchError {
     pub failed_step: usize,
+    /// Stable machine-readable reason; HTTP status mapping keys on it.
     pub reason: String,
     pub expected: String,
     pub offered_summary: Vec<String>,
+    /// Human-readable explanation, safe to show to the submitting seat.
+    pub message: String,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub planned_steps: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offered: Option<Box<crate::session::batch::OfferedDecision>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_version: Option<u64>,
+}
+
+#[allow(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes the field by reference"
+)]
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 impl From<BatchFailure> for BatchError {
@@ -235,18 +268,39 @@ impl From<BatchFailure> for BatchError {
             reason: value.reason,
             expected: value.expected,
             offered_summary: value.offered_summary,
+            message: value.message,
+            planned_steps: value.planned_steps,
+            offered: value.offered,
+            expected_version: None,
+            current_version: None,
         }
     }
 }
 
 impl BatchError {
-    fn simple(reason: &str) -> Self {
+    pub fn simple(reason: &str) -> Self {
+        Self::explained(reason, reason)
+    }
+
+    /// An error whose stable `reason` is accompanied by a specific explanation.
+    pub fn explained(reason: &str, message: impl Into<String>) -> Self {
         Self {
             failed_step: 0,
             reason: reason.into(),
             expected: String::new(),
             offered_summary: Vec::new(),
+            message: message.into(),
+            planned_steps: 0,
+            offered: None,
+            expected_version: None,
+            current_version: None,
         }
+    }
+
+    fn with_versions(mut self, expected: u64, current: u64) -> Self {
+        self.expected_version = Some(expected);
+        self.current_version = Some(current);
+        self
     }
 }
 
@@ -600,6 +654,10 @@ impl GameRegistry {
     }
 
     /// Replay a staged movement privately, then durably replace the entire timeline.
+    #[allow(
+        clippy::result_large_err,
+        reason = "a batch error is built once per rejected request and serialized to the client"
+    )]
     pub fn submit_batch(
         &self,
         game_id: &str,
@@ -609,6 +667,10 @@ impl GameRegistry {
         self.submit_batch_with_worker(game_id, credential, request, GameSession::start)
     }
 
+    #[allow(
+        clippy::result_large_err,
+        reason = "a batch error is built once per rejected request and serialized to the client"
+    )]
     fn submit_batch_with_worker(
         &self,
         game_id: &str,
@@ -644,7 +706,10 @@ impl GameRegistry {
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
         {
-            return Err(BatchError::simple("invalid request_id"));
+            return Err(BatchError::explained(
+                "invalid request_id",
+                "request_id must be 1 to 128 characters of letters, digits, '-' or '_'",
+            ));
         }
         if let Some(batch) = session
             .batches()
@@ -652,11 +717,18 @@ impl GameRegistry {
             .find(|b| b.request_id == request.request_id)
         {
             if batch.actor != actor {
-                return Err(BatchError::simple("request_id already used"));
+                return Err(BatchError::explained(
+                    "request_id already used",
+                    format!(
+                        "request_id {} was already used by another seat",
+                        request.request_id
+                    ),
+                ));
             }
             if !session.history_ready() {
-                return Err(BatchError::simple(
+                return Err(BatchError::explained(
                     "batch committed, replacement session unavailable",
+                    "this batch was already committed, but the game is still reloading its history; retry shortly",
                 ));
             }
             return Ok(BatchResult {
@@ -668,15 +740,38 @@ impl GameRegistry {
                 snapshot: session.get_snapshot(&ViewerRole::Player(actor)),
             });
         }
-        if !session.history_ready()
-            || session.game_version() != request.expected_version
-            || !session
-                .current_pending_decision()
-                .is_some_and(|(seat, nonce, version)| {
-                    seat == actor && nonce == request.nonce && version == request.expected_version
-                })
-        {
-            return Err(BatchError::simple("stale decision boundary"));
+        let current_version = session.game_version();
+        let pending = session.current_pending_decision();
+        let stale = if !session.history_ready() {
+            Some("the game is reloading its history".to_owned())
+        } else if current_version != request.expected_version {
+            Some(format!(
+                "the plan was built for version {} but the game is at version {current_version}",
+                request.expected_version
+            ))
+        } else {
+            match &pending {
+                None => Some("no decision is pending".to_owned()),
+                Some((seat, _, _)) if *seat != actor => {
+                    Some("the pending decision belongs to another seat".to_owned())
+                }
+                Some((_, nonce, _)) if *nonce != request.nonce => Some(
+                    "the pending decision was re-offered since the plan was built (nonce changed)"
+                        .to_owned(),
+                ),
+                Some((_, _, version)) if *version != request.expected_version => Some(format!(
+                    "the pending decision was offered at version {version}, not {}",
+                    request.expected_version
+                )),
+                Some(_) => None,
+            }
+        };
+        if let Some(why) = stale {
+            return Err(BatchError::explained(
+                "stale decision boundary",
+                format!("stale decision boundary: {why}; refresh and plan again"),
+            )
+            .with_versions(request.expected_version, current_version));
         }
         if request.plan.kind == crate::session::batch::BatchKind::TacticalMovement
             && session
@@ -686,7 +781,18 @@ impl GameRegistry {
                 .map(|id| id.as_str())
                 != Some(request.plan.destination.as_str())
         {
-            return Err(BatchError::simple("movement destination changed"));
+            let active = session
+                .current_state()
+                .active_system
+                .as_ref()
+                .map_or_else(|| "no system".to_owned(), |id| format!("system {id}"));
+            return Err(BatchError::explained(
+                "movement destination changed",
+                format!(
+                    "the plan moves into system {} but {active} is active",
+                    request.plan.destination
+                ),
+            ));
         }
         let config = session.restart_config();
         let prior = session.decision_log();
@@ -823,10 +929,9 @@ impl GameRegistry {
             start_cursor,
             end_cursor,
         });
-        let revision = request
-            .expected_version
-            .checked_add(1)
-            .ok_or_else(|| BatchError::simple("version exhausted"))?;
+        let revision = request.expected_version.checked_add(1).ok_or_else(|| {
+            BatchError::explained("version exhausted", "the game version counter is exhausted")
+        })?;
         let history = GameHistory {
             decisions: prior.into_iter().chain(decisions).collect(),
             redo: Vec::new(),
@@ -845,7 +950,11 @@ impl GameRegistry {
             || session.game_version() != request.expected_version
             || !session.history_ready()
         {
-            return Err(BatchError::simple("game advanced during batch"));
+            return Err(BatchError::explained(
+                "game advanced during batch",
+                "the game changed while the batch was being checked; refresh and plan again",
+            )
+            .with_versions(request.expected_version, session.game_version()));
         }
         session.stop();
         if session.decision_log().len() != start_cursor {
@@ -855,7 +964,13 @@ impl GameRegistry {
                 session.event_log(),
             ));
             state.sessions.insert(game_id.to_owned(), replacement);
-            return Err(BatchError::simple("game advanced during batch"));
+            return Err(BatchError::explained(
+                "game advanced during batch",
+                format!(
+                    "another decision was recorded while the batch was being checked (log length {} instead of {start_cursor}); refresh and plan again",
+                    session.decision_log().len()
+                ),
+            ));
         }
         if let Some(store) = &config.store
             && let Err(error) = store.save_history(game_id, &history)
@@ -913,17 +1028,27 @@ impl GameRegistry {
         let _reservation = gate.lock().expect("game gate lock");
         let state = self.state.lock().expect("registry lock");
         let host = if let Some(lobby) = state.player_lobbies.get(game_id) {
-            let actor =
-                authenticate_player(lobby, credential).map_err(|_| HistoryError::Forbidden)?;
+            let actor = authenticate_player(lobby, credential).map_err(|_| {
+                HistoryError::Forbidden(
+                    "the session credential is not valid for this game".to_owned(),
+                )
+            })?;
             if actor != lobby.host_player_id {
-                return Err(HistoryError::Forbidden);
+                return Err(HistoryError::Forbidden(
+                    "only the host may change history".to_owned(),
+                ));
             }
             actor
         } else if let Some(lobby) = state.lobbies.get(game_id) {
-            let actor =
-                authenticated_seat(lobby, credential).map_err(|_| HistoryError::Forbidden)?;
+            let actor = authenticated_seat(lobby, credential).map_err(|_| {
+                HistoryError::Forbidden(
+                    "the session credential is not valid for this game".to_owned(),
+                )
+            })?;
             if actor != lobby.host_seat {
-                return Err(HistoryError::Forbidden);
+                return Err(HistoryError::Forbidden(
+                    "only the host may change history".to_owned(),
+                ));
             }
             actor
         } else {
@@ -935,9 +1060,15 @@ impl GameRegistry {
             .ok_or(HistoryError::NotFound)?
             .clone();
         if session.game_version() != expected_version || !session.history_ready() {
-            return Err(HistoryError::Conflict(
-                "Game advanced or a decision is in flight".to_owned(),
-            ));
+            // Clients retry on this leading phrase, so keep it stable and append details.
+            return Err(HistoryError::Conflict(if session.history_ready() {
+                format!(
+                    "Game advanced or a decision is in flight: the request expected version {expected_version} but the game is at version {}",
+                    session.game_version()
+                )
+            } else {
+                "Game advanced or a decision is in flight: history is still reloading".to_owned()
+            }));
         }
         let current = session.decision_log();
         let redo = session.redo_decisions();
@@ -946,22 +1077,22 @@ impl GameRegistry {
         let original_count = current.len();
         let total = original_count + redo.len();
         let target = match action {
-            HistoryAction::Undo => current
-                .len()
-                .checked_sub(1)
-                .ok_or(HistoryError::InvalidTarget)?,
+            HistoryAction::Undo => current.len().checked_sub(1).ok_or_else(|| {
+                HistoryError::InvalidTarget("there is nothing to undo".to_owned())
+            })?,
             HistoryAction::UndoBatch => session
                 .batches()
                 .iter()
                 .rev()
                 .find(|b| b.end_cursor <= current.len())
                 .map(|b| b.start_cursor)
-                .ok_or(HistoryError::InvalidTarget)?,
+                .ok_or_else(|| {
+                    HistoryError::InvalidTarget("there is no committed batch to undo".to_owned())
+                })?,
             HistoryAction::UndoPipeline => {
-                let last = current
-                    .len()
-                    .checked_sub(1)
-                    .ok_or(HistoryError::InvalidTarget)?;
+                let last = current.len().checked_sub(1).ok_or_else(|| {
+                    HistoryError::InvalidTarget("there is nothing to undo".to_owned())
+                })?;
                 if let Some(id) = events
                     .iter()
                     .rev()
@@ -978,7 +1109,11 @@ impl GameRegistry {
                         .find(|event| event.action_id.as_ref() == Some(id))
                         .and_then(|event| event.decision_count)
                         .and_then(|cursor| cursor.checked_sub(1))
-                        .ok_or(HistoryError::InvalidTarget)?
+                        .ok_or_else(|| {
+                            HistoryError::InvalidTarget(format!(
+                                "the start of action {id} is not in the event log"
+                            ))
+                        })?
                 } else {
                     let phase = current[..=last]
                         .iter()
@@ -1001,7 +1136,9 @@ impl GameRegistry {
             }
             HistoryAction::Redo => {
                 if redo.is_empty() {
-                    return Err(HistoryError::InvalidTarget);
+                    return Err(HistoryError::InvalidTarget(
+                        "there is nothing to redo".to_owned(),
+                    ));
                 }
                 current.len() + 1
             }
@@ -1010,10 +1147,17 @@ impl GameRegistry {
                 .iter()
                 .find(|b| b.start_cursor == current.len())
                 .map(|b| b.end_cursor)
-                .ok_or(HistoryError::InvalidTarget)?,
+                .ok_or_else(|| {
+                    HistoryError::InvalidTarget(format!(
+                        "no undone batch starts at decision {}",
+                        current.len()
+                    ))
+                })?,
             HistoryAction::RedoPipeline => {
                 if redo.is_empty() {
-                    return Err(HistoryError::InvalidTarget);
+                    return Err(HistoryError::InvalidTarget(
+                        "there is nothing to redo".to_owned(),
+                    ));
                 }
                 if let Some(id) = redo_events
                     .iter()
@@ -1030,7 +1174,11 @@ impl GameRegistry {
                         .filter(|event| event.action_id.as_ref() == Some(id))
                         .filter_map(|event| event.decision_count)
                         .max()
-                        .ok_or(HistoryError::InvalidTarget)?
+                        .ok_or_else(|| {
+                            HistoryError::InvalidTarget(format!(
+                                "action {id} has no undone decisions"
+                            ))
+                        })?
                 } else {
                     // Older histories lack an action boundary. Continue until the next
                     // action-phase offer after the first redone decision, or the end.
@@ -1045,7 +1193,9 @@ impl GameRegistry {
             }
             HistoryAction::Restore { event_id } => {
                 if event_id.len() > 128 {
-                    return Err(HistoryError::InvalidTarget);
+                    return Err(HistoryError::InvalidTarget(
+                        "event_id is longer than 128 characters".to_owned(),
+                    ));
                 }
                 let mut count = 0;
                 let event = events
@@ -1060,22 +1210,34 @@ impl GameRegistry {
                         event.id == event_id
                             && event.visibility.permits(&ViewerRole::Player(host.clone()))
                     })
-                    .ok_or(HistoryError::InvalidTarget)?;
+                    .ok_or_else(|| {
+                        HistoryError::InvalidTarget(format!(
+                            "event {event_id} is not in the host's event log"
+                        ))
+                    })?;
                 let target = event.decision_count.unwrap_or(count);
                 if target >= current.len() {
-                    return Err(HistoryError::InvalidTarget);
+                    return Err(HistoryError::InvalidTarget(format!(
+                        "event {event_id} is at decision {target}, not before the current decision {}",
+                        current.len()
+                    )));
                 }
                 target
             }
             HistoryAction::RestoreCursor { cursor } => {
                 if cursor >= current.len() {
-                    return Err(HistoryError::InvalidTarget);
+                    return Err(HistoryError::InvalidTarget(format!(
+                        "cursor {cursor} is not before the current decision {}",
+                        current.len()
+                    )));
                 }
                 cursor
             }
         };
         if target > total {
-            return Err(HistoryError::InvalidTarget);
+            return Err(HistoryError::InvalidTarget(format!(
+                "decision {target} is beyond the recorded history of {total} decisions"
+            )));
         }
         let all: Vec<_> = current.into_iter().chain(redo).collect();
         let config = session.restart_config();
@@ -1106,9 +1268,9 @@ impl GameRegistry {
             }
             split += 1;
         }
-        let revision = expected_version
-            .checked_add(1)
-            .ok_or(HistoryError::InvalidTarget)?;
+        let revision = expected_version.checked_add(1).ok_or_else(|| {
+            HistoryError::Conflict("the game version counter is exhausted".to_owned())
+        })?;
         let history = GameHistory {
             decisions: all[..target].to_vec(),
             redo: all[target..].to_vec(),

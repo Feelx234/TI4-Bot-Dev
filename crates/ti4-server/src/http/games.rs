@@ -16,6 +16,10 @@ use crate::session::registry::{GameSummary, LobbyError, PlayerLobbyView};
 use crate::session::registry::{HistoryAction, HistoryError};
 use crate::storage::LobbySlotId;
 
+#[allow(
+    clippy::result_large_err,
+    reason = "a batch error is built once per rejected request and serialized to the client"
+)]
 pub async fn submit_batch(
     Path(game_id): Path<String>,
     headers: HeaderMap,
@@ -28,12 +32,10 @@ pub async fn submit_batch(
     let token = require_player_session(&headers).map_err(|_| {
         (
             StatusCode::FORBIDDEN,
-            Json(crate::session::registry::BatchError {
-                failed_step: 0,
-                reason: "unauthorized".into(),
-                expected: String::new(),
-                offered_summary: Vec::new(),
-            }),
+            Json(crate::session::registry::BatchError::explained(
+                "unauthorized",
+                "the x-ti4-player-session header is missing or invalid",
+            )),
         )
     })?;
     let token = token.to_owned();
@@ -42,12 +44,9 @@ pub async fn submit_batch(
         .map_err(|error| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(crate::session::registry::BatchError {
-                    failed_step: 0,
-                    reason: format!("batch worker failed: {error}"),
-                    expected: String::new(),
-                    offered_summary: Vec::new(),
-                }),
+                Json(crate::session::registry::BatchError::simple(&format!(
+                    "batch worker failed: {error}"
+                ))),
             )
         })?
         .map(Json)
@@ -401,7 +400,10 @@ pub async fn get_snapshot(
     if session.error().is_some() {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            "Game session failed closed".to_owned(),
+            format!(
+                "Game session failed closed: {}",
+                session.error().unwrap_or_default()
+            ),
         ));
     }
 
@@ -439,7 +441,20 @@ pub async fn change_history(
         ("redo_pipeline", None, None) => HistoryAction::RedoPipeline,
         ("restore", Some(event_id), None) => HistoryAction::Restore { event_id },
         ("restore_cursor", None, Some(cursor)) => HistoryAction::RestoreCursor { cursor },
-        _ => return Err((StatusCode::BAD_REQUEST, "Invalid history action".to_owned())),
+        (action, event_id, cursor) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "Invalid history action '{action}' (event_id {}, cursor {}): use undo, undo_batch, undo_pipeline, redo, redo_batch or redo_pipeline without arguments, restore with event_id, or restore_cursor with cursor",
+                    if event_id.is_some() {
+                        "given"
+                    } else {
+                        "absent"
+                    },
+                    if cursor.is_some() { "given" } else { "absent" },
+                ),
+            ));
+        }
     };
     let token = token.to_owned();
     let snapshot = tokio::task::spawn_blocking(move || {
@@ -455,12 +470,12 @@ pub async fn change_history(
     .map_err(|error| {
         let status = match error {
             HistoryError::NotFound => StatusCode::NOT_FOUND,
-            HistoryError::Forbidden => StatusCode::FORBIDDEN,
-            HistoryError::InvalidTarget => StatusCode::BAD_REQUEST,
+            HistoryError::Forbidden(_) => StatusCode::FORBIDDEN,
+            HistoryError::InvalidTarget(_) => StatusCode::BAD_REQUEST,
             HistoryError::Conflict(_) => StatusCode::CONFLICT,
             HistoryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        (status, format!("{error:?}"))
+        (status, error.message())
     })?;
     Ok(Json(ServerMessage::InitialSnapshot(snapshot)))
 }
