@@ -3163,6 +3163,7 @@ impl<'a> Game<'a> {
                 self.aftermath = Some(window);
                 return self.result(false, None);
             }
+            self.aftermath = Some(window);
             return self.close_tactical();
         };
         // Field borrows, not `self`: the table answers while the position stays readable.
@@ -3237,6 +3238,7 @@ impl<'a> Game<'a> {
             .pending_choice(&self.state, self.content, self.sources)
             .is_none()
         {
+            self.aftermath = Some(window);
             return self.close_tactical();
         }
         self.aftermath = Some(window);
@@ -3293,6 +3295,38 @@ impl<'a> Game<'a> {
             self.rng = rng;
             if explored.is_some() {
                 self.emit("FRONTIER_EXPLORED");
+            }
+        }
+        // T'ro reads the end of the tactical action, including a strategy-card free action.
+        // Keep the system in the event so native use cannot erase a copied listener's target.
+        let tro_window = self.state.players.iter().any(|seat| {
+            seat.leaders.get(&ti4_model::id::LeaderId::new("sardakkagent")) == Some(&ti4_model::state::LeaderStatus::Readied)
+                || crate::factions::hooks_cards::borrowable_agents(&self.state, self.content, &seat.id)
+                    .iter().any(|(_, agent)| agent.as_str() == "sardakkagent")
+        });
+        if tro_window
+            && let (Some(player), Some(system)) = (self.state.active.clone(), self.state.active_system.clone())
+        {
+            let saved_state = self.state.clone();
+            let saved_dice = self.dice.clone();
+            let saved_rng = self.rng.clone();
+            let saved_sequence = self.event_sequence.clone();
+            let saved_timing = self.timing.checkpoint();
+            let saved_events = self.events.len();
+            let saved_table_log = self.table.log.clone();
+            let payload = BTreeMap::from([
+                ("player".to_owned(), player.to_string().into()),
+                ("system".to_owned(), system.to_string().into()),
+            ]);
+            if let Err(error) = self.emit_typed("TACTICAL_ACTION_ENDED", payload) {
+                self.state = saved_state;
+                self.dice = saved_dice;
+                self.rng = saved_rng;
+                self.event_sequence = saved_sequence;
+                self.timing.restore(saved_timing);
+                self.events.truncate(saved_events);
+                self.table.log = saved_table_log;
+                return self.result(false, Some(error));
             }
         }
         self.aftermath = None;

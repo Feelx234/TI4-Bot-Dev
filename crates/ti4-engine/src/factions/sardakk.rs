@@ -433,8 +433,8 @@ fn hero_unmark_turn(owner_name: &str, seat: &PlayerId) -> Ability {
 
 // -- timing abilities ----------------------------------------------------------------------------
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    let mut abilities = vec![
         exotrireme(owner_name, seat),
         mech_hit(owner_name, seat),
         tekklar_legion(owner_name, seat),
@@ -448,7 +448,24 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
         hero_unmark_turn(owner_name, seat),
         supremacy(owner_name, seat, "SPACE_COMBAT_ENDED"),
         supremacy(owner_name, seat, "GROUND_COMBAT_ENDED"),
-    ]
+    ];
+    // The activation mark must also be recorded for an Exhausted source: Ssruu may still copy it.
+    // Copied end windows are registered from the static roster, then check borrowability live.
+    if state
+        .player(seat)
+        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new("sardakkagent")))
+    {
+        for borrower in &state.players {
+            if &borrower.id != seat
+                && borrower
+                    .leaders
+                    .contains_key(&LeaderId::new("yssarilagent"))
+            {
+                abilities.push(borrowed_agent(owner_name, seat, &borrower.id));
+            }
+        }
+    }
+    abilities
 }
 
 /// Exotrireme II can act now: the owner holds `exo2`, fought in this combat, has an Exotrireme II
@@ -828,15 +845,21 @@ fn tactical_key(player: &PlayerId) -> String {
     format!("sardakk:agent:tactical:{player}")
 }
 
-/// Whether this seat holds T'ro ready, the only state in which remembering a tactical action
-/// matters.
+/// Whether this seat holds T'ro ready, the only state in which a native trigger may act.
 fn agent_ready(state: &GameState, seat: &PlayerId) -> bool {
     leader_status(state, seat, "sardakkagent") == Some(LeaderStatus::Readied)
 }
 
+fn agent_trackable(state: &GameState, seat: &PlayerId) -> bool {
+    matches!(
+        leader_status(state, seat, "sardakkagent"),
+        Some(LeaderStatus::Readied | LeaderStatus::Exhausted)
+    )
+}
+
 /// `ACTION_COMPLETED` names only the player and fires after the active system is cleared, so the
 /// agent's "end of a tactical action" is remembered from the activation: the system the acting
-/// player activated this turn. Offered only to a seat holding T'ro ready.
+/// player activated this turn. The mark also supports Ssruu copying an Exhausted T'ro.
 fn tactical_mark(owner_name: &str, seat: &PlayerId) -> Ability {
     let condition_seat = seat.clone();
     Ability::stateful(
@@ -855,7 +878,7 @@ fn tactical_mark(owner_name: &str, seat: &PlayerId) -> Ability {
         }),
     )
     .with_stateful_condition(Arc::new(move |_event, _, context| {
-        agent_ready(context.state, &condition_seat)
+        agent_trackable(context.state, &condition_seat)
     }))
 }
 
@@ -895,6 +918,37 @@ fn tactical_unmark(
 }
 
 /// The system and acting player of a tactical action that just ended, if T'ro can act on it.
+fn agent_event_window(
+    context: &crate::timing::TimingContext<'_>,
+    event: &crate::event::Event,
+) -> Option<SystemId> {
+    let actor = PlayerId::new(event.text("player")?);
+    let system = SystemId::new(event.text("system")?);
+    if crate::supply::remaining(
+        context.state,
+        context.content,
+        context.sources,
+        &actor,
+        &ti4_model::id::UnitTypeId::new("infantry"),
+    ) == 0
+    {
+        return None;
+    }
+    let spots = crate::action_cards::placement_spots(
+        context.state,
+        context.content,
+        context.sources,
+        &actor,
+        crate::action_cards::PlacementTarget::ControlledPlanet,
+        Some(&system),
+    );
+    (!spots.is_empty()).then_some(system)
+}
+
+#[allow(
+    dead_code,
+    reason = "legacy target reader retained while tactical fixtures migrate"
+)]
 fn agent_window(
     context: &crate::timing::TimingContext<'_>,
     owner: &PlayerId,
@@ -924,15 +978,18 @@ fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
     Ability::stateful(
         format!("leader:{owner_name}:sardakkagent:ACTION_COMPLETED:after"),
         seat.clone(),
-        "ACTION_COMPLETED",
+        "TACTICAL_ACTION_ENDED",
         Relation::After,
         Arc::new(move |event, _resolver, context| {
             let Some(actor) = event.text("player").map(PlayerId::new) else {
                 return Ok(());
             };
-            let Some(system) = agent_window(context, &owner, &actor) else {
+            let Some(system) = agent_event_window(context, event) else {
                 return Ok(());
             };
+            if !agent_ready(context.state, &owner) {
+                return Ok(());
+            }
             if !crate::leaders::exhaust(context.state, &owner, &LeaderId::new("sardakkagent")) {
                 return Ok(());
             }
@@ -954,11 +1011,66 @@ fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
     )
     .with_optional(true)
     .with_stateful_condition(Arc::new(move |event, _, context| {
-        event
-            .text("player")
-            .map(PlayerId::new)
-            .is_some_and(|actor| agent_window(context, &condition_owner, &actor).is_some())
+        event.text("player").map(PlayerId::new).is_some_and(|_| {
+            agent_ready(context.state, &condition_owner)
+                && agent_event_window(context, event).is_some()
+        })
     }))
+}
+
+fn borrowed_agent(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (cs, cb) = (source.clone(), borrower.clone());
+    let (es, eb) = (source.clone(), borrower.clone());
+    Ability::stateful(
+        format!(
+            "leader:{owner_name}:{source}:yssarilagent:sardakkagent:TACTICAL_ACTION_ENDED:after"
+        ),
+        borrower.clone(),
+        "TACTICAL_ACTION_ENDED",
+        Relation::After,
+        Arc::new(move |event, _, context| {
+            if !can_copy_tro(context.state, context.content, &es, &eb) {
+                return Ok(());
+            }
+            let Some(system) = agent_event_window(context, event) else {
+                return Ok(());
+            };
+            let actor = PlayerId::new(event.text("player").unwrap());
+            if !crate::leaders::exhaust(context.state, &eb, &LeaderId::new("yssarilagent")) {
+                return Ok(());
+            }
+            crate::action_cards::place_units_choosing(
+                context,
+                &actor,
+                "infantry",
+                2,
+                crate::action_cards::PlacementTarget::ControlledPlanet,
+                Some(&system),
+                true,
+                "sardakkagent",
+                crate::action_cards::PlacementLimits::Respect,
+            )
+            .map_err(TimingError::IllegalChoice)?;
+            context.state.faction_marks.remove(&tactical_key(&actor));
+            super::hooks_cards::borrowed_agent_used(context, &eb, &LeaderId::new("sardakkagent"));
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        can_copy_tro(context.state, context.content, &cs, &cb)
+            && agent_event_window(context, event).is_some()
+    }))
+}
+fn can_copy_tro(
+    state: &GameState,
+    content: &ContentStore,
+    source: &PlayerId,
+    borrower: &PlayerId,
+) -> bool {
+    super::hooks_cards::borrowable_agents(state, content, borrower)
+        .iter()
+        .any(|(owner, agent)| owner == source && agent.as_str() == "sardakkagent")
 }
 
 // -- N'orr Supremacy -----------------------------------------------------------------------------
@@ -1651,7 +1763,15 @@ mod tests {
     }
 
     fn completed(state: &mut GameState, table: &mut crate::choice::Table, who: &str) {
-        emit(state, table, "ACTION_COMPLETED", &[("player", who)]);
+        let system = state
+            .faction_marks
+            .get(&tactical_key(&PlayerId::new(who)))
+            .cloned();
+        let mut pairs = vec![("player", who)];
+        if let Some(system) = system.as_deref() {
+            pairs.push(("system", system));
+        }
+        emit(state, table, "TACTICAL_ACTION_ENDED", &pairs);
     }
 
     fn sol_planet(state: &GameState) -> (SystemId, PlanetId) {
@@ -1678,6 +1798,260 @@ mod tests {
                     .is_some_and(|kind| kind.base_type() == "infantry")
             })
             .count()
+    }
+
+    struct TroGameDecider {
+        system: String,
+        spot: String,
+        use_native: bool,
+        fail_placement_once: bool,
+    }
+    impl crate::choice::Decider for TroGameDecider {
+        fn choose(
+            &mut self,
+            choice: &crate::choice::Choice,
+        ) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+            if self.fail_placement_once && choice.option(&self.spot).is_some() {
+                self.fail_placement_once = false;
+                return Err(crate::choice::IllegalChoice::NotOffered {
+                    player: choice.player.clone(),
+                    chosen: "invalid-placement".to_owned(),
+                    offered: choice.options.iter().map(|o| o.id.clone()).collect(),
+                });
+            }
+            let option = if let Some(o) = choice.options.iter().find(|o| {
+                o.id.contains(":yssarilagent:sardakkagent:TACTICAL_ACTION_ENDED:after")
+            }) {
+                assert_eq!(choice.player, PlayerId::new("c"));
+                Some(o)
+            } else if choice.option(AGENT).is_some() {
+                if self.use_native {
+                    choice.option(AGENT)
+                } else {
+                    choice.options.iter().find(|o| o.is_decline())
+                }
+            } else {
+                [
+                    crate::game::TACTICAL_ACTION_ID,
+                    self.system.as_str(),
+                    "done_moving",
+                    "done_producing",
+                    self.spot.as_str(),
+                ]
+                .into_iter()
+                .find_map(|id| choice.option(id))
+                .or_else(|| choice.options.iter().find(|o| o.is_decline()))
+                .or_else(|| choice.options.first())
+            };
+            Ok(option
+                .expect("the fixture answers an offered choice")
+                .clone())
+        }
+    }
+    #[test]
+    fn ssruu_uses_tro_at_real_tactical_completion_and_native_use_does_not_erase_its_target() {
+        for (source_status, use_native, expected) in [
+            (LeaderStatus::Readied, false, 2),
+            (LeaderStatus::Exhausted, false, 2),
+            (LeaderStatus::Readied, true, 4),
+        ] {
+            let mut state = crate::fixtures::seated_game(
+                &[("a", FACTION), ("b", "sol"), ("c", "yssaril")],
+                DEFAULT,
+            );
+            state
+                .player_mut(&a())
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new("sardakkagent"), source_status);
+            let (system, planet) = crate::fixtures::a_placed_planet();
+            state.system_mut(&system).set_control(planet.clone(), b());
+            let before = infantry_on(&state, &system, &planet);
+            let hub = crate::fixtures::hub_with_centre(system.as_str());
+            state.phase = ti4_model::state::Phase::Action;
+            state.active = Some(b());
+            let table = crate::choice::Table::with_default(Box::new(TroGameDecider {
+                system: system.to_string(),
+                spot: format!("{system}|{planet}"),
+                use_native,
+                fail_placement_once: false,
+            }));
+            let mut game = crate::game::Game::with_table(state, ContentStore::embedded(), table)
+                .with_sources(DEFAULT)
+                .with_galaxy(hub.galaxy);
+            for _ in 0..30 {
+                let step = game.step();
+                assert_eq!(step.error, None, "real tactical completion stays legal");
+                if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                    break;
+                }
+            }
+            assert!(game.events.iter().any(|e| e == "TACTICAL_ACTION_ENDED"));
+            assert_eq!(
+                infantry_on(&game.state, &system, &planet),
+                before + expected
+            );
+            assert_eq!(
+                leader_status(&game.state, &PlayerId::new("c"), "yssarilagent"),
+                Some(LeaderStatus::Exhausted)
+            );
+            assert_eq!(
+                leader_status(&game.state, &a(), "sardakkagent"),
+                Some(if use_native {
+                    LeaderStatus::Exhausted
+                } else {
+                    source_status
+                })
+            );
+        }
+    }
+    #[test]
+    fn failed_copied_tro_placement_keeps_tactical_target_and_retries_once() {
+        let mut state = crate::fixtures::seated_game(
+            &[("a", FACTION), ("b", "sol"), ("c", "yssaril")],
+            DEFAULT,
+        );
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("sardakkagent"), LeaderStatus::Exhausted);
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), b());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &b(), 1);
+        let before = infantry_on(&state, &system, &planet);
+        state.phase = ti4_model::state::Phase::Action;
+        state.active = Some(b());
+        let table = crate::choice::Table::with_default(Box::new(TroGameDecider {
+            system: system.to_string(),
+            spot: format!("{system}|{planet}"),
+            use_native: false,
+            fail_placement_once: true,
+        }));
+        let mut game = crate::game::Game::with_table(state, ContentStore::embedded(), table)
+            .with_sources(DEFAULT)
+            .with_galaxy(crate::fixtures::hub_with_centre(system.as_str()).galaxy);
+        let mut failed = false;
+        for _ in 0..30 {
+            let step = game.step();
+            if step.error.is_some() {
+                failed = true;
+                assert_eq!(infantry_on(&game.state, &system, &planet), before);
+                assert_eq!(game.state.active_system.as_ref(), Some(&system));
+                assert_eq!(
+                    leader_status(&game.state, &PlayerId::new("c"), "yssarilagent"),
+                    Some(LeaderStatus::Readied)
+                );
+                assert!(!game.events.iter().any(|e| e == "TACTICAL_ACTION_ENDED"));
+                assert!(
+                    !game
+                        .table
+                        .log
+                        .records
+                        .iter()
+                        .any(|entry| format!("{entry:?}").contains("yssarilagent:sardakkagent")),
+                    "failed timing window removes its copied-use decision trace"
+                );
+                break;
+            }
+        }
+        assert!(failed, "fixture reaches the invalid copied placement");
+        for _ in 0..30 {
+            assert_eq!(game.step().error, None);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        assert_eq!(infantry_on(&game.state, &system, &planet), before + 2);
+        assert_eq!(
+            leader_status(&game.state, &PlayerId::new("c"), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            leader_status(&game.state, &a(), "sardakkagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            game.events
+                .iter()
+                .filter(|e| *e == "TACTICAL_ACTION_ENDED")
+                .count(),
+            1
+        );
+        assert!(game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE"));
+    }
+
+    #[test]
+    fn native_and_copied_tro_are_inert_when_actor_has_no_infantry_supply() {
+        let mut state = crate::fixtures::seated_game(
+            &[("a", FACTION), ("b", "sol"), ("c", "yssaril")],
+            DEFAULT,
+        );
+        let (system, planet) = sol_planet(&state);
+        let remaining = crate::supply::remaining(
+            &state,
+            ContentStore::embedded(),
+            DEFAULT,
+            &b(),
+            &ti4_model::id::UnitTypeId::new("infantry"),
+        );
+        crate::fixtures::put_on_planet(
+            &mut state,
+            &system,
+            &planet,
+            "sol_infantry",
+            &b(),
+            usize::try_from(remaining).unwrap(),
+        );
+        let before = state.clone();
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "TACTICAL_ACTION_ENDED",
+            &[("player", "b"), ("system", system.as_str())],
+        );
+        assert_eq!(
+            state, before,
+            "no source or borrower prompt/card spend without usable supply"
+        );
+    }
+
+    #[test]
+    fn copied_tro_is_not_offered_for_a_component_action_or_without_ready_ssruu() {
+        let mut state = crate::fixtures::seated_game(
+            &[("a", FACTION), ("b", "sol"), ("c", "yssaril")],
+            DEFAULT,
+        );
+        let (system, planet) = sol_planet(&state);
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("sardakkagent"), LeaderStatus::Exhausted);
+        let before = state.clone();
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "ACTION_COMPLETED",
+            &[("player", "b")],
+        );
+        assert_eq!(
+            state, before,
+            "ordinary action completion cannot reuse an activation target"
+        );
+        state
+            .player_mut(&PlayerId::new("c"))
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Exhausted);
+        let before = infantry_on(&state, &system, &planet);
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "TACTICAL_ACTION_ENDED",
+            &[("player", "b"), ("system", system.as_str())],
+        );
+        assert_eq!(infantry_on(&state, &system, &planet), before);
     }
 
     #[test]
