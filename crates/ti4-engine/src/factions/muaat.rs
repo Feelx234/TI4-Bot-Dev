@@ -896,6 +896,33 @@ fn agent_targets(state: &GameState, content: &ContentStore, sources: SourceSet) 
         .collect()
 }
 
+/// Whether `player` may act on Umbat's text right now.
+///
+/// Two different rights reach this card, and both are answered here so the offer
+/// ([`leader_action`], which is what puts the button on the action menu) and the effect
+/// ([`umbat`], which is what actually runs) cannot disagree about who may act:
+///
+/// * Muaat's own agent, from their own seat, used readied (51.4).
+/// * A copy taken through Ssruu, Clever Genome (`yssarilagent`): "This card has the text ability
+///   of each other player's agent, even if that agent is exhausted." That right is decided by the
+///   shared [`crate::factions::hooks_cards::borrowable_agents`] contract, which already requires
+///   the caller to hold a readied Ssruu and the copied card to belong to *another* seat, readied
+///   **or** exhausted. Nothing here re-derives that boundary.
+///
+/// A borrower is not Muaat and does not hold `muaatagent`: the source seat keeps its faction and
+/// its agent. The source agent's own status is deliberately not consulted for a borrower, and this
+/// module never readies or exhausts it — `leaders::use_leader_text` runs the text as the borrower
+/// and exhausts Ssruu, the card that actually carries the text, on success.
+fn umbat_available(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
+    if is_muaat(state, player) && leader_status(state, player, AGENT) == Some(LeaderStatus::Readied)
+    {
+        return true;
+    }
+    crate::factions::hooks_cards::borrowable_agents(state, content, player)
+        .iter()
+        .any(|(_, source)| source.as_str() == AGENT)
+}
+
 fn leader_action(
     state: &GameState,
     content: &ContentStore,
@@ -904,8 +931,7 @@ fn leader_action(
 ) -> Option<bool> {
     // Sources are not passed to this hook; the corpus default is what games are built with.
     (leader.as_str() == AGENT).then(|| {
-        is_muaat(state, player)
-            && leader_status(state, player, AGENT) == Some(LeaderStatus::Readied)
+        umbat_available(state, content, player)
             && !agent_targets(state, content, ti4_model::content_types::DEFAULT).is_empty()
     })
 }
@@ -922,10 +948,28 @@ fn use_leader(
 /// that each have a cost of 4 or less in a system that contains one of their war suns or their
 /// flagship." Every choice is made before anything changes; the shared code exhausts the agent
 /// once this returns `true`. The chosen player may decline to produce (the agent is then spent).
+///
+/// `player` is whoever is carrying the text: the Muaat seat itself, or a Ssruu holder copying it
+/// ([`umbat_available`]). Either way the choices belong to `player` and the production belongs to
+/// the chosen player, who pays for it — the two are deliberately not the same seat when the text
+/// was borrowed.
 fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
+    let copied =
+        crate::factions::hooks_cards::borrowable_agents(context.state, context.content, player)
+            .iter()
+            .any(|(_, source)| source.as_str() == AGENT);
+    let saved_log = copied.then(|| context.table.log.clone());
+    let done = umbat_inner(context, player);
+    if !done && let Some(log) = saved_log {
+        context.table.log = log;
+    }
+    done
+}
+
+fn umbat_inner(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     let (content, sources) = (context.content, context.sources);
     let targets = agent_targets(context.state, content, sources);
-    if !is_muaat(context.state, player) || targets.is_empty() {
+    if !umbat_available(context.state, content, player) || targets.is_empty() {
         return false;
     }
     let offered = targets
@@ -950,6 +994,9 @@ fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
     else {
         return false;
     };
+    let copied = crate::factions::hooks_cards::borrowable_agents(context.state, content, player)
+        .iter()
+        .any(|(_, source)| source.as_str() == AGENT);
     let systems = agent_systems(context.state, content, sources, &target);
     let system = if let [only] = systems.as_slice() {
         only.clone()
@@ -969,7 +1016,8 @@ fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
             offered,
             true,
         ) else {
-            return true;
+            // A declined offered choice is valid; a failed/invalid answer is not a use.
+            return !copied;
         };
         match systems.iter().find(|system| system.as_str() == answer.id) {
             Some(system) => system.clone(),
@@ -983,10 +1031,21 @@ fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
         table,
         dice,
         rng,
+        event_sequence,
         galaxy,
-        ..
     } = context;
     let galaxy = *galaxy;
+    // The native leader's long-standing behavior is unchanged. A copied use, however, must be
+    // atomic: `use_leader_text` spends Ssruu only when this dispatch returns true.
+    let checkpoint = copied.then(|| {
+        (
+            state.clone(),
+            dice.clone(),
+            rng.clone(),
+            event_sequence.clone(),
+            table.log.clone(),
+        )
+    });
     let mut ctx = crate::choice::Resolving {
         content,
         sources: *sources,
@@ -995,8 +1054,7 @@ fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
         table,
         timing: None,
     };
-    // A refused answer aborts with what was produced left in place, as everywhere else.
-    let _ = crate::production::produce_by_ability_capped(
+    let production_result = crate::production::produce_by_ability_capped(
         state,
         &mut ctx,
         galaxy,
@@ -1005,6 +1063,18 @@ fn umbat(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
         Some(2),
         Some(4),
     );
+    let failed = production_result.is_err();
+    drop(ctx);
+    if failed {
+        if let Some((saved_state, saved_dice, saved_rng, saved_sequence, saved_log)) = checkpoint {
+            **state = saved_state;
+            **dice = saved_dice;
+            **rng = saved_rng;
+            **event_sequence = saved_sequence;
+            table.log = saved_log;
+            return false;
+        }
+    }
     true
 }
 
@@ -1281,6 +1351,7 @@ mod tests {
     use super::*;
     use crate::choice::{Decider, Scripted, Table};
     use crate::fixtures::{armed_resolver, put, put_on_planet, seated_game, with_context};
+    use std::collections::BTreeMap;
     use ti4_model::content_types::DEFAULT;
     use ti4_model::state::Phase;
 
@@ -2410,6 +2481,323 @@ mod tests {
         assert_eq!(
             leader_action(&state, content(), &a(), &LeaderId::new("naaluagent")),
             None
+        );
+    }
+
+    // -- Umbat copied through Ssruu (a borrowed agent text) --------------------------------------
+
+    /// `a` is Muaat holding Umbat, `b` is Yssaril holding Ssruu. Both agents start readied with
+    /// the faction (`leaders::deploy`), which is the ordinary mid-game position this copy is for.
+    fn borrow_game() -> GameState {
+        seated_game(&[("a", "muaat"), ("b", "yssaril")], DEFAULT)
+    }
+
+    fn component_ids(state: &GameState, who: &str) -> Vec<String> {
+        crate::leaders::component_actions(state, content(), &PlayerId::new(who))
+            .into_iter()
+            .map(|option| option.id)
+            .collect()
+    }
+
+    /// The borrowed path a game actually takes: [`crate::leaders::use_leader_text`], which owns the
+    /// copy check and the exhaustion, rather than the module hook on its own.
+    fn borrow_umbat(state: &mut GameState, table: &mut Table, borrower: &PlayerId) -> bool {
+        with_context(state, DEFAULT, None, table, |ctx| {
+            crate::leaders::use_leader_text(ctx, borrower, &LeaderId::new(UMBAT))
+        })
+    }
+
+    /// What `owner` has in `system` by unit type, so a production step can be measured instead of
+    /// merely reported as successful.
+    fn standing(state: &GameState, system: &SystemId, owner: &PlayerId) -> BTreeMap<String, usize> {
+        let board = state.system_state(system);
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for unit in board
+            .units
+            .iter()
+            .chain(board.planet_units.values().flatten())
+        {
+            if &unit.owner == owner {
+                *counts.entry(unit.type_id.to_string()).or_default() += 1;
+            }
+        }
+        counts
+    }
+
+    #[test]
+    fn ssruu_is_offered_umbat_as_a_borrowed_component_action() {
+        let state = borrow_game();
+        let ids = component_ids(&state, "b");
+        assert!(
+            ids.iter()
+                .any(|id| id == "component|leader|yssarilagent|muaatagent"),
+            "Umbat was not on Ssruu's list: {ids:?}"
+        );
+        // It is offered as Ssruu's text, not as a Muaat agent the borrower does not hold.
+        assert!(
+            !ids.iter().any(|id| id == "component|leader|muaatagent"),
+            "{ids:?}"
+        );
+        // Only the Ssruu holder sees the copy. The Muaat seat keeps its own native offer and gets
+        // no Ssruu it does not hold.
+        let native = component_ids(&state, "a");
+        assert!(
+            native.iter().any(|id| id == "component|leader|muaatagent"),
+            "{native:?}"
+        );
+        assert!(
+            native.iter().all(|id| !id.contains("yssarilagent")),
+            "{native:?}"
+        );
+        // The offer gate answers for the borrower through the same boundary the effect uses.
+        assert_eq!(
+            leader_action(&state, content(), &b(), &LeaderId::new(UMBAT)),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn ssruu_uses_umbat_to_make_another_seat_produce_and_only_itself_exhausts() {
+        for source_status in [LeaderStatus::Readied, LeaderStatus::Exhausted] {
+            let mut state = borrow_game();
+            set_status(&mut state, &a(), UMBAT, source_status);
+            let (home_a, home_b) = (home_of(&state, &a()), home_of(&state, &b()));
+            let (cruisers_a, cruisers_b) = (
+                count(&state, &home_a, "cruiser", &a()),
+                count(&state, &home_b, "cruiser", &b()),
+            );
+            let goods_a = state.player(&a()).unwrap().trade_goods;
+            // Choose the *other* seat as the target, then buy a cruiser and pay for it off the
+            // target's own world.
+            let done = borrow_umbat(
+                &mut state,
+                &mut scripted(&["a", "build|cruiser|1", "done_producing"]),
+                &b(),
+            );
+            assert!(done, "Ssruu must copy Umbat {source_status:?}");
+            assert_eq!(
+                count(&state, &home_a, "cruiser", &a()),
+                cruisers_a + 1,
+                "the chosen player produced in a system holding their own war sun"
+            );
+            assert_eq!(
+                count(&state, &home_b, "cruiser", &b()),
+                cruisers_b,
+                "the borrower produced nothing for itself"
+            );
+            // The bill is the produced-for player's: a paid it, b paid nothing.
+            assert!(
+                state.exhausted_planets.contains(&PlanetId::new("muaat")),
+                "a cruiser costs 4; the chosen player paid it"
+            );
+            assert_eq!(state.player(&a()).unwrap().trade_goods, goods_a);
+            assert_eq!(state.player(&b()).unwrap().trade_goods, 0);
+            // The source card is left exactly as it was, readied or exhausted; only the card that
+            // actually carries the text -- Ssruu -- is spent.
+            assert_eq!(
+                leader_status(&state, &a(), UMBAT),
+                Some(source_status),
+                "the source agent is untouched"
+            );
+            assert_eq!(
+                leader_status(&state, &b(), "yssarilagent"),
+                Some(LeaderStatus::Exhausted),
+                "Ssruu carries the text, so Ssruu exhausts"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_copied_umbat_system_choice_keeps_ssruu_ready_but_legal_decline_spends_it() {
+        let mut state = borrow_game();
+        let home = home_of(&state, &a());
+        let ship = state
+            .system_state(&home)
+            .units
+            .iter()
+            .find(|unit| unit.owner == a() && unit.type_id.as_str().contains("warsun"))
+            .unwrap()
+            .clone();
+        state.system_mut(&SystemId::new("19")).units.push(ship);
+        assert_eq!(agent_systems(&state, content(), DEFAULT, &a()).len(), 2);
+        let before = state.clone();
+        assert!(!borrow_umbat(
+            &mut state,
+            &mut scripted(&["a", "invalid-system"]),
+            &b()
+        ));
+        assert_eq!(state, before);
+        assert!(borrow_umbat(
+            &mut state,
+            &mut scripted(&["a", "decline"]),
+            &b()
+        ));
+        assert_eq!(
+            leader_status(&state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            leader_status(&state, &a(), AGENT),
+            Some(LeaderStatus::Readied)
+        );
+        assert_eq!(state.board, before.board);
+    }
+
+    #[test]
+    fn a_failed_copied_umbat_rolls_back_paid_production_before_retry() {
+        let mut state = borrow_game();
+        let before = state.clone();
+        // With only one legal planet payment, payment and placement happen automatically.
+        // The next invalid build answer therefore occurs after producing the cruiser.
+        let mut table = scripted(&[
+            "a",
+            "build|cruiser|1",
+            "invalid-build",
+            "a",
+            "build|cruiser|1",
+            "done_producing",
+        ]);
+        let log_before = table.log.clone();
+        assert!(!borrow_umbat(&mut state, &mut table, &b()));
+        assert_eq!(
+            table.log, log_before,
+            "failed action choices leave no partial decision trace"
+        );
+        assert_eq!(
+            state, before,
+            "failed copied production restores units, payment and leader status"
+        );
+        assert!(borrow_umbat(&mut state, &mut table, &b()));
+        assert_eq!(
+            leader_status(&state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            leader_status(&state, &a(), AGENT),
+            Some(LeaderStatus::Readied)
+        );
+    }
+
+    #[test]
+    fn the_copied_umbat_keeps_the_two_unit_cap_and_the_cost_four_limit() {
+        let mut state = borrow_game();
+        set_status(&mut state, &a(), UMBAT, LeaderStatus::Exhausted);
+        // Enough to buy more than Umbat allows, so the cap is what stops the spending here and not
+        // an empty purse.
+        state.player_mut(&a()).unwrap().trade_goods = 10;
+        let home = home_of(&state, &a());
+        let before = standing(&state, &home, &a());
+        // Only the target choice is scripted: the first-option decider spends as much of Umbat as
+        // it can, and the printed limits must hold whatever it picks.
+        assert!(borrow_umbat(&mut state, &mut scripted(&["a"]), &b()));
+        let types = ti4_content::units::catalogue(content(), DEFAULT);
+        let mut made = 0usize;
+        for (id, now) in standing(&state, &home, &a()) {
+            let added = now.saturating_sub(before.get(&id).copied().unwrap_or(0));
+            if added == 0 {
+                continue; // the seat's own opening war sun and flagship
+            }
+            let cost = types.get(id.as_str()).map_or(f64::MAX, |kind| kind.cost());
+            assert!(cost <= 4.0, "{id} costs {cost}, above Umbat's four");
+            made += added;
+        }
+        assert!(made > 0, "the copy produced nothing: {home}");
+        assert!(made <= 2, "up to two units, not {made}");
+        // Paid by the chosen player, not by the borrower.
+        assert_eq!(state.player(&b()).unwrap().trade_goods, 0);
+    }
+
+    #[test]
+    fn a_borrow_without_ssruu_or_without_a_copyable_source_changes_nothing() {
+        // Ssruu exhausted: nothing left to copy.
+        let mut state = borrow_game();
+        set_status(&mut state, &b(), "yssarilagent", LeaderStatus::Exhausted);
+        assert_eq!(
+            leader_action(&state, content(), &b(), &LeaderId::new(UMBAT)),
+            Some(false)
+        );
+        assert!(
+            component_ids(&state, "b")
+                .iter()
+                .all(|id| !id.contains(UMBAT)),
+            "an exhausted Ssruu offers no copy"
+        );
+        let before = state.clone();
+        assert!(!borrow_umbat(&mut state, &mut never(), &b()));
+        assert_eq!(state, before);
+
+        // Ssruu absent.
+        let mut state = borrow_game();
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .remove(&LeaderId::new("yssarilagent"));
+        assert_eq!(
+            leader_action(&state, content(), &b(), &LeaderId::new(UMBAT)),
+            Some(false)
+        );
+        let before = state.clone();
+        assert!(!borrow_umbat(&mut state, &mut never(), &b()));
+        assert_eq!(state, before);
+
+        // Ssruu readied, but the source card is in a state a copy cannot take.
+        let mut state = borrow_game();
+        set_status(&mut state, &a(), UMBAT, LeaderStatus::Locked);
+        assert_eq!(
+            leader_action(&state, content(), &b(), &LeaderId::new(UMBAT)),
+            Some(false)
+        );
+        assert!(
+            component_ids(&state, "b")
+                .iter()
+                .all(|id| !id.contains(UMBAT)),
+            "a locked source is not another seat's agent"
+        );
+        let before = state.clone();
+        assert!(!borrow_umbat(&mut state, &mut never(), &b()));
+        assert_eq!(state, before);
+
+        // Borrowing the text never makes the borrower Muaat or moves the card.
+        assert_eq!(state.player(&b()).unwrap().faction.as_str(), "yssaril");
+        assert_eq!(leader_status(&state, &b(), UMBAT), None);
+    }
+
+    #[test]
+    fn the_native_muaat_seat_still_uses_and_exhausts_its_own_umbat() {
+        let mut state = borrow_game();
+        let home = home_of(&state, &a());
+        let cruisers = count(&state, &home, "cruiser", &a());
+        let done = with_context(
+            &mut state,
+            DEFAULT,
+            None,
+            &mut scripted(&["a", "build|cruiser|1", "done_producing"]),
+            |ctx| crate::leaders::use_leader(ctx, &a(), &LeaderId::new(UMBAT)),
+        );
+        assert!(done);
+        assert_eq!(count(&state, &home, "cruiser", &a()), cruisers + 1);
+        assert_eq!(
+            leader_status(&state, &a(), UMBAT),
+            Some(LeaderStatus::Exhausted),
+            "a native use exhausts Umbat"
+        );
+        assert_eq!(
+            leader_status(&state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Readied),
+            "Ssruu was not involved"
+        );
+        // An exhausted native agent is not offered to its own seat just because somebody else in
+        // the game holds Ssruu: the copy right belongs to the Ssruu holder, not to Muaat.
+        assert_eq!(
+            leader_action(&state, content(), &a(), &LeaderId::new(UMBAT)),
+            Some(false)
+        );
+        assert!(
+            component_ids(&state, "a")
+                .iter()
+                .all(|id| !id.contains(UMBAT)),
+            "an exhausted Umbat is not offered"
         );
     }
 
