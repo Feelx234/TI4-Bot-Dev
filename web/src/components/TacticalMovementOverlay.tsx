@@ -311,6 +311,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     });
   }, [originSystemIds, capacityByOrigin, cargoByOrigin]);
 
+  // Cargo can only be staged into free transport capacity from the same origin.
+  const spareCapacity = (origin: string) =>
+    (capacityByOrigin[origin] ?? 0) - (cargoByOrigin[origin] ?? 0);
+  const noCapacityTitle = "No free transport capacity from this system: stage a carrier first";
+
   const totalProjectedFleet = existingNonFightersInDestination + totalNonFightersMoving;
   const isOverFleetSupply = fleetTokens !== undefined && totalProjectedFleet > fleetTokens;
 
@@ -779,7 +784,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                       data-alert={isOriginOverCapacity}
                       data-warning={false}
                     >
-                      Cargo Capacity: {originCargo} / {originCap} Loaded
+                      Cargo: {originCargo} loaded / {originCap} capacity
                     </span>
                   </div>
 
@@ -846,7 +851,18 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                                 data-testid={`rally-inc-${g.originSystemId}-${g.unitType}`}
                                 onClick={() => handleUpdateCount(key, 1, g.totalAvailable)}
                                 disabled={
-                                  count >= g.totalAvailable || isExecuting || isDirectSubmitting
+                                  count >= g.totalAvailable ||
+                                  ((g.isFighter || g.isGroundForce) &&
+                                    spareCapacity(g.originSystemId) <= 0) ||
+                                  isExecuting ||
+                                  isDirectSubmitting
+                                }
+                                title={
+                                  (g.isFighter || g.isGroundForce) &&
+                                  count < g.totalAvailable &&
+                                  spareCapacity(g.originSystemId) <= 0
+                                    ? noCapacityTitle
+                                    : undefined
                                 }
                                 className="button button--secondary button--icon workflow-button--stepper"
                               >
@@ -912,7 +928,15 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                                 data-testid={`rally-inc-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
                                 onClick={() => handleUpdateCount(key, 1, c.totalAvailable)}
                                 disabled={
-                                  count >= c.totalAvailable || isExecuting || isDirectSubmitting
+                                  count >= c.totalAvailable ||
+                                  spareCapacity(c.originSystemId) <= 0 ||
+                                  isExecuting ||
+                                  isDirectSubmitting
+                                }
+                                title={
+                                  count < c.totalAvailable && spareCapacity(c.originSystemId) <= 0
+                                    ? noCapacityTitle
+                                    : undefined
                                 }
                                 className="button button--secondary button--icon workflow-button--stepper"
                               >
@@ -961,7 +985,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
             type="button"
             data-testid="finish-movement-btn"
             onClick={submitFinish}
-            disabled={isExecuting || isDirectSubmitting}
+            // Finishing would silently discard the staged fleet; commit or reset it first.
+            disabled={isExecuting || isDirectSubmitting || totalUnitsStaged > 0}
+            title={
+              totalUnitsStaged > 0 ? "Commit or reset the staged moves before finishing" : undefined
+            }
             className="button button--secondary workflow-button--wide"
           >
             {doneMovingOption.label || (isCargoStep ? "Done Loading" : "Finish Movement")}

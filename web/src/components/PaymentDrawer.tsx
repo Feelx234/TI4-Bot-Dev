@@ -137,7 +137,10 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   const committedFromTG = tradeGoodsToSpend * tradeGoodWorth;
   const totalCommitted = committedFromPlanets + committedFromTG;
   const credit = Math.max(0, totalCommitted - owed);
-  const isSettled = (totalCommitted > 0 || selectedPlanetIds.length > 0) && owed > 0;
+  // A partial payment would leave the engine asking again with a different offer, so only a
+  // fully staged bill can be confirmed.
+  const shortfall = Math.max(0, owed - totalCommitted);
+  const isSettled = owed > 0 && shortfall === 0;
 
   const handleTogglePlanet = (id: string) => {
     setSelectedPlanetIds((prev) =>
@@ -453,7 +456,9 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                   >
                     {isPipelineRunning || isDirectSubmitting
                       ? "Paying..."
-                      : `Pay (${totalCommitted} staged)`}
+                      : shortfall > 0
+                        ? `Stage ${shortfall} more to pay`
+                        : `Pay (${totalCommitted} staged)`}
                   </button>
                 </div>
               </>

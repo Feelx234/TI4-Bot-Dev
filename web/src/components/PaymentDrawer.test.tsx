@@ -142,6 +142,26 @@ describe("PaymentDrawer Component", () => {
     expect(screen.queryByText("mecatol_rex")).not.toBeInTheDocument();
   });
 
+  it("keeps confirm disabled until the staged amount covers the bill", () => {
+    render(
+      <PaymentDrawer
+        choice={mockPaymentChoice}
+        player={mockPlayer}
+        onSubmit={vi.fn()}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const arinam = screen.getByTestId("planet-card-exhaust|arinam");
+    fireEvent.click(arinam.querySelector('input[type="checkbox"]')!);
+
+    const confirmBtn = screen.getByTestId("confirm-payment-btn");
+    expect(screen.getByTestId("committed-amount")).toHaveTextContent("1 Resources");
+    expect(confirmBtn).toBeDisabled();
+    expect(confirmBtn).toHaveTextContent("Stage 3 more to pay");
+  });
+
   it("toggles planet selection and enables confirm when debt is met", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(
