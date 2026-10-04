@@ -1,0 +1,468 @@
+import { expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { createStartedGame, gameSnapshot, openPlayerGame } from "./lobbyHelpers";
+import type { BoardView } from "../src/protocol/types";
+
+/**
+ * Random UI playthrough: every pending decision is resolved by clicking randomly among the
+ * controls the web UI offers to the acting seat. The server is only read to find the acting
+ * seat and to detect progress; every action goes through the browser.
+ */
+export interface PlaythroughOptions {
+  playerCount: number;
+  gameSeed: number;
+  clickSeed: number;
+  /** Stop successfully after this many resolved decisions. */
+  maxDecisions: number;
+  /** Fail when a single decision does not advance after this many clicks. */
+  maxClicksPerDecision: number;
+  /** Stop successfully once the game reaches this round. */
+  stopAtRound?: number;
+  /** `random` clicks uniformly; `steer` favours tactical play so combat, invasion and agendas occur. */
+  policy?: "random" | "steer";
+  log?: (line: string) => void;
+}
+
+export interface PlaythroughReport {
+  gameId: string;
+  decisions: number;
+  clicks: number;
+  finished: boolean;
+  /** Decisions resolved before each round was first seen, keyed by round. */
+  roundStarts: Record<number, number>;
+  finalStatus: unknown;
+  subtypes: Record<string, number>;
+  /** Error banners the UI showed after a click, usually server rejections of offered controls. */
+  rejections: string[];
+}
+
+// Containers that render a decision for the acting seat.
+const DECISION_CONTAINERS = [
+  "pending-choice-dialog",
+  "system-activation-bar",
+  "tactical-movement-tray",
+  "cargo-loading-tray",
+  "invasion-landing-tray",
+  "invasion-overlay",
+  "payment-drawer",
+  "production-builder-drawer",
+  "objectives-modal",
+  "technology-modal",
+  "combat-resolution-modal",
+  "trade-desk-modal",
+  "agenda-ballot-modal",
+  "reaction-status-bar",
+];
+
+const ERROR_BANNERS = [
+  "choice-error-banner",
+  "movement-error-banner",
+  "activation-error",
+  "reaction-error-badge",
+];
+
+// Controls that hide the decision or rewrite history; clicking them never advances the game.
+const EXCLUDED =
+  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect/i;
+// Controls that take back staged selections. Only used to escape a staging dead end, such as
+// cargo over transport capacity, where every submit button is disabled.
+const UNSTAGE = /reset|remove|rally-dec|decrement/i;
+// Controls that submit something to the server.
+const COMMIT =
+  /submit|confirm|commit|done|finish|pass|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn/i;
+
+interface Candidate {
+  idx: number;
+  desc: string;
+  /** Untruncated description used for steering. */
+  full: string;
+  resume: boolean;
+  commit: boolean;
+  unstage: boolean;
+}
+
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export async function collectCandidates(page: Page): Promise<Candidate[]> {
+  const raw = await page.evaluate(
+    ({ containers, excluded }) => {
+      const excludedRe = new RegExp(excluded, "i");
+      document
+        .querySelectorAll("[data-smoke-idx]")
+        .forEach((el) => el.removeAttribute("data-smoke-idx"));
+      // A board hex behind a modal is rendered but cannot receive the click. Only on-screen
+      // centers are tested, because Playwright scrolls off-screen controls into view itself.
+      const covered = (rect: DOMRect, el: Element) => {
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+        const hit = document.elementFromPoint(x, y);
+        return hit !== null && !el.contains(hit);
+      };
+      const visible = (el: Element) => {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.visibility !== "hidden" &&
+          style.pointerEvents !== "none" &&
+          !covered(rect, el)
+        );
+      };
+      const enabled = (el: Element) =>
+        !(el as HTMLButtonElement).disabled &&
+        el.getAttribute("aria-disabled") !== "true" &&
+        el.getAttribute("data-actionable") !== "false";
+      const found = new Set<Element>();
+      document
+        .querySelectorAll(
+          '[data-testid^="resume-"], [data-testid="choice-minimized-pill"] button, [data-target-candidate="true"]',
+        )
+        .forEach((el) => found.add(el));
+      for (const id of containers) {
+        document.querySelectorAll(`[data-testid="${id}"]`).forEach((container) => {
+          container
+            .querySelectorAll(
+              'button, [role="button"], input[type="checkbox"], input[type="radio"], [data-testid="choice-option"], [data-selectable="true"]',
+            )
+            .forEach((el) => {
+              // A choice option label already covers its inner radio or checkbox.
+              if (
+                el.closest('[data-testid="choice-option"]') !== el &&
+                el.closest('[data-testid="choice-option"]')
+              )
+                return;
+              found.add(el);
+            });
+        });
+      }
+      const out: { idx: number; desc: string; full: string; resume: boolean }[] = [];
+      let idx = 0;
+      for (const el of found) {
+        if (!visible(el) || !enabled(el)) continue;
+        // An unlabeled checkbox or radio is described by the label that wraps it.
+        const named = el instanceof HTMLInputElement ? (el.closest("label") ?? el) : el;
+        const testId = named.getAttribute("data-testid") ?? "";
+        const label = named.getAttribute("aria-label") ?? "";
+        const fullText = (named.textContent ?? "").trim().replace(/\s+/g, " ");
+        const text = fullText.slice(0, 60);
+        const desc = [testId, label, text].filter(Boolean).join(" | ");
+        const full = [testId, label, fullText].filter(Boolean).join(" | ");
+        if (excludedRe.test(testId) || excludedRe.test(label)) continue;
+        if (!testId && excludedRe.test(text)) continue;
+        el.setAttribute("data-smoke-idx", String(idx));
+        out.push({
+          idx,
+          desc,
+          full,
+          resume:
+            testId.startsWith("resume-") ||
+            el.closest('[data-testid="choice-minimized-pill"]') !== null,
+        });
+        idx++;
+      }
+      return out;
+    },
+    { containers: DECISION_CONTAINERS, excluded: EXCLUDED.source },
+  );
+  return raw.map((c) => {
+    const unstage = UNSTAGE.test(c.desc);
+    return { ...c, unstage, commit: !unstage && COMMIT.test(c.desc) };
+  });
+}
+
+// Steering weights, first match wins; anything unmatched weighs 1. They push random play toward
+// moving fleets into contested systems and Mecatol Rex instead of passing and trading.
+const STEER_WEIGHTS: [RegExp, number][] = [
+  [/take a tactical action/i, 30],
+  [/strategic action/i, 3],
+  [/open a transaction|propose-trade-btn|trade-opt-/i, 0.1],
+  [/decline-trade-btn/i, 5],
+  [/\| pass$/i, 0.3],
+  [/^rally-inc-cargo-/, 4],
+  [/^rally-inc-/, 10],
+  [/ in space/i, 10],
+  // Finishing while moves are staged throws them away, so a populated commit wins.
+  [/^commit-moves-btn \| Commit Moves/, 50],
+  [/finish-movement-btn|done committing/i, 0.05],
+];
+
+// Base move values; faction variants such as `sol_carrier` share the suffix. Ground forces,
+// structures and fighters cannot move on their own.
+function shipMove(unitType: string): number {
+  if (/(carrier|dreadnought|flagship)$/.test(unitType)) return 1;
+  if (/(cruiser|destroyer|warsun|war_sun)$/.test(unitType)) return 2;
+  return 0;
+}
+
+/**
+ * Activation targets worth steering toward: systems one of the actor's fleets can reach by base
+ * move value (ignoring anomalies and wormholes), weighted up for Mecatol Rex and for systems
+ * holding another player's units. The UI does not show reachability, so this reads the actor's
+ * board view.
+ */
+function activationWeights(board: BoardView, actor: string): Map<string, number> {
+  const tiles = new Map((board.map_tiles ?? []).map((t) => [t.system_id, t]));
+  const fleets = Object.values(board.systems).flatMap((sys) => {
+    const tile = tiles.get(sys.system_id);
+    const move = Math.max(
+      0,
+      ...sys.units.filter((u) => u.owner === actor && !u.planet).map((u) => shipMove(u.unit_type)),
+    );
+    return tile && move > 0 ? [{ tile, move }] : [];
+  });
+  const weights = new Map<string, number>();
+  for (const [id, tile] of tiles) {
+    const reachable = fleets.some(({ tile: f, move }) => {
+      const distance =
+        (Math.abs(f.q - tile.q) + Math.abs(f.r - tile.r) + Math.abs(f.q + f.r - tile.q - tile.r)) /
+        2;
+      // Ships already in the active system cannot move, so distance 0 does not count.
+      return distance > 0 && distance <= move;
+    });
+    const enemies = board.systems[id]?.units.some((u) => u.owner !== actor) ?? false;
+    weights.set(id, !reachable ? 0.2 : id === "18" ? 40 : enemies ? 30 : 5);
+  }
+  return weights;
+}
+
+function steerWeight(desc: string, hexWeights: Map<string, number>): number {
+  const hex = /^system-hex-(\S+) /.exec(desc);
+  if (hex) return hexWeights.get(hex[1]) ?? 1;
+  return STEER_WEIGHTS.find(([pattern]) => pattern.test(desc))?.[1] ?? 1;
+}
+
+function weightedPick(pool: Candidate[], weight: (c: Candidate) => number, rng: () => number) {
+  const weights = pool.map(weight);
+  let roll = rng() * weights.reduce((a, b) => a + b, 0);
+  for (const [i, w] of weights.entries()) {
+    roll -= w;
+    if (roll < 0) return pool[i];
+  }
+  return pool[pool.length - 1];
+}
+
+function pick(
+  candidates: Candidate[],
+  clicks: number,
+  rng: () => number,
+  policy: "random" | "steer",
+  hexWeights: Map<string, number>,
+): Candidate {
+  const resume = candidates.filter((c) => c.resume);
+  if (resume.length) return resume[Math.floor(rng() * resume.length)];
+  const unstage = candidates.filter((c) => c.unstage);
+  const forward = candidates.filter((c) => !c.unstage);
+  // Take staging back when nothing else is clickable, when no submit control is enabled (such
+  // as cargo over transport capacity), or now and then once a decision has stalled. Dropping
+  // cargo one unit at a time keeps the ships staged, so the plan can become committable.
+  const blocked = !forward.some((c) => c.commit);
+  if (
+    unstage.length &&
+    (!forward.length || (blocked && rng() < 0.5) || (clicks >= 10 && rng() < 0.2))
+  )
+    return weightedPick(unstage, (c) => (/cargo|decrement|remove/i.test(c.desc) ? 5 : 0.5), rng);
+  const commits = forward.filter((c) => c.commit);
+  const stages = forward.filter((c) => !c.commit);
+  // Stage a few selections first, then lean toward submitting as the decision drags on. Steered
+  // fleet and landing trays stage longer so ships and ground forces actually move.
+  const staging = policy === "steer" && stages.some((c) => /^rally-inc-| in space/i.test(c.full));
+  const commitChance = staging
+    ? Math.min(0.05 + 0.08 * clicks, 0.9)
+    : Math.min(0.35 + 0.15 * clicks, 0.9);
+  const pool = commits.length && (!stages.length || rng() < commitChance) ? commits : stages;
+  if (policy === "random") return pool[Math.floor(rng() * pool.length)];
+  return weightedPick(pool, (c) => steerWeight(c.full, hexWeights), rng);
+}
+
+async function uiVersion(page: Page): Promise<number> {
+  const text = await page
+    .getByTestId("game-version")
+    .innerText()
+    .catch(() => "");
+  return Number(text.replace(/^v/, "")) || 0;
+}
+
+async function visibleErrors(page: Page): Promise<string[]> {
+  const texts: string[] = [];
+  for (const id of ERROR_BANNERS) {
+    for (const el of await page.getByTestId(id).all()) {
+      if (await el.isVisible()) texts.push((await el.innerText()).trim());
+    }
+  }
+  return texts.filter(Boolean);
+}
+
+export async function randomUiPlaythrough(
+  browser: Browser,
+  request: APIRequestContext,
+  options: PlaythroughOptions,
+): Promise<PlaythroughReport> {
+  const log = options.log ?? (() => {});
+  const rng = mulberry32(options.clickSeed);
+  const { gameId, players } = await createStartedGame(
+    request,
+    options.playerCount,
+    options.gameSeed,
+  );
+  log(`game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed}`);
+
+  const browserErrors: string[] = [];
+  const pages: Page[] = [];
+  for (const [index, player] of players.entries()) {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.on("pageerror", (err) => browserErrors.push(`[seat ${index + 1}] ${err.message}`));
+    page.on("console", (msg) => {
+      if (msg.type() !== "error") return;
+      const url = msg.location().url ?? "";
+      // The optional battle advisor (/battle) is not started for e2e runs.
+      if (url.includes("favicon") || url.includes("/battle")) return;
+      browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}`);
+    });
+    // The console only reports a status code; keep the server's reason for failed API calls.
+    page.on("response", async (response) => {
+      if (response.status() < 400 || !response.url().includes("/api/")) return;
+      const body = await response.text().catch(() => "");
+      const line = `[seat ${index + 1}] ${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}: ${body.slice(0, 500)}`;
+      browserErrors.push(line);
+      log(`  ${line}`);
+    });
+    await openPlayerGame(page, gameId, player.session);
+    await expect(page.getByTestId("turn-status-bar")).toBeVisible();
+    pages.push(page);
+  }
+
+  const report: PlaythroughReport = {
+    gameId,
+    decisions: 0,
+    clicks: 0,
+    finished: false,
+    roundStarts: {},
+    finalStatus: null,
+    subtypes: {},
+    rejections: [],
+  };
+
+  const fail = async (page: Page | undefined, message: string): Promise<never> => {
+    const status = await gameSnapshot(request, gameId, players[0].session).catch(() => null);
+    const detail = `${message}\nreport: ${JSON.stringify({ ...report, finalStatus: status?.turn_status })}`;
+    if (page)
+      await page.screenshot({ path: `test-results/smoke-failure-${gameId}.png` }).catch(() => {});
+    throw new Error(detail);
+  };
+
+  while (report.decisions < options.maxDecisions) {
+    expect(browserErrors, "browser errors during playthrough").toEqual([]);
+    const state = await gameSnapshot(request, gameId, players[0].session);
+    const status = state.turn_status;
+    report.finalStatus = status;
+    if (status.kind === "game_over") {
+      report.finished = true;
+      break;
+    }
+    if (!(status.round in report.roundStarts)) {
+      report.roundStarts[status.round] = report.decisions;
+      log(`round ${status.round} reached after ${report.decisions} decisions`);
+    }
+    if (options.stopAtRound !== undefined && status.round >= options.stopAtRound) break;
+    if (status.kind !== "waiting_for_decision") {
+      // Nothing to click; the server should move on by itself.
+      const moved = await expect
+        .poll(async () => (await gameSnapshot(request, gameId, players[0].session)).game_version, {
+          timeout: 10_000,
+        })
+        .toBeGreaterThan(state.game_version)
+        .then(() => true)
+        .catch(() => false);
+      if (!moved) await fail(undefined, `game idle without a decision: ${JSON.stringify(status)}`);
+      continue;
+    }
+
+    const actorIndex = players.findIndex((p) => p.id === status.seat);
+    if (actorIndex < 0) await fail(undefined, `decision for unknown seat ${status.seat}`);
+    const page = pages[actorIndex];
+    const actorState = await gameSnapshot(request, gameId, players[actorIndex].session);
+    const choice = actorState.pending_choice?.choice;
+    const subtype = choice?.context?.subtype ?? `prompt:${choice?.prompt.slice(0, 40) ?? "none"}`;
+    const before = actorState.game_version;
+    const hexWeights =
+      options.policy === "steer" && subtype === "activate_system"
+        ? activationWeights(actorState.view.board, players[actorIndex].id)
+        : new Map<string, number>();
+    report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
+
+    // Let the actor's tab catch up with the server before reading its controls.
+    await expect
+      .poll(() => uiVersion(page), { timeout: 10_000 })
+      .toBeGreaterThanOrEqual(before)
+      .catch(() => fail(page, `seat ${actorIndex + 1} UI never reached v${before}`));
+
+    let progressed = false;
+    let emptyPolls = 0;
+    for (let clicks = 0; clicks < options.maxClicksPerDecision;) {
+      const candidates = await collectCandidates(page);
+      if (!candidates.length) {
+        // The UI can take a moment to mount the workflow for a fresh offer.
+        if (++emptyPolls > 20) {
+          await fail(
+            page,
+            `no actionable control for ${subtype} (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
+          );
+        }
+        await page.waitForTimeout(250);
+        if ((await gameSnapshot(request, gameId, players[0].session)).game_version > before) {
+          progressed = true;
+          break;
+        }
+        continue;
+      }
+      const chosen = pick(candidates, clicks, rng, options.policy ?? "random", hexWeights);
+      log(`#${report.decisions} ${subtype} seat${actorIndex + 1} click ${chosen.desc}`);
+      await page
+        .locator(`[data-smoke-idx="${chosen.idx}"]`)
+        .click({ timeout: 2_000 })
+        .catch((err: Error) => log(`  click failed: ${err.message.split("\n")[0]}`));
+      clicks++;
+      report.clicks++;
+
+      progressed = await expect
+        .poll(async () => (await gameSnapshot(request, gameId, players[0].session)).game_version, {
+          timeout: chosen.commit ? 3_000 : 300,
+          intervals: [100],
+        })
+        .toBeGreaterThan(before)
+        .then(() => true)
+        .catch(() => false);
+      if (progressed) break;
+      const errors = await visibleErrors(page);
+      for (const error of errors) {
+        const entry = `${subtype}: ${error}`;
+        if (!report.rejections.includes(entry)) {
+          report.rejections.push(entry);
+          log(`  rejected: ${error}`);
+        }
+      }
+    }
+    if (!progressed) {
+      await fail(
+        page,
+        `${subtype} did not advance after ${options.maxClicksPerDecision} clicks (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
+      );
+    }
+    report.decisions++;
+  }
+
+  expect(browserErrors, "browser errors during playthrough").toEqual([]);
+  report.finalStatus = (await gameSnapshot(request, gameId, players[0].session)).turn_status;
+  return report;
+}
