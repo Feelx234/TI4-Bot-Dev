@@ -369,10 +369,11 @@ fn produced_hits(
 
 // -- Timing abilities ----------------------------------------------------------------------------
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    let mut abilities = vec![
         pillage(owner_name, seat, "TRADE_GOODS_GAINED"),
         pillage(owner_name, seat, "TRANSACTION_RESOLVED"),
+        native_suffi_an_window(owner_name, seat),
         tables_grace(owner_name, seat),
         salvage_trade_good(owner_name, seat),
         salvage_ship(owner_name, seat),
@@ -381,7 +382,22 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
         hero_start(owner_name, seat),
         hero_destroyed(owner_name, seat),
         hero_end(owner_name, seat),
-    ]
+    ];
+    if state
+        .player(seat)
+        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new(AGENT)))
+    {
+        for candidate in &state.players {
+            if candidate.id != *seat
+                && candidate
+                    .leaders
+                    .contains_key(&LeaderId::new("yssarilagent"))
+            {
+                abilities.push(borrowed_suffi_an(owner_name, seat, &candidate.id));
+            }
+        }
+    }
+    abilities
 }
 
 // -- Pillage and Suffi An ------------------------------------------------------------------------
@@ -479,7 +495,7 @@ fn pillage(owner_name: &str, seat: &PlayerId, event_type: &str) -> Ability {
         seat.clone(),
         event_type,
         Relation::After,
-        Arc::new(move |event, _resolver, context| pillage_effect(event, context, &owner)),
+        Arc::new(move |event, resolver, context| pillage_effect(event, resolver, context, &owner)),
     )
     .with_optional(true)
     .with_stateful_condition(Arc::new(move |event, _, context| {
@@ -489,9 +505,11 @@ fn pillage(owner_name: &str, seat: &PlayerId, event_type: &str) -> Ability {
 
 fn pillage_effect(
     event: &Event,
+    resolver: &mut crate::timing::Resolver,
     context: &mut TimingContext<'_>,
     owner: &PlayerId,
 ) -> Result<(), TimingError> {
+    let before_log = context.table.log.clone();
     let targets = pillage_targets(event, context.state, context.galaxy, owner);
     let mut options = Vec::new();
     for target in &targets {
@@ -533,6 +551,10 @@ fn pillage_effect(
         return Ok(());
     }
     let before = context.state.clone();
+    let before_timing = resolver.checkpoint();
+    let before_sequence = context.event_sequence.clone();
+    let before_dice = context.dice.clone();
+    let before_rng = context.rng.clone();
     let taken = {
         let Some(seat) = context.state.player_mut(&target) else {
             return Ok(());
@@ -551,8 +573,34 @@ fn pillage_effect(
         return Ok(());
     }
     crate::supply::gain_trade_goods_staged(context.state, owner, 1, "pillage");
-    if let Err(error) = suffi_an(context, owner, &target) {
+    let result = (|| {
+        // Native games without a legal Ssruu copy retain their existing event stream.
+        let has_copy = context.state.players.iter().any(|seat| {
+            super::hooks_cards::borrowable_agents(context.state, context.content, &seat.id)
+                .iter()
+                .any(|(_, agent)| agent.as_str() == AGENT)
+        });
+        if has_copy {
+            let event = context.event_sequence.next(
+                "PILLAGE_USED",
+                std::collections::BTreeMap::from([
+                    ("player".to_owned(), owner.to_string().into()),
+                    ("target".to_owned(), target.to_string().into()),
+                ]),
+            )?;
+            resolver.emit_with_context(context, event, |_, _| {})?;
+        } else {
+            suffi_an(context, owner, &target)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
         *context.state = before;
+        *context.event_sequence = before_sequence;
+        *context.dice = before_dice;
+        *context.rng = before_rng;
+        resolver.restore(before_timing);
+        context.table.log = before_log;
         return Err(error);
     }
     Ok(())
@@ -592,6 +640,77 @@ fn suffi_an(
             .map_err(illegal)?;
     }
     Ok(())
+}
+
+/// In games with a copy, native and copied text share the same optional resolver window.
+fn native_suffi_an_window(owner_name: &str, seat: &PlayerId) -> Ability {
+    let (owner, condition_owner) = (seat.clone(), seat.clone());
+    Ability::stateful(
+        format!("leader:{owner_name}:mentakagent:PILLAGE_USED:after"),
+        seat.clone(),
+        "PILLAGE_USED",
+        Relation::After,
+        Arc::new(move |event, _, context| {
+            let Some(target) = event.text("target").map(PlayerId::new) else {
+                return Ok(());
+            };
+            suffi_an(context, &owner, &target)
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        leader_status(context.state, &condition_owner, AGENT) == Some(LeaderStatus::Readied)
+            && event.text("player") == Some(condition_owner.as_str())
+            && event.text("target").is_some()
+            && !context.state.action_card_deck.is_empty()
+    }))
+}
+
+/// Ssruu's copied Suffi An reacts to a successful Pillage, not merely a goods gain.
+fn borrowed_suffi_an(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (cs, cb) = (source.clone(), borrower.clone());
+    let (es, eb) = (source.clone(), borrower.clone());
+    Ability::stateful(
+        format!("leader:{owner_name}:{source}:yssarilagent:mentakagent:PILLAGE_USED:after"),
+        borrower.clone(),
+        "PILLAGE_USED",
+        Relation::After,
+        Arc::new(move |event, _, context| {
+            let Some(target) = event.text("target").map(PlayerId::new) else {
+                return Ok(());
+            };
+            if !can_copy_suffi_an(context.state, context.content, &es, &eb) {
+                return Ok(());
+            }
+            if !crate::leaders::exhaust(context.state, &eb, &LeaderId::new("yssarilagent")) {
+                return Ok(());
+            }
+            for player in [&eb, &target] {
+                crate::action_cards::draw(context.state, context.content, context.table, player, 1)
+                    .map_err(illegal)?;
+            }
+            super::hooks_cards::borrowed_agent_used(context, &eb, &LeaderId::new(AGENT));
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event
+            .text("target")
+            .is_some_and(|target| context.state.player(&PlayerId::new(target)).is_some())
+            && !context.state.action_card_deck.is_empty()
+            && can_copy_suffi_an(context.state, context.content, &cs, &cb)
+    }))
+}
+
+fn can_copy_suffi_an(
+    state: &GameState,
+    content: &ContentStore,
+    source: &PlayerId,
+    borrower: &PlayerId,
+) -> bool {
+    super::hooks_cards::borrowable_agents(state, content, borrower)
+        .iter()
+        .any(|(owner, agent)| owner == source && agent.as_str() == AGENT)
 }
 
 // -- Salvage Operations --------------------------------------------------------------------------
@@ -1699,6 +1818,203 @@ mod tests {
         assert_eq!(crate::supply::staged_events(&state), 0);
         assert_eq!(state.player(&b()).unwrap().trade_goods, 4);
         assert_eq!(state.player(&a()).unwrap().trade_goods, 1);
+    }
+
+    struct CopySuffiDecider;
+    impl crate::choice::Decider for CopySuffiDecider {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            if choice.prompt.starts_with("Suffi An:")
+                || choice
+                    .options
+                    .iter()
+                    .any(|o| o.id == "leader:mentak:mentakagent:PILLAGE_USED:after")
+            {
+                return Ok(choice
+                    .options
+                    .iter()
+                    .find(|o| o.is_decline())
+                    .unwrap()
+                    .clone());
+            }
+            if let Some(option) = choice.options.iter().find(|o| {
+                o.id.contains(":yssarilagent:mentakagent:PILLAGE_USED:after")
+            }) {
+                assert_eq!(choice.player, PlayerId::new("c"));
+                return Ok(option.clone());
+            }
+            Ok(choice
+                .options
+                .iter()
+                .find(|o| !o.is_decline())
+                .unwrap()
+                .clone())
+        }
+    }
+    fn copied_pillage_game() -> GameState {
+        let mut state = seated_game(&[("a", "mentak"), ("b", "sol"), ("c", "yssaril")], DEFAULT);
+        let system = SystemId::new("18");
+        put(&mut state, &system, "destroyer", &a(), 1);
+        put(&mut state, &system, "destroyer", &b(), 1);
+        state.player_mut(&b()).unwrap().trade_goods = 3;
+        state.player_mut(&b()).unwrap().commodities = 0;
+        state
+    }
+    fn emit_copied_pillage(
+        state: &mut GameState,
+        resolver: &mut crate::timing::Resolver,
+    ) -> Result<(), TimingError> {
+        let mut table = Table::with_default(Box::new(CopySuffiDecider));
+        emit_copied_pillage_with_table(state, resolver, &mut table)
+    }
+    fn emit_copied_pillage_with_table(
+        state: &mut GameState,
+        resolver: &mut crate::timing::Resolver,
+        table: &mut Table,
+    ) -> Result<(), TimingError> {
+        let galaxy = crate::fixtures::plain_hub().galaxy;
+        with_context(state, DEFAULT, Some(&galaxy), table, |ctx| {
+            let event = ctx
+                .event_sequence
+                .next(
+                    "TRADE_GOODS_GAINED",
+                    gained("b")
+                        .into_iter()
+                        .map(|(k, v)| (k.to_owned(), v))
+                        .collect(),
+                )
+                .unwrap();
+            resolver
+                .emit_with_context(ctx, event, |_, _| {})
+                .map(|_| ())
+        })
+    }
+    #[test]
+    fn native_and_copied_suffi_an_compete_in_normal_player_order() {
+        let mut state = copied_pillage_game();
+        state.action_card_deck.truncate(2);
+        let borrower = PlayerId::new("c");
+        let before_a = state.player(&a()).unwrap().action_cards.len();
+        let before_c = state.player(&borrower).unwrap().action_cards.len();
+        let mut resolver = armed_resolver(&state);
+        resolver.set_active_player(Some(borrower.clone()));
+        emit_copied_pillage_with_table(&mut state, &mut resolver, &mut Table::new()).unwrap();
+        assert_eq!(state.player(&a()).unwrap().action_cards.len(), before_a);
+        assert_eq!(
+            state.player(&borrower).unwrap().action_cards.len(),
+            before_c + 1
+        );
+        assert_eq!(
+            leader_status(&state, &a(), AGENT),
+            Some(LeaderStatus::Readied)
+        );
+        assert_eq!(
+            leader_status(&state, &borrower, "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+    }
+    struct FailCopiedDiscard;
+    impl crate::choice::Decider for FailCopiedDiscard {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            if choice.player == PlayerId::new("c")
+                && choice.prompt.to_lowercase().contains("discard")
+            {
+                return Err(IllegalChoice::NotOffered {
+                    player: choice.player.clone(),
+                    chosen: "invalid-discard".to_owned(),
+                    offered: choice.options.iter().map(|o| o.id.clone()).collect(),
+                });
+            }
+            Ok(choice
+                .options
+                .iter()
+                .find(|o| !o.is_decline())
+                .unwrap()
+                .clone())
+        }
+    }
+    #[test]
+    fn failed_copied_suffi_draw_restores_pillage_state_and_decision_log() {
+        let mut state = copied_pillage_game();
+        set_status(&mut state, &a(), AGENT, LeaderStatus::Exhausted);
+        let before = state.clone();
+        let mut resolver = armed_resolver(&state);
+        let mut table = Table::with_default(Box::new(FailCopiedDiscard));
+        let log_before = table.log.clone();
+        assert!(emit_copied_pillage_with_table(&mut state, &mut resolver, &mut table).is_err());
+        assert_eq!(
+            state, before,
+            "copied draw failure restores Pillage and both hands/cards"
+        );
+        // The outer Pillage selection happened before the callback transaction. It may remain;
+        // every nested native/copy/draw selection must be removed.
+        assert!(table.log.len() <= log_before.len() + 1);
+        assert!(
+            !table
+                .log
+                .records
+                .iter()
+                .any(|entry| format!("{entry:?}").contains("yssarilagent:mentakagent"))
+        );
+    }
+
+    #[test]
+    fn ssruu_copies_suffi_an_only_after_actual_pillage_for_both_source_statuses() {
+        for status in [LeaderStatus::Readied, LeaderStatus::Exhausted] {
+            let mut state = copied_pillage_game();
+            set_status(&mut state, &a(), AGENT, status);
+            let hand_a = state.player(&a()).unwrap().action_cards.len();
+            let hand_b = state.player(&b()).unwrap().action_cards.len();
+            let hand_c = state
+                .player(&PlayerId::new("c"))
+                .unwrap()
+                .action_cards
+                .len();
+            let mut resolver = armed_resolver(&state);
+            emit_copied_pillage(&mut state, &mut resolver).unwrap();
+            assert_eq!(state.player(&b()).unwrap().trade_goods, 2);
+            assert_eq!(state.player(&a()).unwrap().action_cards.len(), hand_a);
+            assert_eq!(state.player(&b()).unwrap().action_cards.len(), hand_b + 1);
+            assert_eq!(
+                state
+                    .player(&PlayerId::new("c"))
+                    .unwrap()
+                    .action_cards
+                    .len(),
+                hand_c + 1
+            );
+            assert_eq!(leader_status(&state, &a(), AGENT), Some(status));
+            assert_eq!(
+                leader_status(&state, &PlayerId::new("c"), "yssarilagent"),
+                Some(LeaderStatus::Exhausted)
+            );
+        }
+    }
+    #[test]
+    fn copied_suffi_an_has_live_readiness_and_does_not_trigger_without_pillage() {
+        let mut state = copied_pillage_game();
+        let borrower = PlayerId::new("c");
+        set_status(&mut state, &a(), AGENT, LeaderStatus::Exhausted);
+        set_status(
+            &mut state,
+            &borrower,
+            "yssarilagent",
+            LeaderStatus::Exhausted,
+        );
+        let mut resolver = armed_resolver(&state);
+        set_status(&mut state, &borrower, "yssarilagent", LeaderStatus::Readied);
+        state.player_mut(&b()).unwrap().trade_goods = 2;
+        let before = state.clone();
+        emit_copied_pillage(&mut state, &mut resolver).unwrap();
+        assert_eq!(
+            state, before,
+            "a goods gain without legal Pillage must not draw cards"
+        );
+        state.player_mut(&b()).unwrap().trade_goods = 3;
+        emit_copied_pillage(&mut state, &mut resolver).unwrap();
+        assert_eq!(
+            leader_status(&state, &borrower, "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
     }
 
     #[test]
