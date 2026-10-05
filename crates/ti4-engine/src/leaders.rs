@@ -121,11 +121,11 @@ pub fn commander_unlocked(
             };
             let types = ti4_content::units::catalogue(content, sources);
             let mut nearby: std::collections::BTreeSet<String> = galaxy
-                .adjacent(crate::seating::MECATOL)
+                .adjacent(crate::seating::mecatol_in_galaxy(galaxy))
                 .into_iter()
                 .map(ToOwned::to_owned)
                 .collect();
-            nearby.insert(crate::seating::MECATOL.to_owned());
+            nearby.insert(crate::seating::mecatol_in_galaxy(galaxy).to_owned());
             nearby.iter().any(|system| {
                 let board = state.system_state(&ti4_model::id::SystemId::new(system));
                 board

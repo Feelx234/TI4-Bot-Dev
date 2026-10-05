@@ -1014,6 +1014,12 @@ impl<'a> Game<'a> {
     /// Give the game its map, which is what makes a tactical action possible.
     #[must_use]
     pub fn with_galaxy(mut self, galaxy: Galaxy) -> Self {
+        // The Thunder's Edge Mecatol Rex tile: registered on the board so state-only readers
+        // (`seating::mecatol_on`) find it without the map. The base tile needs no entry.
+        if crate::seating::mecatol_in_galaxy(&galaxy) == crate::seating::MECATOL_TE {
+            self.state
+                .system_mut(&SystemId::new(crate::seating::MECATOL_TE));
+        }
         // 35.5: a frontier token sits on every planetless system from the start. Placing them
         // here rather than in setup is what the galaxy makes possible -- setup has no board yet,
         // and until this existed `frontier_tokens` was written by nothing at all, which left the

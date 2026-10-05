@@ -413,7 +413,7 @@ fn legendary_planets_count(position: &Position<'_>) -> usize {
 }
 
 fn mecatol_ships_while_controlling_count(position: &Position<'_>) -> usize {
-    let mecatol = ti4_model::id::SystemId::new(crate::seating::MECATOL);
+    let mecatol = ti4_model::id::SystemId::new(crate::seating::mecatol_on(position.state));
     let board = position.state.system_state(&mecatol);
     let firmament = position.firmament();
     if !board.controls_a_planet(position.player)

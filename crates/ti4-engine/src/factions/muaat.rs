@@ -559,7 +559,7 @@ fn fires(context: &mut TimingContext<'_>, player: &PlayerId) -> bool {
 /// Tiles the hero cannot replace beyond home systems and Mecatol Rex: the Fracture
 /// (Dane's ruling, in the card notes).
 fn nova_blocked(content: &ContentStore, sources: SourceSet, system: &str) -> bool {
-    system == crate::seating::MECATOL
+    crate::seating::is_mecatol(system)
         || system.starts_with("fracture")
         || ti4_content::galaxy::is_home_system(content, system, sources)
 }

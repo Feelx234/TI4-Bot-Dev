@@ -1176,7 +1176,7 @@ fn diplomacy_primary(
         .controlled_planets(player)
         .into_iter()
         .map(|(system, _)| system.clone())
-        .filter(|system| system.as_str() != crate::seating::MECATOL)
+        .filter(|system| !crate::seating::is_mecatol(system.as_str()))
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
@@ -1712,7 +1712,7 @@ fn imperial_primary(
     let controls_mecatol = state
         .controlled_planets(player)
         .into_iter()
-        .any(|(system, _)| system.as_str() == crate::seating::MECATOL);
+        .any(|(system, _)| crate::seating::is_mecatol(system.as_str()));
     if controls_mecatol {
         if let Some(seat) = state.player_mut(player) {
             seat.victory_points = (seat.victory_points + 1).min(crate::objectives::VICTORY_TARGET);

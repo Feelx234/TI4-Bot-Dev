@@ -72,7 +72,7 @@ pub fn custodians_removable(
     player: &PlayerId,
     system: &SystemId,
 ) -> bool {
-    if state.custodians_removed || system.as_str() != crate::seating::MECATOL {
+    if state.custodians_removed || !crate::seating::is_mecatol(system.as_str()) {
         return false;
     }
     // 27.2a: "If a player cannot commit ground forces to land on Mecatol Rex, they cannot remove
@@ -1072,7 +1072,9 @@ fn roll_ground(
         i64,
         (i64, std::collections::BTreeMap<String, u32>),
     > = std::collections::BTreeMap::new();
-    let roster: Vec<_> = state.system_state(system).on_planet_of(planet, player)
+    let roster: Vec<_> = state
+        .system_state(system)
+        .on_planet_of(planet, player)
         .into_iter()
         .filter(|unit| is_ground_force_here(state, content, sources, system, planet, unit))
         .cloned()
@@ -1110,7 +1112,14 @@ fn roll_ground(
             kind.combat_dice(),
         );
         slot.0 += crate::factions::borrowed_round_agents::extra_die_for(
-            state, content, sources, system, Some(planet), player, unit.type_id.as_str(), unit_index,
+            state,
+            content,
+            sources,
+            system,
+            Some(planet),
+            player,
+            unit.type_id.as_str(),
+            unit_index,
             state.combat_round_seq,
         );
         *slot.1.entry(unit.type_id.to_string()).or_insert(0) += 1;
@@ -1475,9 +1484,14 @@ pub(crate) fn assign_selected_ground_hit_in_timing(
         let choice = Choice::new(
             unit.owner.clone(),
             if crate::supply::staging_enabled(ctx.state) {
-                format!("sustain the hit on {} on {} (system {})", unit.type_id,
+                format!(
+                    "sustain the hit on {} on {} (system {})",
+                    unit.type_id,
                     ti4_content::galaxy::planet(ctx.content, planet.as_str(), ctx.sources)
-                        .and_then(|record| record.name()).unwrap_or(planet.as_str()), system)
+                        .and_then(|record| record.name())
+                        .unwrap_or(planet.as_str()),
+                    system
+                )
             } else {
                 format!("sustain the hit on {}", unit.type_id)
             },
@@ -1618,8 +1632,15 @@ fn absorb_ground_with_origin(
                         format!("destroy|{index}"),
                         GROUND_CASUALTY_KIND,
                         if crate::supply::staging_enabled(state) {
-                            format!("destroy {} ({})", unit.type_id,
-                                if unit.sustained_damage { "damaged" } else { "undamaged" })
+                            format!(
+                                "destroy {} ({})",
+                                unit.type_id,
+                                if unit.sustained_damage {
+                                    "damaged"
+                                } else {
+                                    "undamaged"
+                                }
+                            )
                         } else {
                             format!("destroy {}", unit.type_id)
                         },
@@ -2542,7 +2563,10 @@ impl InvasionWindow {
                 ("planet".to_owned(), planet.to_string().into()),
                 ("attacker".to_owned(), self.invader.to_string().into()),
                 ("defender".to_owned(), defender.to_string().into()),
-                ("round_seq".to_owned(), i64::from(state.combat_round_seq).into()),
+                (
+                    "round_seq".to_owned(),
+                    i64::from(state.combat_round_seq).into(),
+                ),
             ]);
             if let Err(error) = ctx.emit(state, "GROUND_COMBAT_ROUND_STARTED", payload) {
                 self.strict_timing_error = Some(error);

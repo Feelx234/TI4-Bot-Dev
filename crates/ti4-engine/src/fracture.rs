@@ -364,7 +364,7 @@ pub fn enter_play(
         state
             .thunders_edge_system
             .clone()
-            .unwrap_or_else(|| SystemId::new(crate::seating::MECATOL)),
+            .unwrap_or_else(|| SystemId::new(crate::seating::mecatol_on(state))),
     );
     state.fracture_in_play = true;
     Ok(())

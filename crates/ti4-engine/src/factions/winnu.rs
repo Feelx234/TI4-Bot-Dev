@@ -131,14 +131,14 @@ fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<L
     crate::leaders::status(state, player, &LeaderId::new(leader))
 }
 
-fn mecatol() -> SystemId {
-    SystemId::new(crate::seating::MECATOL)
+fn mecatol(state: &GameState) -> SystemId {
+    SystemId::new(crate::seating::mecatol_on(state))
 }
 
 /// The planets of the Mecatol Rex system that `player` controls (Mecatol Rex itself).
 fn mecatol_planets(state: &GameState, player: &PlayerId) -> Vec<PlanetId> {
     state
-        .system_state(&mecatol())
+        .system_state(&mecatol(state))
         .planet_control
         .iter()
         .filter(|(_, owner)| *owner == player)
@@ -344,9 +344,11 @@ fn reclamation_ready(
     }
     let planet = gained(state, seat)
         .into_iter()
-        .find(|(system, planet)| system == &mecatol() && controls(state, seat, system, planet))?
+        .find(|(system, planet)| {
+            crate::seating::is_mecatol(system.as_str()) && controls(state, seat, system, planet)
+        })?
         .1;
-    let system = mecatol();
+    let system = mecatol(state);
     (["pds", "spacedock"].iter().all(|base| {
         box_has(state, content, sources, seat, base)
             && room_for(state, content, sources, seat, &system, &planet, base)
@@ -371,11 +373,12 @@ fn reclamation(owner_name: &str, seat: &PlayerId) -> Ability {
             else {
                 return Ok(());
             };
+            let system = mecatol(context.state);
             for base in ["pds", "spacedock"] {
                 crate::action_cards::place_units_counted(
                     context,
                     &owner,
-                    &mecatol(),
+                    &system,
                     Some(&planet),
                     base,
                     1,
@@ -504,21 +507,28 @@ fn linked_systems(
         || state.active.as_ref() != Some(player)
         || state.active_system.is_none()
         || controls_mecatol(state, player)
-        || galaxy.coord_of(crate::seating::MECATOL).is_none()
+        || galaxy
+            .coord_of(crate::seating::mecatol_in_galaxy(galaxy))
+            .is_none()
     {
         return Vec::new();
     }
     galaxy
         .wormhole_systems()
         .into_iter()
-        .filter(|system| *system != crate::seating::MECATOL)
+        .filter(|system| !crate::seating::is_mecatol(system))
         .filter(|system| {
             galaxy
                 .wormhole_kinds(system)
                 .iter()
                 .any(|kind| *kind == "ALPHA" || *kind == "BETA")
         })
-        .map(|system| (crate::seating::MECATOL.to_owned(), system.to_owned()))
+        .map(|system| {
+            (
+                crate::seating::mecatol_in_galaxy(galaxy).to_owned(),
+                system.to_owned(),
+            )
+        })
         .collect()
 }
 
@@ -566,14 +576,9 @@ fn perform_component(
         return false;
     };
     exhaust_technology(context.state, player, "lgf");
-    crate::action_cards::place_units_counted(
-        context,
-        player,
-        &mecatol(),
-        Some(&planet),
-        "infantry",
-        1,
-    ) > 0
+    let system = mecatol(context.state);
+    crate::action_cards::place_units_counted(context, player, &system, Some(&planet), "infantry", 1)
+        > 0
 }
 
 // -- Hegemonic Trade Policy ----------------------------------------------------------------------
@@ -874,7 +879,7 @@ fn commander_unlock(owner_name: &str, seat: &PlayerId, event_type: &'static str)
     )
     .with_stateful_condition(Arc::new(move |event, _, context| {
         leader_status(context.state, &condition_seat, COMMANDER) == Some(LeaderStatus::Locked)
-            && event.text("system") == Some(crate::seating::MECATOL)
+            && event.text("system").is_some_and(crate::seating::is_mecatol)
             && (event.text("attacker") == Some(condition_seat.as_str())
                 || event.text("defender") == Some(condition_seat.as_str()))
     }))
@@ -901,7 +906,7 @@ fn commander_bonus(
                     .is_some_and(|planet| planet.is_legendary())
             })
         });
-    if *system == mecatol() || home || legendary {
+    if crate::seating::is_mecatol(system.as_str()) || home || legendary {
         2
     } else {
         0
@@ -1455,6 +1460,11 @@ mod tests {
     }
 
     use super::*;
+
+    /// These fixtures have no map, so Mecatol Rex is the base tile.
+    fn mecatol() -> SystemId {
+        SystemId::new(crate::seating::MECATOL)
+    }
     use crate::choice::Window;
     use std::collections::BTreeMap;
     use ti4_model::content_types::DEFAULT;

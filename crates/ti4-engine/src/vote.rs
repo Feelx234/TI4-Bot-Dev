@@ -79,7 +79,7 @@ pub fn outcomes(
         if elects.contains("Non-Home") || elects.contains("Other Than Mecatol") {
             let catalogue = all_planets(content, sources);
             planets.retain(|planet| {
-                planet != MECATOL
+                !crate::seating::is_mecatol_planet(planet)
                     && catalogue
                         .get(planet.as_str())
                         .is_none_or(|record| record.homeworld_of().is_none())

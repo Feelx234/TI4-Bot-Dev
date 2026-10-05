@@ -593,7 +593,7 @@ fn capital_ship_systems_count(position: &Position<'_>) -> usize {
 /// Have your flagship or war sun in another player's home system, or Mecatol Rex's.
 fn capital_ships_in_rival_home_or_mecatol_count(position: &Position<'_>) -> usize {
     let mut theirs = rival_home_systems(position);
-    theirs.insert(crate::seating::MECATOL.to_owned());
+    theirs.insert(crate::seating::mecatol_on(position.state).to_owned());
     flagship_or_war_sun(position)
         .iter()
         .filter(|system| theirs.contains(*system))
@@ -679,7 +679,8 @@ fn on_the_rim_count(position: &Position<'_>) -> Option<usize> {
 /// Have ships in two systems adjacent to Mecatol Rex's.
 fn ships_adjacent_to_mecatol_count(position: &Position<'_>) -> Option<usize> {
     let galaxy = position.galaxy?;
-    let beside: std::collections::BTreeSet<&str> = galaxy.adjacent(crate::seating::MECATOL);
+    let beside: std::collections::BTreeSet<&str> =
+        galaxy.adjacent(crate::seating::mecatol_in_galaxy(galaxy));
     Some(
         position
             .systems_with_ships()
@@ -933,7 +934,7 @@ fn in_notable_systems_count(position: &Position<'_>) -> usize {
         .systems_holding_units()
         .into_iter()
         .filter(|id| {
-            if id.as_str() == crate::seating::MECATOL {
+            if crate::seating::is_mecatol(id.as_str()) {
                 return true;
             }
             let Some(system) = systems.get(id.as_str()) else {
@@ -1030,7 +1031,7 @@ pub fn implicated_systems(
         // to the Mecatol Rex system" -- the ring around Mecatol, exactly as
         // `ships_adjacent_to_mecatol_count` checks it, whoever currently sits there.
         "intimidate" => galaxy
-            .adjacent(crate::seating::MECATOL)
+            .adjacent(crate::seating::mecatol_in_galaxy(galaxy))
             .into_iter()
             .map(ToOwned::to_owned)
             .collect(),
@@ -1891,15 +1892,26 @@ pub fn award(
     // not where that condition changes. The status phase checks again with one.
     crate::leaders::check_unlocks(state, content, sources, None, player);
     let public = state.revealed_objectives.contains(alias)
-        || content.get(ContentType::PublicObjectives, alias.as_str()).is_some();
-    if public && state.player(player).is_some_and(|seat| {
-        seat.faction.as_str() == "yin"
-            && seat.breakthrough.as_ref().is_some_and(|card| card.as_str() == "yinbt")
-    }) {
-        crate::supply::stage_event(state, "PUBLIC_OBJECTIVE_SCORED", &std::collections::BTreeMap::from([
-            ("player".to_owned(), player.to_string().into()),
-            ("objective".to_owned(), alias.to_string().into()),
-        ]));
+        || content
+            .get(ContentType::PublicObjectives, alias.as_str())
+            .is_some();
+    if public
+        && state.player(player).is_some_and(|seat| {
+            seat.faction.as_str() == "yin"
+                && seat
+                    .breakthrough
+                    .as_ref()
+                    .is_some_and(|card| card.as_str() == "yinbt")
+        })
+    {
+        crate::supply::stage_event(
+            state,
+            "PUBLIC_OBJECTIVE_SCORED",
+            &std::collections::BTreeMap::from([
+                ("player".to_owned(), player.to_string().into()),
+                ("objective".to_owned(), alias.to_string().into()),
+            ]),
+        );
     }
     Ok(points)
 }
