@@ -657,6 +657,9 @@ fn nova_system(
 /// Destroy every other player's units in `system` through the shared routes: ships by
 /// `combat::destroy_units` (staging `SHIP_DESTROYED`), ground forces on planets by a staged
 /// `GROUND_FORCE_DESTROYED`; ground forces in the space area are removed with the ships.
+///
+/// The ships name this breakthrough in their `cause`: Nova Seed replaces a tile, and what it
+/// removes is not a ship lost during a space combat.
 fn destroy_others(
     state: &mut GameState,
     content: &ContentStore,
@@ -672,7 +675,15 @@ fn destroy_others(
         .collect();
     for other in &others {
         let ships = crate::combat::ships_of(state, content, sources, other, system);
-        crate::combat::destroy_units(state, content, sources, other, system, &ships);
+        crate::combat::destroy_units(
+            state,
+            content,
+            sources,
+            other,
+            system,
+            &ships,
+            "breakthrough:nova_seed",
+        );
     }
     let planets: Vec<PlanetId> = state
         .system_state(system)
@@ -1151,10 +1162,7 @@ fn magmus(owner_name: &str, seat: &PlayerId) -> Ability {
     let (owner, condition_seat) = (seat.clone(), seat.clone());
     let live = |event: &Event, state: &GameState, who: &PlayerId| {
         event.text("player") == Some(who.as_str())
-            && matches!(
-                leader_status(state, who, COMMANDER),
-                Some(LeaderStatus::Unlocked | LeaderStatus::Readied)
-            )
+            && crate::promissory::has_commander_ability(state, who, COMMANDER)
     };
     Ability::stateful(
         format!("leader:{owner_name}:{COMMANDER}:STRATEGY_TOKEN_SPENT:after"),
@@ -1335,10 +1343,14 @@ fn stellar_genesis(owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
     vec![placement, moving]
 }
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
     let mut abilities = stellar_genesis(owner_name, seat);
+    if is_muaat(state, seat) {
+        // Only Muaat's own warsun production unlocks its native commander. The passive ability
+        // listener below is armed for every seat so direct grants and ordinary Alliance can use it.
+        abilities.push(commander_unlock(owner_name, seat));
+    }
     abilities.extend([
-        commander_unlock(owner_name, seat),
         magmus(owner_name, seat),
         war_sun_moved(owner_name, seat),
         nova_seed(owner_name, seat),
@@ -2068,7 +2080,7 @@ mod tests {
             state
                 .pending_destructions
                 .iter()
-                .filter(|(_, owner, _)| *owner == b())
+                .filter(|(_, owner, _, _, _)| *owner == b())
                 .count(),
             2,
             "through the shared route: one SHIP_DESTROYED staged per ship"
@@ -2810,6 +2822,45 @@ mod tests {
     }
 
     #[test]
+    fn ownerless_commander_grant_gains_goods_without_unlocking_a_native_leader() {
+        let mut state = muaat_game();
+        state.player_mut(&a()).unwrap().faction = ti4_model::id::FactionId::new("yin");
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .remove(&LeaderId::new(COMMANDER));
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            content(),
+            &a(),
+            COMMANDER
+        ));
+        let before = state.player(&a()).unwrap().trade_goods;
+        emit(
+            &mut state,
+            None,
+            &mut scripted(&["leader:yin:muaatcommander:STRATEGY_TOKEN_SPENT:after"]),
+            "STRATEGY_TOKEN_SPENT",
+            &token_spent("a"),
+        );
+        assert_eq!(state.player(&a()).unwrap().trade_goods, before + 1);
+        assert_eq!(leader_status(&state, &a(), COMMANDER), None);
+        emit(
+            &mut state,
+            None,
+            &mut never(),
+            "STRATEGY_TOKEN_SPENT",
+            &token_spent("b"),
+        );
+        assert_eq!(
+            state.player(&a()).unwrap().trade_goods,
+            before + 1,
+            "only recipient's spend applies"
+        );
+    }
+
+    #[test]
     fn magmus_offers_a_trade_good_after_a_strategy_token_is_spent() {
         let mut state = muaat_game();
         set_status(&mut state, &a(), COMMANDER, LeaderStatus::Unlocked);
@@ -2935,5 +2986,66 @@ mod tests {
             ],
         );
         assert_eq!(state, before);
+    }
+    #[test]
+    fn stellar_genesis_moves_avernus_on_a_real_war_sun_route_through_its_system() {
+        use crate::game::{Game, TACTICAL_ACTION_ID};
+        let ids = crate::fixtures::plain_systems(80)
+            .into_iter()
+            .filter(|id| !nova_blocked(content(), DEFAULT, id))
+            .take(7)
+            .collect::<Vec<_>>();
+        let hub = crate::fixtures::hub_from(&ids);
+        let origin = SystemId::new(hub.outer[0].clone());
+        let destination = SystemId::new(hub.across(origin.as_str()));
+        let center = SystemId::new(hub.centre.clone());
+        let planet = PlanetId::new("avernus");
+        let mut state = muaat_game();
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new(STELLAR));
+        state.placed_planets.insert(planet.clone(), center.clone());
+        state.system_mut(&center).set_control(planet.clone(), a());
+        put_on_planet(&mut state, &center, &planet, "infantry", &a(), 1);
+        put(&mut state, &origin, "muaat_warsun2", &a(), 1);
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            destination.to_string(),
+            format!("move|{origin}|0"),
+            "done_loading".to_owned(),
+            "breakthrough:muaat:muaatbt:SHIP_MOVED:after".to_owned(),
+            "done_moving".to_owned(),
+        ])));
+        let mut game = Game::with_table(state, content(), table)
+            .with_sources(DEFAULT)
+            .with_galaxy(hub.galaxy);
+        for _ in 0..12 {
+            let result = game.step();
+            assert_eq!(result.error, None, "{:?}", game.events);
+            if game.state.placed_planets.get(&planet) == Some(&destination) {
+                break;
+            }
+        }
+        assert_eq!(
+            game.state.placed_planets.get(&planet),
+            Some(&destination),
+            "{:?}",
+            game.events
+        );
+        assert!(
+            game.state
+                .system_state(&center)
+                .on_planet(&planet)
+                .is_empty()
+        );
+        assert_eq!(
+            game.state
+                .system_state(&destination)
+                .on_planet_of(&planet, &a())
+                .len(),
+            1
+        );
+        assert!(game.events.iter().any(|event| event.contains("SHIP_MOVED")));
     }
 }

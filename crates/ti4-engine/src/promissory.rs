@@ -28,6 +28,15 @@ pub const GENERIC: &[&str] = &["cf", "ps", "ta", "an"];
 /// Generic corpus records are keyed with this prefix in place of an owner faction.
 const GENERIC_PREFIX: &str = "<color>_";
 
+/// Public durable mark for a commander ability granted directly to a player.
+///
+/// The grant belongs to the recipient, not to the faction whose commander card names it.
+pub const COMMANDER_ABILITY_PREFIX: &str = "commander_ability:";
+
+fn commander_ability_mark(player: &PlayerId, commander: &str) -> String {
+    format!("{COMMANDER_ABILITY_PREFIX}{player}:{commander}")
+}
+
 /// Whether a note lives faceup in a play area rather than in hand (69.3).
 ///
 /// Read from the accepted corpus's `playArea` field instead of a hard-coded alias list:
@@ -336,7 +345,44 @@ pub fn spend_support_on_activation(
     for owner in &owners {
         return_support(state, owner);
     }
+    // Alliance has the same trigger: "When you activate a system that contains 1 or more of the
+    // <color> player's units, return this card to the <color> player." Returned here so every
+    // activation path that spends Support also sends Alliances home.
+    for note in alliances_returned_by_activation(state, activator, system) {
+        give_back(state, &note);
+    }
     owners
+}
+
+/// The faceup Alliances `activator` holds whose owner has a unit in `system`.
+#[must_use]
+pub fn alliances_returned_by_activation(
+    state: &GameState,
+    activator: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) -> Vec<String> {
+    let board = state.system_state(system);
+    let present: std::collections::BTreeSet<&PlayerId> = board
+        .units
+        .iter()
+        .chain(board.planet_units.values().flatten())
+        .map(|unit| &unit.owner)
+        .collect();
+    state
+        .promissory_notes
+        .iter()
+        .filter(|(note, holder)| {
+            *holder == activator
+                && alias_of(note) == "an"
+                && state.promissory_faceup.contains(*note)
+        })
+        .filter(|(note, _)| {
+            owner_of(note)
+                .and_then(|name| seat_of(state, &name))
+                .is_some_and(|owner| owner != *activator && present.contains(&owner))
+        })
+        .map(|(note, _)| note.clone())
+        .collect()
 }
 
 /// Trade Convoys: its holder may transact with the whole table, not only their neighbours.
@@ -439,6 +485,68 @@ pub fn commander_unlocked(state: &GameState, content: &ContentStore, owner: &Pla
                     .is_some_and(|kind| kind.eq_ignore_ascii_case("commander"))
         })
     })
+}
+
+/// Whether `player` currently has the named commander's ability.
+///
+/// This combines the player's own unlocked commander, an ordinary faceup Alliance from a seated
+/// owner whose exact commander is unlocked, and durable public grants such as Yin's breakthrough.
+/// A direct grant does not require the named faction to be seated or its commander to be unlocked.
+#[must_use]
+pub fn has_commander_ability(state: &GameState, player: &PlayerId, commander: &str) -> bool {
+    if state
+        .faction_marks
+        .contains_key(&commander_ability_mark(player, commander))
+        || state.player(player).is_some_and(|seat| {
+            seat.leaders.get(&ti4_model::id::LeaderId::new(commander))
+                == Some(&ti4_model::state::LeaderStatus::Unlocked)
+        })
+    {
+        return true;
+    }
+
+    state.promissory_notes.iter().any(|(note, holder)| {
+        holder == player
+            && alias_of(note) == "an"
+            && state.promissory_faceup.contains(note)
+            && owner_of(note)
+                .and_then(|owner| seat_of(state, &owner))
+                .is_some_and(|owner| {
+                    owner != *player
+                        && state.player(&owner).is_some_and(|seat| {
+                            seat.leaders.get(&ti4_model::id::LeaderId::new(commander))
+                                == Some(&ti4_model::state::LeaderStatus::Unlocked)
+                        })
+                })
+    })
+}
+
+/// Grant a named corpus commander ability directly to a player as a public durable mark.
+///
+/// This intentionally does not require a seated faction owner or unlocked commander record.
+/// Returns false for unknown/non-commander records, unknown recipients, and duplicate grants.
+pub fn grant_commander_ability(
+    state: &mut GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    commander: &str,
+) -> bool {
+    if state.player(player).is_none() {
+        return false;
+    }
+    let is_commander = content
+        .get(ContentType::Leaders, commander)
+        .and_then(|record| record.text("type"))
+        .is_some_and(|kind| kind.eq_ignore_ascii_case("commander"));
+    if !is_commander {
+        return false;
+    }
+    let mark = commander_ability_mark(player, commander);
+    if state.faction_marks.contains_key(&mark) {
+        return false;
+    }
+    state.faction_marks.insert(mark, "granted".to_owned());
+    true
 }
 
 /// Military Support: the holder plants two infantry when the owner's turn begins.
@@ -737,6 +845,32 @@ mod tests {
     }
 
     #[test]
+    fn an_alliance_goes_home_when_its_holder_activates_a_system_with_the_owners_units() {
+        let mut state = game_hacan_jolnar();
+        let content = ContentStore::embedded();
+        take(&mut state, content, &b(), "an:hacan");
+        assert!(state.promissory_faceup.contains("an:hacan"));
+        let system = ti4_model::id::SystemId::new("alliance-test");
+        // No Hacan unit there: the card stays.
+        assert!(spend_support_on_activation(&mut state, &b(), &system).is_empty());
+        assert_eq!(state.promissory_notes.get("an:hacan"), Some(&b()));
+        state
+            .system_mut(&system)
+            .units
+            .push(ti4_model::units::Unit::new(
+                ti4_model::id::UnitTypeId::new("cruiser"),
+                a(),
+            ));
+        spend_support_on_activation(&mut state, &b(), &system);
+        assert_eq!(
+            state.promissory_notes.get("an:hacan"),
+            Some(&a()),
+            "returned"
+        );
+        assert!(!state.promissory_faceup.contains("an:hacan"));
+    }
+
+    #[test]
     fn alliance_is_withheld_until_the_commander_unlocks() {
         // Before that, the note conveys precisely nothing — and a note worth nothing is what a
         // search learns to sell.
@@ -761,6 +895,99 @@ mod tests {
                 .iter()
                 .any(|n| n == "an:hacan")
         );
+    }
+
+    #[test]
+    fn commander_ability_checks_exact_own_commander_and_faceup_alliance() {
+        let mut state = game_hacan_jolnar();
+        let content = ContentStore::embedded();
+
+        assert!(!has_commander_ability(&state, &a(), "hacancommander"));
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("hacancommander"), LeaderStatus::Unlocked);
+        assert!(has_commander_ability(&state, &a(), "hacancommander"));
+        assert!(!has_commander_ability(&state, &a(), "jolnarcommander"));
+
+        // Ordinary Alliance still requires the owner's exact commander to be unlocked.
+        take(&mut state, content, &a(), "an:jolnar");
+        assert!(!has_commander_ability(&state, &a(), "jolnarcommander"));
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("jolnarcommander"), LeaderStatus::Unlocked);
+        assert!(has_commander_ability(&state, &a(), "jolnarcommander"));
+
+        // A facedown or merely foreign held note conveys nothing.
+        state.promissory_faceup.remove("an:jolnar");
+        assert!(!has_commander_ability(&state, &a(), "jolnarcommander"));
+        state.promissory_faceup.insert("an:jolnar".to_owned());
+        state.promissory_notes.insert("an:jolnar".to_owned(), b());
+        assert!(!has_commander_ability(&state, &a(), "jolnarcommander"));
+    }
+
+    #[test]
+    fn direct_commander_grant_is_public_durable_and_does_not_mutate_owners() {
+        use ti4_model::view::mark_visible_to;
+
+        let mut state = game_hacan_jolnar();
+        let content = ContentStore::embedded();
+        let key = commander_ability_mark(&a(), "ghostcommander");
+        let before_owner_leaders = state.player(&b()).unwrap().leaders.clone();
+
+        // Ghost is not seated; a direct grant is still valid and does not unlock a borrowed seat.
+        assert!(grant_commander_ability(
+            &mut state,
+            content,
+            &a(),
+            "ghostcommander"
+        ));
+        assert!(has_commander_ability(&state, &a(), "ghostcommander"));
+        assert_eq!(state.player(&b()).unwrap().leaders, before_owner_leaders);
+        assert_eq!(
+            state.faction_marks.get(&key).map(String::as_str),
+            Some("granted")
+        );
+        assert!(mark_visible_to(&key, &a()));
+        assert!(mark_visible_to(&key, &b()));
+        assert!(!grant_commander_ability(
+            &mut state,
+            content,
+            &a(),
+            "ghostcommander"
+        ));
+
+        let serialized = serde_json::to_vec(&state).unwrap();
+        let restored: GameState = serde_json::from_slice(&serialized).unwrap();
+        assert!(has_commander_ability(&restored, &a(), "ghostcommander"));
+    }
+
+    #[test]
+    fn direct_commander_grants_reject_invalid_records_and_recipients() {
+        let mut state = game_hacan_jolnar();
+        let content = ContentStore::embedded();
+        assert!(!grant_commander_ability(
+            &mut state,
+            content,
+            &a(),
+            "hacanhero"
+        ));
+        assert!(!grant_commander_ability(
+            &mut state,
+            content,
+            &a(),
+            "missingcommander"
+        ));
+        assert!(!grant_commander_ability(
+            &mut state,
+            content,
+            &PlayerId::new("missing"),
+            "ghostcommander"
+        ));
+        assert!(state.faction_marks.is_empty());
     }
 
     #[test]

@@ -172,6 +172,27 @@ fn ask(
     context.ask_seeing(&choice).ok().map(|answer| answer.id)
 }
 
+/// Fallible delivery for a timing effect: an invalid nested answer must leave the window retryable.
+fn ask_checked(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    card: &str,
+    subtype: &str,
+    prompt: &str,
+    options: Vec<ChoiceOption>,
+) -> Result<String, crate::timing::TimingError> {
+    let choice = Choice::new(player.clone(), prompt.to_owned(), options).contextualized(decision(
+        context.state,
+        player,
+        card,
+        subtype,
+    ));
+    context
+        .ask_seeing(&choice)
+        .map(|answer| answer.id)
+        .map_err(crate::timing::TimingError::IllegalChoice)
+}
+
 fn type_options(kinds: &[&str], verb: &str) -> Vec<ChoiceOption> {
     kinds
         .iter()
@@ -460,7 +481,7 @@ fn space_combat_round_started(
     player: &PlayerId,
 ) {
     if let Some(system) = state.active_system.clone() {
-        repair_voltron(state, player, &system, None);
+        repair_voltron(state, content, sources, player, &system, None);
     }
     offer_supercharge(state, content, sources, table, player, "space");
 }
@@ -474,7 +495,7 @@ fn ground_combat_round_started(
     system: &SystemId,
     planet: &PlanetId,
 ) {
-    repair_voltron(state, player, system, Some(planet));
+    repair_voltron(state, content, sources, player, system, Some(planet));
     offer_supercharge(state, content, sources, table, player, "ground");
 }
 
@@ -590,7 +611,6 @@ fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
             if planets.is_empty() {
                 return Ok(());
             }
-            // Every question first: the player whose turn ended picks the planet.
             let options = planets
                 .iter()
                 .map(|planet| {
@@ -634,6 +654,121 @@ fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
+/// Ssruu copies Garv and Gunn's optional end-of-turn text as the borrower. The ending player,
+/// not the borrower, chooses which of their planets to explore after the borrower accepts.
+fn borrowed_agent(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (condition_source, condition_borrower) = (source.clone(), borrower.clone());
+    let (effect_source, effect_borrower) = (source.clone(), borrower.clone());
+    Ability::stateful(
+        format!("leader:{owner_name}:{source}:yssarilagent:{AGENT}:TURN_PASSED:after"),
+        borrower.clone(),
+        "TURN_PASSED",
+        Relation::After,
+        Arc::new(move |event, _, context| {
+            let Some(actor) = event.text("player").map(PlayerId::new) else {
+                return Ok(());
+            };
+            if !has_borrowable_naaz_agent(
+                context.state,
+                context.content,
+                &effect_source,
+                &effect_borrower,
+            ) {
+                return Ok(());
+            }
+            let planets =
+                explorable_planets(context.state, context.content, context.sources, &actor);
+            if planets.is_empty() {
+                return Ok(());
+            }
+            let options = planets
+                .iter()
+                .map(|planet| {
+                    ChoiceOption::labelled(
+                        planet.to_string(),
+                        "planet",
+                        format!(
+                            "explore {}",
+                            ti4_content::galaxy::planet(
+                                context.content,
+                                planet.as_str(),
+                                context.sources
+                            )
+                            .and_then(|record| record.name())
+                            .unwrap_or(planet.as_str())
+                        ),
+                    )
+                })
+                .collect();
+            let choice = Choice::new(
+                actor.clone(),
+                "Garv and Gunn: explore which of your planets".to_owned(),
+                options,
+            )
+            .contextualized(decision(
+                context.state,
+                &actor,
+                AGENT,
+                "borrowed_agent_planet",
+            ));
+            let id = context
+                .ask_seeing(&choice)
+                .map_err(crate::timing::TimingError::IllegalChoice)?
+                .id;
+            let Some(planet) = planets.into_iter().find(|planet| planet.as_str() == id) else {
+                return Ok(());
+            };
+            if !crate::leaders::exhaust(
+                context.state,
+                &effect_borrower,
+                &LeaderId::new("yssarilagent"),
+            ) {
+                return Ok(());
+            }
+            let choice_errors = context.table.choice_error_checkpoint();
+            explore_planet(context, &actor, &planet);
+            if let Some(error) = context.table.choice_error_since(choice_errors) {
+                return Err(crate::timing::TimingError::IllegalChoice(error));
+            }
+            super::hooks_cards::borrowed_agent_used(
+                context,
+                &effect_borrower,
+                &LeaderId::new(AGENT),
+            );
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event.text("player").is_some_and(|actor| {
+            !explorable_planets(
+                context.state,
+                context.content,
+                context.sources,
+                &PlayerId::new(actor),
+            )
+            .is_empty()
+                && has_borrowable_naaz_agent(
+                    context.state,
+                    context.content,
+                    &condition_source,
+                    &condition_borrower,
+                )
+        })
+    }))
+}
+
+fn has_borrowable_naaz_agent(
+    state: &GameState,
+    content: &ContentStore,
+    source: &PlayerId,
+    borrower: &PlayerId,
+) -> bool {
+    super::hooks_cards::borrowable_agents(state, content, borrower)
+        .iter()
+        .any(|(owner, agent)| owner == source && agent.as_str() == AGENT)
+}
+
 // -- Dart and Tai --------------------------------------------------------------------------------
 
 fn commander_unlocked(
@@ -669,15 +804,18 @@ fn commander_unlocked(
 }
 
 fn commander(owner_name: &str, seat: &PlayerId) -> Ability {
-    let (owner, condition_owner) = (seat.clone(), seat.clone());
+    let condition_owner = seat.clone();
     Ability::stateful(
         format!("leader:{owner_name}:naazcommander:PLANET_CONTROL_GAINED:after"),
         seat.clone(),
         "PLANET_CONTROL_GAINED",
         Relation::After,
         Arc::new(move |event, _resolver, context| {
-            if let Some(planet) = event.text("planet").map(PlanetId::new) {
-                explore_planet(context, &owner, &planet);
+            if let (Some(player), Some(planet)) = (
+                event.text("player").map(PlayerId::new),
+                event.text("planet").map(PlanetId::new),
+            ) {
+                explore_planet(context, &player, &planet);
             }
             Ok(())
         }),
@@ -688,21 +826,25 @@ fn commander(owner_name: &str, seat: &PlayerId) -> Ability {
             && event
                 .text("previous_owner")
                 .is_some_and(|prev| !prev.is_empty())
-            && leader_status(context.state, &condition_owner, COMMANDER)
-                == Some(LeaderStatus::Unlocked)
+            && crate::promissory::has_commander_ability(context.state, &condition_owner, COMMANDER)
             && event
                 .text("planet")
                 .map(PlanetId::new)
                 .is_some_and(|planet| {
                     explorable(context.state, context.content, context.sources, &planet)
+                        && context
+                            .state
+                            .controlled_planets(&condition_owner)
+                            .iter()
+                            .any(|(_, controlled)| *controlled == &planet)
                 })
     }))
 }
 
 // -- Hesh and Prit -------------------------------------------------------------------------------
 
-/// Strategy cards that are readied (held and not exhausted) or unchosen. Thunder's Edge Warfare is
-/// left out: its primary is a free tactical action, which cannot run inside a leader effect.
+/// Strategy cards that are readied (held and not exhausted) or unchosen.
+/// Hesh and Prit resolves secondaries, including Warfare's home production.
 fn hero_cards(state: &GameState) -> Vec<StrategyCardId> {
     let mut cards: Vec<StrategyCardId> = state
         .players
@@ -714,7 +856,6 @@ fn hero_cards(state: &GameState) -> Vec<StrategyCardId> {
         })
         .cloned()
         .chain(state.unclaimed_strategy_cards.iter().cloned())
-        .filter(|card| card.as_str() != "te6warfare")
         .collect();
     cards.sort();
     cards.dedup();
@@ -934,40 +1075,106 @@ fn pool_mut<'a>(
     }
 }
 
-/// Return 3 of the 4 mechs in `system` and make the one at `spot` (the undamaged one if there is
-/// a choice) the Eidolon Maximum. `false` and untouched unless the system holds 4 mechs with one
-/// at `spot`.
+/// Physical state that distinguishes which Eidolon the player is keeping.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct SurvivorState {
+    form: ti4_model::id::UnitTypeId,
+    damaged: bool,
+    galvanized: bool,
+}
+
+type MechPosition = (Spot, usize);
+
+/// Distinct physical choices at a spot. Identical mechs share an option because the board stores
+/// units as interchangeable values with no per-piece identity.
+fn survivor_choices(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    spot: &Spot,
+) -> Vec<(SurvivorState, MechPosition)> {
+    let Some(here) = state.board.get(system) else {
+        return Vec::new();
+    };
+    let mut choices = std::collections::BTreeMap::new();
+    for position in eidolons_in(state, content, sources, player, system) {
+        if &position.0 != spot {
+            continue;
+        }
+        let unit = match &position.0 {
+            None => here.units.get(position.1),
+            Some(planet) => here
+                .planet_units
+                .get(planet)
+                .and_then(|units| units.get(position.1)),
+        };
+        if let Some(unit) = unit {
+            choices
+                .entry(SurvivorState {
+                    form: unit.type_id.clone(),
+                    damaged: unit.sustained_damage,
+                    galvanized: unit.galvanized,
+                })
+                .or_insert(position);
+        }
+    }
+    choices.into_iter().collect()
+}
+
+fn survivor_option_id(choice: &SurvivorState) -> String {
+    format!(
+        "survivor|{}|{}|{}",
+        choice.form,
+        if choice.damaged {
+            "damaged"
+        } else {
+            "undamaged"
+        },
+        if choice.galvanized {
+            "galvanized"
+        } else {
+            "plain"
+        }
+    )
+}
+
+fn survivor_label(choice: &SurvivorState) -> String {
+    let form = if choice.form.as_str() == "naaz_mech_space" {
+        "space-form"
+    } else {
+        "ground-form"
+    };
+    format!(
+        "keep the {}{} {} Eidolon",
+        if choice.damaged {
+            "damaged"
+        } else {
+            "undamaged"
+        },
+        if choice.galvanized { " galvanized" } else { "" },
+        form
+    )
+}
+
+/// Return 3 mechs and make the exact selected unit the Eidolon Maximum. `false` and untouched
+/// unless the system holds 4 mechs and the selected position names one of them.
 fn flip_synergy(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
     player: &PlayerId,
     system: &SystemId,
-    spot: &Spot,
+    keep: &MechPosition,
 ) -> bool {
     let mechs = eidolons_in(state, content, sources, player, system);
-    if mechs.len() < 4 {
+    if mechs.len() < 4 || !mechs.contains(keep) {
         return false;
     }
-    let damaged = |state: &GameState, (at, index): &(Spot, usize)| -> bool {
-        let here = &state.board[system];
-        let unit = match at {
-            None => here.units.get(*index),
-            Some(planet) => here.planet_units.get(planet).and_then(|u| u.get(*index)),
-        };
-        unit.is_some_and(|unit| unit.sustained_damage)
-    };
-    let Some(keep) = mechs
-        .iter()
-        .filter(|(at, _)| at == spot)
-        .min_by_key(|entry| damaged(state, entry))
-        .cloned()
-    else {
-        return false;
-    };
     let mut doomed: Vec<(Spot, usize)> = mechs
         .into_iter()
-        .filter(|entry| *entry != keep)
+        .filter(|entry| entry != keep)
         .take(3)
         .collect();
     // Remove from the back of each list so earlier indices stay valid.
@@ -1001,83 +1208,126 @@ fn absolute_synergy(owner_name: &str, seat: &PlayerId, event_type: &'static str)
         event_type,
         Relation::After,
         Arc::new(move |_event, _resolver, context| {
-            let sites = synergy_sites(context.state, context.content, context.sources, &owner);
-            // Every question first.
-            let (system, spots) = match sites.as_slice() {
-                [] => return Ok(()),
-                [only] => only.clone(),
-                _ => {
-                    let options = sites
+            let decision_log = context.table.log.clone();
+            let result = (|| {
+                let sites = synergy_sites(context.state, context.content, context.sources, &owner);
+                // Every question first.
+                let (system, spots) = match sites.as_slice() {
+                    [] => return Ok(()),
+                    [only] => only.clone(),
+                    _ => {
+                        let options = sites
+                            .iter()
+                            .map(|(system, _)| {
+                                ChoiceOption::labelled(
+                                    system.to_string(),
+                                    "system",
+                                    format!("flip with the mechs in system {system}"),
+                                )
+                            })
+                            .collect();
+                        let id = ask_checked(
+                            context,
+                            &owner,
+                            BREAKTHROUGH,
+                            "synergy_system",
+                            "Absolute Synergy: which system's mechs",
+                            options,
+                        )?;
+                        let Some(site) = sites.iter().find(|(system, _)| system.as_str() == id)
+                        else {
+                            return Ok(());
+                        };
+                        site.clone()
+                    }
+                };
+                let spot = if let [only] = spots.as_slice() {
+                    only.clone()
+                } else {
+                    let options = spots
                         .iter()
-                        .map(|(system, _)| {
-                            ChoiceOption::labelled(
-                                system.to_string(),
-                                "system",
-                                format!("flip with the mechs in system {system}"),
-                            )
+                        .map(|spot| match spot {
+                            None => ChoiceOption::labelled(
+                                "space".to_owned(),
+                                "spot",
+                                "keep the mech in the space area".to_owned(),
+                            ),
+                            Some(planet) => ChoiceOption::labelled(
+                                planet.to_string(),
+                                "spot",
+                                format!("keep the mech on {planet}"),
+                            ),
                         })
                         .collect();
-                    let Some(id) = ask(
+                    let id = ask_checked(
                         context,
                         &owner,
                         BREAKTHROUGH,
-                        "synergy_system",
-                        "Absolute Synergy: which system's mechs",
+                        "synergy_survivor",
+                        "Absolute Synergy: which mech becomes the Eidolon Maximum",
                         options,
-                    ) else {
+                    )?;
+                    let Some(spot) = spots.iter().find(|spot| match spot {
+                        None => id == "space",
+                        Some(planet) => planet.as_str() == id,
+                    }) else {
                         return Ok(());
                     };
-                    let Some(site) = sites.iter().find(|(system, _)| system.as_str() == id) else {
-                        return Ok(());
-                    };
-                    site.clone()
-                }
-            };
-            let spot = if let [only] = spots.as_slice() {
-                only.clone()
-            } else {
-                let options = spots
-                    .iter()
-                    .map(|spot| match spot {
-                        None => ChoiceOption::labelled(
-                            "space".to_owned(),
-                            "spot",
-                            "keep the mech in the space area".to_owned(),
-                        ),
-                        Some(planet) => ChoiceOption::labelled(
-                            planet.to_string(),
-                            "spot",
-                            format!("keep the mech on {planet}"),
-                        ),
-                    })
-                    .collect();
-                let Some(id) = ask(
-                    context,
+                    spot.clone()
+                };
+                let candidates = survivor_choices(
+                    context.state,
+                    context.content,
+                    context.sources,
                     &owner,
-                    BREAKTHROUGH,
-                    "synergy_survivor",
-                    "Absolute Synergy: which mech becomes the Eidolon Maximum",
-                    options,
-                ) else {
-                    return Ok(());
+                    &system,
+                    &spot,
+                );
+                let keep = match candidates.as_slice() {
+                    [] => return Ok(()),
+                    [only] => only.1.clone(),
+                    _ => {
+                        let options = candidates
+                            .iter()
+                            .map(|(choice, _)| {
+                                ChoiceOption::labelled(
+                                    survivor_option_id(choice),
+                                    "survivor",
+                                    survivor_label(choice),
+                                )
+                            })
+                            .collect();
+                        let id = ask_checked(
+                            context,
+                            &owner,
+                            BREAKTHROUGH,
+                            "synergy_survivor_state",
+                            "Absolute Synergy: which mech becomes the Eidolon Maximum",
+                            options,
+                        )?;
+                        let Some((_, position)) = candidates
+                            .iter()
+                            .find(|(choice, _)| survivor_option_id(choice) == id)
+                        else {
+                            return Ok(());
+                        };
+                        position.clone()
+                    }
                 };
-                let Some(spot) = spots.iter().find(|spot| match spot {
-                    None => id == "space",
-                    Some(planet) => planet.as_str() == id,
-                }) else {
-                    return Ok(());
-                };
-                spot.clone()
-            };
-            flip_synergy(
-                context.state,
-                context.content,
-                context.sources,
-                &owner,
-                &system,
-                &spot,
-            );
-            Ok(())
+                flip_synergy(
+                    context.state,
+                    context.content,
+                    context.sources,
+                    &owner,
+                    &system,
+                    &keep,
+                );
+                Ok(())
+            })();
+            if result.is_err() {
+                context.table.log = decision_log;
+            }
+            result
         }),
     )
     .with_optional(true)
@@ -1151,12 +1401,27 @@ fn ability_hit_immune(
 /// of `system` (space combat) or on `planet` (ground combat).
 fn repair_voltron(
     state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
     player: &PlayerId,
     system: &SystemId,
     planet: Option<&PlanetId>,
 ) {
     if !is_naaz(state, player) {
         return;
+    }
+    let repairs_planets = planet.is_none()
+        && crate::combat::planetary_maximum_participates(state, content, sources, player, system);
+    if repairs_planets {
+        for unit in state
+            .system_mut(system)
+            .planet_units
+            .values_mut()
+            .flatten()
+            .filter(|unit| is_voltron(unit, player))
+        {
+            unit.sustained_damage = false;
+        }
     }
     let spot: Spot = planet.cloned();
     if let Some(pool) = pool_mut(state, system, &spot) {
@@ -1168,18 +1433,35 @@ fn repair_voltron(
 
 // -- timing abilities ----------------------------------------------------------------------------
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    let mut abilities = vec![
         agent(owner_name, seat),
         commander(owner_name, seat),
         absolute_synergy(owner_name, seat, "BREAKTHROUGH_GAINED"),
         absolute_synergy(owner_name, seat, "ACTION_COMPLETED"),
-    ]
+        absolute_synergy(owner_name, seat, "NAAZ_MECH_PLACED"),
+    ];
+    if state
+        .player(seat)
+        .is_some_and(|source| source.leaders.contains_key(&LeaderId::new(AGENT)))
+    {
+        for candidate in &state.players {
+            if &candidate.id != seat
+                && candidate
+                    .leaders
+                    .contains_key(&LeaderId::new("yssarilagent"))
+            {
+                abilities.push(borrowed_agent(owner_name, seat, &candidate.id));
+            }
+        }
+    }
+    abilities
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::choice::Window;
     use std::collections::BTreeMap;
     use ti4_model::content_types::DEFAULT;
 
@@ -1192,10 +1474,77 @@ mod tests {
     fn game() -> GameState {
         crate::fixtures::seated_game(&[("a", FACTION), ("b", "sol")], DEFAULT)
     }
+    fn ssruu_game() -> GameState {
+        crate::fixtures::seated_game(&[("a", FACTION), ("b", "yssaril"), ("c", "sol")], DEFAULT)
+    }
     fn scripted(answers: &[&str]) -> crate::choice::Table {
         crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(
             answers.iter().map(|s| (*s).to_owned()),
         )))
+    }
+    #[derive(Debug)]
+    struct SsruuAgentDecider {
+        planet: String,
+    }
+    impl crate::choice::Decider for SsruuAgentDecider {
+        fn choose(
+            &mut self,
+            choice: &Choice,
+        ) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+            if choice.player == a()
+                && choice
+                    .options
+                    .iter()
+                    .any(|option| option.id == AGENT_ABILITY)
+            {
+                return choice
+                    .options
+                    .iter()
+                    .find(|option| option.is_decline())
+                    .cloned()
+                    .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                        player: choice.player.clone(),
+                        prompt: choice.prompt.clone(),
+                    });
+            }
+            if let Some(option) = choice.options.iter().find(|option| {
+                option
+                    .id
+                    .contains(":yssarilagent:naazagent:TURN_PASSED:after")
+            }) {
+                assert_eq!(choice.player, b(), "the copied window belongs to Ssruu");
+                return Ok(option.clone());
+            }
+            if choice.options.iter().any(|option| option.id == self.planet) {
+                assert_eq!(
+                    choice.player,
+                    PlayerId::new("c"),
+                    "the ending player chooses their exploration planet"
+                );
+            }
+            if choice.player == PlayerId::new("c") {
+                if let Some(option) = choice.options.iter().find(|o| o.id == self.planet) {
+                    return Ok(option.clone());
+                }
+                if let Some(option) = choice.options.iter().find(|o| !o.is_decline()) {
+                    return Ok(option.clone());
+                }
+            }
+            choice
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .cloned()
+                .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                })
+        }
+    }
+    fn ssruu_agent_table(planet: &PlanetId) -> crate::choice::Table {
+        crate::choice::Table::with_default(Box::new(SsruuAgentDecider {
+            planet: planet.to_string(),
+        }))
     }
     fn emit(
         state: &mut GameState,
@@ -1630,6 +1979,418 @@ mod tests {
         assert_eq!(state.exploration_log.len(), log);
     }
 
+    #[test]
+    fn ssruu_copies_garv_and_gunn_for_the_ending_players_planet() {
+        for source_status in [LeaderStatus::Readied, LeaderStatus::Exhausted] {
+            let mut state = ssruu_game();
+            state
+                .player_mut(&a())
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new(AGENT), source_status);
+            state
+                .player_mut(&b())
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+            let target = PlayerId::new("c");
+            let planet = take_explorable(&mut state, &target);
+            let before = state.exploration_log.len();
+            emit(
+                &mut state,
+                &mut ssruu_agent_table(&planet),
+                "TURN_PASSED",
+                &[("player", "c")],
+            );
+
+            assert_eq!(state.exploration_log.len(), before + 1);
+            assert_eq!(state.exploration_log[before].player, target);
+            assert_eq!(state.exploration_log[before].planet.as_ref(), Some(&planet));
+            assert_eq!(
+                leader_status(&state, &b(), "yssarilagent"),
+                Some(LeaderStatus::Exhausted),
+                "Ssruu carries the copied text"
+            );
+            assert_eq!(
+                leader_status(&state, &a(), AGENT),
+                Some(source_status),
+                "native use is independently declined; copying leaves the source unchanged"
+            );
+        }
+    }
+
+    #[test]
+    fn copied_naaz_planet_choice_errors_before_exhaustion_and_can_retry() {
+        let mut state = ssruu_game();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Exhausted);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        let planet = take_explorable(&mut state, &PlayerId::new("c"));
+        let before = state.clone();
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let copied = "leader:naaz:a:yssarilagent:naazagent:TURN_PASSED:after";
+        let mut table = scripted(&[copied, "invalid-planet"]);
+        let result = crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |ctx| {
+            let event = ctx
+                .event_sequence
+                .next(
+                    "TURN_PASSED",
+                    BTreeMap::from([("player".to_owned(), serde_json::Value::from("c"))]),
+                )
+                .unwrap();
+            resolver.emit_with_context(ctx, event, |_, _| {})
+        });
+        assert!(
+            matches!(result, Err(crate::timing::TimingError::IllegalChoice(_))),
+            "{result:?}"
+        );
+        assert_eq!(
+            state, before,
+            "invalid planet selection must precede any mutation or exhaustion"
+        );
+        emit(
+            &mut state,
+            &mut ssruu_agent_table(&planet),
+            "TURN_PASSED",
+            &[("player", "c")],
+        );
+        assert_eq!(
+            state.exploration_log.len(),
+            before.exploration_log.len() + 1
+        );
+        assert_eq!(
+            leader_status(&state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            leader_status(&state, &a(), AGENT),
+            Some(LeaderStatus::Exhausted)
+        );
+    }
+
+    #[derive(Debug)]
+    struct SsruuNestedExplorationDecider {
+        planet: String,
+        fail_local_fabricators_once: bool,
+    }
+
+    impl crate::choice::Decider for SsruuNestedExplorationDecider {
+        fn choose(
+            &mut self,
+            choice: &Choice,
+        ) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+            if choice.options.iter().any(|option| option.id == "pass") {
+                return choice
+                    .options
+                    .iter()
+                    .find(|option| option.id == "pass")
+                    .cloned()
+                    .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                        player: choice.player.clone(),
+                        prompt: choice.prompt.clone(),
+                    });
+            }
+            if let Some(option) = choice.options.iter().find(|option| {
+                option
+                    .id
+                    .contains(":yssarilagent:naazagent:TURN_PASSED:after")
+            }) {
+                return Ok(option.clone());
+            }
+            if let Some(option) = choice
+                .options
+                .iter()
+                .find(|option| option.id == self.planet)
+            {
+                return Ok(option.clone());
+            }
+            if choice.prompt == "Local Fabricators" {
+                if self.fail_local_fabricators_once {
+                    self.fail_local_fabricators_once = false;
+                    return Err(crate::choice::IllegalChoice::NotOffered {
+                        player: choice.player.clone(),
+                        chosen: "invalid-nested-answer".to_owned(),
+                        offered: choice.ids().into_iter().map(str::to_owned).collect(),
+                    });
+                }
+                return choice
+                    .options
+                    .iter()
+                    .find(|option| option.id == "spend_tg")
+                    .cloned()
+                    .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                        player: choice.player.clone(),
+                        prompt: choice.prompt.clone(),
+                    });
+            }
+            if let Some(option) = choice
+                .options
+                .iter()
+                .find(|option| option.id == "INDUSTRIAL")
+            {
+                return Ok(option.clone());
+            }
+            choice
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .or_else(|| choice.options.first())
+                .cloned()
+                .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                })
+        }
+    }
+
+    #[test]
+    fn copied_naaz_nested_exploration_error_rolls_back_and_same_game_retries() {
+        let mut state = ssruu_game();
+        state.phase = ti4_model::state::Phase::Action;
+        let actor = PlayerId::new("c");
+        state.active = Some(actor.clone());
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Exhausted);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        state.player_mut(&actor).unwrap().trade_goods = 1;
+        state.player_mut(&actor).unwrap().commodities = 0;
+
+        let content = ContentStore::embedded();
+        let catalogue = ti4_content::galaxy::all_planets(content, DEFAULT);
+        let planet = crate::fixtures::non_home_planets(200)
+            .into_iter()
+            .map(PlanetId::new)
+            .find(|planet| {
+                explorable(&state, content, DEFAULT, planet)
+                    && crate::exploration::traits_of(content, DEFAULT, planet)
+                        .contains(&"INDUSTRIAL".to_owned())
+            })
+            .expect("an unclaimed industrial planet");
+        let system = SystemId::new(catalogue[planet.as_str()].system_id().unwrap());
+        state
+            .system_mut(&system)
+            .planet_control
+            .insert(planet.clone(), actor.clone());
+        state.exploration_decks.insert(
+            "INDUSTRIAL".to_owned(),
+            vec!["lf1".to_owned(), "lf2".to_owned()],
+        );
+
+        let table = crate::choice::Table::with_default(Box::new(SsruuNestedExplorationDecider {
+            planet: planet.to_string(),
+            fail_local_fabricators_once: true,
+        }));
+        let mut game = crate::game::Game::with_table(state, content, table);
+        let deck_before = game.state.exploration_decks["INDUSTRIAL"].clone();
+        let exploration_before = game.state.exploration_log.clone();
+        let trade_goods_before = game.state.player(&actor).unwrap().trade_goods;
+        let commodity_before = game.state.player(&actor).unwrap().commodities;
+
+        let failed = game.step();
+        assert!(
+            matches!(
+                failed.error,
+                Some(crate::game::GameError::Timing(
+                    crate::timing::TimingError::IllegalChoice(_)
+                ))
+            ),
+            "the swallowed nested-card choice must fail the copied turn-end effect: {failed:?}"
+        );
+        assert!(game.state.player(&actor).unwrap().passed);
+        assert!(game.events.iter().any(|event| event == "PLAYER_PASSED"));
+        assert!(!game.events.iter().any(|event| event == "TURN_PASSED"));
+        assert_eq!(game.state.active.as_ref(), Some(&actor));
+        assert_eq!(game.state.exploration_decks["INDUSTRIAL"], deck_before);
+        assert_eq!(game.state.exploration_log, exploration_before);
+        assert_eq!(
+            game.state.player(&actor).unwrap().trade_goods,
+            trade_goods_before
+        );
+        assert_eq!(
+            game.state.player(&actor).unwrap().commodities,
+            commodity_before
+        );
+        assert!(
+            game.state
+                .system_state(&system)
+                .on_planet(&planet)
+                .iter()
+                .all(|unit| { unit.owner != actor || unit.type_id.as_str() != "sol_mech" })
+        );
+        assert_eq!(
+            leader_status(&game.state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Readied),
+            "failed exploration does not exhaust Ssruu"
+        );
+        assert_eq!(
+            leader_status(&game.state, &a(), AGENT),
+            Some(LeaderStatus::Exhausted),
+            "the copied source remains unchanged"
+        );
+        assert!(game.table.log.records.iter().all(|record| {
+            !record
+                .chosen
+                .contains(":yssarilagent:naazagent:TURN_PASSED:after")
+                && record.chosen != planet.as_str()
+                && record.chosen != "invalid-nested-answer"
+        }));
+
+        assert_eq!(game.step().error, None, "the same table retries the pass");
+        assert_eq!(
+            game.events
+                .iter()
+                .filter(|event| event.as_str() == "TURN_PASSED")
+                .count(),
+            2, // one driver label and one mirror of the successfully applied typed event
+        );
+        assert_eq!(
+            game.timing_mut()
+                .applied_events()
+                .iter()
+                .filter(|event| event.event_type == "TURN_PASSED")
+                .count(),
+            1
+        );
+        assert_eq!(
+            game.state.exploration_decks["INDUSTRIAL"],
+            vec!["lf2".to_owned()]
+        );
+        assert_eq!(
+            game.state.exploration_log.len(),
+            exploration_before.len() + 1
+        );
+        assert_eq!(game.state.player(&actor).unwrap().trade_goods, 0);
+        assert_eq!(
+            game.state.player(&actor).unwrap().commodities,
+            commodity_before
+        );
+        assert_eq!(
+            game.state
+                .system_state(&system)
+                .on_planet(&planet)
+                .iter()
+                .filter(|unit| unit.owner == actor && unit.type_id.as_str() == "sol_mech")
+                .count(),
+            1
+        );
+        assert_eq!(
+            leader_status(&game.state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            leader_status(&game.state, &a(), AGENT),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            game.table
+                .log
+                .records
+                .iter()
+                .filter(|record| record
+                    .chosen
+                    .contains(":yssarilagent:naazagent:TURN_PASSED:after"))
+                .count(),
+            1,
+            "the failed borrowed copy is rolled out of the log; the successful retry is counted once"
+        );
+        assert_eq!(
+            game.table
+                .log
+                .records
+                .iter()
+                .filter(|record| record.chosen == planet.as_str())
+                .count(),
+            1,
+            "the failed target-planet choice is also rolled out of the log"
+        );
+    }
+
+    #[test]
+    fn copied_agent_is_inert_without_readied_ssruu() {
+        let mut state = ssruu_game();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Exhausted);
+        let target = PlayerId::new("c");
+        take_explorable(&mut state, &target);
+        let before = state.exploration_log.len();
+        for status in [None, Some(LeaderStatus::Exhausted)] {
+            match status {
+                Some(status) => {
+                    state
+                        .player_mut(&b())
+                        .unwrap()
+                        .leaders
+                        .insert(LeaderId::new("yssarilagent"), status);
+                }
+                None => {
+                    state
+                        .player_mut(&b())
+                        .unwrap()
+                        .leaders
+                        .remove(&LeaderId::new("yssarilagent"));
+                }
+            }
+            emit(
+                &mut state,
+                &mut scripted(&[]),
+                "TURN_PASSED",
+                &[("player", "c")],
+            );
+        }
+        assert_eq!(state.exploration_log.len(), before);
+        assert_eq!(
+            leader_status(&state, &a(), AGENT),
+            Some(LeaderStatus::Exhausted)
+        );
+    }
+
+    #[test]
+    fn copied_agent_is_inert_when_the_source_agent_is_absent() {
+        let mut state = ssruu_game();
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .remove(&LeaderId::new(AGENT));
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        let target = PlayerId::new("c");
+        take_explorable(&mut state, &target);
+        let before = state.exploration_log.len();
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "TURN_PASSED",
+            &[("player", "c")],
+        );
+        assert_eq!(state.exploration_log.len(), before);
+        assert_eq!(leader_status(&state, &a(), AGENT), None);
+        assert_eq!(
+            leader_status(&state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Readied)
+        );
+    }
+
     // -- Dart and Tai ----------------------------------------------------------------------------
 
     #[test]
@@ -1692,6 +2453,58 @@ mod tests {
         assert_eq!(state.exploration_log[log].player, a());
     }
 
+    #[test]
+    fn ownerless_commander_grant_explores_only_the_recipients_captured_planet() {
+        let mut state = game();
+        state.player_mut(&a()).unwrap().faction = ti4_model::id::FactionId::new("yin");
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .remove(&LeaderId::new(COMMANDER));
+        let planet = take_explorable(&mut state, &a());
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            ContentStore::embedded(),
+            &a(),
+            COMMANDER
+        ));
+        let before = state.exploration_log.len();
+        emit(
+            &mut state,
+            &mut scripted(&["leader:yin:naazcommander:PLANET_CONTROL_GAINED:after"]),
+            "PLANET_CONTROL_GAINED",
+            &[
+                ("player", "a"),
+                ("planet", planet.as_str()),
+                ("previous_owner", "b"),
+            ],
+        );
+        assert_eq!(state.exploration_log.len(), before + 1);
+        assert_eq!(state.exploration_log[before].player, a());
+        assert_eq!(leader_status(&state, &a(), COMMANDER), None);
+        for board in state.board.values_mut() {
+            if board.planet_control.contains_key(&planet) {
+                board.set_control(planet.clone(), b());
+            }
+        }
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "PLANET_CONTROL_GAINED",
+            &[
+                ("player", "a"),
+                ("planet", planet.as_str()),
+                ("previous_owner", "b"),
+            ],
+        );
+        assert_eq!(
+            state.exploration_log.len(),
+            before + 1,
+            "a stale event cannot explore another owner's planet"
+        );
+    }
+
     // -- Hesh and Prit ---------------------------------------------------------------------------
 
     #[test]
@@ -1724,6 +2537,40 @@ mod tests {
         crate::fixtures::with_context(state, DEFAULT, None, &mut scripted(&[]), |ctx| {
             use_leader(ctx, &a(), &LeaderId::new("naaluhero"))
         })
+    }
+
+    #[test]
+    fn the_hero_offers_te_warfare_secondary_despite_its_free_tactical_primary() {
+        let mut state = game();
+        let card = StrategyCardId::new("te6warfare");
+        state.unclaimed_strategy_cards = vec![card.clone()];
+        assert!(hero_cards(&state).contains(&card));
+        let content = ContentStore::embedded();
+        let (home, planet) = crate::fixtures::a_placed_planet();
+        state.player_mut(&a()).unwrap().home_system = Some(home.clone());
+        state.player_mut(&a()).unwrap().trade_goods = 10;
+        state.system_mut(&home).set_control(planet.clone(), a());
+        crate::fixtures::put_on_planet(&mut state, &home, &planet, "spacedock", &a(), 1);
+        let before = state.system_state(&home).units.len()
+            + state.system_state(&home).on_planet(&planet).len();
+        let relics = state.player(&a()).unwrap().relics.len();
+        let mut table = scripted(&["te6warfare"]);
+        assert_eq!(
+            crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |ctx| use_leader(
+                ctx,
+                &a(),
+                &LeaderId::new(HERO)
+            )),
+            Some(true)
+        );
+        assert_eq!(state.player(&a()).unwrap().relics.len(), relics + 1);
+        let after = state.system_state(&home).units.len()
+            + state.system_state(&home).on_planet(&planet).len();
+        assert!(
+            after > before,
+            "Warfare's secondary actually produces units"
+        );
+        assert!(crate::production::capacity(&state, content, DEFAULT, &a(), &home) > 0);
     }
 
     #[test]
@@ -1838,6 +2685,31 @@ mod tests {
     }
 
     #[test]
+    fn breakthrough_gain_window_can_flip_four_mechs_into_the_maximum() {
+        let mut state = game();
+        give_breakthrough(&mut state);
+        let system = four_mechs_home(&mut state);
+        emit(
+            &mut state,
+            &mut scripted(&[
+                "breakthrough:naaz:naazbt:BREAKTHROUGH_GAINED:after",
+                "space",
+            ]),
+            "BREAKTHROUGH_GAINED",
+            &[("player", "a"), ("breakthrough", BREAKTHROUGH)],
+        );
+        assert_eq!(voltrons(&state, &a()), 1);
+        assert_eq!(mechs(&state, &a()).len(), 0);
+        assert!(
+            state
+                .system_state(&system)
+                .units
+                .iter()
+                .any(|unit| is_voltron(unit, &a()))
+        );
+    }
+
+    #[test]
     fn absolute_synergy_needs_the_card_and_four_mechs_in_one_system() {
         let mut state = game();
         // No breakthrough.
@@ -1921,6 +2793,42 @@ mod tests {
     }
 
     #[test]
+    fn absolute_synergy_can_keep_a_distinguishable_damaged_form() {
+        let mut state = game();
+        give_breakthrough(&mut state);
+        let system = four_mechs_home(&mut state);
+        let damaged = state
+            .system_mut(&system)
+            .units
+            .iter_mut()
+            .find(|unit| unit.type_id.as_str() == "naaz_mech_space")
+            .unwrap();
+        damaged.type_id = ti4_model::id::UnitTypeId::new("naaz_mech");
+        damaged.sustained_damage = true;
+
+        emit(
+            &mut state,
+            &mut scripted(&[SYNERGY, "survivor|naaz_mech|damaged|plain"]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+
+        let maximum = state
+            .system_state(&system)
+            .units
+            .iter()
+            .find(|unit| is_voltron(unit, &a()))
+            .cloned()
+            .expect("the selected mech becomes the Maximum");
+        assert!(
+            maximum.sustained_damage,
+            "the selected damage state survives"
+        );
+        assert_eq!(voltrons(&state, &a()), 1);
+        assert_eq!(mechs(&state, &a()).len(), 0);
+    }
+
+    #[test]
     fn production_of_mechs_is_barred_while_the_maximum_stands() {
         let mut state = game();
         let content = ContentStore::embedded();
@@ -1944,6 +2852,53 @@ mod tests {
             .units
             .retain(|unit| !is_voltron(unit, &a()));
         assert!(!cannot_produce(&state, content, &a(), "mech", "spacedock"));
+    }
+
+    #[test]
+    fn production_choices_hide_mechs_only_while_the_maximum_stands() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        state.player_mut(&a()).unwrap().trade_goods = 10;
+        state
+            .system_mut(&system)
+            .set_control(PlanetId::new("mr"), a());
+        let choices = |state: &GameState| {
+            crate::production::ProductionWindow::for_ability(
+                state,
+                content,
+                DEFAULT,
+                &a(),
+                &system,
+                Some(5),
+            )
+            .pending_choice(state, content, DEFAULT)
+            .map(|choice| {
+                choice
+                    .options
+                    .iter()
+                    .map(|option| option.id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+        };
+        crate::fixtures::put(&mut state, &system, "naaz_voltron", &a(), 1);
+        assert!(
+            !choices(&state)
+                .iter()
+                .any(|id| id.starts_with("build|naaz_mech")),
+            "actual production options apply the Maximum restriction"
+        );
+        state
+            .system_mut(&system)
+            .units
+            .retain(|unit| !is_voltron(unit, &a()));
+        assert!(
+            choices(&state)
+                .iter()
+                .any(|id| id.starts_with("build|naaz_mech")),
+            "the mech returns to the actual build offer when the Maximum leaves"
+        );
     }
 
     #[test]
@@ -2172,5 +3127,223 @@ mod tests {
     fn the_claims_are_the_sheet() {
         assert!(MODULE.units.contains(&"naaz_flagship"));
         assert!(MODULE.leaders.len() == 3);
+    }
+    #[test]
+    fn planetary_maximum_repairs_and_rolls_in_a_real_space_combat() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        let planet = PlanetId::new("mr");
+        state.active = Some(a());
+        state.active_system = Some(system.clone());
+        crate::fixtures::put(&mut state, &system, "fighter", &a(), 1);
+        crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, VOLTRON, &a(), 1);
+        state
+            .system_mut(&system)
+            .planet_units
+            .get_mut(&planet)
+            .unwrap()[0]
+            .sustained_damage = true;
+        let mut dice = crate::dice::Dice::from_faces([1, 10, 10, 10, 10, 1]);
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::AlwaysDecline));
+        let result = crate::combat::resolve(
+            &mut state, content, DEFAULT, &mut table, &mut dice, &mut rng, &system,
+        )
+        .unwrap();
+        assert_eq!(result.winner, Some(a()));
+        assert_eq!(
+            result.rounds, 1,
+            "the planet Maximum's four dice must join the fleet"
+        );
+        assert!(!state.system_state(&system).on_planet(&planet)[0].sustained_damage);
+    }
+
+    #[test]
+    fn cargo_alone_does_not_offer_a_planetary_maximum_sustain() {
+        let mut state = game();
+        let system = SystemId::new("18");
+        let planet = PlanetId::new("mr");
+        crate::fixtures::put(&mut state, &system, "infantry", &a(), 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, VOLTRON, &a(), 1);
+        assign(
+            &mut state,
+            &system,
+            1,
+            crate::combat::HitOrigin::CombatRoll,
+            true,
+        );
+        assert!(!state.system_state(&system).on_planet(&planet)[0].sustained_damage);
+        assert!(
+            crate::combat::ships_of(&state, ContentStore::embedded(), DEFAULT, &a(), &system)
+                .is_empty()
+        );
+    }
+    #[test]
+    fn maximum_blocks_effect_placement_and_returns_captured_as_an_eidolon() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        let planet = PlanetId::new("mr");
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, VOLTRON, &a(), 1);
+        let mut table = scripted(&[]);
+        crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |ctx| {
+            crate::action_cards::place_units(ctx, &a(), &system, Some(&planet), "mech", 1);
+            assert_eq!(
+                crate::action_cards::place_units_counted(
+                    ctx,
+                    &a(),
+                    &system,
+                    Some(&planet),
+                    "mech",
+                    1
+                ),
+                0
+            );
+            assert_eq!(
+                crate::action_cards::place_units_counted(
+                    ctx,
+                    &a(),
+                    &system,
+                    Some(&planet),
+                    "infantry",
+                    1
+                ),
+                1
+            );
+        });
+        assert_eq!(mechs(&state, &a()).len(), 1);
+        let maximum = state
+            .system_state(&system)
+            .on_planet(&planet)
+            .iter()
+            .find(|unit| is_voltron(unit, &a()))
+            .unwrap()
+            .clone();
+        assert!(crate::supply::capture_from_board(
+            &mut state,
+            &b(),
+            &system,
+            Some(&planet),
+            &maximum
+        ));
+        assert_eq!(
+            crate::supply::return_captured(&mut state, content, DEFAULT, &b(), &a(), "mech"),
+            Some(ti4_model::id::UnitTypeId::new("naaz_mech"))
+        );
+        assert_eq!(voltrons(&state, &a()), 0);
+        assert!(!cannot_produce(&state, content, &a(), "mech", "spacedock"));
+    }
+
+    #[test]
+    fn planetary_maximum_retreats_with_its_fleet_without_duplicating_the_model() {
+        let mut state = game();
+        let system = SystemId::new("18");
+        let planet = PlanetId::new("mr");
+        let destination = SystemId::new("19");
+        crate::fixtures::put(&mut state, &system, "carrier", &a(), 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, VOLTRON, &a(), 1);
+        assert_eq!(
+            crate::combat::retreat_to(
+                &mut state,
+                ContentStore::embedded(),
+                DEFAULT,
+                &a(),
+                &system,
+                &destination
+            ),
+            0
+        );
+        assert!(state.system_state(&system).on_planet(&planet).is_empty());
+        assert_eq!(
+            state
+                .system_state(&destination)
+                .units
+                .iter()
+                .filter(|unit| is_voltron(unit, &a()))
+                .count(),
+            1
+        );
+        assert_eq!(voltrons(&state, &a()), 1);
+    }
+
+    #[test]
+    fn synergy_nested_invalid_answer_restores_state_and_log_then_retries() {
+        let mut state = game();
+        give_breakthrough(&mut state);
+        let system = four_mechs_home(&mut state);
+        let damaged = &mut state.system_mut(&system).units[0];
+        damaged.type_id = ti4_model::id::UnitTypeId::new("naaz_mech");
+        damaged.sustained_damage = true;
+        let mut game =
+            crate::game::Game::new(state, ContentStore::embedded()).with_sources(DEFAULT);
+        crate::supply::stage_event(
+            &mut game.state,
+            "ACTION_COMPLETED",
+            &[("player".to_owned(), "a".into())].into(),
+        );
+        let before = game.state.clone();
+        game.table = scripted(&[
+            SYNERGY,
+            "bogus-survivor-state",
+            SYNERGY,
+            "survivor|naaz_mech|damaged|plain",
+        ]);
+        let before_log = game.table.log.clone();
+        assert!(game.step().error.is_some());
+        assert_eq!(game.state, before);
+        assert_eq!(game.table.log, before_log);
+        assert_eq!(game.step().error, None);
+        assert_eq!(voltrons(&game.state, &a()), 1);
+        assert!(game.state.system_state(&system).units[0].sustained_damage);
+        assert_eq!(
+            game.table
+                .log
+                .records
+                .iter()
+                .filter(|r| r.chosen == SYNERGY)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn rearmament_fourth_mech_opens_synergy_through_the_real_game_staged_delivery() {
+        let mut state = game();
+        give_breakthrough(&mut state);
+        strip_mechs(&mut state);
+        let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+        let planet = state
+            .controlled_planets(&a())
+            .into_iter()
+            .find(|(s, _)| **s == home)
+            .unwrap()
+            .1
+            .clone();
+        crate::fixtures::put_on_planet(&mut state, &home, &planet, "naaz_mech", &a(), 3);
+        let mut game =
+            crate::game::Game::new(state, ContentStore::embedded()).with_sources(DEFAULT);
+        assert!(matches!(
+            crate::agenda_effects::resolve(
+                &mut game.state,
+                ContentStore::embedded(),
+                "rearmament",
+                "for",
+                &crate::Ballot::default()
+            ),
+            crate::agenda_effects::Effect::Resolved { .. }
+        ));
+        assert_eq!(mechs(&game.state, &a()).len(), 4);
+        assert!(
+            crate::supply::staged_event_types(&game.state)
+                .iter()
+                .any(|kind| kind == "NAAZ_MECH_PLACED")
+        );
+        game.table = scripted(&["breakthrough:naaz:naazbt:NAAZ_MECH_PLACED:after"]);
+        // The next real driver step flushes the post-effect event before presenting any next choice.
+        assert_eq!(game.step().error, None);
+        assert_eq!(voltrons(&game.state, &a()), 1);
+        assert_eq!(mechs(&game.state, &a()).len(), 0);
     }
 }

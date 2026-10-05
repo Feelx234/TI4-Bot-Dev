@@ -256,7 +256,7 @@ fn commit_candidates(
     system: &SystemId,
     already: &[CommitOrigin],
 ) -> Vec<CommitCandidate> {
-    if leader_status(state, invader, "sardakkcommander") != Some(LeaderStatus::Unlocked) {
+    if !crate::promissory::has_commander_ability(state, invader, "sardakkcommander") {
         return Vec::new();
     }
     let types = catalogue(content, sources);
@@ -637,14 +637,17 @@ fn exotrireme(owner_name: &str, seat: &PlayerId) -> Ability {
                 }
                 victims.push(chosen);
             }
-            // Everything is decided: destroy itself first, then the chosen ships by owner.
-            let removed = crate::combat::destroy_units(
+            // Everything is decided: destroy itself first, then the chosen ships by owner. The
+            // technology remains the source while the independent window fact records combat.
+            let removed = crate::combat::destroy_units_with_context(
                 context.state,
                 context.content,
                 context.sources,
                 &owner,
                 &system,
                 std::slice::from_ref(&dreadnought),
+                "technology:exo2",
+                true,
             );
             if removed == 0 {
                 return Ok(());
@@ -661,13 +664,15 @@ fn exotrireme(owner_name: &str, seat: &PlayerId) -> Ability {
                     .filter(|(victim_owner, _)| victim_owner == &who)
                     .map(|(_, unit)| unit.clone())
                     .collect();
-                crate::combat::destroy_units(
+                crate::combat::destroy_units_with_context(
                     context.state,
                     context.content,
                     context.sources,
                     &who,
                     &system,
                     &units,
+                    "technology:exo2",
+                    true,
                 );
             }
             Ok(())
@@ -717,7 +722,7 @@ fn mech_hit(owner_name: &str, seat: &PlayerId) -> Ability {
             .find(|other| other != &owner) else {
                 return Ok(()); // nothing left to hit
             };
-            crate::invasion::assign_ground_hits_in_timing(
+            crate::invasion::assign_ground_unit_ability_hits_in_timing(
                 resolver,
                 context,
                 &system,
@@ -2289,6 +2294,66 @@ mod tests {
             "up to 1 from each planet"
         );
         assert_eq!(after.len(), 1);
+    }
+
+    #[test]
+    fn an_ownerless_alliance_grant_allows_any_faction_to_commit_its_neighbor_force() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        for board in state.board.values_mut() {
+            board.planet_units.clear();
+        }
+        let (system, _) = crate::fixtures::a_placed_planet();
+        let mut ids = vec![system.to_string()];
+        ids.extend(
+            crate::fixtures::plain_systems(9)
+                .into_iter()
+                .filter(|id| id != system.as_str())
+                .take(6),
+        );
+        let hub = crate::fixtures::hub_from(&ids);
+        let neighbor = SystemId::new(hub.outer[0].as_str());
+        let neighbor_planet = PlanetId::new("test-alliance-neighbor");
+        crate::fixtures::put_on_planet(
+            &mut state,
+            &neighbor,
+            &neighbor_planet,
+            "infantry",
+            &a(),
+            1,
+        );
+        assert!(
+            crate::factions::hooks_ground::commit_candidates(
+                &state,
+                content,
+                DEFAULT,
+                Some(&hub.galaxy),
+                &a(),
+                &system,
+                &[],
+            )
+            .is_empty(),
+            "no native or Alliance commander yet"
+        );
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            content,
+            &a(),
+            "sardakkcommander"
+        ));
+        let candidates = crate::factions::hooks_ground::commit_candidates(
+            &state,
+            content,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &a(),
+            &system,
+            &[],
+        );
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].system, neighbor);
+        assert_eq!(candidates[0].planet, neighbor_planet);
+        assert_eq!(candidates[0].unit.owner, a());
     }
 
     // -- N'orr Supremacy -------------------------------------------------------------------------

@@ -21,10 +21,10 @@
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::{ContentType, SourceSet};
-use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId};
+use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId};
 use ti4_model::state::GameState;
 
-use crate::choice::ChoiceOption;
+use crate::choice::{Choice, ChoiceOption};
 use crate::timing::{Ability, TimingContext};
 
 /// One unit about to roll combat dice, for the per-unit combat hooks.
@@ -44,6 +44,9 @@ pub struct CombatUnit<'a> {
 
 pub mod arborec;
 pub mod argent;
+mod borrowed_commanders;
+pub(crate) mod borrowed_commanders_b;
+pub mod borrowed_round_agents;
 pub mod ghost;
 pub mod hooks_cards;
 pub mod hooks_combat;
@@ -157,6 +160,16 @@ pub struct Hooks {
     /// Component actions offered on this player's turn. Option ids must start
     /// `faction|<alias>|` so [`Hooks::perform_component`] can claim them.
     pub component_actions: Option<fn(&GameState, &ContentStore, &PlayerId) -> Vec<ChoiceOption>>,
+    /// Map-dependent actions, generated only when their legal destinations exist.
+    pub mapped_component_actions: Option<
+        fn(
+            &GameState,
+            &ContentStore,
+            SourceSet,
+            &ti4_content::galaxy::Galaxy,
+            &PlayerId,
+        ) -> Vec<ChoiceOption>,
+    >,
     /// Perform a component action; `true` if this module claimed and performed it.
     pub perform_component: Option<fn(&mut TimingContext<'_>, &PlayerId, &ChoiceOption) -> bool>,
     /// After a strategy card (primary or secondary) resolves for this player.
@@ -192,6 +205,29 @@ pub struct Hooks {
     pub leader_action: Option<fn(&GameState, &ContentStore, &PlayerId, &LeaderId) -> Option<bool>>,
     /// Use a leader; `None` if not this module's leader, else whether it resolved.
     pub use_leader: Option<fn(&mut TimingContext<'_>, &PlayerId, &LeaderId) -> Option<bool>>,
+    /// Action leaders whose effects open nested timing windows.
+    pub use_leader_timed: Option<
+        fn(
+            &mut TimingContext<'_>,
+            &mut crate::timing::Resolver,
+            &PlayerId,
+            &LeaderId,
+        ) -> Result<Option<bool>, crate::timing::TimingError>,
+    >,
+    /// A leader that performs a strategy primary and continues through Game-owned windows.
+    pub use_leader_strategy_primary: Option<
+        fn(
+            &mut TimingContext<'_>,
+            &PlayerId,
+            &LeaderId,
+        ) -> Result<
+            Option<(StrategyCardId, crate::strategy_cards::Ability)>,
+            crate::timing::TimingError,
+        >,
+    >,
+    /// Legal follower choices after a leader's primary, delivered by Game's continuation.
+    pub leader_strategy_followers:
+        Option<fn(&GameState, &PlayerId, &LeaderId, &StrategyCardId) -> Option<Vec<Choice>>>,
     /// Extra votes this player casts.
     pub vote_bonus: Option<fn(&GameState, &PlayerId) -> i64>,
     /// Timing abilities to register for one seat when the game is seated (`reactions::arm`).
@@ -253,6 +289,7 @@ impl Hooks {
         ignores_neighbours: None,
         control_gained: None,
         component_actions: None,
+        mapped_component_actions: None,
         perform_component: None,
         strategy_resolved: None,
         ground_combat_round_ended: None,
@@ -260,6 +297,9 @@ impl Hooks {
         commander_unlocked: None,
         leader_action: None,
         use_leader: None,
+        use_leader_timed: None,
+        use_leader_strategy_primary: None,
+        leader_strategy_followers: None,
         vote_bonus: None,
         timing_abilities: None,
         unit_roll_modifier: None,
@@ -393,6 +433,19 @@ pub(crate) fn component_actions(
         .collect()
 }
 
+pub(crate) fn mapped_component_actions(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+) -> Vec<ChoiceOption> {
+    hooks()
+        .filter_map(|h| h.mapped_component_actions)
+        .flat_map(|f| f(state, content, sources, galaxy, player))
+        .collect()
+}
+
 pub(crate) fn perform_component(
     context: &mut TimingContext<'_>,
     player: &PlayerId,
@@ -474,6 +527,45 @@ pub(crate) fn use_leader(
         .find_map(|f| f(context, player, leader))
 }
 
+pub(crate) fn use_leader_timed(
+    context: &mut TimingContext<'_>,
+    resolver: &mut crate::timing::Resolver,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Result<Option<bool>, crate::timing::TimingError> {
+    for f in hooks().filter_map(|h| h.use_leader_timed) {
+        if let Some(done) = f(context, resolver, player, leader)? {
+            return Ok(Some(done));
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) fn use_leader_strategy_primary(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Result<Option<(StrategyCardId, crate::strategy_cards::Ability)>, crate::timing::TimingError> {
+    for f in hooks().filter_map(|h| h.use_leader_strategy_primary) {
+        if let Some(outcome) = f(context, player, leader)? {
+            return Ok(Some(outcome));
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) fn leader_strategy_followers(
+    state: &GameState,
+    player: &PlayerId,
+    leader: &LeaderId,
+    card: &StrategyCardId,
+) -> Vec<Choice> {
+    hooks()
+        .filter_map(|h| h.leader_strategy_followers)
+        .find_map(|f| f(state, player, leader, card))
+        .unwrap_or_default()
+}
+
 pub(crate) fn timing_abilities(
     state: &GameState,
     owner_name: &str,
@@ -482,6 +574,8 @@ pub(crate) fn timing_abilities(
     hooks()
         .filter_map(|h| h.timing_abilities)
         .flat_map(|f| f(state, owner_name, seat))
+        .chain(borrowed_commanders::timing_abilities(owner_name, seat))
+        .chain(borrowed_commanders_b::timing_abilities(owner_name, seat))
         .collect()
 }
 
@@ -494,7 +588,8 @@ pub(crate) fn unit_roll_modifier(
     hooks()
         .filter_map(|h| h.unit_roll_modifier)
         .map(|f| f(state, content, sources, unit))
-        .sum()
+        .sum::<i64>()
+        + borrowed_commanders::unit_roll_modifier(state, content, sources, unit)
 }
 
 pub(crate) fn unit_dice(

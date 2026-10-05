@@ -18,9 +18,7 @@
 //!   ability: You may choose 1 of those units to roll 1 additional die." Unlock: "Have 6 units
 //!   that have ANTI-FIGHTER BARRAGE, SPACE CANNON, or BOMBARDMENT on the game board."
 //!
-//! Not implemented (no route; see the evidence file): Zeal's voting order, the flagship's space
-//! cannon bar, the mech's "transported" clause, Aerie Hololattice, the agent, the hero and the
-//! breakthrough.
+//! Not implemented (no route; see the evidence file): the mech's "transported" clause.
 
 use std::sync::Arc;
 
@@ -60,7 +58,7 @@ pub const MODULE: FactionModule = FactionModule {
         "argent_mech",
     ],
     promissory: &["ambuscade"],
-    leaders: &["argentcommander", "argenthero"],
+    leaders: &["argentagent", "argentcommander", "argenthero"],
     breakthroughs: &["argentbt"],
     hooks: Hooks {
         vote_bonus: Some(vote_bonus),
@@ -80,6 +78,7 @@ pub const MODULE: FactionModule = FactionModule {
         },
         economy: EconomyHooks {
             extra_production_planet: Some(extra_production_planet),
+            production_destinations: Some(agent_production_destinations),
             ..EconomyHooks::NONE
         },
         cards: CardHooks {
@@ -227,6 +226,63 @@ fn extra_production_planet(
         owns_technology(state, player, "ah")
             && structure_in(state, content, sources, player, system, Some(planet)),
     )
+}
+
+fn agent_destination_key(player: &PlayerId, system: &SystemId) -> String {
+    format!("argent:argentagent:production:{}:{}", player, system)
+}
+
+/// Destinations granted by Argent's agent for the in-progress production. The grant is a
+/// one-build mark, removed by `ProductionWindow` after the batch is placed or abandoned.
+fn agent_production_destinations(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit_base: &str,
+) -> Vec<(SystemId, Option<PlanetId>)> {
+    let types = catalogue(content, sources);
+    if !types
+        .get(unit_base)
+        .is_some_and(|kind| kind.is_ground_force() && !kind.is_structure())
+    {
+        return Vec::new();
+    }
+    let Some(destinations) = state
+        .faction_marks
+        .get(&agent_destination_key(player, system))
+    else {
+        return Vec::new();
+    };
+    destinations
+        .split(';')
+        .filter_map(|entry| {
+            let (target, planet) = entry.split_once('@')?;
+            let target = SystemId::new(target);
+            let planet = PlanetId::new(planet);
+            let still_controlled = state
+                .system_state(&target)
+                .planet_control
+                .get(&planet)
+                .is_some_and(|owner| owner == player);
+            (target != *system
+                && still_controlled
+                && !crate::laws::planet_is_demilitarized(state, &planet)
+                && !ti4_content::galaxy::is_space_station(content, planet.as_str(), sources))
+            .then_some((target, Some(planet)))
+        })
+        .collect()
+}
+
+pub(crate) fn clear_agent_production_destinations(
+    state: &mut GameState,
+    player: &PlayerId,
+    system: &SystemId,
+) {
+    state
+        .faction_marks
+        .remove(&agent_destination_key(player, system));
 }
 
 // -- Raid Formation ------------------------------------------------------------------------------
@@ -881,14 +937,239 @@ fn wing_transfer_place(
 
 // -- timing abilities ----------------------------------------------------------------------------
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
     let mut abilities = vec![
         strike_wing(owner_name, seat),
         extra_die(owner_name, seat, Source::Ambuscade),
         extra_die(owner_name, seat, Source::Commander),
     ];
-    abilities.extend(wing_transfer_timing(owner_name, seat));
+    if state
+        .player(seat)
+        .is_some_and(|player| player.faction.as_str() == "argent")
+    {
+        abilities.push(argent_agent(owner_name, seat));
+        abilities.extend(wing_transfer_timing(owner_name, seat));
+        if state
+            .player(seat)
+            .is_some_and(|source| source.leaders.contains_key(&LeaderId::new("argentagent")))
+        {
+            for candidate in &state.players {
+                if candidate.id != *seat
+                    && candidate
+                        .leaders
+                        .contains_key(&LeaderId::new("yssarilagent"))
+                {
+                    abilities.push(borrowed_argent_agent(owner_name, seat, &candidate.id));
+                }
+            }
+        }
+    }
     abilities
+}
+
+fn agent_ready(state: &GameState, seat: &PlayerId) -> bool {
+    state.player(seat).is_some_and(|player| {
+        player.leaders.get(&LeaderId::new("argentagent")) == Some(&LeaderStatus::Readied)
+    })
+}
+
+fn agent_planets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    recipient: &PlayerId,
+    producing: &SystemId,
+) -> Vec<(SystemId, PlanetId)> {
+    let adjacency =
+        crate::movement::PlayerAdjacency::new(state, content, sources, galaxy, recipient);
+    let mut allowed: Vec<SystemId> = adjacency
+        .neighbours(producing.as_str())
+        .into_iter()
+        .map(SystemId::new)
+        .collect();
+    allowed.sort();
+    allowed.dedup();
+    state
+        .controlled_planets(recipient)
+        .into_iter()
+        .filter(|(system, planet)| {
+            allowed.contains(system)
+                && !crate::laws::planet_is_demilitarized(state, planet)
+                && !ti4_content::galaxy::is_space_station(content, planet.as_str(), sources)
+        })
+        .map(|(system, planet)| (system.clone(), planet.clone()))
+        .collect()
+}
+
+fn argent_agent(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("leader:{owner_name}:argentagent:GROUND_FORCES_BEING_PRODUCED:when"),
+        seat.clone(),
+        "GROUND_FORCES_BEING_PRODUCED",
+        Relation::When,
+        Arc::new(move |event, _, context| {
+            let Some(recipient) = event.text("player").map(PlayerId::new) else {
+                return Ok(());
+            };
+            let Some(system) = event.text("system").map(SystemId::new) else {
+                return Ok(());
+            };
+            let Some(galaxy) = context.galaxy else {
+                return Ok(());
+            };
+            let destinations = agent_planets(
+                context.state,
+                context.content,
+                context.sources,
+                galaxy,
+                &recipient,
+                &system,
+            );
+            if destinations.is_empty()
+                || !crate::leaders::exhaust(context.state, &owner, &LeaderId::new("argentagent"))
+            {
+                return Ok(());
+            }
+            let encoded = destinations
+                .iter()
+                .map(|(target, planet)| format!("{target}@{planet}"))
+                .collect::<Vec<_>>()
+                .join(";");
+            context
+                .state
+                .faction_marks
+                .insert(agent_destination_key(&recipient, &system), encoded);
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        let (Some(recipient), Some(system), Some(count)) = (
+            event.text("player"),
+            event.text("system"),
+            event.integer("count"),
+        ) else {
+            return false;
+        };
+        count > 0
+            && agent_ready(context.state, &condition_owner)
+            && context.galaxy.is_some_and(|galaxy| {
+                !agent_planets(
+                    context.state,
+                    context.content,
+                    context.sources,
+                    galaxy,
+                    &PlayerId::new(recipient),
+                    &SystemId::new(system),
+                )
+                .is_empty()
+            })
+    }))
+}
+
+/// Copy Argent's production destination grant through Ssruu. The producing player remains the
+/// target of the printed effect; Ssruu's holder pays the use by exhausting Ssruu itself.
+fn borrowed_argent_agent(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (condition_source, condition_borrower) = (source.clone(), borrower.clone());
+    let (effect_source, effect_borrower) = (source.clone(), borrower.clone());
+    Ability::stateful(
+        format!(
+            "leader:{owner_name}:{source}:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when"
+        ),
+        borrower.clone(),
+        "GROUND_FORCES_BEING_PRODUCED",
+        Relation::When,
+        Arc::new(move |event, _, context| {
+            if !has_borrowable_argent_agent(
+                context.state,
+                context.content,
+                &effect_source,
+                &effect_borrower,
+            ) {
+                return Ok(());
+            }
+            let (Some(recipient), Some(system), Some(galaxy)) = (
+                event.text("player").map(PlayerId::new),
+                event.text("system").map(SystemId::new),
+                context.galaxy,
+            ) else {
+                return Ok(());
+            };
+            let destinations = agent_planets(
+                context.state,
+                context.content,
+                context.sources,
+                galaxy,
+                &recipient,
+                &system,
+            );
+            if destinations.is_empty()
+                || !crate::leaders::exhaust(
+                    context.state,
+                    &effect_borrower,
+                    &LeaderId::new("yssarilagent"),
+                )
+            {
+                return Ok(());
+            }
+            let encoded = destinations
+                .iter()
+                .map(|(target, planet)| format!("{target}@{planet}"))
+                .collect::<Vec<_>>()
+                .join(";");
+            context
+                .state
+                .faction_marks
+                .insert(agent_destination_key(&recipient, &system), encoded);
+            super::hooks_cards::borrowed_agent_used(
+                context,
+                &effect_borrower,
+                &LeaderId::new("argentagent"),
+            );
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        let (Some(recipient), Some(system), Some(count), Some(galaxy)) = (
+            event.text("player"),
+            event.text("system"),
+            event.integer("count"),
+            context.galaxy,
+        ) else {
+            return false;
+        };
+        count > 0
+            && has_borrowable_argent_agent(
+                context.state,
+                context.content,
+                &condition_source,
+                &condition_borrower,
+            )
+            && !agent_planets(
+                context.state,
+                context.content,
+                context.sources,
+                galaxy,
+                &PlayerId::new(recipient),
+                &SystemId::new(system),
+            )
+            .is_empty()
+    }))
+}
+
+fn has_borrowable_argent_agent(
+    state: &GameState,
+    content: &ContentStore,
+    source: &PlayerId,
+    borrower: &PlayerId,
+) -> bool {
+    super::hooks_cards::borrowable_agents(state, content, borrower)
+        .iter()
+        .any(|(owner, agent)| owner == source && agent.as_str() == "argentagent")
 }
 
 fn is_unit_ability_roll(set: &ti4_model::state::RerollSet) -> bool {
@@ -1052,9 +1333,7 @@ fn holds(state: &GameState, seat: &PlayerId, source: Source) -> bool {
             state.promissory_notes.get(AMBUSCADE_NOTE) == Some(seat) && !is_argent(state, seat)
         }
         Source::Commander => {
-            is_argent(state, seat)
-                && crate::leaders::status(state, seat, &LeaderId::new("argentcommander"))
-                    == Some(LeaderStatus::Unlocked)
+            crate::promissory::has_commander_ability(state, seat, "argentcommander")
         }
     }
 }
@@ -1184,7 +1463,7 @@ fn extra_die_effect(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::choice::{Scripted, Table};
+    use crate::choice::{Scripted, Table, Window};
     use crate::fixtures::{armed_resolver, put, seated_game, with_context};
     use std::collections::{BTreeMap, BTreeSet};
     use ti4_model::content_types::DEFAULT;
@@ -1196,12 +1475,320 @@ mod tests {
     fn b() -> PlayerId {
         PlayerId::new("b")
     }
+    fn c() -> PlayerId {
+        PlayerId::new("c")
+    }
     fn arena() -> (GameState, SystemId) {
         (
             seated_game(&[("a", "argent"), ("b", "sol")], DEFAULT),
             SystemId::new("18"),
         )
     }
+
+    #[test]
+    fn agent_destinations_follow_recipient_wormhole_adjacency_only() {
+        let content = ContentStore::embedded();
+        let ids = ["18", "39", "40", "26", "25", "19", "20", "21"];
+        let galaxy = ti4_content::galaxy::Galaxy::build(content, &ids, DEFAULT, 3)
+            .expect("small map builds");
+        let (producing, remote) = [("39", "25"), ("26", "25")]
+            .into_iter()
+            .find(|(from, to)| !galaxy.adjacent(from).contains(to))
+            .expect("an alpha and beta system are not physically adjacent");
+        let mut state = seated_game(&[("a", "argent"), ("b", "ghost")], DEFAULT);
+        for system in ids {
+            let Some(planet) = ti4_content::galaxy::system(content, system, DEFAULT)
+                .and_then(|tile| tile.planets().into_iter().next())
+                .map(PlanetId::new)
+            else {
+                continue;
+            };
+            state
+                .system_mut(&SystemId::new(system))
+                .set_control(planet, b());
+        }
+
+        let linked = crate::movement::PlayerAdjacency::new(&state, content, DEFAULT, &galaxy, &b());
+        assert!(linked.neighbours(producing).contains(remote));
+        assert!(!galaxy.adjacent(producing).contains(remote));
+        let destinations = agent_planets(
+            &state,
+            content,
+            DEFAULT,
+            &galaxy,
+            &b(),
+            &SystemId::new(producing),
+        );
+        assert!(
+            destinations
+                .iter()
+                .any(|(system, _)| system.as_str() == remote)
+        );
+        assert!(
+            destinations
+                .iter()
+                .all(|(system, _)| { linked.neighbours(producing).contains(system.as_str()) })
+        );
+        assert!(
+            state
+                .controlled_planets(&b())
+                .iter()
+                .any(|(system, _)| { !linked.neighbours(producing).contains(system.as_str()) }),
+            "the fixture includes controlled planets outside legal adjacency"
+        );
+    }
+
+    #[test]
+    fn ssruu_uses_argent_agent_on_a_real_infantry_production_window() {
+        let content = ContentStore::embedded();
+        let mut state = seated_game(&[("a", "sol"), ("b", "argent"), ("c", "yssaril")], DEFAULT);
+        let mut ids = vec!["18".to_owned()];
+        ids.extend(
+            crate::fixtures::plain_systems(14)
+                .into_iter()
+                .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+                .take(6),
+        );
+        let tile_refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let galaxy = ti4_content::galaxy::Galaxy::build(content, &tile_refs, DEFAULT, 1)
+            .expect("test map builds");
+        let producing = SystemId::new("18");
+        let local_planet = ti4_content::galaxy::planets_in(content, "18", DEFAULT)
+            .into_iter()
+            .find(|planet| !planet.is_placed_during_play())
+            .map(|planet| PlanetId::new(planet.id()))
+            .expect("system 18 has a planet");
+        let (remote, remote_planet) = galaxy
+            .adjacent("18")
+            .into_iter()
+            .find_map(|system| {
+                let planet = ti4_content::galaxy::planets_in(content, system, DEFAULT)
+                    .into_iter()
+                    .find(|planet| !planet.is_placed_during_play())?;
+                Some((SystemId::new(system), PlanetId::new(planet.id())))
+            })
+            .expect("a neighbour has a planet");
+        state
+            .system_mut(&producing)
+            .set_control(local_planet.clone(), a());
+        crate::fixtures::put_on_planet(&mut state, &producing, &local_planet, "spacedock", &a(), 1);
+        state
+            .system_mut(&remote)
+            .set_control(remote_planet.clone(), a());
+        state.player_mut(&a()).unwrap().trade_goods = 30;
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("argentagent"), LeaderStatus::Exhausted);
+        state
+            .player_mut(&c())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+
+        let mut window =
+            crate::production::ProductionWindow::new(&state, content, DEFAULT, &a(), &producing);
+        let offer = window
+            .pending_choice(&state, content, DEFAULT)
+            .expect("production offer");
+        let infantry = offer
+            .options
+            .iter()
+            .find(|option| {
+                option
+                    .id
+                    .strip_prefix("build|")
+                    .and_then(|rest| rest.split('|').next())
+                    .is_some_and(|id| {
+                        catalogue(content, DEFAULT)
+                            .get(id)
+                            .is_some_and(|kind| kind.base_type() == "infantry")
+                    })
+            })
+            .cloned()
+            .expect("infantry can be produced");
+
+        let mut resolver = armed_resolver(&state);
+        let borrowed_id =
+            "leader:argent:b:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when";
+        let mut table = Table::default();
+        table.seat(b(), Box::new(crate::choice::AlwaysDecline));
+        table.seat(c(), Box::new(Scripted::new([borrowed_id])));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(7);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut resolving = crate::choice::Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: Some(&galaxy),
+            }),
+        };
+        window
+            .resolve(&mut state, &mut resolving, infantry)
+            .expect("the infantry build is selected");
+        let placement = loop {
+            let choice = window
+                .pending_choice(&state, content, DEFAULT)
+                .expect("payment and placement choices continue the production window");
+            if choice
+                .options
+                .iter()
+                .any(|option| option.id.starts_with("place|"))
+            {
+                break choice;
+            }
+            let payment = choice
+                .options
+                .first()
+                .cloned()
+                .expect("the remaining production payment has a legal option");
+            window
+                .resolve(&mut state, &mut resolving, payment)
+                .expect("production payment resolves and opens ground-force timing");
+        };
+        let remote_id = format!("place|{remote}@{remote_planet}");
+        let remote_choice = placement
+            .option(&remote_id)
+            .cloned()
+            .expect("the copied destination is offered for this infantry");
+        window
+            .resolve(&mut state, &mut resolving, remote_choice)
+            .expect("remote infantry placement resolves");
+
+        assert_eq!(
+            state.player(&c()).unwrap().leaders[&LeaderId::new("yssarilagent")],
+            LeaderStatus::Exhausted
+        );
+        assert_eq!(
+            state.player(&b()).unwrap().leaders[&LeaderId::new("argentagent")],
+            LeaderStatus::Exhausted,
+            "the source card keeps its prior state"
+        );
+        let infantry_on = |system: &SystemId, planet: &PlanetId| {
+            let here = state.system_state(system);
+            here.on_planet(planet)
+                .iter()
+                .filter(|unit| {
+                    unit.owner == a()
+                        && catalogue(content, DEFAULT)
+                            .get(unit.type_id.as_str())
+                            .is_some_and(|kind| kind.base_type() == "infantry")
+                })
+                .count()
+        };
+        assert!(
+            infantry_on(&remote, &remote_planet) > 0,
+            "the producing player places the infantry at the copied destination"
+        );
+        assert_eq!(
+            infantry_on(&producing, &local_planet),
+            0,
+            "the infantry was placed remotely, not at the production system"
+        );
+    }
+
+    #[test]
+    fn copied_agent_readiness_is_live_after_resolver_arming() {
+        let content = ContentStore::embedded();
+        let mut state = seated_game(&[("a", "argent"), ("b", "yssaril"), ("c", "sol")], DEFAULT);
+        let ids = ["18", "39", "40", "26", "25", "19", "20", "21"];
+        let galaxy = ti4_content::galaxy::Galaxy::build(content, &ids, DEFAULT, 3)
+            .expect("fixture map builds");
+        let producing = SystemId::new("18");
+        let local = ti4_content::galaxy::planets_in(content, "18", DEFAULT)
+            .into_iter()
+            .find(|planet| !planet.is_placed_during_play())
+            .map(|planet| PlanetId::new(planet.id()))
+            .expect("system 18 has a planet");
+        let (remote, remote_planet) = galaxy
+            .adjacent("18")
+            .into_iter()
+            .find_map(|system| {
+                let planet = ti4_content::galaxy::planets_in(content, system, DEFAULT)
+                    .into_iter()
+                    .find(|planet| !planet.is_placed_during_play())?;
+                Some((SystemId::new(system), PlanetId::new(planet.id())))
+            })
+            .expect("a neighbour has a planet");
+        state.system_mut(&producing).set_control(local, c());
+        state
+            .system_mut(&remote)
+            .set_control(remote_planet.clone(), c());
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("argentagent"), LeaderStatus::Exhausted);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Exhausted);
+
+        let mut resolver = armed_resolver(&state);
+        let emit =
+            |state: &mut GameState, resolver: &mut crate::timing::Resolver, answers: &[&str]| {
+                let mut table = scripted(answers);
+                with_context(state, DEFAULT, Some(&galaxy), &mut table, |context| {
+                    let event = context
+                        .event_sequence
+                        .next(
+                            "GROUND_FORCES_BEING_PRODUCED",
+                            BTreeMap::from([
+                                ("player".to_owned(), serde_json::Value::from("c")),
+                                ("system".to_owned(), serde_json::Value::from("18")),
+                                ("count".to_owned(), serde_json::Value::from(1)),
+                            ]),
+                        )
+                        .expect("event id");
+                    resolver
+                        .emit_with_context(context, event, |_, _| {})
+                        .expect("timing window resolves");
+                });
+            };
+        emit(&mut state, &mut resolver, &[]);
+        assert_eq!(
+            state.player(&b()).unwrap().leaders[&LeaderId::new("yssarilagent")],
+            LeaderStatus::Exhausted,
+            "an exhausted Ssruu has no copied use"
+        );
+        assert!(
+            agent_production_destinations(&state, content, DEFAULT, &c(), &producing, "infantry")
+                .is_empty()
+        );
+
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        emit(
+            &mut state,
+            &mut resolver,
+            &["leader:argent:a:yssarilagent:argentagent:GROUND_FORCES_BEING_PRODUCED:when"],
+        );
+        assert_eq!(
+            state.player(&b()).unwrap().leaders[&LeaderId::new("yssarilagent")],
+            LeaderStatus::Exhausted
+        );
+        assert_eq!(
+            state.player(&a()).unwrap().leaders[&LeaderId::new("argentagent")],
+            LeaderStatus::Exhausted,
+            "the source agent remains untouched"
+        );
+        assert!(
+            agent_production_destinations(&state, content, DEFAULT, &c(), &producing, "infantry")
+                .contains(&(remote, Some(remote_planet)))
+        );
+    }
+
     fn scripted(answers: &[&str]) -> Table {
         Table::with_default(Box::new(Scripted::new(answers.iter().copied())))
     }
@@ -1547,6 +2134,41 @@ mod tests {
                 .get(&LeaderId::new("argentcommander"))
                 == Some(&LeaderStatus::Unlocked)
         );
+    }
+
+    #[test]
+    fn an_unseated_argent_commander_grant_adds_a_die_for_another_faction() {
+        let (mut state, _) = arena();
+        state.player_mut(&a()).unwrap().faction = ti4_model::id::FactionId::new("yin");
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            ContentStore::embedded(),
+            &a(),
+            "argentcommander",
+        ));
+        stage(&mut state, &a(), "bombardment", &[("dreadnought", 5, &[7])]);
+        rolled(&mut state, &[], "a", "bombardment");
+        assert_eq!(faces(&state, &a()), 2);
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new("argentcommander")),
+            Some(&LeaderStatus::Locked),
+            "borrowed rights do not unlock the recipient's native leader record"
+        );
+    }
+
+    #[test]
+    fn ordinary_argent_alliance_stays_locked_until_its_owner_unlocks() {
+        let (mut state, _) = arena();
+        state.player_mut(&a()).unwrap().faction = ti4_model::id::FactionId::new("yin");
+        state.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("argent");
+        crate::promissory::take(&mut state, ContentStore::embedded(), &a(), "an:argent");
+        stage(&mut state, &a(), "bombardment", &[("dreadnought", 5, &[7])]);
+        rolled(&mut state, &[], "a", "bombardment");
+        assert_eq!(faces(&state, &a()), 1);
     }
 
     #[test]

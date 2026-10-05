@@ -779,6 +779,7 @@ fn place_on_own_planet(
     for _ in 0..placeable {
         held.push(ti4_model::units::Unit::new(type_id.clone(), player.clone()));
     }
+    crate::supply::stage_naaz_mech_placed(state, player, &ti4_model::id::SystemId::new(system), &type_id);
     Ok(())
 }
 
@@ -907,10 +908,15 @@ fn resolve(
         )?,
         // "place 1 mech from your reinforcements on any planet you control, or draw 1 action card"
         "hopesend" => {
-            let options = vec![
+            let mut options = vec![
                 ChoiceOption::labelled("mech", "legendary", "place 1 mech"),
                 ChoiceOption::labelled("card", "legendary", "draw 1 action card"),
             ];
+            if crate::factions::hooks_economy::effect_placement_forbidden(
+                state, content, sources, player, &ti4_model::id::UnitTypeId::new("mech"),
+            ) {
+                options.retain(|option| option.id != "mech");
+            }
             let choice = Choice::new(player.clone(), "Imperial Arms Vault", options)
                 .contextualized(DecisionContext::new(
                     player.clone(),
@@ -1653,4 +1659,23 @@ mod tests {
         assert_eq!(payload["system"], "20");
         assert_eq!(payload.get("previous_owner"), None, "nobody held it before");
     }
+    #[test]
+    fn hopes_end_with_a_maximum_draws_without_offering_a_mech() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "sol")], sources);
+        let a = PlayerId::new("a");
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_voltron", &a, 1);
+        let board = state.board.clone();
+        let before = state.player(&a).unwrap().action_cards.len();
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        resolve(&mut state, content, sources, None, &mut table, &a, &PlanetId::new("hopesend")).unwrap();
+        assert_eq!(state.board, board);
+        assert_eq!(state.player(&a).unwrap().action_cards.len(), before + 1);
+        let seen = seen.borrow();
+        assert_eq!(seen[0].options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), vec!["card"]);
+    }
+
 }

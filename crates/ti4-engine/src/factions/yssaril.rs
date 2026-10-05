@@ -28,8 +28,10 @@
 //!   random action cards from their hand. Then, purge this card." Unlock: "Have 3 scored
 //!   objectives."
 //!
-//! Not implemented (see the evidence file): Ssruu (`yssarilagent`, needs `leaders.rs`) and
-//! Deepgloom Executable (`yssarilbt`, needs a transaction call site and an "allow" window).
+//! Ssruu's action and timing copies are live; full route acceptance and scoped commits remain
+//! pending, so `yssarilagent` stays unclaimed (see the seated-agent census).
+//! Deepgloom Executable (`yssarilbt`) is implemented: consent, borrowed effects and the fixed-pair
+//! transaction resolve through the staged-event flush at the beginning of every game step.
 //!
 //! **Hidden information.** Every look at another player's hidden cards goes through
 //! `hooks_cards::reveal*`, which names the one seat that may see them, and is read back only
@@ -41,7 +43,7 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_model::content_types::{POK, SourceSet};
 use ti4_model::id::{ActionCardId, LeaderId, PlayerId, SystemId, TechnologyId};
-use ti4_model::state::{GameState, LeaderStatus, Phase};
+use ti4_model::state::{GameState, Phase};
 
 use super::hooks_cards::{self, CardHooks, RevealKind, RevealScope};
 use super::hooks_economy::EconomyHooks;
@@ -74,8 +76,7 @@ pub const MODULE: FactionModule = FactionModule {
     // `yssarilagent` (Ssruu) is wired through `leaders::use_leader_text` but copies only the ACTION
     // agents the shared code delivers, so it stays unclaimed until it is complete (f77a0347 review).
     leaders: &["yssarilcommander", "yssarilhero"],
-    // `yssarilbt` is partial (the Scheming half is not expressible), so not claimed.
-    breakthroughs: &[],
+    breakthroughs: &["yssarilbt"],
     hooks: Hooks {
         component_actions: Some(component_actions),
         perform_component: Some(perform_component),
@@ -123,10 +124,6 @@ fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
     state.player(player).is_some_and(|seat| {
         seat.technologies.contains(&tech) && !seat.exhausted_technologies.contains(&tech)
     })
-}
-
-fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
-    crate::leaders::status(state, player, &LeaderId::new(leader))
 }
 
 fn decision(state: &GameState, player: &PlayerId, source: &str, subtype: &str) -> DecisionContext {
@@ -267,10 +264,10 @@ fn action_cards_drawn(
     content: &ContentStore,
     table: &mut Table,
     player: &PlayerId,
-    _drawn: &[ActionCardId],
+    drawn: &[ActionCardId],
 ) -> Result<(), IllegalChoice> {
     let borrowed = state.faction_marks.remove(&scheming_key(player));
-    if !plays_yssaril(state, player) && borrowed.is_none() {
+    if drawn.is_empty() || (!plays_yssaril(state, player) && borrowed.is_none()) {
         return Ok(());
     }
     let hand: Vec<ActionCardId> = state
@@ -280,6 +277,7 @@ fn action_cards_drawn(
     if hand.is_empty() {
         return Ok(());
     }
+    let hand_before_draw = hand.len().saturating_sub(drawn.len());
     let mut options = distinct_hand_options(content, &hand);
     let card = if options.len() == 1 {
         ActionCardId::new(options.remove(0).id)
@@ -290,8 +288,20 @@ fn action_cards_drawn(
             options,
         )
         .contextualized(decision(state, player, "scheming", "scheming_discard"));
-        let answer = table.ask_seeing(&choice, &Observed::new(state, content, POK, None))?;
-        ActionCardId::new(answer.id)
+        match table.ask_seeing(&choice, &Observed::new(state, content, POK, None)) {
+            Ok(answer) => ActionCardId::new(answer.id),
+            Err(error) => {
+                // The caller has not committed the draw when this hook fails. Restore the exact
+                // cards this invocation appended and put them back on top in their original order.
+                if let Some(seat) = state.player_mut(player) {
+                    seat.action_cards.truncate(hand_before_draw);
+                }
+                for card in drawn.iter().rev() {
+                    state.action_card_deck.insert(0, card.clone());
+                }
+                return Err(error);
+            }
+        }
     };
     hooks_cards::discard_chosen(state, player, &card);
     if let Some(owner) = borrowed {
@@ -439,7 +449,7 @@ fn mageon_implants(context: &mut TimingContext<'_>, player: &PlayerId, target: &
     true
 }
 
-// -- Deepgloom Executable (partial) ----------------------------------------------------------------
+// -- Deepgloom Executable -------------------------------------------------------------------------
 
 /// Public, per-turn facts about the breakthrough, in `faction_marks` (they are known to the table,
 /// so no `private:` key). Value: the `turn_seq` they hold for.
@@ -478,8 +488,8 @@ fn bt_owners(state: &GameState, user: &PlayerId) -> Vec<PlayerId> {
 ///
 /// The owner is asked; a refusal is remembered for the turn so it is not offered again. Opening
 /// the transaction itself is the owner's ordinary transaction (the exemption mark is what the
-/// transaction limit reads). The Scheming half is not expressible (no consent point inside
-/// `action_cards::draw`), so the breakthrough is not claimed.
+/// transaction limit reads). The Scheming path asks permission inside `action_cards::draw`; its
+/// staged transaction is flushed by `Game::step` before the next game decision.
 fn borrowed_stall_tactics(
     context: &mut TimingContext<'_>,
     user: &PlayerId,
@@ -573,9 +583,13 @@ fn deepgloom_transaction(owner_name: &str, seat: &PlayerId) -> Ability {
                 let Some(choice) = window.pending_choice(context.state, context.content) else {
                     break;
                 };
-                let Ok(answer) = context.ask_seeing(&choice) else {
-                    break;
-                };
+                // Propagate invalid scripted/user answers through the resolver. The
+                // economy hook currently treats timing failures as a failed event,
+                // so silently breaking here would make a rejected transaction look
+                // like a successful flush to callers.
+                let answer = context
+                    .ask_seeing(&choice)
+                    .map_err(crate::timing::TimingError::IllegalChoice)?;
                 let result = window.resolve(context.state, context.content, galaxy, &answer);
                 if result == crate::transactions::Traded::Resolved {
                     let payload = crate::transactions::resolved_payload(
@@ -655,13 +669,13 @@ fn lookable(state: &GameState, owner: &PlayerId) -> Vec<RevealKind> {
 }
 
 /// The player whose activation of a system with the seat's units opens So Ata's window, if the
-/// seat holds an unlocked commander and there is something to look at.
+/// seat has the commander's ability and there is something to look at.
 fn commander_target(
     state: &GameState,
     seat: &PlayerId,
     event: &crate::event::Event,
 ) -> Option<(PlayerId, Vec<RevealKind>)> {
-    if leader_status(state, seat, "yssarilcommander") != Some(LeaderStatus::Unlocked) {
+    if !crate::promissory::has_commander_ability(state, seat, "yssarilcommander") {
         return None;
     }
     let actor = PlayerId::new(event.text("player")?);
@@ -794,10 +808,13 @@ fn commander_look(owner_name: &str, seat: &PlayerId) -> Ability {
 }
 
 /// Whether a So Ata reveal row is still standing.
-fn commander_reveals_stand(state: &GameState) -> bool {
+fn commander_reveals_stand(state: &GameState, viewer: &PlayerId) -> bool {
     state.faction_marks.keys().any(|key| {
-        key.strip_prefix("cards:reveal:")
-            .is_some_and(|rest| rest.split('|').nth(1) == Some("yssarilcommander"))
+        key.strip_prefix("cards:reveal:").is_some_and(|rest| {
+            let mut parts = rest.split('|');
+            parts.next();
+            parts.next() == Some("yssarilcommander") && parts.next() == Some(viewer.as_str())
+        })
     })
 }
 
@@ -816,8 +833,7 @@ fn commander_clear(owner_name: &str, seat: &PlayerId) -> Ability {
         }),
     )
     .with_stateful_condition(Arc::new(move |_event, _, context| {
-        leader_status(context.state, &condition_owner, "yssarilcommander").is_some()
-            && commander_reveals_stand(context.state)
+        commander_reveals_stand(context.state, &condition_owner)
     }))
 }
 
@@ -1020,6 +1036,12 @@ fn kyver_decisions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_model::state::LeaderStatus;
+
+    fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
+        crate::leaders::status(state, player, &LeaderId::new(leader))
+    }
+
     use std::collections::BTreeMap;
     use ti4_model::content_types::DEFAULT;
     use ti4_model::id::SecretObjectiveId;
@@ -1045,6 +1067,11 @@ mod tests {
     fn deal(state: &mut GameState, who: &str, cards: &[&str]) {
         state.player_mut(&PlayerId::new(who)).unwrap().action_cards =
             cards.iter().map(|name| ActionCardId::new(*name)).collect();
+    }
+
+    fn make_cc_swap_available(state: &mut GameState) {
+        state.player_mut(&a()).unwrap().commodities = 1;
+        state.player_mut(&b()).unwrap().commodities = 1;
     }
 
     fn hand(state: &GameState, who: &str) -> Vec<String> {
@@ -1540,6 +1567,37 @@ mod tests {
     }
 
     #[test]
+    fn ownerless_alliance_recipient_gets_only_its_so_ata_activation_reveal() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            content,
+            &a(),
+            "yssarilcommander"
+        ));
+        deal(&mut state, "b", &["sabotage"]);
+        let system = home_of(&state, &a());
+        crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+        let ability = "leader:sol:yssarilcommander:SYSTEM_ACTIVATED:after";
+        activate(&mut state, &mut scripted(&[ability]), "b", &system);
+
+        let seen = hooks_cards::revealed_to(&state, &a());
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].owner, b());
+        assert_eq!(seen[0].kind, RevealKind::ActionCards);
+        assert_eq!(seen[0].ids, ["sabotage"]);
+        assert!(hooks_cards::revealed_to(&state, &b()).is_empty());
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "ACTION_COMPLETED",
+            &[("player", "b")],
+        );
+        assert!(hooks_cards::revealed_to(&state, &a()).is_empty());
+    }
+
+    #[test]
     fn the_commander_may_look_at_notes_or_secrets_instead() {
         let mut state = game();
         set_leader(&mut state, &a(), "yssarilcommander", LeaderStatus::Unlocked);
@@ -1741,7 +1799,7 @@ mod tests {
         );
     }
 
-    // -- Deepgloom Executable (partial) ----------------------------------------------------------
+    // -- Deepgloom Executable -------------------------------------------------------------------------
 
     fn with_bt(state: &mut GameState) {
         state.player_mut(&a()).unwrap().breakthrough =
@@ -1817,6 +1875,296 @@ mod tests {
             !options(&state, &b())
                 .iter()
                 .any(|id| id.contains("bt_stall"))
+        );
+    }
+
+    #[test]
+    fn borrowed_stall_tactics_is_atomic_when_the_users_discard_answer_is_invalid() {
+        let mut state = game();
+        with_bt(&mut state);
+        deal(&mut state, "b", &["sabotage", "bribery"]);
+        let before = state.clone();
+        let id = format!("{BT_STALL_PREFIX}a");
+        assert!(!perform(
+            &mut state,
+            &mut scripted(&["allow", "not-a-card"]),
+            &b(),
+            &id
+        ));
+        assert_eq!(
+            state, before,
+            "neither consent nor the invalid choice mutates state"
+        );
+    }
+
+    #[test]
+    fn borrowed_scheming_restores_the_draw_when_its_discard_answer_is_invalid() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        with_bt(&mut state);
+        deal(&mut state, "b", &["sabotage"]);
+        state.action_card_deck = vec![ActionCardId::new("bribery"), ActionCardId::new("upgrade")];
+        let before = state.clone();
+        let mut table = scripted(&["allow", "not-a-card"]);
+
+        let result = crate::action_cards::draw(&mut state, content, &mut table, &b(), 1);
+
+        assert!(result.is_err(), "the invalid mandatory discard is rejected");
+        assert_eq!(
+            state, before,
+            "the consent, deck draw, and partial hand change roll back"
+        );
+    }
+
+    #[test]
+    fn borrowed_scheming_draws_extra_discards_one_and_stages_the_transaction() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        with_bt(&mut state);
+        deal(&mut state, "b", &["sabotage"]);
+        state.action_card_deck = vec![ActionCardId::new("bribery"), ActionCardId::new("upgrade")];
+        let mut table = scripted(&["allow", "sabotage"]);
+
+        let drawn = crate::action_cards::draw(&mut state, content, &mut table, &b(), 1).unwrap();
+
+        assert_eq!(
+            drawn,
+            [ActionCardId::new("bribery"), ActionCardId::new("upgrade")]
+        );
+        assert_eq!(hand(&state, "b"), ["bribery", "upgrade"]);
+        assert!(state.action_card_deck.is_empty());
+        assert_eq!(
+            crate::supply::staged_event_types(&state),
+            ["DEEPGLOOM_TRANSACTION"]
+        );
+        assert!(hooks_cards::has_staged(&state));
+        assert!(!state.faction_marks.contains_key(&scheming_key(&b())));
+    }
+
+    #[test]
+    fn game_step_flushes_the_borrowed_scheming_transaction() {
+        let content = ContentStore::embedded();
+        let hub = crate::fixtures::plain_hub();
+        let mut state = game();
+        with_bt(&mut state);
+        state.phase = Phase::Action;
+        state.finished = true;
+        // This pair already used its ordinary transaction this turn. Deepgloom must permit
+        // the borrowed deal without reopening an ordinary deal after its exemption expires.
+        state.record_transaction(&a(), &b());
+        let turn_seq = state.turn_seq;
+        make_cc_swap_available(&mut state);
+        deal(&mut state, "b", &["sabotage"]);
+        state.action_card_deck = vec![ActionCardId::new("bribery"), ActionCardId::new("upgrade")];
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                "allow", "sabotage", "cc1", "accept",
+            ])));
+        let table = Table::with_default(Box::new(decider));
+        let mut driver =
+            crate::game::Game::with_table(state, content, table).with_galaxy(hub.galaxy);
+
+        let drawn =
+            crate::action_cards::draw(&mut driver.state, content, &mut driver.table, &b(), 1)
+                .unwrap();
+        assert_eq!(drawn.len(), 2);
+        assert_eq!(
+            crate::supply::staged_event_types(&driver.state),
+            ["DEEPGLOOM_TRANSACTION"]
+        );
+        assert!(transaction_limit_exempt(&driver.state, content, &a(), &b()));
+        assert!(crate::transactions::may_open_again(
+            &driver.state,
+            content,
+            &a(),
+            &b()
+        ));
+
+        let result = driver.step();
+
+        assert_eq!(result.error, None);
+        assert!(result.finished);
+        assert_eq!(
+            driver.state.turn_seq, turn_seq,
+            "finished step did not advance the turn"
+        );
+        assert_eq!(driver.state.transactions_this_round, vec![(a(), b())]);
+        assert_eq!(driver.state.player(&a()).unwrap().commodities, 0);
+        assert_eq!(driver.state.player(&b()).unwrap().commodities, 0);
+        assert!(!crate::transactions::may_open_again(
+            &driver.state,
+            content,
+            &a(),
+            &b()
+        ));
+        assert!(driver.state.transacted_with(&a()).contains(&b()));
+        assert!(crate::supply::staged_event_types(&driver.state).is_empty());
+        assert!(!transaction_limit_exempt(
+            &driver.state,
+            content,
+            &a(),
+            &b()
+        ));
+        let transaction_choices = seen
+            .borrow()
+            .iter()
+            .filter(|choice| {
+                choice.context.as_ref().is_some_and(|context| {
+                    context.subtype == "propose_transaction"
+                        || context.subtype == "answer_transaction"
+                })
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(transaction_choices.len(), 2);
+        assert_eq!(transaction_choices[0].player, a());
+        assert_eq!(transaction_choices[1].player, b());
+    }
+    #[test]
+    fn borrowed_scheming_refusal_leaves_the_draw_unmodified_by_yssaril() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        with_bt(&mut state);
+        deal(&mut state, "b", &["sabotage"]);
+        state.action_card_deck = vec![ActionCardId::new("bribery"), ActionCardId::new("upgrade")];
+        let mut table = scripted(&["decline"]);
+
+        let drawn = crate::action_cards::draw(&mut state, content, &mut table, &b(), 1).unwrap();
+
+        assert_eq!(drawn, [ActionCardId::new("bribery")]);
+        assert_eq!(hand(&state, "b"), ["sabotage", "bribery"]);
+        assert_eq!(state.action_card_deck, [ActionCardId::new("upgrade")]);
+        assert!(!hooks_cards::has_staged(&state));
+        assert!(crate::supply::staged_event_types(&state).is_empty());
+    }
+
+    #[test]
+    fn scheming_does_not_discard_when_no_card_was_drawn() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        deal(&mut state, "a", &["sabotage", "bribery"]);
+        state.action_card_deck.clear();
+        let before = state.clone();
+        let mut table = scripted(&[]);
+
+        let drawn = crate::action_cards::draw(&mut state, content, &mut table, &a(), 1).unwrap();
+
+        assert!(drawn.is_empty());
+        assert_eq!(state, before, "Scheming only triggers after an actual draw");
+    }
+
+    #[test]
+    fn borrowed_stall_tactics_opens_one_forced_pair_transaction_and_expires() {
+        let content = ContentStore::embedded();
+        let hub = crate::fixtures::plain_hub();
+        let mut state = game();
+        with_bt(&mut state);
+        state.phase = Phase::Action;
+        // A prior ordinary deal has spent this pair's allowance; the borrowed trade is the
+        // exempt extra transaction, and cleanup must restore the spent-limit result.
+        state.record_transaction(&a(), &b());
+        make_cc_swap_available(&mut state);
+        deal(&mut state, "b", &["sabotage"]);
+        let id = format!("{BT_STALL_PREFIX}a");
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                "allow", "cc1", "accept",
+            ])));
+        let mut table = Table::with_default(Box::new(decider));
+
+        assert!(crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut table,
+            |context| perform_component(
+                context,
+                &b(),
+                &ChoiceOption::labelled(&id, crate::faction_abilities::ACTION_KIND, &id),
+            ),
+        ));
+        assert_eq!(
+            crate::supply::staged_event_types(&state),
+            ["DEEPGLOOM_TRANSACTION"]
+        );
+        assert!(transaction_limit_exempt(&state, content, &a(), &b()));
+        assert!(crate::transactions::may_open_again(
+            &state,
+            content,
+            &a(),
+            &b()
+        ));
+        assert!(
+            hooks_cards::has_staged(&state),
+            "the chosen discard is staged too"
+        );
+
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut resolving = crate::choice::Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: Some(&hub.galaxy),
+            }),
+        };
+        let flushed = crate::supply::flush_staged_events(&mut state, &mut resolving);
+        drop(resolving);
+        assert_eq!(
+            flushed,
+            3,
+            "one borrowed transaction should emit its event and both trade gains; resolver log: {:?}; scripted choices: {:?}",
+            resolver.log(),
+            seen.borrow()
+        );
+
+        let choices = seen.borrow();
+        let transactions: Vec<_> = choices
+            .iter()
+            .filter(|choice| {
+                choice.context.as_ref().is_some_and(|context| {
+                    context.subtype == "propose_transaction"
+                        || context.subtype == "answer_transaction"
+                })
+            })
+            .collect();
+        assert_eq!(transactions.len(), 2, "one offer and one answer window");
+        assert_eq!(
+            transactions[0].player,
+            a(),
+            "the Yssaril owner is the proposer"
+        );
+        assert!(transactions[0].ids().contains(&"cc1"));
+        assert_eq!(
+            transactions[1].player,
+            b(),
+            "the user is the forced counterparty"
+        );
+        assert!(transactions[1].ids().contains(&"accept"));
+        assert_eq!(state.transactions_this_round, vec![(a(), b())]);
+        assert!(!transaction_limit_exempt(&state, content, &a(), &b()));
+        assert!(!crate::transactions::may_open_again(
+            &state,
+            content,
+            &a(),
+            &b()
+        ));
+        assert!(state.transacted_with(&a()).contains(&b()));
+        assert_eq!(
+            crate::supply::staged_events(&state),
+            0,
+            "transaction events drained"
+        );
+        assert!(
+            hooks_cards::has_staged(&state),
+            "the card discard still awaits its own event flush"
         );
     }
 

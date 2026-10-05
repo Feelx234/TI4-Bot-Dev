@@ -1890,6 +1890,17 @@ pub fn award(
     // No galaxy here: only Naalu's commander asks about the map, and awarding an objective is
     // not where that condition changes. The status phase checks again with one.
     crate::leaders::check_unlocks(state, content, sources, None, player);
+    let public = state.revealed_objectives.contains(alias)
+        || content.get(ContentType::PublicObjectives, alias.as_str()).is_some();
+    if public && state.player(player).is_some_and(|seat| {
+        seat.faction.as_str() == "yin"
+            && seat.breakthrough.as_ref().is_some_and(|card| card.as_str() == "yinbt")
+    }) {
+        crate::supply::stage_event(state, "PUBLIC_OBJECTIVE_SCORED", &std::collections::BTreeMap::from([
+            ("player".to_owned(), player.to_string().into()),
+            ("objective".to_owned(), alias.to_string().into()),
+        ]));
+    }
     Ok(points)
 }
 

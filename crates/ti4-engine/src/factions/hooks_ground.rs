@@ -405,6 +405,80 @@ pub fn announce_staged_events(state: &mut GameState, ctx: &mut crate::choice::Re
     }
 }
 
+/// Deliver staged ground events with per-event rollback and retry on reaction failure.
+///
+/// # Errors
+/// Returns a timing error while preserving the failed row, reaction state, dice, RNG and journal.
+pub fn try_announce_staged_events(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+) -> Result<(), crate::timing::TimingError> {
+    if ctx.timing.is_none() {
+        return Ok(());
+    }
+    while has_staged_events(state) {
+        let keys: Vec<String> = state
+            .faction_marks
+            .range(STAGED.to_owned()..)
+            .map_while(|(key, _)| key.starts_with(STAGED).then(|| key.clone()))
+            .collect();
+        for key in keys {
+            let before_state = state.clone();
+            let before_dice = ctx.dice.clone();
+            let before_rng = ctx.rng.clone();
+            let before_timing = ctx
+                .timing
+                .as_ref()
+                .map(|handle| (handle.sequence.clone(), handle.resolver.checkpoint()));
+            let Some(row) = state.faction_marks.remove(&key) else {
+                continue;
+            };
+            let parts: Vec<&str> = row.split('|').collect();
+            let mut payload = std::collections::BTreeMap::new();
+            let name = match parts[..] {
+                ["destroyed", system, planet, player, unit, damaged, cause] => {
+                    payload.insert("system".to_owned(), system.into());
+                    payload.insert("planet".to_owned(), planet.into());
+                    payload.insert("player".to_owned(), player.into());
+                    payload.insert("unit".to_owned(), unit.into());
+                    payload.insert("damaged".to_owned(), (damaged == "true").into());
+                    payload.insert("cause".to_owned(), cause.into());
+                    "GROUND_FORCE_DESTROYED"
+                }
+                ["control", system, planet, player, previous] => {
+                    payload.insert("system".to_owned(), system.into());
+                    payload.insert("planet".to_owned(), planet.into());
+                    payload.insert("player".to_owned(), player.into());
+                    if !previous.is_empty() {
+                        payload.insert("previous_owner".to_owned(), previous.into());
+                    }
+                    state.last_control_gained = Some((
+                        SystemId::new(system),
+                        PlanetId::new(planet),
+                        PlayerId::new(player),
+                        (!previous.is_empty()).then(|| PlayerId::new(previous)),
+                    ));
+                    "PLANET_CONTROL_GAINED"
+                }
+                _ => continue,
+            };
+            if let Err(error) = ctx.emit(state, name, payload) {
+                *state = before_state;
+                *ctx.dice = before_dice;
+                *ctx.rng = before_rng;
+                if let (Some(handle), Some((sequence, resolver))) =
+                    (ctx.timing.as_mut(), before_timing)
+                {
+                    *handle.sequence = sequence;
+                    handle.resolver.restore(resolver);
+                }
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn custodians_free(
     state: &GameState,
     content: &ContentStore,

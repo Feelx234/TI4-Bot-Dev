@@ -813,8 +813,7 @@ fn commander_moved(owner_name: &str, seat: &PlayerId) -> Ability {
     let eligible = |event: &crate::event::Event, context: &TimingContext<'_>, player: &PlayerId| {
         event.text("player") == Some(player.as_str())
             && event.text("system") == context.state.active_system.as_ref().map(SystemId::as_str)
-            && leader_status(context.state, player, "ghostcommander")
-                == Some(LeaderStatus::Unlocked)
+            && crate::promissory::has_commander_ability(context.state, player, "ghostcommander")
             && event.integer("wormholes").is_some_and(|hops| hops > 0)
             && event
                 .text("unit")
@@ -863,7 +862,7 @@ fn commander_fighters(
     owner: &PlayerId,
     system: &SystemId,
 ) -> usize {
-    if leader_status(state, owner, "ghostcommander") != Some(LeaderStatus::Unlocked) {
+    if !crate::promissory::has_commander_ability(state, owner, "ghostcommander") {
         return 0;
     }
     let free = crate::fleet::standing(state, content, sources, owner, system, None).capacity_free();
@@ -939,6 +938,11 @@ fn commander_finished(owner_name: &str, seat: &PlayerId) -> Ability {
     )
     .with_stateful_condition(Arc::new(move |event, _, context| {
         event.text("player") == Some(condition_seat.as_str())
+            && crate::promissory::has_commander_ability(
+                context.state,
+                &condition_seat,
+                "ghostcommander",
+            )
             && commander_count(context.state, &condition_seat) > 0
     }))
 }
@@ -2302,6 +2306,103 @@ mod tests {
             commander_count(&state, &a()),
             0,
             "the activation mark is cleared"
+        );
+    }
+
+    #[test]
+    fn an_unseated_ghost_commander_grant_works_for_another_faction() {
+        let mut state = sol_game();
+        let destination = sys("40");
+        state.active_system = Some(destination.clone());
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            content(),
+            &a(),
+            "ghostcommander",
+        ));
+        put(&mut state, &destination, "carrier", &a(), 1);
+
+        let mut table = scripted(&["fighters|1"]);
+        emit(
+            &mut state,
+            Some(&galaxy()),
+            &mut table,
+            "SHIP_MOVED",
+            &[
+                ("player", serde_json::json!("a")),
+                ("system", serde_json::json!("40")),
+                ("unit", serde_json::json!("carrier")),
+                ("wormholes", serde_json::json!(1)),
+            ],
+        );
+        assert_eq!(commander_count(&state, &a()), 1);
+        emit(
+            &mut state,
+            Some(&galaxy()),
+            &mut table,
+            "MOVEMENT_FINISHED",
+            &[
+                ("player", serde_json::json!("a")),
+                ("system", serde_json::json!("40")),
+            ],
+        );
+        assert_eq!(commander_count(&state, &a()), 0);
+        assert_eq!(
+            state
+                .system_state(&destination)
+                .units
+                .iter()
+                .filter(|unit| { unit.owner == a() && unit.type_id.as_str() == "fighter" })
+                .count(),
+            1,
+        );
+        assert!(
+            !state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .contains_key(&LeaderId::new("ghostcommander"))
+        );
+    }
+
+    #[test]
+    fn ordinary_ghost_alliance_stays_locked_until_its_owner_unlocks() {
+        let mut state = sol_game();
+        state.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("ghost");
+        let destination = sys("40");
+        state.active_system = Some(destination.clone());
+        crate::promissory::take(&mut state, content(), &a(), "an:ghost");
+        put(&mut state, &destination, "carrier", &a(), 1);
+        let mut table = never();
+        emit(
+            &mut state,
+            Some(&galaxy()),
+            &mut table,
+            "SHIP_MOVED",
+            &[
+                ("player", serde_json::json!("a")),
+                ("system", serde_json::json!("40")),
+                ("unit", serde_json::json!("carrier")),
+                ("wormholes", serde_json::json!(1)),
+            ],
+        );
+        emit(
+            &mut state,
+            Some(&galaxy()),
+            &mut table,
+            "MOVEMENT_FINISHED",
+            &[
+                ("player", serde_json::json!("a")),
+                ("system", serde_json::json!("40")),
+            ],
+        );
+        assert_eq!(commander_count(&state, &a()), 0);
+        assert!(
+            !state
+                .system_state(&destination)
+                .units
+                .iter()
+                .any(|unit| { unit.owner == a() && unit.type_id.as_str() == "fighter" })
         );
     }
 

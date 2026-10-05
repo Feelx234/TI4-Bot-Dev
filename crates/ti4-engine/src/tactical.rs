@@ -67,6 +67,7 @@ pub fn activatable_with(
     player: &PlayerId,
 ) -> Vec<SystemId> {
     let held = state.systems_with_token(player);
+    let mahact = crate::promissory::has_commander_ability(state, player, "mahactcommander");
     // The galaxy is the *printed map*; the board is what is actually in play. The Fracture adds
     // seven systems after setup and never touches the galaxy, so enumerating the galaxy alone
     // left those tiles reachable -- `movement` already makes an ingress adjacent to each egress
@@ -82,7 +83,9 @@ pub fn activatable_with(
         .map(SystemId::new)
         .chain(state.board.keys().cloned())
     {
-        if held.contains(&system) || !seen.insert(system.clone()) {
+        // Mahact's commander: "During your tactical actions: you can activate systems that contain
+        // your command tokens." (The driver then returns both tokens and ends the turn.)
+        if (held.contains(&system) && !mahact) || !seen.insert(system.clone()) {
             continue;
         }
         if crate::factions::hooks_movement::cannot_activate(
@@ -169,7 +172,9 @@ pub fn activate(
     player: &PlayerId,
     system: &SystemId,
 ) -> Result<(), TacticalError> {
-    if state.systems_with_token(player).contains(system) {
+    if state.systems_with_token(player).contains(system)
+        && !crate::promissory::has_commander_ability(state, player, "mahactcommander")
+    {
         return Err(TacticalError::AlreadyActivated(
             player.clone(),
             system.clone(),
@@ -1157,6 +1162,24 @@ mod tests {
             Err(TacticalError::AlreadyActivated(player(), ids[0].clone()))
         );
         assert!(state.identical(&settled));
+    }
+
+    #[test]
+    fn the_mahact_commander_lets_a_held_system_be_activated_again() {
+        let (mut state, galaxy, ids) = fixture();
+        state.player_mut(&player()).unwrap().tactic_tokens = 2;
+        activate(&mut state, &player(), &ids[0]).unwrap();
+        assert!(!activatable(&state, &galaxy, &player()).contains(&ids[0]));
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            ContentStore::embedded(),
+            &player(),
+            "mahactcommander"
+        ));
+        assert!(activatable(&state, &galaxy, &player()).contains(&ids[0]));
+        let tokens = state.player(&player()).unwrap().tactic_tokens;
+        activate(&mut state, &player(), &ids[0]).unwrap();
+        assert_eq!(state.player(&player()).unwrap().tactic_tokens, tokens - 1);
     }
 
     #[test]

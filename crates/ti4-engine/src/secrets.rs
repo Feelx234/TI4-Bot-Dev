@@ -245,7 +245,23 @@ impl Position<'_> {
                 held.push(planet.clone());
             }
         }
+        // Firmament commander: planets in systems with this seat's ships count as controlled.
+        for planet in self.firmament() {
+            if !held.contains(&planet) {
+                held.push(planet);
+            }
+        }
         held
+    }
+
+    /// Planets the Firmament commander lets this seat treat as controlled (empty without it).
+    fn firmament(&self) -> Vec<ti4_model::id::PlanetId> {
+        crate::factions::borrowed_commanders_b::firmament_planets(
+            self.state,
+            self.content,
+            self.sources,
+            self.player,
+        )
     }
 
     /// Controlled planets of one trait.
@@ -399,7 +415,13 @@ fn legendary_planets_count(position: &Position<'_>) -> usize {
 fn mecatol_ships_while_controlling_count(position: &Position<'_>) -> usize {
     let mecatol = ti4_model::id::SystemId::new(crate::seating::MECATOL);
     let board = position.state.system_state(&mecatol);
-    if !board.controls_a_planet(position.player) {
+    let firmament = position.firmament();
+    if !board.controls_a_planet(position.player)
+        && !board
+            .planet_control
+            .keys()
+            .any(|planet| firmament.contains(planet))
+    {
         return 0;
     }
     let types = ti4_content::units::catalogue(position.content, position.sources);
@@ -467,6 +489,8 @@ fn faction_technologies_count(position: &Position<'_>) -> usize {
 }
 
 fn shared_planet_systems_count(position: &Position<'_>) -> usize {
+    // Firmament commander: a planet treated as this seat's counts as mine, not theirs.
+    let firmament = position.firmament();
     position
         .state
         .board
@@ -474,12 +498,12 @@ fn shared_planet_systems_count(position: &Position<'_>) -> usize {
         .filter(|board| {
             let mine = board
                 .planet_control
-                .values()
-                .any(|owner| owner == position.player);
+                .iter()
+                .any(|(planet, owner)| owner == position.player || firmament.contains(planet));
             let theirs = board
                 .planet_control
-                .values()
-                .any(|owner| owner != position.player);
+                .iter()
+                .any(|(planet, owner)| owner != position.player && !firmament.contains(planet));
             mine && theirs
         })
         .count()

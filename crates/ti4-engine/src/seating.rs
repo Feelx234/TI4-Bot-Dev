@@ -3,7 +3,7 @@
 //! Ported from the oracle's `engine/factions.py` `deploy` and `home_systems`, and the
 //! galaxy-building half of `engine/game.py` `seated_game`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use ti4_content::ContentStore;
 use ti4_content::factions::{self, FleetError, Placement};
@@ -42,6 +42,19 @@ pub enum SeatingError {
     Galaxy(#[from] GalaxyError),
 }
 
+/// Why an explicit seeded faction assignment could not be built.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FactionAssignmentError {
+    #[error("faction candidate roster is empty")]
+    EmptyRoster,
+    #[error("duplicate faction candidate {0:?}")]
+    DuplicateCandidate(String),
+    #[error("duplicate player id {0:?}")]
+    DuplicatePlayer(String),
+    #[error("{players} players require distinct factions, but the roster has only {candidates}")]
+    InsufficientCandidates { players: usize, candidates: usize },
+}
+
 /// The factions this project plays.
 ///
 /// Six, by owner decision: Sol, Hacan, Letnev, Xxcha, Jol-Nar and L1Z1X. The Firmament is
@@ -76,6 +89,54 @@ pub fn seat_in_scope(players: &[PlayerId]) -> BTreeMap<PlayerId, FactionId> {
             )
         })
         .collect()
+}
+
+/// Assign distinct factions from an explicit ordered roster using an independent seeded stream.
+///
+/// Candidate order is part of the input: the helper shuffles a copy with the dedicated
+/// `seating:faction-assignment:v1` domain, then assigns the first candidates in that shuffled
+/// order to `players` in their input order. This preparation primitive is independent of
+/// [`IN_SCOPE_FACTIONS`] and is not wired into game setup by itself.
+///
+/// # Errors
+/// Returns an error for an empty or duplicate candidate roster, duplicate players, or too few
+/// candidates to give every player a distinct faction.
+pub fn seeded_faction_assignments(
+    candidates: &[&str],
+    players: &[PlayerId],
+    seed: u64,
+) -> Result<BTreeMap<PlayerId, FactionId>, FactionAssignmentError> {
+    if candidates.is_empty() {
+        return Err(FactionAssignmentError::EmptyRoster);
+    }
+    let mut seen_candidates = BTreeSet::new();
+    for candidate in candidates {
+        if !seen_candidates.insert(*candidate) {
+            return Err(FactionAssignmentError::DuplicateCandidate(
+                (*candidate).to_owned(),
+            ));
+        }
+    }
+    let mut seen_players = BTreeSet::new();
+    for player in players {
+        if !seen_players.insert(player.to_string()) {
+            return Err(FactionAssignmentError::DuplicatePlayer(player.to_string()));
+        }
+    }
+    if candidates.len() < players.len() {
+        return Err(FactionAssignmentError::InsufficientCandidates {
+            players: players.len(),
+            candidates: candidates.len(),
+        });
+    }
+
+    let mut rng = crate::rng::GameRng::new(seed);
+    let shuffled = rng.shuffled("seating:faction-assignment:v1", candidates);
+    Ok(players
+        .iter()
+        .zip(shuffled)
+        .map(|(player, alias)| (player.clone(), FactionId::new(alias)))
+        .collect())
 }
 
 /// Home system tile ids for a player-to-faction assignment, in assignment order.
@@ -773,6 +834,8 @@ mod tests {
                 "{faction} was seated and is not in scope"
             );
         }
+        assert_eq!(seated[&players[0]], seated[&players[6]]);
+        assert_eq!(seated[&players[1]], seated[&players[7]]);
     }
 
     #[test]
@@ -1169,6 +1232,100 @@ mod tests {
                 .units
                 .is_empty(),
             "nothing starts on the gate"
+        );
+    }
+
+    const PLANNED_FACTIONS: [&str; 18] = [
+        "sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x", "arborec", "argent", "ghost",
+        "mentak", "muaat", "naalu", "naaz", "saar", "sardakk", "winnu", "yin", "yssaril",
+    ];
+
+    fn six_players() -> Vec<PlayerId> {
+        (0..6)
+            .map(|index| PlayerId::new(format!("p{index}")))
+            .collect()
+    }
+
+    #[test]
+    fn seeded_assignment_draws_six_unique_content_backed_factions_from_explicit_eighteen() {
+        for alias in PLANNED_FACTIONS {
+            assert!(
+                ti4_content::factions::get(content(), alias).is_some(),
+                "planned candidate {alias} must exist in the content corpus"
+            );
+        }
+        let players = six_players();
+        let assignments = seeded_faction_assignments(&PLANNED_FACTIONS, &players, 1042).unwrap();
+        let assigned: BTreeSet<String> = assignments
+            .values()
+            .map(|faction| faction.to_string())
+            .collect();
+        assert_eq!(assignments.len(), 6);
+        assert_eq!(assigned.len(), 6, "a faction cannot be assigned twice");
+        assert!(
+            assigned
+                .iter()
+                .all(|alias| PLANNED_FACTIONS.contains(&alias.as_str()))
+        );
+    }
+
+    #[test]
+    fn seeded_assignment_replays_and_varies_by_seed() {
+        let players = six_players();
+        let first = seeded_faction_assignments(&PLANNED_FACTIONS, &players, 1042).unwrap();
+        assert_eq!(
+            first,
+            seeded_faction_assignments(&PLANNED_FACTIONS, &players, 1042).unwrap()
+        );
+        assert!(
+            (1043..1060).any(|seed| {
+                seeded_faction_assignments(&PLANNED_FACTIONS, &players, seed)
+                    .is_ok_and(|assignment| assignment != first)
+            }),
+            "the fixed seed sample should exercise a different assignment"
+        );
+    }
+
+    #[test]
+    fn seeded_assignment_uses_roster_and_player_input_order() {
+        let players = [PlayerId::new("b"), PlayerId::new("a")];
+        let assignment = seeded_faction_assignments(&PLANNED_FACTIONS, &players, 57).unwrap();
+        let reversed = [players[1].clone(), players[0].clone()];
+        let reassigned = seeded_faction_assignments(&PLANNED_FACTIONS, &reversed, 57).unwrap();
+        assert_eq!(reassigned[&players[0]], assignment[&players[1]]);
+        assert_eq!(reassigned[&players[1]], assignment[&players[0]]);
+
+        let ordered = seeded_faction_assignments(&["sol", "hacan"], &players, 57).unwrap();
+        let reversed_roster = seeded_faction_assignments(&["hacan", "sol"], &players, 57).unwrap();
+        assert_eq!(reversed_roster[&players[0]], ordered[&players[1]]);
+        assert_eq!(reversed_roster[&players[1]], ordered[&players[0]]);
+    }
+
+    #[test]
+    fn seeded_assignment_rejects_empty_duplicate_and_undersized_inputs() {
+        let players = [PlayerId::new("a"), PlayerId::new("b")];
+        assert_eq!(
+            seeded_faction_assignments(&[], &players, 1),
+            Err(FactionAssignmentError::EmptyRoster)
+        );
+        assert_eq!(
+            seeded_faction_assignments(&["sol", "sol"], &players, 1),
+            Err(FactionAssignmentError::DuplicateCandidate("sol".to_owned()))
+        );
+        assert_eq!(
+            seeded_faction_assignments(
+                &["sol", "hacan"],
+                &[players[0].clone(), players[0].clone()],
+                1
+            ),
+            Err(FactionAssignmentError::DuplicatePlayer("a".to_owned()))
+        );
+        assert_eq!(
+            seeded_faction_assignments(&["sol"], &players, 1),
+            Err(FactionAssignmentError::InsufficientCandidates {
+                players: 2,
+                candidates: 1,
+            })
         );
     }
 }

@@ -36,7 +36,8 @@
 //! `last_action_discarded` (Reverse Engineer's window reads both).
 
 use ti4_content::ContentStore;
-use ti4_model::content_types::ContentType;
+use ti4_content::galaxy::Galaxy;
+use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{ActionCardId, LeaderId, PlayerId};
 use ti4_model::state::{GameState, LeaderStatus};
 
@@ -523,6 +524,21 @@ pub fn borrowable_agents(
     reason = "plain fn-pointer table; aliases would only move the signatures elsewhere"
 )]
 pub struct CardHooks {
+    /// Whether `viewer` may inspect `owner`'s current hidden hand of `kind`.
+    ///
+    /// Permission is computed from the live position every time an observation is built; modules
+    /// must not persist a reveal for effects whose condition can change as hands or the map change.
+    pub may_view_hand: Option<
+        fn(
+            &GameState,
+            &ContentStore,
+            SourceSet,
+            Option<&Galaxy>,
+            &PlayerId,
+            &PlayerId,
+            RevealKind,
+        ) -> bool,
+    >,
     /// A card-specific transaction may reach a player without ordinary adjacency.
     pub transaction_reach: Option<fn(&GameState, &ContentStore, &PlayerId, &PlayerId) -> bool>,
     /// Whether a transaction between `active` (the player whose turn it is) and `other` is exempt
@@ -549,17 +565,40 @@ pub struct CardHooks {
     /// by then; a module hangs follow-ups here (bookkeeping, a record of what was borrowed).
     /// Called for every module; check your own condition.
     pub borrowed_agent_used: Option<fn(&mut TimingContext<'_>, &PlayerId, &LeaderId)>,
+    /// State-only counterpart for copied agent routes that do not run inside a timing resolver
+    /// (Doctor Sucaban's paid-research modifier is the first). Contextual notifications call this
+    /// table too, so bookkeeping that needs only public game state has one hook for both routes.
+    pub borrowed_agent_used_state: Option<fn(&mut GameState, &PlayerId, &LeaderId)>,
 }
 
 impl CardHooks {
     /// No hooks.
     pub const NONE: Self = Self {
+        may_view_hand: None,
         transaction_reach: None,
         transaction_limit_exempt: None,
         votes_first: None,
         vote_bonus_with_content: None,
         borrowed_agent_used: None,
+        borrowed_agent_used_state: None,
     };
+}
+
+/// Whether any module currently lets `viewer` inspect `owner`'s hidden hand of `kind`.
+#[must_use]
+pub fn may_view_hand(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    viewer: &PlayerId,
+    owner: &PlayerId,
+    kind: RevealKind,
+) -> bool {
+    viewer != owner
+        && hooks()
+            .filter_map(|h| h.may_view_hand)
+            .any(|f| f(state, content, sources, galaxy, viewer, owner, kind))
 }
 
 #[cfg(test)]
@@ -655,8 +694,23 @@ pub fn borrowed_agent_used(
     borrower: &PlayerId,
     source_agent: &LeaderId,
 ) {
+    borrowed_agent_used_state(context.state, borrower, source_agent);
     for f in hooks().filter_map(|h| h.borrowed_agent_used) {
         f(context, borrower, source_agent);
+    }
+}
+
+/// Tell state-only hooks that `borrower` successfully used `source_agent` through Ssruu.
+///
+/// This is for engine paths that own real state and decision services but no dice, RNG, event
+/// sequence, or resolver. Calling it avoids fabricating a [`TimingContext`] merely to report use.
+pub fn borrowed_agent_used_state(
+    state: &mut GameState,
+    borrower: &PlayerId,
+    source_agent: &LeaderId,
+) {
+    for f in hooks().filter_map(|h| h.borrowed_agent_used_state) {
+        f(state, borrower, source_agent);
     }
 }
 

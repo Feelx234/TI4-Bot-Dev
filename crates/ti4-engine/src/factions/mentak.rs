@@ -1020,7 +1020,7 @@ fn notes_in_hand(state: &GameState, player: &PlayerId) -> Vec<String> {
 /// Opponents of the winner (from the `SPACE_COMBAT_WON` event) with a note in hand.
 fn commander_targets(event: &Event, state: &GameState, owner: &PlayerId) -> Vec<PlayerId> {
     if event.text("player") != Some(owner.as_str())
-        || leader_status(state, owner, COMMANDER) != Some(LeaderStatus::Unlocked)
+        || !crate::promissory::has_commander_ability(state, owner, COMMANDER)
     {
         return Vec::new();
     }
@@ -2235,6 +2235,35 @@ mod tests {
         )
         .unwrap();
         assert_eq!(state.promissory_notes.get(&note), Some(&a()));
+    }
+
+    #[test]
+    fn ownerless_commander_grant_transfers_the_losers_chosen_note() {
+        let (mut state, system) = arena();
+        crate::promissory::deal(&mut state, ContentStore::embedded(), DEFAULT);
+        state.player_mut(&a()).unwrap().faction = ti4_model::id::FactionId::new("yin");
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .remove(&LeaderId::new(COMMANDER));
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            ContentStore::embedded(),
+            &a(),
+            COMMANDER
+        ));
+        let note = crate::promissory::note_id("ps", "sol");
+        assert_eq!(state.promissory_notes.get(&note), Some(&b()));
+        emit(
+            &mut state,
+            &["leader:yin:mentakcommander:SPACE_COMBAT_WON:after", &note],
+            "SPACE_COMBAT_WON",
+            &won(&system),
+        )
+        .unwrap();
+        assert_eq!(state.promissory_notes.get(&note), Some(&a()));
+        assert_eq!(leader_status(&state, &a(), COMMANDER), None);
     }
 
     #[test]

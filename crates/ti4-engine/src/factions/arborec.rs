@@ -39,7 +39,7 @@ use ti4_content::ContentStore;
 use ti4_content::units::{UnitType, catalogue};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
-use ti4_model::state::{GameState, LeaderStatus};
+use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
 use super::hooks_economy::EconomyHooks;
@@ -107,10 +107,6 @@ fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
     state
         .player(player)
         .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
-}
-
-fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
-    crate::leaders::status(state, player, &LeaderId::new(leader))
 }
 
 fn decision(state: &GameState, player: &PlayerId, card: &str, subtype: &str) -> DecisionContext {
@@ -832,7 +828,7 @@ fn commander_ready(
     owner: &PlayerId,
     event: &crate::event::Event,
 ) -> Option<SystemId> {
-    if leader_status(context.state, owner, "arboreccommander") != Some(LeaderStatus::Unlocked) {
+    if !crate::promissory::has_commander_ability(context.state, owner, "arboreccommander") {
         return None;
     }
     let activator = event_player(event)?;
@@ -1503,17 +1499,22 @@ fn psychospore_readies(owner_name: &str, seat: &PlayerId) -> Ability {
 
 // -- timing abilities ----------------------------------------------------------------------------
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
-        mitosis(owner_name, seat),
-        bioplasmosis(owner_name, seat),
-        warrior_rolls(owner_name, seat),
-        warrior_returns(owner_name, seat),
-        flagship(owner_name, seat),
-        commander(owner_name, seat),
-        stymie(owner_name, seat),
-        psychospore_readies(owner_name, seat),
-    ]
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    let mut abilities = vec![commander(owner_name, seat), stymie(owner_name, seat)];
+    if state
+        .player(seat)
+        .is_some_and(|player| player.faction.as_str() == "arborec")
+    {
+        abilities.extend([
+            mitosis(owner_name, seat),
+            bioplasmosis(owner_name, seat),
+            warrior_rolls(owner_name, seat),
+            warrior_returns(owner_name, seat),
+            flagship(owner_name, seat),
+            psychospore_readies(owner_name, seat),
+        ]);
+    }
+    abilities
 }
 
 #[cfg(test)]
@@ -1522,6 +1523,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
     use ti4_model::content_types::DEFAULT;
+    use ti4_model::state::LeaderStatus;
 
     use crate::choice::{Decider, IllegalChoice, Scripted, Table};
 
@@ -2385,6 +2387,38 @@ mod tests {
         assert!(
             !asked.iter().any(|prompt| prompt.contains("(2 left)")),
             "a second unit is not allowed"
+        );
+    }
+
+    #[test]
+    fn an_unseated_arborec_commander_grant_arms_for_another_faction() {
+        let (mut state, home) = flagship_game();
+        state.player_mut(&a()).unwrap().faction = ti4_model::id::FactionId::new("yin");
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            ContentStore::embedded(),
+            &a(),
+            "arboreccommander",
+        ));
+        let before = count(&state, &home, &a(), "cruiser");
+        let mut table = scripted(&[
+            "leader:yin:arboreccommander:SYSTEM_ACTIVATED:after",
+            "build|cruiser|1",
+        ]);
+        emit(
+            &mut state,
+            &mut table,
+            "SYSTEM_ACTIVATED",
+            &[("player", "b"), ("system", home.as_str())],
+        );
+        assert_eq!(count(&state, &home, &a(), "cruiser"), before + 1);
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new("arboreccommander")),
+            Some(&LeaderStatus::Locked)
         );
     }
 

@@ -65,8 +65,7 @@ pub const MODULE: FactionModule = FactionModule {
     technologies: &["lgf", "htp"],
     units: &["winnu_flagship", "winnu_mech"],
     promissory: &["acq"],
-    // `winnuhero` is implemented but not claimed: Thunder's Edge Warfare cannot be chosen.
-    leaders: &[AGENT, COMMANDER],
+    leaders: &[AGENT, COMMANDER, "winnuhero"],
     breakthroughs: &["winnubt"],
     hooks: Hooks {
         component_actions: Some(component_actions),
@@ -74,6 +73,8 @@ pub const MODULE: FactionModule = FactionModule {
         commander_unlocked: Some(commander_unlocked),
         leader_action: Some(leader_action),
         use_leader: Some(use_leader),
+        use_leader_strategy_primary: Some(use_leader_strategy_primary),
+        leader_strategy_followers: Some(leader_strategy_follower_choices),
         timing_abilities: Some(timing_abilities),
         unit_roll_modifier: Some(unit_roll_modifier),
         unit_dice: Some(unit_dice),
@@ -886,7 +887,7 @@ fn commander_bonus(
     player: &PlayerId,
     system: &SystemId,
 ) -> i64 {
-    if leader_status(state, player, COMMANDER) != Some(LeaderStatus::Unlocked) {
+    if !crate::promissory::has_commander_ability(state, player, COMMANDER) {
         return 0;
     }
     let home = state
@@ -1158,16 +1159,13 @@ fn imperator_clear(owner_name: &str, seat: &PlayerId) -> Ability {
 
 // -- Mathis Mathinus -----------------------------------------------------------------------------
 
-/// Every strategy card in the game (held by a seat or still unclaimed), except Thunder's Edge
-/// Warfare (`te6warfare`): its primary is a free tactical action, which cannot be run from inside
-/// a leader effect. That exclusion is why `winnuhero` is not claimed in `MODULE`.
+/// Every strategy card in the game (held by a seat or still unclaimed).
 fn hero_cards(state: &GameState) -> Vec<StrategyCardId> {
     let mut cards: Vec<StrategyCardId> = state
         .players
         .iter()
         .flat_map(|seat| seat.strategy_cards.iter().cloned())
         .chain(state.unclaimed_strategy_cards.iter().cloned())
-        .filter(|card| card.as_str() != "te6warfare")
         .collect();
     cards.sort();
     cards.dedup();
@@ -1180,7 +1178,101 @@ fn leader_action(
     _player: &PlayerId,
     leader: &LeaderId,
 ) -> Option<bool> {
-    (leader.as_str() == "winnuhero").then(|| !hero_cards(state).is_empty())
+    (leader.as_str() == "winnuhero")
+        .then(|| is_winnu(state, _player) && !hero_cards(state).is_empty())
+}
+
+/// Resolve the hero's chosen primary and return its continuation to the `Game` driver.
+/// Warfare returns `FreeTactical`; the driver opens that action and resumes with followers later.
+fn use_leader_strategy_primary(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Result<Option<(StrategyCardId, crate::strategy_cards::Ability)>, TimingError> {
+    if leader.as_str() != "winnuhero" || !is_winnu(context.state, player) {
+        return Ok(None);
+    }
+    let cards = hero_cards(context.state);
+    if cards.is_empty() {
+        return Ok(None);
+    }
+    let options = cards
+        .iter()
+        .map(|card| {
+            ChoiceOption::labelled(
+                card.to_string(),
+                "strategy_card",
+                crate::draft::strategy_card_label(context.content, card.as_str()),
+            )
+        })
+        .collect();
+    let choice = Choice::new(
+        player.clone(),
+        "Mathis Mathinus: which strategy card".to_owned(),
+        options,
+    )
+    .contextualized(decision(context.state, player, "winnuhero", "hero_card"));
+    let answer = context
+        .ask_seeing(&choice)
+        .map_err(TimingError::IllegalChoice)?;
+    let card = cards
+        .into_iter()
+        .find(|card| card.as_str() == answer.id)
+        .expect("ask_seeing validates the selected strategy card");
+    let ability = crate::strategy_cards::primary(
+        context.state,
+        context.content,
+        context.sources,
+        context.galaxy,
+        context.table,
+        player,
+        card.as_str(),
+    )
+    .map_err(TimingError::IllegalChoice)?;
+    Ok(Some((card, ability)))
+}
+
+/// Choices offered after Mathis's primary completes, driven one answer per Game step.
+fn leader_strategy_follower_choices(
+    state: &GameState,
+    player: &PlayerId,
+    leader: &LeaderId,
+    _card: &StrategyCardId,
+) -> Option<Vec<Choice>> {
+    if leader.as_str() != "winnuhero" || !is_winnu(state, player) {
+        return None;
+    }
+    let order = &state.seating_order;
+    let start = order.iter().position(|who| who == player)?;
+    Some(
+        (1..order.len())
+            .map(|step| {
+                let other = &order[(start + step) % order.len()];
+                Choice::new(
+                    player.clone(),
+                    format!("Mathis Mathinus: may {other} follow the secondary"),
+                    vec![
+                        ChoiceOption::labelled(
+                            format!("yes|{other}"),
+                            "follower",
+                            format!("let {other} follow"),
+                        ),
+                        ChoiceOption::labelled(
+                            format!("no|{other}"),
+                            "follower",
+                            format!("not {other}"),
+                        ),
+                    ],
+                )
+                .contextualized(decision(
+                    state,
+                    player,
+                    "winnuhero",
+                    "hero_follower",
+                ))
+            })
+            .collect(),
+    )
 }
 
 #[allow(
@@ -1339,6 +1431,29 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
 
 #[cfg(test)]
 mod tests {
+    fn leader_strategy_followers(
+        context: &mut TimingContext<'_>,
+        player: &PlayerId,
+        leader: &LeaderId,
+        card: &StrategyCardId,
+    ) -> Result<Option<Vec<PlayerId>>, TimingError> {
+        let Some(choices) =
+            super::leader_strategy_follower_choices(context.state, player, leader, card)
+        else {
+            return Ok(None);
+        };
+        let mut followers = Vec::new();
+        for choice in choices {
+            let answer = context
+                .ask_seeing(&choice)
+                .map_err(TimingError::IllegalChoice)?;
+            if let Some(player) = answer.id.strip_prefix("yes|") {
+                followers.push(PlayerId::new(player));
+            }
+        }
+        Ok(Some(followers))
+    }
+
     use super::*;
     use crate::choice::Window;
     use std::collections::BTreeMap;
@@ -1353,14 +1468,6 @@ mod tests {
     fn game() -> GameState {
         crate::fixtures::seated_game(&[("a", FACTION), ("b", "sol")], DEFAULT)
     }
-
-    fn payload(pairs: &[(&str, &str)]) -> BTreeMap<String, serde_json::Value> {
-        pairs
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), serde_json::Value::from(*v)))
-            .collect()
-    }
-
     fn ssruu_game() -> GameState {
         crate::fixtures::seated_game(&[("a", FACTION), ("b", "yssaril"), ("c", "sol")], DEFAULT)
     }
@@ -2238,6 +2345,35 @@ mod tests {
         assert_eq!(shift(&state, &a(), &legendary), 2);
     }
 
+    #[test]
+    fn an_alliance_commander_grant_uses_the_recipient_home_system() {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        let content = ContentStore::embedded();
+        let home = home_of(&state, &a());
+        assert!(
+            state
+                .players
+                .iter()
+                .all(|seat| seat.faction.as_str() != FACTION)
+        );
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            content,
+            &a(),
+            COMMANDER,
+        ));
+        assert_eq!(
+            commander_bonus(&state, content, DEFAULT, &a(), &home),
+            2,
+            "Alliance conveys the Winnu ability, applied to the recipient's home system"
+        );
+        assert_eq!(
+            commander_bonus(&state, content, DEFAULT, &b(), &home),
+            0,
+            "the grant is held by a, not b"
+        );
+    }
+
     // -- Imperator -------------------------------------------------------------------------------
 
     fn grant_bt(state: &mut GameState) {
@@ -2332,6 +2468,101 @@ mod tests {
     }
 
     // -- Mathis Mathinus -------------------------------------------------------------------------
+
+    #[test]
+    fn hero_primary_offers_warfare_and_returns_the_free_tactical_result() {
+        let content = ContentStore::embedded();
+        let hub = crate::fixtures::hub_with_centre("18");
+        let system = SystemId::new(hub.galaxy.system_ids().into_iter().next().unwrap());
+        let mut state = game();
+        state.phase = ti4_model::state::Phase::Action;
+        state
+            .unclaimed_strategy_cards
+            .push(StrategyCardId::new("te6warfare"));
+        assert!(hero_cards(&state).contains(&StrategyCardId::new("te6warfare")));
+        assert_eq!(
+            leader_action(&state, content, &a(), &LeaderId::new("winnuhero")),
+            Some(true)
+        );
+        let mut table = scripted(&["te6warfare", system.as_str()]);
+        let result = crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut table,
+            |context| use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero")),
+        );
+        assert!(matches!(
+            result,
+            Ok(Some((card, crate::strategy_cards::Ability::FreeTactical(target))))
+                if card.as_str() == "te6warfare" && target == system
+        ));
+    }
+
+    #[test]
+    fn hero_chooses_followers_clockwise_after_primary_resolution() {
+        let mut state =
+            crate::fixtures::seated_game(&[("a", FACTION), ("b", "sol"), ("c", "hacan")], DEFAULT);
+        state.phase = ti4_model::state::Phase::Action;
+        state
+            .unclaimed_strategy_cards
+            .push(StrategyCardId::new("te6warfare"));
+        let hub = crate::fixtures::hub_with_centre("18");
+        let system = SystemId::new(hub.galaxy.system_ids().into_iter().next().unwrap());
+        let mut table = scripted(&["te6warfare", system.as_str(), "yes|b", "no|c"]);
+        let result = crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut table,
+            |context| {
+                let primary =
+                    use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero"))?;
+                assert!(matches!(
+                    primary,
+                    Some((_, crate::strategy_cards::Ability::FreeTactical(_)))
+                ));
+                leader_strategy_followers(
+                    context,
+                    &a(),
+                    &LeaderId::new("winnuhero"),
+                    &StrategyCardId::new("te6warfare"),
+                )
+            },
+        );
+        assert_eq!(result.unwrap(), Some(vec![b()]));
+    }
+
+    #[test]
+    fn hero_invalid_primary_or_follower_answer_is_propagated() {
+        let mut state = game();
+        state
+            .unclaimed_strategy_cards
+            .push(StrategyCardId::new("te6warfare"));
+        let before = state.clone();
+        let mut table = scripted(&["not-a-card"]);
+        let invalid_primary =
+            crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |context| {
+                use_leader_strategy_primary(context, &a(), &LeaderId::new("winnuhero"))
+            });
+        assert!(invalid_primary.is_err());
+        assert_eq!(state, before, "the invalid card answer mutates nothing");
+
+        let mut state = crate::fixtures::seated_game(&[("a", FACTION), ("b", "sol")], DEFAULT);
+        let before = state.clone();
+        let mut table = scripted(&["not-a-follower"]);
+        let invalid_follower =
+            crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |context| {
+                leader_strategy_followers(
+                    context,
+                    &a(),
+                    &LeaderId::new("winnuhero"),
+                    &StrategyCardId::new("te6warfare"),
+                )
+            });
+        assert!(invalid_follower.is_err());
+        assert_eq!(state, before, "the invalid follower answer mutates nothing");
+    }
 
     #[test]
     fn the_hero_resolves_a_primary_and_lets_chosen_players_follow() {
@@ -2531,7 +2762,7 @@ mod tests {
 
     #[test]
     fn the_claims_are_the_sheet() {
-        assert_eq!(MODULE.leaders.len(), 2);
+        assert_eq!(MODULE.leaders.len(), 3);
         assert_eq!(MODULE.units.len(), 2);
     }
 }

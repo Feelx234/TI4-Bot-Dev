@@ -255,7 +255,8 @@ fn place_on_planet(
         .planet_units
         .entry(planet.clone())
         .or_default()
-        .push(ti4_model::units::Unit::new(type_id, player.clone()));
+        .push(ti4_model::units::Unit::new(type_id.clone(), player.clone()));
+    crate::supply::stage_naaz_mech_placed(state, player, &system, &type_id);
     true
 }
 
@@ -717,10 +718,13 @@ fn resolve_instant(
                 .player(player)
                 .map_or((0, 0), |seat| (seat.trade_goods, seat.commodities));
             let mut options = vec![("gain", "gain 1 commodity")];
-            if goods_held >= 1 {
+            let forbidden = crate::factions::hooks_economy::effect_placement_forbidden(
+                state, content, sources, player, &ti4_model::id::UnitTypeId::new("mech"),
+            );
+            if goods_held >= 1 && !forbidden {
                 options.push(("spend_tg", "spend 1 trade good to place a mech"));
             }
-            if commodities_held >= 1 {
+            if commodities_held >= 1 && !forbidden {
                 options.push(("spend_com", "spend 1 commodity to place a mech"));
             }
             let chosen = ask(
@@ -2350,4 +2354,30 @@ mod bf_f3_tests {
         assert_eq!(seen[0]["amount"], 1);
         assert_eq!(seen[0]["source"], "exploration");
     }
+    #[test]
+    fn local_fabricators_with_a_maximum_offers_only_the_commodity_reward() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "sol")], sources);
+        let a = PlayerId::new("a");
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_voltron", &a, 1);
+        state.player_mut(&a).unwrap().trade_goods = 2;
+        state.player_mut(&a).unwrap().commodities = 1;
+        let board = state.board.clone();
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut ctx = crate::choice::Resolving {content, sources, table: &mut table,
+            dice: &mut dice, rng: &mut rng, timing: None};
+        assert!(resolve_instant(&mut state, &mut ctx, &a, Some(&planet), "lf1"));
+        assert_eq!(state.board, board);
+        assert_eq!(state.player(&a).unwrap().trade_goods, 2);
+        assert_eq!(state.player(&a).unwrap().commodities, 2);
+        let seen = seen.borrow();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), vec!["gain"]);
+    }
+
 }

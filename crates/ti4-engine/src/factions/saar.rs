@@ -19,6 +19,8 @@
 //!   card." Unlock: "Have 3 scored objectives."
 //! * Rowl Sarring (`saarcommander`) unlock: "Have 3 space docks on the game board."
 //! * Son of Ragh (flagship): ANTI-FIGHTER BARRAGE 6 (x4) -- statistics only.
+//! * Deorbit Barrage: ACTION: exhaust, spend any amount of resources, and roll to hit a ground
+//!   force on a planet within two Saar-adjacent systems of an asteroid field holding Saar ships.
 
 use std::sync::Arc;
 
@@ -42,6 +44,8 @@ use crate::timing::{Ability, Relation, Resolver, TimingContext, TimingError};
 const FACTION: &str = "saar";
 /// Ragh's Call's note id.
 const RAGH_NOTE: &str = "ragh:saar";
+const DEORBIT_ACTION: &str = "faction|saar|deorbit_barrage";
+const DEORBIT_EXHAUSTED: &str = "saar:deorbit_barrage:exhausted:";
 
 /// What this faction implements.
 pub const MODULE: FactionModule = FactionModule {
@@ -56,9 +60,11 @@ pub const MODULE: FactionModule = FactionModule {
     ],
     promissory: &["ragh"],
     leaders: &["saarhero", "saaragent", "saarcommander"],
-    breakthroughs: &[],
+    breakthroughs: &["saarbt"],
     hooks: Hooks {
         timing_abilities: Some(timing_abilities),
+        mapped_component_actions: Some(component_actions),
+        perform_component: Some(perform_component),
         commander_unlocked: Some(commander_unlocked),
         leader_action: Some(leader_action),
         use_leader: Some(use_leader),
@@ -85,6 +91,235 @@ fn is_saar(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
         .is_some_and(|seat| seat.faction.as_str() == FACTION)
+}
+
+fn deorbit_exhausted(player: &PlayerId) -> String {
+    format!("{DEORBIT_EXHAUSTED}{player}")
+}
+
+fn deorbit_systems(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+) -> Vec<SystemId> {
+    let types = catalogue(content, sources);
+    let adjacency = crate::movement::PlayerAdjacency::new(state, content, sources, galaxy, player);
+    let mut result = std::collections::BTreeSet::new();
+    for field in galaxy
+        .system_ids()
+        .into_iter()
+        .map(SystemId::new)
+        .filter(|system| {
+            ti4_content::galaxy::system(content, system.as_str(), sources)
+                .is_some_and(|tile| tile.is_asteroid_field())
+        })
+    {
+        if !state.system_state(&field).units.iter().any(|unit| {
+            &unit.owner == player
+                && types
+                    .get(unit.type_id.as_str())
+                    .is_some_and(UnitType::is_ship)
+        }) {
+            continue;
+        }
+        result.insert(field.clone());
+        let one = adjacency.neighbours(field.as_str());
+        for system in &one {
+            result.insert(SystemId::new(system.clone()));
+        }
+        for system in one {
+            result.extend(adjacency.neighbours(&system).into_iter().map(SystemId::new));
+        }
+    }
+    result.into_iter().collect()
+}
+
+fn deorbit_planets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+) -> Vec<(SystemId, PlanetId, PlayerId)> {
+    deorbit_systems(state, content, sources, galaxy, player)
+        .into_iter()
+        .flat_map(|system| {
+            let owners: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
+            owners.into_iter().flat_map(move |owner| {
+                units_of_base(state, content, sources, &owner, "infantry")
+                    .into_iter()
+                    .chain(units_of_base(state, content, sources, &owner, "mech"))
+                    .filter_map({
+                        let system = system.clone();
+                        move |(at, planet, _)| {
+                            (at == system).then_some((system.clone(), planet?, owner.clone()))
+                        }
+                    })
+            })
+        })
+        .collect()
+}
+
+fn component_actions(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+) -> Vec<ChoiceOption> {
+    if !is_saar(state, player)
+        || !crate::breakthroughs::holds(state, player, "saarbt")
+        || state.faction_marks.contains_key(&deorbit_exhausted(player))
+        || state.phase != ti4_model::state::Phase::Action
+    {
+        return Vec::new();
+    }
+    if deorbit_planets(state, content, sources, galaxy, player).is_empty() {
+        return Vec::new();
+    }
+    vec![ChoiceOption::labelled(
+        DEORBIT_ACTION,
+        crate::faction_abilities::ACTION_KIND,
+        "Deorbit Barrage: exhaust and spend resources to bombard a planet",
+    )]
+}
+
+fn perform_component(
+    context: &mut TimingContext<'_>,
+    player: &PlayerId,
+    option: &ChoiceOption,
+) -> bool {
+    if option.id != DEORBIT_ACTION
+        || !is_saar(context.state, player)
+        || !crate::breakthroughs::holds(context.state, player, "saarbt")
+        || context.state.phase != ti4_model::state::Phase::Action
+        || context
+            .state
+            .faction_marks
+            .contains_key(&deorbit_exhausted(player))
+    {
+        return false;
+    }
+    let Some(galaxy) = context.galaxy else {
+        return false;
+    };
+    let planets = deorbit_planets(
+        context.state,
+        context.content,
+        context.sources,
+        galaxy,
+        player,
+    );
+    if planets.is_empty() {
+        return false;
+    }
+    let max = crate::production::available(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        crate::production::Spend::Resources,
+    )
+    .max(0);
+    let spend_options: Vec<ChoiceOption> = (0..=max)
+        .map(|n| {
+            ChoiceOption::labelled(
+                n.to_string(),
+                "deorbit_spend",
+                format!("spend {n} resources"),
+            )
+        })
+        .collect();
+    let Ok(spend_answer) = ask(
+        context,
+        player,
+        "Deorbit Barrage: how many resources".to_owned(),
+        "saarbt",
+        "deorbit_spend",
+        spend_options,
+        false,
+    ) else {
+        return false;
+    };
+    let Ok(amount) = spend_answer.id.parse::<i64>() else {
+        return false;
+    };
+    if amount < 0 || amount > max {
+        return false;
+    }
+    let planet_options: Vec<ChoiceOption> = planets
+        .iter()
+        .map(|(system, planet, _owner)| {
+            ChoiceOption::labelled(
+                format!("{system}|{planet}"),
+                "deorbit_target",
+                format!("{planet} ({system})"),
+            )
+        })
+        .map(|option| (option.id.clone(), option))
+        .collect::<std::collections::BTreeMap<_, _>>()
+        .into_values()
+        .collect();
+    let Ok(answer) = ask(
+        context,
+        player,
+        "Deorbit Barrage: choose a planet".to_owned(),
+        "saarbt",
+        "deorbit_target",
+        planet_options,
+        false,
+    ) else {
+        return false;
+    };
+    let Some((system, planet, _)) = planets
+        .iter()
+        .find(|(s, p, _)| answer.id == format!("{s}|{p}"))
+        .cloned()
+    else {
+        return false;
+    };
+    let before_payment = context.state.clone();
+    match crate::production::pay_seeing(
+        context.state,
+        context.content,
+        context.sources,
+        context.galaxy,
+        context.table,
+        player,
+        amount,
+        crate::production::Spend::Resources,
+    ) {
+        Ok(true) => {}
+        Ok(false) | Err(_) => {
+            *context.state = before_payment;
+            return false;
+        }
+    }
+    context
+        .state
+        .faction_marks
+        .insert(deorbit_exhausted(player), "1".to_owned());
+    let mut payload = std::collections::BTreeMap::new();
+    payload.insert(
+        "player".to_owned(),
+        serde_json::Value::String(player.to_string()),
+    );
+    payload.insert(
+        "system".to_owned(),
+        serde_json::Value::String(system.to_string()),
+    );
+    payload.insert(
+        "planet".to_owned(),
+        serde_json::Value::String(planet.to_string()),
+    );
+    payload.insert(
+        "hits".to_owned(),
+        serde_json::Value::String(amount.to_string()),
+    );
+    crate::supply::stage_event(context.state, "SAAR_DEORBIT_BARRAGE", &payload);
+    true
 }
 
 fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
@@ -194,9 +429,9 @@ fn commander_docks(
     _producing: &SystemId,
     unit_base: &str,
 ) -> Vec<(SystemId, Option<PlanetId>)> {
+    // Own unlocked commander, a faceup Alliance, or a Yin grant: the docks are the holder's.
     if !matches!(unit_base, "fighter" | "infantry")
-        || !is_saar(state, player)
-        || leader_status(state, player, "saarcommander") != Some(LeaderStatus::Unlocked)
+        || !crate::promissory::has_commander_ability(state, player, "saarcommander")
     {
         return Vec::new();
     }
@@ -227,14 +462,136 @@ fn commander_docks(
 
 // -- timing abilities ----------------------------------------------------------------------------
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    let mut abilities = vec![
         scavenge(owner_name, seat),
         scavenger_zeta(owner_name, seat),
         ragh_call(owner_name, seat),
         chaos_mapping_production(owner_name, seat),
         agent(owner_name, seat),
-    ]
+        deorbit_resolve(owner_name, seat),
+        deorbit_ready(owner_name, seat),
+    ];
+    // Resolver listeners are armed once at setup and cannot be registered for a later Ssruu gain.
+    // Install a static source/borrower pair for every seated borrower, then let its live condition
+    // consult the current borrowable-agent roster.
+    if is_saar(state, seat) {
+        abilities.extend(
+            state
+                .players
+                .iter()
+                .filter(|borrower| &borrower.id != seat)
+                .map(|borrower| borrowed_agent(owner_name, seat, &borrower.id)),
+        );
+    }
+    abilities
+}
+
+fn deorbit_resolve(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("breakthrough:{owner_name}:saarbt:SAAR_DEORBIT_BARRAGE:after"),
+        seat.clone(),
+        "SAAR_DEORBIT_BARRAGE",
+        Relation::After,
+        Arc::new(move |event, resolver, context| {
+            if event.text("player") != Some(owner.as_str()) {
+                return Ok(());
+            }
+            let Some(system) = event.text("system").map(SystemId::new) else {
+                return Ok(());
+            };
+            let Some(planet) = event.text("planet").map(PlanetId::new) else {
+                return Ok(());
+            };
+            let Some(count) = event.text("hits").and_then(|n| n.parse::<usize>().ok()) else {
+                return Ok(());
+            };
+            let roll = context
+                .dice
+                .roll_by(context.rng, count, "saarbt", Some(4), &owner);
+            let hits = roll.faces.iter().filter(|face| **face >= 4).count();
+            for _ in 0..hits {
+                let types = catalogue(context.content, context.sources);
+                let units: Vec<_> = context
+                    .state
+                    .system_state(&system)
+                    .on_planet(&planet)
+                    .iter()
+                    .filter(|unit| {
+                        types
+                            .get(unit.type_id.as_str())
+                            .is_some_and(UnitType::is_ground_force)
+                    })
+                    .cloned()
+                    .collect();
+                if units.is_empty() {
+                    break;
+                }
+                let options = units
+                    .iter()
+                    .enumerate()
+                    .map(|(index, unit)| {
+                        ChoiceOption::labelled(
+                            index.to_string(),
+                            "deorbit_hit",
+                            format!("assign hit to {}'s {}", unit.owner, unit.type_id),
+                        )
+                    })
+                    .collect();
+                let answer = ask(
+                    context,
+                    &owner,
+                    "Deorbit Barrage: assign a hit".to_owned(),
+                    "saarbt",
+                    "deorbit_hit",
+                    options,
+                    false,
+                )
+                .map_err(illegal)?;
+                let Some(unit) = answer
+                    .id
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|index| units.get(index))
+                else {
+                    continue;
+                };
+                crate::invasion::assign_selected_ground_hit_in_timing(
+                    resolver, context, &system, &planet, unit, "saarbt",
+                )?;
+            }
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, _| {
+        event.text("player") == Some(condition_owner.as_str())
+    }))
+}
+
+fn deorbit_ready(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let key_owner = seat.clone();
+    Ability::stateful(
+        format!("breakthrough:{owner_name}:saarbt_ready:STATUS_PHASE_ENDED:after"),
+        seat.clone(),
+        "STATUS_PHASE_ENDED",
+        Relation::After,
+        Arc::new(move |_event, _resolver, context| {
+            context
+                .state
+                .faction_marks
+                .remove(&deorbit_exhausted(&owner));
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |_event, _, context| {
+        context
+            .state
+            .faction_marks
+            .contains_key(&deorbit_exhausted(&key_owner))
+    }))
 }
 
 fn gained_by(event: &crate::event::Event, player: &PlayerId) -> Option<(SystemId, PlanetId)> {
@@ -758,6 +1115,109 @@ fn agent(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
+/// Captain Mendosa copied through Ssruu. The Saar source retains the agent; this listener belongs
+/// to the borrower and is active only while the exact source is in Ssruu's live roster.
+fn borrowed_agent(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (condition_source, condition_borrower) = (source.clone(), borrower.clone());
+    let (effect_source, effect_borrower) = (source.clone(), borrower.clone());
+    Ability::stateful(
+        format!(
+            "leader:{owner_name}:{source}:yssarilagent:{borrower}:saaragent:SYSTEM_ACTIVATED:after"
+        ),
+        borrower.clone(),
+        "SYSTEM_ACTIVATED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            let Some(activator) = event.text("player").map(PlayerId::new) else {
+                return Ok(());
+            };
+            if !has_borrowable_saar_agent(
+                context.state,
+                context.content,
+                &effect_source,
+                &effect_borrower,
+            ) {
+                return Ok(());
+            }
+            let ships = agent_ships(context.state, context.content, context.sources, &activator);
+            if ships.is_empty() {
+                return Ok(());
+            }
+            let options = ships
+                .iter()
+                .enumerate()
+                .map(|(n, (_, _, _, label))| {
+                    ChoiceOption::labelled(format!("ship|{n}"), "ship", label.clone())
+                })
+                .collect();
+            let answer = ask(
+                context,
+                &effect_borrower,
+                "Captain Mendosa (Ssruu): raise which of the activating player's ships".to_owned(),
+                "saaragent",
+                "agent_ship",
+                options,
+                true,
+            )
+            .map_err(illegal)?;
+            let Some((origin, index, bonus, _)) = ships
+                .iter()
+                .enumerate()
+                .find(|(n, _)| answer.id == format!("ship|{n}"))
+                .map(|(_, ship)| ship)
+            else {
+                return Ok(());
+            };
+            if !crate::leaders::exhaust(
+                context.state,
+                &effect_borrower,
+                &LeaderId::new("yssarilagent"),
+            ) {
+                return Ok(());
+            }
+            let seq = context.state.activation_seq;
+            context.state.faction_marks.insert(
+                agent_key(&activator),
+                format!("{seq}|{origin}|{index}|{bonus}"),
+            );
+            super::hooks_cards::borrowed_agent_used(
+                context,
+                &effect_borrower,
+                &LeaderId::new("saaragent"),
+            );
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event.text("player").is_some_and(|activator| {
+            has_borrowable_saar_agent(
+                context.state,
+                context.content,
+                &condition_source,
+                &condition_borrower,
+            ) && !agent_ships(
+                context.state,
+                context.content,
+                context.sources,
+                &PlayerId::new(activator),
+            )
+            .is_empty()
+        })
+    }))
+}
+
+fn has_borrowable_saar_agent(
+    state: &GameState,
+    content: &ContentStore,
+    source: &PlayerId,
+    borrower: &PlayerId,
+) -> bool {
+    super::hooks_cards::borrowable_agents(state, content, borrower)
+        .iter()
+        .any(|(owner, agent)| owner == source && agent.as_str() == "saaragent")
+}
+
 /// The boost the agent granted to one ship for this activation.
 fn agent_move_bonus(state: &GameState, site: &MoveSite<'_>) -> i32 {
     let Some(mark) = state.faction_marks.get(&agent_key(site.player)) else {
@@ -903,6 +1363,10 @@ mod tests {
 
     fn b() -> PlayerId {
         PlayerId::new("b")
+    }
+
+    fn c() -> PlayerId {
+        PlayerId::new("c")
     }
 
     fn game() -> GameState {
@@ -1341,6 +1805,320 @@ mod tests {
     }
 
     #[test]
+    fn deorbit_barrage_pays_rolls_resolves_hits_and_readies_in_status() {
+        let content = ContentStore::embedded();
+        let field = asteroid_field();
+        let hub = crate::fixtures::hub_with_centre(field.as_str());
+        let mut state = game();
+        state.phase = ti4_model::state::Phase::Action;
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::BreakthroughId::new("saarbt"));
+        state
+            .system_mut(&field)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), a()));
+        let target_system = SystemId::new(
+            hub.galaxy
+                .adjacent(field.as_str())
+                .iter()
+                .next()
+                .expect("an asteroid tile has a neighboring system")
+                .to_owned(),
+        );
+        let tile = ti4_content::galaxy::system(content, target_system.as_str(), DEFAULT).unwrap();
+        let planet = PlanetId::new(tile.planets()[0]);
+        state
+            .system_mut(&target_system)
+            .planet_units
+            .insert(planet.clone(), Vec::new());
+        crate::fixtures::put_on_planet(&mut state, &target_system, &planet, "mech", &b(), 1);
+
+        assert_eq!(
+            component_actions(&state, content, DEFAULT, &hub.galaxy, &a()).len(),
+            1
+        );
+        state.system_mut(&field).units.clear();
+        assert!(component_actions(&state, content, DEFAULT, &hub.galaxy, &a()).is_empty());
+        state
+            .system_mut(&field)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), a()));
+
+        let mut table = scripted(&["invalid_spend"]);
+        let refused = crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut table,
+            |ctx| {
+                perform_component(
+                    ctx,
+                    &a(),
+                    &ChoiceOption::labelled(DEORBIT_ACTION, "component", ""),
+                )
+            },
+        );
+        assert!(
+            !refused,
+            "an invalid spend answer does not consume the action"
+        );
+        assert!(!state.faction_marks.contains_key(&deorbit_exhausted(&a())));
+
+        let target_id = format!("{target_system}|{planet}");
+        let mut zero_spend_state = state.clone();
+        let mut zero_table = scripted(&["0", &target_id]);
+        let zero_done = crate::fixtures::with_context(
+            &mut zero_spend_state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut zero_table,
+            |ctx| {
+                perform_component(
+                    ctx,
+                    &a(),
+                    &ChoiceOption::labelled(DEORBIT_ACTION, "component", ""),
+                )
+            },
+        );
+        assert!(
+            zero_done,
+            "the printed 'any amount' includes zero resources"
+        );
+        assert_eq!(trade_goods(&zero_spend_state, &a()), 0);
+        assert!(
+            zero_spend_state
+                .faction_marks
+                .contains_key(&deorbit_exhausted(&a()))
+        );
+
+        state.player_mut(&a()).unwrap().trade_goods = 1;
+        let mut table = scripted(&["1", &target_id, "trade_good"]);
+        let done = crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut table,
+            |ctx| {
+                perform_component(
+                    ctx,
+                    &a(),
+                    &ChoiceOption::labelled(DEORBIT_ACTION, "component", ""),
+                )
+            },
+        );
+        assert!(done);
+        assert_eq!(
+            trade_goods(&state, &a()),
+            0,
+            "the selected amount is paid once"
+        );
+        assert!(state.faction_marks.contains_key(&deorbit_exhausted(&a())));
+        assert_eq!(crate::supply::staged_events(&state), 1);
+        assert!(component_actions(&state, content, DEFAULT, &hub.galaxy, &a()).is_empty());
+
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut dice = crate::dice::Dice::from_faces([10]);
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut table = scripted(&["0", "sustain"]);
+        let mut resolving = crate::choice::Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: Some(&hub.galaxy),
+            }),
+        };
+        assert_eq!(
+            crate::supply::flush_staged_events(&mut state, &mut resolving),
+            1
+        );
+        assert_eq!(crate::supply::staged_events(&state), 0);
+        drop(resolving);
+        let roll = dice.rolled("saarbt")[0];
+        assert_eq!(roll.faces.len(), 1);
+        let mech = state
+            .system_state(&target_system)
+            .on_planet_of(&planet, &b())[0]
+            .clone();
+        assert_eq!(
+            mech.sustained_damage,
+            roll.faces[0] >= 4,
+            "decisions={:?}; resolver={:?}",
+            table.log.records,
+            resolver.log(),
+        );
+
+        emit(&mut state, &mut scripted(&[]), "STATUS_PHASE_ENDED", &[]);
+        assert!(!state.faction_marks.contains_key(&deorbit_exhausted(&a())));
+    }
+
+    #[test]
+    fn deorbit_hits_choose_each_ground_force_and_owner_handles_sustain() {
+        let content = ContentStore::embedded();
+        let field = asteroid_field();
+        let hub = crate::fixtures::hub_with_centre(field.as_str());
+        let mut state =
+            crate::fixtures::seated_game(&[("a", FACTION), ("b", "sol"), ("c", "hacan")], DEFAULT);
+        state.phase = ti4_model::state::Phase::Action;
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::BreakthroughId::new("saarbt"));
+        state.player_mut(&a()).unwrap().trade_goods = 2;
+        let controlled: Vec<_> = state
+            .controlled_planets(&a())
+            .into_iter()
+            .map(|(_, planet)| planet.clone())
+            .collect();
+        for planet in controlled {
+            state.exhausted_planets.insert(planet);
+        }
+        state
+            .system_mut(&field)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), a()));
+        let target_system = SystemId::new(
+            hub.galaxy
+                .adjacent(field.as_str())
+                .iter()
+                .next()
+                .unwrap()
+                .to_owned(),
+        );
+        let tile = ti4_content::galaxy::system(content, target_system.as_str(), DEFAULT).unwrap();
+        let planet = PlanetId::new(tile.planets()[0]);
+        state
+            .system_mut(&target_system)
+            .planet_units
+            .insert(planet.clone(), Vec::new());
+        crate::fixtures::put_on_planet(&mut state, &target_system, &planet, "infantry", &b(), 1);
+        crate::fixtures::put_on_planet(&mut state, &target_system, &planet, "mech", &b(), 1);
+        crate::fixtures::put_on_planet(&mut state, &target_system, &planet, "mech", &c(), 1);
+
+        let target_id = format!("{target_system}|{planet}");
+        let mut table = scripted(&["2", &target_id]);
+        assert!(crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut table,
+            |ctx| {
+                perform_component(
+                    ctx,
+                    &a(),
+                    &ChoiceOption::labelled(DEORBIT_ACTION, "component", ""),
+                )
+            }
+        ));
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut dice = crate::dice::Dice::from_faces([10, 10]);
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut table = scripted(&["1", "sustain", "2", "sustain"]);
+        let mut resolving = crate::choice::Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: Some(&hub.galaxy),
+            }),
+        };
+        assert_eq!(
+            crate::supply::flush_staged_events(&mut state, &mut resolving),
+            1
+        );
+        drop(resolving);
+        let units = state
+            .system_state(&target_system)
+            .on_planet(&planet)
+            .to_vec();
+        assert_eq!(
+            units
+                .iter()
+                .filter(|unit| unit.owner == b() && unit.type_id.as_str() == "infantry")
+                .count(),
+            1,
+            "the first hit chose B's mech, leaving B's cheaper infantry in place"
+        );
+        let diagnostics = format!(
+            "decisions={:?}; resolver={:?}",
+            table.log.records,
+            resolver.log()
+        );
+        assert!(
+            units.iter().any(|unit| unit.owner == b()
+                && unit.type_id.as_str() == "mech"
+                && unit.sustained_damage),
+            "B's mech should sustain damage; {diagnostics}"
+        );
+        assert!(
+            units.iter().any(|unit| unit.owner == c()
+                && unit.type_id.as_str() == "mech"
+                && unit.sustained_damage),
+            "the second hit chose C's mech; owners decide their own sustain damage; {diagnostics}"
+        );
+    }
+
+    #[test]
+    fn deorbit_invalid_resource_payment_leaves_the_action_state_unchanged() {
+        let content = ContentStore::embedded();
+        let field = asteroid_field();
+        let hub = crate::fixtures::hub_with_centre(field.as_str());
+        let mut state = game();
+        state.phase = ti4_model::state::Phase::Action;
+        state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::BreakthroughId::new("saarbt"));
+        state.player_mut(&a()).unwrap().trade_goods = 2;
+        state
+            .system_mut(&field)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), a()));
+        let target_system = SystemId::new(
+            hub.galaxy
+                .adjacent(field.as_str())
+                .iter()
+                .next()
+                .unwrap()
+                .to_owned(),
+        );
+        let tile = ti4_content::galaxy::system(content, target_system.as_str(), DEFAULT).unwrap();
+        let planet = PlanetId::new(tile.planets()[0]);
+        crate::fixtures::put_on_planet(&mut state, &target_system, &planet, "infantry", &b(), 1);
+        let before = state.clone();
+        let mut table = scripted(&[
+            "2",
+            &format!("{target_system}|{planet}"),
+            "trade_good",
+            "not-a-payment",
+        ]);
+        let done = crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut table,
+            |ctx| {
+                perform_component(
+                    ctx,
+                    &a(),
+                    &ChoiceOption::labelled(DEORBIT_ACTION, "component", ""),
+                )
+            },
+        );
+        assert!(!done);
+        assert_eq!(
+            state, before,
+            "payment validation precedes spending and exhaustion"
+        );
+    }
+
+    #[test]
     fn chaos_mapping_bars_other_players_from_an_asteroid_field_holding_a_cm_ship() {
         let content = ContentStore::embedded();
         let mut state = game();
@@ -1513,5 +2291,164 @@ mod tests {
             &[("player", "b"), ("system", "18")],
         );
         assert!(state.faction_marks.is_empty());
+    }
+    #[test]
+    fn ssruu_borrows_captain_mendosa_on_the_activation_and_boosts_only_the_selected_ship() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        let hub = crate::fixtures::plain_hub();
+        let carrier_origin = SystemId::new(hub.outer[0].clone());
+        let other_origin = SystemId::new(hub.outer[1].clone());
+        state.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("saaragent"), LeaderStatus::Exhausted);
+        crate::fixtures::put(&mut state, &carrier_origin, "carrier", &b(), 1);
+        crate::fixtures::put(&mut state, &other_origin, "cruiser", &b(), 1);
+        crate::fixtures::put(
+            &mut state,
+            &SystemId::new(hub.centre.clone()),
+            "cruiser",
+            &a(),
+            1,
+        );
+        state.activation_seq = 37;
+        let types = catalogue(content, DEFAULT);
+        let carrier = types.get("carrier").expect("carrier");
+        let ships = agent_ships(&state, content, DEFAULT, &b());
+        let selected = ships
+            .iter()
+            .position(|(system, ..)| system == &carrier_origin)
+            .unwrap();
+        let (pb, origin) = (b(), carrier_origin.clone());
+        let site = MoveSite {
+            player: &pb,
+            origin: &origin,
+            index: Some(ships[selected].1),
+            ship: carrier,
+        };
+        assert_eq!(agent_move_bonus(&state, &site), 0, "before activation");
+        emit(
+            &mut state,
+            &mut scripted(&[
+                "leader:saar:a:yssarilagent:b:saaragent:SYSTEM_ACTIVATED:after",
+                &format!("ship|{selected}"),
+            ]),
+            "SYSTEM_ACTIVATED",
+            &[("player", "b"), ("system", hub.centre.as_str())],
+        );
+        assert_eq!(
+            leader_status(&state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            leader_status(&state, &a(), "saaragent"),
+            Some(LeaderStatus::Exhausted),
+            "borrow never changes source status"
+        );
+        let (_, _, gap, _) = &ships[selected];
+        assert_eq!(i64::from(agent_move_bonus(&state, &site)), *gap);
+        let other = MoveSite {
+            player: &pb,
+            origin: &other_origin,
+            index: Some(0),
+            ship: types.get("cruiser").unwrap(),
+        };
+        assert_eq!(
+            agent_move_bonus(&state, &other),
+            0,
+            "the copied bonus is scoped to the selected ship"
+        );
+        state.activation_seq += 1;
+        assert_eq!(
+            agent_move_bonus(&state, &site),
+            0,
+            "the copied bonus expires with its activation"
+        );
+    }
+
+    #[test]
+    fn ssruu_captain_mendosa_listener_tracks_source_and_borrower_readiness_live() {
+        let content = ContentStore::embedded();
+        let mut state = game();
+        state.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        let agent = LeaderId::new("saaragent");
+        let ssruu = LeaderId::new("yssarilagent");
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(agent.clone(), LeaderStatus::Readied);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(ssruu.clone(), LeaderStatus::Readied);
+        assert!(has_borrowable_saar_agent(&state, content, &a(), &b()));
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(agent.clone(), LeaderStatus::Exhausted);
+        assert!(
+            has_borrowable_saar_agent(&state, content, &a(), &b()),
+            "an exhausted other-seat source is still borrowable"
+        );
+        let hub = crate::fixtures::plain_hub();
+        let origin = SystemId::new(hub.outer[0].clone());
+        crate::fixtures::put(&mut state, &origin, "carrier", &b(), 1);
+        crate::fixtures::put(
+            &mut state,
+            &SystemId::new(hub.outer[1].clone()),
+            "cruiser",
+            &a(),
+            1,
+        );
+        state.player_mut(&a()).unwrap().leaders.remove(&agent);
+        assert!(
+            !has_borrowable_saar_agent(&state, content, &a(), &b()),
+            "source removal disables the already-armed listener"
+        );
+        emit(
+            &mut state,
+            &mut scripted(&[]),
+            "SYSTEM_ACTIVATED",
+            &[("player", "b"), ("system", hub.centre.as_str())],
+        );
+        assert!(
+            state.faction_marks.is_empty(),
+            "actual activation has no copied effect without its source"
+        );
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(agent.clone(), LeaderStatus::Readied);
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(ssruu.clone(), LeaderStatus::Exhausted);
+        assert!(
+            !has_borrowable_saar_agent(&state, content, &a(), &b()),
+            "an exhausted Ssruu disables the listener"
+        );
+        emit(
+            &mut state,
+            &mut scripted(&["decline"]),
+            "SYSTEM_ACTIVATED",
+            &[("player", "b"), ("system", hub.centre.as_str())],
+        );
+        assert!(
+            state.faction_marks.is_empty(),
+            "actual activation stays inert when Ssruu is exhausted"
+        );
     }
 }

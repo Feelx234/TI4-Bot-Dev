@@ -55,6 +55,8 @@ pub struct EconomyHooks {
     /// docks cannot produce infantry"). Read in `production::placements`, so a planet whose only
     /// producers are barred is not a spot for the unit, and in `ProductionWindow::build_options`
     /// the barred producers' PRODUCTION does not count toward what that unit may use.
+    /// Ability-based production passes "ability" as the producer: blanket bans apply,
+    /// while restrictions specific to a producing unit apply only to that unit.
     pub cannot_produce: Option<fn(&GameState, &ContentStore, &PlayerId, &str, &str) -> bool>,
     /// Whether a game effect may not place this resolved unit type from reinforcements.  This is
     /// deliberately separate from `cannot_produce`: effects that place units are not PRODUCTION.

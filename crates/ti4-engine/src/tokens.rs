@@ -361,6 +361,23 @@ pub fn can_place_command_token(
             .is_some_and(|here| here.command_tokens.contains(owner))
 }
 
+/// Stage the typed event for a command token that was just placed through a route without a
+/// resolver at hand. A game with no registered faction modules is a no-op, matching
+/// [`crate::supply::stage_event`]. The coordinator announces this with
+/// [`crate::supply::flush_staged_events`].
+pub fn stage_command_token_placed(
+    state: &mut GameState,
+    player: &PlayerId,
+    system: &SystemId,
+    pool: crate::factions::hooks_cards::TokenPool,
+) -> bool {
+    crate::supply::stage_event(
+        state,
+        crate::factions::hooks_cards::COMMAND_TOKEN_PLACED,
+        &crate::factions::hooks_cards::command_token_placed_payload(player, system, pool),
+    )
+}
+
 /// Place one of `owner`'s command tokens from `owner`'s **reinforcements** (not from a command
 /// sheet pool) in `system`.
 ///
@@ -378,6 +395,12 @@ pub fn place_command_token_from_reinforcements(
         return false;
     }
     state.system_mut(system).place_token(owner.clone());
+    stage_command_token_placed(
+        state,
+        owner,
+        system,
+        crate::factions::hooks_cards::TokenPool::Reinforcements,
+    );
     true
 }
 
@@ -925,6 +948,20 @@ mod tests {
                 .get(&system)
                 .is_some_and(|here| here.command_tokens.contains(&players[0]))
         );
+    }
+
+    #[test]
+    fn placed_token_events_are_not_staged_without_a_seated_faction_module() {
+        let (mut state, players) = game();
+        let system = ti4_model::id::SystemId::new("stage_probe");
+        assert!(!crate::supply::staging_enabled(&state));
+        assert!(!stage_command_token_placed(
+            &mut state,
+            &players[0],
+            &system,
+            crate::factions::hooks_cards::TokenPool::Reinforcements,
+        ));
+        assert_eq!(crate::supply::staged_events(&state), 0);
     }
 
     // -- Creuss wormhole tokens ---------------------------------------------------------------

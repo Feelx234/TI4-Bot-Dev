@@ -78,6 +78,16 @@ fn actor_is_not(event: &Event, player: &PlayerId, _state: &GameState) -> bool {
         .is_some_and(|who| who != player.as_str())
 }
 
+/// Courageous to the End: the destroyed ship belongs to the holder and the event states that
+/// the removal happened during a space combat. The effect source in `cause` is independent.
+fn your_ship_destroyed_during_space_combat(
+    event: &Event,
+    player: &PlayerId,
+    state: &GameState,
+) -> bool {
+    actor_is(event, player, state) && event.boolean("during_space_combat") == Some(true)
+}
+
 /// "When you are negotiating a transaction" — Black Market Dealings. The event names the
 /// proposer as `player` and the other chair as `partner`; either chair at the table is
 /// negotiating.
@@ -152,7 +162,16 @@ fn another_players_card_is_not_sabotage(
     player: &PlayerId,
     state: &GameState,
 ) -> bool {
-    actor_is_not(event, player, state) && !is_sabotage_play(event)
+    actor_is_not(event, player, state)
+        && !is_sabotage_play(event)
+        // Last Bastion commander: "Your action cards cannot be canceled by 'Sabotage'".
+        && !event.text("player").is_some_and(|actor| {
+            crate::promissory::has_commander_ability(
+                state,
+                &PlayerId::new(actor),
+                "bastioncommander",
+            )
+        })
 }
 
 /// The `ACTION_CARD_PLAYED` payload names one of the four Sabotage copies.
@@ -413,7 +432,11 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         // hits, losing the last ship -- and `After` for one that reacts to it having happened.
         (
             "After 1 of your ships is destroyed during a space combat",
-            guarded("SHIP_DESTROYED", After, actor_is),
+            guarded(
+                "SHIP_DESTROYED",
+                After,
+                your_ship_destroyed_during_space_combat,
+            ),
         ),
         (
             "When your last ship in the active system is destroyed",
@@ -668,24 +691,23 @@ pub fn announce(
     // inside the window, where it holds no resolver): announce each removal through the game's
     // resolver now, so the event's own WHEN and AFTER windows open around it. The ship is off
     // the board before this runs, so `last` is read from the position a reacting card would see.
-    for (system, owner, unit_type) in std::mem::take(&mut context.state.pending_destructions) {
-        let remaining = crate::combat::ships_of(
-            context.state,
-            context.content,
-            context.sources,
-            &owner,
-            &system,
-        )
-        .len();
+    for (system, owner, unit_type, cause, during_space_combat) in
+        std::mem::take(&mut context.state.pending_destructions)
+    {
         // The same handoff the combat window's own emissions make: a reacting effect that
         // needs to know which ship was destroyed cannot read the event once the window runs.
         context.state.last_ship_destroyed =
             Some((system.clone(), owner.clone(), unit_type.clone()));
-        let mut payload = BTreeMap::new();
-        payload.insert("system".to_owned(), system.to_string().into());
-        payload.insert("player".to_owned(), owner.to_string().into());
-        payload.insert("unit".to_owned(), unit_type.to_string().into());
-        payload.insert("last".to_owned(), (remaining == 0).into());
+        let payload = crate::combat::ship_destroyed_payload(
+            context.state,
+            context.content,
+            context.sources,
+            &system,
+            &owner,
+            &unit_type,
+            &cause,
+            during_space_combat,
+        );
         let destroyed = context.event_sequence.next("SHIP_DESTROYED", payload)?;
         resolver.emit_with_context(context, destroyed, |_, _| {})?;
     }
@@ -890,6 +912,9 @@ pub fn arm(resolver: &mut Resolver, state: &GameState) {
         .collect();
     windows.sort_unstable();
     windows.dedup();
+
+    resolver.register(crate::leaders::ssruu_l1z1x_activation_abilities(state));
+    resolver.register(crate::factions::borrowed_round_agents::abilities(state));
 
     for seat in &state.players {
         let owner_name = crate::promissory::faction_name(state, &seat.id);
@@ -1190,6 +1215,45 @@ mod tests {
         assert!(
             playable_now(&state, content, &player(), &theirs, Relation::After).is_empty(),
             "another player's activation is not yours"
+        );
+    }
+
+    #[test]
+    fn courageous_requires_the_destroyed_ship_to_be_lost_during_space_combat() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&player()).unwrap().action_cards = vec![ActionCardId::new("courageous")];
+        let destroyed = |during_space_combat: bool| {
+            let mut payload = BTreeMap::new();
+            payload.insert("player".to_owned(), "a".into());
+            payload.insert("system".to_owned(), "18".into());
+            payload.insert("unit".to_owned(), "cruiser".into());
+            payload.insert("cause".to_owned(), "action_card:direct_hit".into());
+            payload.insert("during_space_combat".to_owned(), during_space_combat.into());
+            Event::new(1, "SHIP_DESTROYED", payload)
+        };
+
+        assert_eq!(
+            playable_now(
+                &state,
+                content,
+                &player(),
+                &destroyed(true),
+                Relation::After,
+            ),
+            vec![ActionCardId::new("courageous")],
+            "the effect source remains Direct Hit while the independent window fact qualifies"
+        );
+        assert!(
+            playable_now(
+                &state,
+                content,
+                &player(),
+                &destroyed(false),
+                Relation::After,
+            )
+            .is_empty(),
+            "the same effect outside combat does not open Courageous"
         );
     }
 

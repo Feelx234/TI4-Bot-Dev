@@ -2,14 +2,14 @@
 //! `plans/BASE_FACTIONS_PLAN_2026-10-02.md` for scope.
 //!
 //! Implemented: Indoctrination (with the Moyin's Ashes DEPLOY), Devotion, Impulse Core, Yin
-//! Spinner, Van Hauge, Greyfire Mutagen, Brother Milor, and Brother Omar. Not implemented (see
-//! `plans/evidence/BF-yin.md`): Dannel of the Tenth still needs eventful ground combats, and Yin
-//! Ascendant needs an alliance-ability grant route.
+//! Spinner, Van Hauge, Greyfire Mutagen, Brother Milor, Brother Omar, and Dannel of the Tenth.
+//! Yin Ascendant grants canonical unused-faction commander rights; unsupported granted effects
+//! remain an explicit scope limitation, so its asset is not claimed complete.
 
 use std::sync::Arc;
 
 use ti4_content::ContentStore;
-use ti4_model::content_types::{DEFAULT, SourceSet};
+use ti4_model::content_types::{ContentType, DEFAULT, SourceSet};
 use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
 use ti4_model::state::{GameState, LeaderStatus};
 use ti4_model::units::Unit;
@@ -17,7 +17,7 @@ use ti4_model::units::Unit;
 use super::hooks_combat::{CombatHooks, CombatMoment, HitSite, ProducedHits};
 use super::hooks_strategy::{ResearchWaiver, ResearchWaiverPayment, StrategyHooks};
 use super::{FactionModule, Hooks};
-use crate::choice::{Choice, ChoiceOption, IllegalChoice};
+use crate::choice::{Choice, ChoiceOption, IllegalChoice, Resolving, TimingHandle};
 use crate::decision_context::{DecisionContext, DecisionSource};
 use crate::event::Event;
 use crate::production::Spend;
@@ -30,13 +30,14 @@ pub const MODULE: FactionModule = FactionModule {
     technologies: &["yso", "ic"],
     units: &["yin_flagship", "yin_mech"],
     promissory: &["greyfire"],
-    // yinhero lacks eventful ground combats. yinbt lacks an alliance-ability grant route.
-    leaders: &["yinagent", "yincommander"],
+    // yinbt acquisition is live; unsupported granted commander effects keep acceptance open.
+    leaders: &["yinagent", "yincommander", "yinhero"],
     breakthroughs: &[],
     hooks: Hooks {
         commander_unlocked: Some(commander_unlocked),
         leader_action: Some(leader_action),
         use_leader: Some(use_leader),
+        use_leader_timed: Some(use_leader_timed),
         strategy: StrategyHooks {
             extra_prerequisite_colours: Some(extra_prerequisite_colours),
             research_waiver_offer: Some(research_waiver_offer),
@@ -274,13 +275,21 @@ fn produced_hits(
     else {
         return Ok(ProducedHits::NONE);
     };
-    if crate::combat::destroy_units(
+    let cause = if ability == "devotion" {
+        "faction_ability:devotion"
+    } else {
+        "technology:impulse_core"
+    };
+    if crate::combat::destroy_units_with_context(
         context.state,
         context.content,
         context.sources,
         player,
         site.system,
         std::slice::from_ref(victim),
+        cause,
+        // The sacrifice is paid at one of the combat's own moments ([`CombatMoment`]).
+        true,
     ) == 0
     {
         return Ok(ProducedHits::NONE);
@@ -302,15 +311,163 @@ fn produced_hits(
 
 // -- Timing abilities ----------------------------------------------------------------------------
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
-    vec![
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+    let mut abilities = vec![
         indoctrination(owner_name, seat),
         greyfire(owner_name, seat),
         yin_spinner(owner_name, seat),
         van_hauge(owner_name, seat),
         brother_milor_ship(owner_name, seat),
         brother_milor_ground(owner_name, seat),
-    ]
+        yin_ascendant_gain(owner_name, seat),
+        yin_ascendant_public_score(owner_name, seat),
+    ];
+    // Ssruu's listener is registered from the static seated roster. Whether a source is live is
+    // checked on every event through borrowable_agents, so a Readied or Exhausted Brother Milor
+    // can be copied while a locked or purged one cannot.
+    if is_yin(state, seat)
+        && state
+            .player(seat)
+            .is_some_and(|source| source.leaders.contains_key(&LeaderId::new("yinagent")))
+    {
+        for borrower in &state.players {
+            if &borrower.id != seat
+                && borrower
+                    .leaders
+                    .contains_key(&LeaderId::new("yssarilagent"))
+            {
+                abilities.push(borrowed_milor_ship(owner_name, seat, &borrower.id));
+                abilities.push(borrowed_milor_ground(owner_name, seat, &borrower.id));
+            }
+        }
+    }
+    abilities
+}
+
+const YIN_ASCENDANT: &str = "yinbt";
+const YIN_ASCENDANT_RNG: &str = "yinbt:unused_commander";
+
+/// Firmament and Obsidian are alternate faces of one faction family. Ghost's legacy
+/// `redcreusscommander` is noncanonical; the canonical faction commander is `ghostcommander`.
+fn yinbt_faction_family(faction: &str) -> &str {
+    match faction {
+        "obsidian" => "firmament",
+        other => other,
+    }
+}
+
+/// Official DEFAULT commanders Yin can gain. This is deliberately independent of whether a
+/// faction module implements the granted effect: the printed pool is all unused factions.
+fn yinbt_canonical_commanders(content: &ContentStore) -> Vec<(String, String)> {
+    let mut candidates = std::collections::BTreeMap::<String, String>::new();
+    for record in content
+        .catalogue(ContentType::Leaders, DEFAULT)
+        .into_values()
+    {
+        if record.text("type") != Some("commander") {
+            continue;
+        }
+        let Some(faction) = record.text("faction") else {
+            continue;
+        };
+        let Some(id) = record.id() else {
+            continue;
+        };
+        // The corpus includes redcreusscommander as a second Ghost commander and Obsidian's
+        // secondary Firmament form. Neither is another unused faction.
+        if id != format!("{faction}commander") || faction == "obsidian" {
+            continue;
+        }
+        let family = yinbt_faction_family(faction);
+        candidates.insert(family.to_owned(), id.to_owned());
+    }
+    candidates.into_iter().collect()
+}
+
+fn yinbt_commander_candidates(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+) -> Vec<String> {
+    let used_families: std::collections::BTreeSet<String> = state
+        .players
+        .iter()
+        .map(|seat| yinbt_faction_family(seat.faction.as_str()).to_owned())
+        .collect();
+    yinbt_canonical_commanders(content)
+        .into_iter()
+        .filter(|(family, commander)| {
+            !used_families.contains(family)
+                && !crate::promissory::has_commander_ability(state, player, commander)
+        })
+        .map(|(_, commander)| commander)
+        .collect()
+}
+
+fn sample_yinbt_commander(candidates: &[String], rng: &mut crate::rng::GameRng) -> Option<String> {
+    let sides = u32::try_from(candidates.len()).ok()?;
+    if sides == 0 {
+        return None;
+    }
+    let index = usize::try_from(rng.die(YIN_ASCENDANT_RNG, sides) - 1).ok()?;
+    candidates.get(index).cloned()
+}
+
+fn grant_yinbt_commander(context: &mut TimingContext<'_>, player: &PlayerId) {
+    let candidates = yinbt_commander_candidates(context.state, context.content, player);
+    let Some(commander) = sample_yinbt_commander(&candidates, context.rng) else {
+        return;
+    };
+    // The candidate pool excludes all known acquired rights. Keep the helper's guard anyway, so
+    // a future mark source cannot turn a repeated or stale event into a second grant.
+    let _ = crate::promissory::grant_commander_ability(
+        context.state,
+        context.content,
+        player,
+        &commander,
+    );
+}
+
+fn yin_ascendant_gain(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("breakthrough:{owner_name}:{YIN_ASCENDANT}:BREAKTHROUGH_GAINED:after"),
+        seat.clone(),
+        "BREAKTHROUGH_GAINED",
+        Relation::After,
+        Arc::new(move |_, _, context| {
+            grant_yinbt_commander(context, &owner);
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event.text("player") == Some(condition_owner.as_str())
+            && event.text("breakthrough") == Some(YIN_ASCENDANT)
+            && is_yin(context.state, &condition_owner)
+            && crate::breakthroughs::holds(context.state, &condition_owner, YIN_ASCENDANT)
+    }))
+}
+
+fn yin_ascendant_public_score(owner_name: &str, seat: &PlayerId) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("breakthrough:{owner_name}:{YIN_ASCENDANT}:PUBLIC_OBJECTIVE_SCORED:after"),
+        seat.clone(),
+        "PUBLIC_OBJECTIVE_SCORED",
+        Relation::After,
+        Arc::new(move |_, _, context| {
+            grant_yinbt_commander(context, &owner);
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event.text("player") == Some(condition_owner.as_str())
+            && event.text("objective").is_some()
+            && is_yin(context.state, &condition_owner)
+            && crate::breakthroughs::holds(context.state, &condition_owner, YIN_ASCENDANT)
+    }))
 }
 
 fn illegal(error: IllegalChoice) -> TimingError {
@@ -622,6 +779,10 @@ fn van_hauge(owner_name: &str, seat: &PlayerId) -> Ability {
                     }
                 }
             }
+            // Van Hauge is the source of every chained loss; only the enclosing combat fact is
+            // inherited from the destruction that opened its window.
+            let cause = "unit_ability:yin_flagship";
+            let during_space_combat = event.boolean("during_space_combat") == Some(true);
             for player in owners {
                 let ships = crate::combat::ships_of(
                     context.state,
@@ -631,13 +792,15 @@ fn van_hauge(owner_name: &str, seat: &PlayerId) -> Ability {
                     &system,
                 );
                 if !ships.is_empty() {
-                    crate::combat::destroy_units(
+                    crate::combat::destroy_units_with_context(
                         context.state,
                         context.content,
                         context.sources,
                         &player,
                         &system,
                         &ships,
+                        cause,
+                        during_space_combat,
                     );
                 }
             }
@@ -668,12 +831,15 @@ fn exhaust_agent(state: &mut GameState, owner: &PlayerId) {
 /// card to allow that player to place 2 fighters in the destroyed unit's system if it was a ship,
 /// or 2 infantry on its planet if it was a ground force."
 ///
-/// `SHIP_DESTROYED` is emitted only by space combat and by the Direct Hit played into one, so every
-/// such event is "during combat". The fighters are placed without a capacity check: the card says
-/// "place 2", and 16.3 removes any excess at the end of the turn.
+/// "During combat" is read from the event's own `during_space_combat` fact,
+/// the same way the ground branch reads it: the shared destruction route announces a combat casualty
+/// and a Nova Seed loss identically, and the board cannot tell them apart once the ship is gone.
+/// The fighters are placed without a capacity check: the card says "place 2", and 16.3 removes any
+/// excess at the end of the turn.
 fn brother_milor_ship(owner_name: &str, seat: &PlayerId) -> Ability {
     let owner = seat.clone();
     let condition_owner = seat.clone();
+    let counts = |event: &Event| crate::combat::destroyed_during_combat(event);
     Ability::stateful(
         format!("leader:{owner_name}:yinagent:SHIP_DESTROYED:after"),
         seat.clone(),
@@ -686,7 +852,8 @@ fn brother_milor_ship(owner_name: &str, seat: &PlayerId) -> Ability {
             ) else {
                 return Ok(());
             };
-            if !agent_ready(context.state, &owner)
+            if !counts(event)
+                || !agent_ready(context.state, &owner)
                 || !in_reinforcements(
                     context.state,
                     context.content,
@@ -704,7 +871,8 @@ fn brother_milor_ship(owner_name: &str, seat: &PlayerId) -> Ability {
     )
     .with_optional(true)
     .with_stateful_condition(Arc::new(move |event, _, context| {
-        agent_ready(context.state, &condition_owner)
+        counts(event)
+            && agent_ready(context.state, &condition_owner)
             && event.text("player").is_some_and(|player| {
                 in_reinforcements(
                     context.state,
@@ -780,6 +948,172 @@ fn brother_milor_ground(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
+/// Ssruu copying Brother Milor's ship branch. The destroyed unit's owner receives the fighters;
+/// only Ssruu is exhausted, while the source Milor is deliberately left untouched.
+///
+/// The copy carries the printed trigger, including "during combat": the same provenance the native
+/// route reads, so a borrowed ability is not broader than the one it borrows.
+fn borrowed_milor_ship(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (condition_source, condition_borrower) = (source.clone(), borrower.clone());
+    let (effect_source, effect_borrower) = (source.clone(), borrower.clone());
+    let counts = |event: &Event| crate::combat::destroyed_during_combat(event);
+    Ability::stateful(
+        format!("leader:{owner_name}:{source}:yssarilagent:yinagent:SHIP_DESTROYED:after"),
+        borrower.clone(),
+        "SHIP_DESTROYED",
+        Relation::After,
+        Arc::new(move |event, _, context| {
+            if !counts(event)
+                || !can_copy_milor(
+                    context.state,
+                    context.content,
+                    &effect_source,
+                    &effect_borrower,
+                )
+            {
+                return Ok(());
+            }
+            let (Some(system), Some(player)) = (
+                event.text("system").map(SystemId::new),
+                event.text("player").map(PlayerId::new),
+            ) else {
+                return Ok(());
+            };
+            if !in_reinforcements(
+                context.state,
+                context.content,
+                context.sources,
+                &player,
+                "fighter",
+            ) || !crate::leaders::exhaust(
+                context.state,
+                &effect_borrower,
+                &LeaderId::new("yssarilagent"),
+            ) {
+                return Ok(());
+            }
+            crate::action_cards::place_units_counted(context, &player, &system, None, "fighter", 2);
+            super::hooks_cards::borrowed_agent_used(
+                context,
+                &effect_borrower,
+                &LeaderId::new("yinagent"),
+            );
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        counts(event)
+            && can_copy_milor(
+                context.state,
+                context.content,
+                &condition_source,
+                &condition_borrower,
+            )
+            && event.text("player").is_some_and(|player| {
+                in_reinforcements(
+                    context.state,
+                    context.content,
+                    context.sources,
+                    &PlayerId::new(player),
+                    "fighter",
+                )
+            })
+    }))
+}
+
+/// Ssruu copying Brother Milor's ground-force branch. Only combat casualties count, matching the
+/// latest printed timing and the native route's filtering of bombardment and space cannon.
+fn borrowed_milor_ground(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (condition_source, condition_borrower) = (source.clone(), borrower.clone());
+    let (effect_source, effect_borrower) = (source.clone(), borrower.clone());
+    let counts = |event: &Event| {
+        matches!(event.text("cause"), Some("ground_combat" | "harrow"))
+            && event.text("unit").is_some()
+    };
+    Ability::stateful(
+        format!("leader:{owner_name}:{source}:yssarilagent:yinagent:GROUND_FORCE_DESTROYED:after"),
+        borrower.clone(),
+        "GROUND_FORCE_DESTROYED",
+        Relation::After,
+        Arc::new(move |event, _, context| {
+            if !can_copy_milor(
+                context.state,
+                context.content,
+                &effect_source,
+                &effect_borrower,
+            ) || !counts(event)
+            {
+                return Ok(());
+            }
+            let (Some(system), Some(planet), Some(player)) = (
+                event.text("system").map(SystemId::new),
+                event.text("planet").map(PlanetId::new),
+                event.text("player").map(PlayerId::new),
+            ) else {
+                return Ok(());
+            };
+            if !in_reinforcements(
+                context.state,
+                context.content,
+                context.sources,
+                &player,
+                "infantry",
+            ) || !crate::leaders::exhaust(
+                context.state,
+                &effect_borrower,
+                &LeaderId::new("yssarilagent"),
+            ) {
+                return Ok(());
+            }
+            crate::action_cards::place_units_counted(
+                context,
+                &player,
+                &system,
+                Some(&planet),
+                "infantry",
+                2,
+            );
+            super::hooks_cards::borrowed_agent_used(
+                context,
+                &effect_borrower,
+                &LeaderId::new("yinagent"),
+            );
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        counts(event)
+            && can_copy_milor(
+                context.state,
+                context.content,
+                &condition_source,
+                &condition_borrower,
+            )
+            && event.text("player").is_some_and(|player| {
+                in_reinforcements(
+                    context.state,
+                    context.content,
+                    context.sources,
+                    &PlayerId::new(player),
+                    "infantry",
+                )
+            })
+    }))
+}
+
+fn can_copy_milor(
+    state: &GameState,
+    content: &ContentStore,
+    source: &PlayerId,
+    borrower: &PlayerId,
+) -> bool {
+    super::hooks_cards::borrowable_agents(state, content, borrower)
+        .iter()
+        .any(|(owner, agent)| owner == source && agent.as_str() == "yinagent")
+}
+
 // -- Brother Omar's unlock -----------------------------------------------------------------------
 
 /// Brother Omar, unlock: "Use one of your faction abilities." Recorded by Indoctrination and
@@ -799,12 +1133,9 @@ fn commander_unlocked(
 
 // -- Brother Omar's effect -----------------------------------------------------------------------
 
-/// Whether `player` is Yin with Brother Omar unlocked (a commander in play is `Unlocked`).
+/// Whether `player` currently has Brother Omar's commander ability.
 fn commander_active(state: &GameState, player: &PlayerId) -> bool {
-    is_yin(state, player)
-        && state.player(player).is_some_and(|seat| {
-            seat.leaders.get(&LeaderId::new("yincommander")) == Some(&LeaderStatus::Unlocked)
-        })
+    crate::promissory::has_commander_ability(state, player, "yincommander")
 }
 
 /// Brother Omar: "This card satisfies a green technology prerequisite."
@@ -956,15 +1287,9 @@ fn leader_action(
     })
 }
 
-/// Dannel of the Tenth, Quantum Dissemination: "ACTION: Commit up to 3 infantry from your
-/// reinforcements to any non-home planets and resolve ground combats on those planets. Players
-/// cannot use SPACE CANNON against these units. Then, purge this card." (The shared code purges.)
-///
-/// Every placement is asked first, then the infantry land, then each planet's ground combat is
-/// fought to its end in the order chosen and control is established (49.5). Space cannon defense
-/// is simply never run. Limits: the synchronous resolver emits no ground-combat events, so
-/// Indoctrination, Greyfire and Brother Milor do not react to these combats; one rival side is
-/// fought per planet.
+/// Dannel's resolver-less compatibility hook. The Game path uses [`use_leader_timed`] so its
+/// ground combats emit the normal timing events. This direct hook retains its historical tests;
+/// it cannot run Indoctrination, Greyfire or Brother Milor timing effects.
 fn use_leader(
     context: &mut TimingContext<'_>,
     player: &PlayerId,
@@ -1028,6 +1353,143 @@ fn use_leader(
         return Some(false);
     }
     Some(land_and_fight(context, player, &chosen))
+}
+
+/// Dannel's Game path. Commit first, then resolve each selected planet through the ordinary
+/// eventful ground-combat window, which deliberately performs no bombardment or space-cannon
+/// defense for this action. `leaders::use_leader_timed` owns the purge after a successful return.
+fn use_leader_timed(
+    context: &mut TimingContext<'_>,
+    resolver: &mut crate::timing::Resolver,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Result<Option<bool>, TimingError> {
+    if leader.as_str() != "yinhero" || !is_yin(context.state, player) {
+        return Ok(None);
+    }
+    let spots = hero_spots(context.content, context.galaxy);
+    let stock = crate::supply::allowed(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &placed_type(
+            context.state,
+            context.content,
+            context.sources,
+            player,
+            "infantry",
+        )
+        .ok_or_else(|| TimingError::StatefulContextRequired("yinhero infantry form".to_owned()))?,
+        3,
+    );
+    if stock == 0 || spots.is_empty() {
+        return Ok(Some(false));
+    }
+    let mut chosen = Vec::new();
+    while chosen.len() < stock {
+        let options = spots
+            .iter()
+            .map(|(system, planet)| {
+                ChoiceOption::labelled(
+                    format!("{system}|{planet}"),
+                    "commit_infantry",
+                    format!("commit infantry to {planet} in {system}"),
+                )
+            })
+            .collect();
+        let answer = match ask_one(
+            context,
+            player,
+            format!(
+                "Quantum Dissemination: commit infantry {} of {stock}",
+                chosen.len() + 1
+            ),
+            "yinhero",
+            "yin_hero_commit",
+            options,
+        ) {
+            Ok(answer) => answer,
+            Err(error) => return Err(illegal(error)),
+        };
+        if answer.is_decline() {
+            break;
+        }
+        let Some(spot) = spots
+            .iter()
+            .find(|(system, planet)| format!("{system}|{planet}") == answer.id)
+        else {
+            return Ok(Some(false));
+        };
+        chosen.push(spot.clone());
+    }
+    if chosen.is_empty() {
+        return Ok(Some(false));
+    }
+
+    for (system, planet) in &chosen {
+        crate::action_cards::place_units_counted(
+            context,
+            player,
+            system,
+            Some(planet),
+            "infantry",
+            1,
+        );
+    }
+    let mut order = Vec::new();
+    for spot in &chosen {
+        if !order.contains(spot) {
+            order.push(spot.clone());
+        }
+    }
+    {
+        let crate::timing::TimingContext {
+            state,
+            content,
+            sources,
+            table,
+            dice,
+            rng,
+            event_sequence,
+            galaxy,
+        } = context;
+        let mut resolving = Resolving {
+            content,
+            sources: *sources,
+            dice,
+            rng,
+            table,
+            timing: Some(TimingHandle {
+                resolver,
+                sequence: event_sequence,
+                galaxy: *galaxy,
+            }),
+        };
+        for (system, planet) in &order {
+            crate::invasion::InvasionWindow::fight_committed_planet(
+                state,
+                &mut resolving,
+                player,
+                system,
+                planet,
+            )?;
+            if state.finished {
+                break;
+            }
+        }
+    }
+    for (system, planet) in &order {
+        crate::invasion::establish_control(
+            context.state,
+            context.content,
+            context.sources,
+            system,
+            player,
+            std::slice::from_ref(planet),
+        );
+    }
+    Ok(Some(true))
 }
 
 /// Land the infantry, fight every planet to its end, then establish control. `false` (state
@@ -1153,7 +1615,7 @@ fn has_rival_ground_force(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::choice::{Scripted, Table};
+    use crate::choice::{Decider, Scripted, Table};
     use crate::fixtures::{armed_resolver, put, put_on_planet, seated_game, with_context};
     use ti4_model::content_types::DEFAULT;
     use ti4_model::id::TechnologyId;
@@ -1175,6 +1637,31 @@ mod tests {
     }
     fn scripted(answers: &[&str]) -> Table {
         Table::with_default(Box::new(Scripted::new(answers.iter().copied())))
+    }
+    struct SelectTimingAbility {
+        id: String,
+    }
+
+    impl Decider for SelectTimingAbility {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            if let Some(selected) = choice.option(&self.id) {
+                return Ok(selected.clone());
+            }
+            choice
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .cloned()
+                .ok_or_else(|| IllegalChoice::ScriptDiverged {
+                    player: choice.player.clone(),
+                    wanted: format!("{} or decline", self.id),
+                    offered: choice.ids().into_iter().map(str::to_owned).collect(),
+                })
+        }
+    }
+
+    fn selecting_timing_ability(id: &str) -> Table {
+        Table::with_default(Box::new(SelectTimingAbility { id: id.to_owned() }))
     }
     fn site<'a>(
         a: &'a PlayerId,
@@ -1233,6 +1720,210 @@ mod tests {
                 .emit_with_context(ctx, event, |_, _| {})
                 .expect("window resolves");
         });
+    }
+
+    fn grant_marks(state: &GameState, player: &PlayerId) -> Vec<String> {
+        let prefix = format!("{}{}:", crate::promissory::COMMANDER_ABILITY_PREFIX, player);
+        state
+            .faction_marks
+            .keys()
+            .filter_map(|key| key.strip_prefix(&prefix).map(ToOwned::to_owned))
+            .collect()
+    }
+
+    fn yinbt_game(with_breakthrough: bool, seed: u64) -> crate::game::Game<'static> {
+        let mut state = seated_game(&[("a", "yin"), ("b", "sol")], DEFAULT);
+        if with_breakthrough {
+            state.player_mut(&a()).unwrap().breakthrough =
+                Some(ti4_model::id::BreakthroughId::new(YIN_ASCENDANT));
+        }
+        state.rng_seed = seed;
+        crate::game::Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(crate::choice::AlwaysDecline)),
+        )
+        .with_sources(DEFAULT)
+    }
+
+    #[test]
+    fn yinbt_pool_is_the_canonical_default_faction_roster() {
+        let content = ContentStore::embedded();
+        let canonical = yinbt_canonical_commanders(content);
+        let ids: Vec<&str> = canonical.iter().map(|(_, id)| id.as_str()).collect();
+        assert_eq!(
+            ids.len(),
+            30,
+            "one canonical commander per official faction family"
+        );
+        assert!(ids.contains(&"kelerescommander"));
+        assert!(
+            ids.contains(&"crimsoncommander"),
+            "unsupported handlers do not narrow the pool"
+        );
+        assert!(ids.contains(&"cabalcommander"));
+        assert!(
+            !ids.contains(&"redcreusscommander"),
+            "Ghost has one canonical commander"
+        );
+        assert!(
+            !ids.contains(&"obsidiancommander"),
+            "Obsidian is Firmament's alternate face"
+        );
+
+        let state = seated_game(&[("a", "yin"), ("b", "sol"), ("c", "firmament")], DEFAULT);
+        let candidates = yinbt_commander_candidates(&state, content, &a());
+        assert!(!candidates.contains(&"solcommander".to_owned()));
+        assert!(!candidates.contains(&"firmamentcommander".to_owned()));
+        assert!(!candidates.contains(&"obsidiancommander".to_owned()));
+        assert!(candidates.contains(&"crimsoncommander".to_owned()));
+    }
+
+    #[test]
+    fn yinbt_sampler_is_uniformly_indexed_and_seed_deterministic() {
+        let candidates = yinbt_canonical_commanders(ContentStore::embedded())
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect::<Vec<_>>();
+        let mut first_rng = crate::rng::GameRng::new(82);
+        let mut replay_rng = crate::rng::GameRng::new(82);
+        let first = sample_yinbt_commander(&candidates, &mut first_rng).unwrap();
+        let replay = sample_yinbt_commander(&candidates, &mut replay_rng).unwrap();
+        assert_eq!(first, replay);
+        assert!(candidates.contains(&first));
+        assert!(sample_yinbt_commander(&[], &mut first_rng).is_none());
+    }
+
+    #[test]
+    fn gaining_yinbt_grants_one_random_unused_commander_through_game_delivery() {
+        let content = ContentStore::embedded();
+        let mut game = yinbt_game(false, 91);
+        let eligible = yinbt_commander_candidates(&game.state, content, &a());
+        game.state.player_mut(&a()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new(YIN_ASCENDANT));
+
+        let result = game.step();
+
+        assert!(
+            result.error.is_none(),
+            "gain event resolves: {:?}",
+            result.error
+        );
+        let grants = grant_marks(&game.state, &a());
+        assert_eq!(grants.len(), 1);
+        assert!(eligible.contains(&grants[0]));
+        assert!(crate::promissory::has_commander_ability(
+            &game.state,
+            &a(),
+            &grants[0]
+        ));
+    }
+
+    #[test]
+    fn successful_public_scores_grant_distinct_commander_rights_via_game_flush() {
+        let content = ContentStore::embedded();
+        let mut game = yinbt_game(true, 177);
+        let mut expected = yinbt_commander_candidates(&game.state, content, &a());
+        for objective in ["expand_borders", "research_outposts"] {
+            let before = grant_marks(&game.state, &a());
+            crate::objectives::award(
+                &mut game.state,
+                content,
+                DEFAULT,
+                &a(),
+                &ti4_model::id::ObjectiveId::new(objective),
+            )
+            .expect("public objective awards successfully");
+            assert!(
+                crate::supply::staged_event_types(&game.state)
+                    .iter()
+                    .any(|kind| kind == "PUBLIC_OBJECTIVE_SCORED")
+            );
+            let result = game.step();
+            assert!(
+                result.error.is_none(),
+                "score event resolves: {:?}",
+                result.error
+            );
+            let grants = grant_marks(&game.state, &a());
+            assert_eq!(
+                grants.len(),
+                if objective == "expand_borders" { 1 } else { 2 }
+            );
+            let newly_granted = grants
+                .iter()
+                .find(|commander| !before.contains(commander))
+                .expect("this score grants one new commander");
+            assert!(expected.contains(newly_granted));
+            expected.retain(|candidate| candidate != newly_granted);
+        }
+        let grants = grant_marks(&game.state, &a());
+        assert_ne!(
+            grants[0], grants[1],
+            "a previously acquired right is no longer unused"
+        );
+    }
+
+    #[test]
+    fn yinbt_requires_the_seated_yin_owner_and_a_public_score_event() {
+        let content = ContentStore::embedded();
+        let mut no_breakthrough = yinbt_game(false, 12);
+        crate::objectives::award(
+            &mut no_breakthrough.state,
+            content,
+            DEFAULT,
+            &a(),
+            &ti4_model::id::ObjectiveId::new("expand_borders"),
+        )
+        .unwrap();
+        assert!(
+            !crate::supply::staged_event_types(&no_breakthrough.state)
+                .iter()
+                .any(|kind| kind == "PUBLIC_OBJECTIVE_SCORED")
+        );
+        assert!(no_breakthrough.step().error.is_none());
+        assert!(grant_marks(&no_breakthrough.state, &a()).is_empty());
+
+        let mut secret_score = yinbt_game(true, 13);
+        secret_score
+            .state
+            .player_mut(&a())
+            .unwrap()
+            .secret_objectives
+            .push(ti4_model::id::SecretObjectiveId::new("sar"));
+        crate::secrets::award(
+            &mut secret_score.state,
+            content,
+            &a(),
+            &ti4_model::id::SecretObjectiveId::new("sar"),
+        )
+        .expect("held secret scores");
+        assert!(
+            !crate::supply::staged_event_types(&secret_score.state)
+                .iter()
+                .any(|kind| kind == "PUBLIC_OBJECTIVE_SCORED")
+        );
+        assert!(secret_score.step().error.is_none());
+        assert!(grant_marks(&secret_score.state, &a()).is_empty());
+
+        let mut non_yin = yinbt_game(false, 14);
+        non_yin.state.player_mut(&b()).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new(YIN_ASCENDANT));
+        crate::objectives::award(
+            &mut non_yin.state,
+            content,
+            DEFAULT,
+            &b(),
+            &ti4_model::id::ObjectiveId::new("expand_borders"),
+        )
+        .unwrap();
+        assert!(
+            !crate::supply::staged_event_types(&non_yin.state)
+                .iter()
+                .any(|kind| kind == "PUBLIC_OBJECTIVE_SCORED")
+        );
+        assert!(non_yin.step().error.is_none());
+        assert!(grant_marks(&non_yin.state, &b()).is_empty());
     }
 
     // -- Devotion --------------------------------------------------------------------------------
@@ -1461,7 +2152,25 @@ mod tests {
             ("player", player.into()),
             ("unit", unit.into()),
             ("last", false.into()),
+            // These fixtures stand for a ship lost while a space combat was resolving; see
+            // `destroyed_outside_combat` for the other provenance.
+            ("cause", crate::combat::SHIP_CAUSE_COMBAT.into()),
+            ("during_space_combat", true.into()),
         ]
+    }
+
+    /// The same destruction, caused by an effect that is not a space combat.
+    fn destroyed_outside_combat(
+        system: &SystemId,
+        player: &str,
+        unit: &str,
+        cause: &str,
+    ) -> Vec<(&'static str, serde_json::Value)> {
+        let mut payload = destroyed(system, player, unit);
+        payload.retain(|(key, _)| !matches!(*key, "cause" | "during_space_combat"));
+        payload.push(("cause", cause.into()));
+        payload.push(("during_space_combat", false.into()));
+        payload
     }
 
     /// Brother Milor would answer the same destruction with fighters; these tests are about Van Hauge.
@@ -1836,6 +2545,356 @@ mod tests {
     }
 
     #[test]
+    fn brother_milor_counts_a_courageous_loss_during_space_combat() {
+        let (mut state, system) = arena();
+        let mut payload = destroyed(&system, "b", "cruiser");
+        payload.retain(|(key, _)| *key != "cause");
+        payload.push(("cause", "action_card:courageous".into()));
+        emit(
+            &mut state,
+            &["leader:yin:yinagent:SHIP_DESTROYED:after"],
+            "SHIP_DESTROYED",
+            &payload,
+        );
+        assert_eq!(
+            fighters_in(&state, &system, &b()),
+            2,
+            "the card remains the cause while the combat-window fact opens Milor"
+        );
+    }
+
+    /// The printed trigger is "after a player's unit is destroyed **during combat**". A loss a
+    /// non-combat effect caused -- Nova Seed destroying another player's ships, an ordinary
+    /// component or leader effect -- is not that trigger, whatever the shared route announced.
+    #[test]
+    fn brother_milor_ignores_a_ship_destroyed_outside_combat() {
+        let (mut state, system) = arena();
+        emit(
+            &mut state,
+            &[],
+            "SHIP_DESTROYED",
+            &destroyed_outside_combat(&system, "b", "cruiser", "breakthrough:nova_seed"),
+        );
+        assert_eq!(
+            fighters_in(&state, &system, &b()),
+            0,
+            "a Nova Seed loss is not a combat loss"
+        );
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new("yinagent")),
+            Some(&LeaderStatus::Readied),
+            "an unmet trigger does not exhaust the agent"
+        );
+        // A component effect that names itself is refused for the same reason.
+        emit(
+            &mut state,
+            &[],
+            "SHIP_DESTROYED",
+            &destroyed_outside_combat(&system, "b", "cruiser", "component:orbital_ships"),
+        );
+        assert_eq!(fighters_in(&state, &system, &b()), 0);
+    }
+
+    #[test]
+    fn ssruu_copies_milor_ship_after_actual_destroyed_event_and_actor_gets_fighters() {
+        let mut state = seated_game(&[("a", "yin"), ("b", "yssaril"), ("c", "sol")], DEFAULT);
+        let system = SystemId::new("18");
+        put(&mut state, &system, "cruiser", &c(), 1);
+        let source = LeaderId::new("yinagent");
+        let borrower = LeaderId::new("yssarilagent");
+        let copied = "leader:yin:a:yssarilagent:yinagent:SHIP_DESTROYED:after";
+        let native = "leader:yin:yinagent:SHIP_DESTROYED:after";
+
+        // Destroy a real board unit, then announce the pending casualty through the same Resolver
+        // route as combat. The source owner's native optional is declined independently.
+        let content = ContentStore::embedded();
+        let victim = crate::combat::ships_of(&state, content, DEFAULT, &c(), &system)
+            .into_iter()
+            .find(|unit| unit.type_id.as_str() == "cruiser")
+            .expect("the actor's cruiser is in the system");
+        assert_eq!(
+            crate::combat::destroy_units(
+                &mut state,
+                content,
+                DEFAULT,
+                &c(),
+                &system,
+                std::slice::from_ref(&victim),
+                crate::combat::SHIP_CAUSE_COMBAT,
+            ),
+            1
+        );
+        let mut resolver = armed_resolver(&state);
+        // Resolver order can revisit declined players after another seat resolves. Select the
+        // copied stable ID whenever it is offered and decline native Milor and every other
+        // reaction window, independent of how many asks precede it.
+        let mut table = selecting_timing_ability(copied);
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(5);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut resolving = Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        crate::combat::announce_staged_destructions(&mut state, &mut resolving);
+        assert!(state.pending_destructions.is_empty());
+
+        assert_eq!(
+            fighters_in(&state, &system, &c()),
+            2,
+            "the destroyed unit owner places"
+        );
+        assert_eq!(
+            state.player(&a()).unwrap().leaders.get(&source),
+            Some(&LeaderStatus::Readied),
+            "copying leaves Brother Milor's status unchanged"
+        );
+        assert_eq!(
+            state.player(&b()).unwrap().leaders.get(&borrower),
+            Some(&LeaderStatus::Exhausted),
+            "only Ssruu is exhausted"
+        );
+        assert_ne!(copied, native, "the copied option has a distinct stable ID");
+    }
+
+    /// The copy carries the printed trigger too, not a looser one: a destruction the shared
+    /// route staged as a Nova Seed loss does not open the copied window.
+    #[test]
+    fn ssruu_copies_milor_only_for_a_destruction_during_combat() {
+        let mut state = seated_game(&[("a", "yin"), ("b", "yssaril"), ("c", "sol")], DEFAULT);
+        let system = SystemId::new("18");
+        put(&mut state, &system, "cruiser", &c(), 1);
+        let content = ContentStore::embedded();
+        let victim = crate::combat::ships_of(&state, content, DEFAULT, &c(), &system)
+            .into_iter()
+            .find(|unit| unit.type_id.as_str() == "cruiser")
+            .expect("the actor's cruiser is in the system");
+        // The same shared route as the passing fixture, with the provenance Nova Seed states.
+        assert_eq!(
+            crate::combat::destroy_units(
+                &mut state,
+                content,
+                DEFAULT,
+                &c(),
+                &system,
+                std::slice::from_ref(&victim),
+                "breakthrough:nova_seed",
+            ),
+            1
+        );
+        let copied = "leader:yin:a:yssarilagent:yinagent:SHIP_DESTROYED:after";
+        let mut resolver = armed_resolver(&state);
+        let mut table = selecting_timing_ability(copied);
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(5);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut resolving = Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        crate::combat::announce_staged_destructions(&mut state, &mut resolving);
+        assert!(state.pending_destructions.is_empty());
+        assert_eq!(
+            fighters_in(&state, &system, &c()),
+            0,
+            "the copied trigger is the printed one"
+        );
+        assert_eq!(
+            state
+                .player(&b())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new("yssarilagent")),
+            Some(&LeaderStatus::Readied),
+            "an unmet trigger does not spend Ssruu"
+        );
+    }
+
+    #[test]
+    fn ssruu_copies_exhausted_milor_ground_branch_for_the_event_actor() {
+        let mut state = seated_game(&[("a", "yin"), ("b", "yssaril"), ("c", "sol")], DEFAULT);
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let source = LeaderId::new("yinagent");
+        let borrower = LeaderId::new("yssarilagent");
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(source.clone(), LeaderStatus::Exhausted);
+        emit(
+            &mut state,
+            &["leader:yin:a:yssarilagent:yinagent:GROUND_FORCE_DESTROYED:after"],
+            "GROUND_FORCE_DESTROYED",
+            &ground_destroyed_for(&system, &planet, "c", "ground_combat"),
+        );
+
+        assert_eq!(
+            infantry_of(&state, &system, &planet, &c(), "infantry"),
+            2,
+            "the destroyed unit owner receives the infantry"
+        );
+        assert_eq!(
+            state.player(&a()).unwrap().leaders.get(&source),
+            Some(&LeaderStatus::Exhausted),
+            "an already exhausted source remains exhausted"
+        );
+        assert_eq!(
+            state.player(&b()).unwrap().leaders.get(&borrower),
+            Some(&LeaderStatus::Exhausted),
+            "the borrower pays the use"
+        );
+    }
+
+    #[test]
+    fn ssruu_milor_copy_tracks_source_and_borrower_availability_live() {
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let source = LeaderId::new("yinagent");
+        let borrower = LeaderId::new("yssarilagent");
+
+        // A locked source is present in the static roster but is not a borrowable agent.
+        let mut locked_source =
+            seated_game(&[("a", "yin"), ("b", "yssaril"), ("c", "sol")], DEFAULT);
+        locked_source
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(source.clone(), LeaderStatus::Locked);
+        emit(
+            &mut locked_source,
+            &[],
+            "GROUND_FORCE_DESTROYED",
+            &ground_destroyed(&system, &planet, "ground_combat"),
+        );
+        assert_eq!(
+            locked_source.player(&b()).unwrap().leaders.get(&borrower),
+            Some(&LeaderStatus::Readied)
+        );
+
+        // A source that changes after registration but before dispatch is rechecked by the
+        // callback condition. It does not rely on the status captured while the Resolver was armed.
+        let mut changes_after_arm =
+            seated_game(&[("a", "yin"), ("b", "yssaril"), ("c", "sol")], DEFAULT);
+        let mut resolver = armed_resolver(&changes_after_arm);
+        changes_after_arm
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(source.clone(), LeaderStatus::Locked);
+        let mut table = scripted(&[]);
+        with_context(
+            &mut changes_after_arm,
+            DEFAULT,
+            None,
+            &mut table,
+            |context| {
+                let event = context
+                    .event_sequence
+                    .next(
+                        "SHIP_DESTROYED",
+                        destroyed(&system, "c", "cruiser")
+                            .into_iter()
+                            .map(|(key, value)| (key.to_owned(), value))
+                            .collect(),
+                    )
+                    .expect("event id");
+                resolver
+                    .emit_with_context(context, event, |_, _| {})
+                    .expect("locked source skips without a choice");
+            },
+        );
+        assert_eq!(fighters_in(&changes_after_arm, &system, &c()), 0);
+        assert_eq!(
+            changes_after_arm
+                .player(&b())
+                .unwrap()
+                .leaders
+                .get(&borrower),
+            Some(&LeaderStatus::Readied)
+        );
+
+        // An exhausted Ssruu cannot copy a still-readied source.
+        let mut spent_borrower =
+            seated_game(&[("a", "yin"), ("b", "yssaril"), ("c", "sol")], DEFAULT);
+        spent_borrower
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(borrower.clone(), LeaderStatus::Exhausted);
+        emit(
+            &mut spent_borrower,
+            &["decline"],
+            "SHIP_DESTROYED",
+            &destroyed(&system, "c", "cruiser"),
+        );
+        assert_eq!(fighters_in(&spent_borrower, &system, &c()), 0);
+        assert_eq!(
+            spent_borrower.player(&a()).unwrap().leaders.get(&source),
+            Some(&LeaderStatus::Readied)
+        );
+
+        // Native Milor keeps its original option ID and source-owned exhaustion behavior.
+        let mut native_compatible =
+            seated_game(&[("a", "yin"), ("b", "yssaril"), ("c", "sol")], DEFAULT);
+        let mut resolver = armed_resolver(&native_compatible);
+        let mut table = selecting_timing_ability("leader:yin:yinagent:SHIP_DESTROYED:after");
+        with_context(
+            &mut native_compatible,
+            DEFAULT,
+            None,
+            &mut table,
+            |context| {
+                let event = context
+                    .event_sequence
+                    .next(
+                        "SHIP_DESTROYED",
+                        destroyed(&system, "c", "cruiser")
+                            .into_iter()
+                            .map(|(key, value)| (key.to_owned(), value))
+                            .collect(),
+                    )
+                    .expect("event id");
+                resolver
+                    .emit_with_context(context, event, |_, _| {})
+                    .expect("window resolves");
+            },
+        );
+        assert_eq!(fighters_in(&native_compatible, &system, &c()), 2);
+        assert_eq!(
+            native_compatible.player(&a()).unwrap().leaders.get(&source),
+            Some(&LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            native_compatible
+                .player(&b())
+                .unwrap()
+                .leaders
+                .get(&borrower),
+            Some(&LeaderStatus::Readied),
+            "the copied listener can be declined without spending Ssruu"
+        );
+    }
+
+    #[test]
     fn brother_milor_declined_leaves_the_agent_ready() {
         let (mut state, system) = arena();
         emit(
@@ -1860,10 +2919,19 @@ mod tests {
         planet: &PlanetId,
         cause: &str,
     ) -> Vec<(&'static str, serde_json::Value)> {
+        ground_destroyed_for(system, planet, "b", cause)
+    }
+
+    fn ground_destroyed_for(
+        system: &SystemId,
+        planet: &PlanetId,
+        player: &str,
+        cause: &str,
+    ) -> Vec<(&'static str, serde_json::Value)> {
         vec![
             ("system", system.to_string().into()),
             ("planet", planet.to_string().into()),
-            ("player", "b".into()),
+            ("player", player.into()),
             ("unit", "infantry".into()),
             ("damaged", false.into()),
             ("cause", cause.into()),
@@ -2005,6 +3073,41 @@ mod tests {
     }
 
     #[test]
+    fn brother_omar_prerequisite_and_waiver_follow_alliance_rights_for_any_faction() {
+        let content = ContentStore::embedded();
+        let mut state = seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+        let tech = TechnologyId::new("ws");
+        state
+            .player_mut(&b())
+            .unwrap()
+            .technologies
+            .insert(tech.clone());
+
+        assert!(extra_prerequisite_colours(&state, content, &a()).is_empty());
+        assert!(research_waiver_offer(&state, content, &a(), &tech).is_none());
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            content,
+            &a(),
+            "yincommander"
+        ));
+        assert_eq!(
+            extra_prerequisite_colours(&state, content, &a()),
+            vec![("green".to_owned(), 1)]
+        );
+        assert!(research_waiver_offer(&state, content, &a(), &tech).is_some());
+        assert!(extra_prerequisite_colours(&state, content, &b()).is_empty());
+
+        state
+            .faction_marks
+            .remove("commander_ability:a:yincommander");
+        assert!(extra_prerequisite_colours(&state, content, &a()).is_empty());
+        assert!(research_waiver_offer(&state, content, &a(), &tech).is_none());
+    }
+
+    #[test]
     fn brother_omar_green_pays_a_single_green_prerequisite() {
         let content = ContentStore::embedded();
         let (mut state, _) = arena();
@@ -2063,6 +3166,54 @@ mod tests {
         with_context(state, DEFAULT, Some(galaxy), &mut table, |ctx| {
             use_leader(ctx, &a(), &LeaderId::new("yinhero"))
         })
+    }
+
+    fn use_hero_timed(
+        state: &mut GameState,
+        galaxy: &ti4_content::galaxy::Galaxy,
+        answers: &[&str],
+        faces: &[u32],
+    ) -> (bool, crate::dice::Dice) {
+        let (result, dice) = use_hero_timed_result(state, galaxy, answers, faces);
+        (result.expect("legal hero timing choices"), dice)
+    }
+
+    fn use_hero_timed_result(
+        state: &mut GameState,
+        galaxy: &ti4_content::galaxy::Galaxy,
+        answers: &[&str],
+        faces: &[u32],
+    ) -> (Result<bool, TimingError>, crate::dice::Dice) {
+        let mut resolver = armed_resolver(state);
+        let mut table = scripted(answers);
+        let mut dice = crate::dice::Dice::from_faces(faces.iter().copied());
+        let mut rng = crate::rng::GameRng::new(5);
+        let mut event_sequence = crate::event::EventSequence::new();
+        let mut context = TimingContext {
+            state,
+            content: ContentStore::embedded(),
+            sources: DEFAULT,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut event_sequence,
+            galaxy: Some(galaxy),
+        };
+        let done = crate::leaders::use_leader_timed(
+            &mut context,
+            &mut resolver,
+            &a(),
+            &LeaderId::new("yinhero"),
+        );
+        (done, dice)
+    }
+
+    fn unlock_hero(state: &mut GameState) {
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yinhero"), LeaderStatus::Unlocked);
     }
 
     #[test]
@@ -2159,10 +3310,135 @@ mod tests {
     }
 
     #[test]
+    fn timed_dannel_runs_indoctrination_milor_and_skips_space_cannon() {
+        let (mut state, system, planet, galaxy) = hero_state();
+        unlock_hero(&mut state);
+        state.player_mut(&a()).unwrap().trade_goods = 5;
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yinagent"), LeaderStatus::Readied);
+        put_on_planet(&mut state, &system, &planet, "pds", &b(), 1);
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 2);
+        let spot = format!("{system}|{planet}");
+        let (done, dice) = use_hero_timed(
+            &mut state,
+            &galaxy,
+            &[
+                &spot,
+                "decline",
+                "infantry",
+                "trade_good",
+                "trade_good",
+                "leader:yin:yinagent:GROUND_FORCE_DESTROYED:after",
+            ],
+            &[10, 10, 1, 10, 10, 1, 1],
+        );
+        assert!(done);
+        assert!(dice.rolled("space cannon defense").is_empty());
+        assert_eq!(state.player(&a()).unwrap().trade_goods, 3);
+        assert!(state.player(&a()).unwrap().faction.as_str() == "yin");
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new("yinagent")),
+            Some(&LeaderStatus::Exhausted),
+            "Brother Milor saw the ground-force casualty window",
+        );
+        assert!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new("yinhero"))
+                == Some(&LeaderStatus::Purged),
+            "the hero is purged once after resolution",
+        );
+        assert_eq!(infantry_of(&state, &system, &planet, &b(), "infantry"), 0);
+    }
+
+    #[test]
+    fn timed_dannel_fights_every_rival_and_invalid_placement_is_atomic() {
+        let (_, system, planet, galaxy) = hero_state();
+        let mut state = seated_game(&[("a", "yin"), ("b", "sol"), ("c", "hacan")], DEFAULT);
+        unlock_hero(&mut state);
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        put_on_planet(&mut state, &system, &planet, "infantry", &c(), 1);
+        let before = state.clone();
+        let (result, _) =
+            use_hero_timed_result(&mut state, &galaxy, &["bad-target"], &[10, 1, 10, 1]);
+        assert!(result.is_err());
+        assert_eq!(state, before, "a bad placement answer changes nothing");
+
+        let spot = format!("{system}|{planet}");
+        let (done, _) = use_hero_timed(
+            &mut state,
+            &galaxy,
+            &[&spot, "decline", "decline", "decline"],
+            &[10, 1, 10, 1],
+        );
+        assert!(done);
+        assert_eq!(infantry_of(&state, &system, &planet, &b(), "infantry"), 0);
+        assert_eq!(infantry_of(&state, &system, &planet, &c(), "infantry"), 0);
+    }
+
+    #[test]
     fn every_claim_is_on_the_sheet_and_the_module_is_registered() {
         assert!(crate::factions::module("yin").is_some());
         let missing = crate::factions::missing(ContentStore::embedded(), DEFAULT, "yin");
         let ids: Vec<&str> = missing.iter().map(|asset| asset.id.as_str()).collect();
-        assert_eq!(ids, ["yinhero", "yinbt"]);
+        assert_eq!(ids, ["yinbt"]);
+    }
+    #[test]
+    fn timed_dannel_opens_combat_secret_scoring_before_continuing() {
+        let (mut state, system, planet, galaxy) = hero_state();
+        unlock_hero(&mut state);
+        state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yinagent"), LeaderStatus::Exhausted);
+        state.player_mut(&a()).unwrap().secret_objectives =
+            vec![ti4_model::id::SecretObjectiveId::new("sar")];
+        state.player_mut(&b()).unwrap().victory_points = 3;
+        state.player_mut(&a()).unwrap().trade_goods = 0;
+        let held: Vec<_> = state
+            .controlled_planets(&a())
+            .into_iter()
+            .map(|(_, planet)| planet.clone())
+            .collect();
+        state.exhausted_planets.extend(held);
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        let spot = format!("{system}|{planet}");
+        let before = state.player(&a()).unwrap().victory_points;
+        assert!(use_hero_timed(&mut state, &galaxy, &[&spot, "decline", "sar"], &[10, 1]).0);
+        assert_eq!(state.player(&a()).unwrap().victory_points, before + 1);
+        assert!(state.player(&a()).unwrap().secret_objectives.is_empty());
+    }
+
+    #[test]
+    fn timed_dannel_propagates_an_invalid_combat_reaction_without_spending_the_hero() {
+        let (mut state, system, planet, galaxy) = hero_state();
+        unlock_hero(&mut state);
+        state.player_mut(&a()).unwrap().trade_goods = 2;
+        put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        let before = state.clone();
+        let spot = format!("{system}|{planet}");
+        let (result, _) = use_hero_timed_result(
+            &mut state,
+            &galaxy,
+            &[&spot, "decline", "not-an-indoctrination-option"],
+            &[10, 1],
+        );
+        assert!(
+            result.is_err(),
+            "an illegal timing reaction must reach the Game caller"
+        );
+        assert_eq!(state.board, before.board);
+        assert_eq!(state.players, before.players);
+        assert_eq!(state.faction_marks, before.faction_marks);
     }
 }

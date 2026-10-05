@@ -133,6 +133,11 @@ pub fn allowed(
     unit: &UnitTypeId,
     wanted: usize,
 ) -> usize {
+    if crate::factions::hooks_economy::effect_placement_forbidden(
+        state, content, sources, player, unit,
+    ) {
+        return 0;
+    }
     let left = remaining(state, content, sources, player, unit);
     usize::try_from(left).unwrap_or(0).min(wanted)
 }
@@ -245,6 +250,24 @@ pub fn staging_enabled(state: &GameState) -> bool {
     })
 }
 
+/// Announce an actual Naaz mech placement so Absolute Synergy can resolve before the next action.
+/// Other faction and unit placements preserve their existing event stream.
+pub(crate) fn stage_naaz_mech_placed(
+    state: &mut GameState,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    unit: &UnitTypeId,
+) {
+    if unit.as_str() == "naaz_mech"
+        && state.player(player).is_some_and(|seat| seat.faction.as_str() == "naaz")
+    {
+        stage_event(state, "NAAZ_MECH_PLACED", &std::collections::BTreeMap::from([
+            ("player".to_owned(), player.to_string().into()),
+            ("system".to_owned(), system.to_string().into()),
+        ]));
+    }
+}
+
 /// Keep a typed event for [`flush_staged_events`]. Returns whether it was staged (`false` when
 /// [`staging_enabled`] is false).
 pub fn stage_event(
@@ -297,7 +320,8 @@ pub fn staged_event_types(state: &GameState) -> Vec<String> {
 /// Announce every staged event (`UNITS_PRODUCED`, `TRADE_GOODS_GAINED`, `STRATEGY_TOKEN_SPENT`)
 /// through `ctx`, in the order staged, clearing each first so a reaction that stages more events
 /// is handled in the same call. Returns how many were announced; with `ctx.timing == None` it does
-/// nothing and leaves them staged.
+/// nothing and leaves them staged. This compatibility API retains its legacy behavior of
+/// swallowing timing errors; new game-driver code should use [`try_flush_staged_events`].
 ///
 /// THE FLUSH FUNCTION: the coordinator calls this after leader actions, component actions, and
 /// strategy-card primaries / relic uses (`game.rs`), wherever a timing handle is in reach.
@@ -334,6 +358,78 @@ pub fn flush_staged_events(state: &mut GameState, ctx: &mut crate::choice::Resol
         announced += 1;
     }
     announced
+}
+
+/// Fallibly announce all staged events in their deterministic order, including events staged by
+/// reactions to earlier events. When a reaction fails, restore the state, dice, and RNG to their
+/// values immediately before that event and leave its staged row available for retry.
+///
+/// Malformed staged records retain the compatibility behavior of being discarded. With no timing
+/// handle, this returns `Ok(0)` and leaves every staged row untouched.
+///
+/// # Errors
+/// Returns the first [`crate::timing::TimingError`] from the timing resolver. The failing event's
+/// staged row is restored alongside its pre-emission game state.
+pub fn try_flush_staged_events(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+) -> Result<usize, crate::timing::TimingError> {
+    if ctx.timing.is_none() {
+        return Ok(0);
+    }
+    let mut announced = 0;
+    while let Some(key) = state
+        .faction_marks
+        .keys()
+        .find(|key| key.starts_with(STAGED_EVENT_PREFIX))
+        .cloned()
+    {
+        let Some(text) = state.faction_marks.get(&key).cloned() else {
+            break;
+        };
+        let Ok(record) = serde_json::from_str::<serde_json::Value>(&text) else {
+            state.faction_marks.remove(&key);
+            continue;
+        };
+        let (Some(kind), Some(payload)) = (
+            record.get("type").and_then(serde_json::Value::as_str),
+            record
+                .get("payload")
+                .and_then(|payload| payload.as_object()),
+        ) else {
+            state.faction_marks.remove(&key);
+            continue;
+        };
+        let kind = kind.to_owned();
+        let payload: std::collections::BTreeMap<String, serde_json::Value> = payload
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+
+        let before_state = state.clone();
+        let before_log = ctx.table.log.clone();
+        let before_dice = ctx.dice.clone();
+        let before_rng = ctx.rng.clone();
+        let before_timing = ctx
+            .timing
+            .as_ref()
+            .map(|handle| (handle.sequence.clone(), handle.resolver.checkpoint()));
+        state.faction_marks.remove(&key);
+        if let Err(error) = ctx.emit(state, &kind, payload) {
+            if let (Some(handle), Some((sequence, resolver))) = (ctx.timing.as_mut(), before_timing)
+            {
+                *handle.sequence = sequence;
+                handle.resolver.restore(resolver);
+            }
+            ctx.table.log = before_log;
+            *state = before_state;
+            *ctx.dice = before_dice;
+            *ctx.rng = before_rng;
+            return Err(error);
+        }
+        announced += 1;
+    }
+    Ok(announced)
 }
 
 /// Stage `TRADE_GOODS_GAINED` for a gain the caller has already made (a site that adds to
@@ -525,7 +621,7 @@ pub fn capture_from_reinforcements(
     if captor == owner
         || state.player(captor).is_none()
         || state.player(owner).is_none()
-        || allowed(state, content, sources, owner, unit, 1) == 0
+        || remaining(state, content, sources, owner, unit) == 0
     {
         return false;
     }
@@ -1361,6 +1457,267 @@ mod bf_f3_tests {
     }
 
     #[test]
+    fn strict_flush_restores_failed_reaction_and_keeps_event_for_retry() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], POK);
+        assert!(stage_event(
+            &mut state,
+            "STRICT_FAILURE",
+            &Default::default()
+        ));
+        let before_state = state.clone();
+        let mut resolver = crate::timing::Resolver::new(
+            vec![PlayerId::new("a"), PlayerId::new("b")],
+            Some(PlayerId::new("a")),
+            crate::choice::Table::default(),
+        );
+        resolver.register([crate::timing::Ability::stateful(
+            "test:strict_failure",
+            PlayerId::new("a"),
+            "STRICT_FAILURE",
+            crate::timing::Relation::After,
+            std::sync::Arc::new(|_, _, context| {
+                context
+                    .state
+                    .player_mut(&PlayerId::new("a"))
+                    .unwrap()
+                    .trade_goods += 4;
+                context.dice.roll(context.rng, 1, "strict rollback", None);
+                let choice = crate::choice::Choice::new(
+                    PlayerId::new("a"),
+                    "invalid scripted reaction",
+                    vec![crate::choice::ChoiceOption::labelled(
+                        "valid", "test", "valid",
+                    )],
+                );
+                context
+                    .ask_seeing(&choice)
+                    .map_err(crate::timing::TimingError::IllegalChoice)?;
+                Ok(())
+            }),
+        )]);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(9);
+        let before_rng = rng.clone();
+        let mut table =
+            crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([
+                "not-offered",
+            ])));
+        let mut resolving = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+
+        assert!(matches!(
+            try_flush_staged_events(&mut state, &mut resolving),
+            Err(crate::timing::TimingError::IllegalChoice(_))
+        ));
+        assert_eq!(state, before_state, "reaction mutations roll back");
+        assert_eq!(staged_events(&state), 1, "failed row remains retryable");
+        assert!(resolving.dice.rolled("strict rollback").is_empty());
+        let mut expected_rng = before_rng.clone();
+        let expected_probe = expected_rng.die("retry probe", 10);
+        assert_eq!(resolving.rng.die("retry probe", 10), expected_probe);
+        assert_eq!(
+            *resolving.timing.as_ref().unwrap().sequence,
+            crate::event::EventSequence::new()
+        );
+        assert!(resolving.timing.as_ref().unwrap().resolver.log().is_empty());
+        assert!(
+            resolving
+                .timing
+                .as_ref()
+                .unwrap()
+                .resolver
+                .applied_events()
+                .is_empty()
+        );
+        *resolving.rng = before_rng;
+        assert_eq!(try_flush_staged_events(&mut state, &mut resolving), Ok(1));
+        assert_eq!(staged_events(&state), 0);
+        assert_eq!(
+            state.player(&PlayerId::new("a")).unwrap().trade_goods,
+            before_state
+                .player(&PlayerId::new("a"))
+                .unwrap()
+                .trade_goods
+                + 4
+        );
+    }
+
+    #[test]
+    fn strict_ground_flush_restores_failed_reaction_and_keeps_event_for_retry() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], POK);
+        crate::factions::hooks_ground::stage_ground_force_destroyed(
+            &mut state,
+            &ti4_model::id::SystemId::new("18"),
+            &ti4_model::id::PlanetId::new("mr"),
+            &ti4_model::units::Unit::new(UnitTypeId::new("infantry"), PlayerId::new("a")),
+            "test",
+        );
+        let before_state = state.clone();
+        let mut resolver = crate::timing::Resolver::new(
+            vec![PlayerId::new("a"), PlayerId::new("b")],
+            Some(PlayerId::new("a")),
+            crate::choice::Table::default(),
+        );
+        resolver.register([crate::timing::Ability::stateful(
+            "test:strict_failure",
+            PlayerId::new("a"),
+            "GROUND_FORCE_DESTROYED",
+            crate::timing::Relation::After,
+            std::sync::Arc::new(|_, _, context| {
+                context
+                    .state
+                    .player_mut(&PlayerId::new("a"))
+                    .unwrap()
+                    .trade_goods += 4;
+                context.dice.roll(context.rng, 1, "strict rollback", None);
+                let choice = crate::choice::Choice::new(
+                    PlayerId::new("a"),
+                    "invalid scripted reaction",
+                    vec![crate::choice::ChoiceOption::labelled(
+                        "valid", "test", "valid",
+                    )],
+                );
+                context
+                    .ask_seeing(&choice)
+                    .map_err(crate::timing::TimingError::IllegalChoice)?;
+                Ok(())
+            }),
+        )]);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(9);
+        let before_rng = rng.clone();
+        let mut table =
+            crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([
+                "not-offered",
+            ])));
+        let mut resolving = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+
+        assert!(matches!(
+            crate::factions::hooks_ground::try_announce_staged_events(&mut state, &mut resolving),
+            Err(crate::timing::TimingError::IllegalChoice(_))
+        ));
+        assert_eq!(state, before_state, "reaction mutations roll back");
+        assert!(
+            crate::factions::hooks_ground::has_staged_events(&state),
+            "failed row remains retryable"
+        );
+        assert!(resolving.dice.rolled("strict rollback").is_empty());
+        let mut expected_rng = before_rng.clone();
+        let expected_probe = expected_rng.die("retry probe", 10);
+        assert_eq!(resolving.rng.die("retry probe", 10), expected_probe);
+        assert_eq!(
+            *resolving.timing.as_ref().unwrap().sequence,
+            crate::event::EventSequence::new()
+        );
+        assert!(resolving.timing.as_ref().unwrap().resolver.log().is_empty());
+        assert!(
+            resolving
+                .timing
+                .as_ref()
+                .unwrap()
+                .resolver
+                .applied_events()
+                .is_empty()
+        );
+        *resolving.rng = before_rng;
+        assert_eq!(
+            crate::factions::hooks_ground::try_announce_staged_events(&mut state, &mut resolving),
+            Ok(())
+        );
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
+        assert_eq!(
+            state.player(&PlayerId::new("a")).unwrap().trade_goods,
+            before_state
+                .player(&PlayerId::new("a"))
+                .unwrap()
+                .trade_goods
+                + 4
+        );
+    }
+
+    #[test]
+    fn strict_flush_processes_nested_events_after_already_waiting_rows() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "mentak"), ("b", "sol")], POK);
+        assert!(stage_event(&mut state, "FIRST", &Default::default()));
+        assert!(stage_event(&mut state, "SECOND", &Default::default()));
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut abilities = Vec::new();
+        for event_type in ["FIRST", "SECOND", "NESTED"] {
+            let seen_event = seen.clone();
+            let nested = event_type == "FIRST";
+            abilities.push(crate::timing::Ability::stateful(
+                format!("test:ordered:{event_type}"),
+                PlayerId::new("a"),
+                event_type,
+                crate::timing::Relation::After,
+                std::sync::Arc::new(move |event, _, context| {
+                    seen_event.lock().unwrap().push(event.event_type.clone());
+                    if nested {
+                        stage_event(context.state, "NESTED", &Default::default());
+                    }
+                    Ok(())
+                }),
+            ));
+        }
+        let mut resolver = crate::timing::Resolver::new(
+            vec![PlayerId::new("a"), PlayerId::new("b")],
+            Some(PlayerId::new("a")),
+            crate::choice::Table::default(),
+        );
+        resolver.register(abilities);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(10);
+        let mut table = crate::choice::Table::new();
+        let mut resolving = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+
+        assert_eq!(try_flush_staged_events(&mut state, &mut resolving), Ok(3));
+        assert_eq!(
+            *seen.lock().unwrap(),
+            ["FIRST", "SECOND", "NESTED"],
+            "nested rows follow rows that were already waiting"
+        );
+        assert_eq!(staged_events(&state), 0);
+    }
+
+    #[test]
     fn nothing_is_staged_without_a_module_seat() {
         let mut state = crate::fixtures::game(&["a", "b"]);
         assert_eq!(
@@ -1433,4 +1790,23 @@ mod bf_f3_tests {
             "an empty pool announces nothing"
         );
     }
+    #[test]
+    fn maximum_forbids_reinforcement_mechs_without_changing_the_box_count() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "sol")], ti4_model::content_types::DEFAULT);
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_voltron", &a, 1);
+        let mech = UnitTypeId::new("naaz_mech");
+        assert!(remaining(&state, content, ti4_model::content_types::DEFAULT, &a, &mech) > 0);
+        assert_eq!(allowed(&state, content, ti4_model::content_types::DEFAULT, &a, &mech, 1), 0);
+        assert_eq!(allowed(&state, content, ti4_model::content_types::DEFAULT, &a, &UnitTypeId::new("mech"), 1), 0);
+        assert_eq!(allowed(&state, content, ti4_model::content_types::DEFAULT, &b, &UnitTypeId::new("sol_mech"), 1), 1);
+        assert_eq!(allowed(&state, content, ti4_model::content_types::DEFAULT, &a, &UnitTypeId::new("infantry"), 1), 1);
+        assert!(capture_from_reinforcements(&mut state, content, ti4_model::content_types::DEFAULT, &b, &a, &mech),
+            "capture consumes box plastic without placing or producing a mech");
+
+    }
+
 }

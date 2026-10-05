@@ -79,7 +79,7 @@ pub const MODULE: FactionModule = FactionModule {
         "naalu_mech_te",
     ],
     promissory: &["gift"],
-    leaders: &[HERO],
+    leaders: &[HERO, "naalucommander", AGENT],
     breakthroughs: &["naalubt"],
     hooks: Hooks {
         timing_abilities: Some(timing_abilities),
@@ -98,9 +98,35 @@ pub const MODULE: FactionModule = FactionModule {
             secondary_waived: Some(secondary_waived),
             ..StrategyHooks::NONE
         },
+        cards: super::hooks_cards::CardHooks {
+            may_view_hand: Some(may_view_promissory_hand),
+            ..super::hooks_cards::CardHooks::NONE
+        },
         ..Hooks::NONE
     },
 };
+
+/// M'aban: the live permission follows the recipient's commander rights and neighbour status.
+fn may_view_promissory_hand(
+    state: &GameState,
+    _content: &ContentStore,
+    _sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    viewer: &PlayerId,
+    owner: &PlayerId,
+    kind: super::hooks_cards::RevealKind,
+) -> bool {
+    if kind != super::hooks_cards::RevealKind::PromissoryNotes || !commander_has_peek(state, viewer)
+    {
+        return false;
+    }
+    galaxy.is_some_and(|galaxy| crate::transactions::are_neighbours(state, galaxy, viewer, owner))
+}
+
+/// Whether the bound Naalu seat currently owns its unlocked M'aban commander.
+pub(crate) fn commander_has_peek(state: &GameState, player: &PlayerId) -> bool {
+    crate::promissory::has_commander_ability(state, player, "naalucommander")
+}
 
 // -- small readers -------------------------------------------------------------------------------
 
@@ -455,8 +481,7 @@ fn foresight_window(
 
 /// Foresight. The ships go (with the ground forces and fighters aboard in the space area, which a
 /// ship cannot leave behind), then the strategy token is spent and placed in the new system. The
-/// `SHIPS_RELOCATED` announcement is not made: a stateful ability has no resolver to open a nested
-/// window with.
+/// placed token opens the ordinary `COMMAND_TOKEN_PLACED` window immediately.
 fn foresight(owner_name: &str, seat: &PlayerId) -> Ability {
     let (owner, condition_seat) = (seat.clone(), seat.clone());
     Ability::stateful(
@@ -464,7 +489,7 @@ fn foresight(owner_name: &str, seat: &PlayerId) -> Ability {
         seat.clone(),
         "MOVEMENT_FINISHED",
         Relation::After,
-        Arc::new(move |event, _resolver, context| {
+        Arc::new(move |event, resolver, context| {
             let Some((from, destinations)) = foresight_window(context, event, &owner) else {
                 return Ok(());
             };
@@ -539,6 +564,13 @@ fn foresight(owner_name: &str, seat: &PlayerId) -> Ability {
             }
             crate::supply::spend_strategy_token_staged(context.state, &owner, "naalu");
             context.state.system_mut(&to).place_token(owner.clone());
+            super::hooks_cards::announce_command_token_placed(
+                context,
+                resolver,
+                &owner,
+                &to,
+                super::hooks_cards::TokenPool::Strategy,
+            )?;
             Ok(())
         }),
     )
@@ -775,7 +807,7 @@ fn secondary_waived(
 
 // -- timing abilities ----------------------------------------------------------------------------
 
-fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
+fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
     let mut abilities = vec![
         gift(owner_name, seat),
         gift_return(owner_name, seat),
@@ -784,12 +816,99 @@ fn timing_abilities(_state: &GameState, owner_name: &str, seat: &PlayerId) -> Ve
         mech(owner_name, seat),
         hero(owner_name, seat),
     ];
-    // Z'eu is written and unit-tested but not claimed: only the activation token is announced
-    // (`COMMAND_TOKEN_PLACED`), the card says any placement. It stays off in real games.
-    if cfg!(test) {
-        abilities.push(agent(owner_name, seat));
+    abilities.push(agent(owner_name, seat));
+    for candidate in &state.players {
+        if candidate.id != *seat
+            && candidate
+                .leaders
+                .contains_key(&LeaderId::new("yssarilagent"))
+            && state
+                .player(seat)
+                .is_some_and(|source| source.leaders.contains_key(&LeaderId::new(AGENT)))
+        {
+            abilities.push(borrowed_agent(owner_name, seat, &candidate.id));
+        }
     }
     abilities
+}
+
+/// Ssruu copies the Naalu agent's printed timing effect. The source agent may be exhausted; the
+/// readied Ssruu is the card that exhausts when its holder uses the copied text.
+fn borrowed_agent(owner_name: &str, source: &PlayerId, borrower: &PlayerId) -> Ability {
+    let (condition_source, condition_borrower) = (source.clone(), borrower.clone());
+    let effect_source = source.clone();
+    let effect_borrower = borrower.clone();
+    Ability::stateful(
+        format!("leader:{owner_name}:{source}:yssarilagent:{AGENT}:COMMAND_TOKEN_PLACED:after"),
+        borrower.clone(),
+        "COMMAND_TOKEN_PLACED",
+        Relation::After,
+        Arc::new(move |event, _, context| {
+            let Some((player, system)) = agent_target(context, event) else {
+                return Ok(());
+            };
+            if !has_borrowable_naalu_agent(
+                context.state,
+                context.content,
+                &effect_source,
+                &effect_borrower,
+            ) {
+                return Ok(());
+            }
+            if crate::leaders::exhaust(
+                context.state,
+                &effect_borrower,
+                &LeaderId::new("yssarilagent"),
+            ) {
+                context
+                    .state
+                    .system_mut(&system)
+                    .command_tokens
+                    .remove(&player);
+                super::hooks_cards::borrowed_agent_used(
+                    context,
+                    &effect_borrower,
+                    &LeaderId::new(AGENT),
+                );
+            }
+            Ok(())
+        }),
+    )
+    .with_optional(true)
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        agent_target(context, event).is_some()
+            && has_borrowable_naalu_agent(
+                context.state,
+                context.content,
+                &condition_source,
+                &condition_borrower,
+            )
+    }))
+}
+
+fn has_borrowable_naalu_agent(
+    state: &GameState,
+    content: &ContentStore,
+    source: &PlayerId,
+    borrower: &PlayerId,
+) -> bool {
+    super::hooks_cards::borrowable_agents(state, content, borrower)
+        .iter()
+        .any(|(owner, agent)| owner == source && agent.as_str() == AGENT)
+}
+
+fn agent_target(
+    context: &TimingContext<'_>,
+    event: &crate::event::Event,
+) -> Option<(PlayerId, SystemId)> {
+    let player = PlayerId::new(event.text("player")?);
+    let system = SystemId::new(event.text("system")?);
+    context
+        .state
+        .board
+        .get(&system)
+        .is_some_and(|board| board.command_tokens.contains(&player))
+        .then_some((player, system))
 }
 
 #[cfg(test)]
@@ -810,6 +929,124 @@ mod tests {
         // The fixture deals notes before it swaps the factions in; deal them to the real ones.
         crate::promissory::deal(&mut state, ContentStore::embedded(), DEFAULT);
         state
+    }
+
+    #[test]
+    fn alliance_maban_rights_are_live_neighbor_scoped_and_recipient_bound() {
+        let content = ContentStore::embedded();
+        let hub = crate::fixtures::plain_hub();
+        let mut state =
+            crate::fixtures::seated_game(&[("a", "sol"), ("b", FACTION), ("c", "hacan")], DEFAULT);
+        for board in state.board.values_mut() {
+            board.units.clear();
+            board.planet_units.clear();
+            board.planet_control.clear();
+        }
+        let alliance = "an:naalu";
+        state.promissory_notes.insert(alliance.to_owned(), a());
+        state.promissory_faceup.insert(alliance.to_owned());
+        crate::fixtures::put(
+            &mut state,
+            &SystemId::new(&hub.outer[0]),
+            "cruiser",
+            &a(),
+            1,
+        );
+        crate::fixtures::put(&mut state, &SystemId::new(&hub.centre), "cruiser", &b(), 1);
+        let far = hub.across(&hub.outer[0]);
+        crate::fixtures::put(
+            &mut state,
+            &SystemId::new(&far),
+            "cruiser",
+            &PlayerId::new("c"),
+            1,
+        );
+        let may_view = |state: &GameState, viewer: &PlayerId, owner: &PlayerId| {
+            may_view_promissory_hand(
+                state,
+                content,
+                DEFAULT,
+                Some(&hub.galaxy),
+                viewer,
+                owner,
+                super::super::hooks_cards::RevealKind::PromissoryNotes,
+            )
+        };
+
+        assert!(
+            !may_view(&state, &a(), &b()),
+            "locked Alliance grants no rights"
+        );
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("naalucommander"), LeaderStatus::Unlocked);
+        assert!(
+            may_view(&state, &a(), &b()),
+            "neighbor's unlocked commander applies"
+        );
+        assert!(
+            !may_view(&state, &a(), &PlayerId::new("c")),
+            "permission is neighbor-only"
+        );
+        assert!(
+            !may_view(&state, &PlayerId::new("c"), &b()),
+            "permission is recipient-bound"
+        );
+
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("naalucommander"), LeaderStatus::Locked);
+        assert!(
+            !may_view(&state, &a(), &b()),
+            "locking restores privacy live"
+        );
+    }
+
+    #[test]
+    fn ownerless_commander_grant_enables_neighbor_hand_and_agenda_peeks_for_recipient() {
+        let content = ContentStore::embedded();
+        let hub = crate::fixtures::plain_hub();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            content,
+            &a(),
+            "naalucommander"
+        ));
+        state.agenda_deck = vec!["agenda_top".to_owned(), "agenda_bottom".to_owned()];
+        crate::fixtures::put(&mut state, &SystemId::new(&hub.centre), "cruiser", &a(), 1);
+        crate::fixtures::put(
+            &mut state,
+            &SystemId::new(&hub.outer[0]),
+            "cruiser",
+            &b(),
+            1,
+        );
+        assert!(commander_has_peek(&state, &a()));
+        assert!(!commander_has_peek(&state, &b()));
+        assert!(may_view_promissory_hand(
+            &state,
+            content,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &a(),
+            &b(),
+            super::super::hooks_cards::RevealKind::PromissoryNotes,
+        ));
+        let observed = crate::choice::Observed::new(&state, content, DEFAULT, Some(&hub.galaxy));
+        assert_eq!(
+            crate::choice::SeatObservation::bind(&observed, a()).agenda_deck_ends(),
+            Some(("agenda_top".to_owned(), "agenda_bottom".to_owned()))
+        );
+        assert_eq!(
+            crate::choice::SeatObservation::bind(&observed, b()).agenda_deck_ends(),
+            None,
+            "only the bound grant recipient sees the agenda deck ends"
+        );
     }
 
     fn payload(pairs: &[(&str, &str)]) -> BTreeMap<String, serde_json::Value> {
@@ -858,6 +1095,28 @@ mod tests {
         crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(
             answers.iter().map(|s| (*s).to_owned()),
         )))
+    }
+
+    fn flush_staged_token_events(state: &mut GameState, answers: &[&str]) -> usize {
+        let content = ContentStore::embedded();
+        let mut resolver = crate::fixtures::armed_resolver(state);
+        let mut table = scripted(answers);
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        crate::supply::flush_staged_events(state, &mut ctx)
     }
 
     fn unit(kind: &str, who: &PlayerId) -> Unit {
@@ -1114,6 +1373,12 @@ mod tests {
     #[test]
     fn foresight_moves_the_ships_and_spends_a_strategy_token_into_the_new_system() {
         let mut t = board();
+        // Keep this focused on Foresight; the staged-token agent has dedicated tests below.
+        t.state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Exhausted);
         let tokens = t.state.player(&a()).unwrap().strategic_tokens;
         assert!(tokens > 0);
         // A carried infantry rides along.
@@ -1420,6 +1685,209 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ssruu_copies_readied_or_exhausted_naalu_agent_and_exhausts_only_ssruu() {
+        for source_status in [LeaderStatus::Readied, LeaderStatus::Exhausted] {
+            let mut t = board();
+            t.state
+                .player_mut(&b())
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+            t.state
+                .player_mut(&a())
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new(AGENT), source_status);
+            t.state.system_mut(&t.from).place_token(b());
+            let borrowed =
+                format!("leader:naalu:a:yssarilagent:{AGENT}:COMMAND_TOKEN_PLACED:after");
+            let mut answers = Vec::new();
+            if source_status == LeaderStatus::Readied {
+                answers.push("decline");
+            }
+            answers.push(borrowed.as_str());
+            emit(
+                &mut t.state,
+                &mut scripted(&answers),
+                "COMMAND_TOKEN_PLACED",
+                &[("player", "b"), ("system", t.from.as_str())],
+            );
+            assert!(!t.state.board[&t.from].command_tokens.contains(&b()));
+            assert_eq!(leader_status(&t.state, &a(), AGENT), Some(source_status));
+            assert_eq!(
+                leader_status(&t.state, &b(), "yssarilagent"),
+                Some(LeaderStatus::Exhausted)
+            );
+        }
+    }
+
+    #[test]
+    fn borrowed_naalu_agent_is_inert_without_readied_ssruu() {
+        let mut t = board();
+        t.state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Exhausted);
+        t.state.system_mut(&t.from).place_token(b());
+        let before = t.state.clone();
+        emit(
+            &mut t.state,
+            &mut scripted(&[]),
+            "COMMAND_TOKEN_PLACED",
+            &[("player", "b"), ("system", t.from.as_str())],
+        );
+        assert_eq!(t.state, before);
+
+        t.state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Exhausted);
+        let before = t.state.clone();
+        emit(
+            &mut t.state,
+            &mut scripted(&[]),
+            "COMMAND_TOKEN_PLACED",
+            &[("player", "b"), ("system", t.from.as_str())],
+        );
+        assert_eq!(t.state, before);
+    }
+
+    #[test]
+    fn armed_listener_survives_ssruu_readiness_changing_without_rearming() {
+        let mut t = board();
+        t.state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Exhausted);
+        t.state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Exhausted);
+        t.state.system_mut(&t.from).place_token(b());
+
+        let mut resolver = crate::fixtures::armed_resolver(&t.state);
+        t.state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        let borrowed = format!("leader:naalu:a:yssarilagent:{AGENT}:COMMAND_TOKEN_PLACED:after");
+        let mut table = scripted(&[&borrowed]);
+        crate::fixtures::with_context(&mut t.state, DEFAULT, None, &mut table, |context| {
+            let event = context
+                .event_sequence
+                .next(
+                    "COMMAND_TOKEN_PLACED",
+                    payload(&[("player", "b"), ("system", t.from.as_str())]),
+                )
+                .expect("event id");
+            resolver
+                .emit_with_context(context, event, |_, _| {})
+                .expect("timing window resolves");
+        });
+
+        assert!(!t.state.board[&t.from].command_tokens.contains(&b()));
+        assert_eq!(
+            leader_status(&t.state, &a(), AGENT),
+            Some(LeaderStatus::Exhausted),
+            "copying the text never readies or exhausts the source agent"
+        );
+        assert_eq!(
+            leader_status(&t.state, &b(), "yssarilagent"),
+            Some(LeaderStatus::Exhausted)
+        );
+    }
+
+    #[test]
+    fn the_agent_returns_a_nonactivation_reinforcement_token_through_the_staged_resolver() {
+        let mut t = board();
+        t.state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Readied);
+        assert!(crate::tokens::place_command_token_from_reinforcements(
+            &mut t.state,
+            &b(),
+            &t.from,
+        ));
+        assert_eq!(
+            crate::supply::staged_event_types(&t.state),
+            ["COMMAND_TOKEN_PLACED"]
+        );
+        assert_eq!(flush_staged_token_events(&mut t.state, &[AGENT_ABILITY]), 1);
+        assert!(!t.state.system_state(&t.from).command_tokens.contains(&b()));
+        assert_eq!(
+            leader_status(&t.state, &a(), AGENT),
+            Some(LeaderStatus::Exhausted)
+        );
+    }
+
+    #[test]
+    fn the_agent_may_decline_or_be_exhausted_when_a_staged_token_is_placed() {
+        for (status, answers) in [
+            (LeaderStatus::Readied, Some("decline")),
+            (LeaderStatus::Exhausted, None),
+        ] {
+            let mut t = board();
+            t.state
+                .player_mut(&a())
+                .unwrap()
+                .leaders
+                .insert(LeaderId::new(AGENT), status);
+            assert!(crate::tokens::place_command_token_from_reinforcements(
+                &mut t.state,
+                &b(),
+                &t.from,
+            ));
+            let scripted_answers: Vec<&str> = answers.into_iter().collect();
+            assert_eq!(
+                flush_staged_token_events(&mut t.state, &scripted_answers),
+                1,
+                "the staged placement is still announced"
+            );
+            assert!(t.state.system_state(&t.from).command_tokens.contains(&b()));
+            assert_eq!(leader_status(&t.state, &a(), AGENT), Some(status));
+        }
+    }
+
+    #[test]
+    fn repeated_placements_exhaust_the_agent_once_and_do_not_open_a_duplicate_activation_window() {
+        let mut t = board();
+        t.state
+            .player_mut(&a())
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new(AGENT), LeaderStatus::Readied);
+        assert!(crate::tokens::place_command_token_from_reinforcements(
+            &mut t.state,
+            &b(),
+            &t.from,
+        ));
+        assert!(crate::tokens::place_command_token_from_reinforcements(
+            &mut t.state,
+            &b(),
+            &t.beside,
+        ));
+        assert_eq!(flush_staged_token_events(&mut t.state, &[AGENT_ABILITY]), 2);
+        assert!(!t.state.system_state(&t.from).command_tokens.contains(&b()));
+        assert!(
+            t.state
+                .system_state(&t.beside)
+                .command_tokens
+                .contains(&b())
+        );
+        assert_eq!(
+            leader_status(&t.state, &a(), AGENT),
+            Some(LeaderStatus::Exhausted)
+        );
+    }
+
     // -- Iconoclast ------------------------------------------------------------------------------
 
     #[test]
@@ -1597,6 +2065,8 @@ mod tests {
             "done_moving".to_owned(),
             ability.to_owned(),
             format!("system|{beside}"),
+            // Foresight's strategy-pool placement also opens the command-token window.
+            "decline".to_owned(),
         ];
         let table =
             crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(script)));

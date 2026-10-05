@@ -33,6 +33,8 @@ pub const VOTE_KIND: &str = "vote";
 pub const VOTE_PLANET_KIND: &str = "vote_planet";
 /// The choice kind for the speaker's tie-break, which is not a vote (8.19a).
 pub const TIEBREAK_KIND: &str = "tiebreak";
+/// Gila the Silvertongue: trade goods spent for two votes each, as `"spend|<n>"`.
+pub const VOTE_TRADE_GOODS_KIND: &str = "vote_trade_goods";
 
 /// What may be voted for on one agenda (8.8 to 8.11).
 ///
@@ -247,6 +249,13 @@ enum Stage {
         outcome: String,
         votes: i64,
     },
+    /// Asking `order[index]`, who holds Hacan's commander ability, how many trade goods to spend
+    /// for two more votes each ("When you cast votes: You may spend any number of trade goods").
+    TradeGoods {
+        index: usize,
+        outcome: String,
+        votes: i64,
+    },
     /// The speaker is deciding a tie or a silent table.
     Tiebreak,
     /// Finished, with the winning outcome if there was one.
@@ -443,6 +452,45 @@ impl VoteWindow {
                     )),
                 )
             }
+            Stage::TradeGoods {
+                index,
+                outcome,
+                votes,
+            } => {
+                let player = self.order.get(*index)?;
+                let goods = state.player(player).map_or(0, |seat| seat.trade_goods);
+                let mut options: Vec<ChoiceOption> = (1..=goods)
+                    .map(|spent| {
+                        let spent = i64::from(spent);
+                        ChoiceOption::labelled(
+                            format!("spend|{spent}"),
+                            VOTE_TRADE_GOODS_KIND,
+                            format!("spend {spent} trade goods for {} votes", 2 * spent),
+                        )
+                        .with("trade_goods", spent)
+                        .previewed(Preview::certain(vec![Delta::new(
+                            Quantity::Votes,
+                            *votes,
+                            *votes + 2 * spent,
+                        )]))
+                    })
+                    .collect();
+                options.push(ChoiceOption::decline());
+                Some(
+                    Choice::new(
+                        player.clone(),
+                        format!("spend trade goods for votes on {outcome}"),
+                        options,
+                    )
+                    .contextualized(DecisionContext::new(
+                        player.clone(),
+                        DecisionSource::Content("hacancommander".to_owned()),
+                        "vote_spend_trade_goods",
+                        state.phase,
+                        state.round,
+                    )),
+                )
+            }
             Stage::Tiebreak => {
                 let candidates = tiebreak_candidates(&self.ballot, &self.choices);
                 Some(
@@ -481,14 +529,41 @@ impl VoteWindow {
                     let player = &self.order[*index];
                     if votable_planets(state, content, sources, player).is_empty() {
                         let (index, outcome, votes) = (*index, outcome.clone(), *votes);
-                        self.record(state, content, index, &outcome, votes);
-                        self.stage = Stage::Outcome(index + 1);
+                        self.finish_planets(state, content, index, outcome, votes);
                         continue;
                     }
                     return;
                 }
                 _ => return,
             }
+        }
+    }
+
+    /// A player is done exhausting planets: offer Gila the Silvertongue's trade-goods votes when
+    /// they hold the ability, have trade goods, and are casting votes at all; else bank the votes.
+    fn finish_planets(
+        &mut self,
+        state: &GameState,
+        content: &ContentStore,
+        index: usize,
+        outcome: String,
+        votes: i64,
+    ) {
+        let player = &self.order[index];
+        let gila = votes > 0
+            && crate::promissory::has_commander_ability(state, player, "hacancommander")
+            && state
+                .player(player)
+                .is_some_and(|seat| seat.trade_goods > 0);
+        if gila {
+            self.stage = Stage::TradeGoods {
+                index,
+                outcome,
+                votes,
+            };
+        } else {
+            self.record(state, content, index, &outcome, votes);
+            self.stage = Stage::Outcome(index + 1);
         }
     }
 
@@ -574,8 +649,7 @@ impl VoteWindow {
                 votes,
             } => {
                 if option.is_decline() {
-                    self.record(state, content, index, &outcome, votes);
-                    self.stage = Stage::Outcome(index + 1);
+                    self.finish_planets(state, content, index, outcome, votes);
                 } else {
                     let planet = PlanetId::new(option.id);
                     // Elder Qanoj: each planet exhausted to vote gives one vote more.
@@ -588,6 +662,30 @@ impl VoteWindow {
                         votes: votes + influence,
                     };
                 }
+            }
+            Stage::TradeGoods {
+                index,
+                outcome,
+                votes,
+            } => {
+                let spent = option
+                    .id
+                    .strip_prefix("spend|")
+                    .and_then(|n| n.parse::<i32>().ok())
+                    .unwrap_or(0);
+                if spent > 0 {
+                    if let Some(seat) = state.player_mut(&self.order[index]) {
+                        seat.trade_goods -= spent;
+                    }
+                }
+                self.record(
+                    state,
+                    content,
+                    index,
+                    &outcome,
+                    votes + 2 * i64::from(spent),
+                );
+                self.stage = Stage::Outcome(index + 1);
             }
             Stage::Tiebreak => {
                 self.stage = Stage::Done(Some(option.id));
@@ -1040,6 +1138,65 @@ mod tests {
             window.ballot.counts.get(FOR).copied(),
             Some(first_influence + second_influence + 2)
         );
+    }
+
+    #[test]
+    fn gila_spends_trade_goods_for_two_votes_each_after_the_planets() {
+        let (mut state, players) = game(&["a"]);
+        let (first, first_influence, _second, _) = give_two_voting_planets(&mut state, &players[0]);
+        state.player_mut(&players[0]).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new("hacancommander"),
+            ti4_model::state::LeaderStatus::Unlocked,
+        );
+        state.player_mut(&players[0]).unwrap().trade_goods = 3;
+        let content = ContentStore::embedded();
+        let mut window = VoteWindow::new(&state, "x", for_against());
+        window.open(&state, content, POK);
+        let option = pick(&window, &state, FOR);
+        window.resolve(&mut state, content, POK, option).unwrap();
+        let option = pick(&window, &state, first.as_str());
+        window.resolve(&mut state, content, POK, option).unwrap();
+        let decline = window
+            .pending_choice(&state, content, POK)
+            .and_then(|choice| choice.options.into_iter().find(ChoiceOption::is_decline))
+            .expect("decline the second planet");
+        window.resolve(&mut state, content, POK, decline).unwrap();
+        let choice = window
+            .pending_choice(&state, content, POK)
+            .expect("Gila asks how many trade goods");
+        let ids: Vec<&str> = choice.options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["spend|1", "spend|2", "spend|3", "decline"]);
+        let two = choice.options[1].clone();
+        window.resolve(&mut state, content, POK, two).unwrap();
+        assert_eq!(state.player(&players[0]).unwrap().trade_goods, 1);
+        assert_eq!(
+            window.ballot.counts.get(FOR).copied(),
+            Some(first_influence + 4)
+        );
+    }
+
+    #[test]
+    fn gila_is_not_offered_without_the_ability_or_trade_goods() {
+        let (mut state, players) = game(&["a"]);
+        let (first, first_influence, _second, _) = give_two_voting_planets(&mut state, &players[0]);
+        state.player_mut(&players[0]).unwrap().trade_goods = 3;
+        let content = ContentStore::embedded();
+        let mut window = VoteWindow::new(&state, "x", for_against());
+        window.open(&state, content, POK);
+        let option = pick(&window, &state, FOR);
+        window.resolve(&mut state, content, POK, option).unwrap();
+        let option = pick(&window, &state, first.as_str());
+        window.resolve(&mut state, content, POK, option).unwrap();
+        let decline = window
+            .pending_choice(&state, content, POK)
+            .and_then(|choice| choice.options.into_iter().find(ChoiceOption::is_decline))
+            .unwrap();
+        window.resolve(&mut state, content, POK, decline).unwrap();
+        assert_eq!(
+            window.ballot.counts.get(FOR).copied(),
+            Some(first_influence)
+        );
+        assert_eq!(state.player(&players[0]).unwrap().trade_goods, 3);
     }
 
     /// BF-00l deferral: a module's vote bonus can now read the content corpus, and rides on votes

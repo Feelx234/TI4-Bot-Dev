@@ -1309,16 +1309,73 @@ impl<'a> SeatObservation<'a> {
             .collect()
     }
 
-    /// Hidden cards other players have shown the bound seat, by owner — and only to this seat.
+    /// Hidden cards other players have shown or allowed the bound seat to inspect, by owner —
+    /// and only to this seat.
     ///
-    /// Faction effects that let one player look at another's hand (Yssaril Mageon Implants, Spy
-    /// Net, So Ata, Kyver) record a reveal through `factions::hooks_cards::reveal`; this is the
-    /// only place it is read back, and it filters on the bound seat, so no argument can name
-    /// another viewer. The public [`Observed`] has no accessor for it. A card its owner no longer
-    /// holds is not reported. Empty in every game where no module reveals anything.
+    /// Effects with a lasting reveal record it through `factions::hooks_cards::reveal`; ongoing
+    /// permissions such as M'aban are computed from the current position each time. This accessor
+    /// filters on the bound seat, so no argument can name another viewer. The public [`Observed`]
+    /// has no accessor for it. A card its owner no longer holds is not reported.
     #[must_use]
     pub fn revealed_cards(&self) -> Vec<crate::factions::hooks_cards::Revealed> {
-        crate::factions::hooks_cards::revealed_to(self.observed.state, &self.acting_seat)
+        let state = self.observed.state;
+        let mut revealed = crate::factions::hooks_cards::revealed_to(state, &self.acting_seat);
+        // Standing hand permissions are read from the current board and current leader state.
+        // They are deliberately not persisted in faction_marks, which would go stale on movement
+        // or a change to the owner's hand.
+        for owner in &state.seating_order {
+            if crate::factions::hooks_cards::may_view_hand(
+                state,
+                self.observed.content,
+                self.observed.sources,
+                self.observed.galaxy,
+                &self.acting_seat,
+                owner,
+                crate::factions::hooks_cards::RevealKind::PromissoryNotes,
+            ) {
+                let ids: Vec<String> = state
+                    .promissory_notes
+                    .iter()
+                    .filter(|(id, holder)| {
+                        *holder == owner && !state.promissory_faceup.contains(*id)
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                if !ids.is_empty() {
+                    if let Some(existing) = revealed.iter_mut().find(|row| {
+                        row.owner == *owner
+                            && row.kind == crate::factions::hooks_cards::RevealKind::PromissoryNotes
+                    }) {
+                        for id in ids {
+                            if !existing.ids.contains(&id) {
+                                existing.ids.push(id);
+                            }
+                        }
+                    } else {
+                        revealed.push(crate::factions::hooks_cards::Revealed {
+                            owner: owner.clone(),
+                            kind: crate::factions::hooks_cards::RevealKind::PromissoryNotes,
+                            ids,
+                        });
+                    }
+                }
+            }
+        }
+        revealed
+    }
+
+    /// The agenda deck's current top and bottom cards, when this bound seat has permission.
+    /// The order and cards are read live from the position; no reveal is stored.
+    #[must_use]
+    pub fn agenda_deck_ends(&self) -> Option<(String, String)> {
+        let state = self.observed.state;
+        if !crate::factions::naalu::commander_has_peek(state, &self.acting_seat) {
+            return None;
+        }
+        Some((
+            state.agenda_deck.first()?.clone(),
+            state.agenda_deck.last()?.clone(),
+        ))
     }
 
     /// The action cards other players have shown the bound seat: `(owner, cards)` in owner order.
@@ -1911,6 +1968,8 @@ pub struct Table {
     deciders: BTreeMap<PlayerId, Box<dyn Decider>>,
     default: Box<dyn Decider>,
     pub log: DecisionLog,
+    choice_failures: u64,
+    last_choice_error: Option<IllegalChoice>,
 }
 
 impl Default for Table {
@@ -1919,6 +1978,8 @@ impl Default for Table {
             deciders: BTreeMap::new(),
             default: Box::new(FirstOption),
             log: DecisionLog::default(),
+            choice_failures: 0,
+            last_choice_error: None,
         }
     }
 }
@@ -1952,8 +2013,10 @@ impl Table {
             .deciders
             .get_mut(&choice.player)
             .unwrap_or(&mut self.default);
-        let answer = decider.choose(choice)?;
-        self.settle(choice, answer)
+        let answer = decider.choose(choice);
+        let outcome = answer.and_then(|answer| self.settle(choice, answer));
+        self.remember_choice_error(&outcome);
+        outcome
     }
 
     /// Put a choice to its actor along with the public position.
@@ -1977,8 +2040,27 @@ impl Table {
         // up by `choice.player`, so the view it receives answers for exactly that seat. Policy-
         // side code never sees a constructor for this type.
         let seat_view = SeatObservation::bind(seen, choice.player.clone());
-        let answer = decider.choose_seeing(choice, &seat_view)?;
-        self.settle(choice, answer)
+        let answer = decider.choose_seeing(choice, &seat_view);
+        let outcome = answer.and_then(|answer| self.settle(choice, answer));
+        self.remember_choice_error(&outcome);
+        outcome
+    }
+
+    // Strict callers can detect errors swallowed by legacy Option-returning effect APIs.
+    pub(crate) fn choice_error_checkpoint(&self) -> u64 {
+        self.choice_failures
+    }
+
+    pub(crate) fn choice_error_since(&self, checkpoint: u64) -> Option<IllegalChoice> {
+        (self.choice_failures != checkpoint)
+            .then(|| self.last_choice_error.clone()).flatten()
+    }
+
+    fn remember_choice_error(&mut self, outcome: &Result<ChoiceOption, IllegalChoice>) {
+        if let Err(error) = outcome {
+            self.choice_failures = self.choice_failures.saturating_add(1);
+            self.last_choice_error = Some(error.clone());
+        }
     }
 
     /// Validate an answer and record it. Shared, so the two ask paths cannot drift.
@@ -3147,6 +3229,107 @@ mod obs004_actor_owned_inventory {
             mine.held_promissory_notes().is_empty(),
             "the note is B's and unplayed; A holds nothing"
         );
+    }
+
+    #[test]
+    fn naalu_commander_reads_neighbor_hands_and_agenda_ends_live() {
+        use crate::fixtures::{hub_with_centre, put};
+        use ti4_model::id::SystemId;
+
+        let content = ContentStore::embedded();
+        let hub = hub_with_centre(crate::seating::MECATOL);
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        state.player_mut(&pid("a")).unwrap().faction = ti4_model::id::FactionId::new("naalu");
+        state
+            .player_mut(&pid("a"))
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("naalucommander"), LeaderStatus::Unlocked);
+        put(
+            &mut state,
+            &SystemId::new(hub.outer[0].clone()),
+            "infantry",
+            &pid("a"),
+            1,
+        );
+        put(
+            &mut state,
+            &SystemId::new(crate::seating::MECATOL),
+            "cruiser",
+            &pid("b"),
+            1,
+        );
+        let far = hub.across(&hub.outer[0]);
+        put(&mut state, &SystemId::new(far), "cruiser", &pid("c"), 1);
+        state.promissory_notes.insert("b:note".to_owned(), pid("b"));
+        state.promissory_notes.insert("c:note".to_owned(), pid("c"));
+        state.agenda_deck = vec![
+            "agenda_top".to_owned(),
+            "middle".to_owned(),
+            "agenda_bottom".to_owned(),
+        ];
+
+        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        let a = SeatObservation::bind(&seen, pid("a"));
+        assert_eq!(
+            a.revealed_promissory_notes(),
+            vec![(pid("b"), vec!["b:note".to_owned()])]
+        );
+        assert!(a.revealed_action_cards().is_empty());
+        assert!(a.revealed_secret_objectives().is_empty());
+        assert!(
+            state
+                .faction_marks
+                .keys()
+                .all(|key| !key.starts_with("cards:reveal:")),
+            "M'aban's live permission creates no stored reveal"
+        );
+        assert_eq!(
+            a.agenda_deck_ends(),
+            Some(("agenda_top".to_owned(), "agenda_bottom".to_owned()))
+        );
+        assert!(
+            SeatObservation::bind(&seen, pid("b"))
+                .revealed_promissory_notes()
+                .is_empty()
+        );
+        assert!(
+            SeatObservation::bind(&seen, pid("c"))
+                .agenda_deck_ends()
+                .is_none()
+        );
+        let without_map = Observed::new(&state, content, POK, None);
+        let a_without_map = SeatObservation::bind(&without_map, pid("a"));
+        assert!(a_without_map.revealed_promissory_notes().is_empty());
+        assert_eq!(
+            a_without_map.agenda_deck_ends(),
+            Some(("agenda_top".to_owned(), "agenda_bottom".to_owned()))
+        );
+
+        // Hand changes, faceup play, and commander lock state are all observed immediately.
+        state.promissory_notes.insert("b:new".to_owned(), pid("b"));
+        state.promissory_faceup.insert("b:note".to_owned());
+        state.agenda_deck = vec!["new_top".to_owned(), "new_bottom".to_owned()];
+        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        let a = SeatObservation::bind(&seen, pid("a"));
+        assert_eq!(
+            a.revealed_promissory_notes(),
+            vec![(pid("b"), vec!["b:new".to_owned()])]
+        );
+        assert_eq!(
+            a.agenda_deck_ends(),
+            Some(("new_top".to_owned(), "new_bottom".to_owned()))
+        );
+
+        state
+            .player_mut(&pid("a"))
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("naalucommander"), LeaderStatus::Locked);
+        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        let a = SeatObservation::bind(&seen, pid("a"));
+        assert!(a.revealed_promissory_notes().is_empty());
+        assert_eq!(a.agenda_deck_ends(), None);
     }
 
     /// Laws are public: every seat reads the same standing effects.

@@ -267,6 +267,12 @@ struct Producer {
 
 const PRODUCERS: &[Producer] = &[
     Producer {
+        module: "invasion.rs",
+        function: "assign_selected_ground_hit_in_timing",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "yssaril.rs",
         function: "borrowed_stall_tactics",
         count: 1,
@@ -292,7 +298,19 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "naaz.rs",
+        function: "ask_checked",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "naaz.rs",
         function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "naaz.rs",
+        function: "borrowed_agent",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -396,6 +414,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Ral Nel commander: retreat destination and ships (BF-COMMANDERS-ALLIANCE-OCT5).
+        module: "borrowed_commanders.rs",
+        function: "ralnel_ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "argent.rs",
         function: "afb_excess",
         count: 1,
@@ -428,6 +453,18 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         module: "winnu.rs",
         function: "reclaimer",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "winnu.rs",
+        function: "leader_strategy_follower_choices",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step_leader_followers"),
+    },
+    Producer {
+        module: "winnu.rs",
+        function: "use_leader_strategy_primary",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -606,7 +643,7 @@ const PRODUCERS: &[Producer] = &[
         module: "combat.rs",
         function: "pending_choice",
         count: 4,
-        delivery: Delivery::ObservedVia("game.rs::step_aftermath"),
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
     },
     Producer {
         module: "draft.rs",
@@ -710,7 +747,7 @@ const PRODUCERS: &[Producer] = &[
         module: "game.rs",
         function: "pending_choice",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step_aftermath"),
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
     },
     Producer {
         // OP-08: end the turn, or do what does not take an action (and Fleet Logistics' second).
@@ -753,7 +790,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "invasion.rs",
-        function: "absorb_ground",
+        function: "absorb_ground_with_origin",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -785,7 +822,7 @@ const PRODUCERS: &[Producer] = &[
         module: "invasion.rs",
         function: "pending_choice",
         count: 3,
-        delivery: Delivery::ObservedVia("game.rs::step_aftermath"),
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
     },
     Producer {
         module: "laws.rs",
@@ -800,6 +837,18 @@ const PRODUCERS: &[Producer] = &[
         module: "leaders.rs",
         function: "dispatch_leader",
         count: 7,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "borrowed_round_agents.rs",
+        function: "resolve_copy",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "leaders.rs",
+        function: "ssruu_l1z1x_activation_abilities",
+        count: 1,
         delivery: Delivery::ObservedHere,
     },
     Producer {
@@ -861,13 +910,13 @@ const PRODUCERS: &[Producer] = &[
         module: "production.rs",
         function: "placement_choice",
         count: 1,
-        delivery: Delivery::ObservedVia("game.rs::step_aftermath"),
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
     },
     Producer {
         module: "production.rs",
         function: "pending_choice",
         count: 2,
-        delivery: Delivery::ObservedVia("game.rs::step_aftermath"),
+        delivery: Delivery::ObservedVia("game.rs::step_aftermath_inner"),
     },
     Producer {
         module: "production.rs",
@@ -970,7 +1019,20 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         module: "strategy_cards.rs",
         function: "doctor_sucaban",
+        count: 1,
+        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+    },
+    Producer {
+        // Deepwrought commander: the researcher's reduction, then the holder's payment.
+        module: "strategy_cards.rs",
+        function: "deepwrought_commander",
         count: 2,
+        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+    },
+    Producer {
+        module: "strategy_cards.rs",
+        function: "trade_infantry_for_research",
+        count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
@@ -1162,18 +1224,23 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         module: "vote.rs",
         function: "pending_choice",
-        count: 3,
+        // Outcome, planets, Gila's trade goods (hacancommander), tiebreak.
+        count: 4,
         delivery: Delivery::ObservedVia("game.rs::step_vote"),
     },
 ];
 
 const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     // BF faction modules (crates/ti4-engine/src/factions/).
+    ("invasion.rs", "fight_committed_planet", 1),
+    ("invasion.rs", "assign_selected_ground_hit_in_timing", 1),
     ("yssaril.rs", "borrowed_stall_tactics", 1),
     ("argent.rs", "ask_option_for", 1),
     ("sardakk.rs", "skip_to_commit", 1),
     ("muaat.rs", "ask", 1),
     ("naaz.rs", "ask", 1),
+    ("naaz.rs", "ask_checked", 1),
+    ("naaz.rs", "borrowed_agent", 1),
     ("naaz.rs", "offer_supercharge", 1),
     ("saar.rs", "ask", 1),
     ("arborec.rs", "agent_use", 2),
@@ -1193,6 +1260,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     // than through `game.rs::step_trade`.
     ("yssaril.rs", "deepgloom_transaction", 1),
     ("mentak.rs", "ask_among", 1),
+    ("borrowed_commanders.rs", "ralnel_ask", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),
     ("argent.rs", "strike_wing_effect", 1),
@@ -1200,6 +1268,8 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("winnu.rs", "imperator", 1),
     ("winnu.rs", "reclaimer", 1),
     ("winnu.rs", "use_leader", 3),
+    ("winnu.rs", "use_leader_strategy_primary", 1),
+    ("game.rs", "step_leader_followers", 1),
     ("sardakk.rs", "exotrireme", 2),
     ("sardakk.rs", "supremacy", 1),
     ("yin.rs", "ask_one", 1),
@@ -1241,7 +1311,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("faction_techs.rs", "offer_spatial_conduit", 1),
     ("fleet.rs", "remove_one", 1),
     ("game.rs", "step", 1),
-    ("game.rs", "step_aftermath", 1),
+    ("game.rs", "step_aftermath_inner", 1),
     ("game.rs", "step_event_scoring", 1),
     ("game.rs", "step_scoring", 1),
     ("game.rs", "step_secondary", 1),
@@ -1255,7 +1325,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("game.rs", "committee_formation", 1),
     ("game.rs", "imperial_arbiter", 2),
     ("game.rs", "minister_of_war", 1),
-    ("invasion.rs", "absorb_ground", 1),
+    ("invasion.rs", "absorb_ground_with_origin", 1),
     ("invasion.rs", "commit_ground_forces", 1),
     ("invasion.rs", "drive", 1),
     ("production.rs", "integrated_economy", 1),
@@ -1281,6 +1351,8 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("laws.rs", "offer_discard", 1),
     ("leaders.rs", "dispatch_leader", 7),
     ("leaders.rs", "offer_production_hero", 1),
+    ("borrowed_round_agents.rs", "resolve_copy", 1),
+    ("leaders.rs", "ssruu_l1z1x_activation_abilities", 1),
     ("legendary.rs", "end_turn", 1),
     ("legendary.rs", "pass", 1),
     ("legendary.rs", "place_on_own_planet", 1),
@@ -1363,7 +1435,18 @@ fn delivery_site(target: &str, operation: Operation) -> Site {
 
 #[test]
 fn every_producer_and_delivery_site_matches_the_reviewed_registry() {
-    assert_eq!(scan(), expected_sites());
+    let actual = scan();
+    let expected = expected_sites();
+    let differences: Vec<_> = actual
+        .keys()
+        .chain(expected.keys())
+        .filter(|site| actual.get(*site) != expected.get(*site))
+        .map(|site| (site, actual.get(site), expected.get(site)))
+        .collect();
+    assert!(
+        differences.is_empty(),
+        "unreviewed decision sites: {differences:?}"
+    );
 }
 
 #[test]

@@ -1277,8 +1277,13 @@ fn waylay(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
 /// machinery like any other, opening its WHEN and AFTER windows. A ship destroyed this way is
 /// off the board before the announcement, so `last` is read from the position a reacting card
 /// would see.
+///
+/// The staged cause names the card. The sustain handoff separately records whether the hit was
+/// sustained during space combat: pre-combat SPACE CANNON can open the same window.
 fn direct_hit(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let Some((system, victim, unit_type, producer)) = context.state.last_sustain.clone() else {
+    let Some((system, victim, unit_type, producer, during_space_combat)) =
+        context.state.last_sustain.clone()
+    else {
         return; // no sustain was just used; the guard should have kept this window closed
     };
     if &producer != player {
@@ -1287,19 +1292,49 @@ fn direct_hit(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
     if !crate::combat::direct_hittable(context.content, context.sources, unit_type.as_str()) {
         return; // Dreadnought II and its kin: "cannot be destroyed by 'Direct Hit' action cards"
     }
-    let board = context.state.system_mut(&system);
-    let index = board
-        .units
-        .iter()
-        .position(|unit| unit.owner == victim && unit.type_id == unit_type);
-    let Some(index) = index else {
-        return; // the sustained ship left the system in the meantime; nothing to destroy
-    };
-    board.units.remove(index);
-    context
-        .state
-        .pending_destructions
-        .push((system, victim, unit_type));
+    if crate::supply::staging_enabled(context.state) {
+        let Some(ship) = crate::combat::ships_of(
+            context.state, context.content, context.sources, &victim, &system,
+        ).into_iter().find(|unit| unit.type_id == unit_type && unit.sustained_damage) else {
+            return;
+        };
+        let exact = context.state.faction_marks.get("combat:sustain_target")
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .filter(|record| record.get("system").and_then(serde_json::Value::as_str) == Some(system.as_str()))
+            .and_then(|record| {
+                let unit: ti4_model::units::Unit = serde_json::from_value(record.get("unit")?.clone()).ok()?;
+                (unit.owner == victim && unit.type_id == unit_type && unit.sustained_damage)
+                    .then(|| (unit, record.get("planet").and_then(serde_json::Value::as_str).map(ti4_model::id::PlanetId::new)))
+            });
+        if let Some((unit, planet)) = exact {
+            let board = context.state.system_mut(&system);
+            let units = match planet {
+                Some(planet) => board.planet_units.get_mut(&planet),
+                None => Some(&mut board.units),
+            };
+            let Some(units) = units else { return; };
+            let Some(index) = units.iter().position(|candidate| candidate == &unit) else { return; };
+            units.remove(index);
+        } else {
+            crate::combat::remove_combat_ship(context.state, &system, &ship);
+        }
+        context.state.faction_marks.remove("combat:sustain_target");
+    } else {
+        // Preserve the accepted original-six route until its own compatibility correction.
+        let board = context.state.system_mut(&system);
+        let Some(index) = board.units.iter()
+            .position(|unit| unit.owner == victim && unit.type_id == unit_type) else {
+            return;
+        };
+        board.units.remove(index);
+    }
+    context.state.pending_destructions.push((
+        system,
+        victim,
+        unit_type,
+        "action_card:direct_hit".to_owned(),
+        during_space_combat,
+    ));
 }
 
 /// Maneuvering Jets, four physical copies: "before you assign hits produced by another
@@ -1324,7 +1359,9 @@ fn maneuvering_jets(context: &mut crate::timing::TimingContext<'_>, player: &Pla
 /// that plays this card has closed, so the opponent's own sustain answers and loss choices
 /// still happen through the ordinary question path.
 fn reflective(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let Some((system, victim, _unit_type, producer)) = context.state.last_sustain.clone() else {
+    let Some((system, victim, _unit_type, producer, _during_space_combat)) =
+        context.state.last_sustain.clone()
+    else {
         return; // no sustain was just used; the guard should have kept this window closed
     };
     if &victim != player || &producer == player {
@@ -1341,10 +1378,8 @@ fn reflective(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
 /// opponent" is the other ship-bearing combatant of the active system, inferred from the board
 /// the way Intercept names the declarant — the holder may have lost the ship that was their
 /// last one, so the check runs against the board as it is *now*, and a combat with no ships
-/// left for anyone ends with no one to choose a loss. The window's guard cannot see "during a
-/// space combat", so the effect's own checks are the binding: a destruction staged outside a
-/// fight (a Direct Hit during a tactical action) still acts, against whoever else has ships in
-/// the system. Each successful die asks that opponent to choose one of their own ships to
+/// left for anyone ends with no one to choose a loss. The reaction guard requires the incoming
+/// destruction's `during_space_combat` fact. Each successful die asks that opponent to choose one of their own ships to
 /// destroy (the ordinary casualty question), and each loss is staged in
 /// [`GameState::pending_destructions`] so the card's resolution step announces it as a
 /// first-class `SHIP_DESTROYED` through the game's resolver. A refused or invalid answer stops
@@ -1396,14 +1431,13 @@ fn courageous(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
         ) else {
             break; // the decider refused to choose a loss; the card stops where it is
         };
-        let board = context.state.system_mut(&system);
-        if let Some(index) = board.units.iter().position(|unit| unit == &casualty) {
-            board.units.remove(index);
-        }
+        crate::combat::remove_combat_ship(context.state, &system, &casualty);
         context.state.pending_destructions.push((
             system.clone(),
             opponent.clone(),
             casualty.type_id,
+            "action_card:courageous".to_owned(),
+            true,
         ));
     }
 }
@@ -2171,7 +2205,18 @@ fn rider_payoff(
                     if let Some(seat) = state.player_mut(&other) {
                         seat.spend_token(ti4_model::state::TokenPool::Fleet);
                     }
-                    state.system_mut(&system).command_tokens.insert(other);
+                    if state
+                        .system_mut(&system)
+                        .command_tokens
+                        .insert(other.clone())
+                    {
+                        crate::tokens::stage_command_token_placed(
+                            state,
+                            &other,
+                            &system,
+                            crate::factions::hooks_cards::TokenPool::Fleet,
+                        );
+                    }
                 }
             }
         }
@@ -3767,7 +3812,11 @@ fn exploration_probe(context: &mut crate::timing::TimingContext<'_>, player: &Pl
 #[allow(clippy::too_many_lines)]
 fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let types = ti4_content::units::catalogue(context.content, context.sources);
-    let mech = ti4_model::id::UnitTypeId::new("mech");
+    let mech = ti4_model::id::UnitTypeId::new(
+        if context.state.player(player).is_some_and(|seat| seat.faction.as_str() == "naaz") {
+            "naaz_mech"
+        } else { "mech" },
+    );
     if crate::supply::allowed(
         context.state,
         context.content,
@@ -3779,6 +3828,9 @@ fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
     {
         return; // the box holds no more mechs
     }
+    let max_replacements = if mech.as_str() == "naaz_mech" {
+        crate::supply::allowed(context.state, context.content, context.sources, player, &mech, 2)
+    } else { 2 };
     // `system|planet|index`, the index into that planet's unit list.
     let mut found: Vec<(String, String, ti4_model::units::Unit)> = Vec::new();
     for (system, board) in &context.state.board {
@@ -3833,6 +3885,7 @@ fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
                 "stop after one".to_owned(),
             )))
             .collect();
+        if max_replacements > 1 {
         let Some(second) = pick(
             context,
             player,
@@ -3853,6 +3906,7 @@ fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
                 return;
             };
             taken.push(second_index);
+        }
         }
     }
     let mut by_source: BTreeMap<String, Vec<usize>> = BTreeMap::new();
@@ -3898,6 +3952,9 @@ fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
                 .expect("the infantry was there");
             units.remove(index);
             units.push(ti4_model::units::Unit::new(mech.clone(), player.clone()));
+            crate::supply::stage_naaz_mech_placed(
+                context.state, player, &ti4_model::id::SystemId::new(&source_system), &mech,
+            );
         }
     }
 }
@@ -6590,6 +6647,206 @@ mod tests {
         );
     }
 
+    #[test]
+    fn direct_hit_preserves_its_source_and_the_sustain_window_context() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let (player, victim, system) = (
+            PlayerId::new("a"),
+            PlayerId::new("b"),
+            ti4_model::id::SystemId::new("18"),
+        );
+        crate::fixtures::put(&mut state, &system, "dreadnought", &victim, 1);
+        state.last_sustain = Some((
+            system.clone(),
+            victim.clone(),
+            ti4_model::id::UnitTypeId::new("dreadnought"),
+            player.clone(),
+            false,
+        ));
+
+        play_effect(&mut state, "dh1", &player);
+
+        assert_eq!(
+            state.pending_destructions,
+            [(
+                system,
+                victim,
+                ti4_model::id::UnitTypeId::new("dreadnought"),
+                "action_card:direct_hit".to_owned(),
+                false,
+            )],
+            "a pre-combat SPACE CANNON sustain does not become a combat loss"
+        );
+    }
+
+    #[test]
+    fn direct_hit_removes_a_damaged_maximum_from_its_planet() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "sol"), ("b", "naaz")], ti4_model::content_types::DEFAULT,
+        );
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let player = PlayerId::new("a");
+        let victim = PlayerId::new("b");
+        crate::fixtures::put(&mut state, &system, "cruiser", &victim, 1);
+        let mut maximum = ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("naaz_voltron"), victim.clone());
+        maximum.sustained_damage = true;
+        state.system_mut(&system).planet_units.entry(planet.clone()).or_default().push(maximum);
+        state.last_sustain = Some((system.clone(), victim.clone(),
+            ti4_model::id::UnitTypeId::new("naaz_voltron"), player.clone(), true));
+        let mut table = Table::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut context = crate::timing::TimingContext {
+            state: &mut state, content, sources: ti4_model::content_types::DEFAULT,
+            table: &mut table, dice: &mut dice, rng: &mut rng,
+            event_sequence: &mut sequence, galaxy: None,
+        };
+        direct_hit(&mut context, &player);
+        assert!(state.system_state(&system).on_planet(&planet).is_empty());
+        assert_eq!(state.system_state(&system).units.len(), 1);
+        assert_eq!(state.pending_destructions.len(), 1);
+        assert_eq!(state.pending_destructions[0].3, "action_card:direct_hit");
+        assert!(state.pending_destructions[0].4);
+    }
+
+    #[test]
+    fn courageous_removes_and_stages_a_planetary_maximum() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "sol"), ("b", "naaz")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        let player = PlayerId::new("a");
+        let opponent = PlayerId::new("b");
+        {
+            let board = state.system_mut(&system);
+            board.units.clear();
+            board.planet_units.clear();
+        }
+        crate::fixtures::put(&mut state, &system, "cruiser", &opponent, 1);
+        let maximum = ti4_model::units::Unit::new(
+            ti4_model::id::UnitTypeId::new("naaz_voltron"),
+            opponent.clone(),
+        );
+        state
+            .system_mut(&system)
+            .planet_units
+            .entry(planet.clone())
+            .or_default()
+            .push(maximum);
+        state.last_ship_destroyed = Some((
+            system.clone(),
+            player.clone(),
+            ti4_model::id::UnitTypeId::new("cruiser"),
+        ));
+
+        let mut table = Table::new();
+        table.seat(
+            opponent.clone(),
+            Box::new(crate::choice::Scripted::new(["destroy|1"])),
+        );
+        let mut dice = crate::dice::Dice::from_faces([10, 1]);
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut sequence = crate::event::EventSequence::new();
+        let effect = effect_for(&ActionCardId::new("courageous")).expect("registered effect");
+        let mut context = crate::timing::TimingContext {
+            state: &mut state,
+            content,
+            sources: ti4_model::content_types::DEFAULT,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: None,
+        };
+
+        effect(&mut context, &player);
+
+        let board = state.system_state(&system);
+        assert!(board.on_planet(&planet).is_empty());
+        assert_eq!(board.units.len(), 1, "the space cruiser remains");
+        assert_eq!(state.pending_destructions.len(), 1);
+        assert_eq!(
+            state.pending_destructions[0],
+            (
+                system,
+                opponent,
+                ti4_model::id::UnitTypeId::new("naaz_voltron"),
+                "action_card:courageous".to_owned(),
+                true,
+            ),
+        );
+    }
+
+    #[test]
+    fn direct_hit_removes_the_exact_maximum_that_just_sustained() {
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "sol"), ("b", "naaz")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let (system, _) = crate::fixtures::a_placed_planet();
+        let player = PlayerId::new("a");
+        let victim = PlayerId::new("b");
+        let earlier_planet = ti4_model::id::PlanetId::new("earlier-maximum");
+        let selected_planet = ti4_model::id::PlanetId::new("selected-maximum");
+        {
+            let board = state.system_mut(&system);
+            board.units.clear();
+            board.planet_units.clear();
+        }
+        crate::fixtures::put(&mut state, &system, "cruiser", &victim, 1);
+        let already_damaged = ti4_model::units::Unit::new(
+            ti4_model::id::UnitTypeId::new("naaz_voltron"),
+            victim.clone(),
+        )
+        .galvanized()
+        .sustained();
+        let just_sustained = already_damaged.clone();
+        state
+            .system_mut(&system)
+            .planet_units
+            .entry(earlier_planet.clone())
+            .or_default()
+            .push(already_damaged.clone());
+        state
+            .system_mut(&system)
+            .planet_units
+            .entry(selected_planet.clone())
+            .or_default()
+            .push(just_sustained.clone());
+        state.last_sustain = Some((
+            system.clone(),
+            victim.clone(),
+            ti4_model::id::UnitTypeId::new("naaz_voltron"),
+            player.clone(),
+            true,
+        ));
+        // This is the post-sustain handoff written by combat::remember_sustain_target: identical
+        // same-type damaged units are distinguished by the location the player actually selected.
+        state.faction_marks.insert(
+            "combat:sustain_target".to_owned(),
+            serde_json::json!({
+                "system": system.to_string(),
+                "planet": selected_planet.to_string(),
+                "unit": just_sustained.clone(),
+            })
+            .to_string(),
+        );
+
+        play_effect(&mut state, "dh1", &player);
+
+        let board = state.system_state(&system);
+        assert_eq!(board.on_planet(&earlier_planet), &[already_damaged]);
+        assert!(board.on_planet(&selected_planet).is_empty());
+        assert_eq!(board.units.len(), 1, "the space cruiser remains");
+        assert_eq!(state.pending_destructions.len(), 1);
+        assert_eq!(state.pending_destructions[0].3, "action_card:direct_hit");
+        assert!(state.pending_destructions[0].4);
+        assert!(!state.faction_marks.contains_key("combat:sustain_target"));
+    }
     #[test]
     fn every_copy_of_a_card_carries_the_same_effect() {
         // Morale Boost is four physical cards and so is Flank Speed. A list written by hand
@@ -11629,4 +11886,38 @@ mod hidden_hands {
             }]
         );
     }
+    #[test]
+    fn refit_troops_places_naaz_mech_and_announces_synergy_placement() {
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "naaz"), ("b", "sol")], ti4_model::content_types::DEFAULT,
+        );
+        let a = PlayerId::new("a");
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.board.clear();
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a, 1);
+        let mut table = crate::choice::Table::new();
+        crate::fixtures::with_context(&mut state, ti4_model::content_types::DEFAULT, None, &mut table, |ctx| {
+            refit_troops(ctx, &a);
+        });
+        let board = state.system_state(&system);
+        assert_eq!(board.on_planet(&planet)[0].type_id.as_str(), "naaz_mech");
+        assert!(crate::supply::staged_event_types(&state).iter().any(|kind| kind == "NAAZ_MECH_PLACED"));
+    }
+
+    #[test]
+    fn refit_troops_cannot_replace_an_infantry_while_maximum_stands() {
+        let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "sol")], ti4_model::content_types::DEFAULT);
+        let a = PlayerId::new("a");
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_voltron", &a, 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a, 1);
+        let board = state.board.clone();
+        let mut table = crate::choice::Table::new();
+        crate::fixtures::with_context(&mut state, ti4_model::content_types::DEFAULT, None, &mut table, |ctx| {
+            refit_troops(ctx, &a);
+        });
+        assert_eq!(state.board, board);
+        assert!(table.log.records.is_empty());
+    }
+
 }

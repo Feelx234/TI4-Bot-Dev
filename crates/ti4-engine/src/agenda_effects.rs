@@ -777,7 +777,18 @@ pub fn resolve_with(
                     })
                 });
                 if let Some(home) = home {
-                    state.system_mut(&home).command_tokens.insert(player);
+                    if state
+                        .system_mut(&home)
+                        .command_tokens
+                        .insert(player.clone())
+                    {
+                        crate::tokens::stage_command_token_placed(
+                            state,
+                            &player,
+                            &home,
+                            crate::factions::hooks_cards::TokenPool::Reinforcements,
+                        );
+                    }
                 }
             }
         }
@@ -1083,15 +1094,26 @@ pub fn resolve_with(
                         })
                         .map(|(system, planet)| (system.clone(), planet.clone()));
                     if let Some((system, planet)) = home {
-                        state
-                            .system_mut(&system)
-                            .planet_units
-                            .entry(planet)
-                            .or_default()
-                            .push(ti4_model::units::Unit::new(
-                                ti4_model::id::UnitTypeId::new("mech"),
-                                player.clone(),
-                            ));
+                        // Preserve existing seats' unit identity and agenda behavior. Naaz's
+                        // printed Maximum forbids new mechs and its fourth Eidolon opens Synergy.
+                        let naaz = state.player(&player)
+                            .is_some_and(|seat| seat.faction.as_str() == "naaz");
+                        let mech = ti4_model::id::UnitTypeId::new(if naaz { "naaz_mech" } else { "mech" });
+                        if crate::factions::hooks_economy::effect_placement_forbidden(
+                            state, content, sources, &player, &mech,
+                        ) || (naaz && crate::supply::allowed(
+                            state, content, sources, &player, &mech, 1,
+                        ) == 0) {
+                            continue;
+                        }
+                        state.system_mut(&system).planet_units.entry(planet).or_default()
+                            .push(ti4_model::units::Unit::new(mech, player.clone()));
+                        if naaz {
+                            crate::supply::stage_event(state, "NAAZ_MECH_PLACED", &[
+                                ("player".to_owned(), player.to_string().into()),
+                                ("system".to_owned(), system.to_string().into()),
+                            ].into());
+                        }
                     }
                 }
             } else {
@@ -1162,7 +1184,14 @@ pub fn resolve_with(
                 }
                 for player in everyone(state) {
                     if !board.units_of(&player).is_empty() {
-                        state.system_mut(&id).command_tokens.insert(player);
+                        if state.system_mut(&id).command_tokens.insert(player.clone()) {
+                            crate::tokens::stage_command_token_placed(
+                                state,
+                                &player,
+                                &id,
+                                crate::factions::hooks_cards::TokenPool::Reinforcements,
+                            );
+                        }
                     }
                 }
             }
@@ -2719,4 +2748,21 @@ mod tests {
         run(&mut state, "disarmament", planet.as_str(), &no_votes());
         assert!(!crate::factions::hooks_ground::has_staged_events(&state));
     }
+    #[test]
+    fn rearmament_respects_maximum_and_preserves_original_seat_placement() {
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "sol")], sources);
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let home = state.player(&a).unwrap().home_system.clone().unwrap();
+        let planet = state.controlled_planets(&a).into_iter().find(|(s,_)| **s == home).unwrap().1.clone();
+        crate::fixtures::put_on_planet(&mut state, &home, &planet, "naaz_voltron", &a, 1);
+        let a_before = state.system_state(&home).clone();
+        let b_before = crate::supply::held(&state, ti4_content::ContentStore::embedded(), sources, &b, "mech");
+        assert!(matches!(run(&mut state, "rearmament", FOR, &no_votes()), Effect::Resolved { .. }));
+        assert_eq!(state.system_state(&home), a_before);
+        assert_eq!(crate::supply::held(&state, ti4_content::ContentStore::embedded(), sources, &b, "mech"), b_before + 1);
+        assert!(!crate::supply::staged_event_types(&state).iter().any(|kind| kind == "NAAZ_MECH_PLACED"));
+    }
+
 }
