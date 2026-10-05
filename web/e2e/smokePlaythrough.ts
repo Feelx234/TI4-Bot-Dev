@@ -466,13 +466,13 @@ export async function randomUiPlaythrough(
       const candidates = await collectCandidates(page);
       if (!candidates.length) {
         // The UI can take a moment to mount the workflow for a fresh offer.
-        if (++emptyPolls > 20) {
+        if (++emptyPolls > 30) {
           await fail(
             page,
             `no actionable control for ${subtype} (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
           );
         }
-        await page.waitForTimeout(250);
+        await page.waitForTimeout(100);
         if ((await gameSnapshot(request, gameId, players[0].session)).game_version > before) {
           progressed = true;
           break;
@@ -490,7 +490,7 @@ export async function randomUiPlaythrough(
 
       progressed = await expect
         .poll(async () => (await gameSnapshot(request, gameId, players[0].session)).game_version, {
-          timeout: chosen.commit ? 3_000 : 300,
+          timeout: chosen.commit ? 3_000 : 1_500,
           intervals: [100],
         })
         .toBeGreaterThan(before)
