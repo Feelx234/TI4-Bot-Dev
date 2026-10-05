@@ -6,6 +6,10 @@ import {
   PendingChoiceDto,
 } from "../protocol/types.ts";
 import { SEAT_COLORS } from "./playerDisplay.ts";
+import { isPlanetSelectionChoice } from "./choiceModel.ts";
+
+/** What a map click answers: a system hex (activation) or a planet (planet selection). */
+export type MapTargetMode = "system" | "planet" | null;
 
 /** The four closed tech-specialty colours in TI4. */
 export type TechSpecialty = "biotic" | "propulsion" | "cybernetic" | "warfare";
@@ -72,6 +76,11 @@ export interface TilePresentation {
   isCandidateTarget: boolean;
   isContextSubject: boolean;
   associatedOptionIds: string[];
+  /**
+   * In planet target mode, the only candidate planet in this system: a hex click selects it.
+   * Null when the system has zero or several candidate planets (a hex click only inspects).
+   */
+  singleCandidatePlanetId?: string | null;
 }
 
 export interface SelectedSystemDetails {
@@ -105,7 +114,9 @@ export interface TargetHighlightModel {
   systemOptionMap: Map<string, string[]>;
   planetOptionMap: Map<string, string[]>;
   hasActiveTargets: boolean;
+  /** Kept for compatibility: `targetMode === "system"`. */
   isActivationMode: boolean;
+  targetMode: MapTargetMode;
   movementVectors: MovementVector[];
 }
 
@@ -241,6 +252,7 @@ export function deriveActorTargetHighlights(
     planetOptionMap: new Map(),
     hasActiveTargets: false,
     isActivationMode: false,
+    targetMode: null,
     movementVectors: [],
   };
 
@@ -287,6 +299,15 @@ export function deriveActorTargetHighlights(
     }
   }
 
+  const isActivationMode = Boolean(
+    pendingChoice.context?.subtype === "activate_system" ||
+    (pendingChoice.options.length > 0 && pendingChoice.options.every((o) => o.kind === "activate")),
+  );
+  // Invasion decisions keep their own overlay even when they carry planet payloads.
+  const isPlanetMode =
+    !isActivationMode && !board?.invasion && isPlanetSelectionChoice(pendingChoice);
+  const targetMode: MapTargetMode = isActivationMode ? "system" : isPlanetMode ? "planet" : null;
+
   // 2. Structured ChoiceOption payloads (zero regexes)
   for (const opt of pendingChoice.options) {
     const payload = opt.payload;
@@ -311,15 +332,18 @@ export function deriveActorTargetHighlights(
       );
     if (isPaymentPlanet && planet && readyOwnedPlanet) addPlanetOption(planet, opt.id);
     if (payload) {
-      if (!isPaymentPlanet && typeof payload.system === "string") {
+      // In planet mode the system only locates the planet: the hex itself is not an answer, so a
+      // hex click can't pick an arbitrary one of the system's planet options.
+      const systemIsTarget = !isPaymentPlanet && !isPlanetMode;
+      if (systemIsTarget && typeof payload.system === "string") {
         addSystemOption(payload.system, opt.id);
-      } else if (!isPaymentPlanet && typeof payload.system === "number") {
+      } else if (systemIsTarget && typeof payload.system === "number") {
         addSystemOption(String(payload.system), opt.id);
       }
 
-      if (!isPaymentPlanet && typeof payload.to === "string") {
+      if (systemIsTarget && typeof payload.to === "string") {
         addSystemOption(payload.to, opt.id);
-      } else if (!isPaymentPlanet && typeof payload.to === "number") {
+      } else if (systemIsTarget && typeof payload.to === "number") {
         addSystemOption(String(payload.to), opt.id);
       }
 
@@ -337,11 +361,6 @@ export function deriveActorTargetHighlights(
     }
   }
 
-  const isActivationMode = Boolean(
-    pendingChoice.context?.subtype === "activate_system" ||
-    (pendingChoice.options.length > 0 && pendingChoice.options.every((o) => o.kind === "activate")),
-  );
-
   return {
     targetableSystemIds,
     targetablePlanetIds,
@@ -354,6 +373,7 @@ export function deriveActorTargetHighlights(
       targetablePlanetIds.size > 0 ||
       contextSubjectSystemId !== null,
     isActivationMode,
+    targetMode,
     movementVectors: [],
   };
 }
@@ -661,6 +681,11 @@ export function buildBoardPresentationModel(
     }
 
     const wormholes = (tile.wormholes || []).map(deriveWormholeVisual);
+    const candidatePlanets = planets.filter((p) => p.isCandidateTarget);
+    const singleCandidatePlanetId =
+      targets.targetMode === "planet" && candidatePlanets.length === 1
+        ? candidatePlanets[0].id
+        : null;
 
     return {
       systemId: sysId,
@@ -686,6 +711,7 @@ export function buildBoardPresentationModel(
       isCandidateTarget,
       isContextSubject,
       associatedOptionIds,
+      singleCandidatePlanetId,
     };
   });
 

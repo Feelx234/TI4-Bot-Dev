@@ -6,8 +6,8 @@ import { fallbackCases, galleryCases } from "./decisionGalleryCases.ts";
 
 describe("development decision gallery", () => {
   it("has a correctly classified synthetic preview for every workflow and labels fallbacks", () => {
-    expect(galleryCases).toHaveLength(18);
-    expect(new Set(galleryCases.map(({ workflow }) => workflow)).size).toBe(18);
+    expect(galleryCases).toHaveLength(19);
+    expect(new Set(galleryCases.map(({ workflow }) => workflow)).size).toBe(19);
     for (const item of [...galleryCases, ...fallbackCases]) {
       expect(deriveChoiceRendererModel(item.choice, item.choice.actor)?.workflow).toBe(
         item.workflow as ChoiceWorkflowKind,
@@ -19,7 +19,7 @@ describe("development decision gallery", () => {
 
   it("previews the real renderer, offered IDs, local submissions and the other-seat boundary", async () => {
     render(<DecisionGallery />);
-    expect(screen.getByText(/Workflow kinds \(18\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Workflow kinds \(19\)/)).toBeInTheDocument();
     expect(
       screen.getByText(`Fallbacks and boundary states (${fallbackCases.length})`),
     ).toBeInTheDocument();
@@ -107,5 +107,52 @@ describe("development decision gallery", () => {
     expect(screen.getByTestId("system-activation-bar")).not.toHaveTextContent("Mehar Xull");
     expect(screen.getByTestId("system-activation-bar")).toHaveTextContent("Activated / Blocked");
     expect(screen.getByTestId("system-activation-bar")).toHaveTextContent("Tar'Mann");
+  });
+  it("picks a planet on the map, shows the action in the bar and confirms it", async () => {
+    render(<DecisionGallery />);
+    fireEvent.click(screen.getByRole("button", { name: /^planet selection/i }));
+    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
+    const bar = screen.getByTestId("planet-selection-bar");
+    expect(bar).toHaveTextContent("Mining Initiative");
+    expect(bar).toHaveTextContent("Mine which planet");
+    expect(screen.getByTestId("planet-target-reticle-lodor")).toBeInTheDocument();
+    // System 33 has two candidates: a hex click only inspects.
+    fireEvent.click(screen.getByTestId("system-hex-33"));
+    expect(screen.queryByTestId("confirm-planet-btn")).not.toBeInTheDocument();
+    // Quann's option has no payload.system: the planet is still found on the map.
+    fireEvent.click(screen.getByTestId("planet-quann"));
+    expect(screen.getByTestId("planet-selection-action")).toHaveTextContent(
+      "Mining Initiative — mine Quann (2R/1I)",
+    );
+    fireEvent.click(screen.getByTestId("confirm-planet-btn"));
+    await waitFor(() => expect(screen.getByText(/Local submission: quann/)).toBeInTheDocument());
+  });
+
+  it("offers each structure after picking a planet on the map", async () => {
+    render(<DecisionGallery />);
+    fireEvent.click(screen.getByRole("button", { name: /^Place a structure/i }));
+    fireEvent.click(screen.getByTestId("planet-jord"));
+    fireEvent.click(screen.getByTestId("planet-option-spacedock|18|jord"));
+    expect(screen.getByTestId("planet-selection-action")).toHaveTextContent(
+      "place spacedock on Jord",
+    );
+    fireEvent.click(screen.getByTestId("confirm-planet-btn"));
+    await waitFor(() =>
+      expect(screen.getByText(/Local submission: spacedock\|18\|jord/)).toBeInTheDocument(),
+    );
+  });
+
+  it("votes for a planet on an Elect Planet agenda from the map", async () => {
+    render(<DecisionGallery />);
+    fireEvent.click(screen.getByRole("button", { name: /^Elect Planet vote/i }));
+    expect(screen.queryByTestId("agenda-ballot-modal")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("planet-lodor"));
+    expect(screen.getByTestId("planet-selection-action")).toHaveTextContent(
+      "Agenda Vote — vote for Lodor (3R/1I) · 3 votes cast",
+    );
+    fireEvent.click(screen.getByTestId("confirm-planet-btn"));
+    await waitFor(() =>
+      expect(screen.getByText(/Local submission: vote\|lodor/)).toBeInTheDocument(),
+    );
   });
 });

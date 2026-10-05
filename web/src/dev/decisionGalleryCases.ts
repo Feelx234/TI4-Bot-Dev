@@ -62,6 +62,17 @@ const cases = {
     ],
     note: "Select almost any system directly on the map to activate (blocked systems 1, 19, 22 contain your command tokens).",
   },
+  planet_selection: {
+    subtype: "mining_initiative_pick_planet",
+    source: { ActionCard: "mining_initiative" },
+    options: [
+      option("lodor", "Lodor", "planet", { planet: "lodor", system: "26" }),
+      option("quann", "Quann", "planet", { planet: "quann" }),
+      option("corneeq", "Corneeq", "planet", { planet: "corneeq", system: "33" }),
+      option("resculon", "Resculon", "planet", { planet: "resculon", system: "33" }),
+    ],
+    note: "Pick a highlighted planet on the map (or a chip in the bar); the bar names the card and the action before you confirm.",
+  },
   tactical_movement: {
     subtype: "movement_step",
     target: system,
@@ -219,6 +230,7 @@ const cases = {
     options: PendingChoiceDto["options"];
     note: string;
     target?: DecisionTargetDto;
+    source?: Record<string, unknown>;
     outstanding?: NonNullable<PendingChoiceDto["context"]>["outstanding"];
   }
 >;
@@ -236,6 +248,7 @@ export const galleryCases: GalleryCase[] = (Object.keys(cases) as ChoiceWorkflow
         prompt: (
           {
             system_activation: "Choose a system to activate",
+            planet_selection: "Mining Initiative: mine which planet",
             tactical_movement: "Move units to Mecatol Rex",
             tactical_cargo: "Load units into your fleet",
             tactical_invasion: "Land ground forces on Jord",
@@ -258,6 +271,7 @@ export const galleryCases: GalleryCase[] = (Object.keys(cases) as ChoiceWorkflow
         context: {
           subtype: entry.subtype,
           ...("target" in entry ? { target: entry.target } : {}),
+          ...("source" in entry ? { source: entry.source } : {}),
           ...("outstanding" in entry ? { outstanding: entry.outstanding } : {}),
         },
         options: entry.options,
@@ -267,6 +281,78 @@ export const galleryCases: GalleryCase[] = (Object.keys(cases) as ChoiceWorkflow
 );
 
 export const fallbackCases: GalleryCase[] = [
+  {
+    workflow: "planet_selection",
+    title: "Place a structure",
+    fallback: "Planet × structure → choose on the planet",
+    note: "Several options share a planet; after picking it, the bar offers one button per structure.",
+    choice: {
+      actor,
+      nonce: "gallery-place-structure",
+      prompt: "place a structure",
+      context: { subtype: "place_structure", source: { Content: "place_structure" } },
+      options: [
+        option("pds|18|jord", "place pds on jord", "build", {
+          planet: "jord",
+          system: "18",
+          unit: "pds",
+        }),
+        option("spacedock|18|jord", "place spacedock on jord", "build", {
+          planet: "jord",
+          system: "18",
+          unit: "spacedock",
+        }),
+        option("pds|26|lodor", "place pds on lodor", "build", {
+          planet: "lodor",
+          system: "26",
+          unit: "pds",
+        }),
+        finish(),
+      ],
+    },
+  },
+  {
+    workflow: "planet_selection",
+    title: "Bio-Stims",
+    fallback: "Planets + technologies → planet pick with extra chips",
+    note: "Ready a planet on the map, or an exhausted technology from the bar.",
+    choice: {
+      actor,
+      nonce: "gallery-bio-stims",
+      prompt: "Bio-Stims",
+      context: { subtype: "bio_stims_ready", source: { Content: "bs" } },
+      options: [
+        option("ready|planet|gral", "Bio-Stims: ready gral", "ready", {
+          planet: "gral",
+          system: "30",
+          technology: "bs",
+        }),
+        option("ready|technology|st", "Bio-Stims: ready Sarween Tools", "ready_technology", {
+          technology: "st",
+          bio_stims: true,
+        }),
+        finish(),
+      ],
+    },
+  },
+  {
+    workflow: "planet_selection",
+    title: "Elect Planet vote",
+    fallback: "cast_vote with planet outcomes → map pick",
+    note: "An Elect Planet agenda: vote for a planet on the map, or abstain.",
+    choice: {
+      actor,
+      nonce: "gallery-elect-planet",
+      prompt: "vote for which outcome",
+      context: { subtype: "cast_vote", source: { Rule: "8.10" } },
+      options: [
+        option("vote|lodor", "Lodor", "vote", { planet: "lodor", system: "26", current_votes: 3 }),
+        option("vote|bereg", "Bereg", "vote", { planet: "bereg", system: "38", current_votes: 0 }),
+        option("vote|lirta_iv", "Lirta IV", "vote", { planet: "lirta_iv", system: "38" }),
+        finish("decline", "Abstain"),
+      ],
+    },
+  },
   {
     workflow: "generic_selection",
     title: "Unknown subtype",

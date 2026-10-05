@@ -18,6 +18,7 @@ test("random UI playthrough keeps the game advancing", async ({ browser, request
     maxClicksPerDecision: envInt("TI4_SMOKE_CLICKS_PER_DECISION", 40),
     policy: process.env.TI4_SMOKE_POLICY === "steer" ? ("steer" as const) : ("random" as const),
     stopAtRound: process.env.TI4_SMOKE_ROUND ? envInt("TI4_SMOKE_ROUND", 0) : undefined,
+    traceDir: process.env.TI4_SMOKE_TRACE_DIR || undefined,
   };
   test.setTimeout(60_000 + options.maxDecisions * 15_000);
   const lines: string[] = [];

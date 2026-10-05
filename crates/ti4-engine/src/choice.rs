@@ -111,6 +111,35 @@ impl ChoiceOption {
         self
     }
 
+    /// Attach the `planet` (and, when known, `system`) payload a map UI uses to locate a planet
+    /// answer. Keys already present are left as they are; like [`Self::with`], identity is
+    /// unaffected.
+    #[must_use]
+    pub fn with_planet(mut self, planet: &str, system: Option<&str>) -> Self {
+        self.payload
+            .entry("planet".to_owned())
+            .or_insert_with(|| Value::from(planet));
+        if let Some(system) = system {
+            self.payload
+                .entry("system".to_owned())
+                .or_insert_with(|| Value::from(system));
+        }
+        self
+    }
+
+    /// [`Self::with_planet`], looking the planet's system up with [`crate::planets::system_of`].
+    #[must_use]
+    pub fn with_planet_located(
+        self,
+        state: &ti4_model::state::GameState,
+        content: &ti4_content::ContentStore,
+        sources: ti4_model::content_types::SourceSet,
+        planet: &str,
+    ) -> Self {
+        let system = crate::planets::system_of(state, content, sources, planet);
+        self.with_planet(planet, system.as_ref().map(ti4_model::id::SystemId::as_str))
+    }
+
     /// Attach an analytic consequence summary without changing this option's identity.
     #[must_use]
     pub fn previewed(mut self, preview: crate::preview::Preview) -> Self {
@@ -2029,9 +2058,93 @@ pub fn unit_label(verb: &str, type_id: &UnitTypeId, damaged: bool) -> String {
     format!("{verb} {type_id}{suffix}")
 }
 
+/// Assertions for the map-locating payload (`planet`, `system`) planet answers carry.
+#[cfg(test)]
+pub(crate) mod planet_payload {
+    use super::{Choice, ChoiceOption, Value};
+
+    /// The option offered under `id`, or a panic naming what was offered.
+    pub(crate) fn offered<'a>(choice: &'a Choice, id: &str) -> &'a ChoiceOption {
+        choice
+            .options
+            .iter()
+            .find(|option| option.id == id)
+            .unwrap_or_else(|| panic!("{id} not offered; got {:?}", choice.ids()))
+    }
+
+    /// `option` names `planet` in `system`.
+    pub(crate) fn assert_locates(option: &ChoiceOption, planet: &str, system: &str) {
+        assert_eq!(
+            option.payload.get("planet").and_then(Value::as_str),
+            Some(planet),
+            "planet payload of {}",
+            option.id
+        );
+        assert_eq!(
+            option.payload.get("system").and_then(Value::as_str),
+            Some(system),
+            "system payload of {}",
+            option.id
+        );
+    }
+
+    /// `option` is not a planet and says nothing about one.
+    pub(crate) fn assert_not_a_planet(option: &ChoiceOption) {
+        assert!(
+            !option.payload.contains_key("planet"),
+            "{} is not a planet but carries {:?}",
+            option.id,
+            option.payload
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `with_planet` adds `planet`/`system`, keeps keys already set, and never touches identity.
+    #[test]
+    fn with_planet_adds_location_without_overwriting_or_changing_identity() {
+        let plain = ChoiceOption::labelled("x", "planet", "X");
+        let located = plain.clone().with_planet("lodor", Some("26"));
+        assert_eq!(located, plain, "payload is not identity");
+        planet_payload::assert_locates(&located, "lodor", "26");
+
+        let kept = ChoiceOption::labelled("x", "planet", "X")
+            .with("planet", "quann")
+            .with("system", "25")
+            .with_planet("lodor", Some("26"));
+        planet_payload::assert_locates(&kept, "quann", "25");
+
+        let nowhere = ChoiceOption::labelled("x", "planet", "X").with_planet("lodor", None);
+        assert_eq!(
+            nowhere.payload.get("planet").and_then(Value::as_str),
+            Some("lodor")
+        );
+        assert!(
+            !nowhere.payload.contains_key("system"),
+            "no system invented"
+        );
+    }
+
+    /// `with_planet_located` looks the system up; an unknown planet gets no `system`.
+    #[test]
+    fn with_planet_located_finds_the_printed_tile_and_invents_nothing() {
+        let state = crate::fixtures::game(&["a"]);
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::POK;
+        let lodor = ChoiceOption::labelled("lodor", "planet", "lodor")
+            .with_planet_located(&state, content, sources, "lodor");
+        planet_payload::assert_locates(&lodor, "lodor", "26");
+        let ghost = ChoiceOption::labelled("ghost", "planet", "ghost").with_planet_located(
+            &state,
+            content,
+            sources,
+            "not_a_planet",
+        );
+        assert!(!ghost.payload.contains_key("system"));
+    }
 
     #[test]
     fn obs008c1_context_records_while_runtime_preview_stays_out_of_replay_identity() {

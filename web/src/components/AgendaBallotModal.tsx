@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { PendingChoiceDto } from "../protocol/types.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
 import { Dialog } from "../primitives/index.ts";
@@ -16,7 +16,10 @@ export interface AgendaBallotModalProps {
   isOpen: boolean;
   onClose: () => void;
   lastError?: string | null;
+  /** An option picked on the map (a highlighted planet), toggled into the vote basket. */
   selectedOptionId?: string;
+  /** Called with "" once a map pick is consumed, so clicking the same planet again toggles it. */
+  onSelectOption?: (optionId: string) => void;
 }
 
 export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
@@ -29,6 +32,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
   onClose,
   lastError,
   selectedOptionId,
+  onSelectOption,
 }) => {
   const display = usePlayerIdentity();
   const subtype =
@@ -59,16 +63,24 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
     setBatchError(null);
   }, [choice?.nonce]);
 
+  // Map clicks on highlighted planets toggle them in the basket. The ref guards against handling
+  // the same pick twice (e.g. a re-run effect) before the host clears it.
+  const handledMapPick = useRef<string | null>(null);
   useEffect(() => {
-    if (
-      isExhaustPlanet &&
-      selectedOptionId &&
-      choice?.options.some((option) => option.id === selectedOptionId)
-    ) {
-      setStagedPlanets((ids) =>
-        ids.includes(selectedOptionId) ? ids : [...ids, selectedOptionId],
-      );
+    if (!selectedOptionId) {
+      handledMapPick.current = null;
+      return;
     }
+    if (!isExhaustPlanet || handledMapPick.current === selectedOptionId) return;
+    const option = choice?.options.find((o) => o.id === selectedOptionId);
+    if (!option || option.id === "decline" || option.kind === "decline") return;
+    handledMapPick.current = selectedOptionId;
+    setStagedPlanets((ids) =>
+      ids.includes(selectedOptionId)
+        ? ids.filter((id) => id !== selectedOptionId)
+        : [...ids, selectedOptionId],
+    );
+    onSelectOption?.("");
   }, [selectedOptionId, choice?.nonce, isExhaustPlanet]);
 
   // Extract vote tallies if in cast_vote

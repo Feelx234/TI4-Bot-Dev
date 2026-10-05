@@ -1,5 +1,5 @@
 import React from "react";
-import { TilePresentation } from "../../presentation/boardPresentation.ts";
+import { MapTargetMode, TilePresentation } from "../../presentation/boardPresentation.ts";
 import { SvgButton } from "../../primitives/index.ts";
 import { usePlayerIdentity } from "../../presentation/PlayerIdentity.tsx";
 
@@ -7,12 +7,15 @@ export interface StandardOverlayProps {
   tile: TilePresentation;
   onSelectTarget?: (systemId: string, planetId?: string) => void;
   onSelectSystem?: (systemId: string | null) => void;
+  /** In planet mode candidates get a reticle and every other planet is dimmed. */
+  targetMode?: MapTargetMode;
 }
 
 export const StandardOverlay: React.FC<StandardOverlayProps> = ({
   tile,
   onSelectTarget,
   onSelectSystem,
+  targetMode = null,
 }) => {
   const display = usePlayerIdentity();
   const pCount = tile.planets.length;
@@ -26,18 +29,22 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
         const planetRadius = 15;
         const isControlled = Boolean(p.controlledBy);
         const isCandidateTarget = Boolean(p.isCandidateTarget);
+        const isPlanetMode = targetMode === "planet";
+        const isDimmed = isPlanetMode && !isCandidateTarget;
 
         return (
           <SvgButton
             key={p.id}
             data-testid={`planet-${p.id}`}
             data-target-candidate={isCandidateTarget ? "true" : undefined}
+            data-target-dimmed={isDimmed ? "true" : undefined}
             isInteractive={isCandidateTarget}
             label={`Target planet ${p.label}`}
             onActivate={() => {
               if (isCandidateTarget) {
-                onSelectTarget?.(tile.systemId, p.id);
+                // Inspect first: a system inspection may reset the selection, the target must win.
                 onSelectSystem?.(tile.systemId);
+                onSelectTarget?.(tile.systemId, p.id);
               }
             }}
             onKeyDown={(e) => {
@@ -48,14 +55,51 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
             onClick={(e) => {
               if (isCandidateTarget) {
                 e.stopPropagation();
-                onSelectTarget?.(tile.systemId, p.id);
+                // Inspect first: a system inspection may reset the selection, the target must win.
                 onSelectSystem?.(tile.systemId);
+                onSelectTarget?.(tile.systemId, p.id);
               }
             }}
             style={{
-              cursor: isCandidateTarget ? "pointer" : "inherit",
+              cursor: isCandidateTarget ? "pointer" : isDimmed ? "not-allowed" : "inherit",
+              opacity: isDimmed ? 0.35 : 1,
             }}
           >
+            {isPlanetMode && isCandidateTarget && (
+              <g
+                data-testid={`planet-target-reticle-${p.id}`}
+                pointerEvents="none"
+                className="planet-target-reticle"
+              >
+                <circle cx={pX} cy={pY} r={planetRadius + 6} fill="rgba(56, 189, 248, 0.18)" />
+                <circle
+                  cx={pX}
+                  cy={pY}
+                  r={planetRadius + 6}
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth={2}
+                  strokeDasharray="4 2"
+                  className="target-pulse-ring"
+                />
+                {[0, 90, 180, 270].map((angle) => {
+                  const rad = (angle * Math.PI) / 180;
+                  const inner = planetRadius + 7;
+                  const outer = planetRadius + 13;
+                  return (
+                    <line
+                      key={angle}
+                      x1={pX + inner * Math.cos(rad)}
+                      y1={pY + inner * Math.sin(rad)}
+                      x2={pX + outer * Math.cos(rad)}
+                      y2={pY + outer * Math.sin(rad)}
+                      stroke="#38bdf8"
+                      strokeWidth={2}
+                    />
+                  );
+                })}
+              </g>
+            )}
             <circle
               cx={pX}
               cy={pY}

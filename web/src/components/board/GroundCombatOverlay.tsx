@@ -66,8 +66,9 @@ export const GroundCombatOverlay: React.FC<GroundCombatOverlayProps> = ({
             label={`Target planet ${p.label}`}
             onActivate={() => {
               if (isCandidateTarget) {
-                onSelectTarget?.(tile.systemId, p.id);
+                // Inspect first: a system inspection may reset the selection, the target must win.
                 onSelectSystem?.(tile.systemId);
+                onSelectTarget?.(tile.systemId, p.id);
               }
             }}
             onKeyDown={(e) => {
@@ -78,8 +79,9 @@ export const GroundCombatOverlay: React.FC<GroundCombatOverlayProps> = ({
             onClick={(e) => {
               if (isCandidateTarget) {
                 e.stopPropagation();
-                onSelectTarget?.(tile.systemId, p.id);
+                // Inspect first: a system inspection may reset the selection, the target must win.
                 onSelectSystem?.(tile.systemId);
+                onSelectTarget?.(tile.systemId, p.id);
               }
             }}
             style={{

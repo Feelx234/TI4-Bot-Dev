@@ -189,6 +189,12 @@ pub fn start_turn(
                     )
                     .with("planet", planet.to_string())
                     .with("technology", "pa")
+                    .with_planet_located(
+                        state,
+                        content,
+                        sources,
+                        planet.as_str(),
+                    )
                 })
                 .collect();
             options.push(ChoiceOption::decline());
@@ -457,6 +463,7 @@ pub fn end_turn(
                 )
                 .with("planet", planet.to_string())
                 .with("technology", "bs")
+                .with_planet_located(state, content, sources, planet.as_str())
             })
             .collect();
         if let Some(seat) = state.player(player) {
@@ -1351,6 +1358,51 @@ mod tests {
                 .technologies
                 .insert(TechnologyId::new(*alias));
         }
+    }
+
+    /// Psychoarchaeology's and Bio-Stims' planet options carry `planet` + `system`; Bio-Stims'
+    /// technology options and both declines do not name a planet.
+    #[test]
+    fn technology_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, assert_not_a_planet, offered};
+        let content = ContentStore::embedded();
+        let hold = |state: &mut GameState, system: &str, planet: &str| {
+            state
+                .system_mut(&ti4_model::id::SystemId::new(system))
+                .set_control(PlanetId::new(planet), player());
+        };
+        let subtype = |choice: &Choice| choice.context.as_ref().unwrap().subtype.clone();
+
+        let mut state = game(&["a"]);
+        give(&mut state, &["pa"]);
+        hold(&mut state, "19", "wellon");
+        hold(&mut state, "27", "newalbion");
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+        let mut table = Table::with_default(Box::new(decider));
+        start_turn(&mut state, content, POK, None, &mut table, &player()).unwrap();
+        let choice = seen.borrow()[0].clone();
+        assert_eq!(subtype(&choice), "psychoarchaeology_exhaust_specialty");
+        assert_locates(offered(&choice, "wellon"), "wellon", "19");
+        assert_locates(offered(&choice, "newalbion"), "newalbion", "27");
+        assert_not_a_planet(offered(&choice, crate::choice::DECLINE_ID));
+
+        let mut state = game(&["a"]);
+        give(&mut state, &["bs", "td"]);
+        hold(&mut state, "19", "wellon");
+        state.exhausted_planets.insert(PlanetId::new("wellon"));
+        state
+            .player_mut(&player())
+            .unwrap()
+            .exhausted_technologies
+            .insert(TechnologyId::new("td"));
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+        let mut table = Table::with_default(Box::new(decider));
+        end_turn(&mut state, content, POK, None, &mut table, &player()).unwrap();
+        let choice = seen.borrow()[0].clone();
+        assert_eq!(subtype(&choice), "bio_stims_ready");
+        assert_locates(offered(&choice, "ready|planet|wellon"), "wellon", "19");
+        assert_not_a_planet(offered(&choice, "ready|technology|td"));
+        assert_not_a_planet(offered(&choice, crate::choice::DECLINE_ID));
     }
 
     #[test]

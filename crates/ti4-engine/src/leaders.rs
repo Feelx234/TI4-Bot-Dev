@@ -891,6 +891,12 @@ pub fn use_leader(
                                     "planet",
                                     p.to_string(),
                                 )
+                                .with_planet_located(
+                                    context.state,
+                                    context.content,
+                                    context.sources,
+                                    p.as_str(),
+                                )
                             })
                             .collect(),
                     )
@@ -1153,6 +1159,7 @@ pub fn use_leader(
                                 "leader_xxchahero_te_planet",
                                 format!("{planet} in {system}"),
                             )
+                            .with_planet(planet.as_str(), Some(system.as_str()))
                         })
                         .collect();
                     let choice = crate::choice::Choice::new(
@@ -2496,6 +2503,84 @@ mod tests {
         holding(&mut state, "muaatagent", LeaderStatus::Readied);
 
         assert!(component_actions(&state, ContentStore::embedded(), &player()).is_empty());
+    }
+
+    /// Use a leader through a capturing table and return every choice it asked.
+    fn use_capturing(
+        state: &mut GameState,
+        leader: &str,
+        answers: Vec<String>,
+    ) -> Vec<crate::choice::Choice> {
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(answers)));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut context = crate::timing::TimingContext {
+            state,
+            content: ContentStore::embedded(),
+            sources: POK,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: None,
+        };
+        use_leader(&mut context, &player(), &LeaderId::new(leader));
+        seen.borrow().clone()
+    }
+
+    /// Xxcha's agent (ready a planet) and the Thunder's Edge hero (which planet gets the unit)
+    /// both carry `planet` + `system` on their planet options.
+    #[test]
+    fn xxcha_leader_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, offered};
+        let mut state = game(&["a"]);
+        holding(&mut state, "xxchaagent", LeaderStatus::Readied);
+        state
+            .exhausted_planets
+            .insert(ti4_model::id::PlanetId::new("lodor"));
+        state
+            .exhausted_planets
+            .insert(ti4_model::id::PlanetId::new("torkan"));
+        let seen = use_capturing(&mut state, "xxchaagent", vec!["lodor".to_owned()]);
+        let ready = &seen[0];
+        assert_eq!(
+            ready.context.as_ref().unwrap().subtype,
+            "leader_xxchaagent_ready_planet"
+        );
+        assert_locates(offered(ready, "lodor"), "lodor", "26");
+        assert_locates(offered(ready, "torkan"), "torkan", "28");
+
+        let mut state = game(&["a"]);
+        state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("xxcha");
+        holding(&mut state, "xxchahero-te", LeaderStatus::Unlocked);
+        for (system, planet) in [("26", "lodor"), ("28", "torkan")] {
+            state
+                .system_mut(&ti4_model::id::SystemId::new(system))
+                .set_control(ti4_model::id::PlanetId::new(planet), player().clone());
+        }
+        let seen = use_capturing(
+            &mut state,
+            "xxchahero-te",
+            vec![
+                "place|pds".to_owned(),
+                "planet|lodor".to_owned(),
+                "stop".to_owned(),
+            ],
+        );
+        let planet = seen
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|c| c.subtype == "leader_xxchahero_te_planet")
+            })
+            .expect("the planet was asked");
+        assert_locates(offered(planet, "planet|lodor"), "lodor", "26");
+        assert_locates(offered(planet, "planet|torkan"), "torkan", "28");
     }
 
     #[test]

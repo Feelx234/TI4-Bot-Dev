@@ -849,6 +849,12 @@ fn reparations(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
                         "reparations_exhaust",
                         planet.to_string(),
                     )
+                    .with_planet_located(
+                        context.state,
+                        context.content,
+                        context.sources,
+                        planet.as_str(),
+                    )
                 })
                 .collect();
             let choice = crate::choice::Choice::new(
@@ -895,6 +901,12 @@ fn reparations(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
                         planet.to_string(),
                         "reparations_ready",
                         planet.to_string(),
+                    )
+                    .with_planet_located(
+                        context.state,
+                        context.content,
+                        context.sources,
+                        planet.as_str(),
                     )
                 })
                 .collect();
@@ -1310,6 +1322,7 @@ fn choose_crashlanding_planet(
                 "crashlanding_planet",
                 name,
             )
+            .with_planet(planet.as_str(), Some(system.as_str()))
         })
         .collect();
     let choice = crate::choice::Choice::new(
@@ -4281,7 +4294,18 @@ fn pick(
                 prompt,
                 many.iter()
                     .map(|(id, label)| {
-                        crate::choice::ChoiceOption::labelled(id.clone(), kind, label.clone())
+                        let option =
+                            crate::choice::ChoiceOption::labelled(id.clone(), kind, label.clone());
+                        if kind == "planet" {
+                            locate_planet_option(
+                                context.state,
+                                context.content,
+                                context.sources,
+                                option,
+                            )
+                        } else {
+                            option
+                        }
                     })
                     .collect(),
             );
@@ -4303,6 +4327,22 @@ fn pick(
             ));
             context.ask_seeing(&choice).ok().map(|answer| answer.id)
         }
+    }
+}
+
+/// A `planet` option of [`pick`] with the `planet`/`system` payload a map UI locates it by. Its
+/// id is either a bare planet id or a `system|planet` spot.
+fn locate_planet_option(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    option: crate::choice::ChoiceOption,
+) -> crate::choice::ChoiceOption {
+    if let Some((system, planet)) = spot(&option.id) {
+        option.with_planet(planet.as_str(), Some(system.as_str()))
+    } else {
+        let planet = option.id.clone();
+        option.with_planet_located(state, content, sources, &planet)
     }
 }
 
@@ -7427,6 +7467,160 @@ mod tests {
         };
         effect(&mut context, player);
         seen
+    }
+
+    /// `pick`'s planet options carry `planet` + `system` for both id shapes the cards use: a
+    /// `system|planet` spot (Mining Initiative) and a bare planet id (Archaeological
+    /// Expedition). Ids, kinds and labels are unchanged.
+    #[test]
+    fn pick_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, offered};
+        let a = PlayerId::new("a");
+        let hold = |state: &mut GameState, system: &str, planet: &str| {
+            state
+                .system_mut(&ti4_model::id::SystemId::new(system))
+                .set_control(ti4_model::id::PlanetId::new(planet), a.clone());
+        };
+
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        hold(&mut state, "26", "lodor");
+        hold(&mut state, "28", "torkan");
+        let seen = resolve_card_capturing(&mut state, "mining_initiative", &a, &[]);
+        let choice = &seen.borrow()[0];
+        // Outside a play window no card is active, so the subtype is the bare `pick_planet`.
+        assert!(
+            choice
+                .context
+                .as_ref()
+                .is_some_and(|c| c.subtype.ends_with("pick_planet"))
+        );
+        let lodor = offered(choice, "26|lodor");
+        assert_eq!(
+            (lodor.kind.as_str(), lodor.label.as_str()),
+            ("planet", "lodor")
+        );
+        assert_locates(lodor, "lodor", "26");
+        assert_locates(offered(choice, "28|torkan"), "torkan", "28");
+
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        hold(&mut state, "26", "lodor");
+        hold(&mut state, "28", "torkan");
+        let seen = resolve_card_capturing(&mut state, "arch_expedition", &a, &[]);
+        let choice = &seen.borrow()[0];
+        // Outside a play window no card is active, so the subtype is the bare `pick_planet`.
+        assert!(
+            choice
+                .context
+                .as_ref()
+                .is_some_and(|c| c.subtype.ends_with("pick_planet"))
+        );
+        assert_locates(offered(choice, "lodor"), "lodor", "26");
+        assert_locates(offered(choice, "torkan"), "torkan", "28");
+    }
+
+    /// Every other `pick` kind stays payload-free: a player pick is not a planet.
+    #[test]
+    fn pick_non_planet_options_get_no_planet_payload() {
+        let state = crate::fixtures::game(&["a"]);
+        let content = ContentStore::embedded();
+        let spot = locate_planet_option(
+            &state,
+            content,
+            POK,
+            ChoiceOption::labelled("28|torkan", "planet", "torkan"),
+        );
+        crate::choice::planet_payload::assert_locates(&spot, "torkan", "28");
+        let bare = locate_planet_option(
+            &state,
+            content,
+            POK,
+            ChoiceOption::labelled("not_a_planet", "planet", "?"),
+        );
+        assert_eq!(
+            bare.payload
+                .get("planet")
+                .and_then(serde_json::Value::as_str),
+            Some("not_a_planet")
+        );
+        assert!(!bare.payload.contains_key("system"), "no system invented");
+
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        let seen = resolve_card_capturing(&mut state, "confusing", &PlayerId::new("a"), &["b"]);
+        for option in &seen.borrow()[0].options {
+            crate::choice::planet_payload::assert_not_a_planet(option);
+        }
+    }
+
+    /// Reparations: both the gainer's exhaust and the holder's ready carry `planet` + `system`.
+    #[test]
+    fn reparations_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, offered};
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let at = |system: &str| ti4_model::id::SystemId::new(system);
+        let planet = |id: &str| ti4_model::id::PlanetId::new(id);
+        state
+            .system_mut(&at("26"))
+            .set_control(planet("lodor"), b.clone());
+        state
+            .system_mut(&at("25"))
+            .set_control(planet("quann"), b.clone());
+        state
+            .system_mut(&at("28"))
+            .set_control(planet("tequran"), a.clone());
+        state
+            .system_mut(&at("28"))
+            .set_control(planet("torkan"), a.clone());
+        state.exhausted_planets.insert(planet("tequran"));
+        state.exhausted_planets.insert(planet("torkan"));
+        state.last_control_gained = Some((at("26"), planet("lodor"), b.clone(), Some(a.clone())));
+        let seen = resolve_card_capturing(&mut state, "reparations", &a, &[]);
+        let seen = seen.borrow();
+        let by_subtype = |subtype: &str| {
+            seen.iter()
+                .find(|choice| {
+                    choice
+                        .context
+                        .as_ref()
+                        .is_some_and(|c| c.subtype == subtype)
+                })
+                .unwrap_or_else(|| panic!("{subtype} asked"))
+        };
+        let exhaust = by_subtype("reparations_exhaust");
+        assert_locates(offered(exhaust, "lodor"), "lodor", "26");
+        assert_locates(offered(exhaust, "quann"), "quann", "25");
+        let ready = by_subtype("reparations_ready");
+        assert_locates(offered(ready, "tequran"), "tequran", "28");
+        assert_locates(offered(ready, "torkan"), "torkan", "28");
+    }
+
+    /// Crash Landing's planet options (`planet|<id>`) name the planet and the system landed in.
+    #[test]
+    fn crashlanding_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, offered};
+        let a = PlayerId::new("a");
+        let system = ti4_model::id::SystemId::new("28");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        crate::fixtures::put(&mut state, &system, "infantry", &a, 1);
+        state.last_ship_destroyed = Some((
+            system.clone(),
+            a.clone(),
+            ti4_model::id::UnitTypeId::new("destroyer"),
+        ));
+        let seen = resolve_card_capturing(&mut state, "crashlanding", &a, &[]);
+        let seen = seen.borrow();
+        let choice = seen
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|c| c.subtype == "crashlanding_choose_planet")
+            })
+            .expect("the planet was asked");
+        assert_locates(offered(choice, "planet|tequran"), "tequran", "28");
+        assert_locates(offered(choice, "planet|torkan"), "torkan", "28");
     }
 
     /// OBS-008g2: Skilled Retreat's destination choice previews the exact arrival count, the

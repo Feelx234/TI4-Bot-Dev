@@ -2859,6 +2859,49 @@ select:focus-visible,
   font-size: 13px;
   color: #f87171;
 }
+.planet-selection-bar__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  max-height: 96px;
+  overflow-y: auto;
+}
+.planet-selection-bar__chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  background: rgba(56, 189, 248, 0.08);
+  color: #f8fafc;
+  cursor: pointer;
+}
+.planet-selection-bar__chip:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.2);
+}
+.planet-selection-bar__chip[aria-pressed="true"] {
+  background: #38bdf8;
+  border-color: #38bdf8;
+  color: #0f172a;
+}
+.planet-selection-bar__chip[aria-pressed="true"] .text-muted {
+  color: #0f172a;
+}
+.planet-selection-bar__chip--extra {
+  border-style: dashed;
+}
+.planet-selection-bar__facts {
+  font-size: 12px;
+}
+.planet-selection-bar__stats {
+  color: #fef08a;
+  font-weight: 600;
+}
+.planet-selection-bar .system-activation-bar__title,
+.planet-selection-bar .system-activation-bar__prompt {
+  white-space: normal;
+}
 .choice-workflow-modal .workflow-inline {
   min-width: 0;
 }

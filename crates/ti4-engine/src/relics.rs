@@ -478,12 +478,13 @@ fn stellar_converter(
     }
     let options: Vec<crate::choice::ChoiceOption> = targets
         .iter()
-        .map(|(_, planet)| {
+        .map(|(system, planet)| {
             crate::choice::ChoiceOption::labelled(
                 planet.to_string(),
                 "planet",
                 format!("destroy {planet}"),
             )
+            .with_planet(planet.as_str(), Some(system.as_str()))
         })
         .collect();
     let choice = crate::choice::Choice::new(
@@ -635,6 +636,7 @@ pub fn crown_of_emphidia_explore(
                 "planet",
                 format!("explore {planet}"),
             )
+            .with_planet_located(state, content, sources, planet.as_str())
         })
         .chain(std::iter::once(crate::choice::ChoiceOption::decline()))
         .collect();
@@ -1355,6 +1357,73 @@ mod tests {
     /// nothing left to take, so an invader who lands there afterwards gains nothing. A version that
     /// only cleared the current occupants would pass a units-are-gone check and still let the next
     /// player take the planet on the following turn.
+    /// Stellar Converter's targets and the Crown of Emphidia's planets carry `planet` +
+    /// `system`; the Crown's decline does not.
+    #[test]
+    fn relic_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, assert_not_a_planet, offered};
+        let content = ti4_content::ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let attacker = PlayerId::new("a");
+        let (target_system, target) = an_ordinary_planet();
+        let hub = crate::fixtures::hub_with_outer(target_system.as_str());
+        let centre = ti4_model::id::SystemId::new(&hub.centre);
+        for id in std::iter::once(&hub.centre).chain(hub.outer.iter()) {
+            state
+                .board
+                .entry(ti4_model::id::SystemId::new(id))
+                .or_default();
+        }
+        crate::fixtures::put(&mut state, &centre, "dreadnought", &attacker, 1);
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        assert!(stellar_converter(
+            &mut state,
+            content,
+            sources,
+            &mut table,
+            Some(&hub.galaxy),
+            &attacker,
+        ));
+        let choice = &seen.borrow()[0];
+        assert_eq!(
+            choice.context.as_ref().unwrap().subtype,
+            "stellar_converter_choose_target"
+        );
+        assert_locates(
+            offered(choice, target.as_str()),
+            target.as_str(),
+            target_system.as_str(),
+        );
+        for option in &choice.options {
+            assert!(
+                option.payload.contains_key("system"),
+                "{} located",
+                option.id
+            );
+        }
+
+        let mut state = crate::fixtures::game(&["a"]);
+        state.player_mut(&attacker).unwrap().relics = vec![RelicId::new("emphidia")];
+        for (system, planet) in [("26", "lodor"), ("28", "torkan")] {
+            state
+                .system_mut(&ti4_model::id::SystemId::new(system))
+                .set_control(ti4_model::id::PlanetId::new(planet), attacker.clone());
+        }
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        crown_of_emphidia_explore(&mut state, content, sources, &mut table, None, &attacker);
+        let choice = &seen.borrow()[0];
+        assert_eq!(
+            choice.context.as_ref().unwrap().subtype,
+            "crown_of_emphidia_choose_planet"
+        );
+        assert_locates(offered(choice, "lodor"), "lodor", "26");
+        assert_locates(offered(choice, "torkan"), "torkan", "28");
+        assert_not_a_planet(offered(choice, crate::choice::DECLINE_ID));
+    }
+
     #[test]
     fn the_stellar_converter_destroys_a_planet_for_good() {
         let content = ti4_content::ContentStore::embedded();

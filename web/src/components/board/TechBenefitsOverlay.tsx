@@ -78,8 +78,9 @@ export const TechBenefitsOverlay: React.FC<TechBenefitsOverlayProps> = ({
             label={`Target planet ${p.label}`}
             onActivate={() => {
               if (isCandidateTarget) {
-                onSelectTarget?.(tile.systemId, p.id);
+                // Inspect first: a system inspection may reset the selection, the target must win.
                 onSelectSystem?.(tile.systemId);
+                onSelectTarget?.(tile.systemId, p.id);
               }
             }}
             onKeyDown={(e) => {
@@ -90,8 +91,9 @@ export const TechBenefitsOverlay: React.FC<TechBenefitsOverlayProps> = ({
             onClick={(e) => {
               if (isCandidateTarget) {
                 e.stopPropagation();
-                onSelectTarget?.(tile.systemId, p.id);
+                // Inspect first: a system inspection may reset the selection, the target must win.
                 onSelectSystem?.(tile.systemId);
+                onSelectTarget?.(tile.systemId, p.id);
               }
             }}
             style={{

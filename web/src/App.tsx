@@ -13,6 +13,8 @@ import { participantText } from "./presentation/participantText.ts";
 import { CardDetails, CardSubject } from "./components/CardDetails.tsx";
 import { TechnologyModal } from "./components/TechnologyModal.tsx";
 import { ObjectivesModal } from "./components/ObjectivesModal.tsx";
+import { resolveMapTargetSelection } from "./presentation/planetSelection.ts";
+import { isPlanetSelectionChoice } from "./presentation/choiceModel.ts";
 
 const DevDecisionGallery = import.meta.env.DEV
   ? React.lazy(() =>
@@ -234,6 +236,7 @@ const GameViewContainer: React.FC<{
     void changeHistory(action)
       .then(() => {
         setSelectedOptionId(undefined);
+        setSelectedPlanetId(null);
         setSelectedSystemId(null);
         setCardSubject(null);
       })
@@ -244,11 +247,15 @@ const GameViewContainer: React.FC<{
   };
   const userSeat = viewer.role === "player" ? viewer.seat : undefined;
   const [selectedOptionId, setSelectedOptionId] = useState<string>();
+  const [selectedPlanetId, setSelectedPlanetId] = useState<string | null>(null);
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
   const [cardSubject, setCardSubject] = useState<CardSubject | null>(null);
   const [isTechModalOpen, setIsTechModalOpen] = useState(false);
   const [isObjectivesModalOpen, setIsObjectivesModalOpen] = useState(false);
-  useEffect(() => setSelectedOptionId(undefined), [pendingChoice?.nonce]);
+  useEffect(() => {
+    setSelectedOptionId(undefined);
+    setSelectedPlanetId(null);
+  }, [pendingChoice?.nonce]);
   const cardIsVisible =
     cardSubject &&
     snapshot &&
@@ -268,19 +275,15 @@ const GameViewContainer: React.FC<{
             ));
   const handleSelectTarget = (systemId: string, planetId?: string) => {
     if (!pendingChoice || pendingChoice.actor !== userSeat) return;
-    const match = pendingChoice.options.find((option) =>
-      planetId
-        ? option.payload?.planet === planetId ||
-          option.id === `exhaust|${planetId}` ||
-          option.id === planetId ||
-          option.id.startsWith(`exhaust|${planetId}|`)
-        : String(option.payload?.system ?? option.payload?.to ?? option.id) === systemId,
+    const selection = resolveMapTargetSelection(
+      pendingChoice,
+      systemId,
+      planetId,
+      snapshot?.view.board,
     );
-    if (!match) {
-      setSelectedOptionId(undefined);
-      return;
-    }
-    setSelectedOptionId(match.id);
+    if (selection.kind === "ignore") return;
+    setSelectedOptionId(selection.optionId);
+    setSelectedPlanetId(selection.planetId);
   };
   return (
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
@@ -331,7 +334,13 @@ const GameViewContainer: React.FC<{
               onSelectSystem={(id) => {
                 setSelectedSystemId(id);
                 setCardSubject(null);
-                if (id && pendingChoice && pendingChoice.actor === userSeat) {
+                // In a planet selection a hex click only inspects; it never drops the pick.
+                if (
+                  id &&
+                  pendingChoice &&
+                  pendingChoice.actor === userSeat &&
+                  !isPlanetSelectionChoice(pendingChoice)
+                ) {
                   const match = pendingChoice.options.find(
                     (option) =>
                       String(option.payload?.system ?? option.payload?.to ?? option.id) === id,
@@ -393,6 +402,8 @@ const GameViewContainer: React.FC<{
         lastError={lastError}
         selectedOptionId={selectedOptionId}
         onSelectOption={setSelectedOptionId}
+        selectedPlanetId={selectedPlanetId}
+        onSelectPlanet={setSelectedPlanetId}
       />
       <TechnologyModal
         isOpen={isTechModalOpen}

@@ -1,3 +1,5 @@
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import { createStartedGame, gameSnapshot, openPlayerGame } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
@@ -20,6 +22,12 @@ export interface PlaythroughOptions {
   /** `random` clicks uniformly; `steer` favours tactical play so combat, invasion and agendas occur. */
   policy?: "random" | "steer";
   log?: (line: string) => void;
+  /**
+   * When set, write a machine-readable trace here: `game.json` (id and seats) at the start,
+   * `trace.jsonl` (one line per offered decision), and `report.json` + `final-snapshot.json`
+   * at the end. Used by the nightly proctors to compile what happened in a game.
+   */
+  traceDir?: string;
 }
 
 export interface PlaythroughReport {
@@ -39,6 +47,7 @@ export interface PlaythroughReport {
 const DECISION_CONTAINERS = [
   "pending-choice-dialog",
   "system-activation-bar",
+  "planet-selection-bar",
   "tactical-movement-tray",
   "cargo-loading-tray",
   "invasion-landing-tray",
@@ -57,6 +66,7 @@ const ERROR_BANNERS = [
   "choice-error-banner",
   "movement-error-banner",
   "activation-error",
+  "planet-selection-error",
   "reaction-error-badge",
 ];
 
@@ -262,13 +272,15 @@ function pick(
   if (resume.length) return resume[Math.floor(rng() * resume.length)];
   const unstage = candidates.filter((c) => c.unstage);
   const forward = candidates.filter((c) => !c.unstage);
-  // Take staging back when nothing else is clickable, when no submit control is enabled (such
-  // as cargo over transport capacity), or now and then once a decision has stalled. Dropping
-  // cargo one unit at a time keeps the ships staged, so the plan can become committable.
+  // Take staging back when nothing else is clickable, now and then when no submit control is
+  // enabled (such as cargo over transport capacity), or once a decision has stalled. Dropping
+  // cargo one unit at a time keeps the ships staged, so the plan can become committable. The
+  // blocked chance stays low: a payment that needs every source (3 owed, exactly 3 available)
+  // only unlocks its confirm button after several staging clicks in a row.
   const blocked = !forward.some((c) => c.commit);
   if (
     unstage.length &&
-    (!forward.length || (blocked && rng() < 0.5) || (clicks >= 10 && rng() < 0.2))
+    (!forward.length || (blocked && rng() < 0.1) || (clicks >= 10 && rng() < 0.2))
   )
     return weightedPick(unstage, (c) => (/cargo|decrement|remove/i.test(c.desc) ? 5 : 0.5), rng);
   const commits = forward.filter((c) => c.commit);
@@ -353,16 +365,40 @@ export async function randomUiPlaythrough(
     rejections: [],
   };
 
+  const trace = (file: string, data: unknown, append = false) => {
+    if (!options.traceDir) return;
+    const path = join(options.traceDir, file);
+    const text = append ? `${JSON.stringify(data)}\n` : JSON.stringify(data, null, 2);
+    if (append) appendFileSync(path, text);
+    else writeFileSync(path, text);
+  };
+  if (options.traceDir) mkdirSync(options.traceDir, { recursive: true });
+  trace("game.json", {
+    gameId,
+    players: players.map((p) => p.id),
+    options: { ...options, log: undefined },
+  });
+  const writeFinal = async () => {
+    if (!options.traceDir) return;
+    trace("report.json", report);
+    const snapshot = await gameSnapshot(request, gameId, players[0].session).catch(() => null);
+    if (snapshot) trace("final-snapshot.json", snapshot);
+  };
+
   const fail = async (page: Page | undefined, message: string): Promise<never> => {
     const status = await gameSnapshot(request, gameId, players[0].session).catch(() => null);
     const detail = `${message}\nreport: ${JSON.stringify({ ...report, finalStatus: status?.turn_status })}`;
     if (page)
       await page.screenshot({ path: `test-results/smoke-failure-${gameId}.png` }).catch(() => {});
+    trace("failure.txt", detail);
+    await writeFinal();
     throw new Error(detail);
   };
 
   while (report.decisions < options.maxDecisions) {
-    expect(browserErrors, "browser errors during playthrough").toEqual([]);
+    // Through `fail` so the trace (failure.txt, report.json) is written for browser errors too.
+    if (browserErrors.length)
+      await fail(undefined, `browser errors during playthrough:\n${browserErrors.join("\n")}`);
     const state = await gameSnapshot(request, gameId, players[0].session);
     const status = state.turn_status;
     report.finalStatus = status;
@@ -400,6 +436,23 @@ export async function randomUiPlaythrough(
         ? activationWeights(actorState.view.board, players[actorIndex].id)
         : new Map<string, number>();
     report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
+    trace(
+      "trace.jsonl",
+      {
+        decision: report.decisions,
+        version: before,
+        round: status.round,
+        phase: status.phase,
+        seat: actorIndex + 1,
+        player: players[actorIndex].id,
+        faction: actorState.view.players?.find((p) => p.id === players[actorIndex].id)?.faction,
+        subtype,
+        source: choice?.context?.source ?? null,
+        prompt: choice?.prompt,
+        options: choice?.options.map((o) => ({ id: o.id, kind: o.kind, label: o.label })),
+      },
+      true,
+    );
 
     // Let the actor's tab catch up with the server before reading its controls.
     await expect
@@ -462,7 +515,9 @@ export async function randomUiPlaythrough(
     report.decisions++;
   }
 
-  expect(browserErrors, "browser errors during playthrough").toEqual([]);
   report.finalStatus = (await gameSnapshot(request, gameId, players[0].session)).turn_status;
+  trace("browser-errors.json", browserErrors);
+  await writeFinal();
+  expect(browserErrors, "browser errors during playthrough").toEqual([]);
   return report;
 }

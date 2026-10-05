@@ -94,6 +94,32 @@ pub fn outcomes(
     Vec::new()
 }
 
+/// Whether this agenda elects a planet, read off the printed `target` exactly as [`outcomes`]
+/// reads it. Only used to tell a map UI that an outcome is a planet (`payload.planet`).
+fn elects_planet(content: &ContentStore, alias: &str) -> bool {
+    let Some(record) = content.get(ContentType::Agendas, alias) else {
+        return false;
+    };
+    let target = record.text("target").unwrap_or("For/Against");
+    let head = target.split('(').next().unwrap_or(target).trim();
+    head.starts_with("Elect") && !head.contains("Player") && head.contains("Planet")
+}
+
+/// An outcome option, carrying `planet`/`system` when the agenda elects a planet.
+fn locate_outcome(
+    option: ChoiceOption,
+    planet_outcomes: bool,
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> ChoiceOption {
+    if !planet_outcomes || option.id == FOR || option.id == AGAINST {
+        return option;
+    }
+    let planet = option.id.clone();
+    option.with_planet_located(state, content, sources, &planet)
+}
+
 /// Votes a card has added to this seat's total for the agenda being voted on.
 ///
 /// Distinguished Councilor casts five more; Bribery casts one per trade good spent. Both say "that
@@ -372,13 +398,15 @@ impl VoteWindow {
                 // effect. `Ballot` lives on this window, not on `GameState`, so nothing an
                 // `Observed` builds from state alone could recover it; each option's own running
                 // tally closes that gap through the existing generic payload-number pipeline.
+                let planet_outcomes = elects_planet(content, &self.alias);
                 let mut options: Vec<ChoiceOption> = self
                     .choices
                     .iter()
                     .map(|outcome| {
                         let tally = self.ballot.counts.get(outcome).copied().unwrap_or(0);
-                        ChoiceOption::labelled(outcome, VOTE_KIND, outcome)
-                            .with("current_votes", tally)
+                        let option = ChoiceOption::labelled(outcome, VOTE_KIND, outcome)
+                            .with("current_votes", tally);
+                        locate_outcome(option, planet_outcomes, state, content, sources)
                     })
                     .collect();
                 options.push(ChoiceOption::decline());
@@ -406,21 +434,23 @@ impl VoteWindow {
                 }
                 let votes_so_far = *votes;
                 let qanoj = i64::from(crate::leaders::elder_qanoj(state, player));
-                let mut options: Vec<ChoiceOption> =
-                    remaining
-                        .iter()
-                        .map(|planet| {
-                            let influence = influence_of(state, content, sources, planet) + qanoj;
-                            ChoiceOption::labelled(
-                                planet.as_str(),
-                                VOTE_PLANET_KIND,
-                                format!("exhaust {planet} for {influence} votes"),
-                            )
-                            .previewed(Preview::certain(vec![
-                                Delta::new(Quantity::Votes, votes_so_far, votes_so_far + influence),
-                            ]))
-                        })
-                        .collect();
+                let mut options: Vec<ChoiceOption> = remaining
+                    .iter()
+                    .map(|planet| {
+                        let influence = influence_of(state, content, sources, planet) + qanoj;
+                        ChoiceOption::labelled(
+                            planet.as_str(),
+                            VOTE_PLANET_KIND,
+                            format!("exhaust {planet} for {influence} votes"),
+                        )
+                        .with_planet_located(state, content, sources, planet.as_str())
+                        .previewed(Preview::certain(vec![Delta::new(
+                            Quantity::Votes,
+                            votes_so_far,
+                            votes_so_far + influence,
+                        )]))
+                    })
+                    .collect();
                 options.push(ChoiceOption::decline());
                 Some(
                     Choice::new(
@@ -439,13 +469,22 @@ impl VoteWindow {
             }
             Stage::Tiebreak => {
                 let candidates = tiebreak_candidates(&self.ballot, &self.choices);
+                let planet_outcomes = elects_planet(content, &self.alias);
                 Some(
                     Choice::new(
                         state.speaker.clone(),
                         "speaker breaks the tie",
                         candidates
                             .iter()
-                            .map(|outcome| ChoiceOption::labelled(outcome, TIEBREAK_KIND, outcome))
+                            .map(|outcome| {
+                                locate_outcome(
+                                    ChoiceOption::labelled(outcome, TIEBREAK_KIND, outcome),
+                                    planet_outcomes,
+                                    state,
+                                    content,
+                                    sources,
+                                )
+                            })
                             .collect(),
                     )
                     .contextualized(DecisionContext::new(
@@ -773,6 +812,63 @@ mod tests {
         assert_eq!(tiebreak_context.subtype, "vote_tiebreak");
         assert_eq!(tiebreak.player, state.speaker);
         assert_ne!(cast_context.subtype, tiebreak_context.subtype);
+    }
+
+    /// An Elect Planet agenda's outcomes (cast and tiebreak) and every planet exhausted to vote
+    /// carry `planet` + `system`; For/Against outcomes and declines do not.
+    #[test]
+    fn planet_votes_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, assert_not_a_planet, offered};
+        let content = ContentStore::embedded();
+        let (mut state, players) = game(&["a", "b"]);
+        state
+            .system_mut(&ti4_model::id::SystemId::new("26"))
+            .set_control(PlanetId::new("lodor"), players[0].clone());
+        state
+            .system_mut(&ti4_model::id::SystemId::new("28"))
+            .set_control(PlanetId::new("torkan"), players[1].clone());
+        let subtype = |choice: &Choice| choice.context.as_ref().unwrap().subtype.clone();
+
+        let ordinary = VoteWindow::new(&state, "some_agenda", for_against());
+        let cast = ordinary.pending_choice(&state, content, POK).unwrap();
+        for option in &cast.options {
+            assert_not_a_planet(option);
+        }
+
+        let elect_planet = content
+            .records(ContentType::Agendas)
+            .iter()
+            .find(|record| record.text("target") == Some("Elect Planet"))
+            .and_then(|record| record.text("alias"))
+            .expect("the corpus has an Elect Planet agenda")
+            .to_owned();
+        let choices = outcomes(&state, content, POK, &elect_planet);
+        let mut window = VoteWindow::new(&state, &elect_planet, choices);
+        let cast = window.pending_choice(&state, content, POK).unwrap();
+        assert_eq!(subtype(&cast), "cast_vote");
+        assert_locates(offered(&cast, "lodor"), "lodor", "26");
+        assert_locates(offered(&cast, "torkan"), "torkan", "28");
+        assert_not_a_planet(offered(&cast, crate::choice::DECLINE_ID));
+
+        let voter = cast.player.clone();
+        let (own, own_system) = if voter == players[0] {
+            ("lodor", "26")
+        } else {
+            ("torkan", "28")
+        };
+        window
+            .resolve(&mut state, content, POK, offered(&cast, "torkan").clone())
+            .unwrap();
+        let exhaust = window.pending_choice(&state, content, POK).unwrap();
+        assert_eq!(subtype(&exhaust), "vote_exhaust_planet");
+        assert_locates(offered(&exhaust, own), own, own_system);
+        assert_not_a_planet(offered(&exhaust, crate::choice::DECLINE_ID));
+
+        window.stage = Stage::Tiebreak;
+        let tiebreak = window.pending_choice(&state, content, POK).unwrap();
+        assert_eq!(subtype(&tiebreak), "vote_tiebreak");
+        assert_locates(offered(&tiebreak, "lodor"), "lodor", "26");
+        assert_locates(offered(&tiebreak, "torkan"), "torkan", "28");
     }
 
     /// Give `player` a planet with influence, so they have something to vote with.

@@ -5,6 +5,8 @@ import { MapOverlayMode } from "../presentation/mapOverlays.ts";
 export interface MapOverlayToolbarProps {
   activeMode: MapOverlayMode;
   onSelectMode: (mode: MapOverlayMode) => void;
+  /** When set, overlay switching is unavailable and the reason is shown as the tooltip. */
+  disabledReason?: string;
 }
 
 interface OverlayOption {
@@ -49,13 +51,16 @@ const OVERLAY_OPTIONS: OverlayOption[] = [
 export const MapOverlayToolbar: React.FC<MapOverlayToolbarProps> = ({
   activeMode,
   onSelectMode,
+  disabledReason,
 }) => {
+  const disabled = Boolean(disabledReason);
   return (
     <div
       className="map-overlay-toolbar"
       data-testid="map-overlay-toolbar"
       role="toolbar"
       aria-label="Map Overlays"
+      title={disabledReason}
       style={{
         display: "flex",
         alignItems: "center",
@@ -73,6 +78,7 @@ export const MapOverlayToolbar: React.FC<MapOverlayToolbarProps> = ({
           type="button"
           data-testid="overlay-btn-none"
           onClick={() => onSelectMode("none")}
+          disabled={disabled}
           aria-pressed={activeMode === "none"}
           className={`button ${activeMode === "none" ? "button--primary" : "button--secondary"}`}
           style={{
@@ -107,6 +113,7 @@ export const MapOverlayToolbar: React.FC<MapOverlayToolbarProps> = ({
               type="button"
               data-testid={opt.testId}
               onClick={() => onSelectMode(isActive ? "none" : opt.mode)}
+              disabled={disabled}
               aria-pressed={isActive}
               className={`button ${isActive ? "button--primary" : "button--secondary"}`}
               style={{

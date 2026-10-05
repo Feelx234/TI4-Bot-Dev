@@ -87,6 +87,11 @@ export const Board: React.FC<BoardProps> = ({
     selectedSystemId,
   );
 
+  // Only the standard overlay draws clickable planets for every system, so a pending planet pick
+  // shows it regardless of the chosen overlay; the preference returns afterwards.
+  const isPlanetTargeting = presentation.targets.targetMode === "planet";
+  const effectiveOverlay: MapOverlayMode = isPlanetTargeting ? "none" : activeOverlay;
+
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button === 0) {
       setIsPanning(true);
@@ -175,7 +180,13 @@ export const Board: React.FC<BoardProps> = ({
           </Tooltip>
         </div>
 
-        <MapOverlayToolbar activeMode={activeOverlay} onSelectMode={handleSelectOverlay} />
+        <MapOverlayToolbar
+          activeMode={effectiveOverlay}
+          onSelectMode={handleSelectOverlay}
+          disabledReason={
+            isPlanetTargeting ? "Overlays are paused while you choose a planet" : undefined
+          }
+        />
       </div>
 
       <div className="board-seat-legend" aria-label="Player positions">
@@ -235,9 +246,10 @@ export const Board: React.FC<BoardProps> = ({
               key={`hex-${tile.systemId}-${idx}`}
               tile={tile}
               isSelected={selectedSystemId === tile.systemId}
-              activeOverlay={activeOverlay}
+              activeOverlay={effectiveOverlay}
               viewerSeat={viewerSeat}
               isActivationMode={presentation.targets.isActivationMode}
+              targetMode={presentation.targets.targetMode}
               players={players}
               onSelectTarget={onSelectTarget}
               onSelectOptionId={onSelectOptionId}
@@ -280,7 +292,7 @@ export const Board: React.FC<BoardProps> = ({
         <BoardTooltip
           hoveredTile={hoveredTile}
           tilePresentation={presentation.tiles.find((t) => t.systemId === hoveredTile.systemId)}
-          activeOverlay={activeOverlay}
+          activeOverlay={effectiveOverlay}
           seatingOrder={seatingOrder}
           players={players}
         />

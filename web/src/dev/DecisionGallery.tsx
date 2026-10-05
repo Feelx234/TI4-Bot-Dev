@@ -7,6 +7,7 @@ import { PROTOCOL_VERSION, type ClientMessage } from "../protocol/types.ts";
 import { galleryBoard, galleryLobby, galleryPlayers, gallerySeating } from "./galleryBoard.ts";
 import { fallbackCases, galleryCases, type GalleryCase } from "./decisionGalleryCases.ts";
 import { galleryEventLog } from "./galleryEventLog.ts";
+import { resolveMapTargetSelection } from "../presentation/planetSelection.ts";
 import "./DecisionGallery.css";
 
 /** Local, synthetic presentation only: submissions never contact a game server. */
@@ -18,6 +19,7 @@ export const DecisionGallery: React.FC = () => {
   const [nonce, setNonce] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string>();
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
+  const [selectedPlanetId, setSelectedPlanetId] = useState<string | null>(null);
   const [trace, setTrace] = useState<
     Array<{ message: Extract<ClientMessage, { type: "submit_choice" }>; result: string }>
   >([]);
@@ -30,6 +32,7 @@ export const DecisionGallery: React.FC = () => {
     setRejectNext(false);
     setViewer("actor");
     setSelectedOption(undefined);
+    setSelectedPlanetId(null);
     setSelectedSystemId(null);
     setTrace([]);
     setAwaiting(false);
@@ -78,6 +81,7 @@ export const DecisionGallery: React.FC = () => {
                 setLastSubmitted(null);
                 setAwaiting(false);
                 setSelectedOption(undefined);
+                setSelectedPlanetId(null);
                 setSelectedSystemId(null);
               }}
             >
@@ -208,7 +212,8 @@ export const DecisionGallery: React.FC = () => {
                     setSelectedSystemId(sys);
                     if (!sys) {
                       setSelectedOption(undefined);
-                    } else {
+                      setSelectedPlanetId(null);
+                    } else if (classified !== "planet_selection") {
                       const offered = choice?.options.find(
                         (o) =>
                           String(o.payload?.system ?? o.id) === sys ||
@@ -224,20 +229,15 @@ export const DecisionGallery: React.FC = () => {
                     setSelectedOption(optId);
                   }}
                   onSelectTarget={(system, planet) => {
-                    const offered = choice?.options.find((o) =>
-                      planet
-                        ? o.id === `exhaust|${planet}` ||
-                          o.id === planet ||
-                          o.payload?.planet === planet
-                        : String(o.payload?.system ?? o.id) === system ||
-                          o.id === `activate|${system}` ||
-                          o.id === system,
+                    const selection = resolveMapTargetSelection(
+                      choice,
+                      system,
+                      planet,
+                      galleryBoard,
                     );
-                    if (offered) {
-                      setSelectedOption(offered.id);
-                    } else {
-                      setSelectedOption(undefined);
-                    }
+                    if (selection.kind === "ignore") return;
+                    setSelectedOption(selection.optionId);
+                    setSelectedPlanetId(selection.planetId);
                   }}
                 />
               }
@@ -257,6 +257,8 @@ export const DecisionGallery: React.FC = () => {
               viewerSeat={viewerSeat}
               selectedOptionId={selectedOption}
               selectedSystemId={selectedSystemId}
+              selectedPlanetId={selectedPlanetId}
+              onSelectPlanet={setSelectedPlanetId}
               onSelectOption={(opt) => {
                 setSelectedOption(opt);
                 if (!opt) setSelectedSystemId(null);

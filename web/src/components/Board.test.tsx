@@ -644,3 +644,97 @@ describe("Board Component", () => {
     });
   });
 });
+
+describe("Board planet selection mode", () => {
+  const planetChoice = {
+    nonce: "nonce_mining",
+    actor: "p1",
+    prompt: "Mining Initiative: mine which planet",
+    context: {
+      subtype: "mining_initiative_pick_planet",
+      source: { ActionCard: "mining_initiative" },
+    },
+    options: [
+      { id: "abyz", kind: "planet", label: "Abyz", payload: { planet: "abyz", system: "34" } },
+      { id: "fria", kind: "planet", label: "Fria", payload: { planet: "fria", system: "34" } },
+      {
+        id: "mecatol_rex",
+        kind: "planet",
+        label: "Mecatol Rex",
+        payload: { planet: "mecatol_rex" },
+      },
+    ],
+  };
+
+  it("draws planet reticles, keeps hexes non-targetable and dims other planets", () => {
+    const board: BoardView = {
+      ...mockBoard,
+      systems: {
+        ...mockBoard.systems,
+        "34": {
+          ...mockBoard.systems["34"],
+          planets: {
+            ...mockBoard.systems["34"].planets,
+            loki: { planet_id: "loki", controlled_by: "p1", exhausted: false, attachments: [] },
+          },
+        },
+      },
+    };
+    render(
+      <Board
+        board={board}
+        seatingOrder={["p1", "p2"]}
+        pendingChoice={planetChoice}
+        viewerSeat="p1"
+      />,
+    );
+    expect(screen.getByTestId("planet-target-reticle-abyz")).toBeInTheDocument();
+    expect(screen.getByTestId("planet-target-reticle-mecatol_rex")).toBeInTheDocument();
+    expect(screen.queryByTestId("activation-target-reticle")).not.toBeInTheDocument();
+    expect(screen.getByTestId("system-hex-34")).not.toHaveAttribute("data-target-candidate");
+    expect(screen.getByTestId("planet-loki")).toHaveAttribute("data-target-dimmed", "true");
+    expect(screen.getByTestId("planet-loki")).not.toHaveAttribute("role");
+  });
+
+  it("selects a planet from a hex click only when it is the system's single candidate", () => {
+    const onSelectTarget = vi.fn();
+    const onSelectSystem = vi.fn();
+    render(
+      <Board
+        board={mockBoard}
+        seatingOrder={["p1", "p2"]}
+        pendingChoice={planetChoice}
+        viewerSeat="p1"
+        onSelectTarget={onSelectTarget}
+        onSelectSystem={onSelectSystem}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("system-hex-34"));
+    expect(onSelectSystem).toHaveBeenCalledWith("34");
+    expect(onSelectTarget).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("system-hex-18"));
+    expect(onSelectTarget).toHaveBeenCalledWith("18", "mecatol_rex");
+
+    fireEvent.click(screen.getByTestId("planet-fria"));
+    expect(onSelectTarget).toHaveBeenLastCalledWith("34", "fria");
+  });
+
+  it("shows the clickable standard planets while a planet pick is pending, whatever the overlay", () => {
+    const onSelectTarget = vi.fn();
+    render(
+      <Board
+        board={mockBoard}
+        seatingOrder={["p1", "p2"]}
+        pendingChoice={planetChoice}
+        viewerSeat="p1"
+        overlayMode="economy"
+        onSelectTarget={onSelectTarget}
+      />,
+    );
+    expect(screen.queryByTestId("economy-overlay-34")).not.toBeInTheDocument();
+    expect(screen.getByTestId("overlay-btn-economy")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("planet-abyz"));
+    expect(onSelectTarget).toHaveBeenCalledWith("34", "abyz");
+  });
+});

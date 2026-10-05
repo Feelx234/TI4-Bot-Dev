@@ -815,3 +815,97 @@ describe("GameShell", () => {
     expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
   });
 });
+
+describe("planet selection dispatch", () => {
+  const miningChoice: PendingChoiceDto = {
+    actor: "p1",
+    nonce: "mining-1",
+    prompt: "Mining Initiative: mine which planet",
+    context: {
+      subtype: "mining_initiative_pick_planet",
+      source: { ActionCard: "mining_initiative" },
+    },
+    options: [
+      { id: "lodor", kind: "planet", label: "Lodor", payload: { planet: "lodor", system: "26" } },
+      { id: "quann", kind: "planet", label: "Quann", payload: { planet: "quann", system: "25" } },
+    ],
+  };
+
+  it("renders the planet selection bar instead of the generic modal and never a minimized pill", () => {
+    const onSelectPlanet = vi.fn();
+    const onSelectOption = vi.fn();
+    render(
+      <ChoiceRendererDispatcher
+        choice={miningChoice}
+        viewerSeat="p1"
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+        isMinimized={true}
+        onMinimizedChange={vi.fn()}
+        selectedOptionId="lodor"
+        onSelectOption={onSelectOption}
+        onSelectPlanet={onSelectPlanet}
+      />,
+    );
+    expect(screen.getByTestId("planet-selection-bar")).toBeInTheDocument();
+    expect(screen.getByTestId("planet-selection-action")).toHaveTextContent(
+      "Mining Initiative — mine Lodor",
+    );
+    expect(screen.queryByTestId("pending-choice-dialog")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("choice-minimized-pill")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("planet-chip-quann"));
+    expect(onSelectPlanet).toHaveBeenCalledWith("quann");
+    expect(onSelectOption).toHaveBeenCalledWith("quann");
+  });
+
+  it("shows other seats a waiting bar naming the source", () => {
+    render(
+      <ChoiceRendererDispatcher
+        choice={miningChoice}
+        viewerSeat="p2"
+        onSubmit={vi.fn().mockResolvedValue(undefined)}
+        isMinimized={false}
+        onMinimizedChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("planet-selection-bar")).toHaveTextContent(
+      "Waiting for p1 to choose a planet",
+    );
+    expect(screen.getByTestId("planet-selection-bar")).toHaveTextContent("(Mining Initiative)");
+  });
+
+  it("passes the lifted planet selection through GameShell", () => {
+    render(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Players</div>}
+        events={[]}
+        choice={{
+          ...miningChoice,
+          context: { subtype: "place_structure" },
+          prompt: "place a structure",
+          options: [
+            {
+              id: "pds|26|lodor",
+              kind: "build",
+              label: "place pds on lodor",
+              payload: { planet: "lodor", system: "26", unit: "pds" },
+            },
+            {
+              id: "spacedock|26|lodor",
+              kind: "build",
+              label: "place spacedock on lodor",
+              payload: { planet: "lodor", system: "26", unit: "spacedock" },
+            },
+          ],
+        }}
+        viewerSeat="p1"
+        selectedPlanetId="lodor"
+        onSelectPlanet={vi.fn()}
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    expect(screen.getByTestId("planet-option-pds|26|lodor")).toBeInTheDocument();
+    expect(screen.getByTestId("planet-option-spacedock|26|lodor")).toBeInTheDocument();
+  });
+});

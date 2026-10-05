@@ -228,3 +228,63 @@ describe("AgendaBallotModal", () => {
     expect(screen.getByTestId("agenda-error-banner")).toHaveTextContent("Council voting timeout");
   });
 });
+
+describe("AgendaBallotModal map selection", () => {
+  const exhaustChoice: PendingChoiceDto = {
+    actor: "seat_1",
+    nonce: "40",
+    prompt: "exhaust planets to vote",
+    context: { subtype: "vote_exhaust_planet" },
+    options: [
+      {
+        id: "jord",
+        label: "Exhaust Jord for 2 votes",
+        kind: "vote_planet",
+        payload: { planet: "jord" },
+      },
+      {
+        id: "moll",
+        label: "Exhaust Moll for 1 votes",
+        kind: "vote_planet",
+        payload: { planet: "moll" },
+      },
+      { id: "decline", label: "Done", kind: "decline" },
+    ],
+  };
+
+  it("toggles a planet picked on the map into and out of the vote basket", () => {
+    const onSelectOption = vi.fn();
+    const props = {
+      isOpen: true,
+      choice: exhaustChoice,
+      viewerSeat: "seat_1",
+      onSubmit: vi.fn(),
+      onClose: vi.fn(),
+      onSelectOption,
+    };
+    const { rerender } = render(<AgendaBallotModal {...props} selectedOptionId="jord" />);
+    expect(screen.getByTestId("planet-card-jord")).toHaveAttribute("data-staged", "true");
+    expect(screen.getByTestId("staged-votes-counter")).toHaveTextContent("+2 Votes");
+    // The pick is consumed so a second click on the same planet registers again.
+    expect(onSelectOption).toHaveBeenCalledWith("");
+
+    rerender(<AgendaBallotModal {...props} selectedOptionId="" />);
+    rerender(<AgendaBallotModal {...props} selectedOptionId="jord" />);
+    expect(screen.getByTestId("planet-card-jord")).toHaveAttribute("data-staged", "false");
+    expect(screen.getByTestId("staged-votes-counter")).toHaveTextContent("+0 Votes");
+  });
+
+  it("ignores map picks that are not offered planets", () => {
+    render(
+      <AgendaBallotModal
+        isOpen
+        choice={exhaustChoice}
+        viewerSeat="seat_1"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+        selectedOptionId="decline"
+      />,
+    );
+    expect(screen.getByTestId("staged-votes-counter")).toHaveTextContent("+0 Votes");
+  });
+});

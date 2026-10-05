@@ -28,7 +28,12 @@ import { InvasionLandingTray } from "./InvasionLandingTray.tsx";
 import type { Landing } from "./InvasionLandingTray.tsx";
 import { InvasionOverlay } from "./InvasionOverlay.tsx";
 import { SystemActivationBar } from "./SystemActivationBar.tsx";
-import { deriveChoiceRendererModel, ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import { PlanetSelectionBar } from "./PlanetSelectionBar.tsx";
+import {
+  deriveChoiceRendererModel,
+  ChoiceRendererModel,
+  isPlanetSelectionChoice,
+} from "../presentation/choiceModel.ts";
 import { Dialog, overlayStack } from "../primitives/index.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { PipelineRunnerContext, useOwnedPipelineRunner } from "../hooks/usePipelineRunner.ts";
@@ -55,6 +60,8 @@ export interface GameShellProps {
   selectedOptionId?: string;
   selectedSystemId?: string | null;
   onSelectOption?: (optionId: string) => void;
+  selectedPlanetId?: string | null;
+  onSelectPlanet?: (planetId: string | null) => void;
   viewerSeat?: string | null;
   players?: Record<string, PlayerView> | PlayerView[];
   boardView?: BoardView;
@@ -78,6 +85,8 @@ export interface ChoiceRendererDispatcherProps {
   selectedOptionId?: string;
   selectedSystemId?: string | null;
   onSelectOption?: (optionId: string) => void;
+  selectedPlanetId?: string | null;
+  onSelectPlanet?: (planetId: string | null) => void;
   isMinimized: boolean;
   onMinimizedChange: (minimized: boolean) => void;
   players?: Record<string, PlayerView>;
@@ -143,6 +152,32 @@ const renderTactical: WorkflowRenderer = ({
     executionPlan={tacticalPlan}
     executionStep={tacticalStep}
     onExecutionStep={onTacticalStep}
+  />
+);
+
+const renderPlanetSelection: WorkflowRenderer = ({
+  choice,
+  model,
+  viewerSeat,
+  selectedOptionId,
+  selectedPlanetId,
+  onSelectOption,
+  onSelectPlanet,
+  onSubmit,
+  boardView,
+  lastError,
+}) => (
+  <PlanetSelectionBar
+    choice={choice}
+    model={model}
+    viewerSeat={viewerSeat}
+    selectedOptionId={selectedOptionId}
+    selectedPlanetId={selectedPlanetId}
+    onSelectOption={onSelectOption}
+    onSelectPlanet={onSelectPlanet}
+    onSubmit={onSubmit}
+    boardView={boardView}
+    lastError={lastError}
   />
 );
 
@@ -296,6 +331,7 @@ const workflowRenderers = new Map<ChoiceRendererModel["workflow"], WorkflowRende
       ),
   ],
   ["technology_research", renderTechnologyResearch],
+  ["planet_selection", renderPlanetSelection],
 ]);
 
 function renderObjectiveScoring({
@@ -420,6 +456,7 @@ function renderAgenda({
   onMinimizedChange,
   lastError,
   selectedOptionId,
+  onSelectOption,
 }: Parameters<WorkflowRenderer>[0]) {
   return (
     <AgendaBallotModal
@@ -432,6 +469,7 @@ function renderAgenda({
       onClose={() => onMinimizedChange(true)}
       lastError={lastError}
       selectedOptionId={selectedOptionId}
+      onSelectOption={onSelectOption}
     />
   );
 }
@@ -471,6 +509,8 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
   selectedOptionId,
   selectedSystemId,
   onSelectOption,
+  selectedPlanetId,
+  onSelectPlanet,
   isMinimized,
   onMinimizedChange,
   players,
@@ -560,6 +600,18 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     );
   }
 
+  // Other seats see a slim waiting bar for a planet pick, so the pending action stays visible
+  // while the map remains usable.
+  if (choice && choice.actor !== viewerSeat && isPlanetSelectionChoice(choice))
+    return (
+      <PlanetSelectionBar
+        choice={{ ...choice, prompt: present(choice.prompt) }}
+        viewerSeat={viewerSeat}
+        onSubmit={onSubmit}
+        boardView={boardView}
+      />
+    );
+
   if (!choice || (viewerSeat !== undefined && choice.actor !== viewerSeat && !isCombatWorkflow))
     return null;
 
@@ -594,6 +646,8 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
     selectedOptionId,
     selectedSystemId,
     onSelectOption,
+    selectedPlanetId,
+    onSelectPlanet,
     isMinimized,
     onMinimizedChange,
     players,
@@ -618,6 +672,7 @@ export const ChoiceRendererDispatcher: React.FC<ChoiceRendererDispatcherProps> =
           "generic_selection",
           "strategy_card_draft",
           "system_activation",
+          "planet_selection",
           "combat_sustain",
           "combat_casualty",
           "combat_retreat",
@@ -686,6 +741,8 @@ export const GameShell: React.FC<GameShellProps> = ({
   selectedOptionId,
   selectedSystemId,
   onSelectOption,
+  selectedPlanetId,
+  onSelectPlanet,
   viewerSeat,
   players,
   boardView,
@@ -900,6 +957,8 @@ export const GameShell: React.FC<GameShellProps> = ({
             selectedOptionId={selectedOptionId}
             selectedSystemId={selectedSystemId}
             onSelectOption={onSelectOption}
+            selectedPlanetId={selectedPlanetId}
+            onSelectPlanet={onSelectPlanet}
             isMinimized={isChoiceMinimized}
             onMinimizedChange={setIsChoiceMinimized}
             tacticalPlan={tacticalPlan}
