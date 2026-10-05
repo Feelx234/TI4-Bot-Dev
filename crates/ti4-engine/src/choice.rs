@@ -61,6 +61,10 @@ pub struct ChoiceOption {
     /// diagnostic reasons.
     #[serde(skip)]
     pub preview: Option<crate::preview::Preview>,
+    /// True when this is the only legal option and was auto-selected. For UX feedback only;
+    /// does not affect game logic or replay.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_resolved: bool,
 }
 
 impl PartialEq for ChoiceOption {
@@ -78,6 +82,7 @@ impl ChoiceOption {
             label: String::new(),
             payload: BTreeMap::new(),
             preview: None,
+            auto_resolved: false,
         }
     }
 
@@ -2007,6 +2012,24 @@ where
         .collect()
 }
 
+/// Auto-resolves single-option choices.
+///
+/// When exactly one legal option exists, returns it with `auto_resolved = true` set.
+/// Otherwise returns `None`, allowing the normal decision flow to proceed.
+///
+/// Used to skip meaningless decisions where the player has no real choice, improving UX
+/// by automatically selecting the only option and showing a non-blocking toast notification.
+#[must_use]
+pub fn auto_resolve_single(options: &[ChoiceOption]) -> Option<ChoiceOption> {
+    if options.len() == 1 {
+        let mut option = options[0].clone();
+        option.auto_resolved = true;
+        Some(option)
+    } else {
+        None
+    }
+}
+
 /// The first index of each distinct item, keeping the original order.
 ///
 /// The shape behind every duplicate-option fix in the engine: build options from
@@ -2239,6 +2262,29 @@ mod tests {
         assert!(!ChoiceOption::new("x", "action").is_decline());
         // A differently-named decline still counts.
         assert!(ChoiceOption::new("pass_window", DECLINE_KIND).is_decline());
+    }
+
+    #[test]
+    fn auto_resolve_single_resolves_single_options() {
+        let single = vec![ChoiceOption::labelled("only", "action", "Only Option")];
+        let resolved = auto_resolve_single(&single).expect("single option");
+        assert_eq!(resolved.id, "only");
+        assert!(resolved.auto_resolved, "flag should be set");
+    }
+
+    #[test]
+    fn auto_resolve_single_returns_none_for_multiple_options() {
+        let multiple = vec![
+            ChoiceOption::labelled("x", "action", "Do X"),
+            ChoiceOption::labelled("y", "action", "Do Y"),
+        ];
+        assert!(auto_resolve_single(&multiple).is_none());
+    }
+
+    #[test]
+    fn auto_resolve_single_returns_none_for_empty_options() {
+        let empty: Vec<ChoiceOption> = vec![];
+        assert!(auto_resolve_single(&empty).is_none());
     }
 
     #[test]

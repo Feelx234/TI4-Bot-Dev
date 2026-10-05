@@ -178,6 +178,8 @@ pub struct PlayerLobbyRecord {
     pub slots: Vec<PlayerLobbySlot>,
     pub players: BTreeMap<PlayerId, PlayerLobbyMember>,
     pub seed: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_template: Option<String>,
     pub lobby_version: u64,
 }
 
@@ -241,6 +243,8 @@ pub struct PlayerGameInitRecord {
     pub map_tiles: Vec<BoardTileView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seats: Option<BTreeMap<PlayerId, SeatController>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_template: Option<String>,
 }
 
 /// Authoritative running-session credential mapping, atomically replaced on rotation.
@@ -328,6 +332,8 @@ pub struct GameInitRecord {
     pub seat_tokens: BTreeMap<PlayerId, String>,
     #[serde(default)]
     pub map_tiles: Vec<BoardTileView>,
+    #[serde(default)]
+    pub map_template: Option<String>,
 }
 
 impl std::fmt::Debug for GameInitRecord {
@@ -808,6 +814,7 @@ impl FileGameStore {
                 .map(|(id, session)| (id, session.as_str().to_owned()))
                 .collect(),
             map_tiles: init.map_tiles,
+            map_template: init.map_template,
         };
         self.recover_from_init(game_id, record)
     }
@@ -835,8 +842,13 @@ impl FileGameStore {
 
         let content = ContentStore::embedded();
         let galaxy = if let Some(seed) = init_record.seed {
-            let (_, g) = crate::map::create_game_with_map(content, &init_record.player_ids, seed)
-                .map_err(|e| StorageError::Map(e.to_string()))?;
+            let (_, g) = crate::map::create_game_with_template(
+                content,
+                &init_record.player_ids,
+                seed,
+                init_record.map_template.as_deref(),
+            )
+            .map_err(StorageError::Map)?;
             Some(g)
         } else {
             None
@@ -1328,6 +1340,7 @@ mod player_record_tests {
             seats: BTreeMap::new(),
             seat_tokens: BTreeMap::new(),
             map_tiles: Vec::new(),
+            map_template: None,
         };
         store.save_init(&old_init).unwrap();
         let mut debug_init = old_init.clone();
@@ -1396,6 +1409,7 @@ mod player_record_tests {
             initial_state: crate::fixtures::create_sample_game(),
             map_tiles: Vec::new(),
             seats: None,
+            map_template: None,
         };
         store.save_player_init(&init).unwrap();
         let mut sessions = PlayerSessionsRecord {

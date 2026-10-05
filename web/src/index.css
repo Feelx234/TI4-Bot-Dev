@@ -229,9 +229,64 @@ html,
   line-height: 1.5;
 }
 
+.event-log__entry--marker {
+  opacity: 0.7;
+}
+
+.event-log__action-marker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 6px;
+  padding-bottom: 3px;
+  padding-left: 20px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+  border-top: 1px solid var(--color-border-faint);
+}
+
+.event-log__action-label {
+  flex: 1;
+}
+
+.event-log__action-actor {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.event-log__stage-marker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  padding-left: 20px;
+  background: transparent;
+  font-size: 10px;
+  color: var(--color-text-faint);
+  font-style: italic;
+}
+
+.event-log__stage-label {
+  opacity: 0.6;
+}
+
 .event-log__entry > .event-log__body {
   min-width: 0;
   flex: 1;
+}
+
+.event-log__action-card {
+  border-bottom: 1px dotted var(--color-accent);
+  cursor: help;
+  transition: color 0.2s ease;
+}
+
+.event-log__action-card:hover {
+  color: var(--color-accent);
 }
 
 .event-log__index {
@@ -1666,6 +1721,37 @@ select:focus-visible,
   word-wrap: break-word;
 }
 
+.vp-breakdown-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vp-breakdown-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.vp-breakdown-label {
+  color: var(--color-text-muted);
+}
+
+.vp-breakdown-count {
+  color: var(--color-text);
+  font-weight: 600;
+  min-width: 40px;
+}
+
+.vp-breakdown-vp {
+  color: #fbbf24;
+  font-weight: 600;
+  text-align: right;
+  min-width: 50px;
+}
+
 .accessible-popover {
   background: var(--color-surface);
   border: 1px solid var(--color-border-strong);
@@ -1919,6 +2005,93 @@ select:focus-visible,
 }
 .agenda-dialog__primary {
   background: #a855f7;
+}
+
+/* Agenda Card Display Styles */
+.agenda-card-display {
+  padding: 16px;
+  margin-bottom: 12px;
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px solid #a855f7;
+  border-radius: var(--radius-md);
+}
+
+.agenda-card-display__title {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f0e7fe;
+  text-align: center;
+}
+
+.agenda-card-display__outcomes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.agenda-outcome {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.agenda-outcome--yes {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid #10b981;
+  color: #d1fae5;
+}
+
+.agenda-outcome--yes strong {
+  color: #6ee7b7;
+  font-weight: 600;
+}
+
+.agenda-outcome--no {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid #ef4444;
+  color: #fee2e2;
+}
+
+.agenda-outcome--no strong {
+  color: #fca5a5;
+  font-weight: 600;
+}
+
+.agenda-outcome__description {
+  margin: 8px 0 0 0;
+  padding: 0;
+}
+
+/* Results Display Styles */
+.voting-results {
+  padding: 12px;
+  margin-bottom: 12px;
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px solid #a855f7;
+  border-radius: var(--radius-md);
+}
+
+.result-status {
+  font-weight: 600;
+  font-size: 14px;
+  text-align: center;
+  margin-bottom: 8px;
+  color: #f0e7fe;
+}
+
+.result-votes {
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* Responsive: single column on mobile */
+@media (max-width: 480px) {
+  .agenda-card-display__outcomes {
+    grid-template-columns: 1fr;
+  }
 }
 
 .combat-dialog {
@@ -3162,6 +3335,50 @@ select:focus-visible,
   font-weight: 600;
 }
 
+.reaction-status-bar__trigger-context {
+  position: absolute;
+  top: -80px;
+  left: 20px;
+  right: 20px;
+  padding: 10px 12px;
+  background: rgba(13, 110, 253, 0.15);
+  border: 1px solid rgba(13, 110, 253, 0.3);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(8px);
+}
+
+.reaction-status-bar__trigger-context-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #0d6efd;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.reaction-status-bar__trigger-context-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: #f8fafc;
+}
+
+.reaction-status-bar__trigger-actor {
+  color: #60a5fa;
+  font-weight: 600;
+}
+
+.reaction-status-bar__trigger-action {
+  color: #cbd5e1;
+  font-weight: 500;
+}
+
+.reaction-status-bar__trigger-target {
+  color: #a5f3fc;
+  font-weight: 500;
+}
+
 .choice-minimized-pill {
   position: fixed;
   bottom: 24px;
@@ -3262,5 +3479,211 @@ select:focus-visible,
   .reaction-status-bar__actions {
     width: 100%;
     justify-content: flex-end;
+  }
+}
+
+/* Trade Desk UI Improvements */
+.trade-offer-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-top: 12px;
+}
+
+.trade-offer-title {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  border-bottom: 2px solid var(--color-accent);
+  padding-bottom: 8px;
+}
+
+.trade-offer-details {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.trade-sections {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.trade-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border-left: 4px solid;
+}
+
+.trade-section--offer {
+  background: rgba(59, 130, 246, 0.08);
+  border-left-color: #3b82f6;
+}
+
+.trade-section--receive {
+  background: rgba(16, 185, 129, 0.08);
+  border-left-color: #10b981;
+}
+
+.trade-section__title {
+  margin: 0 0 4px 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-strong);
+}
+
+.trade-section--offer .trade-section__title {
+  color: #93c5fd;
+}
+
+.trade-section--receive .trade-section__title {
+  color: #6ee7b7;
+}
+
+.trade-section__content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trade-item {
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.trade-item--offer {
+  border-left: 3px solid #3b82f6;
+}
+
+.trade-item--receive {
+  border-left: 3px solid #10b981;
+}
+
+.trade-item__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.trade-item__name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--color-text-strong);
+  font-size: 0.95rem;
+  word-break: break-word;
+}
+
+.trade-item__badge {
+  display: inline-block;
+  padding: 2px 6px;
+  background: rgba(148, 163, 184, 0.2);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.trade-item__description {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.trade-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--color-text-faint);
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border-muted);
+}
+
+.trade-item__meta-label {
+  font-weight: 600;
+  color: var(--color-text-faint);
+}
+
+.trade-summary {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.trade-summary__value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.trade-summary__value--positive {
+  color: #10b981;
+}
+
+.trade-summary__value--negative {
+  color: #f59e0b;
+}
+
+.trade-summary__label {
+  color: var(--color-text-muted);
+}
+
+.trade-summary__amount {
+  font-family: "Monaco", "Courier New", monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+/* Strategy Card Exhaustion State */
+.strategy-card--exhausted {
+  opacity: 0.5;
+  filter: grayscale(80%);
+  color: #999;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 720px) {
+  .trade-sections {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-offer-container {
+    padding: 12px;
+  }
+
+  .trade-section {
+    padding: 12px;
+  }
+
+  .trade-item {
+    padding: 8px;
   }
 }

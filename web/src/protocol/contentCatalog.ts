@@ -184,3 +184,8 @@ export function findPlanetMeta(id: string): PlanetStaticMeta | undefined {
 export function findAttachmentMeta(id: string): AttachmentStaticMeta | undefined {
   return exactLookup(ATTACHMENTS, id);
 }
+
+export function getActionCardDescription(cardName: string): string {
+  const meta = getActionCardMeta(cardName);
+  return meta.description || `Action Card: ${meta.name}`;
+}

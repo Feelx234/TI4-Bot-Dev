@@ -10,16 +10,30 @@ use ti4_server::projection::{project_initial_snapshot, project_state_update};
 fn invasion_boundary_is_public_even_during_an_unrelated_nested_offer() {
     let mut game = create_sample_game();
     let system = SystemId::new("18");
+    let planet = ti4_model::id::PlanetId::new("jord");
+
+    // Add defending units on the planet so invasion has defenders (visible to all)
+    let defender = PlayerId::new("seat_b");
+    game.system_mut(&system)
+        .planet_units
+        .entry(planet.clone())
+        .or_insert_with(Vec::new)
+        .push(Unit::new(UnitTypeId::new("infantry"), defender.clone()));
+    // Set planet control to show defender is on planet
+    game.system_mut(&system)
+        .planet_control
+        .insert(planet.clone(), defender.clone());
+
     game.active_invasion = Some(ti4_model::state::ActiveInvasion {
         system: system.clone(),
         invader: PlayerId::new("seat_a"),
         seq: 7,
         phase: "ground_battle".to_owned(),
-        planet: Some(ti4_model::id::PlanetId::new("jord")),
-        defender: Some(PlayerId::new("seat_b")),
+        planet: Some(planet.clone()),
+        defender: Some(defender.clone()),
         ground_round: 2,
         last_step: Some(ti4_model::state::InvasionStep {
-            planet: ti4_model::id::PlanetId::new("jord"),
+            planet: planet.clone(),
             kind: "ground_round".to_owned(),
             round: 2,
             before: vec![Unit::new(
@@ -28,7 +42,7 @@ fn invasion_boundary_is_public_even_during_an_unrelated_nested_offer() {
             )],
             after: vec![],
             dice: vec![ti4_model::state::InvasionDie {
-                planet: ti4_model::id::PlanetId::new("jord"),
+                planet: planet.clone(),
                 player: PlayerId::new("seat_a"),
                 group: "combat value 8".to_owned(),
                 face: 9,

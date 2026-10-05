@@ -44,10 +44,14 @@ describe("hierarchical event log", () => {
       decision(3),
     ];
     const tree = buildEventTree(entries);
-    const stages = tree[0].children[0].children[0].children;
-    expect(stages.map((stage) => stage.label)).toEqual(["Movement", "Combat", "Movement"]);
+    const phase = tree[0].children[0];
+    const phaseEvents = phase.children;
+    // With flattened structure: [action marker, stage1 marker, decision1, stage2 marker, decision2, stage1 marker, decision3]
+    const stageMarkers = phaseEvents.filter((e) => e.kind === "marker" && e.stage);
+    const decisions = phaseEvents.filter((e) => e.kind === "decision");
+    expect(stageMarkers.map((stage) => stage.label)).toEqual(["Movement", "Combat", "Movement"]);
     expect(tree[0].count).toBe(3);
-    expect(stages[0].children[0].entry?.private_detail).toBe("Only P1");
+    expect(decisions[0].entry?.private_detail).toBe("Only P1");
   });
 
   it("mounts only the current path; lets readers expand, collapse and undo real cursors", () => {
@@ -76,15 +80,18 @@ describe("hierarchical event log", () => {
       }),
     );
     expect(screen.getAllByText(/Round [12]/)).toHaveLength(2);
-    expect(screen.getAllByTestId("event-log-entry")).toHaveLength(2); // phase marker and combat leaf
-    expect(screen.queryByText("Choice 1")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Movement/ }));
+    // With flattened structure, the phase is opened automatically by currentPath
+    // All events in the phase are visible: game_initialized marker, action marker, stage markers, decisions
+    const entries1 = screen.getAllByTestId("event-log-entry");
+    expect(entries1.length).toBeGreaterThan(1);
     expect(screen.getByText("Choice 1")).toBeInTheDocument();
+    expect(screen.getByText("Choice 2")).toBeInTheDocument();
     const actor = screen.getByLabelText("Participant at position 1");
     expect(actor).toHaveAttribute("title", "Participant at position 1");
     fireEvent.click(screen.getByRole("button", { name: "Undo from decision 1" }));
     expect(restore).toHaveBeenCalledWith(0);
     fireEvent.click(screen.getByRole("button", { name: /Round 1/ }));
+    // Collapsing the round should hide all its events
     expect(screen.queryByText("Choice 1")).toBeNull();
   });
 
@@ -154,7 +161,10 @@ describe("hierarchical event log", () => {
     const tree = buildEventTree(entries);
     expect(tree).toHaveLength(1);
     expect(tree[0].count).toBe(520);
-    expect(tree[0].children[0].children).toHaveLength(520);
+    const phaseEvents = tree[0].children[0].children;
+    // With flattened structure, we should have 520 decision events
+    const decisionEvents = phaseEvents.filter((e) => e.kind === "decision");
+    expect(decisionEvents).toHaveLength(520);
   });
 
   it("keeps legacy action decisions under their phase without inventing actions", () => {
@@ -168,8 +178,52 @@ describe("hierarchical event log", () => {
       },
     ];
     const phase = buildEventTree(entries)[0].children[0];
-    expect(phase.children.map((child) => child.label)).toEqual(["Tactical action", ""]);
-    expect(phase.children[1].entry?.detail).toBe("A historical action choice");
-    expect(phase.children[0].children[0].label).toBe("Movement");
+    const phaseEvents = phase.children;
+    // With flattened structure: [action marker, stage marker, decision1, decision2 (no stage)]
+    const actionMarker = phaseEvents.find((e) => e.actionId);
+    const decision2 = phaseEvents.find((e) => e.entry?.detail === "A historical action choice");
+    expect(actionMarker?.label).toBe("Tactical action");
+    expect(decision2?.entry?.detail).toBe("A historical action choice");
+    const stageMarker = phaseEvents.find((e) => e.stage === "movement");
+    expect(stageMarker?.label).toBe("Movement");
+  });
+
+  it("renders action card names with tooltips when mentioned in detail text", () => {
+    const entries = [
+      {
+        ...decision(1),
+        detail: "Player played Bribery to increase votes",
+      },
+      {
+        ...decision(2),
+        detail: "Discarded Ancient Burial Sites",
+      },
+    ];
+    render(
+      wrap(entries, {
+        currentPath: { round: 1, phase: "action", action_id: "action_1", stage: "movement" },
+      }),
+    );
+
+    // Check that action card names are in the document
+    const entries_rendered = screen.getAllByTestId("event-log-entry");
+    expect(entries_rendered.length).toBeGreaterThan(0);
+    const body1 = entries_rendered[0]?.querySelector(".event-log__body");
+    const body2 = entries_rendered[1]?.querySelector(".event-log__body");
+
+    expect(body1).toHaveTextContent("Bribery");
+    expect(body2).toHaveTextContent("Ancient Burial Sites");
+
+    // Check for tooltip elements with data-testid or class
+    const tooltips = document.querySelectorAll(".event-log__action-card");
+    expect(tooltips.length).toBeGreaterThanOrEqual(2);
+
+    // Verify tooltips have title attributes
+    tooltips.forEach((tooltip) => {
+      expect(tooltip).toHaveAttribute("title");
+      const title = tooltip.getAttribute("title");
+      expect(title).toBeTruthy();
+      expect(title?.length).toBeGreaterThan(0);
+    });
   });
 });

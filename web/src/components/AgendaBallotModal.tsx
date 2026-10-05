@@ -165,6 +165,11 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
 
   if (!isOpen || !choice) return null;
 
+  // Extract agenda card information from context details
+  const agendaCard = choice.context?.details?.agenda_card as
+    | { name?: string; yes_outcome?: string; no_outcome?: string }
+    | undefined;
+
   return (
     <Dialog.Root
       open={isOpen}
@@ -196,6 +201,37 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
             titleTestId="agenda-ballot-title"
             minimizeTestId="close-agenda-modal"
           />
+
+          {/* Agenda Card Display */}
+          {agendaCard && (
+            <div className="agenda-card-display" data-testid="agenda-card-display">
+              {agendaCard.name && (
+                <h3 className="agenda-card-display__title" data-testid="agenda-card-name">
+                  {agendaCard.name}
+                </h3>
+              )}
+              {(agendaCard.yes_outcome || agendaCard.no_outcome) && (
+                <div className="agenda-card-display__outcomes">
+                  {agendaCard.yes_outcome && (
+                    <div className="agenda-outcome agenda-outcome--yes">
+                      <strong>YES:</strong>
+                      <p className="agenda-outcome__description" data-testid="agenda-yes-outcome">
+                        {agendaCard.yes_outcome}
+                      </p>
+                    </div>
+                  )}
+                  {agendaCard.no_outcome && (
+                    <div className="agenda-outcome agenda-outcome--no">
+                      <strong>NO:</strong>
+                      <p className="agenda-outcome__description" data-testid="agenda-no-outcome">
+                        {agendaCard.no_outcome}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <WorkflowShell
             choice={choice}

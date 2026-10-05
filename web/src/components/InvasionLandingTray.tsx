@@ -5,6 +5,7 @@ import {
   normalizeFaction,
   type GroundOddsRequest,
 } from "../services/advisorService.ts";
+import { getPlanetEffectiveValues } from "../presentation/playerStats.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
@@ -79,7 +80,27 @@ export const InvasionLandingTray: React.FC<{
   const planets = [...new Set(options.map(({ landing }) => landing.planet))];
 
   const units = board?.systems[system]?.units ?? [];
-  const [planet, setPlanet] = useState<string | null>(planets[0] ?? null);
+
+  // M20: Calculate default target planet (highest value by resources + influence)
+  const getDefaultTargetPlanet = (): string | null => {
+    if (planets.length === 0) return null;
+    const mapTiles = board?.map_tiles;
+    let highestValuePlanet = planets[0];
+    let highestValue = -1;
+    for (const planetId of planets) {
+      const values = getPlanetEffectiveValues(planetId, undefined, mapTiles);
+      const totalValue = values.resources + values.influence;
+      if (totalValue > highestValue) {
+        highestValue = totalValue;
+        highestValuePlanet = planetId;
+      }
+    }
+    return highestValuePlanet;
+  };
+
+  const defaultTargetPlanet = getDefaultTargetPlanet();
+  const [planet, setPlanet] = useState<string | null>(defaultTargetPlanet);
+  const [hasAutoPopulated, setHasAutoPopulated] = useState(false);
   useEffect(() => {
     if (!planet && planets[0]) setPlanet(planets[0]);
   }, [planets, planet]);
@@ -219,6 +240,41 @@ export const InvasionLandingTray: React.FC<{
         piece.damaged === damaged,
     ).length ?? 1;
 
+  // M20: Auto-populate default troop draft on first load
+  useEffect(() => {
+    if (
+      !hasAutoPopulated &&
+      defaultTargetPlanet &&
+      draft.length === 0 &&
+      localDraft.length === 0 &&
+      !controlledDraft?.length
+    ) {
+      const groundForceOptions = options.filter(
+        ({ landing }) => landing.planet === defaultTargetPlanet
+      );
+      const defaultDraft: Landing[] = [];
+      for (const { landing } of groundForceOptions) {
+        const availableCount = stock(landing.unit, landing.damaged);
+        for (let i = 0; i < availableCount; i++) {
+          defaultDraft.push(landing);
+        }
+      }
+      if (defaultDraft.length > 0) {
+        setDraft(defaultDraft);
+        setPlanet(defaultTargetPlanet);
+      }
+      setHasAutoPopulated(true);
+    }
+  }, [defaultTargetPlanet, hasAutoPopulated, draft.length, localDraft.length, controlledDraft?.length]);
+
+  // M20: Reset to default selections
+  const resetToDefaults = () => {
+    setDraft([]);
+    setPlanet(defaultTargetPlanet);
+    setError(null);
+    setHasAutoPopulated(false);
+  };
+
   const visibleOdds = odds?.key === previewKey ? odds.value : "loading";
   const available = (landing: Landing) =>
     stock(landing.unit, landing.damaged) -
@@ -264,6 +320,24 @@ export const InvasionLandingTray: React.FC<{
                         >
                           <span aria-hidden="true">🪐 </span>
                           {name}
+                          {name === defaultTargetPlanet && (
+                            <span
+                              className="invasion-default-badge"
+                              title="Pre-selected as default target"
+                              aria-label="default target"
+                              style={{
+                                display: "inline-block",
+                                marginLeft: "4px",
+                                fontSize: "10px",
+                                backgroundColor: "rgba(255, 193, 7, 0.3)",
+                                padding: "2px 6px",
+                                borderRadius: "3px",
+                                fontWeight: "bold",
+                              }}
+                            >
+                              ★ Default
+                            </span>
+                          )}
                         </button>
                         <span className="invasion-planet-landing-card__meta">
                           Already on planet: {planetUnitsAlready} · Staged: {planetDraftCount}
@@ -394,12 +468,10 @@ export const InvasionLandingTray: React.FC<{
                 type="button"
                 className="button button--secondary"
                 disabled={running}
-                onClick={() => {
-                  setDraft([]);
-                  setError(null);
-                }}
+                onClick={resetToDefaults}
+                title="Reset to default planet and all available troops"
               >
-                Reset draft
+                Reset to Defaults
               </button>
               <button
                 type="button"

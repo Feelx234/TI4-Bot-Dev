@@ -307,6 +307,7 @@ fn storage_rejects_tampered_envelopes_and_missing_player_order() {
         seats: std::collections::BTreeMap::new(),
         seat_tokens: std::collections::BTreeMap::new(),
         map_tiles: Vec::new(),
+        map_template: None,
     };
     store.save_init(&record).expect("save enveloped init");
     let init_path = store.game_dir(game_id).expect("game dir").join("init.json");

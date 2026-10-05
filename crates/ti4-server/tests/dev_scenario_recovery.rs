@@ -381,6 +381,7 @@ fn launch_failure_cleanup_and_backwards_compatibility() {
         initial_state: ti4_server::fixtures::create_sample_game(),
         map_tiles: Vec::new(),
         seats: None, // Will not be serialized in JSON due to skip_serializing_if
+        map_template: None,
     };
     store.save_player_init(&old_init).unwrap();
 

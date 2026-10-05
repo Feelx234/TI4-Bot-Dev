@@ -51,6 +51,7 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             "/api/games",
             get(games::list_games).post(games::create_game),
         )
+        .route("/api/maps", get(games::list_maps))
         .route("/api/games/{game_id}/lobby", get(games::get_lobby))
         .route(
             "/api/games/{game_id}/lobby/join",

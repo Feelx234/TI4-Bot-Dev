@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { PendingChoiceDto } from "../protocol/types.ts";
+import { PendingChoiceDto, DecisionContextDto, DecisionTargetDto } from "../protocol/types.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
@@ -13,6 +13,52 @@ export interface ReactionStatusBarProps {
   onClose?: () => void;
   lastError?: string | null;
   autoPassTimeoutSeconds?: number;
+}
+
+/**
+ * Extracts human-readable trigger context from a decision context.
+ */
+function extractTriggerContext(context?: DecisionContextDto | null): {
+  triggerActor?: string;
+  actionType?: string;
+  targetSystem?: string;
+  targetSystemId?: string;
+} {
+  if (!context) return {};
+
+  const result: ReturnType<typeof extractTriggerContext> = {};
+
+  // Actor who triggered the action
+  if (context.actor) {
+    result.triggerActor = context.actor;
+  }
+
+  // Action type (e.g., "Activated system", "Invaded system", "Traded with")
+  if (context.subtype) {
+    result.actionType = context.subtype
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (s) => s.toUpperCase());
+  }
+
+  // Target system information
+  if (context.target) {
+    const target = context.target as DecisionTargetDto;
+    if ("System" in target) {
+      result.targetSystemId = target.System;
+      // Try to get system name from details if available
+      if (context.details?.system_name) {
+        result.targetSystem = `${context.details.system_name} (System ${target.System})`;
+      } else {
+        result.targetSystem = `System ${target.System}`;
+      }
+    } else if ("Planet" in target) {
+      const planetTarget = target.Planet;
+      result.targetSystemId = planetTarget.system;
+      result.targetSystem = `${planetTarget.planet} (System ${planetTarget.system})`;
+    }
+  }
+
+  return result;
 }
 
 export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
@@ -33,6 +79,12 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   );
   const [isPinned, setIsPinned] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+
+  // Extract trigger context
+  const triggerContext = useMemo(
+    () => extractTriggerContext(choice?.context),
+    [choice?.context],
+  );
 
   // Reset state on nonce change
   useEffect(() => {
@@ -156,6 +208,38 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Trigger Context - Shows what action triggered this card */}
+      {(triggerContext.triggerActor ||
+        triggerContext.actionType ||
+        triggerContext.targetSystem) && (
+        <div
+          className="reaction-status-bar__trigger-context"
+          data-testid="reaction-trigger-context"
+        >
+          <div className="reaction-status-bar__trigger-context-title">Triggered by:</div>
+          <div className="reaction-status-bar__trigger-context-details">
+            {triggerContext.triggerActor && (
+              <span className="reaction-status-bar__trigger-actor">
+                {display(triggerContext.triggerActor).label}
+              </span>
+            )}
+            {triggerContext.actionType && (
+              <span className="reaction-status-bar__trigger-action">
+                {triggerContext.actionType}
+              </span>
+            )}
+            {triggerContext.targetSystem && (
+              <span
+                className="reaction-status-bar__trigger-target"
+                data-testid={`reaction-trigger-system-${triggerContext.targetSystemId}`}
+              >
+                {triggerContext.targetSystem}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Spectator Notice */}
       {!isActor ? (

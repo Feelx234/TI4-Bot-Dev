@@ -10,6 +10,7 @@ import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import { getCardDisplayInfo } from "../presentation/cardDatabase.ts";
 
 export interface TradeDeskModalProps {
   choice: PendingChoiceDto | null;
@@ -27,6 +28,161 @@ const CATEGORY_NAMES: Record<TradeCategory, string> = {
   promissory: "Promissory Notes",
   mutual_support: "Mutual Support",
   other: "Special Offers",
+};
+
+/**
+ * Render trade item with description (card, commodity, etc.)
+ */
+const TradeItemDisplay: React.FC<{
+  label: string;
+  description?: string;
+  type: "offer" | "receive";
+}> = ({ label, description, type }) => {
+  const cardInfo = getCardDisplayInfo(label);
+  const displayDesc = description || cardInfo?.description;
+
+  return (
+    <div className={`trade-item trade-item--${type}`}>
+      <div className="trade-item__header">
+        <span className="trade-item__name">{label}</span>
+        {cardInfo?.type && <span className="trade-item__badge">{cardInfo.type}</span>}
+      </div>
+      {displayDesc && <p className="trade-item__description">{displayDesc}</p>}
+      {cardInfo?.phase && (
+        <div className="trade-item__meta">
+          <span className="trade-item__meta-label">Phase:</span>
+          <span>{cardInfo.phase}</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Render the full trade offer details
+ */
+const TradeOfferDetails: React.FC<{
+  offer: DecodedTradeOffer;
+}> = ({ offer }) => {
+  return (
+    <div className="trade-offer-details">
+      <div className="trade-sections">
+        {/* YOU OFFER Section */}
+        <div className="trade-section trade-section--offer">
+          <h4 className="trade-section__title">YOU OFFER</h4>
+          <div className="trade-section__content">
+            {offer.details.actionCard && (
+              <TradeItemDisplay
+                label={`Action Card: ${offer.details.actionCard}`}
+                type="offer"
+              />
+            )}
+            {offer.details.promissoryNote && (
+              <TradeItemDisplay
+                label={`Promissory Note: ${offer.details.promissoryNote} for ${offer.details.price} TG`}
+                type="offer"
+              />
+            )}
+            {offer.details.secretObjective && (
+              <TradeItemDisplay
+                label={`Secret Objective: ${offer.details.secretObjective}`}
+                type="offer"
+              />
+            )}
+            {offer.details.fragment && (
+              <TradeItemDisplay
+                label={`Fragment (${offer.details.fragment})`}
+                type="offer"
+              />
+            )}
+            {offer.details.giveCommodities && !offer.details.receiveTradeGoods && !offer.details.receiveCommodities && (
+              <TradeItemDisplay
+                label={`Gift ${offer.details.giveCommodities} commodities`}
+                type="offer"
+              />
+            )}
+            {offer.details.giveCommodities && offer.details.receiveTradeGoods && (
+              <TradeItemDisplay
+                label={`Give ${offer.details.giveCommodities} commodities`}
+                type="offer"
+              />
+            )}
+            {offer.details.giveTradeGoods && !offer.details.receiveCommodities && !offer.details.receiveTradeGoods && (
+              <TradeItemDisplay
+                label={`Gift ${offer.details.giveTradeGoods} trade goods`}
+                type="offer"
+              />
+            )}
+            {offer.details.giveTradeGoods && offer.details.receiveCommodities && (
+              <TradeItemDisplay
+                label={`Give ${offer.details.giveTradeGoods} trade goods`}
+                type="offer"
+              />
+            )}
+            {offer.details.giveTradeGoods && offer.details.receiveTradeGoods && (
+              <TradeItemDisplay
+                label={`Give ${offer.details.giveTradeGoods} trade goods for ${offer.details.receiveTradeGoods}`}
+                type="offer"
+              />
+            )}
+          </div>
+        </div>
+
+        {/* YOU RECEIVE Section */}
+        <div className="trade-section trade-section--receive">
+          <h4 className="trade-section__title">YOU RECEIVE</h4>
+          <div className="trade-section__content">
+            {offer.details.actionCard && (
+              <TradeItemDisplay
+                label={`Action Card: ${offer.details.actionCard}`}
+                type="receive"
+              />
+            )}
+            {offer.details.promissoryNote && (
+              <TradeItemDisplay
+                label={`Promissory Note: ${offer.details.promissoryNote} for ${offer.details.price} TG`}
+                type="receive"
+              />
+            )}
+            {offer.details.receiveCommodities && (
+              <TradeItemDisplay
+                label={`Receive ${offer.details.receiveCommodities} commodities`}
+                type="receive"
+              />
+            )}
+            {offer.details.receiveTradeGoods && !offer.details.giveTradeGoods && !offer.details.giveCommodities && (
+              <TradeItemDisplay
+                label={`Receive ${offer.details.receiveTradeGoods} trade goods`}
+                type="receive"
+              />
+            )}
+            {offer.details.receiveTradeGoods && offer.details.giveCommodities && (
+              <TradeItemDisplay
+                label={`Receive ${offer.details.receiveTradeGoods} trade goods`}
+                type="receive"
+              />
+            )}
+            {offer.details.receiveTradeGoods && offer.details.giveTradeGoods && (
+              <TradeItemDisplay
+                label={`Receive ${offer.details.receiveTradeGoods} trade goods`}
+                type="receive"
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Value Summary */}
+      {offer.net !== undefined && (
+        <div className="trade-summary">
+          <div className={`trade-summary__value trade-summary__value--${offer.net >= 0 ? "positive" : "negative"}`}>
+            <span className="trade-summary__label">Net Value (You):</span>
+            <span className="trade-summary__amount">{offer.net >= 0 ? `+${offer.net}` : offer.net}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
@@ -219,18 +375,9 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
 
                     {/* Selected Offer Summary */}
                     {selectedOffer && (
-                      <div data-testid="selected-trade-summary" className="workflow-inline">
-                        <span>
-                          Selected Deal: <strong>{selectedOffer.label}</strong>
-                        </span>
-                        {selectedOffer.net !== undefined && (
-                          <span>
-                            Give / receive net:{" "}
-                            <strong>
-                              {selectedOffer.net >= 0 ? `+${selectedOffer.net}` : selectedOffer.net}
-                            </strong>
-                          </span>
-                        )}
+                      <div data-testid="selected-trade-summary" className="trade-offer-container">
+                        <h3 className="trade-offer-title">Selected Deal: {selectedOffer.label}</h3>
+                        <TradeOfferDetails offer={selectedOffer} />
                       </div>
                     )}
 

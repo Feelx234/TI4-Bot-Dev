@@ -6,6 +6,7 @@ import {
   useParticipantText,
   usePlayerIdentity,
 } from "../presentation/PlayerIdentity.tsx";
+import { ACTION_CARDS, getActionCardDescription } from "../protocol/contentCatalog.ts";
 
 export interface EventLogProps {
   events: GameLogEntry[];
@@ -22,13 +23,17 @@ export interface EventLogProps {
 
 export interface LogNode {
   id: string;
-  kind: "round" | "phase" | "action" | "stage" | "decision" | "marker";
+  kind: "round" | "phase" | "event" | "decision" | "marker";
   label: string;
   children: LogNode[];
   entry?: GameLogEntry;
   count: number;
   actor?: string;
   stage?: string;
+  eventIndex?: number;
+  actionId?: string;
+  actionType?: string;
+  actionActor?: string;
 }
 
 const heading = (name: string) => name.replace(/_/g, " ").replace(/\b\w/g, (s) => s.toUpperCase());
@@ -40,7 +45,75 @@ const node = (id: string, kind: LogNode["kind"], label: string): LogNode => ({
   count: 0,
 });
 
-/** Preserve stream order, including repeated stage segments and same-cursor boundary events. */
+/**
+ * Build a map of action card names and their IDs for quick lookup.
+ * Sorted by length (longest first) to avoid partial matches.
+ */
+const buildActionCardMap = () => {
+  const entries = Object.entries(ACTION_CARDS)
+    .map(([id, card]) => ({ id, name: (card as { name: string }).name }))
+    .sort((a, b) => b.name.length - a.name.length);
+  return entries;
+};
+
+const actionCardEntries = buildActionCardMap();
+
+/**
+ * Parse text for action card names and wrap them with tooltip spans.
+ * Returns an array of strings and React elements.
+ */
+function parseActionCardsInText(text: string): (string | React.ReactElement)[] {
+  if (!actionCardEntries.length) return [text];
+
+  const parts: (string | React.ReactElement)[] = [];
+  let remaining = text;
+  let offset = 0;
+
+  while (remaining.length > 0) {
+    let found = false;
+
+    for (const { id, name } of actionCardEntries) {
+      const index = remaining.toLowerCase().indexOf(name.toLowerCase());
+      if (index !== -1) {
+        // Add text before the match
+        if (index > 0) {
+          parts.push(remaining.substring(0, index));
+        }
+
+        // Extract the actual matched text (preserving original case)
+        const matchedText = remaining.substring(index, index + name.length);
+
+        // Add the wrapped action card with tooltip
+        const description = getActionCardDescription(id);
+        parts.push(
+          <span
+            key={`action-card-${offset}-${index}`}
+            className="event-log__action-card"
+            title={description}
+          >
+            {matchedText}
+          </span>,
+        );
+
+        // Move forward
+        remaining = remaining.substring(index + name.length);
+        offset += index + name.length;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      // No more action cards found, add remaining text
+      parts.push(remaining);
+      break;
+    }
+  }
+
+  return parts.length ? parts : [text];
+}
+
+/** Preserve stream order with flattened structure. Each event gets unique eventIndex within phase. */
 export function buildEventTree(events: readonly GameLogEntry[]): LogNode[] {
   const rounds: LogNode[] = [];
   const roundByKey = new Map<string, LogNode>();
@@ -48,10 +121,12 @@ export function buildEventTree(events: readonly GameLogEntry[]): LogNode[] {
   const decisions = new Map<string, LogNode>();
   let boundaryRound: number | undefined;
   let boundaryPhase: string | undefined;
-  let lastAction: LogNode | undefined;
-  let lastStage: LogNode | undefined;
-  let lastStageParent: LogNode | undefined;
-  let lastParent: LogNode | undefined;
+  let lastActionId: string | undefined;
+  let lastStage: string | undefined;
+
+  // Track event indices per phase to ensure unique keys
+  const phaseEventIndices = new Map<string, number>();
+
   for (const entry of events) {
     const event = entry.event;
     if (event.kind === "game_initialized" || event.kind === "phase_transition") {
@@ -79,7 +154,13 @@ export function buildEventTree(events: readonly GameLogEntry[]): LogNode[] {
       phaseNode = node(phaseKey, "phase", phase ? `${heading(phase)} phase` : "Unknown phase");
       roundNode.children.push(phaseNode);
       phaseByKey.set(phaseKey, phaseNode);
+      phaseEventIndices.set(phaseKey, 0);
     }
+
+    // Get and increment event index for this phase
+    const eventIndex = phaseEventIndices.get(phaseKey)!;
+    phaseEventIndices.set(phaseKey, eventIndex + 1);
+
     if (event.kind !== "decision_resolved") {
       const label =
         event.kind === "game_initialized"
@@ -89,10 +170,15 @@ export function buildEventTree(events: readonly GameLogEntry[]): LogNode[] {
             : event.winner
               ? `Game finished: ${event.winner} wins`
               : "Game finished: draw";
-      phaseNode.children.push({ ...node(`marker:${entry.id}`, "marker", label), entry });
-      lastAction = lastStage = lastStageParent = lastParent = undefined;
+      phaseNode.children.push({
+        ...node(`${phaseKey}:event:${eventIndex}`, "marker", label),
+        entry,
+      });
+      lastActionId = undefined;
+      lastStage = undefined;
       continue;
     }
+
     const key =
       entry.decision_count === undefined
         ? entry.id
@@ -109,49 +195,50 @@ export function buildEventTree(events: readonly GameLogEntry[]): LogNode[] {
       };
       continue;
     }
-    let parent = phaseNode;
-    if (entry.action_id) {
-      const id = `${phaseNode.id}:action:${entry.action_id}`;
-      if (lastAction?.id !== id || lastParent !== phaseNode) {
-        lastAction = node(
-          id,
-          "action",
-          entry.action_type ? `${heading(entry.action_type)} action` : "Action",
-        );
-        lastAction.actor = entry.action_actor;
-        phaseNode.children.push(lastAction);
-        lastStage = undefined;
-        lastStageParent = undefined;
-      }
-      parent = lastAction;
-    } else {
-      lastAction = lastStage = lastStageParent = undefined;
-      // Older events have no action ID. Keep them under their phase rather than
-      // implying that each decision belongs to a separate, unknown action.
+
+    // Insert action marker if this is a new action
+    if (entry.action_id && entry.action_id !== lastActionId) {
+      const actionEventIndex = phaseEventIndices.get(phaseKey)!;
+      phaseEventIndices.set(phaseKey, actionEventIndex + 1);
+      phaseNode.children.push({
+        ...node(`${phaseKey}:event:${actionEventIndex}`, "marker",
+                entry.action_type ? `${heading(entry.action_type)} action` : "Action"),
+        actionId: entry.action_id,
+        actionType: entry.action_type,
+        actionActor: entry.action_actor,
+      });
+      lastActionId = entry.action_id;
+      lastStage = undefined;
     }
-    lastParent = phaseNode;
-    const actionNode = parent.kind === "action" ? parent : undefined;
-    if (entry.action_id || parent.kind === "action") {
-      const stage = entry.stage ?? "other";
-      if (lastStage?.stage !== stage || lastStageParent !== parent) {
-        lastStage = node(
-          `${parent.id}:stage:${stage}:${entry.id}`,
-          "stage",
-          stage === "other" ? "General" : heading(stage),
-        );
-        lastStage.stage = stage;
-        parent.children.push(lastStage);
-        lastStageParent = parent;
+
+    // Insert stage marker if this is a new stage
+    if (entry.action_id || lastActionId) {
+      const currentStage = entry.stage ?? "other";
+      if (currentStage !== lastStage) {
+        const stageEventIndex = phaseEventIndices.get(phaseKey)!;
+        phaseEventIndices.set(phaseKey, stageEventIndex + 1);
+        phaseNode.children.push({
+          ...node(`${phaseKey}:event:${stageEventIndex}`, "marker",
+                  currentStage === "other" ? "General" : heading(currentStage)),
+          stage: currentStage,
+        });
+        lastStage = currentStage;
       }
-      parent = lastStage;
     }
-    const leaf = { ...node(`decision:${key}`, "decision", ""), entry, actor: entry.actor };
-    parent.children.push(leaf);
+
+    // Add decision event
+    const decisionEventIndex = phaseEventIndices.get(phaseKey)!;
+    phaseEventIndices.set(phaseKey, decisionEventIndex + 1);
+    const leaf = {
+      ...node(`${phaseKey}:event:${decisionEventIndex}`, "decision", ""),
+      entry,
+      actor: entry.actor,
+      eventIndex: decisionEventIndex,
+    };
+    phaseNode.children.push(leaf);
     decisions.set(key, leaf);
     roundNode.count++;
     phaseNode.count++;
-    if (actionNode) actionNode.count++;
-    if (parent.kind === "stage") parent.count++;
   }
   return rounds;
 }
@@ -165,13 +252,8 @@ function openPath(tree: LogNode[], path?: CurrentLogPath): Set<string> {
   const phase = round.children.find((n) => n.id === `${round.id}:${path.phase}`);
   if (!phase) return opened;
   opened.add(phase.id);
-  const action = phase.children.find((n) => n.id === `${phase.id}:action:${path.action_id}`);
-  if (!path.action_id || !action) return opened;
-  opened.add(action.id);
-  const stage = path.stage
-    ? [...action.children].reverse().find((n) => n.kind === "stage" && n.stage === path.stage)
-    : [...action.children].reverse().find((n) => n.kind === "stage");
-  if (stage) opened.add(stage.id);
+  // With flattened structure, we open the phase and it will show all nested events.
+  // No need to track individual action/stage opening since they're not expandable.
   return opened;
 }
 
@@ -224,7 +306,7 @@ export const EventLog: React.FC<EventLogProps> = ({
     });
   };
   const renderNode = (item: LogNode, depth: number): React.ReactNode => {
-    if (item.kind === "decision" || item.kind === "marker") {
+    if (item.kind === "decision") {
       const entry = item.entry!;
       const actor = entry.actor ? display(entry.actor) : null;
       const actorTitle = actor
@@ -234,13 +316,11 @@ export const EventLog: React.FC<EventLogProps> = ({
         : "Unknown participant";
       const eventNumber = entry.id.match(/-(\d+)$/)?.[1];
       const text =
-        item.kind === "marker"
-          ? item.label
-          : (entry.private_detail ??
-            entry.detail ??
-            (entry.movement
-              ? `${display(entry.movement.actor).label} moved ${entry.movement.unit} from #${entry.movement.origin} to #${entry.movement.destination}`
-              : "Decision resolved"));
+        entry.private_detail ??
+        entry.detail ??
+        (entry.movement
+          ? `${display(entry.movement.actor).label} moved ${entry.movement.unit} from #${entry.movement.origin} to #${entry.movement.destination}`
+          : "Decision resolved");
       return (
         <div
           key={item.id}
@@ -255,34 +335,35 @@ export const EventLog: React.FC<EventLogProps> = ({
                 ? "·"
                 : `#${entry.decision_count}`}
           </span>
-          {item.kind === "decision" && (
-            <span
-              className="event-log__actor"
-              tabIndex={0}
-              title={actorTitle}
-              data-tooltip={actor?.label ?? "Unknown participant"}
-              aria-label={actorTitle}
-              style={{ color: actor?.color ?? "#94a3b8" }}
-            >
-              {actor?.symbol ?? "?"}
-            </span>
-          )}
+          <span
+            className="event-log__actor"
+            tabIndex={0}
+            title={actorTitle}
+            data-tooltip={actor?.label ?? "Unknown participant"}
+            aria-label={actorTitle}
+            style={{ color: actor?.color ?? "#94a3b8" }}
+          >
+            {actor?.symbol ?? "?"}
+          </span>
           <span className="event-log__body">
-            {item.kind === "marker"
-              ? present(text)
-              : parts(text).map((part, index) =>
-                  typeof part === "string" ? (
-                    part
-                  ) : (
-                    <span
-                      key={index}
-                      className="event-log__participant"
-                      style={{ color: part.color }}
-                    >
-                      {part.label.replace(/ \([●▲■◆★✚⬟◖] Position \d+\)$/, "")}
-                    </span>
-                  ),
-                )}
+            {parts(text).map((part, index) => {
+              const partText = typeof part === "string" ? part : part.label.replace(/ \([●▲■◆★✚⬟◖] Position \d+\)$/, "");
+              const actionCardParts = parseActionCardsInText(partText);
+
+              return typeof part === "string" ? (
+                <React.Fragment key={index}>
+                  {actionCardParts}
+                </React.Fragment>
+              ) : (
+                <span
+                  key={index}
+                  className="event-log__participant"
+                  style={{ color: part.color }}
+                >
+                  {actionCardParts}
+                </span>
+              );
+            })}
           </span>
           {entry.visibility !== "public" && (
             <span className="event-log__private">
@@ -291,8 +372,7 @@ export const EventLog: React.FC<EventLogProps> = ({
           )}
           {entry.timestamp && <time className="event-log__meta">{entry.timestamp}</time>}
           {entry.version !== undefined && <span className="event-log__meta">v{entry.version}</span>}
-          {item.kind === "decision" &&
-            onRestore &&
+          {onRestore &&
             entry.decision_count !== undefined &&
             entry.decision_count <= cursor && (
               <button
@@ -308,6 +388,64 @@ export const EventLog: React.FC<EventLogProps> = ({
         </div>
       );
     }
+
+    if (item.kind === "marker") {
+      // Check if this is a phase/game marker (has entry) or action/stage marker (no entry)
+      if (item.entry) {
+        // Phase transition or game finished marker
+        return (
+          <div
+            key={item.id}
+            className="event-log__entry event-log__entry--marker"
+            data-testid="event-log-entry"
+            style={{ paddingLeft: depth * 14 }}
+          >
+            <span className="event-log__index">·</span>
+            <span className="event-log__body">{present(item.label)}</span>
+          </div>
+        );
+      } else {
+        // Action/stage marker - render as visual separator with label
+        const isAction = !!item.actionId;
+        const isStage = !!item.stage;
+
+        if (isAction) {
+          const actionDisplay = display(item.actionActor ?? "unknown");
+          return (
+            <div
+              key={item.id}
+              className="event-log__action-marker"
+              style={{ paddingLeft: depth * 14 }}
+            >
+              <span className="event-log__action-label">{item.label}</span>
+              {item.actionActor && (
+                <span
+                  className="event-log__action-actor"
+                  style={{ color: actionDisplay?.color ?? "#94a3b8" }}
+                  title={actionDisplay?.label}
+                >
+                  · {actionDisplay?.label}
+                </span>
+              )}
+            </div>
+          );
+        }
+
+        if (isStage) {
+          return (
+            <div
+              key={item.id}
+              className="event-log__stage-marker"
+              style={{ paddingLeft: depth * 14 }}
+            >
+              <span className="event-log__stage-label">{item.label}</span>
+            </div>
+          );
+        }
+      }
+      return null;
+    }
+
     const open = expanded.has(item.id);
     return (
       <div key={item.id} className={`event-log__group event-log__group--${item.kind}`}>

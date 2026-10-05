@@ -422,4 +422,79 @@ describe("ProductionBuilderDrawer", () => {
       "Insufficient production capacity",
     );
   });
+
+  it("displays fleet supply counter when data is available in context", () => {
+    const onSubmit = vi.fn();
+    const onClose = vi.fn();
+
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "fleet-supply",
+      prompt: "produce a unit",
+      context: {
+        subtype: "produce_unit",
+        outstanding: [{ amount: 5, paid: 2 }],
+        details: {
+          fleet_supply: { used: 2, limit: 5 },
+        },
+      },
+      options: [
+        {
+          id: "build|fighter|1",
+          kind: "produce",
+          label: "Fighter",
+          payload: { unit: "fighter", production_spent: 1, cost: 1, available_resources: 8 },
+        },
+      ],
+    };
+
+    render(
+      <ProductionBuilderDrawer
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />,
+    );
+
+    const fleetSupplyCounter = screen.getByTestId("fleet-supply-counter");
+    expect(fleetSupplyCounter).toHaveTextContent("2 / 5");
+  });
+
+  it("displays 'Data unavailable' for fleet supply when not in context", () => {
+    const onSubmit = vi.fn();
+    const onClose = vi.fn();
+
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "no-fleet-supply",
+      prompt: "produce a unit",
+      context: {
+        subtype: "produce_unit",
+        outstanding: [{ amount: 5, paid: 2 }],
+      },
+      options: [
+        {
+          id: "build|fighter|1",
+          kind: "produce",
+          label: "Fighter",
+          payload: { unit: "fighter", production_spent: 1, cost: 1, available_resources: 8 },
+        },
+      ],
+    };
+
+    render(
+      <ProductionBuilderDrawer
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />,
+    );
+
+    const fleetSupplyCounter = screen.getByTestId("fleet-supply-counter");
+    expect(fleetSupplyCounter).toHaveTextContent("Data unavailable");
+  });
 });

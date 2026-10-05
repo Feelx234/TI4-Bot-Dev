@@ -189,7 +189,7 @@ pub fn project_board_view(state: &GameState) -> BoardView {
 /// Projects the board systems, planets, and units.
 #[must_use]
 pub fn project_board_view_with_map(state: &GameState, map_tiles: &[BoardTileView]) -> BoardView {
-    project_board_view_full(state, map_tiles, None, &[])
+    project_board_view_full(state, map_tiles, None, &[], None)
 }
 
 /// Projects the full board view with combat and dice information.
@@ -199,6 +199,7 @@ pub fn project_board_view_full(
     map_tiles: &[BoardTileView],
     pending_choice: Option<&Choice>,
     dice_rolls: &[crate::protocol::view::CombatDieRoll],
+    viewer: Option<&ViewerRole>,
 ) -> BoardView {
     let mut systems = BTreeMap::new();
 
@@ -257,7 +258,7 @@ pub fn project_board_view_full(
         );
     }
 
-    let invasion = state.active_invasion.as_ref().map(|active| {
+    let invasion = state.active_invasion.as_ref().and_then(|active| {
         let content = ti4_content::ContentStore::embedded();
         let types = ti4_content::units::catalogue(content, ti4_model::content_types::POK);
         let space = state.system_state(&active.system);
@@ -366,7 +367,16 @@ pub fn project_board_view_full(
                 );
             }
         }
-        crate::protocol::view::InvasionView {
+
+        // H2: Filter out boring invasions (no defenders) from spectator views
+        let has_defenders = odds_context.values().any(|ctx| ctx.opponent.is_some());
+        if !has_defenders && viewer.is_some() && !viewer.as_ref().unwrap().is_actor(&active.invader)
+        {
+            // Hide this invasion for non-invading players when no defenders are present
+            return None;
+        }
+
+        Some(crate::protocol::view::InvasionView {
             system_id: active.system.clone(),
             invasion_seq: active.seq,
             invader: active.invader.clone(),
@@ -399,7 +409,7 @@ pub fn project_board_view_full(
                     harrow_hits: step.harrow_hits,
                 }
             }),
-        }
+        })
     });
     BoardView {
         systems,
@@ -535,7 +545,13 @@ pub fn project_game_view_full(
         active_player: redacted.active.clone(),
         finished: redacted.finished,
         players,
-        board: project_board_view_full(&redacted, map_tiles, pending_choice, dice_rolls),
+        board: project_board_view_full(
+            &redacted,
+            map_tiles,
+            pending_choice,
+            dice_rolls,
+            Some(viewer),
+        ),
         table: project_table_view_with_map(&redacted, map_tiles),
     }
 }

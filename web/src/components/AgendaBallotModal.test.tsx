@@ -227,6 +227,77 @@ describe("AgendaBallotModal", () => {
 
     expect(screen.getByTestId("agenda-error-banner")).toHaveTextContent("Council voting timeout");
   });
+
+  it("displays agenda card information when available", () => {
+    const onSubmit = vi.fn();
+    const onClose = vi.fn();
+
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "35",
+      prompt: "vote for which outcome",
+      context: {
+        subtype: "cast_vote",
+        details: {
+          agenda_card: {
+            name: "Sling Relay",
+            yes_outcome: "All players may move their ships in non-home systems.",
+            no_outcome: "Players cannot move ships during this agenda phase.",
+          },
+        },
+      },
+      options: [
+        { id: "FOR", label: "FOR", kind: "vote", payload: { current_votes: 3 } },
+        { id: "AGAINST", label: "AGAINST", kind: "vote", payload: { current_votes: 2 } },
+      ],
+    };
+
+    render(
+      <AgendaBallotModal
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />,
+    );
+
+    expect(screen.getByTestId("agenda-card-display")).toBeInTheDocument();
+    expect(screen.getByTestId("agenda-card-name")).toHaveTextContent("Sling Relay");
+    expect(screen.getByTestId("agenda-yes-outcome")).toHaveTextContent(
+      "All players may move their ships in non-home systems.",
+    );
+    expect(screen.getByTestId("agenda-no-outcome")).toHaveTextContent(
+      "Players cannot move ships during this agenda phase.",
+    );
+  });
+
+  it("does not display agenda card section when agenda_card is not provided", () => {
+    const onSubmit = vi.fn();
+    const onClose = vi.fn();
+
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "36",
+      prompt: "vote for which outcome",
+      context: {
+        subtype: "cast_vote",
+      },
+      options: [{ id: "FOR", label: "FOR" }],
+    };
+
+    render(
+      <AgendaBallotModal
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />,
+    );
+
+    expect(screen.queryByTestId("agenda-card-display")).not.toBeInTheDocument();
+  });
 });
 
 describe("AgendaBallotModal map selection", () => {

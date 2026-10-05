@@ -122,6 +122,10 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
         ? choice.context.target.System
         : "";
 
+  // Extract fleet supply if available from context
+  const fleetSupply = choice?.context?.details?.fleet_supply ||
+    choice?.context?.details?.["fleet_supply"] || null;
+
   if (!isOpen || !choice) return null;
 
   return (
@@ -161,6 +165,18 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                 {/* Produce Unit Mode */}
                 {isActor && isProduceUnit && (
                   <div className="workflow-stack">
+                    {/* Fleet Supply Display */}
+                    <div className="workflow-card production-drawer__meter">
+                      <div className="workflow-card--row">
+                        <span className="text-muted">Fleet Supply:</span>
+                        <span data-testid="fleet-supply-counter" className="text-success">
+                          {fleetSupply && typeof fleetSupply === "object" && "used" in fleetSupply && "limit" in fleetSupply
+                            ? `${fleetSupply.used} / ${fleetSupply.limit}`
+                            : "Data unavailable"}
+                        </span>
+                      </div>
+                    </div>
+
                     {/* Capacity Progress Meter */}
                     {capacityLimit > 0 && (
                       <div className="workflow-card production-drawer__meter">

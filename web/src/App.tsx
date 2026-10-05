@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { ViewerRole } from "./protocol/types.ts";
 import { useGameSession } from "./hooks/useGameSession.ts";
 import { useLobbySession } from "./hooks/useLobbySession.ts";
+import { useTurnSound } from "./hooks/useTurnSound.ts";
 import { Board } from "./components/Board.tsx";
 import { TurnStatusBar } from "./components/TurnStatusBar.tsx";
 import { PlayerSheet } from "./components/PlayerSheet.tsx";
@@ -214,6 +215,7 @@ const GameViewContainer: React.FC<{
     submitMovementBatch,
     submitBatch,
   } = useGameSession({ gameId, viewer });
+  const { playTurnNotification } = useTurnSound();
   const logHistoryKey = useRef<unknown>(null);
   if (
     snapshot?.type === "initial_snapshot" &&
@@ -252,6 +254,20 @@ const GameViewContainer: React.FC<{
   const [cardSubject, setCardSubject] = useState<CardSubject | null>(null);
   const [isTechModalOpen, setIsTechModalOpen] = useState(false);
   const [isObjectivesModalOpen, setIsObjectivesModalOpen] = useState(false);
+
+  // Play sound notification when it becomes the player's turn
+  const previousPendingChoiceRef = useRef<string | null>(null);
+  useEffect(() => {
+    const isPendingChoiceForViewer =
+      pendingChoice && userSeat && pendingChoice.actor === userSeat;
+
+    if (isPendingChoiceForViewer && previousPendingChoiceRef.current !== pendingChoice.nonce) {
+      playTurnNotification();
+    }
+
+    previousPendingChoiceRef.current = pendingChoice?.nonce ?? null;
+  }, [pendingChoice?.nonce, userSeat, pendingChoice?.actor, playTurnNotification]);
+
   useEffect(() => {
     setSelectedOptionId(undefined);
     setSelectedPlanetId(null);
@@ -369,8 +385,10 @@ const GameViewContainer: React.FC<{
             <PlayerSheet
               players={snapshot.view.players}
               userSeat={userSeat}
+              seatingOrder={snapshot.view.seating_order}
               revealedObjectives={snapshot.view.table.revealed_objectives}
               board={snapshot.view.board}
+              table={snapshot.view.table}
               onInspectCard={(subject) => {
                 setSelectedSystemId(null);
                 setCardSubject(subject);

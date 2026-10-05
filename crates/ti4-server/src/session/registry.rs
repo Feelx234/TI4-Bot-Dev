@@ -384,6 +384,7 @@ impl PlayerLobbyRecord {
             slots,
             players,
             seed,
+            map_template: None,
             lobby_version: 1,
         };
         lobby.validate()?;
@@ -1744,6 +1745,18 @@ impl GameRegistry {
         seed: u64,
         nickname: &str,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        self.create_player_lobby_with_template(game_id, count, seed, nickname, None)
+    }
+
+    /// As [`Self::create_player_lobby`], laying the board out from the named map template.
+    pub fn create_player_lobby_with_template(
+        &self,
+        game_id: String,
+        count: usize,
+        seed: u64,
+        nickname: &str,
+        map_template: Option<String>,
+    ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
         check_nickname(nickname)?;
         let mut state = self.state.lock().expect("registry lock");
         if state.lobbies.contains_key(&game_id)
@@ -1756,9 +1769,10 @@ impl GameRegistry {
         {
             return Err(LobbyError::SeatUnavailable);
         }
-        let (record, player, credential) =
+        let (mut record, player, credential) =
             PlayerLobbyRecord::create(game_id.clone(), count, seed, nickname)
                 .map_err(|error| LobbyError::Storage(error.to_string()))?;
+        record.map_template = map_template;
         self.save_player_lobby(&record)?;
         let view = record.public_view();
         state
@@ -2163,9 +2177,13 @@ impl GameRegistry {
             .map(|slot| slot.occupant.clone().expect("full lobby"))
             .collect();
         let content = ContentStore::embedded();
-        let (initial_state, galaxy) =
-            crate::map::create_game_with_map(content, &players, lobby.seed)
-                .map_err(|e| LobbyError::Map(e.to_string()))?;
+        let (initial_state, galaxy) = crate::map::create_game_with_template(
+            content,
+            &players,
+            lobby.seed,
+            lobby.map_template.as_deref(),
+        )
+        .map_err(LobbyError::Map)?;
         let map_tiles = crate::map::build_board_tiles(content, &galaxy);
         let mut config = SessionConfig::new(game_id, initial_state.clone())
             .with_seed(lobby.seed)
@@ -2210,6 +2228,7 @@ impl GameRegistry {
                 initial_state,
                 map_tiles,
                 seats: Some(config.seats.clone()),
+                map_template: lobby.map_template.clone(),
             }) {
                 // No valid init: recovery treats the lobby as unstarted.
                 let _ = self.save_player_lobby(lobby);
@@ -2620,6 +2639,7 @@ impl GameRegistry {
                 seats: config.seats.clone(),
                 seat_tokens: config.seat_tokens.clone(),
                 map_tiles: config.map_tiles.clone(),
+                map_template: None,
             };
             if let Err(error) = store.save_init(&init) {
                 lobby.phase = LobbyPhase::Lobby;
@@ -2698,6 +2718,7 @@ impl GameRegistry {
                     seats: config.seats.clone(),
                     seat_tokens: config.seat_tokens.clone(),
                     map_tiles: config.map_tiles.clone(),
+                    map_template: None,
                 })
                 .map_err(|error| format!("Failed to save initial game configuration: {error}"))?;
         }
@@ -2777,6 +2798,7 @@ impl GameRegistry {
                 initial_state: config.state.clone(),
                 map_tiles: config.map_tiles.clone(),
                 seats: Some(config.seats.clone()),
+                map_template: None,
             };
 
             let mut running_lobby = lobby_record.clone();

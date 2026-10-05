@@ -69,6 +69,7 @@ export interface ChoiceOptionDto {
   label: string;
   description?: string;
   payload?: Record<string, unknown>;
+  auto_resolved?: boolean;
 }
 
 export interface DecisionContextDto {

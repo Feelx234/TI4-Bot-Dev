@@ -1,0 +1,116 @@
+/* Auto-resolve toast notification styles */
+
+.auto-resolve-toast-container {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 9999;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 300px;
+}
+
+.auto-resolve-toast {
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  animation: slideInLeft 0.3s ease-out forwards;
+  pointer-events: auto;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toast-decision-type {
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.toast-value {
+  color: #4fd946;
+  font-weight: 500;
+}
+
+/* Slide-in animation from left */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Slide-out animation to left */
+@keyframes slideOutLeft {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+}
+
+.auto-resolve-toast.dismissing {
+  animation: slideOutLeft 0.3s ease-in forwards;
+}
+
+/* Light theme adjustments */
+@media (prefers-color-scheme: light) {
+  .auto-resolve-toast {
+    background: rgba(50, 50, 50, 0.92);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+  }
+  .toast-decision-type {
+    color: #f0f0f0;
+  }
+}
+
+/* Dark theme adjustments */
+@media (prefers-color-scheme: dark) {
+  .auto-resolve-toast {
+    background: rgba(20, 20, 20, 0.9);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: #f5f5f5;
+  }
+  .toast-decision-type {
+    color: #e8e8e8;
+  }
+  .toast-value {
+    color: #5dd96f;
+  }
+}
+
+/* Mobile/tablet responsive adjustments */
+@media (max-width: 640px) {
+  .auto-resolve-toast-container {
+    bottom: 16px;
+    left: 16px;
+    max-width: 280px;
+  }
+  .auto-resolve-toast {
+    font-size: 13px;
+    padding: 10px 14px;
+  }
+}
+
+/* Ensure toasts don't interfere with other UI elements */
+@media (pointer: coarse) {
+  .auto-resolve-toast {
+    pointer-events: none;
+  }
+}

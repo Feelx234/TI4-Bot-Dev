@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use ti4_model::id::PlayerId;
 
+use crate::maps::MapTemplateSummary;
 use crate::protocol::server::ServerMessage;
 use crate::session::GameRegistry;
 use crate::session::batch::BatchRequest;
@@ -73,6 +74,7 @@ pub struct CreateGameRequest {
     pub player_count: usize,
     pub seed: Option<u64>,
     pub nickname: String,
+    pub map_template: Option<String>,
 }
 
 /// Response after creating a game.
@@ -127,6 +129,13 @@ pub async fn list_games(State(registry): State<Arc<GameRegistry>>) -> Json<Vec<G
     Json(registry.list_games())
 }
 
+/// Handler for `GET /api/maps`.
+pub async fn list_maps() -> Result<Json<Vec<MapTemplateSummary>>, (StatusCode, String)> {
+    let loader =
+        crate::maps::TemplateLoader::load().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(loader.list_summaries()))
+}
+
 /// Handler for `POST /api/games`.
 pub async fn create_game(
     State(registry): State<Arc<GameRegistry>>,
@@ -146,13 +155,43 @@ pub async fn create_game(
         }
     };
 
+    let loader =
+        crate::maps::TemplateLoader::load().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let map_template = match payload.map_template {
+        Some(alias) => {
+            let template = loader.get(&alias).ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("unknown map_template {alias:?}"),
+                )
+            })?;
+            if template.player_count != payload.player_count {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!(
+                        "map_template {alias:?} seats {} players, not {}",
+                        template.player_count, payload.player_count
+                    ),
+                ));
+            }
+            Some(alias)
+        }
+        None => crate::maps::default_template_for(
+            ti4_content::ContentStore::embedded(),
+            &loader,
+            payload.player_count,
+            ti4_model::content_types::POK,
+        ),
+    };
+
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
     let (lobby, player, session) = registry
-        .create_player_lobby(
+        .create_player_lobby_with_template(
             game_id.clone(),
             payload.player_count,
             seed,
             &payload.nickname,
+            map_template,
         )
         .map_err(lobby_error)?;
 
@@ -478,4 +517,38 @@ pub async fn change_history(
         (status, error.message())
     })?;
     Ok(Json(ServerMessage::InitialSnapshot(snapshot)))
+}
+
+#[cfg(test)]
+mod template_request_tests {
+    use super::*;
+
+    fn request(count: usize, template: Option<&str>) -> Json<CreateGameRequest> {
+        Json(CreateGameRequest {
+            player_count: count,
+            seed: Some(1),
+            nickname: "Host".to_owned(),
+            map_template: template.map(str::to_owned),
+        })
+    }
+
+    #[tokio::test]
+    async fn an_unknown_or_mismatched_template_is_a_400() {
+        let registry = Arc::new(GameRegistry::new());
+        let unknown = create_game(State(registry.clone()), request(6, Some("nope"))).await;
+        assert_eq!(unknown.unwrap_err().0, StatusCode::BAD_REQUEST);
+        let mismatch = create_game(State(registry), request(4, Some("6pStandard"))).await;
+        assert_eq!(mismatch.unwrap_err().0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn a_named_or_default_template_is_accepted() {
+        let registry = Arc::new(GameRegistry::new());
+        assert!(
+            create_game(State(registry.clone()), request(6, Some("6pBeMyNeighbor")))
+                .await
+                .is_ok()
+        );
+        assert!(create_game(State(registry), request(6, None)).await.is_ok());
+    }
 }

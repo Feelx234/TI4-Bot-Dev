@@ -214,7 +214,12 @@ pub fn build_board(
     // Only up to the last home: outer slots beyond it can stay empty, because `Galaxy::build`
     // stops where the id list stops. Slots *before* it cannot — the spiral is filled
     // positionally, so a missing tile would slide every home one place round the ring.
-    let outer_used = homes.len().saturating_sub(1) * stride + usize::from(!homes.is_empty());
+    // Fill the whole ring when the filler allows it (so no outer slot is left empty), but never
+    // less than up to the last home, and never more than the filler can cover: the POK pool holds
+    // 33 tiles, one short of a full ring for two players.
+    let up_to_last_home = homes.len().saturating_sub(1) * stride + usize::from(!homes.is_empty());
+    let coverable = (filler.len() + homes.len()).saturating_sub(inner);
+    let outer_used = outer.min(coverable).max(up_to_last_home);
     let wanted = inner + outer_used.saturating_sub(homes.len());
     if filler.len() < wanted {
         return Err(SeatingError::NotEnoughFiller {
