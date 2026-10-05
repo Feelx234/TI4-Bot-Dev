@@ -49,16 +49,21 @@ const BMF_ACTION: &str = "faction|naaz|bmf";
 /// The three decks a fragment type can name; frontier fragments stand in for any of them.
 const TYPES: [&str; 3] = ["CULTURAL", "HAZARDOUS", "INDUSTRIAL"];
 
-/// What this faction implements. `naaz_voltron` and `naazbt` are live but not claimed: see the
-/// evidence file.
+/// What this faction implements, `naaz_voltron` (Eidolon Maximum) and `naazbt` (Absolute Synergy)
+/// included: the real-route tests are in this file and the closure is in the evidence file.
 pub const MODULE: FactionModule = FactionModule {
     alias: FACTION,
     abilities: &["fabrication", "distant_suns"],
     technologies: &["pfa", "sc"],
-    units: &["naaz_flagship", "naaz_mech", "naaz_mech_space"],
+    units: &[
+        "naaz_flagship",
+        "naaz_mech",
+        "naaz_mech_space",
+        "naaz_voltron",
+    ],
     promissory: &[BMF],
     leaders: &[AGENT, COMMANDER, HERO],
-    breakthroughs: &[],
+    breakthroughs: &["naazbt"],
     hooks: Hooks {
         component_actions: Some(component_actions),
         perform_component: Some(perform_component),
@@ -965,8 +970,9 @@ fn use_leader(
 // your mechs. When this unit is destroyed or removed, flip this card and return it to your play
 // area."
 //
-// Live but NOT claimed: see the evidence file for the missing shared seams (hits from unit
-// abilities, space combat from a planet, effect placement of mechs). The card is flipped exactly
+// Claimed: hits from unit abilities, space combat from a planet, effect placement of mechs,
+// production, movement, landing and re-offer after destruction each have a real-route test below.
+// The card is flipped exactly
 // while a `naaz_voltron` stands on the board, so "destroyed or removed, flip back" needs no
 // bookkeeping that could go stale. Mech plastic is 4 (`supply::plastic`), so 4 mechs in a system
 // are all of them.
@@ -3126,6 +3132,8 @@ mod tests {
     #[test]
     fn the_claims_are_the_sheet() {
         assert!(MODULE.units.contains(&"naaz_flagship"));
+        assert!(MODULE.units.contains(&"naaz_voltron"));
+        assert_eq!(MODULE.breakthroughs, &["naazbt"]);
         assert!(MODULE.leaders.len() == 3);
     }
     #[test]
@@ -3345,5 +3353,261 @@ mod tests {
         assert_eq!(game.step().error, None);
         assert_eq!(voltrons(&game.state, &a()), 1);
         assert_eq!(mechs(&game.state, &a()).len(), 0);
+    }
+
+    // -- Real-route closure tests for the Eidolon Maximum claim ---------------------------------
+
+    /// Takes the first mech build offered, then the first non-decline option for every other
+    /// question (placement, payment).
+    #[derive(Debug)]
+    struct BuildMechDecider;
+    impl crate::choice::Decider for BuildMechDecider {
+        fn choose(
+            &mut self,
+            choice: &Choice,
+        ) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+            choice
+                .options
+                .iter()
+                .find(|option| option.id.starts_with("build|naaz_mech|"))
+                .or_else(|| choice.options.iter().find(|option| !option.is_decline()))
+                .or_else(|| choice.options.first())
+                .cloned()
+                .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                })
+        }
+    }
+
+    /// G1: a real production window (another seat's turn, as in a strategic secondary) that
+    /// places the fourth mech announces `NAAZ_MECH_PLACED`, and the staged event opens Absolute
+    /// Synergy before the next choice.
+    #[test]
+    fn production_of_a_fourth_mech_off_turn_announces_it_and_opens_synergy() {
+        let mut state = game();
+        give_breakthrough(&mut state);
+        strip_mechs(&mut state);
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        let planet = PlanetId::new("mr");
+        state.system_mut(&system).set_control(planet.clone(), a());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_mech", &a(), 3);
+        state.player_mut(&a()).unwrap().trade_goods = 10;
+        state.active = Some(b());
+        assert_eq!(mechs(&state, &a()).len(), 3);
+        assert!(crate::supply::staged_event_types(&state).is_empty());
+
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut table = crate::choice::Table::with_default(Box::new(BuildMechDecider));
+        let report = {
+            let mut ctx = crate::choice::Resolving {
+                content,
+                sources: DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            crate::production::produce_by_ability(
+                &mut state,
+                &mut ctx,
+                None,
+                &a(),
+                &system,
+                Some(1),
+            )
+            .expect("production resolves")
+        };
+        assert_eq!(report.produced.len(), 1, "one mech was produced");
+        assert_eq!(mechs(&state, &a()).len(), 4, "the fourth mech stands");
+        assert!(
+            crate::supply::staged_event_types(&state)
+                .iter()
+                .any(|kind| kind == "NAAZ_MECH_PLACED"),
+            "production announced the placement"
+        );
+
+        // The staged event is delivered by the real driver and opens the window.
+        let mut game =
+            crate::game::Game::new(state, ContentStore::embedded()).with_sources(DEFAULT);
+        game.table = scripted(&["breakthrough:naaz:naazbt:NAAZ_MECH_PLACED:after"]);
+        assert_eq!(game.step().error, None);
+        assert_eq!(voltrons(&game.state, &a()), 1);
+        assert_eq!(mechs(&game.state, &a()).len(), 0);
+    }
+
+    /// G2a: a space-area Maximum moves its printed 3 in a real tactical action (here two hexes
+    /// through the hub centre).
+    #[test]
+    fn a_space_maximum_moves_into_the_activated_system_in_a_real_tactical_action() {
+        let hub = crate::fixtures::plain_hub();
+        let origin = SystemId::new(hub.outer[0].clone());
+        let target = SystemId::new(hub.across(&hub.outer[0]));
+        let mut state = game();
+        state.phase = ti4_model::state::Phase::Action;
+        state.active = Some(a());
+        crate::fixtures::put(&mut state, &origin, VOLTRON, &a(), 1);
+        let content = ContentStore::embedded();
+        let types = ti4_content::units::catalogue(content, DEFAULT);
+        assert_eq!(
+            types[VOLTRON].move_value(),
+            3,
+            "the Eidolon Maximum moves 3"
+        );
+        let table = crate::choice::Table::with_default(Box::new(MoveEverything {
+            target: target.to_string(),
+        }));
+        let mut game = crate::game::Game::with_table(state, content, table)
+            .with_galaxy(hub.galaxy)
+            .with_sources(DEFAULT);
+        for _ in 0..4 {
+            assert_eq!(game.step().error, None);
+        }
+        assert!(
+            game.state
+                .system_state(&target)
+                .units
+                .iter()
+                .any(|unit| is_voltron(unit, &a())),
+            "the Maximum arrived in the active system"
+        );
+        assert!(
+            !game
+                .state
+                .system_state(&origin)
+                .units
+                .iter()
+                .any(|unit| is_voltron(unit, &a())),
+            "and left its origin"
+        );
+        assert_eq!(voltrons(&game.state, &a()), 1, "never duplicated");
+    }
+
+    /// Takes a tactical action on `target` and makes every move offered.
+    #[derive(Debug)]
+    struct MoveEverything {
+        target: String,
+    }
+    impl crate::choice::Decider for MoveEverything {
+        fn choose(
+            &mut self,
+            choice: &Choice,
+        ) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+            let ids = choice.ids();
+            let wanted = if ids.contains(&crate::game::TACTICAL_ACTION_ID) {
+                choice.option(crate::game::TACTICAL_ACTION_ID)
+            } else if ids.contains(&self.target.as_str()) {
+                choice.option(&self.target)
+            } else if ids.contains(&"done_moving") {
+                choice
+                    .options
+                    .iter()
+                    .find(|option| option.id != "done_moving")
+                    .or_else(|| choice.option("done_moving"))
+            } else {
+                choice.options.first()
+            };
+            wanted
+                .cloned()
+                .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                })
+        }
+    }
+
+    /// G2b: a Maximum in the active system's space area is committed to a planet in the real
+    /// commit step, and stays one `naaz_voltron` (it is both a ship and a ground force).
+    #[test]
+    fn a_space_maximum_is_committed_to_a_planet_in_the_invasion_commit_step() {
+        let mut state = game();
+        let content = ContentStore::embedded();
+        // Not Mecatol Rex: 27.1 keeps it closed to landings while the custodians token is on it.
+        let (system, planet) = ti4_content::galaxy::all_planets(content, DEFAULT)
+            .iter()
+            .find(|(_, p)| {
+                p.system_id().is_some()
+                    && !p.is_placed_during_play()
+                    && p.system_id() != Some(crate::seating::MECATOL)
+            })
+            .map(|(id, p)| (SystemId::new(p.system_id().unwrap()), PlanetId::new(*id)))
+            .expect("the corpus has a placed planet outside Mecatol Rex");
+        state.active = Some(a());
+        state.active_system = Some(system.clone());
+        crate::fixtures::put(&mut state, &system, VOLTRON, &a(), 1);
+        let mut table = scripted(&[&format!("commit|0|{planet}"), "done_committing"]);
+        let committed = crate::invasion::commit_ground_forces(
+            &mut state,
+            content,
+            DEFAULT,
+            &mut table,
+            &a(),
+            &system,
+        )
+        .unwrap();
+        assert_eq!(committed, vec![planet.clone()]);
+        let here = state.system_state(&system);
+        let landed: Vec<&str> = here
+            .on_planet_of(&planet, &a())
+            .iter()
+            .map(|unit| unit.type_id.as_str())
+            .collect();
+        assert_eq!(landed, [VOLTRON], "it lands as itself, not as a mech");
+        assert!(here.units_of(&a()).is_empty(), "it left the space area");
+        assert_eq!(voltrons(&state, &a()), 1);
+    }
+
+    /// G3: the card state is derived from the board, so a destroyed Maximum puts Absolute
+    /// Synergy back on offer for any four mechs in one system.
+    #[test]
+    fn absolute_synergy_is_offered_again_after_the_maximum_is_destroyed() {
+        let mut state = game();
+        give_breakthrough(&mut state);
+        let system = four_mechs_home(&mut state);
+        emit(
+            &mut state,
+            &mut scripted(&[SYNERGY, "space"]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        assert_eq!(voltrons(&state, &a()), 1);
+
+        // While the Maximum stands the card is flipped: four more mechs are not offered it.
+        crate::fixtures::put(&mut state, &SystemId::new("19"), "naaz_mech_space", &a(), 4);
+        let before = state.board.clone();
+        emit(
+            &mut state,
+            &mut scripted(&[SYNERGY, "space"]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        assert_eq!(state.board, before, "flipped card is not offered");
+
+        // Destroy it with ordinary combat hits (sustain declined).
+        assign(
+            &mut state,
+            &system,
+            10,
+            crate::combat::HitOrigin::CombatRoll,
+            false,
+        );
+        assert_eq!(voltrons(&state, &a()), 0, "the Maximum was destroyed");
+
+        emit(
+            &mut state,
+            &mut scripted(&[SYNERGY, "space"]),
+            "ACTION_COMPLETED",
+            &[("player", "a")],
+        );
+        assert_eq!(voltrons(&state, &a()), 1, "offered and taken a second time");
+        assert!(
+            state
+                .system_state(&SystemId::new("19"))
+                .units
+                .iter()
+                .any(|unit| is_voltron(unit, &a()))
+        );
     }
 }

@@ -122,3 +122,19 @@ Two earlier builds died with `rustc-LLVM ERROR: out of memory` (concurrent build
 | `cargo clippy -p ti4-engine --all-targets` | no warning in `naaz.rs` |
 | `rustfmt --edition 2024 crates/ti4-engine/src/factions/naaz.rs` | clean |
 | ledger | `naaz 11/13 implemented`; `Unit naaz_voltron`, `Breakthrough naazbt` missing |
+
+## Claimed (2026-10-05): `naaz_voltron` and `naazbt`
+
+`MODULE.units` now lists `naaz_voltron`; `MODULE.breakthroughs` is `["naazbt"]`. Stale "not claimed" comments updated; `the_claims_are_the_sheet` pins both.
+
+Real-route tests added to `factions/naaz.rs`:
+- G1 `production_of_a_fourth_mech_off_turn_announces_it_and_opens_synergy`: `production::produce_by_ability` (seat b active, seat a producing) places the 4th mech; asserts staged `NAAZ_MECH_PLACED`; the real `Game::step` then delivers it and Synergy flips the mechs.
+- G2a `a_space_maximum_moves_into_the_activated_system_in_a_real_tactical_action`: `Game` tactical action, printed move value asserted 3, Maximum moves two hexes through the hub centre, not duplicated.
+- G2b `a_space_maximum_is_committed_to_a_planet_in_the_invasion_commit_step`: `invasion::commit_ground_forces` lands a space Maximum on a non-Mecatol planet as `naaz_voltron` (Mecatol is closed by 27.1 while the custodians token sits there; the first draft hit that, a fixture error, not an engine bug).
+- G3 `absolute_synergy_is_offered_again_after_the_maximum_is_destroyed`: not offered while a Maximum stands, destroyed by combat-roll hits, then offered and taken again for four other mechs.
+
+No engine bug found; no edits outside naaz.rs.
+
+Rule decisions (coordinator): Ambush/Devotion/Impulse Core/Reflective Shielding are not unit abilities (LRR unit abilities: anti-fighter barrage, bombardment, deploy, planetary shield, production, space cannon, sustain damage), so the Maximum can be assigned their hits; a planet-standing Maximum joins space combat only with another friendly ship there; Synergy windows are after completed actions and placement/gain events.
+
+Results: `cargo test -p ti4-engine --lib -j4 factions::naaz` 49 passed, 0 failed. `cargo test -p ti4-engine -j4 -- --test-threads=16`: lib 2129 passed, 0 failed, 1 ignored; integration 1/1, 4/4, 5/5; exit 0. Ledger (`print_faction_ledger`): `naaz      13/13 implemented`. rustfmt --edition 2024 applied to naaz.rs. Independent review not performed here.
