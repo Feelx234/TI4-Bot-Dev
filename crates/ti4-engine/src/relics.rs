@@ -613,6 +613,30 @@ pub fn crown_of_emphidia_explore(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     player: &PlayerId,
 ) -> bool {
+    // No resolver here, so no "after you explore" window opens: a caller that has the game's
+    // timing handle uses [`crown_of_emphidia_explore_with`].
+    let mut dice = crate::dice::Dice::new();
+    let mut rng = crate::rng::GameRng::new(0);
+    let mut ctx = crate::choice::Resolving {
+        content,
+        sources,
+        dice: &mut dice,
+        rng: &mut rng,
+        table,
+        timing: None,
+    };
+    crown_of_emphidia_explore_with(state, &mut ctx, galaxy, player)
+}
+
+/// [`crown_of_emphidia_explore`] through the caller's [`crate::choice::Resolving`], whose timing
+/// handle (when it has one) opens the `PLANET_EXPLORED` window (Titans Terragenesis).
+pub fn crown_of_emphidia_explore_with(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+) -> bool {
+    let (content, sources) = (ctx.content, ctx.sources);
     if !ready(state, player, "emphidia") {
         return false;
     }
@@ -653,7 +677,9 @@ pub fn crown_of_emphidia_explore(
         state.phase,
         state.round,
     ));
-    let Ok(answer) = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
+    let Ok(answer) = ctx
+        .table
+        .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
     else {
         return false;
     };
@@ -665,7 +691,7 @@ pub fn crown_of_emphidia_explore(
         .and_then(|record| record.planet_type())
         .unwrap_or_default()
         .to_owned();
-    crate::exploration::explore(state, content, player, &deck, Some(&planet)).is_some()
+    crate::exploration::explore_with(state, ctx, player, &deck, Some(&planet)).is_some()
 }
 
 /// The Crown of Emphidia, second half: a victory point for holding the Tomb.

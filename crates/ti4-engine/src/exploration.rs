@@ -82,7 +82,7 @@ pub fn choose_deck(
     player: &PlayerId,
     planet: &PlanetId,
 ) -> Option<String> {
-    let mut traits = traits_of(ctx.content, ctx.sources, planet);
+    let mut traits = crate::planets::traits_now(state, ctx.content, ctx.sources, planet);
     match traits.len() {
         0 => None,
         1 => traits.pop(),

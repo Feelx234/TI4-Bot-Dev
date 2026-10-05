@@ -502,7 +502,9 @@ pub fn offer_scanlink(
                     .on_planet_of(planet, active)
                     .is_empty()
             })
-            .filter(|planet| crate::exploration::trait_of(content, sources, planet).is_some())
+            .filter(|planet| {
+                !crate::planets::traits_now(state, content, sources, planet).is_empty()
+            })
             .collect();
     if planets.is_empty() {
         return None;

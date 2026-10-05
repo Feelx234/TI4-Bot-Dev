@@ -1334,7 +1334,9 @@ pub(crate) fn structure_options(
                 .into_iter()
                 .filter(move |kind| !only_pds || *kind == "pds")
                 .filter(move |kind| {
-                    let unit = UnitTypeId::new(*kind);
+                    // The unit this player actually places: faction unit or upgrade, as an action
+                    // card placement resolves it (Titans Hel-Titan, PDS II).
+                    let unit = construction_unit(state, content, sources, player, kind);
                     crate::production::structure_allowed(
                         state, content, sources, player, planet, kind,
                     ) && crate::supply::allowed(state, content, sources, player, &unit, 1) == 1
@@ -1348,6 +1350,27 @@ pub(crate) fn structure_options(
                 })
         })
         .collect()
+}
+
+/// The unit Construction places for `kind` (`pds` / `spacedock`): the faction unit or upgrade, as
+/// an action card placement resolves it. Construction puts the structure on a planet, so a
+/// space-only form (Saar's Floating Factory) falls back to the generic planet unit.
+fn construction_unit(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    kind: &str,
+) -> UnitTypeId {
+    let generic = || UnitTypeId::new(kind);
+    let Some(unit) = crate::action_cards::placed_unit_id(state, content, sources, player, kind)
+    else {
+        return generic();
+    };
+    let space_only = ti4_content::units::catalogue(content, sources)
+        .get(unit.as_str())
+        .is_some_and(|record| record.is_space_only_structure());
+    if space_only { generic() } else { unit }
 }
 
 pub(crate) fn place_structure(
@@ -1398,17 +1421,50 @@ pub(crate) fn place_structure(
     if !controlled {
         return Ok(None);
     }
+    // "When you would place a PDS on a planet, you may ... instead" (Titans Hecatoncheires): the
+    // alternatives are asked before anything is placed, so a refusal leaves the board untouched.
+    if kind == "pds" {
+        let alternatives = crate::factions::hooks_economy::pds_placement_alternatives(
+            state, content, sources, player, &system, &planet,
+        );
+        if !alternatives.is_empty() {
+            let mut offered = vec![ChoiceOption::labelled(
+                "pds",
+                "build",
+                format!("place pds on {planet}"),
+            )];
+            offered.extend(alternatives);
+            let choice = Choice::new(player.clone(), "place a PDS or an alternative", offered)
+                .contextualized(DecisionContext::new(
+                    player.clone(),
+                    DecisionSource::Content("place_structure".to_owned()),
+                    "place_structure_pds_alternative",
+                    state.phase,
+                    state.round,
+                ));
+            let answer = ask(state, content, sources, galaxy, table, &choice)?;
+            if answer.id != "pds" {
+                if crate::factions::hooks_economy::perform_pds_placement_alternative(
+                    state, content, sources, player, &system, &planet, &answer.id,
+                ) {
+                    return Ok(Some(system));
+                }
+                return Ok(None);
+            }
+        }
+    }
+    let placed = construction_unit(state, content, sources, player, kind);
     state
         .system_mut(&system)
         .planet_units
         .entry(planet)
         .or_default()
-        .push(Unit::new(UnitTypeId::new(kind), player.clone()));
+        .push(Unit::new(placed, player.clone()));
 
     // Minister of Industry: "When the owner of this card places a space dock in a system, their
     // units in that system may use their PRODUCTION abilities." A space dock specifically, so a
     // PDS placed under the same law produces nothing.
-    if kind.contains("space_dock") && crate::laws::industry_produces_on_placement(state, player) {
+    if kind == "spacedock" && crate::laws::industry_produces_on_placement(state, player) {
         produce_all(state, content, sources, galaxy, table, player, &system)?;
     }
     Ok(Some(system))
@@ -2545,6 +2601,218 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    fn count_type(state: &GameState, player: &PlayerId, type_id: &str) -> usize {
+        state
+            .board
+            .values()
+            .flat_map(|system| system.planet_units.values().flatten())
+            .filter(|unit| unit.owner == *player && unit.type_id.as_str() == type_id)
+            .count()
+    }
+
+    fn titans_seat() -> (GameState, PlayerId) {
+        let state =
+            crate::fixtures::seated_game(&[("a", "titans")], ti4_model::content_types::DEFAULT);
+        (state, PlayerId::new("a"))
+    }
+
+    #[test]
+    fn construction_places_the_factions_own_pds_and_its_upgrade() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let (mut state, player) = titans_seat();
+        let mut table = Table::new();
+        primary(
+            &mut state,
+            content,
+            sources,
+            None,
+            &mut table,
+            &player,
+            &card("Construction"),
+        )
+        .unwrap();
+        assert_eq!(count_type(&state, &player, "titans_pds"), 2);
+        assert_eq!(
+            count_type(&state, &player, "pds"),
+            0,
+            "never the generic plastic"
+        );
+
+        let (mut state, player) = titans_seat();
+        state
+            .player_mut(&player)
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("ht2"));
+        primary(
+            &mut state,
+            content,
+            sources,
+            None,
+            &mut table,
+            &player,
+            &card("Construction"),
+        )
+        .unwrap();
+        assert_eq!(count_type(&state, &player, "titans_pds2"), 2);
+        assert_eq!(count_type(&state, &player, "titans_pds"), 0);
+    }
+
+    #[test]
+    fn a_faction_without_its_own_pds_still_places_the_generic_one() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = crate::fixtures::seated_game(&[("a", "sol")], sources);
+        let player = PlayerId::new("a");
+        let mut table = Table::new();
+        primary(
+            &mut state,
+            content,
+            sources,
+            None,
+            &mut table,
+            &player,
+            &card("Construction"),
+        )
+        .unwrap();
+        assert_eq!(count_type(&state, &player, "pds"), 2);
+    }
+
+    #[test]
+    fn saar_construction_places_the_generic_dock_on_a_planet_not_the_floating_factory() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = seated_game(&[("a", "saar")], sources);
+        let player = PlayerId::new("a");
+        // Free the planet of any dock so a space dock is a legal Construction spot.
+        for system in state.board.values_mut() {
+            for units in system.planet_units.values_mut() {
+                units.retain(|unit| !unit.type_id.as_str().contains("spacedock"));
+            }
+        }
+        let spot = structure_options(&state, content, sources, &player, false)
+            .into_iter()
+            .find(|option| option.id.starts_with("spacedock|"))
+            .expect("a Saar space dock spot is offered")
+            .id;
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([spot])));
+        place_structure(
+            &mut state, content, sources, None, &mut table, &player, false,
+        )
+        .unwrap();
+        assert_eq!(count_type(&state, &player, "spacedock"), 1);
+        assert_eq!(count_type(&state, &player, "saar_spacedock"), 0);
+        assert_eq!(count_type(&state, &player, "saar_spacedock2"), 0);
+    }
+
+    #[test]
+    fn minister_of_industry_produces_on_a_construction_space_dock() {
+        let content = ContentStore::embedded();
+        let run = |law: bool| {
+            let mut state = game(&["a"]);
+            let player = PlayerId::new("a");
+            let (system, planet) = a_placed_planet();
+            state
+                .system_mut(&system)
+                .set_control(planet.clone(), player.clone());
+            state.player_mut(&player).unwrap().trade_goods = 10;
+            if law {
+                state
+                    .laws
+                    .insert("minister_industry".to_owned(), "a".to_owned());
+            }
+            let spot = format!("spacedock|{system}|{planet}");
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([spot])));
+            place_structure(&mut state, content, POK, None, &mut table, &player, false).unwrap();
+            let board = state.system_state(&system);
+            board.units.len() + board.on_planet(&planet).len()
+        };
+        assert!(
+            run(true) > run(false),
+            "the placed dock produces under the law"
+        );
+    }
+
+    // -- "when you would place a PDS ... you may place ... instead" ---------------------------------
+
+    /// Hecatoncheires is the live Titans module hook (`factions::titans`); these tests drive it
+    /// through Construction.
+    mod hecatoncheires {
+        pub(super) const ID: &str = "titans|hecatoncheires";
+    }
+
+    fn place_one_pds(
+        state: &mut GameState,
+        player: &PlayerId,
+        second: Option<&str>,
+    ) -> (Result<Option<SystemId>, IllegalChoice>, Vec<String>) {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let first = structure_options(state, content, sources, player, true)
+            .into_iter()
+            .next()
+            .expect("a PDS spot")
+            .id;
+        let mut script = vec![first.as_str()];
+        script.extend(second);
+        let (recorder, seen) = SpeakerRecording::new(&script);
+        let mut table = Table::with_default(Box::new(recorder));
+        let result = place_structure(state, content, sources, None, &mut table, player, true);
+        let prompts = seen
+            .borrow()
+            .iter()
+            .map(|(prompt, _)| prompt.clone())
+            .collect();
+        (result, prompts)
+    }
+
+    #[test]
+    fn the_pds_alternative_is_offered_and_taken_instead_of_the_pds() {
+        {
+            let (mut state, player) = titans_seat();
+            let infantry = count_type(&state, &player, "infantry");
+            let (result, prompts) = place_one_pds(&mut state, &player, Some(hecatoncheires::ID));
+            assert!(result.unwrap().is_some());
+            assert_eq!(prompts.len(), 2, "{prompts:?}");
+            assert_eq!(count_type(&state, &player, "titans_pds"), 0);
+            assert_eq!(count_type(&state, &player, "titans_mech"), 1);
+            assert_eq!(count_type(&state, &player, "infantry"), infantry + 1);
+        }
+    }
+
+    #[test]
+    fn declining_the_alternative_places_the_pds_and_nothing_else() {
+        {
+            let (mut state, player) = titans_seat();
+            let (result, _) = place_one_pds(&mut state, &player, Some("pds"));
+            assert!(result.unwrap().is_some());
+            assert_eq!(count_type(&state, &player, "titans_pds"), 1);
+            assert_eq!(count_type(&state, &player, "titans_mech"), 0);
+        }
+    }
+
+    #[test]
+    fn the_pds_alternative_respects_the_box_and_other_factions_are_not_asked() {
+        {
+            // The four mechs are already out: nothing to offer, so one question only.
+            let (mut state, player) = titans_seat();
+            let far = SystemId::new("far");
+            put(&mut state, &far, "titans_mech", &player, 4);
+            let (result, prompts) = place_one_pds(&mut state, &player, None);
+            assert!(result.unwrap().is_some());
+            assert_eq!(prompts.len(), 1, "{prompts:?}");
+            assert_eq!(count_type(&state, &player, "titans_pds"), 1);
+
+            // A faction without the unit is never asked.
+            let mut state =
+                crate::fixtures::seated_game(&[("a", "sol")], ti4_model::content_types::DEFAULT);
+            let (result, prompts) = place_one_pds(&mut state, &player, None);
+            assert!(result.unwrap().is_some());
+            assert_eq!(prompts.len(), 1, "{prompts:?}");
+        }
     }
 
     /// Specialist Compounds researches by exhausting a specialty, with nothing to spend.

@@ -3604,7 +3604,11 @@ fn plagiarize(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
 fn archaeological_expedition(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let mut decks: Vec<(ti4_model::id::PlanetId, String)> = Vec::new();
     for (_, planet) in context.state.controlled_planets(player) {
-        if let Some(deck) = crate::exploration::trait_of(context.content, context.sources, planet) {
+        if let Some(deck) =
+            crate::planets::traits_now(context.state, context.content, context.sources, planet)
+                .into_iter()
+                .next()
+        {
             decks.push((planet.clone(), deck));
         }
     }
@@ -4786,7 +4790,7 @@ pub enum PlacementTarget {
 
 /// The unit id a player places for a base type: their upgraded unit if they own the upgrade, else
 /// their faction's own unit, else the generic one.
-fn placed_unit_id(
+pub(crate) fn placed_unit_id(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

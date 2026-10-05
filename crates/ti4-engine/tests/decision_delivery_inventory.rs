@@ -414,6 +414,27 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Slumberstate Computing: fight or coexist when Coalescence forces a ground combat.
+        module: "invasion.rs",
+        function: "coexist_instead",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Slumberstate Computing: the Titans pick a planet, its controller allows the sleeper.
+        module: "titans_leaders.rs",
+        function: "sleeper_allowance",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Titans: Terragenesis, Awaken and Ouranos questions share one helper (BF-titans.md).
+        module: "titans.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Crimson commander: gain a commodity or convert one (BF-COMMANDERS-ALLIANCE-OCT5).
         module: "borrowed_commanders.rs",
         function: "crimson_ask",
@@ -965,7 +986,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "relics.rs",
-        function: "crown_of_emphidia_explore",
+        function: "crown_of_emphidia_explore_with",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1075,7 +1096,7 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         module: "strategy_cards.rs",
         function: "place_structure",
-        count: 1,
+        count: 2, // the spot, then a PDS or a module alternative (Hecatoncheires)
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
     Producer {
@@ -1269,6 +1290,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("mentak.rs", "ask_among", 1),
     ("borrowed_commanders.rs", "ralnel_ask", 1),
     ("borrowed_commanders.rs", "crimson_ask", 1),
+    ("titans.rs", "ask", 1),
+    ("invasion.rs", "coexist_instead", 1),
+    ("titans_leaders.rs", "sleeper_allowance", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),
     ("argent.rs", "strike_wing_effect", 1),
@@ -1347,7 +1371,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("reactions.rs", "l1z1x_agent", 1),
     ("reactions.rs", "slot", 1),
     ("relics.rs", "codex", 1),
-    ("relics.rs", "crown_of_emphidia_explore", 1),
+    ("relics.rs", "crown_of_emphidia_explore_with", 1),
     ("relics.rs", "grant_chosen_technology", 1),
     ("relics.rs", "offer_dominus_orb", 1),
     ("relics.rs", "stellar_converter", 1),

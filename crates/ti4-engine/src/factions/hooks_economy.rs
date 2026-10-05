@@ -22,7 +22,7 @@ use ti4_model::content_types::SourceSet;
 use ti4_model::id::{ActionCardId, PlanetId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::GameState;
 
-use crate::choice::{IllegalChoice, Table};
+use crate::choice::{ChoiceOption, IllegalChoice, Table};
 use crate::production::Spend;
 
 /// Hooks for this area. A module sets only the ones it needs (`..EconomyHooks::NONE`).
@@ -151,6 +151,27 @@ pub struct EconomyHooks {
     /// per module at the end of `exploration::explore_with`. Naaz Pre-Fab Arcologies ("ready that
     /// planet"). Atomic: mutate only.
     pub explored: Option<fn(&mut GameState, &ContentStore, SourceSet, &PlayerId, &PlanetId)>,
+    /// What `player` may do instead of placing a PDS on `planet` ("When you would place a PDS on a
+    /// planet, you may ... instead": Titans Hecatoncheires). Called after the player has picked a
+    /// PDS spot, so it is only consulted for a PDS that could be placed; each option's id is
+    /// namespaced by its module and must not be `pds`. Offered beside the PDS, never in place of
+    /// it. Concatenated over modules in order. Pure: ask nothing, mutate nothing.
+    pub pds_placement_alternative: Option<
+        fn(
+            &GameState,
+            &ContentStore,
+            SourceSet,
+            &PlayerId,
+            &SystemId,
+            &PlanetId,
+        ) -> Vec<ChoiceOption>,
+    >,
+    /// Carry out the alternative `option` (one of this module's own ids from
+    /// [`Self::pds_placement_alternative`]) in place of the PDS. Atomic: re-check everything, return
+    /// `false` and leave the state untouched when it cannot happen; `true` once it has.
+    pub pds_placement_alternative_performed: Option<
+        fn(&mut GameState, &ContentStore, SourceSet, &PlayerId, &SystemId, &PlanetId, &str) -> bool,
+    >,
 }
 
 impl EconomyHooks {
@@ -172,6 +193,8 @@ impl EconomyHooks {
         production_cost_reduction: None,
         explore_extra_draw: None,
         explored: None,
+        pds_placement_alternative: None,
+        pds_placement_alternative_performed: None,
     };
 }
 
@@ -271,6 +294,37 @@ pub(crate) fn effect_placement_forbidden(
     hooks()
         .filter_map(|h| h.effect_placement_forbidden)
         .any(|f| f(state, content, sources, player, unit))
+}
+
+/// Every alternative to placing a PDS on `planet` that `player` has, in module order.
+pub(crate) fn pds_placement_alternatives(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> Vec<ChoiceOption> {
+    hooks()
+        .filter_map(|h| h.pds_placement_alternative)
+        .flat_map(|f| f(state, content, sources, player, system, planet))
+        .collect()
+}
+
+/// Carry out the PDS alternative `option`; the first module that owns it and performs it wins.
+/// `false` leaves the state untouched.
+pub(crate) fn perform_pds_placement_alternative(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+    option: &str,
+) -> bool {
+    hooks()
+        .filter_map(|h| h.pds_placement_alternative_performed)
+        .any(|f| f(state, content, sources, player, system, planet, option))
 }
 
 pub(crate) fn captured_unit_return_form(

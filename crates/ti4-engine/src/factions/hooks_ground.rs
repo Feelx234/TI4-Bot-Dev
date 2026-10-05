@@ -170,6 +170,18 @@ pub struct GroundHooks {
     /// token." Consulted where the removal is offered, previewed and paid (27.2). The other
     /// requirement (27.2a, ground forces that can land on Mecatol Rex) still applies.
     pub custodians_free: Option<fn(&GameState, &ContentStore, &PlayerId) -> bool>,
+    /// Planets of the active system on which the invader's units must fight although the invader
+    /// committed nothing there.
+    ///
+    /// Titans of Ul `coalescence`: "If your flagship or your AWAKEN faction ability places your
+    /// units ... onto the same planet as another player's units, your units must participate in
+    /// combat during \"Space Combat\" or \"Ground Combat\" steps." Asked once, when the commit step
+    /// closes, with `(state, content, sources, invader, active_system)`. The invasion fights each
+    /// returned planet where the invader has a ground force and a rival does, and establishes
+    /// control there afterwards as it does for committed planets. Planets already committed to are
+    /// ignored; the hook must be pure (no mutation).
+    pub forced_combat_planets:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId) -> Vec<PlanetId>>,
 }
 
 impl GroundHooks {
@@ -182,6 +194,7 @@ impl GroundHooks {
         temporary_ground_force: None,
         ground_combat_round_started: None,
         custodians_free: None,
+        forced_combat_planets: None,
     };
 }
 
@@ -220,6 +233,22 @@ pub(crate) fn ground_rolls_extra_hits(
             )
         })
         .sum()
+}
+
+pub(crate) fn forced_combat_planets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    invader: &PlayerId,
+    system: &SystemId,
+) -> Vec<PlanetId> {
+    let mut planets: Vec<PlanetId> = hooks()
+        .filter_map(|h| h.forced_combat_planets)
+        .flat_map(|f| f(state, content, sources, invader, system))
+        .collect();
+    planets.sort();
+    planets.dedup();
+    planets
 }
 
 pub(crate) fn may_sustain(

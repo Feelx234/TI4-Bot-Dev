@@ -121,7 +121,8 @@ impl<'a> UnitType<'a> {
     /// force that also happens to be a structure.
     #[must_use]
     pub fn is_ground_force(&self) -> bool {
-        matches!(self.base_type(), "infantry" | "mech") || self.id() == "titans_pds2"
+        matches!(self.base_type(), "infantry" | "mech")
+            || matches!(self.id(), "titans_pds" | "titans_pds2")
     }
 
     #[must_use]
@@ -458,11 +459,14 @@ mod tests {
 
     #[test]
     fn the_titans_pds_is_a_ground_force_despite_being_a_structure() {
-        let pds = unit("titans_pds2");
-        assert!(pds.is_ground_force());
-        assert!(pds.is_structure());
-        // It is a structure, so it does not eat capacity even though it is a ground force.
-        assert!(!pds.consumes_capacity());
+        // Hel-Titan I and II both print "treated as both a structure and a ground force".
+        for id in ["titans_pds", "titans_pds2"] {
+            let pds = unit(id);
+            assert!(pds.is_ground_force(), "{id}");
+            assert!(pds.is_structure(), "{id}");
+            // A structure, so it does not eat capacity even though it is a ground force.
+            assert!(!pds.consumes_capacity(), "{id}");
+        }
     }
 
     #[test]

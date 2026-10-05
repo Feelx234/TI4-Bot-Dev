@@ -132,6 +132,71 @@ pub fn tech_specialties_now(
     found
 }
 
+/// A planet's exploration traits as they now stand: those printed on its card plus any an
+/// attachment gave it (Titans' Terraform: "treated as having all 3 planet traits"), upper-case,
+/// printed ones first.
+///
+/// Readers that know the game state ask here; [`crate::exploration::traits_of`] is the printed
+/// answer only.
+#[must_use]
+pub fn traits_now(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &PlanetId,
+) -> Vec<String> {
+    let mut found = crate::exploration::traits_of(content, sources, planet);
+    for id in state.planet_attachments.get(planet).into_iter().flatten() {
+        let Some(record) = content.get(ti4_model::content_types::ContentType::Attachments, id)
+        else {
+            continue;
+        };
+        for kind in record.strings("planetTypes") {
+            let kind = kind.to_ascii_uppercase();
+            if crate::deck::EXPLORATION_TRAITS.contains(&kind.as_str())
+                && kind != crate::exploration::FRONTIER
+                && !found.contains(&kind)
+            {
+                found.push(kind);
+            }
+        }
+    }
+    found
+}
+
+/// The SPACE CANNON an attachment on a planet gives it "as if it were a unit" (Titans' Geoform:
+/// SPACE CANNON 5 (x3)): `(controller, hits on, dice)` for each such attachment on `planet`, which
+/// must lie in `system`. Empty when the planet is uncontrolled or carries no such attachment.
+///
+/// Read by space cannon offense and, for the planet's own invasion, space cannon defense.
+#[must_use]
+pub fn attachment_cannons(
+    state: &GameState,
+    content: &ContentStore,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> Vec<(ti4_model::id::PlayerId, u32, usize)> {
+    let Some(owner) = state
+        .board
+        .get(system)
+        .and_then(|board| board.planet_control.get(planet))
+    else {
+        return Vec::new();
+    };
+    state
+        .planet_attachments
+        .get(planet)
+        .into_iter()
+        .flatten()
+        .filter_map(|id| content.get(ti4_model::content_types::ContentType::Attachments, id))
+        .filter_map(|record| {
+            let hits_on = u32::try_from(record.int("spaceCannonHitsOn")?).ok()?;
+            let dice = usize::try_from(record.int("spaceCannonDieCount")?).ok()?;
+            (dice > 0).then(|| (owner.clone(), hits_on, dice))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

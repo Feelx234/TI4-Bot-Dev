@@ -1373,6 +1373,31 @@ fn apply_barrage(
         // combat: by then ordinary combat rounds have taken fighters too, and nothing would say
         // which step emptied the system.
         let before = fighters_of(state, content, sources, target, system);
+        // "Before a hit would be assigned" (Titans' Tellurian): the barrage's hits are a batch.
+        // The window opens only when something can be hit: the target has fighters, or a Waylay
+        // widens the hits to every ship.
+        let waylay_in_play = state
+            .player(player)
+            .and_then(|seat| seat.waylay_barrage_round)
+            .is_some_and(|played| played == state.combat_round_seq);
+        let hits = &if *hits > 0 && (before > 0 || waylay_in_play) {
+            let payload = std::collections::BTreeMap::from([
+                ("system".to_owned(), system.to_string().into()),
+                ("player".to_owned(), target.to_string().into()),
+                ("gunner".to_owned(), player.to_string().into()),
+                ("hits".to_owned(), i64::try_from(*hits).unwrap_or(0).into()),
+            ]);
+            open_hits_window(
+                state,
+                ctx,
+                "ANTI_FIGHTER_BARRAGE_HITS",
+                payload,
+                target,
+                *hits,
+            )
+        } else {
+            *hits
+        };
         if *hits > 0 {
             // Waylay ("hits from this roll are produced against all ships (not just
             // fighters)", played before this side's barrage roll): the hits are assigned
@@ -1752,6 +1777,18 @@ pub fn space_cannon_offense(
     // system before: `space_cannon_offense` read only the system being activated, so an upgraded
     // PDS next door -- a technology every faction can research -- never fired at all.
     guns.extend(reaching_guns_by(state, &types, galaxy, system, &may_fire));
+    // SPACE CANNON an attachment gives its planet "as if it were a unit" (Titans' Geoform).
+    // Disable and Plasma Scoring do not apply to these dice: the attachment is not a PDS unit.
+    let attachment_guns: Vec<(PlayerId, ti4_model::id::PlanetId, u32, usize)> = board
+        .planet_control
+        .keys()
+        .flat_map(|planet| {
+            crate::planets::attachment_cannons(state, content, system, planet)
+                .into_iter()
+                .map(move |(owner, value, count)| (owner, planet.clone(), value, count))
+        })
+        .filter(|(owner, ..)| may_fire(owner))
+        .collect();
 
     let mut by_player: std::collections::BTreeMap<PlayerId, (usize, Vec<RerollEntry>)> =
         std::collections::BTreeMap::new();
@@ -1813,6 +1850,22 @@ pub fn space_cannon_offense(
         slot.0 += entry.hits();
         slot.1.push(entry);
     }
+    for (owner, planet, value, count) in attachment_guns {
+        let roll = dice.roll_by(rng, count, "space cannon", Some(value), &owner);
+        let entry = RerollEntry {
+            unit: format!("planet cannon {planet}"),
+            planet: None,
+            hits_on: Some(value),
+            faces: roll.faces,
+            rerolled: std::collections::BTreeSet::new(),
+            deltas: std::collections::BTreeMap::new(),
+            // An attachment's own dice, not a unit's: nothing here can be a casualty.
+            unit_types: std::collections::BTreeMap::new(),
+        };
+        let slot = by_player.entry(owner).or_insert_with(|| (0, Vec::new()));
+        slot.0 += entry.hits();
+        slot.1.push(entry);
+    }
     // Stage each gunner's rolls for the reroll windows; the caller opens one window per
     // gunner and names them with `last_reroll_player`.
     for (player, (_, rolls)) in &by_player {
@@ -1859,8 +1912,37 @@ pub fn grant_hit_cancellation(state: &mut GameState, player: &PlayerId, hits: us
     }
 }
 
+/// Open a "before a hit would be assigned" window for `victim` and spend what a card played in it
+/// cancelled, returning the hits that remain.
+///
+/// Only the cancellations granted *during* the window (the growth of the round-scoped pool while
+/// the event resolves) are spent here, capped at `hits`; a cancellation granted earlier (Shields
+/// Holding played before this batch) stays in the pool for the hit assignment that spends it.
+/// The space-combat hit queue differs: after its HITS_TO_ASSIGN window it spends the whole pool
+/// (earlier grants included) before the sustain offer, the order a round-scoped grant implies.
+pub(crate) fn open_hits_window(
+    state: &mut GameState,
+    ctx: &mut Resolving<'_>,
+    event: &'static str,
+    payload: std::collections::BTreeMap<String, serde_json::Value>,
+    victim: &PlayerId,
+    hits: usize,
+) -> usize {
+    if hits == 0 {
+        return 0;
+    }
+    let before = cancellable_hits(state, victim);
+    let _ = ctx.emit(state, event, payload);
+    let gained = cancellable_hits(state, victim).saturating_sub(before);
+    hits - spend_cancellations(state, victim, gained.min(hits))
+}
+
 /// Spend up to `wanted` of this seat's cancellations, returning how many were spent.
-fn spend_cancellations(state: &mut GameState, player: &PlayerId, wanted: usize) -> usize {
+pub(crate) fn spend_cancellations(
+    state: &mut GameState,
+    player: &PlayerId,
+    wanted: usize,
+) -> usize {
     let available = cancellable_hits(state, player);
     let spent = available.min(wanted);
     if spent > 0 {
@@ -4336,8 +4418,8 @@ impl CombatWindow {
         let (content, sources) = (ctx.content, ctx.sources);
         loop {
             match self.stage.clone() {
-                Stage::Sustaining { queue, round } | Stage::Assigning { queue, round } => {
-                    let Some(front) = queue.first().cloned() else {
+                Stage::Sustaining { mut queue, round } | Stage::Assigning { mut queue, round } => {
+                    let Some(mut front) = queue.first().cloned() else {
                         // Hits modules produced at the start of the combat are assigned; the
                         // round resumes at its anti-fighter barrage.
                         if self.hit_phase == HitPhase::CombatStart {
@@ -4412,6 +4494,18 @@ impl CombatWindow {
                         );
                         payload.insert("round".to_owned(), i64::from(round).into());
                         let _ = ctx.emit(state, "HITS_TO_ASSIGN", payload);
+                        // A card played in that window (Tellurian) cancels hits "before a hit
+                        // would be assigned": spend them now, before the sustain offer, rather
+                        // than after the player has answered it.
+                        let cancelled = spend_cancellations(state, &front.player, front.hits);
+                        if cancelled > 0 {
+                            queue[0].hits -= cancelled;
+                            front.hits -= cancelled;
+                            if front.hits == 0 {
+                                self.stage = Stage::Sustaining { queue, round };
+                                continue;
+                            }
+                        }
                     }
                     // A sustain is only offered when something can take one.
                     if matches!(self.stage, Stage::Sustaining { .. })
@@ -9307,6 +9401,201 @@ mod space_routes_tests {
             return;
         }
         panic!("some seed lets the defender live to retreat");
+    }
+
+    /// Tellurian (Titans agent): "Before a hit would be assigned: You may exhaust this card to
+    /// cancel that hit." Driven through the real combat window: a hit `b` produces at the start of
+    /// the combat is about to land on `a`'s only ship; the card is offered in the HITS_TO_ASSIGN
+    /// window and its cancellation is spent before the ship is lost.
+    #[test]
+    fn tellurian_cancels_the_hit_that_would_destroy_the_only_ship() {
+        use crate::factions::hooks_combat::{CombatHooks, with_test_hooks};
+        let run = |ready: bool, script: &[&str], seed: u64| {
+            let hook: Hit = |_, site| {
+                let mut hits = ProducedHits::NONE;
+                if site.player.as_str() == "b"
+                    && site.moment == CombatMoment::CombatStart
+                    && site.round == 1
+                {
+                    hits.any_ship = 1;
+                }
+                Ok(hits)
+            };
+            let hooks = CombatHooks {
+                produced_hits: Some(hook),
+                ..CombatHooks::NONE
+            };
+            with_test_hooks(hooks, || {
+                let content = ContentStore::embedded();
+                let mut state = crate::fixtures::seated_game(
+                    &[("a", "titans"), ("b", "sol")],
+                    ti4_model::content_types::DEFAULT,
+                );
+                let system = SystemId::new("18");
+                put(&mut state, &system, "cruiser", &a(), 1);
+                put(&mut state, &system, "cruiser", &b(), 1);
+                if !ready {
+                    state.player_mut(&a()).unwrap().leaders.insert(
+                        ti4_model::id::LeaderId::new("titansagent"),
+                        ti4_model::state::LeaderStatus::Exhausted,
+                    );
+                }
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let mut table =
+                    Table::with_default(Box::new(Scripted::new(script.iter().copied())));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let mut window =
+                    CombatWindow::new(&state, content, ti4_model::content_types::DEFAULT, &system);
+                let mut ctx = Resolving {
+                    content,
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle {
+                        resolver: &mut resolver,
+                        sequence: &mut sequence,
+                        galaxy: None,
+                    }),
+                };
+                window.settle_open(&mut state, &mut ctx).unwrap();
+                let ships = ships_of(
+                    &state,
+                    content,
+                    ti4_model::content_types::DEFAULT,
+                    &a(),
+                    &system,
+                )
+                .len();
+                let agent = state
+                    .player(&a())
+                    .unwrap()
+                    .leaders
+                    .get(&ti4_model::id::LeaderId::new("titansagent"))
+                    .copied();
+                (ships, agent, crate::combat::cancellable_hits(&state, &a()))
+            })
+        };
+        // The combat goes on to roll dice after the produced hit; the same seed rolls the same
+        // dice whether or not the card was used, so any difference is the cancelled hit.
+        let window = ["leader:titans:titansagent:HITS_TO_ASSIGN:when"];
+        let mut saved = 0;
+        for seed in 0..30 {
+            let (with, agent, pool) = run(true, &window, seed);
+            let (declined, ..) = run(true, &["decline"], seed);
+            let (without, spent, _) = run(false, &[], seed);
+            assert_eq!(agent, Some(ti4_model::state::LeaderStatus::Exhausted));
+            assert_eq!(spent, Some(ti4_model::state::LeaderStatus::Exhausted));
+            assert_eq!(pool, 0, "the cancellation was spent on that hit");
+            assert_eq!(declined, without, "declining is the same as not having it");
+            assert!(with >= without, "seed {seed}");
+            if with > without {
+                saved += 1;
+            }
+        }
+        assert!(saved > 0, "the cancelled hit saved the ship on some seed");
+    }
+
+    /// Shields Holding (a round-scoped grant) still cancels a hit before a sustain-capable ship
+    /// absorbs it, both when granted before the window and when a card grants it inside the
+    /// HITS_TO_ASSIGN window (the spend that follows the emit): the start-of-combat hit is
+    /// cancelled, so the dreadnought is never offered a sustain for it. Without a cancellation the
+    /// sustain is offered.
+    #[test]
+    fn a_cancellation_spares_a_sustaining_ship_before_the_sustain_offer() {
+        use crate::factions::hooks_combat::{CombatHooks, with_test_hooks};
+        // mode 0: nothing; 1: Shields Holding granted earlier in the round; 2: Tellurian in window.
+        let run = |mode: u8, seed: u64| {
+            let hook: Hit = |_, site| {
+                let mut hits = ProducedHits::NONE;
+                if site.player.as_str() == "b"
+                    && site.moment == CombatMoment::CombatStart
+                    && site.round == 1
+                {
+                    hits.any_ship = 1;
+                }
+                Ok(hits)
+            };
+            let hooks = CombatHooks {
+                produced_hits: Some(hook),
+                ..CombatHooks::NONE
+            };
+            with_test_hooks(hooks, || {
+                let content = ContentStore::embedded();
+                let mut state = crate::fixtures::seated_game(
+                    &[("a", "titans"), ("b", "sol")],
+                    ti4_model::content_types::DEFAULT,
+                );
+                let system = SystemId::new("18");
+                put(&mut state, &system, "dreadnought", &a(), 1);
+                put(&mut state, &system, "cruiser", &b(), 1);
+                if mode != 2 {
+                    state.player_mut(&a()).unwrap().leaders.insert(
+                        ti4_model::id::LeaderId::new("titansagent"),
+                        ti4_model::state::LeaderStatus::Exhausted,
+                    );
+                }
+                let mut resolver = crate::fixtures::armed_resolver(&state);
+                let mut sequence = crate::event::EventSequence::new();
+                let script: &[&str] = if mode == 2 {
+                    &["leader:titans:titansagent:HITS_TO_ASSIGN:when"]
+                } else {
+                    &[]
+                };
+                let mut table =
+                    Table::with_default(Box::new(Scripted::new(script.iter().copied())));
+                let mut dice = Dice::new();
+                let mut rng = GameRng::new(seed);
+                let mut window =
+                    CombatWindow::new(&state, content, ti4_model::content_types::DEFAULT, &system);
+                if mode == 1 {
+                    // The start-of-combat hits are assigned in round 1 (the window has begun it).
+                    state.combat_round_seq = 1;
+                    grant_hit_cancellation(&mut state, &a(), 1);
+                    state.combat_round_seq = 0;
+                }
+                let mut ctx = Resolving {
+                    content,
+                    sources: ti4_model::content_types::DEFAULT,
+                    dice: &mut dice,
+                    rng: &mut rng,
+                    table: &mut table,
+                    timing: Some(crate::choice::TimingHandle {
+                        resolver: &mut resolver,
+                        sequence: &mut sequence,
+                        galaxy: None,
+                    }),
+                };
+                window.settle_open(&mut state, &mut ctx).unwrap();
+
+                // The window stops at its first pending decision: a sustain offer for `a` when
+                // the start-of-combat hit still stands, something later when it was cancelled.
+                window
+                    .pending_choice(&state, content, ti4_model::content_types::DEFAULT)
+                    .is_some_and(|choice| {
+                        choice.player == a()
+                            && choice
+                                .options
+                                .iter()
+                                .any(|option| option.kind == SUSTAIN_KIND)
+                    })
+            })
+        };
+        // A later hit in the same round can raise a fresh offer, so the cancellation is judged
+        // over seeds: the start hit's offer is always raised without it, and spared with it.
+        let (mut spared_early, mut spared_in_window) = (0, 0);
+        for seed in 0..30 {
+            assert!(
+                run(0, seed),
+                "without a cancellation the sustain is offered"
+            );
+            spared_early += usize::from(!run(1, seed));
+            spared_in_window += usize::from(!run(2, seed));
+        }
+        assert!(spared_early > 0, "an earlier grant cancels the offer");
+        assert!(spared_in_window > 0, "an in-window grant cancels the offer");
     }
 
     #[test]

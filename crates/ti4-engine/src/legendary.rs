@@ -524,7 +524,9 @@ fn resolve_pass(
             // No `control_gained` here: Maxis Central Control excludes legendary planets, so
             // Thunder's Edge can never arrive through this path.
             if let Some(deck) =
-                crate::exploration::trait_of(context.content, context.sources, &target)
+                crate::planets::traits_now(context.state, context.content, context.sources, &target)
+                    .into_iter()
+                    .next()
             {
                 let mut resolving = crate::choice::Resolving {
                     content: context.content,

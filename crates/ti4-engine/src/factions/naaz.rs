@@ -236,15 +236,14 @@ fn explorable(
     sources: SourceSet,
     planet: &PlanetId,
 ) -> bool {
-    !crate::exploration::traits_of(content, sources, planet).is_empty()
-        && crate::exploration::traits_of(content, sources, planet)
-            .iter()
-            .any(|deck| {
-                state
-                    .exploration_decks
-                    .get(deck)
-                    .is_some_and(|cards| !cards.is_empty())
-            })
+    let traits = crate::planets::traits_now(state, content, sources, planet);
+    !traits.is_empty()
+        && traits.iter().any(|deck| {
+            state
+                .exploration_decks
+                .get(deck)
+                .is_some_and(|cards| !cards.is_empty())
+        })
 }
 
 // -- Fabrication and Black Market Forgery --------------------------------------------------------
@@ -2182,7 +2181,7 @@ mod tests {
             .map(PlanetId::new)
             .find(|planet| {
                 explorable(&state, content, DEFAULT, planet)
-                    && crate::exploration::traits_of(content, DEFAULT, planet)
+                    && crate::planets::traits_now(&state, content, DEFAULT, planet)
                         .contains(&"INDUSTRIAL".to_owned())
             })
             .expect("an unclaimed industrial planet");

@@ -724,7 +724,11 @@ pub fn strategy_resolved(
         &planet,
     );
 
-    if let Some(deck) = crate::exploration::trait_of(context.content, context.sources, &planet) {
+    if let Some(deck) =
+        crate::planets::traits_now(context.state, context.content, context.sources, &planet)
+            .into_iter()
+            .next()
+    {
         let mut resolving = crate::choice::Resolving {
             content: context.content,
             sources: context.sources,

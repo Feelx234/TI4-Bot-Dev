@@ -527,6 +527,18 @@ impl AftermathWindow {
                         crate::combat::combatants(state, ctx.content, ctx.sources, &self.system)
                             .iter()
                             .any(|last| last == &self.player);
+                    // Coalescence (Titans of Ul): units the Awaken ability put beside rival ground
+                    // forces must fight in the Ground Combat step even with no ship left to
+                    // invade from, so the invasion step opens for them.
+                    let holds = holds
+                        || !crate::factions::hooks_ground::forced_combat_planets(
+                            state,
+                            ctx.content,
+                            ctx.sources,
+                            &self.player,
+                            &self.system,
+                        )
+                        .is_empty();
                     if let Some(outcome) = window.outcome()
                         && !self.feats_noted
                     {
@@ -656,6 +668,7 @@ impl AftermathWindow {
                         return Ok(());
                     }
                     window.settle(state, ctx);
+                    window.take_settle_error()?;
                     if let Some((occurrence, combat)) = window.take_scoring_occurrence() {
                         self.pending_event_scoring = Some((
                             occurrence,
@@ -2835,13 +2848,19 @@ impl<'a> Game<'a> {
                 ) {
                     let mut dice = std::mem::take(&mut self.dice);
                     let mut rng = self.rng.clone();
+                    // With the game's timing handle, so "after you explore a planet" windows
+                    // (Titans Terragenesis) open for a Scanlink exploration as for a landing's.
                     let mut ctx = Resolving {
                         content: self.content,
                         sources: self.sources,
                         dice: &mut dice,
                         rng: &mut rng,
                         table: &mut self.table,
-                        timing: None,
+                        timing: Some(crate::choice::TimingHandle {
+                            resolver: &mut self.timing,
+                            sequence: &mut self.event_sequence,
+                            galaxy: self.galaxy.as_ref(),
+                        }),
                     };
                     let explored = crate::exploration::choose_deck(
                         &mut ctx,
@@ -3590,14 +3609,29 @@ impl<'a> Game<'a> {
         // explore 1 planet you control." Here rather than in `finish_tactical`, because a tactical
         // action can end down either path and only this one is common to both.
         if let Some(player) = self.state.active.clone() {
-            crate::relics::crown_of_emphidia_explore(
+            // With the game's timing handle, so "after you explore" windows (Terragenesis) open.
+            let mut dice = std::mem::take(&mut self.dice);
+            let mut rng = self.rng.clone();
+            let mut ctx = Resolving {
+                content: self.content,
+                sources: self.sources,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut self.table,
+                timing: Some(crate::choice::TimingHandle {
+                    resolver: &mut self.timing,
+                    sequence: &mut self.event_sequence,
+                    galaxy: self.galaxy.as_ref(),
+                }),
+            };
+            crate::relics::crown_of_emphidia_explore_with(
                 &mut self.state,
-                self.content,
-                self.sources,
-                &mut self.table,
+                &mut ctx,
                 self.galaxy.as_ref(),
                 &player,
             );
+            self.dice = dice;
+            self.rng = rng;
         }
         // Dark Energy Tap: "After you perform a tactical action in a system that contains a
         // frontier token, if you have 1 or more ships in that system, explore that token."
@@ -8154,7 +8188,7 @@ mod tests {
         state.player_mut(&owner).unwrap().faction = ti4_model::id::FactionId::new("yin");
         state.player_mut(&owner).unwrap().trade_goods = 10;
         crate::fixtures::put(&mut state, &ids[1], "destroyer", &owner, 1);
-        crate::fixtures::put(&mut state, &ids[0], "titans_pds", &owner, 1);
+        crate::fixtures::put(&mut state, &ids[0], "saar_spacedock", &owner, 1);
         assert!(crate::promissory::grant_commander_ability(
             &mut state,
             ContentStore::embedded(),
@@ -8197,7 +8231,7 @@ mod tests {
         let owner = PlayerId::new("a");
         state.player_mut(&owner).unwrap().trade_goods = 10;
         crate::fixtures::put(&mut state, &ids[1], "destroyer", &owner, 1);
-        crate::fixtures::put(&mut state, &ids[0], "titans_pds", &owner, 1);
+        crate::fixtures::put(&mut state, &ids[0], "saar_spacedock", &owner, 1);
         state
             .player_mut(&owner)
             .unwrap()
@@ -8268,12 +8302,12 @@ mod tests {
         // a War Machine played there buys into this step. The control game, running the same
         // action without the card, spends the unboosted budget.
         //
-        // The fixture producer is a Hel-Titan I (production 1, no planet involved) and trade
+        // The fixture producer is a Floating Factory (space-area PRODUCTION, no planet) and trade
         // goods pay for anything, so the only number the card can move is the step's budget.
         let (mut base, galaxy, ids) = tactical_fixture();
         let a = PlayerId::new("a");
         crate::fixtures::put(&mut base, &ids[1], "destroyer", &a, 1);
-        crate::fixtures::put(&mut base, &ids[0], "titans_pds", &a, 1);
+        crate::fixtures::put(&mut base, &ids[0], "saar_spacedock", &a, 1);
         base.player_mut(&a).unwrap().trade_goods = 10;
 
         let bare_state = base.clone();
@@ -8404,7 +8438,7 @@ mod tests {
         // The fixture producer is a Hel-Titan I (production 1, no planet involved), matching
         // `a_war_machine_played_in_the_production_window_grows_that_steps_budget`'s own fixture.
         crate::fixtures::put(&mut base, &ids[1], "destroyer", &a, 1);
-        crate::fixtures::put(&mut base, &ids[0], "titans_pds", &a, 1);
+        crate::fixtures::put(&mut base, &ids[0], "saar_spacedock", &a, 1);
         base.player_mut(&a).unwrap().trade_goods = 10;
 
         let bare_state = base.clone();

@@ -60,12 +60,14 @@ pub mod naalu;
 pub mod naaz;
 pub mod saar;
 pub mod sardakk;
+pub mod titans;
+pub mod titans_leaders;
 pub mod winnu;
 pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 12] = [
+pub const MODULES: [&FactionModule; 13] = [
     &arborec::MODULE,
     &argent::MODULE,
     &ghost::MODULE,
@@ -75,6 +77,7 @@ pub const MODULES: [&FactionModule; 12] = [
     &naaz::MODULE,
     &saar::MODULE,
     &sardakk::MODULE,
+    &titans::MODULE,
     &winnu::MODULE,
     &yin::MODULE,
     &yssaril::MODULE,
