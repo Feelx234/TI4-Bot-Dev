@@ -38,7 +38,98 @@ pub(crate) fn timing_abilities(owner_name: &str, seat: &PlayerId) -> Vec<Ability
         nekro_commander(owner_name, seat),
         keleres_commander(owner_name, seat),
         ralnel_commander(owner_name, seat),
+        crimson_commander(owner_name, seat, "SPACE_COMBAT_ENDED"),
+        crimson_commander(owner_name, seat, "GROUND_COMBAT_ENDED"),
     ]
+}
+
+/// Whether the Crimson commander's holder can gain a commodity and whether they can convert one.
+fn crimson_payments(state: &GameState, content: &ContentStore, player: &PlayerId) -> (bool, bool) {
+    let limit = crate::strategy_cards::commodity_limit(state, content, player);
+    let held = state.player(player).map_or(0, |seat| seat.commodities);
+    (held < limit, held > 0)
+}
+
+/// Ask the Crimson commander's holder which payment to take when both are possible.
+fn crimson_ask(
+    context: &mut crate::timing::TimingContext<'_>,
+    owner: &PlayerId,
+) -> Result<bool, crate::choice::IllegalChoice> {
+    let choice = crate::choice::Choice::new(
+        owner.clone(),
+        "Crimson commander: gain 1 commodity or convert 1 commodity to a trade good",
+        vec![
+            crate::choice::ChoiceOption::labelled(
+                "gain".to_owned(),
+                "economy",
+                "gain 1 commodity".to_owned(),
+            ),
+            crate::choice::ChoiceOption::labelled(
+                "convert".to_owned(),
+                "economy",
+                "convert 1 commodity to a trade good".to_owned(),
+            ),
+        ],
+    )
+    .contextualized(crate::decision_context::DecisionContext::new(
+        owner.clone(),
+        crate::decision_context::DecisionSource::Content("crimsoncommander".to_owned()),
+        "crimson_payment",
+        context.state.phase,
+        context.state.round,
+    ));
+    Ok(context.ask_seeing(&choice)?.id == "convert")
+}
+
+/// Crimson Rebellion (`crimsoncommander`): "At the end of a combat between any players: Gain 1
+/// commodity or convert 1 of your commodities to a trade good." Not optional ("may" is absent);
+/// the holder chooses only when both payments are possible, and nothing happens when neither is
+/// (no room for a commodity and none to convert). One ability per combat kind, since a space and
+/// a ground combat each end separately.
+fn crimson_commander(owner_name: &str, seat: &PlayerId, event_type: &'static str) -> Ability {
+    let owner = seat.clone();
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("leader:{owner_name}:crimsoncommander:{event_type}:after"),
+        seat.clone(),
+        event_type,
+        crate::timing::Relation::After,
+        std::sync::Arc::new(move |_, _, context| {
+            let (can_gain, can_convert) = crimson_payments(context.state, context.content, &owner);
+            let convert = if can_gain && can_convert {
+                crimson_ask(context, &owner).map_err(crate::timing::TimingError::IllegalChoice)?
+            } else {
+                can_convert
+            };
+            if let Some(seat) = context.state.player_mut(&owner) {
+                if convert {
+                    seat.commodities -= 1;
+                    seat.trade_goods += 1;
+                } else {
+                    seat.commodities += 1;
+                }
+            }
+            if convert {
+                crate::supply::note_trade_goods_gained(
+                    context.state,
+                    &owner,
+                    1,
+                    "crimsoncommander",
+                );
+            }
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(std::sync::Arc::new(move |_, _, context| {
+        let (can_gain, can_convert) =
+            crimson_payments(context.state, context.content, &condition_owner);
+        (can_gain || can_convert)
+            && crate::promissory::has_commander_ability(
+                context.state,
+                &condition_owner,
+                "crimsoncommander",
+            )
+    }))
 }
 
 /// Systems adjacent to `system` that hold no other player's ships, for Ral Nel's commander.
@@ -567,6 +658,44 @@ mod tests {
         assert_eq!(cruisers(&state, &active), 1);
         assert_eq!(cruisers(&state, &safe), 2);
         assert!(state.system_state(&safe).command_tokens.contains(&a));
+    }
+
+    #[test]
+    fn the_crimson_commander_pays_at_the_end_of_any_combat() {
+        let ended = |state: &mut GameState, event: &str, answers: Vec<&str>| {
+            let mut resolver = crate::fixtures::armed_resolver(state);
+            let mut table = Table::with_default(Box::new(Scripted::new(answers)));
+            crate::fixtures::with_context(state, DEFAULT, None, &mut table, |ctx| {
+                let event = ctx
+                    .event_sequence
+                    .next(event, [("system".to_owned(), "18".into())].into())
+                    .unwrap();
+                resolver.emit_with_context(ctx, event, |_, _| {}).unwrap();
+            });
+        };
+        let a = PlayerId::new("a");
+        let mut state = arena();
+        state.player_mut(&a).unwrap().commodities = 0;
+        ended(&mut state, "SPACE_COMBAT_ENDED", vec![]);
+        assert_eq!(
+            state.player(&a).unwrap().commodities,
+            0,
+            "no ability, nothing"
+        );
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            ContentStore::embedded(),
+            &a,
+            "crimsoncommander"
+        ));
+        // No commodity to convert: the gain is automatic.
+        ended(&mut state, "SPACE_COMBAT_ENDED", vec![]);
+        assert_eq!(state.player(&a).unwrap().commodities, 1);
+        // Both possible: the holder chooses; a ground combat counts too.
+        let goods = state.player(&a).unwrap().trade_goods;
+        ended(&mut state, "GROUND_COMBAT_ENDED", vec!["convert"]);
+        assert_eq!(state.player(&a).unwrap().commodities, 0);
+        assert_eq!(state.player(&a).unwrap().trade_goods, goods + 1);
     }
 
     #[test]

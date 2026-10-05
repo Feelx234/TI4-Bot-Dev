@@ -56,3 +56,7 @@ tactic token already spent; Firmament-treated planets are not "theirs" for share
 - `crimsoncommander` is in Yin's canonical pool but Crimson is out of scope (operator, Oct 4), so
   `yinbt` stays unclaimed unless the operator allows that one handler.
 - Not yet compiled or run: everything above waits for the soak to release the build directory.
+
+## Crimson commander and Yin Ascendant claimed (2026-10-05)
+
+Operator: "if that is all that is missing with yin commit" — the Crimson commander handler (only the commander effect, not the Crimson faction) is added so Yin's pool is fully live. `crimsoncommander`: after `SPACE_COMBAT_ENDED` and `GROUND_COMBAT_ENDED`, the holder gains 1 commodity or converts 1 (asks only when both are possible; not optional, the card has no "may"). Test `the_crimson_commander_pays_at_the_end_of_any_combat`; decision site `crimson_ask` registered. Guard test `yinbt_pool_has_a_live_handler_for_every_commander` pins the 30 canonical pool commanders to handled ids. `yinbt` claimed. Engine: lib 2131 passed, 1 ignored; integrations green. Ledger: all twelve BF factions complete.

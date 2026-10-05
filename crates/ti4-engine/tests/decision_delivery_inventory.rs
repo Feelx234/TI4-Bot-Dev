@@ -414,6 +414,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Crimson commander: gain a commodity or convert one (BF-COMMANDERS-ALLIANCE-OCT5).
+        module: "borrowed_commanders.rs",
+        function: "crimson_ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Ral Nel commander: retreat destination and ships (BF-COMMANDERS-ALLIANCE-OCT5).
         module: "borrowed_commanders.rs",
         function: "ralnel_ask",
@@ -1261,6 +1268,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("yssaril.rs", "deepgloom_transaction", 1),
     ("mentak.rs", "ask_among", 1),
     ("borrowed_commanders.rs", "ralnel_ask", 1),
+    ("borrowed_commanders.rs", "crimson_ask", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),
     ("argent.rs", "strike_wing_effect", 1),

@@ -30,9 +30,10 @@ pub const MODULE: FactionModule = FactionModule {
     technologies: &["yso", "ic"],
     units: &["yin_flagship", "yin_mech"],
     promissory: &["greyfire"],
-    // yinbt acquisition is live; unsupported granted commander effects keep acceptance open.
     leaders: &["yinagent", "yincommander", "yinhero"],
-    breakthroughs: &[],
+    // Yin Ascendant: every commander in its pool has a live, rights-aware handler
+    // (`yinbt_pool_has_a_live_handler_for_every_commander`).
+    breakthroughs: &["yinbt"],
     hooks: Hooks {
         commander_unlocked: Some(commander_unlocked),
         leader_action: Some(leader_action),
@@ -1779,6 +1780,52 @@ mod tests {
         assert!(candidates.contains(&"crimsoncommander".to_owned()));
     }
 
+    /// Commanders whose effect has a live route that reads `promissory::has_commander_ability`
+    /// (BF-ALLIANCE-ROUTES-*, BF-BORROWED-*, BF-COMMANDERS-ALLIANCE-OCT5). A new faction family in
+    /// the pool fails this test until its commander joins the list with a handler.
+    const HANDLED_COMMANDERS: [&str; 30] = [
+        "arboreccommander",
+        "argentcommander",
+        "ghostcommander",
+        "hacancommander",
+        "jolnarcommander",
+        "l1z1xcommander",
+        "letnevcommander",
+        "mentakcommander",
+        "muaatcommander",
+        "naalucommander",
+        "naazcommander",
+        "saarcommander",
+        "sardakkcommander",
+        "solcommander",
+        "winnucommander",
+        "xxchacommander",
+        "yincommander",
+        "yssarilcommander",
+        "cabalcommander",
+        "empyreancommander",
+        "kelerescommander",
+        "mahactcommander",
+        "nekrocommander",
+        "nomadcommander",
+        "titanscommander",
+        "bastioncommander",
+        "deepwroughtcommander",
+        "crimsoncommander",
+        "ralnelcommander",
+        "firmamentcommander",
+    ];
+
+    #[test]
+    fn yinbt_pool_has_a_live_handler_for_every_commander() {
+        for (_, id) in yinbt_canonical_commanders(ContentStore::embedded()) {
+            assert!(
+                HANDLED_COMMANDERS.contains(&id.as_str()),
+                "{id} can be granted by Yin Ascendant but has no handler"
+            );
+        }
+    }
+
     #[test]
     fn yinbt_sampler_is_uniformly_indexed_and_seed_deterministic() {
         let candidates = yinbt_canonical_commanders(ContentStore::embedded())
@@ -3390,7 +3437,7 @@ mod tests {
         assert!(crate::factions::module("yin").is_some());
         let missing = crate::factions::missing(ContentStore::embedded(), DEFAULT, "yin");
         let ids: Vec<&str> = missing.iter().map(|asset| asset.id.as_str()).collect();
-        assert_eq!(ids, ["yinbt"]);
+        assert!(ids.is_empty(), "every Yin asset is claimed: {ids:?}");
     }
     #[test]
     fn timed_dannel_opens_combat_secret_scoring_before_continuing() {
