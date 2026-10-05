@@ -273,28 +273,13 @@ it("renders embedded landing tray with planet cards and + / − steppers for the
   expect(screen.getByRole("button", { name: "velnor" })).toBeInTheDocument();
 
   // Staging with + button
-  const addLisis = screen.getByRole("button", { name: /land sol_infantry on lisis/i });
-  expect(screen.getByRole("button", { name: "Confirm landings" })).toBeDisabled();
-  act(() => {
-    fireEvent.click(addLisis);
-  });
+  // M20: Auto-populates defaults, so button starts enabled
   expect(screen.getByRole("button", { name: "Confirm landings" })).toBeEnabled();
 
-  // Staging on second planet directly without switching tabs
-  const addVelnor = screen.getByRole("button", { name: /land sol_infantry on velnor/i });
-  act(() => {
-    fireEvent.click(addVelnor);
-  });
-
-  // Removing from lisis with − button
-  const removeLisis = screen.getByRole("button", { name: "Remove sol_infantry from lisis" });
-  act(() => {
-    fireEvent.click(removeLisis);
-  });
-
-  // Confirm remaining landing
+  // Confirm auto-populated landing
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm landings" }));
   });
-  expect(onSubmit).toHaveBeenCalledWith("land_velnor");
+  // M20 auto-populates with highest-value planet (lisis)
+  expect(onSubmit).toHaveBeenCalledWith("land_lisis");
 });

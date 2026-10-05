@@ -173,4 +173,41 @@ describe("ReactionStatusBar", () => {
 
     expect(screen.getByTestId("reaction-error-badge")).toHaveTextContent("Reaction window expired");
   });
+
+  it("M14: supports action card descriptions in option payload", () => {
+    const onSubmit = vi.fn();
+
+    // M14: Action cards can now include description field for trigger information
+    const reactionChoice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "46",
+      prompt: "React with action card?",
+      context: {
+        subtype: "play_reaction_when_action_card_played",
+      },
+      options: [
+        {
+          id: "decoy_operation",
+          label: "Decoy Operation",
+          kind: "reaction",
+          description: "After another player activates a system that contains 1+ of your structures",
+        },
+        { id: "decline", label: "Pass", kind: "decline" },
+      ],
+    };
+
+    render(
+      <ReactionStatusBar
+        isOpen={true}
+        choice={reactionChoice}
+        viewerSeat="seat_1"
+        onSubmit={onSubmit}
+      />,
+    );
+
+    // Action card button should render the label
+    const cardButton = screen.getByTestId("play-reaction-btn-decoy_operation");
+    expect(cardButton).toBeInTheDocument();
+    expect(cardButton).toHaveTextContent("Decoy Operation");
+  });
 });

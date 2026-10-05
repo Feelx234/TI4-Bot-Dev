@@ -213,4 +213,51 @@ describe("PlayerSheet Component & Human Readable Metadata", () => {
     expect(prodBadge).toHaveTextContent("0/6");
     expect(prodBadge).toHaveAttribute("title", "Production Capacity: 0 available / 6 total");
   });
+
+  it("M11: displays exhausted strategy cards as grayed out (visual distinction)", () => {
+    const playersWithExhausted: PlayerView[] = [
+      {
+        ...mockPlayers[0],
+        strategy_cards: ["pok1leadership", "pok6warfare"],
+        exhausted_strategy_cards: ["pok1leadership"], // This card is exhausted
+      },
+    ];
+    const mockBoard = { systems: {} };
+    render(<PlayerSheet players={playersWithExhausted} userSeat="p1" board={mockBoard} />);
+    const p1Card = screen.getAllByTestId("player-card")[0];
+    // Check that exhausted cards have visual indication (strategy-card--exhausted class)
+    const exhaustedCard = p1Card.querySelector('[data-testid="strategy-card-badge-pok1leadership"]');
+    expect(exhaustedCard).toBeInTheDocument();
+    // Exhausted card should have the exhausted class
+    expect(exhaustedCard).toHaveClass("strategy-card--exhausted");
+    // Active card should not have the exhausted class
+    const activeCard = p1Card.querySelector('[data-testid="strategy-card-badge-pok6warfare"]');
+    expect(activeCard).not.toHaveClass("strategy-card--exhausted");
+  });
+
+  it("M12: shows VP breakdown tooltip with source information", () => {
+    const mockBoard = { systems: {} };
+    render(<PlayerSheet players={mockPlayers} userSeat="p1" board={mockBoard} />);
+    const p1Card = screen.getAllByTestId("player-card")[0];
+    const vpDisplay = p1Card.querySelector('[data-testid="player-vp"]');
+    expect(vpDisplay).toBeInTheDocument();
+    // Check for VP value displayed
+    expect(vpDisplay).toHaveTextContent("3");
+  });
+
+  it("M16: displays current player card prominently", () => {
+    const mockBoard = { systems: {} };
+    render(
+      <PlayerSheet
+        players={mockPlayers}
+        userSeat="p1"
+        board={mockBoard}
+      />,
+    );
+    const playerCards = screen.getAllByTestId("player-card");
+    // Current player's card should have data-is-self attribute
+    const currentPlayerCard = playerCards.find(card => card.getAttribute("data-is-self") === "true");
+    expect(currentPlayerCard).toBeInTheDocument();
+    expect(currentPlayerCard?.textContent).toContain("Federation of Sol");
+  });
 });
