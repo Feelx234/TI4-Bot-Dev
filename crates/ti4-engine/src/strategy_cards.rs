@@ -434,6 +434,7 @@ fn specialist_compounds(
                         colour.to_lowercase()
                     ),
                 )
+                .with_planet_located(state, content, sources, planet.as_str())
             })
             .chain(std::iter::once(ChoiceOption::decline()))
             .collect(),
@@ -705,12 +706,16 @@ fn paid_research(
             .map_or(0, |seat| seat.technologies.len()),
     )
     .unwrap_or(i64::MAX);
+    // For the secondary, the token is already spent (deducted in take_choice), so don't offer decline.
+    // If we did, the token would be lost even if the player changes their mind. Instead, we force
+    // them to pick a technology or (below) warn and refund if they somehow decline.
+    // The primary's optional second research offers decline, but that is after the gate where
+    // affordability and token availability are already confirmed.
     let choice = Choice::new(
         player.clone(),
-        "research a technology",
+        "choose a technology to research",
         open.iter()
             .map(|id| research_option(content, id, cost, 0, techs_owned))
-            .chain(std::iter::once(ChoiceOption::decline()))
             .collect(),
     )
     .contextualized(DecisionContext::new(
@@ -724,7 +729,12 @@ fn paid_research(
         state.round,
     ));
     let answer = ask(state, content, sources, galaxy, table, &choice)?;
+    // If somehow they declined (e.g., no valid options offered but this shouldn't happen),
+    // refund the token since the secondary action did not complete.
     if answer.is_decline() {
+        if let Some(seat) = state.player_mut(player) {
+            seat.strategic_tokens += 1;
+        }
         return Ok(());
     }
     let Some(plan) = crate::payment::plans(state, content, sources, player, cost, Spend::Resources)
@@ -774,6 +784,7 @@ fn ready_planets(
                 .iter()
                 .map(|planet| {
                     ChoiceOption::labelled(planet.to_string(), "ready", format!("ready {planet}"))
+                        .with_planet_located(state, content, sources, planet.as_str())
                 })
                 .collect(),
         )
@@ -960,6 +971,8 @@ pub(crate) fn structure_options(
                         "build",
                         format!("place {kind} on {planet}"),
                     )
+                    .with_planet(planet.as_str(), Some(system.as_str()))
+                    .with("unit", kind)
                 })
         })
         .collect()
@@ -1647,6 +1660,72 @@ mod tests {
                     prompt: choice.prompt.clone(),
                 })
         }
+    }
+
+    /// Specialist Compounds, the readying of planets (34.2) and structure placement all carry
+    /// `planet` + `system` (structures also `unit`); declines carry neither.
+    #[test]
+    fn strategy_card_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, assert_not_a_planet, offered};
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("a");
+        let hold = |state: &mut GameState, system: &str, planet: &str| {
+            state
+                .system_mut(&SystemId::new(system))
+                .set_control(PlanetId::new(planet), player.clone());
+        };
+        let capture = |inner: Box<dyn crate::choice::Decider>| {
+            let (decider, seen) = crate::choice::Capturing::new(inner);
+            (Table::with_default(Box::new(decider)), seen)
+        };
+        let subtype = |choice: &Choice| choice.context.as_ref().unwrap().subtype.clone();
+
+        // Specialist Compounds: ids are `planet:colour`.
+        let mut state = game(&["a"]);
+        hold(&mut state, "19", "wellon");
+        hold(&mut state, "27", "newalbion");
+        state.player_mut(&player).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("jolnarbt"));
+        let (mut table, seen) = capture(Box::new(crate::choice::AlwaysDecline));
+        specialist_compounds(&mut state, content, POK, None, &mut table, &player).unwrap();
+        let choice = &seen.borrow()[0];
+        assert_eq!(subtype(choice), "specialist_compounds_choose_planet");
+        assert_locates(offered(choice, "wellon:CYBERNETIC"), "wellon", "19");
+        assert_locates(offered(choice, "newalbion:BIOTIC"), "newalbion", "27");
+        assert_not_a_planet(offered(choice, crate::choice::DECLINE_ID));
+
+        // Ready a planet: ids are bare planet ids.
+        let mut state = game(&["a"]);
+        hold(&mut state, "26", "lodor");
+        hold(&mut state, "28", "torkan");
+        state.exhausted_planets.insert(PlanetId::new("lodor"));
+        state.exhausted_planets.insert(PlanetId::new("torkan"));
+        let (mut table, seen) = capture(Box::new(crate::choice::FirstOption));
+        ready_planets(&mut state, content, POK, None, &mut table, &player, 1).unwrap();
+        let choice = &seen.borrow()[0];
+        assert_eq!(subtype(choice), "ready_planet");
+        assert_locates(offered(choice, "lodor"), "lodor", "26");
+        assert_locates(offered(choice, "torkan"), "torkan", "28");
+
+        // Place a structure: ids are `unit|system|planet`, and the unit rides along too.
+        let mut state = game(&["a"]);
+        hold(&mut state, "26", "lodor");
+        let (mut table, seen) = capture(Box::new(crate::choice::AlwaysDecline));
+        place_structure(&mut state, content, POK, None, &mut table, &player, false).unwrap();
+        let choice = &seen.borrow()[0];
+        assert_eq!(subtype(choice), "place_structure");
+        for unit in ["pds", "spacedock"] {
+            let option = offered(choice, &format!("{unit}|26|lodor"));
+            assert_locates(option, "lodor", "26");
+            assert_eq!(
+                option
+                    .payload
+                    .get("unit")
+                    .and_then(serde_json::Value::as_str),
+                Some(unit)
+            );
+        }
+        assert_not_a_planet(offered(choice, crate::choice::DECLINE_ID));
     }
 
     /// OBS-003e: the production/payment producers this module shares with `OBS-008c` were

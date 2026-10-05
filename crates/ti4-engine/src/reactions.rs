@@ -39,7 +39,7 @@ use std::sync::Arc;
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::{ContentType, SourceSet};
-use ti4_model::id::{ActionCardId, PlayerId};
+use ti4_model::id::{ActionCardId, PlayerId, SystemId};
 use ti4_model::state::{GameState, Player};
 
 use crate::decision_context::{DecisionContext, DecisionSource};
@@ -147,6 +147,72 @@ fn direct_hit_guard(event: &Event, player: &PlayerId, state: &GameState) -> bool
 /// someone else, and the card being played is not one of the four Sabotage copies — Sabotage
 /// cancels other cards being played, not itself (1.15 would otherwise let a chain of
 /// Sabotages spend the whole deck for nothing).
+fn system_contains_player_units(
+    event: &Event,
+    player: &PlayerId,
+    state: &GameState,
+) -> bool {
+    if let Some(system) = event.text("system") {
+        let sys = state.system_state(&SystemId::new(system));
+        return sys.units.iter().any(|u| u.owner == *player);
+    }
+    false
+}
+
+fn system_contains_player_structures(
+    event: &Event,
+    player: &PlayerId,
+    state: &GameState,
+) -> bool {
+    if let Some(system) = event.text("system") {
+        let sys = state.system_state(&SystemId::new(system));
+        return sys.units.iter().any(|u| {
+            u.owner == *player && (u.type_id.as_str() == "spacedock" || u.type_id.as_str() == "pds")
+        });
+    }
+    false
+}
+
+fn system_contains_player_command_token(
+    event: &Event,
+    player: &PlayerId,
+    state: &GameState,
+) -> bool {
+    if let Some(system) = event.text("system") {
+        let sys = state.system_state(&SystemId::new(system));
+        return sys.command_tokens.contains(player);
+    }
+    false
+}
+
+fn system_contains_player_ships(
+    event: &Event,
+    player: &PlayerId,
+    state: &GameState,
+) -> bool {
+    if let Some(system) = event.text("system") {
+        let sys = state.system_state(&SystemId::new(system));
+        return sys.units.iter().any(|u| {
+            u.owner == *player && u.type_id.as_str().ends_with("ship")
+        });
+    }
+    false
+}
+
+fn system_contains_other_player_ships(
+    event: &Event,
+    player: &PlayerId,
+    state: &GameState,
+) -> bool {
+    if let Some(system) = event.text("system") {
+        let sys = state.system_state(&SystemId::new(system));
+        return sys.units.iter().any(|u| {
+            u.owner != *player && u.type_id.as_str().ends_with("ship")
+        });
+    }
+    false
+}
+
 fn another_players_card_is_not_sabotage(
     event: &Event,
     player: &PlayerId,
@@ -279,7 +345,9 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         ),
         (
             "After you activate a system that contains 1 or more of your ships",
-            guarded("SYSTEM_ACTIVATED", After, actor_is),
+            guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
+                actor_is(e, p, s) && system_contains_player_ships(e, p, s)
+            }),
         ),
         (
             "When another player plays an action card other than 'Sabotage'",
@@ -289,7 +357,9 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         // them is whose activation it was, which is exactly what the guard is for.
         (
             "After you activate a system that contains another player's ships",
-            guarded("SYSTEM_ACTIVATED", After, actor_is),
+            guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
+                actor_is(e, p, s) && system_contains_other_player_ships(e, p, s)
+            }),
         ),
         (
             "After you activate an anomaly",
@@ -297,15 +367,21 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         ),
         (
             "After another player activates a system that contains your units",
-            guarded("SYSTEM_ACTIVATED", After, actor_is_not),
+            guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
+                actor_is_not(e, p, s) && system_contains_player_units(e, p, s)
+            }),
         ),
         (
             "After another player activates a system that contains 1 of your command tokens",
-            guarded("SYSTEM_ACTIVATED", After, actor_is_not),
+            guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
+                actor_is_not(e, p, s) && system_contains_player_command_token(e, p, s)
+            }),
         ),
         (
             "After another player activates a system that contains 1 or more of your structures",
-            guarded("SYSTEM_ACTIVATED", After, actor_is_not),
+            guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
+                actor_is_not(e, p, s) && system_contains_player_structures(e, p, s)
+            }),
         ),
         (
             "At the start of a combat",
@@ -1104,6 +1180,14 @@ mod tests {
         Event::new(1, event_type, payload)
     }
 
+    /// A `SYSTEM_ACTIVATED` event: the player who activated, and the system.
+    fn system_activation_event(who: &str, system: &str) -> Event {
+        let mut payload = BTreeMap::new();
+        payload.insert("player".to_owned(), who.to_owned().into());
+        payload.insert("system".to_owned(), system.to_owned().into());
+        Event::new(1, "SYSTEM_ACTIVATED", payload)
+    }
+
     #[test]
     fn a_component_action_is_not_a_reaction() {
         // Forty-two cards read "Action". Treating one as a reaction would offer it in a window
@@ -1506,6 +1590,42 @@ mod tests {
         assert_eq!(
             state.player(&player()).unwrap().action_cards,
             [ActionCardId::new("silence_space")]
+        );
+    }
+
+    #[test]
+    fn reaction_conditions_are_checked_before_offering() {
+        // Decoy Operation window: "After another player activates a system that contains
+        // 1 or more of your structures". The card should only be offered if the activated
+        // system actually contains the player's structures, not always when another player activates.
+        let content = ContentStore::embedded();
+        let b = PlayerId::new("b");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+
+        // Player B holds Decoy Operation
+        state.player_mut(&b).unwrap().action_cards = vec![ActionCardId::new("decoy")];
+
+        // Player A activates system 33 (Corneeq)
+        let activation = system_activation_event("a", "33");
+
+        // Player B has no structures in system 33, so Decoy Operation should not be offered
+        assert!(
+            playable_now(&state, content, &b, &activation, Relation::After).is_empty(),
+            "Decoy Operation should not be offered when the system contains no structures"
+        );
+
+        // Place a Space Dock for player B in system 33
+        let spacedock = ti4_model::Unit::new(
+            ti4_model::id::UnitTypeId::new("spacedock"),
+            b.clone(),
+        );
+        state.system_mut(&SystemId::new("33")).units.push(spacedock);
+
+        // Now Decoy Operation should be offered
+        assert_eq!(
+            playable_now(&state, content, &b, &activation, Relation::After),
+            vec![ActionCardId::new("decoy")],
+            "Decoy Operation should be offered when the system contains the player's structures"
         );
     }
 }
