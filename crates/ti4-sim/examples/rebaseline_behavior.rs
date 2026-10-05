@@ -11,6 +11,19 @@ use ti4_sim::behavior;
 
 fn main() {
     let batch = behavior::play_batch(ti4_content::ContentStore::embedded());
+    assert_eq!(
+        batch
+            .results
+            .iter()
+            .map(|result| result.seed)
+            .collect::<Vec<_>>(),
+        behavior::SEEDS,
+        "the diagnostic must include every recorded seed exactly once"
+    );
+    assert!(
+        batch.errors().is_empty(),
+        "failed games cannot be reported as a completed baseline"
+    );
     let old = behavior::baseline_bounds();
     let metrics = behavior::batch_metrics(&batch);
 

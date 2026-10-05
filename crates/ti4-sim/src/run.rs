@@ -393,6 +393,8 @@ pub fn run(
 }
 
 /// Play `count` games with a named set of seats.
+/// # Panics
+/// Panics if a seed worker panics; an incomplete batch is never returned as success.
 #[must_use]
 pub fn run_with(
     content: &'static ContentStore,
@@ -402,7 +404,9 @@ pub fn run_with(
     seats: Seats,
 ) -> Batch {
     let seeds: Vec<u64> = seeds.into_iter().collect();
-    let workers = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let workers = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .min(16);
     let chunk = seeds.len().div_ceil(workers.max(1)).max(1);
 
     let mut results: Vec<GameResult> = std::thread::scope(|scope| {
@@ -420,8 +424,7 @@ pub fn run_with(
             .collect();
         handles
             .into_iter()
-            .filter_map(|handle| handle.join().ok())
-            .flatten()
+            .flat_map(|handle| handle.join().expect("simulation seed worker panicked"))
             .collect()
     });
     results.sort_by_key(|result| result.seed);
