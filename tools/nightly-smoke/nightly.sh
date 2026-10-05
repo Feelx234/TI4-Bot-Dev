@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nightly random-UI smoke sweep, proctored by Haiku and summarised by Opus in the morning.
+# Nightly random-UI smoke sweep, proctored by Sonnet and summarised by Opus in the morning.
 #
 #   nightly.sh tick      called by cron every 5 minutes; starts the sweep inside the window and
 #                        writes the morning summary once the window has ended
@@ -46,13 +46,25 @@ cmd_loop() {
   } > "$report"
   log "sweep for $NIGHT until $(TZ="$NIGHTLY_TZ" date -d "@$END_EPOCH" '+%F %T %Z')"
 
-  # Build once so the first run's backend start does not eat into Playwright's server timeout.
-  if ! (cd "$REPO" && cargo build --quiet -p ti4-server --bin server) > "$NIGHT_DIR/build.log" 2>&1; then
-    { echo "## Build failed — no runs tonight"; echo '```'; tail -n 60 "$NIGHT_DIR/build.log"; echo '```'; } >> "$report"
-    log "build failed"
-    touch "$NIGHT_DIR/sweep.done"
-    exit 1
+  # The whole night runs on one branch, nightly-fixes-<night>, checked out in $REPO. Before
+  # switching, the current state (uncommitted and untracked work included) is committed onto it,
+  # so nothing is lost. Proctors commit their minor repairs here, so every later run includes the
+  # earlier fixes. Nothing is pushed. In the morning: git checkout <orig_branch> and merge/cherry-pick.
+  FIX_BRANCH="nightly-fixes-$NIGHT"
+  if [ "$(git -C "$REPO" branch --show-current)" != "$FIX_BRANCH" ]; then
+    git -C "$REPO" branch --show-current > "$NIGHT_DIR/orig_branch"
+    if git -C "$REPO" show-ref -q --verify "refs/heads/$FIX_BRANCH"; then
+      git -C "$REPO" checkout -q "$FIX_BRANCH"
+    else
+      git -C "$REPO" checkout -q -b "$FIX_BRANCH" \
+        && git -C "$REPO" add -A \
+        && { git -C "$REPO" diff --cached --quiet || git -C "$REPO" commit -q -m "nightly $NIGHT: snapshot of the working tree before the sweep"; }
+    fi >> "$NIGHT_DIR/build.log" 2>&1 || {
+      { echo "## Could not switch to $FIX_BRANCH — no runs tonight"; echo '```'; tail -n 30 "$NIGHT_DIR/build.log"; echo '```'; } >> "$report"
+      log "branch setup failed"; touch "$NIGHT_DIR/sweep.done"; exit 1
+    }
   fi
+  BASE_COMMIT=$(git -C "$REPO" rev-parse HEAD)
 
   local n=0
   while [ $(( END_EPOCH - $(now_epoch) )) -gt "$MIN_RUN_SECONDS" ]; do
@@ -61,18 +73,38 @@ cmd_loop() {
     run_name="$(printf '%02d' "$n")-$(TZ="$NIGHTLY_TZ" date +%H%M)"
     local run_dir="$NIGHT_DIR/runs/$run_name"
     mkdir -p "$run_dir"
+    # Build before every run so Playwright's backend start stays fast after a repair. A repair
+    # that broke the build is reverted so one bad fix cannot cost the rest of the night.
+    if ! (cd "$REPO" && cargo build --quiet -p ti4-server --bin server) > "$run_dir/build.log" 2>&1; then
+      if [ "$(git -C "$REPO" rev-parse HEAD)" != "$BASE_COMMIT" ]; then
+        # Only proctor commits exist past the last good build; drop them (they stay in the reflog).
+        git -C "$REPO" reset -q --hard "$BASE_COMMIT" >> "$run_dir/build.log" 2>&1
+        { echo "## Before run $run_name: a proctor repair broke the build; branch reset to the last good commit"; echo; } >> "$report"
+        log "run $run_name: build broke, reset to last good commit"
+        rm -rf "$run_dir"; n=$((n - 1)); continue
+      fi
+      { echo "## Build failed — no runs tonight"; echo '```'; tail -n 60 "$run_dir/build.log"; echo '```'; } >> "$report"
+      log "build failed"; break
+    fi
+    BASE_COMMIT=$(git -C "$REPO" rev-parse HEAD)
     log "run $run_name: launching proctor"
     local prompt
-    prompt=$(render "$NIGHTLY_DIR/prompts/proctor.md" "RUN_DIR=$run_dir" "TOOLS=$NIGHTLY_DIR" "RUN_NAME=$run_name")
+    prompt=$(render "$NIGHTLY_DIR/prompts/proctor.md" "RUN_DIR=$run_dir" "TOOLS=$NIGHTLY_DIR" "RUN_NAME=$run_name" "FIX_BRANCH=$FIX_BRANCH")
     # The game itself stops 5 minutes before END so the proctor can still write its entry.
     export DEADLINE=$(( END_EPOCH - 300 ))
-    timeout --kill-after=30 $(( END_EPOCH - $(now_epoch) + 600 )) \
+    # Auto mode with edit tools, working in $REPO on the night's branch. Pushing, switching
+    # branches and rewriting history stay denied.
+    (cd "$REPO" && timeout --kill-after=30 $(( END_EPOCH - $(now_epoch) + 600 )) \
       "$CLAUDE_BIN" -p --model "$PROCTOR_MODEL" --no-session-persistence \
-      --permission-mode dontAsk --tools Bash Read Grep Glob \
+      --permission-mode auto --tools Bash Read Grep Glob Edit Write \
       --allowedTools "Bash($NIGHTLY_DIR/run_game.sh:*)" "Bash($NIGHTLY_DIR/watch.sh:*)" \
-      "Bash(python3 $NIGHTLY_DIR/digest.py:*)" "Read" "Grep" "Glob" \
-      --disallowedTools "Edit" "Write" "NotebookEdit" "Agent" \
-      -- "$prompt" > "$run_dir/proctor-entry.md" 2> "$run_dir/proctor.err" < /dev/null
+      "Bash(python3 $NIGHTLY_DIR/digest.py:*)" "Read" "Grep" "Glob" "Edit" "Write" \
+      "Bash(git status:*)" "Bash(git diff:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git log:*)" \
+      "Bash(cargo check:*)" "Bash(cargo test:*)" "Bash(cargo fmt:*)" "Bash(npm test:*)" "Bash(npx tsc:*)" "Bash(npx vitest:*)" \
+      --disallowedTools "NotebookEdit" "Agent" "Bash(git push:*)" "Bash(git checkout:*)" "Bash(git switch:*)" \
+      "Bash(git reset:*)" "Bash(git rebase:*)" "Bash(git merge:*)" "Bash(git branch:*)" "Bash(git worktree:*)" \
+      "Bash(git stash:*)" "Bash(git clean:*)" "Bash(git revert:*)" "Bash(rm:*)" "Bash(sudo:*)" "Bash(kill:*)" "Bash(pkill:*)" \
+      -- "$prompt" > "$run_dir/proctor-entry.md" 2> "$run_dir/proctor.err" < /dev/null)
     local status=$?
     # Whatever the proctor did, never leave a game running.
     "$NIGHTLY_DIR/run_game.sh" stop "$run_dir" > /dev/null 2>&1
@@ -109,7 +141,7 @@ cmd_summary() {
   log "writing morning summary for $NIGHT"
   local prompt
   prompt=$(render "$NIGHTLY_DIR/prompts/summary.md" "REPORT=$NIGHT_DIR/report.md" \
-    "NIGHT_DIR=$NIGHT_DIR/runs" "REPO=$REPO" "STOP_ROUND=$STOP_ROUND")
+    "NIGHT_DIR=$NIGHT_DIR/runs" "REPO=$REPO" "STOP_ROUND=$STOP_ROUND" "FIX_BRANCH=nightly-fixes-$NIGHT")
   (cd "$REPO" && timeout 3600 "$CLAUDE_BIN" -p --model "$SUMMARY_MODEL" --no-session-persistence \
     --permission-mode dontAsk --tools Bash Read Grep Glob \
     --allowedTools "Read" "Grep" "Glob" "Bash(git log:*)" "Bash(git show:*)" "Bash(git diff:*)" \

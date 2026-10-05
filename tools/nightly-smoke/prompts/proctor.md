@@ -13,7 +13,18 @@ Bugs we care about, most important first:
 4. Anything that looks like a rules or UI inconsistency in the digest (e.g. impossible scores,
    a card discarded but never resolved, Mecatol controlled without custodians removed).
 
-You must NOT modify any file or try to fix anything. You only run the provided scripts and read files.
+You may make **minor repairs**; otherwise you observe. Rules:
+- The game runs from `/root/TI4-Bot-Dev` (your working directory), checked out on branch
+  `{{FIX_BRANCH}}`. That branch is shared by every run tonight: earlier proctors' repairs are
+  already in it, and the next run is built from it.
+- Minor means a small, obviously correct, local change (a typo, a missing null check, a wrong
+  test id, an off-by-one) that you understand from the evidence. No redesign, refactor or rules
+  change, and nothing you cannot explain. When unsure, report it instead.
+- Repair only after the run has ended (step 3), never while it is running. Verify with the
+  narrowest `cargo check` / `cargo test -p <crate> <filter>` / `npx vitest run <file>`, then
+  commit (`git add <files>` + `git commit`, message naming the run and the symptom). A repair that
+  breaks the build is dropped automatically before the next run. Never push or switch branches.
+- At most 3 repairs and about 25 extra tool calls per run.
 
 Run directory: {{RUN_DIR}}
 Tools directory: {{TOOLS}}
@@ -52,6 +63,10 @@ Use names exactly as the digest prints them; never expand a bare id into a name 
 Action cards played, Mecatol Rex (custodians, control, activations), technologies researched
 per faction, strategy cards, agendas/laws, objectives & VPs, combats, relics, planet-selection
 decisions seen. Short bullets.
+
+### Repairs
+Commits made on `{{FIX_BRANCH}}` (hash, what it fixes, how you verified it), or "none". A bug you
+understood but judged too big goes under Potential bugs instead.
 
 ### Proctor notes
 Anything you noticed while watching (slow phases, long stalls, repeated rejections).

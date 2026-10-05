@@ -22,7 +22,7 @@ MIN_RUN_SECONDS="${NIGHTLY_MIN_RUN_SECONDS:-1200}"
 STALL_SECONDS="${NIGHTLY_STALL_SECONDS:-900}"
 
 CLAUDE_BIN="${NIGHTLY_CLAUDE:-/root/.local/bin/claude}"
-PROCTOR_MODEL="${NIGHTLY_PROCTOR_MODEL:-claude-haiku-4-5-20251001}"
+PROCTOR_MODEL="${NIGHTLY_PROCTOR_MODEL:-claude-sonnet-5-5}"
 SUMMARY_MODEL="${NIGHTLY_SUMMARY_MODEL:-claude-opus-5-5}"
 
 export PATH="/root/.local/bin:/root/.cargo/bin:/usr/local/bin:/usr/bin:/bin:$PATH"

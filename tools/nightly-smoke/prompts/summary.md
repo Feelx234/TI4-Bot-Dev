@@ -1,6 +1,6 @@
 You are reviewing the results of last night's automated UI smoke sweep of a Twilight Imperium 4
 web client (React/TypeScript frontend in `web/`, Rust engine in `crates/ti4-engine`, server in
-`crates/ti4-server`). Haiku proctors ran random-click playthroughs (random seeds) until round
+`crates/ti4-server`). Sonnet proctors ran random-click playthroughs (random seeds) until round
 {{STOP_ROUND}} and appended one entry per run to the night report.
 
 Night report: {{REPORT}}
@@ -21,3 +21,5 @@ Your job (read-only — do NOT modify, create or delete any file, do NOT commit,
 
 Output only the morning summary in markdown, starting with a 3–5 line TL;DR, then
 "## Findings" (ranked), "## Suggested fixes", "## Coverage", "## Harness / sweep issues".
+
+Proctors may have committed minor repairs to the branch `{{FIX_BRANCH}}` (see `git log --oneline` on it; its first commit is the pre-sweep snapshot of the working tree). List the repair commits with a one-line judgement each and say they are unreviewed and unpushed.
