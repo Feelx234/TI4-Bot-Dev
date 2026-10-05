@@ -490,8 +490,10 @@ export async function randomUiPlaythrough(
 
       progressed = await expect
         .poll(async () => (await gameSnapshot(request, gameId, players[0].session)).game_version, {
-          timeout: chosen.commit ? 3_000 : 1_500,
-          intervals: [100],
+          // Staging clicks rarely advance the server, so do not wait long for a version bump;
+          // one that lands late is caught by the next poll.
+          timeout: chosen.commit ? 3_000 : 300,
+          intervals: [50],
         })
         .toBeGreaterThan(before)
         .then(() => true)
