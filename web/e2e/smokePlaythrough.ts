@@ -68,6 +68,7 @@ const ERROR_BANNERS = [
   "activation-error",
   "planet-selection-error",
   "reaction-error-badge",
+  "combat-error-banner",
 ];
 
 // Controls that hide the decision or rewrite history; clicking them never advances the game.
@@ -330,10 +331,28 @@ export async function randomUiPlaythrough(
 
   const browserErrors: string[] = [];
   const pages: Page[] = [];
+  // The last websocket frames each seat received, so a stuck decision can show whether the tab
+  // was ever sent it, or had it cleared afterwards.
+  const wsFrames: string[][] = [];
   for (const [index, player] of players.entries()) {
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on("pageerror", (err) => browserErrors.push(`[seat ${index + 1}] ${err.message}`));
+    const frames: string[] = (wsFrames[index] = []);
+    page.on("websocket", (ws) => {
+      ws.on("framereceived", ({ payload }) => {
+        let line: string;
+        try {
+          const m = JSON.parse(String(payload));
+          const pending = m.pending_choice?.nonce ?? m.nonce ?? null;
+          line = `${m.type} v${m.game_version ?? m.entry?.version ?? "?"}${pending ? ` nonce=${String(pending).slice(0, 6)}` : ""}${m.type === "turn_status" ? ` ${m.status?.kind}` : ""}${m.type === "state_update" ? ` pending=${m.pending_choice ? "yes" : "no"}` : ""}`;
+        } catch {
+          line = "unparsed frame";
+        }
+        frames.push(line);
+        if (frames.length > 40) frames.shift();
+      });
+    });
     page.on("console", (msg) => {
       if (msg.type() !== "error") return;
       const url = msg.location().url ?? "";
@@ -387,7 +406,10 @@ export async function randomUiPlaythrough(
 
   const fail = async (page: Page | undefined, message: string): Promise<never> => {
     const status = await gameSnapshot(request, gameId, players[0].session).catch(() => null);
-    const detail = `${message}\nreport: ${JSON.stringify({ ...report, finalStatus: status?.turn_status })}`;
+    const seatIndex = page ? pages.indexOf(page) : -1;
+    const frames =
+      seatIndex >= 0 ? `\nws frames seat ${seatIndex + 1} (newest last):\n${wsFrames[seatIndex].join("\n")}` : "";
+    const detail = `${message}\nreport: ${JSON.stringify({ ...report, finalStatus: status?.turn_status })}${frames}`;
     if (page)
       await page.screenshot({ path: `test-results/smoke-failure-${gameId}.png` }).catch(() => {});
     trace("failure.txt", detail);
@@ -463,6 +485,12 @@ export async function randomUiPlaythrough(
     let progressed = false;
     let emptyPolls = 0;
     for (let clicks = 0; clicks < options.maxClicksPerDecision;) {
+      // Progress is read from the actor's tab (free) rather than the API; it follows the server
+      // over the websocket. A late-landing commit is caught here before another click.
+      if (clicks > 0 && (await uiVersion(page)) > before) {
+        progressed = true;
+        break;
+      }
       const candidates = await collectCandidates(page);
       if (!candidates.length) {
         // The UI can take a moment to mount the workflow for a fresh offer.
@@ -488,16 +516,19 @@ export async function randomUiPlaythrough(
       clicks++;
       report.clicks++;
 
-      progressed = await expect
-        .poll(async () => (await gameSnapshot(request, gameId, players[0].session)).game_version, {
-          // Staging clicks rarely advance the server, so do not wait long for a version bump;
-          // one that lands late is caught by the next poll.
-          timeout: chosen.commit ? 3_000 : 300,
-          intervals: [50],
-        })
-        .toBeGreaterThan(before)
-        .then(() => true)
-        .catch(() => false);
+      if (chosen.commit) {
+        // Wait for the tab to show the new version; fall back to one server check in case the
+        // tab's websocket lagged.
+        progressed = await expect
+          .poll(() => uiVersion(page), { timeout: 3_000, intervals: [50] })
+          .toBeGreaterThan(before)
+          .then(() => true)
+          .catch(async () => (await gameSnapshot(request, gameId, players[0].session)).game_version > before);
+      } else {
+        // Staging clicks rarely advance the server: let React settle, then read the tab once.
+        await page.waitForTimeout(40);
+        progressed = (await uiVersion(page)) > before;
+      }
       if (progressed) break;
       const errors = await visibleErrors(page);
       for (const error of errors) {
@@ -507,6 +538,9 @@ export async function randomUiPlaythrough(
           log(`  rejected: ${error}`);
         }
       }
+    }
+    if (!progressed) {
+      progressed = (await gameSnapshot(request, gameId, players[0].session)).game_version > before;
     }
     if (!progressed) {
       await fail(
