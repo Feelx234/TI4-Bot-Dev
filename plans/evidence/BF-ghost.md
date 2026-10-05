@@ -17,8 +17,8 @@ Card text: `crates/ti4-content/content/*.json` at `DEFAULT` (latest printing).
 | promissory | `iff` Creuss IFF | done (timing ability, `TURN_BEGAN` after, action phase) | `creuss_iff_places_a_token_and_returns_to_the_creuss_player`, `creuss_iff_is_not_offered_to_the_owner_off_turn_or_outside_the_action_phase` |
 | leader | `ghostagent` Emissary Taivra | done (timing ability + `linked_systems`) | `emissary_taivra_makes_the_activated_system_adjacent_to_every_wormhole_system`, `emissary_taivra_needs_a_ready_agent_and_a_non_delta_wormhole` |
 | leader | `ghosthero` Riftwalker Meian | done (`use_leader`, `movement::apply_map_edit`) | `riftwalker_meian_swaps_two_systems_and_the_map_follows`, `riftwalker_meian_refuses_the_gate_the_home_system_the_nexus_and_fracture_systems` |
-| leader | `ghostcommander` Sai Seravus | partial: unlock only, not claimed | `sai_seravus_unlocks_with_units_in_three_alpha_or_beta_systems` |
-| breakthrough | `ghostbt` Particle Synthesis | blocked, not claimed | none |
+| leader | `ghostcommander` Sai Seravus | done, claimed (committed d69bba8e; uses `SHIP_MOVED.wormholes` and `MOVEMENT_FINISHED`) | `sai_seravus_places_one_fighter_per_capacity_ship_after_the_whole_move`, `sai_seravus_needs_the_unlocked_commander_a_wormhole_and_unused_capacity`, `sai_seravus_places_a_fighter_after_a_real_quantum_wormhole_move`, `sai_seravus_unlocks_with_units_in_three_alpha_or_beta_systems` |
+| breakthrough | `ghostbt` Particle Synthesis | done, claimed (committed 8a9e437d; `extra_production` + `production_cost_reduction`) | tests in `factions::ghost` (particle synthesis) |
 
 Regression: `a_game_without_a_creuss_seat_is_unchanged_and_offered_nothing` (adjacency equals `Galaxy::adjacent` for
 every system and player, no `linked_systems`, no `faction|ghost|` component action, hero not offered, no Slipstream bonus,
@@ -99,3 +99,7 @@ ghost     10/12 implemented
 
 - Quantum Entanglement now lifts `nexus_wormholes_off` on a copy of the galaxy before reading kinds (test `quantum_entanglement_ignores_nexus_sovereignty`). `factions::ghost`: 22 passed; clippy: no ghost.rs warnings; rustfmt clean.
 - Hook request: `Hooks::component_actions` needs a `&Galaxy` (or `Option<&Galaxy>`) so Wormhole Generator is offered only when `tokens::wormhole_generator_destinations` is non-empty. Until then it is offered when ready; `perform_component` is atomic (returns false, nothing changed, card stays ready) if no destination exists.
+
+## Update after shared routes (F3/F4)
+
+Hook requests 1 and 2 above are resolved: both items were implemented in commits d69bba8e and 8a9e437d. Verified now: `factions::ghost` 27 passed; no clippy warning in ghost.rs; rustfmt --check clean. Ledger: `ghost     12/12 implemented`. No new decision sites beyond `ask`.

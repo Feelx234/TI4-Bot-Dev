@@ -8,7 +8,7 @@ Card text: `crates/ti4-content/content/*.json` at DEFAULT, quoted in the module 
 | Kind | Id | Status | Tests |
 |---|---|---|---|
 | ability | `crafty` | done (economy `action_card_limit` = `usize::MAX`, beats Sanctions) | `crafty_lifts_the_hand_limit_for_its_owner_only`, `crafty_beats_a_law_that_caps_the_hand` |
-| ability | `scheming` | **partial, not claimed** (code kept; status-phase and agenda draws bypass `draw`). Done for `action_cards::draw` callers (bonus hook + `action_cards_drawn` choose-and-discard); status/agenda draws bypass `draw` (see Hook requests) | `scheming_draws_one_extra_then_discards_one_chosen`, `scheming_applies_to_nobody_else` |
+| ability | `scheming` | done: all live draw sources route through the draw hooks and hand-limit enforcement | `scheming_draws_one_extra_then_discards_one_chosen`, `scheming_applies_to_nobody_else`, `a_politics_rider_paid_with_a_table_draws_through_scheming` |
 | ability | `stall_tactics` | done (component action `faction\|yssaril\|stall_tactics`) | `stall_tactics_is_offered_with_a_card_and_only_to_yssaril`, `stall_tactics_discards_a_chosen_card_and_the_mech_deploys_after`, `the_mech_may_be_declined_and_stall_tactics_refuses_an_empty_hand`, `a_staged_stall_tactics_discard_reaches_the_pile_when_announced` |
 | tech | `tp` | done (economy `action_cards_forbidden`, read by `laws::action_cards_forbidden` and the reaction gate) | `transparasteel_stops_passed_players_only_on_its_owners_action_turn` |
 | tech | `mi` | done (component action `faction\|yssaril\|mi\|<seat>`, `look_at_hand_and_take`, exhausts) | `mageon_implants_looks_takes_one_and_exhausts`, `mageon_implants_needs_the_card_a_ready_technology_and_a_hand_to_look_at` |
@@ -18,7 +18,7 @@ Card text: `crates/ti4-content/content/*.json` at DEFAULT, quoted in the module 
 | leader | `yssarilcommander` | done (unlock hook; SYSTEM_ACTIVATED window; reveal to the owner only) | `the_commander_unlocks_with_seven_action_cards`, `the_commander_looks_at_the_activating_players_cards_and_only_then`, `the_commander_may_look_at_notes_or_secrets_instead`, `the_commander_needs_to_be_unlocked_the_units_and_another_player` |
 | leader | `yssarilhero` | done (`leader_action` + `use_leader`; shared code purges) | `kyver_takes_one_card_and_forces_discards_on_another_then_is_purged`, `kyver_may_decline_each_player_and_needs_a_hand_to_look_at` |
 | leader | `yssarilagent` | **blocked** (not claimed) | none |
-| breakthrough | `yssarilbt` | **blocked** (not claimed) | none |
+| breakthrough | `yssarilbt` | done: borrowed Scheming and Stall Tactics require owner consent; the staged transaction resolves with fixed parties, a turn-scoped exemption, and cleanup | `game_step_flushes_the_borrowed_scheming_transaction`, `borrowed_scheming_draws_extra_discards_one_and_stages_the_transaction`, `borrowed_stall_tactics_opens_one_forced_pair_transaction_and_expires`, refusal and invalid-answer tests |
 
 Regression/hidden information: `a_game_without_yssaril_is_never_offered_a_yssaril_ability` (no choice
 mentioning yssaril, no component options, neutral hooks, empty `faction_marks`);
@@ -50,13 +50,9 @@ The other asks go through registered helpers (`choose_from_own_hand`, `show_acti
    `hooks_cards::borrowable_agents` entry's ACTION window to the Ssruu owner. Non-ACTION agents
    (timing abilities built per owner at construction) need a copy registered for every seat. Module
    side is then: exhaust `yssarilagent` after a successful borrowed use.
-2. **Deepgloom Executable (`yssarilbt`)**: (a) `transactions.rs` must call
-   `hooks_cards::transaction_exempt_from_limit` (still not wired); (b) the "allow another player to
-   use STALL TACTICS or SCHEMING" window has no engine shape: another seat would need a component
-   action for Stall Tactics that Yssaril consents to, and Scheming for another seat's draw needs a
-   consent prompt inside `action_cards::draw`'s hooks (which receive no breakthrough/consent
-   context). Requested: a decision on how a non-Yssaril seat uses these (see Rules question 3), then
-   a `component_actions` window keyed on another seat plus the transaction opening API.
+2. **Deepgloom Executable (`yssarilbt`)**: owner-consent windows cover borrowed Stall Tactics and Scheming;
+   `transaction_limit_exempt` is wired, and the staged typed event opens a trade window with the fixed pair.
+   `Game::step` flushes staged supply events at its start; `game_step_flushes_the_borrowed_scheming_transaction` exercises that actual event boundary.
 3. **Staged events from non-component paths**: Scheming's discard and Spy Net's take are staged
    (`discard_chosen`, `take_revealed_action_card`) from inside `draw` / a timing ability.
    `Game::announce_staged_cards` runs only after component and leader actions, so a Scheming discard
@@ -125,3 +121,40 @@ yssaril   10/12 implemented
 Politics Rider's 3-card payoff now goes through `action_cards::draw` when the game pays predictions (`resolve_predictions_with`, called from `Game::resolve_agenda_outcome` with the game's content and table), so Scheming's extra draw + discard and the hand limit apply. The status-phase draw already applies the draw hooks (`resolve_before_token_gain_with`); Unconventional Measures uses `draw_announced`. No raw deck pop remains outside tests and the table-less `resolve_predictions` path. Test: `a_politics_rider_paid_with_a_table_draws_through_scheming`. `scheming` claimed; `yssarilagent` and `yssarilbt` remain unclaimed.
 
 Checks: `cargo test -p ti4-engine` — lib 1913 passed, 1 failed (an in-progress Saar agent test in saar.rs, not part of this commit), integration binaries ok.
+
+## Deepgloom follow-up (2026-10-04)
+
+`action_card_draw_requested` now asks each eligible Yssaril breakthrough holder for consent before another seat's draw;
+an allowed draw receives one Scheming extra card, must choose a discard, then stages `DEEPGLOOM_TRANSACTION`.
+Borrowed Stall Tactics uses the same event and owner-consent pattern. The event listener opens one trade window with the
+granting Yssaril as proposer and the user as the fixed counterparty; it keeps an in-flight reach permission and
+action-phase limit exemption through the window, then removes both marks. The new resolver-driven test checks the
+actual forced parties, one accepted transaction, mark cleanup and pair-limit result.
+
+Failure atomicity: if a borrowed Scheming discard answer is invalid, the hook restores the drawn cards to the hand's
+prior length and the deck's prior top order before returning the choice error. Invalid borrowed-Stall discard answers
+leave the state unchanged. The new test filters are
+`factions::yssaril::tests::borrowed_scheming_`,
+`factions::yssaril::tests::borrowed_stall_tactics_`, and
+`factions::yssaril::tests::deepgloom_needs_the_breakthrough_and_a_card`.
+
+The initial seam assessment was incorrect: `Game::step` flushes staged supply events before other step work.
+This finding and its correction are documented below. The new Rust tests have not been run in this subtask because
+the coordinator owns cargo builds for the shared working tree.
+
+## Deepgloom completed (2026-10-04)
+
+`Game::step` calls `announce_staged_ground_events` before other step work, and that method calls
+`supply::flush_staged_events`; therefore a Scheming draw's staged `DEEPGLOOM_TRANSACTION` resolves
+at the next game step, including draws from non-component origins. The new integration test performs
+a borrowed Scheming draw, then uses the real `Game::step` flush and checks one fixed-pair proposal
+and answer, the accepted commodity swap and recorded transaction, drained supply events, and cleared exemption.
+The test fixtures give both parties a commodity so `cc1` is a legal offer; the no-draw Scheming test clears
+the default populated deck. The existing
+resolver test covers borrowed Stall Tactics through the same event, while the invalid-answer tests
+cover rollback and the refusal tests prove decline behavior. `yssarilbt` is claimed in `MODULE`.
+
+Focused test filters: `factions::yssaril::tests::game_step_flushes_the_borrowed_scheming_transaction`,
+`factions::yssaril::tests::borrowed_scheming_`, and
+`factions::yssaril::tests::borrowed_stall_tactics_`. Tests were not run in this subtask because the
+coordinator owns the shared cargo build; rustfmt was applied to `yssaril.rs`.

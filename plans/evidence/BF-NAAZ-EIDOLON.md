@@ -158,3 +158,7 @@ No independent reviewer or reviewing model ran for this package: no review peer 
 session, and `AGENTS.md` requires a reviewer other than the implementer for tier C/D. The claims
 above are therefore implementer-verified only. The soak and `rebaseline_behavior` are diagnostics,
 not the retired acceptance gate.
+
+## Subsequent independent review, 2026-10-04
+
+See [BF-CODEX-INHERITED-REVIEW-2026-10-04.md](BF-CODEX-INHERITED-REVIEW-2026-10-04.md) for findings and corrections to producer taxonomy, placement/release gap claims, atomic-package scope, and the limits of aggregate compatibility diagnostics. This preserves the original implementation record; later WIP is separately reviewable.

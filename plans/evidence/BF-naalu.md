@@ -1,8 +1,7 @@
 # BF-naalu: The Naalu Collective
 
-Implementer: Sonnet subagent. Branch `wp/base-factions`, nothing committed or staged. Only
-`crates/ti4-engine/src/factions/naalu.rs` and this file were written. Texts: `crates/ti4-content/content/*.json`
-at `DEFAULT`. Historical Python reference: not used.
+Implementer: Sonnet subagent; commander live-view completion by Luna subagent. Branch `wp/base-factions`.
+Texts: `crates/ti4-content/content/*.json` at `DEFAULT`. Historical Python reference: not used.
 
 Printings resolved at `DEFAULT` (tested): mech `ti4_content::units::faction_unit(.., "naalu", "mech", DEFAULT)` =
 `naalu_mech_te` (Thunder's Edge); agent `leaders::for_faction` = `naaluagent-te` (ledger test
@@ -22,13 +21,14 @@ Printings resolved at `DEFAULT` (tested): mech `ti4_content::units::faction_unit
 | unit | `naalu_mech_te` | **partial, not claimed**: DEPLOY implemented for Fracture's relic event and a new `RELIC_GAINED` name; other relic gains emit nothing (Request 4) | `the_mech_is_the_thunders_edge_printing_and_deploys_after_a_fracture_relic` |
 | promissory | `gift` | done: played at `STRATEGY_PHASE_ENDED`, returned at `STATUS_PHASE_ENDED` | `gift_gives_its_holder_the_token_and_switches_telepathic_off_until_status_ends`, `gift_is_optional_and_not_offered_to_its_owner_or_a_non_holder` |
 | leader | `naaluagent-te` | **partial, not claimed**: only the activation token (typed `SYSTEM_ACTIVATED`) is covered (Request 5) | `the_agent_returns_an_activation_token_and_exhausts`, `the_agent_needs_a_token_there_and_may_be_declined` |
-| leader | `naalucommander` | **blocked**: unlock is shared code; the effect needs a live view (Request 6) | |
+| leader | `naalucommander` | done: bound `SeatObservation` computes current neighbor promissory hands and agenda-deck ends only when the commander is unlocked | `naalu_commander_reads_neighbor_hands_and_agenda_ends_live` |
 | leader | `naaluhero` | done | `the_hero_takes_a_note_from_each_other_player_and_is_purged`, `the_hero_needs_to_be_unlocked_may_be_declined_and_keeps_the_card_when_declined` |
 | breakthrough | `naalubt` Mindsieve | done: one `follow|waived` option per note in hand | `mindsieve_offers_one_waiver_per_note_in_hand_and_hands_the_note_over`, `mindsieve_is_not_offered_for_ones_own_card_or_without_the_breakthrough` |
 | regression | no Naalu seat | done | `a_game_without_naalu_is_offered_nothing_and_keeps_its_initiative_order` (hook dispatch leaves overrides empty and the order unchanged; six events with no scripted answers leave the whole `GameState` equal) |
 
-Claimed in `MODULE`: abilities `telepathic`, `foresight`; technologies `ng`; units `naalu_fighter`;
-promissory `gift`; leaders `naaluhero`; breakthroughs `naalubt`. Ledger line: `naalu 7/13 implemented`.
+Claimed in `MODULE`: abilities `telepathic`, `foresight`; technologies `ng`, `hcf2`; units `naalu_fighter`,
+`naalu_fighter2`, `naalu_flagship`, `naalu_mech_te`; promissory `gift`; leaders `naaluhero`,
+`naalucommander`; breakthrough `naalubt`. Z'eu remains partial and unclaimed. Ledger line: `naalu 12/13 implemented`.
 
 ## Design notes
 
@@ -49,6 +49,12 @@ promissory `gift`; leaders `naaluhero`; breakthroughs `naalubt`. Ledger line: `n
   Only notes in hand (not faceup) are offered.
 * **Oracle.** Offered only when some other player holds a note in hand; each such player picks the note (one note is
   given without a question). Support for the Throne is not in `promissory_notes`, so it is never taken (see questions).
+* **M'aban.** `CardHooks::may_view_hand` is a read-time permission. The Naalu handler requires the viewer's
+  commander unlock and a map-confirmed neighbor relation; `SeatObservation::revealed_promissory_notes` reads the
+  current hidden, non-faceup note IDs under that permission. `agenda_deck_ends` returns the live first and last IDs
+  only on the bound view with the commander unlocked. No reveal mark is written, so hand transfers, faceup play,
+  movement, and commander lock changes immediately change what is visible. Other bound seats cannot request Naalu's
+  access for themselves.
 
 ## Hook requests
 
@@ -75,10 +81,9 @@ promissory `gift`; leaders `naaluhero`; breakthroughs `naalubt`. Ledger line: `n
    board (activation already carries `SYSTEM_ACTIVATED`; Foresight, leader and card placements do not). The agent then
    needs a second ability on that event. Not tested in a running `Game`: returning the activation token mid-tactical
    action may interact with `game.rs` token bookkeeping.
-6. **Commander `naalucommander`.** "At any time" look at neighbours' promissory hands and the top and bottom of the
-   agenda deck. Needs a live (computed, not stored) view: for example `CardHooks::sees_hand(&GameState, &ContentStore,
-   viewer, owner, RevealKind) -> bool` read by `SeatObservation::revealed_*`, plus an agenda-deck peek accessor. Stored
-   `Standing` reveals go stale when a hand changes.
+6. **Commander `naalucommander`.** Resolved with a live, bound-seat view and a read-time `CardHooks::may_view_hand`
+   permission. The focused test was attempted after shared source errors were repaired; rustc reached LLVM but failed
+   with an out-of-memory error while another build held the artifact directory. Rerun after concurrent builds settle.
 
 ## Decision sites to register (`tests/decision_delivery_inventory.rs`)
 

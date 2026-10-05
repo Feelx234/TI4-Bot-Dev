@@ -26,7 +26,7 @@ A faction is **in scope** only when every row is green, with a test per row:
 | 8 | TE reprints that replace the PoK card (Naalu agent/mech, Mentak `mentak_cruiser3`) | `units.json`, `leaders.json` |
 | 9 | Registry ledgers show 0 unimplemented / 0 `blocked()` for the faction | `registry.rs`, `faction_abilities::unimplemented`, `breakthroughs::registered_aliases`, mech/leader ledgers |
 | 10 | Legal-action generation offers every new option; failed transitions atomic | AGENTS.md accuracy rules |
-| 11 | 200-game deterministic soak with the faction seated, zero engine errors, replay-identical | `ti4-sim` |
+| 11 | Seated soak, zero engine errors, replay-identical on the replayed sample. Routine: 25 seeds per faction, every 10th case replayed, `--release`. Exit gate only: 200 seeds, every 10th replayed (operator, 2026-10-05) | `ti4-sim` |
 
 ## Asset inventory (from content, 2026-10-02)
 
@@ -103,7 +103,7 @@ historical context only (no parity claims).
 | BF-22 | `ti4-policy` battle arena `FACTIONS` width → schema version bump; faction-decomposition features verified for new factions; vocabulary census |
 | BF-23 | `ti4-sim` integrity re-baseline (operator approval; authored-bot play changes) |
 | BF-24 | Replayer/review: every new option renders with a presentation, manual-path check per new decision kind |
-| BF-25 | Full workspace suite, 18-faction soak (all faction pairs seated), registry ledgers at zero for the 12, frontier exit review, milestone report |
+| BF-25 | Full workspace suite, sampled 18-faction pairing soak (every pair seated on a fixed sample of seeds, not a full sweep; operator 2026-10-05), registry ledgers at zero for the 12, frontier exit review, milestone report |
 
 ## Parallel execution (operator request: Sonnet agents, ≤ 6 at once)
 
@@ -166,3 +166,35 @@ subsystem is late simply starts with the rows that don't need it.
 | Battle-arena schema width change | Breaks existing arena checkpoints; needs migration or new version |
 | Creuss off-map home | Map templates and adjacency are touched by every game, not just Creuss games |
 | Nekro deferred | Its Valefar/Singularity copying is gated on every other faction's techs |
+
+## October 4 continuation splits
+
+Operator takeover and entire-plan authority supersede the earlier ownership split. Terra remains the subagent ceiling; current implementation delegates are Luna. Shared checkout, no new folders or worktrees, root-coordinated tests and isolated game.rs staging remain binding.
+
+The remaining copied-ability scope is split before implementation: BF-ALLIANCE-RIGHTS (durable/public rights foundation); BF-ALLIANCE-ROUTES-A (Arborec/Argent/Ghost); B (Mentak/Muaat/Naaz); C (Naalu/Sardakk/Yin/Yssaril); WINNU (combat bonus); CORE (pre-existing shared commander consumers); missing commander handlers by economy, timing, movement, research, and scoring clusters; BF-YIN-BT-GRANTS (canonical unused faction sampling and gain/public-score triggers); BF-SSRUU-ACTION and BF-SSRUU-TIMING (all seated agents). These children preserve the entire printed scope; the candidate pool must never be narrowed to handlers that happen to exist. Each requires independent tier-C review and its own scoped evidence before closure. BF-STAGED-EVENT-ERRORS handles strict Game delivery separately from the legacy flush API. BF-WINNU-HERO-TIMING handles tactical continuation and delayed purge separately from Winnu's consumer. Integration BF-20..25 follows only after the printed faction assets execute end to end.
+
+BF-NAAZ-HERO-WARFARE is a separate legality correction: the inherited claimed hero excludes TE Warfare based on its primary although the hero resolves secondaries. Include it with an actual home-production regression; no free-tactical continuation is required. Tier C review pending.
+
+BF-BORROWED-NOMAD-PRODUCTION isolates free flagship costs from the missing-commander economy cluster, preserving other production constraints and normal discount balances. It does not add Nomad to supported seating.
+
+BF-BORROWED-CABAL-PRODUCTION isolates the two-unit fighter/infantry PRODUCTION exemption, including legal offers after ordinary capacity is spent and a shared per-use allowance. No other unit or payment may use this allowance.
+
+BF-BORROWED-TITANS-PRODUCTION adds a generic acquired-commander timing registration outside the seating/module asset catalog; Titans' optional PRODUCTION TG must resolve for the actual recipient, with ordinary Alliance lock constraints retained.
+
+BF-PRODUCTION-ENTRY-ERRORS isolates strict PRODUCTION_USED delivery and atomic movement-to-aftermath retry, needed before closing acquired Titans production. Other legacy timing emitters remain separate audit scope.
+
+## Operator scope correction, October 4
+
+The operator explicitly states Crimson and interactions with Crimson are outside this faction package. The coordinator had expanded Yin breakthrough dependencies into all canonical unused-faction commander implementations; that expansion is not accepted package scope. Crimson implementation was interrupted before any Crimson code/evidence edit was reported. Suspend further external-commander packages and reconcile their scope before resuming them. Preserve already-existing uncommitted Nomad/Cabal/Titans work without claiming it is required or accepted here; do not delete/reset shared edits.
+
+Completion work returns to the twelve named BF factions, their own assets and shared hooks. The printed Yin breakthrough's acquisition of unsupported faction commanders remains an explicit dependency limitation; do not falsify coverage or silently restrict its random pool to make a ledger green. Record this limit during scope-ledger reconciliation instead of implementing excluded factions.
+
+BF-SSRUU-MUAAT-ACTION stays in scope because both Yssaril and Muaat are among the twelve BF factions. It is assigned to the native Pi model exactly as an implementation agent: disjoint edit scope, inline actual-dispatch fixtures, root-run Cargo, independent review before acceptance. Package specification: BF_LOCAL_MODEL_SSRUU_MUAAT_WORK_PACKAGE.md. Root's production-entry atomicity verification remains next shared fix; no broad compatibility expansion or simulator widening before dependencies are reconciled.
+
+## Soak reduction (operator, 2026-10-05)
+
+The operator found the soaks costly with no clear benefit and approved reducing them:
+`--release` builds always; routine soaks at 25 seeds per faction; determinism replay on every
+10th case instead of every case; the 200-seed run only at the milestone exit gate; BF-25's
+all-pairs soak becomes a fixed-seed sample per pair. Runner: `base_faction_soak [faction|all]
+[first_seed] [count] [replay_every]`, defaults `all 0 25 10`.

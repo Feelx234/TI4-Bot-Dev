@@ -126,3 +126,24 @@ factions::yin --no-fail-fast` — 25 passed, 0 failed. New focused waiver tests 
 `technology::bf_f3_tests` and `strategy_cards::tests`; their run is pending the unrelated combat.rs
 compile repair. The ledger is now `yin 9/11 implemented` (missing: `yinhero`, `yinbt`); `yinbt`
 remains unclaimed until the full alliance text has a grant and dispatch route.
+
+## Timed Dannel route (2026-10-04, validation pending)
+
+The coordinator added `Hooks::use_leader_timed` and `leaders::use_leader_timed` for action leaders
+that need normal resolver windows. Yin now registers Dannel there and uses
+`InvasionWindow::fight_committed_planet` for each distinct selected planet after committing the
+chosen infantry. The timed path uses the ordinary eventful combat windows, so Indoctrination and
+Brother Milor can react; it does not call bombardment, commitment or space-cannon defense. The
+shared leader dispatcher owns Dannel's single purge after a successful return. The former
+resolver-less `use_leader` path remains for its prior focused tests.
+
+New intended Game-path coverage:
+
+| Test | Assertion |
+|---|---|
+| `timed_dannel_runs_indoctrination_milor_and_skips_space_cannon` | Calls `leaders::use_leader_timed` with `armed_resolver`; Indoctrination pays influence at `GROUND_COMBAT_STARTED`, Brother Milor responds to a casualty, PDS does not roll space cannon, and the hero is purged. |
+| `timed_dannel_fights_every_rival_and_invalid_placement_is_atomic` | Invalid placement leaves state unchanged; the live route clears two rival players in one planet's combats. |
+
+These latest tests and callback have not been validated by this implementer; the coordinator owns
+the shared build. Keep `yinhero` unclaimed until the focused Game-path tests pass and any eventful
+combat defects are repaired. `yinbt` remains out of scope.

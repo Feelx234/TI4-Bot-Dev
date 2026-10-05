@@ -217,3 +217,7 @@ Eidolon immunity and a `HitOrigin::CombatRoll` hit is not, then claim `naaz_volt
 if the Voltron unit behaviour the wave implemented is real. After that the remaining base-faction
 gaps are eight leaders/breakthroughs, which are the wave-D queue items the previous handover
 already listed.
+
+## Subsequent independent review, 2026-10-04
+
+See [BF-CODEX-INHERITED-REVIEW-2026-10-04.md](BF-CODEX-INHERITED-REVIEW-2026-10-04.md) for findings and corrections to producer taxonomy, placement/release gap claims, atomic-package scope, and the limits of aggregate compatibility diagnostics. This preserves the original implementation record; later WIP is separately reviewable.

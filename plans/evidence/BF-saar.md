@@ -123,3 +123,31 @@ Shared seam: `EconomyHooks::production_destinations` (hooks_economy.rs) returns 
 Saar: blockaded = another player's ship (neutral counts) and no Saar ship in the dock's system. Fighters → space area; infantry → the dock's planet, or the space area for a Floating Factory.
 
 Tests: `the_commander_docks_are_every_unblockaded_dock` (saar.rs); `a_module_destination_in_another_system_is_offered_and_placed_there`, `a_module_destination_is_not_offered_for_a_unit_the_system_cannot_place` (production.rs). `cargo test -p ti4-engine`: lib 1916 passed, 1 ignored; integration ok. Clippy: no warnings in touched code. Ledger: `saar 12/13` (gap `saarbt`).
+
+## Deorbit Barrage implementation attempt (2026-10-04)
+
+`crates/ti4-engine/src/factions/saar.rs` now registers `saarbt`, offers its faction component
+action when the breakthrough is held and ready, validates target planets from Saar ships in
+asteroid fields using up to two steps of `PlayerAdjacency`, prompts for an amount bounded by
+`production::available`, pays before marking the card exhausted, and stages a typed
+`SAAR_DEORBIT_BARRAGE` event. Its timing ability rolls the recorded number of dice against 4,
+asks the Saar player to choose the specific ground force for each hit, then calls
+`invasion::assign_selected_ground_hit_in_timing`; the unit owner chooses whether to sustain. A
+`STATUS_PHASE_ENDED` ability clears the exhausted mark.
+
+This is not yet claimed complete. The coordinator added `Hooks::mapped_component_actions` with
+source-set and Galaxy context; Saar uses it to suppress the action unless a legal target is
+available. Tests cover map gating, refusal atomicity, zero-resource use (per the printed "any
+amount"), positive payment, status readiness, and staged-event flushing. A two-hit test puts a
+cheaper infantry and mech owned by one rival alongside another player's mech, then chooses the
+first owner's mech and the second owner's mech separately; each owner decides whether to sustain.
+An invalid payment answer after a prior payment installment must leave the complete pre-action
+state unchanged; implementation snapshots and restores around `pay_seeing`. Decision sites carry
+`DecisionSource::FactionAbility("saarbt")` with subtypes `deorbit_spend`, `deorbit_target`, and
+`deorbit_hit`; include all three in the decision-delivery inventory.
+
+The coordinator's full-engine run reported the original single-mech test failing because the
+expected sustain was absent despite a scripted 10+ roll and `sustain` answer. That test now includes
+decision and resolver logs in its assertion diagnostic to identify any swallowed nested-choice
+error. The additional fixtures and payment rollback have not been revalidated. Do not claim `saarbt`
+until focused and full-engine tests pass.

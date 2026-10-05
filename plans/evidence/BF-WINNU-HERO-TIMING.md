@@ -1,0 +1,9 @@
+# BF-WINNU-HERO-TIMING
+
+Scope: Winnu primary continuation through real free tactical action, resumable chosen followers, secondary windows, and delayed hero purge. Permission P1, game.rs/leaders.rs/timing.rs/Winnu and delivery registry plus evidence; preserve unrelated income hunks. No external state or deletion. Tier C independent acceptance pending.
+
+Game opens the same free tactical path as strategy-card Warfare and resumes follower selection only after tactical completion. Each follower answer is a separate legal_options/step boundary; invalid answers preserve pending choices and accepted answers. Purge occurs after secondaries, or immediately when the primary wins the game. The pure Winnu follower-choices hook is registered; the older timing-context adapter lives inside tests only. Supplemental Luna's signature-mismatch finding referred to the superseded adapter, not the currently registered hook; the full engine suite compiles it.
+
+Outer leader rollback restores state, dice/RNG, tactical and secondary windows, continuation queues, event IDs, game log and Resolver checkpoints. External decider input is consumed rather than rewound. Actual Game regressions exercise delayed Warfare purge, invalid follower retry, activation reaction failure/rollback, and a winning Imperial primary without orphaned followers. Last full suite before the latter two fixtures: 1,986 lib passed, 1 ignored; integrations 1/1, 4/4 decision inventory, 5/5; doctests passed. New fixtures awaiting coordinated validation.
+
+Latest coordinated affected-crate validation: cargo test -p ti4-engine -q -j1, TEST_DEBUG=0 / TEST_INCREMENTAL=false, LIBTORCH unset: 1,993 lib passed, zero failed, one ignored; integrations 1/1, 4/4 delivery inventory, 5/5; doctests passed. Required review and package commit remain pending.
