@@ -442,7 +442,12 @@ export async function randomUiPlaythrough(
         .toBeGreaterThan(state.game_version)
         .then(() => true)
         .catch(() => false);
-      if (!moved) await fail(undefined, `game idle without a decision: ${JSON.stringify(status)}`);
+      if (!moved) {
+        // The game may have ended (objective decks exhausted) after the snapshot above was taken.
+        const latest = await gameSnapshot(request, gameId, players[0].session);
+        if (latest.turn_status.kind === "game_over") continue;
+        await fail(undefined, `game idle without a decision: ${JSON.stringify(status)}`);
+      }
       continue;
     }
 
