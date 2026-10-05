@@ -456,6 +456,8 @@ export async function randomUiPlaythrough(
     const page = pages[actorIndex];
     const actorState = await gameSnapshot(request, gameId, players[actorIndex].session);
     const choice = actorState.pending_choice?.choice;
+    // The status was read before the offer moved on (e.g. to the secondary of a strategy card); re-poll.
+    if (!choice) continue;
     const subtype = choice?.context?.subtype ?? `prompt:${choice?.prompt.slice(0, 40) ?? "none"}`;
     const before = actorState.game_version;
     const hexWeights =
