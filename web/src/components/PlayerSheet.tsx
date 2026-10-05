@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { BoardView, PlayerView } from "../protocol/types.ts";
 import {
   getStrategyCardMeta,
@@ -9,6 +9,9 @@ import { CardSubject } from "./CardDetails.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { computePlayerStats } from "../presentation/playerStats.ts";
 import { Tooltip } from "../primitives/index.ts";
+
+type ReactionMode = "always" | "never";
+type ReactionModeMap = Record<string, Record<string, ReactionMode>>;  // playerId -> cardId -> mode
 
 const ResourceIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
   <svg
@@ -94,6 +97,22 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   onInspectCard,
 }) => {
   const display = usePlayerIdentity();
+  const [reactionModes, setReactionModes] = useState<ReactionModeMap>({});
+
+  const getReactionMode = (playerId: string, cardId: string): ReactionMode => {
+    return reactionModes[playerId]?.[cardId] ?? "always";
+  };
+
+  const toggleReactionMode = (playerId: string, cardId: string) => {
+    setReactionModes((prev) => ({
+      ...prev,
+      [playerId]: {
+        ...(prev[playerId] ?? {}),
+        [cardId]: getReactionMode(playerId, cardId) === "always" ? "never" : "always",
+      },
+    }));
+  };
+
   return (
     <aside
       data-testid="player-sheet-panel"
@@ -413,6 +432,10 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                       {player.held_action_cards.map((cardId) => {
                         const meta = getActionCardMeta(cardId);
                         const tooltipText = `${meta.name} (${meta.phase ?? "Action"})\n\n${meta.description}`;
+                        const mode = getReactionMode(player.id, cardId);
+                        const modeLabel = mode === "always" ? "✓" : "✕";
+                        const modeColor = mode === "always" ? "#4ade80" : "#ef4444";
+                        const modeTitle = mode === "always" ? "Always offer this card (click to toggle to Never)" : "Never offer this card (click to toggle to Always)";
 
                         return (
                           <li
@@ -423,19 +446,23 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                             }
                             data-action-card-id={cardId}
                             data-testid={`action-card-item-${cardId}`}
-                            title={tooltipText}
                             className="card"
                             style={{
                               border: "1px solid #475569",
                               padding: "6px 10px",
                               cursor: "pointer",
                               position: "relative",
+                              display: "flex",
+                              gap: 8,
+                              alignItems: "flex-start",
                             }}
                           >
                             <button
                               type="button"
                               className="detail-trigger"
                               onClick={() => onInspectCard?.({ kind: "action", id: cardId })}
+                              title={tooltipText}
+                              style={{ flex: 1, textAlign: "left" }}
                             >
                               <div style={{ width: "100%" }}>
                                 <div
@@ -474,6 +501,30 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                                 </div>
                               </div>
                             </button>
+                            {isSelf && (
+                              <button
+                                type="button"
+                                title={modeTitle}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleReactionMode(player.id, cardId);
+                                }}
+                                style={{
+                                  background: "transparent",
+                                  border: `1px solid ${modeColor}`,
+                                  color: modeColor,
+                                  fontSize: 14,
+                                  fontWeight: "bold",
+                                  padding: "2px 8px",
+                                  borderRadius: 4,
+                                  cursor: "pointer",
+                                  minWidth: "32px",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {modeLabel}
+                              </button>
+                            )}
                           </li>
                         );
                       })}

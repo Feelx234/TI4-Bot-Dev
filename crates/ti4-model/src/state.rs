@@ -81,6 +81,23 @@ impl TokenPool {
     pub const ALL: [Self; 3] = [Self::Tactic, Self::Fleet, Self::Strategic];
 }
 
+/// How a player wants to handle a specific reaction card during a game (M06-016).
+/// Resets at the start of each new game.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReactionMode {
+    /// Card is offered normally (default behavior).
+    Always,
+    /// Card is automatically declined without player interaction.
+    Never,
+}
+
+impl Default for ReactionMode {
+    fn default() -> Self {
+        Self::Always
+    }
+}
+
 /// Something a seat *did*, as opposed to something a seat *has*.
 ///
 /// Thirteen secret objectives are written against an event rather than a position — "destroy
@@ -357,6 +374,10 @@ pub struct Player {
     pub exhausted_technologies: BTreeSet<TechnologyId>,
     /// Action cards in hand (LRR 2.3). Ordered, since cards are chosen by index.
     pub action_cards: Vec<ActionCardId>,
+    /// Player preferences for reaction card playback: Always or Never. Resets each game.
+    /// Cards not in this map default to Always.
+    #[serde(default)]
+    pub reaction_card_modes: BTreeMap<ActionCardId, ReactionMode>,
     /// The faction breakthrough, once earned from the Thunder's Edge expedition.
     pub breakthrough: Option<BreakthroughId>,
     /// Relic fragments by trait, awaiting purge for a relic (LRR 35.9). Not compared.
@@ -669,6 +690,7 @@ impl Player {
             technologies: BTreeSet::new(),
             exhausted_technologies: BTreeSet::new(),
             action_cards: Vec::new(),
+            reaction_card_modes: BTreeMap::new(),
             breakthrough: None,
             relic_fragments: BTreeMap::new(),
             relics: Vec::new(),

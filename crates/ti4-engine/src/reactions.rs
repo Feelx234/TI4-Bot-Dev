@@ -654,6 +654,10 @@ pub fn playable_now(
         .iter()
         .chain(salvaged.iter())
         .filter(|alias| {
+            // Check if the card is set to Never in the player's reaction modes.
+            if seat.reaction_card_modes.get(*alias) == Some(&ti4_model::state::ReactionMode::Never) {
+                return false;
+            }
             window_for(content, alias).is_some_and(|window| {
                 window.event == event.event_type
                     && window.relation == relation
