@@ -19,6 +19,16 @@ Read [`HANDOVER_COMPACT.md`](HANDOVER_COMPACT.md) for the full handover summary.
 
 ### Base-faction completion (BF), 2026-10-02
 
+- **All twelve base factions complete, 2026-10-05 (merge candidate `cb2374fd`).** Ledger: every
+  BF faction n/n. Engine lib 2131 passed, 1 ignored. Workspace `cargo test --workspace`: all
+  targets pass except `ti4-review` semantic_golden (operator: ignore) and `ti4-mlp`
+  smoke_refusals (environmental: local `out/vocabulary/current.json` names no valid generation,
+  so the refusal happens before the pool check). Routine soak (`--release`, 25 seeds, every 10th
+  replayed): 300/300, 0 failures. TE Mecatol (tile 112) on TE boards; TE map pools
+  `out/pools/full_np8_12_*_te.json`. Integration (BF20-25: roster to 18, policy roster
+  versioning, sim rebaseline, UI checks, pairing soak, exit review) is not done; it follows the
+  merge.
+
 - **Current, 2026-10-05 (Claude coordinator; supersedes older notes below).** Commits `17e99108`
   (engine BF work), `5976b65c` (soak runner). Ledger: 9/12 complete; open `naaz_voltron`,
   `naazbt` (code present, end-to-end acceptance pending), `yinbt` (only Crimson's commander lacks
