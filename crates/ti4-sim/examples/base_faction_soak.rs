@@ -1,13 +1,13 @@
 //! Deterministic seated soak for the twelve base-faction packages.
 //!
-//! Run all 200 seeds per faction with:
-//! cargo run --release -p ti4-sim --example base_faction_soak
+//! Always run optimized: `cargo run --release -p ti4-sim --example base_faction_soak`.
 //!
-//! Resume a slice with: ... -- <faction> <first_seed> <count>
+//! Arguments: `[faction|all] [first_seed] [count] [replay_every]`. Defaults: every faction, seed 0,
+//! 25 seeds (the routine size, operator 2026-10-05), and a determinism replay of every 10th case.
+//! The milestone exit gate runs `all 0 200 10`. `replay_every` 1 replays every case.
 //! The target replaces one of six original factions, rotating its seat by seed.
 //! No production faction-scope list is widened.
 
-use std::collections::BTreeMap;
 use std::io::{self, Write};
 
 use ti4_content::ContentStore;
@@ -97,57 +97,234 @@ fn play(content: &ContentStore, faction: &str, seed: u64) -> Result<Replay, Stri
     })
 }
 
-fn run_faction(content: &ContentStore, faction: &str, start: u64, count: u64) -> usize {
-    let mut failures = 0;
-    for seed in start..start.saturating_add(count) {
-        match play(content, faction, seed) {
-            Err(error) => {
-                failures += 1;
-                eprintln!("FAIL faction={faction} seed={seed}: {error}");
+fn run_case(content: &ContentStore, faction: &str, seed: u64, replay: bool) -> Option<String> {
+    match play(content, faction, seed) {
+        Err(error) => Some(format!("FAIL faction={faction} seed={seed}: {error}")),
+        Ok(_) if !replay => None,
+        Ok(first) => match play(content, faction, seed) {
+            Err(error) => Some(format!(
+                "FAIL faction={faction} seed={seed} replay: {error}"
+            )),
+            Ok(second) if first != second => {
+                let divergence = first
+                    .decisions
+                    .iter()
+                    .zip(&second.decisions)
+                    .position(|(left, right)| left != right)
+                    .unwrap_or_else(|| first.decisions.len().min(second.decisions.len()));
+                let prior = divergence
+                    .checked_sub(1)
+                    .and_then(|index| first.decisions.get(index))
+                    .map_or_else(|| "<none>".to_owned(), |record| format!("{record:?}"));
+                Some(format!(
+                    "FAIL faction={faction} seed={seed}: replay differs at decision {divergence}; prior={prior}; first={:?}; replay={:?}; events_equal={} state_equal={}",
+                    first.decisions.get(divergence),
+                    second.decisions.get(divergence),
+                    first.events == second.events,
+                    first.state == second.state
+                ))
             }
-            Ok(first) => match play(content, faction, seed) {
-                Err(error) => {
-                    failures += 1;
-                    eprintln!("FAIL faction={faction} seed={seed} replay: {error}");
-                }
-                Ok(second) if first != second => {
-                    failures += 1;
-                    let divergence = first
-                        .decisions
-                        .iter()
-                        .zip(&second.decisions)
-                        .position(|(left, right)| left != right)
-                        .unwrap_or_else(|| first.decisions.len().min(second.decisions.len()));
-                    let prior = divergence
-                        .checked_sub(1)
-                        .and_then(|index| first.decisions.get(index))
-                        .map_or_else(|| "<none>".to_owned(), |record| format!("{record:?}"));
-                    eprintln!(
-                        "FAIL faction={faction} seed={seed}: replay differs at decision {divergence}; prior={prior}; first={:?}; replay={:?}; events_equal={} state_equal={}",
-                        first.decisions.get(divergence),
-                        second.decisions.get(divergence),
-                        first.events == second.events,
-                        first.state == second.state
-                    );
-                }
-                Ok(_) => {}
-            },
+            Ok(_) => None,
+        },
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Job {
+    faction_index: usize,
+    seed: u64,
+}
+
+struct JobCursor {
+    faction_index: usize,
+    offset: u64,
+    start: u64,
+    count: u64,
+}
+
+impl JobCursor {
+    fn next(&mut self, faction_count: usize) -> Option<Job> {
+        if self.faction_index >= faction_count {
+            return None;
         }
-        if (seed - start + 1) % 25 == 0 {
-            println!(
-                "progress faction={faction} games={} failures={failures}",
-                seed - start + 1
-            );
-            let _ = io::stdout().flush();
+        let job = Job {
+            faction_index: self.faction_index,
+            seed: self.start + self.offset,
+        };
+        self.offset += 1;
+        if self.offset == self.count {
+            self.offset = 0;
+            self.faction_index += 1;
+        }
+        Some(job)
+    }
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| {
+            payload
+                .downcast_ref::<&str>()
+                .map(|message| (*message).to_owned())
+        })
+        .unwrap_or_else(|| "non-string panic payload".to_owned())
+}
+
+fn run_parallel(
+    chosen: &[&str],
+    start: u64,
+    count: u64,
+    replay_every: u64,
+) -> (Vec<u64>, Vec<u64>, Vec<String>) {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    let content = ContentStore::embedded();
+    let workers = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .clamp(1, 16);
+    let cursor = Arc::new(Mutex::new(JobCursor {
+        faction_index: 0,
+        offset: 0,
+        start,
+        count,
+    }));
+    let completed_by_faction: Vec<_> = (0..chosen.len()).map(|_| AtomicU64::new(0)).collect();
+    let completed_total = AtomicU64::new(0);
+    let last_progress = AtomicU64::new(0);
+    let failed_by_faction: Vec<_> = (0..chosen.len()).map(|_| AtomicU64::new(0)).collect();
+    let failures = Arc::new(Mutex::new(Vec::<(usize, u64, String)>::new()));
+    let progress_lock = Mutex::new(());
+    let total_cases = u128::try_from(chosen.len()).unwrap_or(u128::MAX) * u128::from(count);
+
+    std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(workers);
+        for worker_index in 0..workers {
+            let cursor = Arc::clone(&cursor);
+            let failures = Arc::clone(&failures);
+            let completed_by_faction = &completed_by_faction;
+            let completed_total = &completed_total;
+            let last_progress = &last_progress;
+            let failed_by_faction = &failed_by_faction;
+            let progress_lock = &progress_lock;
+            handles.push(scope.spawn(move || {
+                loop {
+                    let job = cursor
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .next(chosen.len());
+                    let Some(job) = job else { break };
+                    let result = catch_unwind(AssertUnwindSafe(|| {
+                        run_case(
+                            content,
+                            chosen[job.faction_index],
+                            job.seed,
+                            (job.seed - start) % replay_every == 0,
+                        )
+                    }));
+                    let failure = match result {
+                        Ok(failure) => failure,
+                        Err(payload) => Some(format!(
+                            "FAIL faction={} seed={}: worker case panicked: {}",
+                            chosen[job.faction_index],
+                            job.seed,
+                            panic_message(payload.as_ref())
+                        )),
+                    };
+                    if let Some(message) = failure {
+                        failed_by_faction[job.faction_index].fetch_add(1, Ordering::Relaxed);
+                        failures
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .push((job.faction_index, job.seed, message));
+                    }
+                    completed_by_faction[job.faction_index].fetch_add(1, Ordering::Relaxed);
+                    let completed = completed_total.fetch_add(1, Ordering::Relaxed) + 1;
+                    if completed % 25 == 0 || u128::from(completed) == total_cases {
+                        let _guard = progress_lock
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let latest = completed_total.load(Ordering::Relaxed);
+                        let reported = last_progress.load(Ordering::Relaxed);
+                        if latest / 25 > reported / 25 || u128::from(latest) == total_cases {
+                            let mut stdout = io::stdout().lock();
+                            let _ =
+                                writeln!(stdout, "progress completed={latest} total={total_cases}");
+                            let _ = stdout.flush();
+                            last_progress.store(latest, Ordering::Relaxed);
+                        }
+                    }
+                }
+                worker_index
+            }));
+        }
+
+        for (worker_index, handle) in handles.into_iter().enumerate() {
+            if let Err(payload) = handle.join() {
+                failures
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push((
+                        usize::MAX,
+                        u64::MAX,
+                        format!(
+                            "FAIL worker={worker_index}: worker panicked: {}",
+                            panic_message(payload.as_ref())
+                        ),
+                    ));
+            }
+        }
+    });
+
+    let completed: Vec<u64> = completed_by_faction
+        .iter()
+        .map(|counter| counter.load(Ordering::Relaxed))
+        .collect();
+    let observed: u128 = completed.iter().map(|value| u128::from(*value)).sum();
+    for (index, actual) in completed.iter().enumerate() {
+        if *actual != count {
+            failures
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push((
+                    index,
+                    u64::MAX,
+                    format!(
+                        "FAIL faction={} worker pool: completed {actual} of {count} scheduled cases",
+                        chosen[index]
+                    ),
+                ));
         }
     }
-    println!("result faction={faction} games={count} failures={failures}");
-    failures
+    let mut failures = failures
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if observed != total_cases {
+        failures.push((
+            usize::MAX,
+            u64::MAX,
+            format!("FAIL worker pool: completed {observed} of {total_cases} scheduled cases"),
+        ));
+    }
+    failures.sort_by_key(|(faction_index, seed, _)| (*faction_index, *seed));
+    let messages = std::mem::take(&mut *failures)
+        .into_iter()
+        .map(|(_, _, message)| message)
+        .collect();
+    let failed: Vec<u64> = failed_by_faction
+        .iter()
+        .map(|counter| counter.load(Ordering::Relaxed))
+        .collect();
+    (completed, failed, messages)
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let chosen: Vec<&str> = match args.first() {
+        Some(faction) if faction == "all" => FACTIONS.to_vec(),
         Some(faction) if FACTIONS.contains(&faction.as_str()) => vec![faction],
         Some(faction) => {
             eprintln!(
@@ -167,27 +344,34 @@ fn main() {
         })
     };
     let start = parse(1, 0);
-    let count = parse(2, 200);
-    if count == 0 || start.checked_add(count).is_none() {
-        eprintln!("count must be positive and the seed range must not overflow");
+    let count = parse(2, 25);
+    let replay_every = parse(3, 10);
+    if count == 0 || replay_every == 0 || start.checked_add(count).is_none() {
+        eprintln!("count and replay_every must be positive and the seed range must not overflow");
         std::process::exit(2);
     }
-    let full_campaign = args.is_empty();
-    let content = ContentStore::embedded();
-    let failures: BTreeMap<&str, usize> = chosen
-        .iter()
-        .map(|faction| (*faction, run_faction(content, faction, start, count)))
-        .collect();
-    let total: usize = failures.values().sum();
+    let full_campaign = chosen.len() == FACTIONS.len() && start == 0 && count >= 200;
+    let (completed, failures, messages) = run_parallel(&chosen, start, count, replay_every);
+    for message in &messages {
+        eprintln!("{message}");
+    }
+    for (index, faction) in chosen.iter().enumerate() {
+        println!(
+            "result faction={faction} games={} failures={}",
+            completed[index], failures[index]
+        );
+    }
+    let total = messages.len() as u64;
+    println!("replay_every={replay_every}");
     println!(
         "{}: factions={} games={} failures={total}",
         if full_campaign {
-            "FULL 12x200 SOAK"
+            "EXIT-GATE 12x200 SOAK"
         } else {
-            "diagnostic slice (not full acceptance)"
+            "routine soak (not the exit gate)"
         },
         chosen.len(),
-        chosen.len() as u64 * count
+        u128::try_from(chosen.len()).unwrap_or(u128::MAX) * u128::from(count)
     );
     if total != 0 {
         std::process::exit(1);
