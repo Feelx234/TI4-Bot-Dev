@@ -28,8 +28,9 @@
 //!   random action cards from their hand. Then, purge this card." Unlock: "Have 3 scored
 //!   objectives."
 //!
-//! Ssruu's action and timing copies are live; full route acceptance and scoped commits remain
-//! pending, so `yssarilagent` stays unclaimed (see the seated-agent census).
+//! Ssruu copies every other seated faction's agent: the ACTION agents through
+//! `leaders::borrowed_component_actions`, the timing agents through each faction's borrowed route
+//! (census and acceptance audit in `plans/evidence/BF-SSRUU-SEATED-AGENT-CENSUS.md`).
 //! Deepgloom Executable (`yssarilbt`) is implemented: consent, borrowed effects and the fixed-pair
 //! transaction resolve through the staged-event flush at the beginning of every game step.
 //!
@@ -73,9 +74,7 @@ pub const MODULE: FactionModule = FactionModule {
     technologies: &["tp", "mi"],
     units: &["yssaril_flagship", "yssaril_mech"],
     promissory: &["spynet"],
-    // `yssarilagent` (Ssruu) is wired through `leaders::use_leader_text` but copies only the ACTION
-    // agents the shared code delivers, so it stays unclaimed until it is complete (f77a0347 review).
-    leaders: &["yssarilcommander", "yssarilhero"],
+    leaders: &["yssarilagent", "yssarilcommander", "yssarilhero"],
     breakthroughs: &["yssarilbt"],
     hooks: Hooks {
         component_actions: Some(component_actions),

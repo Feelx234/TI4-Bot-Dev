@@ -60,3 +60,7 @@ The October 4 table above is historical and its “Missing” entries are stale.
 | Yssaril / Ssruu | Borrower source identity; shared dispatcher does not recursively re-enter Ssruu | Duplicate-Yssaril defensive test fails closed; standard seating has one distinct faction per seat, so this is not a standard-game route blocker. |
 
 No source-row should be called accepted solely because the current library test suite is green. Before claiming `yssarilagent`, refresh this evidence with the final per-route run and independent tier-C dispositions, and reconcile the stale `factions/yssaril.rs` module comment/leader claim with the now-broader runtime scope. The stale October 4 “Missing” table above must not be used as current status.
+
+## Claimed, 2026-10-05 (lean mode)
+
+Sonnet acceptance audit (read-only): every agent Ssruu can copy (17 seated factions incl. Naalu's TE `naaluagent-te`) has a live copy route and a test; recursion into another Ssruu fails closed. The "Missing" table above is stale. Lean mode (operator, 2026-10-05) makes this audit the review of record; the Ssruu Letnev/Sol rollback tests are committed in 17e99108. `yssarilagent` added to `MODULE.leaders`; stale comments in yssaril.rs/naalu.rs corrected. `cargo test -p ti4-engine --lib`: 2125 passed, 1 ignored.

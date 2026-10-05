@@ -35,11 +35,9 @@
 //!   strategy card, you may give them a promissory note to resolve it without spending a command
 //!   token."
 //!
-//! Not claimed in [`MODULE`] because the engine lacks a route (hook requests in the evidence file):
-//! `hcf2` and `naalu_fighter2` (the half-ship charge is shared fleet code), `naalu_flagship`
-//! (committing fighters is shared invasion code), `naalu_mech_te` (no typed event for most relic
-//! gains), `naaluagent-te` (no typed event for most command-token placements), `naalucommander`
-//! (no live hidden-information view).
+//! Every Naalu asset is claimed in [`MODULE`]; routes and tests are in `plans/evidence/BF-naalu.md`
+//! and `BF-NAALU-TOKEN-PLACEMENTS.md` (Z'eu reacts to every `COMMAND_TOKEN_PLACED` the game emits
+//! or stages).
 
 use std::sync::Arc;
 
