@@ -36,15 +36,25 @@ export function preferHitConfirm<T extends PolicyCandidate>(
 /**
  * Command tokens: Confirm unlocks only once every token is assigned, so confirm as soon as it is
  * enabled; until then only "+" can make progress (a "-" or Reset would loop forever).
+ *
+ * Leadership's panel also has a purchase stepper. Buying is optional, so now and then (when `rng`
+ * is given) press "buy one more" instead: it only raises the number of tokens to assign, is bounded
+ * by what is affordable, and Confirm still waits for every token, so the staging still ends.
  */
 export function preferTokenConfirm<T extends PolicyCandidate>(
   candidates: T[],
+  rng?: () => number,
 ): T[] {
+  const buy = candidates.find((c) => /^token-buy-plus\b/.test(c.desc));
+  if (buy && rng && rng() < TOKEN_BUY_CHANCE) return [buy];
   const confirm = candidates.find((c) => /^token-confirm\b/.test(c.desc));
   if (confirm) return [confirm];
   const plus = candidates.filter((c) => /^token-plus-/.test(c.desc));
   return plus.length ? plus : candidates;
 }
+
+/** How often the harness buys one more Leadership token while the panel offers it. */
+export const TOKEN_BUY_CHANCE = 0.35;
 
 /**
  * The persistent turn bar. Every button there submits (or opens a menu) in one click, so none of

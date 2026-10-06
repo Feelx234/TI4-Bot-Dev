@@ -327,7 +327,10 @@ function pick(
     if (policy === "random") return bar[Math.floor(rng() * bar.length)];
     return weightedPick(bar, (c) => steerWeight(c.full, hexWeights), rng);
   }
-  candidates = preferTokenConfirm(preferHitConfirm(preferPayment(candidates)));
+  candidates = preferTokenConfirm(
+    preferHitConfirm(preferPayment(candidates)),
+    rng,
+  );
   const resume = candidates.filter((c) => c.resume);
   if (resume.length) return resume[Math.floor(rng() * resume.length)];
   const unstage = candidates.filter((c) => c.unstage);

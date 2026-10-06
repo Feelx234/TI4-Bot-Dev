@@ -203,6 +203,31 @@ describe("preferTokenConfirm", () => {
     const stages = [c("choice-option | tactic pool")];
     expect(preferTokenConfirm(stages)).toEqual(stages);
   });
+
+  describe("Leadership purchase stepper", () => {
+    const buyPlus = c("token-buy-plus | Buy one token more | +");
+    const buyMinus = c("token-buy-minus | Buy one token less | −");
+    const plus = c("token-plus-fleet | Add a token to Fleet | +");
+    const confirm = c("token-confirm | No purchase");
+
+    it("never buys without a random source, and never takes a purchase back", () => {
+      expect(preferTokenConfirm([buyPlus, buyMinus, plus])).toEqual([plus]);
+      expect(preferTokenConfirm([buyMinus, confirm])).toEqual([confirm]);
+    });
+
+    it("sometimes buys one more, even when Confirm is already enabled", () => {
+      expect(preferTokenConfirm([buyPlus, confirm], () => 0)).toEqual([buyPlus]);
+      expect(preferTokenConfirm([buyPlus, plus], () => 0)).toEqual([buyPlus]);
+      expect(preferTokenConfirm([buyPlus, confirm], () => 0.99)).toEqual([confirm]);
+      expect(preferTokenConfirm([buyMinus, buyPlus, plus], () => 0.99)).toEqual([plus]);
+    });
+
+    it("always ends: with the purchase staged only plus and then Confirm are chosen", () => {
+      // Purchase at its limit: no buy control is clickable, so the roll cannot restart it.
+      expect(preferTokenConfirm([buyMinus, plus], () => 0)).toEqual([plus]);
+      expect(preferTokenConfirm([buyMinus, confirm], () => 0)).toEqual([confirm]);
+    });
+  });
 });
 
 describe("turn bar controls (smoke harness)", () => {
