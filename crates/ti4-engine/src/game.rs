@@ -1279,9 +1279,118 @@ impl<'a> Game<'a> {
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some(player) = &self.turn_closing {
-            return Some(self.closing_options(player));
+            return Some(self.with_turn_menu(self.closing_options(player), true));
         }
         self.turn_options()
+            .map(|choice| self.with_turn_menu(choice, false))
+    }
+
+    /// Display-only facts for the persistent action bar: the seat's token pools, every strategy
+    /// card it holds with its used state, and every other seat with whether a transaction can be
+    /// opened right now and, when not, why. The client cannot rebuild the "why" for a partner
+    /// that is simply absent from the options. Never read by the engine.
+    fn with_turn_menu(&self, choice: Choice, closing: bool) -> Choice {
+        use serde_json::json;
+        use ti4_model::state::TokenPool;
+        let player = choice.player.clone();
+        let Some(seat) = self.state.player(&player) else {
+            return choice;
+        };
+        let cards: Vec<serde_json::Value> = seat
+            .strategy_cards
+            .iter()
+            .map(|card| {
+                // A lone unused card keeps the bare `strategic` id even when another card is
+                // already spent, so the option has to be named here rather than rebuilt.
+                let named = format!("{}|{}", crate::strategy::STRATEGIC_ACTION_ID, card.as_str());
+                let option = choice
+                    .options
+                    .iter()
+                    .find(|option| option.id == named)
+                    .or_else(|| {
+                        (seat.unused_strategy_cards() == [card])
+                            .then(|| {
+                                choice
+                                    .options
+                                    .iter()
+                                    .find(|o| o.id == crate::strategy::STRATEGIC_ACTION_ID)
+                            })
+                            .flatten()
+                    })
+                    .map(|option| option.id.clone());
+                json!({
+                    "card": card.as_str(),
+                    "used": seat.exhausted_strategy_cards.contains(card),
+                    "option": option,
+                })
+            })
+            .collect();
+        let offered = |other: &PlayerId| {
+            choice.options.iter().any(|option| {
+                option.kind == crate::transactions::OPEN_KIND
+                    && crate::transactions::opens_with(&self.state, option).as_ref() == Some(other)
+            })
+        };
+        let already = self.state.transacted_with(&player);
+        let partners: Vec<serde_json::Value> = self
+            .state
+            .seating_order
+            .iter()
+            .filter(|other| **other != player)
+            .filter_map(|other| {
+                let theirs = self.state.player(other)?;
+                let neighbour = self.galaxy.as_ref().is_some_and(|galaxy| {
+                    crate::transactions::may_transact(
+                        &self.state,
+                        self.content,
+                        galaxy,
+                        &player,
+                        other,
+                    )
+                });
+                let available = offered(other);
+                let reason = if available {
+                    None
+                } else if self.state.diplomacy.enabled {
+                    Some("Deals go through diplomatic contacts")
+                } else if already.contains(other) {
+                    Some("Already traded with them this turn")
+                } else if !neighbour {
+                    Some("No contact: not neighbours")
+                } else {
+                    Some("Not available now")
+                };
+                Some(json!({
+                    "seat": other.as_str(),
+                    "faction": theirs.faction.as_str(),
+                    "available": available,
+                    "in_contact": neighbour,
+                    "reason": reason,
+                    "trade_goods": theirs.trade_goods,
+                    "commodities": theirs.commodities,
+                    "promissory_notes": self
+                        .state
+                        .promissory_notes
+                        .values()
+                        .filter(|holder| *holder == other)
+                        .count(),
+                }))
+            })
+            .collect();
+        choice
+            .detailed("kind", "turn_menu")
+            .detailed("closing", closing)
+            .detailed("actions_taken", self.actions_this_turn)
+            .detailed(
+                "tokens",
+                json!({
+                    "tactic": seat.tokens(TokenPool::Tactic),
+                    "fleet": seat.tokens(TokenPool::Fleet),
+                    "strategy": seat.tokens(TokenPool::Strategic),
+                }),
+            )
+            .detailed("strategy_cards", cards)
+            .detailed("partners", partners)
     }
 
     /// Whether an action-phase option leaves the turn's action untouched: a contact, a trade, a
@@ -5538,6 +5647,57 @@ mod tests {
 
         let choice = game.legal_options().unwrap();
         assert!(choice.ids().contains(&TACTICAL_ACTION_ID));
+    }
+
+    #[test]
+    fn the_turn_menu_carries_pools_cards_and_partners_for_the_action_bar() {
+        let (state, galaxy, _) = tactical_fixture();
+        let game = Game::new(state, ContentStore::embedded()).with_galaxy(galaxy);
+
+        let choice = game.legal_options().unwrap();
+        assert_eq!(choice.details["kind"], "turn_menu");
+        assert_eq!(choice.details["closing"], false);
+        let tokens = &choice.details["tokens"];
+        let seat = game.state.player(&PlayerId::new("a")).unwrap();
+        assert_eq!(tokens["tactic"], seat.tactic_tokens);
+        assert_eq!(tokens["strategy"], seat.strategic_tokens);
+        let partners = choice.details["partners"].as_array().unwrap();
+        assert_eq!(partners.len(), 1, "every other seat is listed: {partners:?}");
+        assert_eq!(partners[0]["seat"], "b");
+        assert!(partners[0]["trade_goods"].is_number());
+        let offered = choice
+            .options
+            .iter()
+            .any(|option| option.kind == crate::transactions::OPEN_KIND);
+        assert_eq!(partners[0]["available"], offered);
+        if !offered {
+            assert!(partners[0]["reason"].is_string(), "a missing partner says why");
+        }
+    }
+
+    #[test]
+    fn the_turn_menu_lists_held_strategy_cards_with_their_used_state() {
+        let (mut state, galaxy, _) = tactical_fixture();
+        let a = PlayerId::new("a");
+        let seat = state.player_mut(&a).unwrap();
+        seat.strategy_cards = vec![
+            StrategyCardId::new("pok2diplomacy"),
+            StrategyCardId::new("pok8imperial"),
+        ];
+        seat.exhausted_strategy_cards
+            .insert(StrategyCardId::new("pok2diplomacy"));
+        let game = Game::new(state, ContentStore::embedded()).with_galaxy(galaxy);
+
+        let choice = game.legal_options().unwrap();
+        let cards = choice.details["strategy_cards"].as_array().unwrap();
+        assert_eq!(cards.len(), 2);
+        assert_eq!(cards[0]["card"], "pok2diplomacy");
+        assert_eq!(cards[0]["used"], true);
+        assert_eq!(cards[1]["used"], false);
+        // Only the unused card is an option; the used one is explained by the details.
+        // A lone unused card keeps the bare id, and the details name it.
+        assert_eq!(cards[1]["option"], "strategic");
+        assert!(cards[0]["option"].is_null());
     }
 
     #[test]
