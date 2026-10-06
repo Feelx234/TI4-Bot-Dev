@@ -24,6 +24,8 @@ export interface MockChoice {
   /** Seat that has to decide (default: the viewing seat). */
   player?: string;
   nonce?: string;
+  /** Structured decision details (e.g. `{ kind: "turn_menu", ... }` for the turn action bar). */
+  details?: Record<string, unknown>;
 }
 
 export interface MockGameOptions {
@@ -40,6 +42,8 @@ export interface MockGameOptions {
   turnStatus?: PublicTurnStatus;
   view?: Partial<GameView>;
   version?: number;
+  /** Watch as a spectator: no seat, no private data, every public action visible. */
+  spectator?: boolean;
 }
 
 export interface MockedGame {
@@ -60,7 +64,7 @@ export function buildSnapshot(options: MockGameOptions = {}) {
     protocol_version: PROTOCOL_VERSION,
     game_id: GAME_ID,
     game_version: options.version ?? 40,
-    viewer: { role: "player", seat },
+    viewer: options.spectator ? { role: "spectator" } : { role: "player", seat },
     state: {},
     galaxy_layout: { version: 1, active_sources: [], placements: [] },
     view: {
@@ -100,6 +104,7 @@ export function buildSnapshot(options: MockGameOptions = {}) {
             prompt: choice.prompt,
             context: (choice.context ?? { subtype: "decision" }) as never,
             options: choice.options,
+            ...(choice.details ? { details: choice.details } : {}),
           },
         }
       : null,
@@ -133,6 +138,8 @@ export async function openMockedGame(page: Page, options: MockGameOptions = {}):
   await page.route(`**/api/games/${GAME_ID}/lobby/join`, (route) =>
     route.fulfill({ json: { player_session: SESSION, player: { id: seat }, lobby } }),
   );
+  // The read-only lobby a spectator (no credential) loads.
+  await page.route(`**/api/games/${GAME_ID}/lobby`, (route) => route.fulfill({ json: lobby }));
   await page.route(`**/api/games/${GAME_ID}/lobby/heartbeat`, (route) => route.fulfill({ json: {} }));
   await page.route(`**/api/games/${GAME_ID}/snapshot`, (route) => route.fulfill({ json: snapshot }));
 
@@ -150,11 +157,14 @@ export async function openMockedGame(page: Page, options: MockGameOptions = {}):
     });
   });
   await page.goto("/");
-  await page.evaluate(
-    ([id, credential]) => sessionStorage.setItem(`ti4.player-session:${id}`, credential),
-    [GAME_ID, SESSION],
-  );
+  if (!options.spectator)
+    await page.evaluate(
+      ([id, credential]) => sessionStorage.setItem(`ti4.player-session:${id}`, credential),
+      [GAME_ID, SESSION],
+    );
   await page.goto(`/games/${GAME_ID}`);
+  // Without a credential the app shows the lobby first; spectators choose to watch.
+  if (options.spectator) await page.getByRole("button", { name: "Watch", exact: true }).click();
   const socket = await socketReady;
   return { socket, snapshot, send: (message) => socket.send(JSON.stringify(message)) };
 }

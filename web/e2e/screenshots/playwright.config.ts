@@ -3,6 +3,9 @@ import { defineConfig, devices } from "@playwright/test";
 // Screenshot captures render the dev gallery or a mocked game over websocket routes, so only the
 // vite dev server is needed. Playwright starts it on its own free port and stops it afterwards.
 const port = process.env.TI4_SHOT_PORT ?? String(20_000 + Math.floor(Math.random() * 30_000));
+// Worker processes load this config again; pinning the port in the environment keeps them on the
+// server that was started (a second random draw would point them at a closed port).
+process.env.TI4_SHOT_PORT = port;
 
 export default defineConfig({
   testDir: ".",
