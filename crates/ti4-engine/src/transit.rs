@@ -70,6 +70,20 @@ pub fn loadable(
     player: &PlayerId,
     origin: &SystemId,
 ) -> Vec<Cargo> {
+    loadable_by(state, content, sources, player, origin, false)
+}
+
+/// [`loadable`] for a ship that a module frees of 95.5 (`MovementHooks::ignores_command_tokens`,
+/// Nomad hero Ahk-Syl Siven): units standing in a system with the player's command token may be
+/// taken aboard.
+fn loadable_by(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    origin: &SystemId,
+    ignore_tokens: bool,
+) -> Vec<Cargo> {
     let types = catalogue(content, sources);
     let consumes = |unit: &Unit| {
         types
@@ -84,7 +98,10 @@ pub fn loadable(
     // Ordinarily unreachable, because 58.4c stops a ship leaving such a system at all -- but the
     // Dominus Orb suspends exactly that, and a ship freed to leave must still not take the
     // garrison with it.
-    if state.active_system.as_ref() != Some(origin) && system.command_tokens.contains(player) {
+    if !ignore_tokens
+        && state.active_system.as_ref() != Some(origin)
+        && system.command_tokens.contains(player)
+    {
         return Vec::new();
     }
 
@@ -201,19 +218,27 @@ impl CargoWindow {
         // system, the system it started its movement in, and each system it moves through." The
         // path carries the systems between the two, and 95.5 is applied per system inside
         // `loadable`, so a system holding this player's command token contributes nothing.
-        let mut candidates = loadable(state, content, sources, player, origin);
+        let ignore_tokens = crate::factions::hooks_movement::ignores_command_tokens(
+            state,
+            content,
+            sources,
+            player,
+            ship.type_id.as_str(),
+        );
+        let mut candidates = loadable_by(state, content, sources, player, origin, ignore_tokens);
         let mut seen: std::collections::BTreeSet<String> =
             std::iter::once(origin.to_string()).collect();
         for step in path {
             if !seen.insert(step.clone()) {
                 continue; // a route may revisit a system; its units are offered once
             }
-            candidates.extend(loadable(
+            candidates.extend(loadable_by(
                 state,
                 content,
                 sources,
                 player,
                 &SystemId::new(step.clone()),
+                ignore_tokens,
             ));
         }
         let types = catalogue(content, sources);

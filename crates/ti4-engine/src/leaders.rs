@@ -358,6 +358,9 @@ pub fn ready_all(state: &mut GameState, player: &PlayerId) -> Vec<LeaderId> {
     for leader in &exhausted {
         seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
     }
+    for leader in &exhausted {
+        crate::factions::nomad_agents::agent_readied(state, player, leader);
+    }
     exhausted
 }
 
@@ -373,6 +376,7 @@ pub fn ready(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> boo
         return false;
     }
     seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
+    crate::factions::nomad_agents::agent_readied(state, player, leader);
     true
 }
 
@@ -385,6 +389,19 @@ pub fn exhaust(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> b
         return false;
     }
     seat.leaders.insert(leader.clone(), LeaderStatus::Exhausted);
+    // The Nomad's Temporal Command Suite hears every agent becoming exhausted.
+    if crate::factions::nomad::watches_agent_exhaustion(state)
+        && kind_of(ContentStore::embedded(), leader).as_deref() == Some(AGENT)
+    {
+        crate::supply::stage_event(
+            state,
+            crate::factions::nomad::AGENT_EXHAUSTED,
+            &std::collections::BTreeMap::from([
+                ("player".to_owned(), player.to_string().into()),
+                ("leader".to_owned(), leader.as_str().into()),
+            ]),
+        );
+    }
     true
 }
 
@@ -4063,5 +4080,34 @@ mod tests {
             !ids.contains(&"component|leader|hacanhero".to_owned()),
             "Hacan's hero belongs to the production timing window"
         );
+    }
+
+    #[test]
+    fn exhausting_an_agent_stages_agent_exhausted_only_for_a_watching_nomad() {
+        let a = PlayerId::new("a");
+        let staged = |state: &GameState| crate::supply::staged_event_types(state);
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "nomad"), ("b", "sol")],
+            ti4_model::content_types::DEFAULT,
+        );
+        // Without Temporal Command Suite nothing is staged.
+        assert!(exhaust(&mut state, &a, &LeaderId::new("nomadagentartuno")));
+        assert!(staged(&state).is_empty());
+        state
+            .player_mut(&a)
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("tcs"));
+        assert!(exhaust(&mut state, &a, &LeaderId::new("nomadagentmercer")));
+        assert_eq!(staged(&state), ["AGENT_EXHAUSTED"]);
+        // A hero is not an agent.
+        let before = staged(&state).len();
+        state
+            .player_mut(&a)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("nomadhero"), LeaderStatus::Readied);
+        assert!(exhaust(&mut state, &a, &LeaderId::new("nomadhero")));
+        assert_eq!(staged(&state).len(), before);
     }
 }

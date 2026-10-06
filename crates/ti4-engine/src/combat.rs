@@ -186,7 +186,26 @@ pub fn effective_hits_on(
     player: &PlayerId,
     unit: &Unit,
 ) -> Option<i64> {
-    let threshold = hits_on(content, sources, unit)?;
+    effective_from(
+        state,
+        content,
+        sources,
+        player,
+        unit,
+        hits_on(content, sources, unit)?,
+    )
+}
+
+/// [`effective_hits_on`] for a unit rolling on `threshold` instead of its own printed combat value
+/// (a ship that borrows another card's combat value, `hooks_combat::borrowed_stats`).
+fn effective_from(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    unit: &Unit,
+    threshold: i64,
+) -> Option<i64> {
     let morale_is_current = state
         .player(player)
         .is_some_and(|seat| seat.combat_bonus_round == Some(state.combat_round_seq));
@@ -995,13 +1014,27 @@ fn fleet_groups(
             .flatten()
     });
     let mut extra_die_added = false;
+    // One ship may roll on another card's combat value this combat (The Cavalry): the first ship
+    // equal to the borrower in board order, since identical ships are interchangeable.
+    let borrower =
+        crate::factions::hooks_combat::borrowed_stats(state, content, sources, player, system)
+            .and_then(|borrowed| borrowed.hits_on.map(|value| (borrowed.unit, value)));
+    let mut borrower_used = false;
     let mut groups: std::collections::BTreeMap<(i64, u8), FleetGroup> =
         std::collections::BTreeMap::new();
     for (unit_index, unit) in ships_of(state, content, sources, player, system).into_iter().enumerate() {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
         };
-        let Some(value) = effective_hits_on(state, content, sources, player, &unit) else {
+        let lent = borrower
+            .as_ref()
+            .filter(|(ship, _)| !borrower_used && *ship == unit)
+            .map(|(_, value)| *value);
+        borrower_used |= lent.is_some();
+        let Some(value) = (match lent {
+            Some(base) => effective_from(state, content, sources, player, &unit, base),
+            None => effective_hits_on(state, content, sources, player, &unit),
+        }) else {
             continue;
         };
         let mut dice = crate::factions::unit_dice(
@@ -1304,14 +1337,25 @@ pub fn roll_barrage_side(
             unit_types: std::collections::BTreeMap::new(),
         });
     }
+    // The ship that borrows another card's ANTI-FIGHTER BARRAGE (The Cavalry) fires that instead.
+    let borrower =
+        crate::factions::hooks_combat::borrowed_stats(state, content, sources, player, system)
+            .and_then(|borrowed| borrowed.barrage.map(|barrage| (borrowed.unit, barrage)));
+    let mut borrower_used = false;
     for unit in ships_of(state, content, sources, player, system) {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
         };
-        let Some(value) = kind.afb_hits_on() else {
+        let lent = borrower
+            .as_ref()
+            .filter(|(ship, _)| !borrower_used && *ship == unit)
+            .map(|(_, barrage)| *barrage);
+        borrower_used |= lent.is_some();
+        let Some(value) = lent.map(|(value, _)| value).or_else(|| kind.afb_hits_on()) else {
             continue;
         };
-        let count = usize::try_from(kind.afb_dice()).unwrap_or(0);
+        let count =
+            usize::try_from(lent.map_or_else(|| kind.afb_dice(), |(_, dice)| dice)).unwrap_or(0);
         if count == 0 {
             continue;
         }
@@ -1954,6 +1998,24 @@ pub(crate) fn spend_cancellations(
     spent
 }
 
+/// `faction_marks` row an effect sets to send the combat round back to the start of its "Roll Dice"
+/// step. Invisible to every seat (`private:#`).
+pub(crate) const ROLL_REPLAY_MARK: &str = "private:#combat:replay_roll";
+
+/// Ask for the current space or ground combat round's "Roll Dice" step to be played again: the
+/// dice already rolled are discarded without producing a hit. Honoured at the next
+/// `SPACE_COMBAT_ROLL_STEP_ENDED` / `GROUND_COMBAT_ROLL_STEP_ENDED`, once.
+pub(crate) fn request_roll_replay(state: &mut GameState) {
+    state
+        .faction_marks
+        .insert(ROLL_REPLAY_MARK.to_owned(), String::new());
+}
+
+/// Whether a replay was requested; clears the request.
+pub(crate) fn take_roll_replay(state: &mut GameState) -> bool {
+    state.faction_marks.remove(ROLL_REPLAY_MARK).is_some()
+}
+
 /// Whether a card has barred this seat from retreating this combat round (Intercept).
 #[must_use]
 pub fn retreat_barred(state: &GameState, player: &PlayerId) -> bool {
@@ -2002,6 +2064,15 @@ fn non_euclidean_shielding(state: &GameState, player: &PlayerId) -> bool {
 /// Every faction module may forbid it (`hooks_combat::may_sustain`; Mentak's flagship: "Other
 /// player's ships in this system cannot use SUSTAIN DAMAGE"), asked last so the shared rules
 /// answer first.
+///
+/// `in_combat` is whether the hit is part of a space combat (rolls, start-of-combat and
+/// after-round effects, anti-fighter barrage) rather than a SPACE CANNON OFFENSE hit; a module may
+/// give a unit that is not a ship the ability for combat only (`hooks_combat::grants_sustain`,
+/// Nomad's Quantum Manipulator).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the unit, its type, its owner, the system and whether a combat is being fought"
+)]
 fn sustains_in_space(
     state: &GameState,
     content: &ContentStore,
@@ -2010,9 +2081,9 @@ fn sustains_in_space(
     player: &PlayerId,
     unit: &Unit,
     kind: &UnitType,
+    in_combat: bool,
 ) -> bool {
     &unit.owner == player
-        && kind.is_ship()
         && !unit.sustained_damage
         // Publicize Weapon Schematics: all war suns lose SUSTAIN DAMAGE. Asked of the unit here
         // rather than removed from the type, so repealing the law gives it back.
@@ -2020,8 +2091,21 @@ fn sustains_in_space(
         // Metali Void Shielding grants the ability to a non-fighter ship that lacks it. Asked here
         // rather than of the unit type, so a dreadnought is not given a second sustain it never
         // had.
-        && (kind.sustain_damage()
-            || (crate::relics::grants_sustain(state, player) && !kind.is_fighter()))
+        && ((kind.is_ship()
+            && (kind.sustain_damage()
+                || (crate::relics::grants_sustain(state, player) && !kind.is_fighter())))
+            || crate::factions::hooks_combat::grants_sustain(
+                state,
+                content,
+                sources,
+                &crate::factions::CombatUnit {
+                    player,
+                    system: Some(system),
+                    planet: None,
+                    unit_type: unit.type_id.as_str(),
+                    context: if in_combat { "space" } else { "space_cannon" },
+                },
+            ))
         && crate::factions::hooks_combat::may_sustain(
             state,
             content,
@@ -2092,7 +2176,16 @@ fn offer_sustain(
             .enumerate()
             .filter(|(_, unit)| {
                 types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                    sustains_in_space(state, content, sources, system, player, unit, kind)
+                    sustains_in_space(
+                        state,
+                        content,
+                        sources,
+                        system,
+                        player,
+                        unit,
+                        kind,
+                        during_space_combat,
+                    )
                 }) && assignable_to_hit(state, content, sources, player, system, unit, None, origin)
             })
             .map(|(index, unit)| (format!("space:{index}"), unit.clone()))
@@ -2106,7 +2199,16 @@ fn offer_sustain(
                     if unit.owner == *player
                         && unit.type_id.as_str() == "naaz_voltron"
                         && types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                            sustains_in_space(state, content, sources, system, player, unit, kind)
+                            sustains_in_space(
+                                state,
+                                content,
+                                sources,
+                                system,
+                                player,
+                                unit,
+                                kind,
+                                during_space_combat,
+                            )
                         })
                         && assignable_to_hit(
                             state,
@@ -3611,7 +3713,16 @@ impl CombatWindow {
             .enumerate()
             .filter(|(_, unit)| {
                 types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                    sustains_in_space(state, content, sources, &self.system, player, unit, kind)
+                    sustains_in_space(
+                        state,
+                        content,
+                        sources,
+                        &self.system,
+                        player,
+                        unit,
+                        kind,
+                        true,
+                    )
                 })
             })
             .map(|(index, unit)| (index.to_string(), unit.clone()))
@@ -3631,6 +3742,7 @@ impl CombatWindow {
                                 player,
                                 unit,
                                 kind,
+                                true,
                             )
                         })
                     {
@@ -4319,6 +4431,22 @@ impl CombatWindow {
                 apply_reroll_dice(ctx.dice, ctx.rng, set, &own_misses, "war_funding");
             }
             crate::promissory::give_back(state, &note);
+        }
+        // The end of the "Roll Dice" step (78.5): both sides' dice are final and nothing has landed.
+        // An effect that "returns to the start of this round's Roll Dice step" (the Nomad's
+        // The Thundarian) asks for it here; no hit is produced or assigned for the discarded roll,
+        // and the whole step is rolled afresh from the game's own dice stream.
+        {
+            let mut payload = std::collections::BTreeMap::new();
+            payload.insert("system".to_owned(), self.system.to_string().into());
+            payload.insert("round".to_owned(), i64::from(round).into());
+            payload.insert("attacker".to_owned(), self.attacker.to_string().into());
+            payload.insert("defender".to_owned(), self.defender.to_string().into());
+            state.faction_marks.remove(ROLL_REPLAY_MARK);
+            let _ = ctx.emit(state, "SPACE_COMBAT_ROLL_STEP_ENDED", payload);
+            if take_roll_replay(state) {
+                return self.roll_round(state, ctx, round);
+            }
         }
         let split = |set: &Option<RerollSet>, rolled: usize, side: &PlayerId| {
             set.as_ref().map_or((rolled, 0), |set| {

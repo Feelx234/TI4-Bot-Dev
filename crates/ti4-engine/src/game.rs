@@ -3673,9 +3673,11 @@ impl<'a> Game<'a> {
         // T'ro reads the end of the tactical action, including a strategy-card free action.
         // Keep the system in the event so native use cannot erase a copied listener's target.
         let tro_window = self.state.players.iter().any(|seat| {
-            seat.leaders
-                .get(&ti4_model::id::LeaderId::new("sardakkagent"))
-                == Some(&ti4_model::state::LeaderStatus::Readied)
+            // Also Field Marshal Mercer (`nomadagentmercer`), which reads the same moment.
+            ["sardakkagent", "nomadagentmercer"].iter().any(|agent| {
+                seat.leaders.get(&ti4_model::id::LeaderId::new(*agent))
+                    == Some(&ti4_model::state::LeaderStatus::Readied)
+            })
                 || crate::factions::hooks_cards::borrowable_agents(
                     &self.state,
                     self.content,

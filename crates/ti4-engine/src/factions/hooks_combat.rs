@@ -15,7 +15,13 @@
 //! | [`CombatHooks::afb_excess`] | Argent Raid Formation | a barrage hit with no fighter left to take it |
 //!
 //! Events (emitted from `combat.rs`, consumed through `Hooks::timing_abilities`):
-//! `SPACE_COMBAT_ROUND_ENDED` and `SPACE_COMBAT_ENDED`.
+//! `SPACE_COMBAT_ROUND_ENDED` and `SPACE_COMBAT_ENDED`, and `SPACE_COMBAT_ROLL_STEP_ENDED`
+//! (`system`, `round`, `attacker`, `defender`): the "Roll Dice" step is over, dice final and nothing
+//! assigned; a handler may call `combat::request_roll_replay` to play the step again (Nomad The
+//! Thundarian).
+//!
+//! Two hooks serve the Nomad: [`CombatHooks::grants_sustain`] (Quantum Manipulator, The Cavalry) and
+//! [`CombatHooks::borrowed_stats`] (The Cavalry).
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::SourceSet;
@@ -118,6 +124,21 @@ pub struct AfbExcess<'a> {
     pub excess: usize,
 }
 
+/// The stats one ship borrows for a space combat from another card.
+///
+/// The Nomad's The Cavalry: "During this combat, treat 1 of your non-fighter ships as if it has the
+/// SUSTAIN DAMAGE ability, combat value, and ANTI-FIGHTER BARRAGE value of the Nomad's flagship."
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BorrowedStats {
+    /// The ship, as it stands in the system (identical ships are interchangeable, so the first
+    /// equal one in board order is the borrower).
+    pub unit: ti4_model::units::Unit,
+    /// The combat value it rolls on instead of its own (before the usual modifiers).
+    pub hits_on: Option<i64>,
+    /// The ANTI-FIGHTER BARRAGE it fires, as `(value, dice)`.
+    pub barrage: Option<(i64, i64)>,
+}
+
 /// Hooks for this area. Every field is optional; a module sets only what it needs.
 #[derive(Debug, Clone, Copy)]
 #[allow(
@@ -178,11 +199,31 @@ pub struct CombatHooks {
     /// of a ship against your fleet pool." The module checks `player` is Naalu and `unit_type` is
     /// `naalu_fighter2`.
     pub fighter_fleet_weight_halves: Option<fn(&GameState, &ContentStore, &PlayerId, &str) -> bool>,
+    /// Whether this unit has SUSTAIN DAMAGE against a space-combat hit although its type lacks it
+    /// (or is not a ship). Any module's `true` grants it; the shared gates (already damaged,
+    /// [`Self::may_sustain`], a law that suppresses it) still apply on top.
+    ///
+    /// `unit.context` is `"space"` while a space combat is being fought (hits from combat rolls,
+    /// from "at the start of"/"after a round" effects and from anti-fighter barrage) and
+    /// `"space_cannon"` for SPACE CANNON OFFENSE hits, which are not part of a combat.
+    ///
+    /// Nomad Quantum Manipulator: "While this unit is in a space area during combat, you may use
+    /// its SUSTAIN DAMAGE ability to cancel a hit that is produced against your ships in this
+    /// system." The Cavalry gives a non-fighter ship the same ability.
+    pub grants_sustain: Option<fn(&GameState, &ContentStore, SourceSet, &CombatUnit<'_>) -> bool>,
+    /// The one ship of `player` in `system` that borrows another card's stats this combat.
+    /// Called once per roll with `(state, content, sources, player, system)`; the first module
+    /// answering `Some` wins. Must be pure.
+    pub borrowed_stats: Option<
+        fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId) -> Option<BorrowedStats>,
+    >,
 }
 
 impl CombatHooks {
     /// No hooks.
     pub const NONE: Self = Self {
+        grants_sustain: None,
+        borrowed_stats: None,
         produced_hits: None,
         may_sustain: None,
         direct_hit_immune: None,
@@ -277,6 +318,31 @@ fn may_sustain_by(
         .by_ref()
         .filter_map(|table| table.may_sustain)
         .all(|hook| hook(state, content, sources, unit))
+}
+
+/// Whether any module gives this unit SUSTAIN DAMAGE against a space-combat hit.
+pub(crate) fn grants_sustain(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    unit: &CombatUnit<'_>,
+) -> bool {
+    tables()
+        .filter_map(|table| table.grants_sustain)
+        .any(|hook| hook(state, content, sources, unit))
+}
+
+/// The ship of `player` in `system` that borrows stats this combat, if any module names one.
+pub(crate) fn borrowed_stats(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Option<BorrowedStats> {
+    tables()
+        .filter_map(|table| table.borrowed_stats)
+        .find_map(|hook| hook(state, content, sources, player, system))
 }
 
 /// Whether any module makes this unit immune to Direct Hit.

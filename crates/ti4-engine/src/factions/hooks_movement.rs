@@ -18,6 +18,8 @@
 //! | [`MovementHooks::may_pass_through_supernova`] | Muaat Gashlai Physiology ("move through") | `MovementRules::with_laws` (`supernovae_pass_through`) |
 //! | [`MovementHooks::free_cargo`] | Argent Aerie Sentinel ("does not count against capacity ... if being transported") | `transit::CargoWindow::for_ship` |
 //! | [`MovementHooks::blocks_passage`] | Argent Aerie Hololattice | `MovementRules::with_laws` (`barred_transit`) |
+//! | [`MovementHooks::unit_adjacent_systems`] | Nomad Memoria I/II ("treat this unit as if it were adjacent to systems that contain 1 or more of your mechs") | `MovementRules::path_from_ship` |
+//! | [`MovementHooks::ignores_command_tokens`] | Nomad hero Ahk-Syl Siven (flagship and its cargo may leave command-token systems) | `MovementRules::path_from_ship`, `transit::CargoWindow::for_ship` |
 //!
 //! The off-turn movement API (Naalu Foresight) is `transit::relocate_ships`, which emits the new
 //! typed event `SHIPS_RELOCATED`; the wormhole token API is in `tokens.rs`; the map-edit API
@@ -145,6 +147,26 @@ pub struct MovementHooks {
     /// of your ships."
     pub cannot_activate:
         Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId) -> bool>,
+    /// Systems that a ship of unit type `ship_type` (one of `player`'s) is treated as adjacent to,
+    /// from wherever it stands during its own movement: the route search adds them to the
+    /// neighbours of every step that ship takes. Applies to that ship type only, never to the
+    /// player's other ships, and is not part of [`crate::movement::PlayerAdjacency`]. Union over
+    /// modules. Called once per ship type the moving player owns on the board when
+    /// `MovementRules` is built.
+    ///
+    /// Nomad flagship Memoria I/II (and the Memoria II technology): "You may treat this unit as if
+    /// it were adjacent to systems that contain 1 or more of your mechs."
+    pub unit_adjacent_systems:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &str) -> Vec<String>>,
+    /// Whether ships of type `ship_type` (one of `player`'s) may leave a system that holds the
+    /// player's own command token (58.4c lifted for that type), and may take their cargo with them
+    /// (95.5 lifted for what they transport). Any module's `true` allows. Only the departure is
+    /// lifted: the token pins every other ship as before.
+    ///
+    /// Nomad hero Ahk-Syl Siven: "Your flagship and units it transports can move out of systems
+    /// that contain your command tokens during this game round."
+    pub ignores_command_tokens:
+        Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &str) -> bool>,
 }
 
 impl MovementHooks {
@@ -159,6 +181,8 @@ impl MovementHooks {
         free_cargo: None,
         blocks_passage: None,
         cannot_activate: None,
+        unit_adjacent_systems: None,
+        ignores_command_tokens: None,
     };
 }
 
@@ -221,6 +245,33 @@ pub(crate) fn cannot_activate(
     tables()
         .filter_map(|table| table.cannot_activate)
         .any(|barred| barred(state, content, sources, player, system))
+}
+
+/// Systems this ship type is treated as adjacent to, summed over modules.
+pub(crate) fn unit_adjacent_systems(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    ship_type: &str,
+) -> BTreeSet<String> {
+    tables()
+        .filter_map(|table| table.unit_adjacent_systems)
+        .flat_map(|hook| hook(state, content, sources, player, ship_type))
+        .collect()
+}
+
+/// Whether any module lets this ship type leave a system holding its owner's command token.
+pub(crate) fn ignores_command_tokens(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    ship_type: &str,
+) -> bool {
+    tables()
+        .filter_map(|table| table.ignores_command_tokens)
+        .any(|hook| hook(state, content, sources, player, ship_type))
 }
 
 /// Wormholes the modules' pieces put on the map, by system.

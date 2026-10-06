@@ -414,6 +414,20 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Nomad: Future Sight, Thunder's Paradox, hero (BF-nomad.md).
+        module: "nomad.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Nomad agents: Mercer's removals and planet, The Cavalry's ship (BF-nomad-agents.md).
+        module: "nomad_agents.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Slumberstate Computing: fight or coexist when Coalescence forces a ground combat.
         module: "invasion.rs",
         function: "coexist_instead",
@@ -1291,6 +1305,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("borrowed_commanders.rs", "ralnel_ask", 1),
     ("borrowed_commanders.rs", "crimson_ask", 1),
     ("titans.rs", "ask", 1),
+    ("nomad.rs", "ask", 1),
+    ("nomad.rs", "temporal_command_suite", 1),
+    ("nomad_agents.rs", "ask", 1),
     ("invasion.rs", "coexist_instead", 1),
     ("titans_leaders.rs", "sleeper_allowance", 1),
     ("argent.rs", "afb_excess", 1),

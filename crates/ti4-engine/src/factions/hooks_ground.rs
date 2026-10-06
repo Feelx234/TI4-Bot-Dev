@@ -22,6 +22,7 @@
 //! | `GROUND_COMBAT_STARTED` | `system`, `planet`, `attacker`, `defender` | Before the first round of a ground combat on a planet. |
 //! | `GROUND_COMBAT_ENDED` | `system`, `planet`, `attacker`, `defender`, `winner` (absent if both sides were wiped out), `control_changed` (bool) | After the last round, before the next planet. |
 //! | `GROUND_COMMITMENT_FINISHED` | `system`, `player`, `planets` (array of strings) | The invader has finished committing ground forces. |
+//! | `GROUND_COMBAT_ROLL_STEP_ENDED` | `system`, `planet`, `attacker`, `defender` | The "Roll Dice" step of a ground combat round is over (dice final, nothing assigned). A handler may call `combat::request_roll_replay` to play the step again (Nomad The Thundarian); not emitted by the synchronous test-only entry points. |
 //!
 //! `cause` is one of `ground_combat`, `harrow`, `space_cannon_defense`, `bombardment` (invasion),
 //! or `action_card:<id>` / `agenda:<id>` for a card or agenda effect.

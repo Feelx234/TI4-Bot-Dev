@@ -2716,50 +2716,69 @@ impl InvasionWindow {
         for who in [self.invader.clone(), defender.clone()] {
             dunlain_reaper(state, ctx, &who, &self.system, &planet);
         }
-        // 42.2: hits are simultaneous, so both sides roll before either loses anything.
-        let attacker_hits = roll_ground(
-            state,
-            content,
-            sources,
-            ctx.dice,
-            ctx.rng,
-            &self.invader,
-            &self.system,
-            &planet,
-        );
-        let defender_hits = roll_ground(
-            state,
-            content,
-            sources,
-            ctx.dice,
-            ctx.rng,
-            &defender,
-            &self.system,
-            &planet,
-        );
-        if !copied_round {
-            state.combat_round_seq = state.combat_round_seq.saturating_add(1);
-        }
-        // "After your ground forces make combat rolls during a round of ground combat." Emitted
-        // between the rolls and the removals, which is what the window means: a card played here
-        // acts on the hits before anyone dies of them.
-        for (who, hits) in [
-            (self.invader.clone(), attacker_hits),
-            (defender.clone(), defender_hits),
-        ] {
-            self.emit_ground_rolls_made(state, ctx, &planet, &who, hits);
-        }
-        // Fire Team's window ("reroll any number of your dice") opened at those emits; the
-        // hits that remove units are what the possibly rerolled dice now show.
-        let (attacker_hits, defender_hits) = Self::rerolled_ground_hits(
-            state,
-            &self.invader,
-            attacker_hits,
-            &defender,
-            defender_hits,
-        );
-        state.reroll_staging.clear();
-        state.last_reroll_player = None;
+        // The "Roll Dice" step. An effect that returns to its start (the Nomad's The Thundarian,
+        // asked at the end of the step) plays it again exactly as the first time: the same round
+        // number, fresh dice, and no hit produced or assigned for the discarded roll.
+        let round_before = state.combat_round_seq;
+        let (attacker_hits, defender_hits) = loop {
+            state.combat_round_seq = round_before;
+            // 42.2: hits are simultaneous, so both sides roll before either loses anything.
+            let attacker_hits = roll_ground(
+                state,
+                content,
+                sources,
+                ctx.dice,
+                ctx.rng,
+                &self.invader,
+                &self.system,
+                &planet,
+            );
+            let defender_hits = roll_ground(
+                state,
+                content,
+                sources,
+                ctx.dice,
+                ctx.rng,
+                &defender,
+                &self.system,
+                &planet,
+            );
+            if !copied_round {
+                state.combat_round_seq = state.combat_round_seq.saturating_add(1);
+            }
+            // "After your ground forces make combat rolls during a round of ground combat." Emitted
+            // between the rolls and the removals, which is what the window means: a card played
+            // here acts on the hits before anyone dies of them.
+            for (who, hits) in [
+                (self.invader.clone(), attacker_hits),
+                (defender.clone(), defender_hits),
+            ] {
+                self.emit_ground_rolls_made(state, ctx, &planet, &who, hits);
+            }
+            // Fire Team's window ("reroll any number of your dice") opened at those emits; the
+            // hits that remove units are what the possibly rerolled dice now show.
+            let (attacker_hits, defender_hits) = Self::rerolled_ground_hits(
+                state,
+                &self.invader,
+                attacker_hits,
+                &defender,
+                defender_hits,
+            );
+            state.reroll_staging.clear();
+            state.last_reroll_player = None;
+            // The end of the step: both sides' dice are final and nothing has landed.
+            let mut ended = std::collections::BTreeMap::new();
+            ended.insert("system".to_owned(), self.system.to_string().into());
+            ended.insert("planet".to_owned(), planet.to_string().into());
+            ended.insert("attacker".to_owned(), self.invader.to_string().into());
+            ended.insert("defender".to_owned(), defender.to_string().into());
+            state.faction_marks.remove(crate::combat::ROLL_REPLAY_MARK);
+            self.emit_ground_event(state, ctx, "GROUND_COMBAT_ROLL_STEP_ENDED", ended);
+            if crate::combat::take_roll_replay(state) {
+                continue;
+            }
+            break (attacker_hits, defender_hits);
+        };
         // Hits a faction adds to its own roll once the dice are final (Valkyrie Particle Weave).
         // Assigned by the opponent like any other hit.
         // Both sides' final dice are read before either side adds anything.
@@ -6909,6 +6928,96 @@ mod tests {
             1,
             "the die the decider named was the only one re-drawn"
         );
+    }
+
+    /// The Nomad's The Thundarian: "After the \"Roll Dice\" step of combat: You may exhaust this
+    /// card. If you do, hits are not assigned to either player's units. Return to the start of this
+    /// combat round's \"Roll Dice\" step." One infantry each (both hit on 8). The first roll would
+    /// kill both; with the card it is discarded and the step is rolled again.
+    #[test]
+    fn the_thundarian_replays_the_ground_roll_without_assigning_its_hits() {
+        let (a, b) = (invader(), holder());
+        let run = |used: bool| {
+            let (mut state, system, planet) = arena();
+            state
+                .system_mut(&system)
+                .set_control(planet.clone(), b.clone());
+            on_planet(&mut state, &system, &planet, "infantry", &a, 1);
+            on_planet(&mut state, &system, &planet, "infantry", &b, 1);
+            state.player_mut(&a).unwrap().leaders.insert(
+                ti4_model::id::LeaderId::new("nomadagentthundarian"),
+                ti4_model::state::LeaderStatus::Readied,
+            );
+            let name = crate::promissory::faction_name(&state, &a);
+            let window =
+                format!("leader:{name}:nomadagentthundarian:GROUND_COMBAT_ROLL_STEP_ENDED:after");
+            let script = vec![
+                "fight".to_owned(),
+                if used { window } else { "decline".to_owned() },
+            ];
+            // Round 1's roll: both hit. The replayed roll: the invader hits, the defender misses.
+            let mut dice = Dice::from_faces([8u32, 8, 8, 3]);
+            let mut rng = GameRng::new(4);
+            let asks = drive_invasion(
+                &mut state,
+                &system,
+                Stage::Fighting {
+                    planets: vec![planet.clone()],
+                    index: 0,
+                    defender: b.clone(),
+                },
+                InvasionReport {
+                    committed: vec![planet.clone()],
+                    ..InvasionReport::default()
+                },
+                script,
+                &mut dice,
+                &mut rng,
+            );
+            let left: Vec<Unit> = state.system_state(&system).on_planet(&planet).to_vec();
+            let agent = state
+                .player(&a)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("nomadagentthundarian"))
+                .copied();
+            (
+                asks,
+                left,
+                state,
+                system,
+                planet,
+                dice.history().len(),
+                agent,
+            )
+        };
+
+        let (asks, left, state, system, planet, rolls, agent) = run(true);
+        assert_eq!(rolls, 4, "two rolls, discarded, then two more");
+        assert_eq!(left.len(), 1, "only the defender's infantry fell");
+        assert_eq!(left[0].owner, a);
+        assert_eq!(
+            state.system_state(&system).planet_control.get(&planet),
+            Some(&a)
+        );
+        assert_eq!(agent, Some(ti4_model::state::LeaderStatus::Exhausted));
+        assert!(
+            !state
+                .faction_marks
+                .contains_key(crate::combat::ROLL_REPLAY_MARK),
+            "the request is spent"
+        );
+        assert_eq!(asks.len(), 2, "the round, then the one offer; got {asks:?}");
+
+        // Declined, the same first roll kills both sides and the defender keeps the planet.
+        let (_, left, state, system, planet, rolls, agent) = run(false);
+        assert_eq!(rolls, 2);
+        assert!(left.is_empty());
+        assert_eq!(
+            state.system_state(&system).planet_control.get(&planet),
+            Some(&b)
+        );
+        assert_eq!(agent, Some(ti4_model::state::LeaderStatus::Readied));
     }
 
     /// A system with two non-station planets, so a relocation has somewhere to go.

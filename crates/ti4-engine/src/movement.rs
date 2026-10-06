@@ -160,6 +160,13 @@ pub struct MovementRules<'a> {
     /// Ship types of the moving player that may pass other players' ships, from
     /// `MovementHooks::may_move_through_ships`. Consulted only by [`Self::path_from_ship`].
     passing_ship_types: BTreeSet<String>,
+    /// Per ship type of the moving player: systems that type is treated as adjacent to from
+    /// wherever it stands (`MovementHooks::unit_adjacent_systems`). Consulted only by
+    /// [`Self::path_from_ship`].
+    ship_adjacent: BTreeMap<String, BTreeSet<String>>,
+    /// Ship types of the moving player that may leave systems holding the player's command
+    /// token (`MovementHooks::ignores_command_tokens`). Consulted only by [`Self::path_from_ship`].
+    token_free_types: BTreeSet<String>,
 }
 
 impl<'a> MovementRules<'a> {
@@ -206,6 +213,8 @@ impl<'a> MovementRules<'a> {
             gravity_rift_systems: BTreeSet::new(),
             rifts_ignored: false,
             passing_ship_types: BTreeSet::new(),
+            ship_adjacent: BTreeMap::new(),
+            token_free_types: BTreeSet::new(),
         };
         if let Some(state) = state {
             rules.apply_faction_modules(state, content, sources);
@@ -283,7 +292,11 @@ impl<'a> MovementRules<'a> {
                 }
             }
         }
-        if hooks::any(|table| table.may_move_through_ships.is_some()) {
+        if hooks::any(|table| {
+            table.may_move_through_ships.is_some()
+                || table.unit_adjacent_systems.is_some()
+                || table.ignores_command_tokens.is_some()
+        }) {
             let active = SystemId::new(self.active_system.as_str());
             let types: BTreeSet<&str> = state
                 .board
@@ -300,6 +313,13 @@ impl<'a> MovementRules<'a> {
                 };
                 if hooks::may_move_through_ships(state, content, sources, &site) {
                     self.passing_ship_types.insert(ship_type.to_owned());
+                }
+                let near = hooks::unit_adjacent_systems(state, content, sources, &mover, ship_type);
+                if !near.is_empty() {
+                    self.ship_adjacent.insert(ship_type.to_owned(), near);
+                }
+                if hooks::ignores_command_tokens(state, content, sources, &mover, ship_type) {
+                    self.token_free_types.insert(ship_type.to_owned());
                 }
             }
         }
@@ -402,6 +422,12 @@ impl<'a> MovementRules<'a> {
         !self.board.own_command_tokens.contains(origin)
     }
 
+    /// [`Self::may_depart`] for one ship type, which a module may free of 58.4c.
+    fn may_depart_ship(&self, origin: &str, ship_type: Option<&str>) -> bool {
+        self.may_depart(origin)
+            || ship_type.is_some_and(|kind| self.token_free_types.contains(kind))
+    }
+
     #[must_use]
     pub fn can_reach(&self, origin: &str, move_value: i32) -> bool {
         self.path_from(origin, move_value).is_some()
@@ -433,7 +459,7 @@ impl<'a> MovementRules<'a> {
         move_value: i32,
         ship_type: Option<&str>,
     ) -> Option<Vec<String>> {
-        if !self.may_depart(origin) {
+        if !self.may_depart_ship(origin, ship_type) {
             return None;
         }
 
@@ -485,6 +511,10 @@ impl<'a> MovementRules<'a> {
             }
             if let Some(extra) = self.extra_adjacency.get(&current) {
                 neighbours.extend(extra.iter().cloned());
+            }
+            // A ship treated as adjacent to some systems (Nomad Memoria) is, wherever it stands.
+            if let Some(near) = ship_type.and_then(|kind| self.ship_adjacent.get(kind)) {
+                neighbours.extend(near.iter().filter(|id| **id != current).cloned());
             }
             // The conduit joins the active system to the listed ones in both directions: a
             // route out of one of them is what the card buys.

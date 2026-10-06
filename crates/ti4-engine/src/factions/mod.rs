@@ -58,6 +58,8 @@ pub mod mentak;
 pub mod muaat;
 pub mod naalu;
 pub mod naaz;
+pub mod nomad;
+pub mod nomad_agents;
 pub mod saar;
 pub mod sardakk;
 pub mod titans;
@@ -67,7 +69,7 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 13] = [
+pub const MODULES: [&FactionModule; 14] = [
     &arborec::MODULE,
     &argent::MODULE,
     &ghost::MODULE,
@@ -75,6 +77,7 @@ pub const MODULES: [&FactionModule; 13] = [
     &muaat::MODULE,
     &naalu::MODULE,
     &naaz::MODULE,
+    &nomad::MODULE,
     &saar::MODULE,
     &sardakk::MODULE,
     &titans::MODULE,
@@ -873,6 +876,11 @@ mod tests {
         }
     }
 
+    /// Three leaders per sheet, except the Nomad: The Company gives it three agents.
+    fn leader_count(alias: &str) -> usize {
+        if alias == "nomad" { 5 } else { 3 }
+    }
+
     #[test]
     fn every_planned_faction_has_a_full_asset_sheet() {
         // The ledger is only useful if it finds the sheet: abilities, two faction technologies,
@@ -885,7 +893,12 @@ mod tests {
             assert!(count(AssetKind::Technology) >= 2, "{}", module.alias);
             assert!(count(AssetKind::Unit) >= 2, "{}", module.alias);
             assert_eq!(count(AssetKind::Promissory), 1, "{}", module.alias);
-            assert_eq!(count(AssetKind::Leader), 3, "{}", module.alias);
+            assert_eq!(
+                count(AssetKind::Leader),
+                leader_count(module.alias),
+                "{}",
+                module.alias
+            );
             assert_eq!(count(AssetKind::Breakthrough), 1, "{}", module.alias);
         }
     }
@@ -951,7 +964,12 @@ mod tests {
             let seat = state.player(&PlayerId::new("a")).expect("seated");
             assert_eq!(seat.faction.as_str(), module.alias);
             assert!(seat.home_system.is_some(), "{}", module.alias);
-            assert_eq!(seat.leaders.len(), 3, "{} leaders", module.alias);
+            assert_eq!(
+                seat.leaders.len(),
+                leader_count(module.alias),
+                "{} leaders",
+                module.alias
+            );
         }
     }
 
