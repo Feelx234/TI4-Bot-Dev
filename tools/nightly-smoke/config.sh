@@ -9,18 +9,18 @@ REPORT_ROOT="${NIGHTLY_REPORT_ROOT:-$REPO/nightly-reports}"
 # morning); it stops launching runs so that the last proctor can finish by END. A night is named
 # after the Berlin date on which its window started.
 NIGHTLY_TZ="${NIGHTLY_TZ:-Europe/Berlin}"
-START_HHMM="${NIGHTLY_START:-09:00}"
+START_HHMM="${NIGHTLY_START:-20:30}"
 END_HHMM="${NIGHTLY_END:-06:00}"
 # Nights that started before this date (YYYY-MM-DD) are skipped by `tick`, so a new schedule never
 # switches a checkout people are working in half way through a day.
-NOT_BEFORE="${NIGHTLY_NOT_BEFORE:-2026-10-07}"
+NOT_BEFORE="${NIGHTLY_NOT_BEFORE:-2026-10-06}"
 
 # Opus fix rounds. FIXERS lists the rounds that run ("1 2", "2", "" to disable). Round 1 starts
 # at FIX1_HHMM (same Berlin day as the window start) while the sweep keeps running; round 2 starts
 # once the sweep has ended. The morning summary waits for round 2.
 FIXERS="${NIGHTLY_FIXERS-1 2}" # no colon: NIGHTLY_FIXERS="" really disables both rounds
 FIXER_MODEL="${NIGHTLY_FIXER_MODEL:-claude-opus-5-5}"
-FIX1_HHMM="${NIGHTLY_FIX1:-12:00}"
+FIX1_HHMM="${NIGHTLY_FIX1:-23:59}"
 FIX1_MAX_SECONDS="${NIGHTLY_FIX1_MAX_SECONDS:-14400}"
 FIX2_MAX_SECONDS="${NIGHTLY_FIX2_MAX_SECONDS:-10800}"
 MAX_FIXES_PER_ROUND="${NIGHTLY_MAX_FIXES:-6}"
