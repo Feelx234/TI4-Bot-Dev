@@ -112,19 +112,23 @@ export const HitAssignmentPanel: React.FC<HitAssignmentPanelProps> = ({
               <span className="hit-assignment__hint">
                 {row.individual
                   ? row.canSustain
-                    ? "can sustain damage"
-                    : ""
+                    ? "can sustain damage · 2 hits to destroy"
+                    : row.damaged
+                      ? "damaged · 1 hit to destroy"
+                      : ""
                   : `takes up to ${row.count} hit${row.count === 1 ? "" : "s"}`}
               </span>
               <span
                 className="hit-assignment__staged"
                 data-testid={`hit-staged-${row.key}`}
               >
-                {entry.sustain
-                  ? "sustains"
-                  : entry.destroy > 0
-                    ? `−${entry.destroy}`
-                    : ""}
+                {entry.sustain && entry.destroy > 0
+                  ? "destroyed"
+                  : entry.sustain
+                    ? "sustains"
+                    : entry.destroy > 0
+                      ? `−${entry.destroy}`
+                      : ""}
               </span>
               <button
                 type="button"

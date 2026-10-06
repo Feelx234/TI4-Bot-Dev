@@ -159,11 +159,16 @@ export function buildHitRows(ctx: HitContext): HitRow[] {
   return rows;
 }
 
-/** Whether a row's ships may be destroyed in this decision. */
+/**
+ * Whether a row's ships may be destroyed in this decision. An undamaged sustaining ship is
+ * destroyed only after it sustained, so the engine then offers it as a damaged ship.
+ */
 export function canDestroy(row: HitRow, ctx: HitContext): boolean {
   return (
     !ctx.destroyable ||
-    ctx.destroyable.has(destroyKey(row.unitType, row.damaged))
+    ctx.destroyable.has(
+      destroyKey(row.unitType, row.canSustain ? true : row.damaged),
+    )
   );
 }
 
@@ -174,13 +179,18 @@ export function stagedHits(staging: HitStaging): number {
   );
 }
 
-/** Hits that can be assigned at all: one per ship that may be destroyed or may sustain. */
+/**
+ * Hits a row can take. A ship that is already damaged, or cannot sustain, takes one hit to
+ * destroy; an undamaged sustaining ship takes two: one to sustain damage, one to destroy it.
+ */
+export function rowHits(row: HitRow, ctx: HitContext): number {
+  if (row.canSustain) return 1 + (canDestroy(row, ctx) ? 1 : 0);
+  return canDestroy(row, ctx) ? row.count : 0;
+}
+
+/** Hits that can be assigned at all across the rows. */
 export function assignableHits(rows: HitRow[], ctx: HitContext): number {
-  return rows.reduce(
-    (sum, row) =>
-      sum + (canDestroy(row, ctx) || row.canSustain ? row.count : 0),
-    0,
-  );
+  return rows.reduce((sum, row) => sum + rowHits(row, ctx), 0);
 }
 
 /** The number of hits the plan must cover before it can be confirmed. */
@@ -199,12 +209,10 @@ export function canAddDestroy(
   ctx: HitContext,
 ): boolean {
   const staged = staging[row.key] ?? { destroy: 0, sustain: false };
-  return (
-    canDestroy(row, ctx) &&
-    !staged.sustain &&
-    staged.destroy < row.count &&
-    stagedHits(staging) < hits
-  );
+  if (!canDestroy(row, ctx) || staged.destroy >= row.count) return false;
+  // An undamaged sustaining ship sustains first, so destroying it takes a second hit.
+  const cost = row.canSustain && !staged.sustain ? 2 : 1;
+  return stagedHits(staging) + cost <= hits;
 }
 
 export function canSustain(
@@ -213,30 +221,35 @@ export function canSustain(
   hits: number,
 ): boolean {
   const staged = staging[row.key] ?? { destroy: 0, sustain: false };
-  return (
-    row.canSustain &&
-    !staged.sustain &&
-    staged.destroy === 0 &&
-    stagedHits(staging) < hits
-  );
+  return row.canSustain && !staged.sustain && stagedHits(staging) < hits;
 }
 
+/** Stages one destroy; on an undamaged sustaining ship that stages its sustain too. */
 export function addDestroy(staging: HitStaging, row: HitRow): HitStaging {
   const staged = staging[row.key] ?? { destroy: 0, sustain: false };
-  return { ...staging, [row.key]: { ...staged, destroy: staged.destroy + 1 } };
+  return {
+    ...staging,
+    [row.key]: {
+      destroy: staged.destroy + 1,
+      sustain: staged.sustain || row.canSustain,
+    },
+  };
 }
 
+/** Takes back the last hit on a row: the destroy first, then the sustain it followed. */
 export function removeHit(staging: HitStaging, row: HitRow): HitStaging {
   const staged = staging[row.key];
   if (!staged) return staging;
-  const next = staged.sustain
-    ? { ...staged, sustain: false }
-    : { ...staged, destroy: Math.max(0, staged.destroy - 1) };
+  const next =
+    staged.destroy > 0
+      ? { ...staged, destroy: staged.destroy - 1 }
+      : { ...staged, sustain: false };
   return { ...staging, [row.key]: next };
 }
 
 export function addSustain(staging: HitStaging, row: HitRow): HitStaging {
-  return { ...staging, [row.key]: { destroy: 0, sustain: true } };
+  const staged = staging[row.key] ?? { destroy: 0, sustain: false };
+  return { ...staging, [row.key]: { ...staged, sustain: true } };
 }
 
 /** Rough cost of losing a ship, cheapest first, for filling the remaining hits automatically. */
@@ -282,6 +295,7 @@ export function autoFill(
 /**
  * The plan sent to the server: every sustain first, then one destroy per lost ship. The engine
  * asks hit by hit, sustain before loss; the server answers "take the hit" itself before a destroy.
+ * A ship that sustains and is then destroyed is lost as a damaged ship.
  */
 export function casualtyPlan(
   rows: HitRow[],
@@ -291,9 +305,11 @@ export function casualtyPlan(
   for (const row of rows)
     if (staging[row.key]?.sustain)
       steps.push({ kind: "sustain", unit: row.unitType });
-  for (const row of rows)
+  for (const row of rows) {
+    const damaged = row.damaged || (row.canSustain && !!staging[row.key]?.sustain);
     for (let i = 0; i < (staging[row.key]?.destroy ?? 0); i++)
-      steps.push({ kind: "destroy", unit: row.unitType, damaged: row.damaged });
+      steps.push({ kind: "destroy", unit: row.unitType, damaged });
+  }
   return steps;
 }
 

@@ -3712,7 +3712,7 @@ select:focus-visible,
 }
 .hit-assignment__row {
   display: grid;
-  grid-template-columns: 24px 1fr auto 4.5em 2.2em 5.5em 2.2em;
+  grid-template-columns: 24px 1fr auto 6em 2.2em 5.5em 2.2em;
   align-items: center;
   gap: 6px;
 }

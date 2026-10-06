@@ -79,6 +79,38 @@ describe("HitAssignmentPanel", () => {
     ]);
   });
 
+  it("shows what destroying a sustaining ship costs and offers only the sustain with one hit left", () => {
+    renderPanel(undefined, 1);
+    expect(screen.getByTestId("hit-row-dreadnought#1")).toHaveTextContent(
+      "2 hits to destroy",
+    );
+    expect(screen.getByTestId("hit-sustain-dreadnought#1")).toBeEnabled();
+    expect(screen.getByTestId("hit-destroy-dreadnought#1")).toBeDisabled();
+  });
+
+  it("stages a sustain and the destroy that follows as two hits, undone destroy first", async () => {
+    const onSubmitPlan = renderPanel(undefined, 2);
+    fireEvent.click(screen.getByTestId("hit-destroy-dreadnought#1"));
+    expect(screen.getByTestId("hit-staged-dreadnought#1")).toHaveTextContent(
+      "destroyed",
+    );
+    expect(screen.getByTestId("hit-assignment-remaining")).toHaveTextContent(
+      "0 of 2 hits left",
+    );
+    fireEvent.click(screen.getByTestId("hit-remove-dreadnought#1"));
+    expect(screen.getByTestId("hit-staged-dreadnought#1")).toHaveTextContent(
+      "sustains",
+    );
+    fireEvent.click(screen.getByTestId("hit-destroy-dreadnought#1"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("hit-confirm"));
+    });
+    expect(onSubmitPlan).toHaveBeenCalledWith([
+      { kind: "sustain", unit: "dreadnought" },
+      { kind: "destroy", unit: "dreadnought", damaged: true },
+    ]);
+  });
+
   it("moves a hit between ships before confirming", async () => {
     const onSubmitPlan = renderPanel(undefined, 1);
     fireEvent.click(screen.getByTestId("hit-destroy-fighter|intact"));

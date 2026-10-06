@@ -12,6 +12,7 @@ import {
   hitsToCover,
   removeHit,
   spaceHitUnits,
+  stagedHits,
   strandedCargo,
   type HitContext,
 } from "./hitAssignment.ts";
@@ -104,15 +105,69 @@ describe("hit staging", () => {
     ]);
   });
 
-  it("lets a ship sustain or be destroyed, not both, and only ships the engine offers", () => {
+  it("only destroys ships the engine offers", () => {
     const c = ctx({ destroyable: new Set(["fighter|intact"]) });
     const rows = buildHitRows(c);
     const dread = rows.find((r) => r.unitType === "dreadnought" && !r.damaged)!;
-    const staging = addSustain({}, dread);
-    expect(canSustain(dread, staging, 3)).toBe(false);
-    expect(canAddDestroy(dread, staging, 3, c)).toBe(false);
+    expect(canAddDestroy(dread, addSustain({}, dread), 3, c)).toBe(false);
     const destroyer = rows.find((r) => r.unitType === "destroyer")!;
     expect(canAddDestroy(destroyer, {}, 3, c)).toBe(false);
+  });
+
+  it("costs two hits to destroy an undamaged sustaining ship: sustain, then destroy", () => {
+    const c = ctx({ units: [unit("dreadnought")] });
+    const rows = buildHitRows(c);
+    const [dread] = rows;
+    expect(canSustain(dread, {}, 1)).toBe(true);
+    expect(canAddDestroy(dread, {}, 1, c)).toBe(false);
+    expect(canAddDestroy(dread, {}, 2, c)).toBe(true);
+    const staging = addDestroy({}, dread);
+    expect(staging[dread.key]).toEqual({ destroy: 1, sustain: true });
+    expect(stagedHits(staging)).toBe(2);
+    expect(casualtyPlan(rows, staging)).toEqual([
+      { kind: "sustain", unit: "dreadnought" },
+      { kind: "destroy", unit: "dreadnought", damaged: true },
+    ]);
+    expect(canAddDestroy(dread, staging, 5, c)).toBe(false);
+  });
+
+  it("lets a sustained ship take a second hit that destroys it, while a hit remains", () => {
+    const c = ctx({ units: [unit("dreadnought")] });
+    const [dread] = buildHitRows(c);
+    const sustained = addSustain({}, dread);
+    expect(canSustain(dread, sustained, 2)).toBe(false);
+    expect(canAddDestroy(dread, sustained, 2, c)).toBe(true);
+    expect(canAddDestroy(dread, sustained, 1, c)).toBe(false);
+  });
+
+  it("destroys a damaged sustaining ship with one hit", () => {
+    const c = ctx({ units: [unit("dreadnought", true)] });
+    const rows = buildHitRows(c);
+    const [dread] = rows;
+    expect(dread.canSustain).toBe(false);
+    expect(canAddDestroy(dread, {}, 1, c)).toBe(true);
+    expect(casualtyPlan(rows, addDestroy({}, dread))).toEqual([
+      { kind: "destroy", unit: "dreadnought", damaged: true },
+    ]);
+  });
+
+  it("undoes the destroy before the sustain", () => {
+    const c = ctx({ units: [unit("dreadnought")] });
+    const [dread] = buildHitRows(c);
+    let staging = addDestroy({}, dread);
+    staging = removeHit(staging, dread);
+    expect(staging[dread.key]).toEqual({ destroy: 0, sustain: true });
+    staging = removeHit(staging, dread);
+    expect(staging[dread.key]).toEqual({ destroy: 0, sustain: false });
+  });
+
+  it("counts an undamaged sustaining ship as two assignable hits", () => {
+    const one = ctx({ units: [unit("dreadnought")] });
+    expect(hitsToCover(9, buildHitRows(one), one)).toBe(2);
+    const damaged = ctx({ units: [unit("dreadnought", true)] });
+    expect(hitsToCover(9, buildHitRows(damaged), damaged)).toBe(1);
+    const mixed = ctx({ units: [unit("dreadnought"), unit("fighter")] });
+    expect(hitsToCover(9, buildHitRows(mixed), mixed)).toBe(3);
   });
 
   it("puts every sustain before the losses in the plan", () => {
@@ -142,6 +197,22 @@ describe("hit staging", () => {
       { kind: "destroy", unit: "fighter", damaged: false },
       { kind: "destroy", unit: "fighter", damaged: false },
     ]);
+  });
+
+  it("auto-assign spends every hit it legally can, destroying a sustained ship last", () => {
+    const lone = ctx({ units: [unit("dreadnought")] });
+    const loneRows = buildHitRows(lone);
+    expect(casualtyPlan(loneRows, autoFill(loneRows, {}, 1, lone))).toEqual([
+      { kind: "sustain", unit: "dreadnought" },
+    ]);
+    expect(casualtyPlan(loneRows, autoFill(loneRows, {}, 2, lone))).toEqual([
+      { kind: "sustain", unit: "dreadnought" },
+      { kind: "destroy", unit: "dreadnought", damaged: true },
+    ]);
+    const c = ctx();
+    const rows = buildHitRows(c);
+    const filled = autoFill(rows, {}, 5, c);
+    expect(stagedHits(filled)).toBe(5);
   });
 
   it("warns when lost capacity strands cargo", () => {
