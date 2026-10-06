@@ -263,13 +263,19 @@ fn place(
     Ok(())
 }
 
+/// Influence a raider keeps beyond the custodians' six. Random play spends influence early (two
+/// Leadership token buys drained a raider's six before it reached Mecatol), and 27.2 checks the
+/// cost when the invasion starts, not when the game does.
+const RAIDER_SPARE_INFLUENCE: i64 = 6;
+
 /// Trade goods so a raider can pay the custodians' six influence (27.2) without any rule change.
 fn top_up_influence(content: &ContentStore, state: &mut GameState, player: &PlayerId) {
     let available =
         production::available(state, content, POK, player, production::Spend::Influence);
-    if available < invasion::CUSTODIANS_COST {
+    let wanted = invasion::CUSTODIANS_COST + RAIDER_SPARE_INFLUENCE;
+    if available < wanted {
         if let Some(seat) = state.player_mut(player) {
-            seat.trade_goods += i32::try_from(invasion::CUSTODIANS_COST - available).unwrap_or(0);
+            seat.trade_goods += i32::try_from(wanted - available).unwrap_or(0);
         }
     }
 }
@@ -462,8 +468,8 @@ mod tests {
                             POK,
                             player,
                             production::Spend::Influence
-                        ) >= invasion::CUSTODIANS_COST,
-                        "{n}p seed {seed}: {player} cannot pay the custodians"
+                        ) >= invasion::CUSTODIANS_COST + RAIDER_SPARE_INFLUENCE,
+                        "{n}p seed {seed}: {player} has no influence to spare beyond the custodians"
                     );
                 }
                 // The engine's own gate: the raider inside Mecatol has landable ground forces and
