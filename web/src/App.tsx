@@ -10,6 +10,7 @@ import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
 import { GameShell } from "./components/GameShell.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
 import { PlayerIdentityProvider } from "./presentation/PlayerIdentity.tsx";
+import { DecisionTableProvider } from "./components/PoliticsDecisionParts.tsx";
 import { participantText } from "./presentation/participantText.ts";
 import { CardDetails, CardSubject } from "./components/CardDetails.tsx";
 import { TechnologyModal } from "./components/TechnologyModal.tsx";
@@ -354,6 +355,7 @@ const GameViewContainer: React.FC<{
   };
   return (
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
+    <DecisionTableProvider table={snapshot?.view ?? null}>
       {/* The provider wraps the rest unindented to keep this diff small. */}
       <PaymentDraftProvider value={paymentDraft}>
       {historyError && (
@@ -523,6 +525,7 @@ const GameViewContainer: React.FC<{
         }}
       />
       </PaymentDraftProvider>
+    </DecisionTableProvider>
     </PlayerIdentityProvider>
   );
 };

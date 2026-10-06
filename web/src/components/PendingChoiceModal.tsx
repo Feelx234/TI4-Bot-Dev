@@ -15,6 +15,7 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { describeCommandTokens, type TokenOutcome } from "../presentation/commandTokens.ts";
 import { CommandTokenPanel } from "./CommandTokenPanel.tsx";
 import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
+import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -328,6 +329,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               onConfirm={confirmTokens}
             />
           )}
+          {!secondary && !tokens && <PoliticsContextPanel choice={choice} />}
           {!secondary && !tokens && (
           <form
             onSubmit={handleSubmit}
@@ -424,6 +426,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                             <p>{card.secondaryText || "No printed text available."}</p>
                           </div>
                         )}
+                        <PoliticsOptionNote choice={choice} option={opt} />
                         {opt.description && (
                           <div
                             style={{

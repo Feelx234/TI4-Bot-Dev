@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { GameShell } from "../components/GameShell.tsx";
 import { deriveChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { Board } from "../components/Board.tsx";
+import { DecisionTableProvider } from "../components/PoliticsDecisionParts.tsx";
 import { PlayerIdentityProvider } from "../presentation/PlayerIdentity.tsx";
 import { PROTOCOL_VERSION, type ClientMessage } from "../protocol/types.ts";
 import {
@@ -234,6 +235,13 @@ export const DecisionGallery: React.FC = () => {
             lobby={galleryLobby}
             seatingOrder={gallerySeating}
           >
+          <DecisionTableProvider
+            table={{
+              players: galleryPlayers,
+              seating_order: gallerySeating,
+              speaker: gallerySeating[1],
+            }}
+          >
             <GameShell
               key={`${selected.choice.nonce}-${viewer}`}
               header={<span>Synthetic gallery board</span>}
@@ -352,6 +360,7 @@ export const DecisionGallery: React.FC = () => {
                 // Do not synthesize a new nonce: a local callback is not an authoritative transition.
               }}
             />
+          </DecisionTableProvider>
           </PlayerIdentityProvider>
         </main>
       )}
