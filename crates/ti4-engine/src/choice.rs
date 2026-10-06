@@ -1871,7 +1871,12 @@ impl DecisionLog {
             prompt: choice.prompt.clone(),
             chosen: option.id.clone(),
             offered: choice.ids().into_iter().map(str::to_owned).collect(),
-            context: choice.context.clone(),
+            // The trigger is display metadata derived from the event; a record and its fingerprint
+            // hold only what a replay needs.
+            context: choice
+                .context
+                .as_ref()
+                .map(crate::decision_context::DecisionContext::without_display_fields),
         });
     }
 

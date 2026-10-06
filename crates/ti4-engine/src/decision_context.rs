@@ -163,6 +163,102 @@ pub struct DecisionContext {
     pub invasion_seq: Option<u64>,
     /// Quantities still owed or available within a decision already under way.
     pub outstanding: Vec<OutstandingConstraint>,
+    /// What happened to open this reaction window, for display only (public facts).
+    ///
+    /// Deliberately not part of [`DecisionContext::canonical`] or the replay fingerprint: it is
+    /// derived deterministically from the event, so it adds no information a replay needs, and
+    /// it is stripped from recorded decisions (`DecisionLog::record`). Additive and optional, so
+    /// old saves and old clients are unaffected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<DecisionTrigger>,
+}
+
+/// The family of event a reaction decision answers, in the words a client switches on.
+///
+/// `Other` plus [`DecisionTrigger::event_type`] is the open-ended fallback, so a new window never
+/// breaks a client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TriggerKind {
+    ActionCardPlayed,
+    ActionCardDiscarded,
+    SystemActivated,
+    ShipMoved,
+    StrategicActionBegan,
+    StrategyCardChosen,
+    StrategyPhaseBegan,
+    TurnBegan,
+    TurnPassed,
+    PlayerPassed,
+    ActionCompleted,
+    StrategyCardsWouldReturn,
+    AgendaPhaseBegan,
+    AgendaRevealed,
+    VotesCast,
+    AgendaResolved,
+    Transaction,
+    PlanetControlGained,
+    InvasionBegan,
+    UnitsCommitted,
+    GroundRolls,
+    CombatStarted,
+    AntiFighterBarrage,
+    SpaceCannonHits,
+    HitsToAssign,
+    SustainDamage,
+    ShipDestroyed,
+    Retreat,
+    SpaceCombatWon,
+    ProductionUsed,
+    UnitAbilityRolled,
+    #[serde(other)]
+    Other,
+}
+
+/// A public unit count named by a trigger: owner, unit type and how many.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TriggerUnits {
+    pub owner: PlayerId,
+    pub unit_type: String,
+    pub count: u32,
+}
+
+/// The public event that opened a reaction window (see [`DecisionContext::trigger`]).
+///
+/// Everything named here has already happened in public: a played action card, an activated
+/// system, a moved fleet. It never carries a vote outcome, a hand, or any unplayed alternative.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionTrigger {
+    pub kind: TriggerKind,
+    /// The raw engine event type, for fallback and debugging.
+    pub event_type: String,
+    /// The engine event id, valid within one trace only: a session-local key, not a durable id.
+    pub event_id: u64,
+    /// `"when"` or `"after"`.
+    pub relation: String,
+    /// The seat that caused the event; absent for phase and agenda events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<PlayerId>,
+    /// A second seat: a transaction partner, the victim of hits, an elected player, a defender.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<PlayerId>,
+    /// An action card alias (public once played) or a strategy card id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agenda: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planet: Option<PlanetId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub units: Vec<TriggerUnits>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hits: Option<u32>,
+    /// Ids of the events being resolved around this one, outermost first: non-empty when this is a
+    /// reaction to a reaction.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chain: Vec<u64>,
 }
 
 impl DecisionContext {
@@ -187,6 +283,23 @@ impl DecisionContext {
             space_battle: false,
             invasion_seq: None,
             outstanding: Vec::new(),
+            trigger: None,
+        }
+    }
+
+    /// Attach the public event that opened this reaction window.
+    #[must_use]
+    pub fn with_trigger(mut self, trigger: DecisionTrigger) -> Self {
+        self.trigger = Some(trigger);
+        self
+    }
+
+    /// The same context without display-only fields, which is what a record and a fingerprint hold.
+    #[must_use]
+    pub fn without_display_fields(&self) -> Self {
+        Self {
+            trigger: None,
+            ..self.clone()
         }
     }
 
@@ -302,6 +415,8 @@ impl DecisionContext {
             ("space_battle", Visibility::Public),
             ("invasion_seq", Visibility::Public),
             ("outstanding", Visibility::ActorOnly),
+            // Public by construction: only facts that already happened at the table.
+            ("trigger", Visibility::Public),
         ])
     }
 }
@@ -494,6 +609,6 @@ mod tests {
             .iter()
             .filter(|(_, v)| **v == Visibility::Public)
             .count();
-        assert_eq!(public, 10, "every other field describes a public question");
+        assert_eq!(public, 11, "every other field describes a public question");
     }
 }

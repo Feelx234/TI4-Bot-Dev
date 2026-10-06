@@ -67,7 +67,13 @@ pub fn decision_hash(version: CanonicalHashVersion, decision: &DecisionRecord) -
     if version == CanonicalHashVersion::V1 {
         return canonical_hash(version, &decision.without_context());
     }
-    canonical_hash(version, decision)
+    // The trigger is display-only (see `DecisionContext::trigger`): never part of a fingerprint.
+    let mut stripped = decision.clone();
+    stripped.context = decision
+        .context
+        .as_ref()
+        .map(crate::decision_context::DecisionContext::without_display_fields);
+    canonical_hash(version, &stripped)
 }
 
 /// The context fields bound into a V2 decision fingerprint, pinned rather than implied.
@@ -89,6 +95,11 @@ pub const V2_CONTEXT_FIELDS: [&str; 10] = [
     "space_battle",
     "invasion_seq",
 ];
+
+/// Context fields that are display metadata only and never enter a fingerprint (stripped by
+/// `decision_hash` and by `DecisionLog::record`). `trigger` is derived from the event that opened
+/// a reaction window, so it adds nothing a replay needs.
+pub const V2_CONTEXT_DISPLAY_ONLY: [&str; 1] = ["trigger"];
 
 /// The one context field carrying values rather than identity, bound alongside the fields above.
 pub const V2_CONTEXT_QUANTITIES: &str = "outstanding";
@@ -317,6 +328,7 @@ mod tests {
             .iter()
             .copied()
             .chain(std::iter::once(V2_CONTEXT_QUANTITIES))
+            .chain(V2_CONTEXT_DISPLAY_ONLY)
             .collect();
         let declared: std::collections::BTreeSet<&str> =
             crate::decision_context::DecisionContext::visibility()

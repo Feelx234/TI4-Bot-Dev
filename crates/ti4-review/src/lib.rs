@@ -486,7 +486,7 @@ impl TraceBot {
             context: choice
                 .context
                 .as_ref()
-                .and_then(|context| serde_json::to_value(context).ok()),
+                .and_then(|context| serde_json::to_value(context.without_display_fields()).ok()),
         });
     }
 }
@@ -608,7 +608,7 @@ impl MlpTraceBot {
             context: choice
                 .context
                 .as_ref()
-                .and_then(|context| serde_json::to_value(context).ok()),
+                .and_then(|context| serde_json::to_value(context.without_display_fields()).ok()),
         });
     }
 }

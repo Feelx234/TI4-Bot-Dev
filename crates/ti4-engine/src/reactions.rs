@@ -883,7 +883,12 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                         context.state.phase,
                         context.state.round,
                     )
-                    .about_battle(context.state),
+                    .about_battle(context.state)
+                    .with_trigger(crate::decision_context::DecisionTrigger::from_event(
+                        event,
+                        relation_name(relation),
+                        &resolver.emission_chain(event),
+                    )),
                 );
                 match context.ask_seeing(&choice) {
                     Ok(answer) => ActionCardId::new(answer.id),
@@ -999,7 +1004,7 @@ fn l1z1x_agent(owner_name: &str, player: &PlayerId) -> Ability {
         player.clone(),
         "SYSTEM_ACTIVATED",
         Relation::After,
-        Arc::new(move |_event, _resolver, context| {
+        Arc::new(move |event, resolver, context| {
             let target = context
                 .state
                 .active
@@ -1017,13 +1022,20 @@ fn l1z1x_agent(owner_name: &str, player: &PlayerId) -> Ability {
                     crate::choice::ChoiceOption::decline(),
                 ],
             )
-            .contextualized(DecisionContext::new(
-                owner.clone(),
-                DecisionSource::Content("l1z1xagent".to_owned()),
-                "l1z1x_agent_swap",
-                context.state.phase,
-                context.state.round,
-            ));
+            .contextualized(
+                DecisionContext::new(
+                    owner.clone(),
+                    DecisionSource::Content("l1z1xagent".to_owned()),
+                    "l1z1x_agent_swap",
+                    context.state.phase,
+                    context.state.round,
+                )
+                .with_trigger(crate::decision_context::DecisionTrigger::from_event(
+                    event,
+                    "after",
+                    &resolver.emission_chain(event),
+                )),
+            );
             let Ok(answer) = context.ask_seeing(&choice) else {
                 return Ok(());
             };
@@ -1064,7 +1076,7 @@ fn instinct_training(owner_name: &str, player: &PlayerId) -> Ability {
         player.clone(),
         "ACTION_CARD_PLAYED",
         Relation::When,
-        Arc::new(move |event, _resolver, context| {
+        Arc::new(move |event, resolver, context| {
             let card = event.text("card").unwrap_or_default().to_owned();
             let choice = crate::choice::Choice::new(
                 owner.clone(),
@@ -1078,13 +1090,20 @@ fn instinct_training(owner_name: &str, player: &PlayerId) -> Ability {
                     crate::choice::ChoiceOption::decline(),
                 ],
             )
-            .contextualized(DecisionContext::new(
-                owner.clone(),
-                DecisionSource::Content("it".to_owned()),
-                "instinct_training_cancel",
-                context.state.phase,
-                context.state.round,
-            ));
+            .contextualized(
+                DecisionContext::new(
+                    owner.clone(),
+                    DecisionSource::Content("it".to_owned()),
+                    "instinct_training_cancel",
+                    context.state.phase,
+                    context.state.round,
+                )
+                .with_trigger(crate::decision_context::DecisionTrigger::from_event(
+                    event,
+                    "when",
+                    &resolver.emission_chain(event),
+                )),
+            );
             let Ok(answer) = context.ask_seeing(&choice) else {
                 return Ok(());
             };
@@ -1595,6 +1614,273 @@ mod tests {
             state.player(&player()).unwrap().action_cards,
             [ActionCardId::new("silence_space")]
         );
+    }
+
+    /// Emit `event_type` with `payload` through an armed resolver and return every decision the
+    /// table asked, context included.
+    fn asked_for(
+        mut state: GameState,
+        event_type: &str,
+        payload: BTreeMap<String, serde_json::Value>,
+        answers: &[&str],
+    ) -> Vec<crate::choice::Choice> {
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(
+            answers.iter().map(|answer| (*answer).to_owned()),
+        )));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let seats: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
+        let mut resolver = Resolver::new(
+            seats.clone(),
+            seats.first().cloned(),
+            crate::choice::Table::default(),
+        );
+        arm(&mut resolver, &state);
+        let content = ContentStore::embedded();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut event_sequence = crate::event::EventSequence::new();
+        let mut context = TimingContext {
+            state: &mut state,
+            content,
+            sources: POK,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut event_sequence,
+            galaxy: None,
+        };
+        let event = context.event_sequence.next(event_type, payload).unwrap();
+        resolver
+            .emit_with_context(&mut context, event, |_, _| {})
+            .unwrap();
+        let asked = seen.borrow().clone();
+        asked
+    }
+
+    fn payload(pairs: &[(&str, serde_json::Value)]) -> BTreeMap<String, serde_json::Value> {
+        pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), value.clone()))
+            .collect()
+    }
+
+    fn only_trigger(asked: &[crate::choice::Choice]) -> crate::decision_context::DecisionTrigger {
+        asked
+            .iter()
+            .find_map(|choice| choice.context.as_ref().and_then(|c| c.trigger.clone()))
+            .expect("a reaction decision carries its trigger")
+    }
+
+    #[test]
+    fn a_played_card_opens_sabotage_with_who_played_what() {
+        use crate::decision_context::TriggerKind;
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&PlayerId::new("a")).unwrap().action_cards.clear();
+        state.player_mut(&PlayerId::new("b")).unwrap().action_cards =
+            vec![ActionCardId::new("sabo1")];
+        let asked = asked_for(
+            state,
+            "ACTION_CARD_PLAYED",
+            payload(&[("player", "a".into()), ("card", "fs1".into())]),
+            &["decline"],
+        );
+        let trigger = only_trigger(&asked);
+        assert_eq!(trigger.kind, TriggerKind::ActionCardPlayed);
+        assert_eq!(trigger.actor, Some(PlayerId::new("a")));
+        assert_eq!(trigger.card.as_deref(), Some("fs1"));
+        assert_eq!(trigger.relation, "when");
+        assert_eq!(trigger.event_type, "ACTION_CARD_PLAYED");
+        assert_eq!(trigger.event_id, 1);
+        assert!(trigger.chain.is_empty());
+        let context = asked[0].context.as_ref().unwrap();
+        assert_eq!(context.actor, PlayerId::new("b"), "the asked seat is the reactor");
+    }
+
+    #[test]
+    fn a_system_activation_names_the_player_and_the_system_on_both_steps() {
+        use crate::decision_context::TriggerKind;
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&PlayerId::new("a")).unwrap().action_cards =
+            vec![ActionCardId::new("silence_space"), ActionCardId::new("fs1")];
+        state.player_mut(&PlayerId::new("b")).unwrap().action_cards.clear();
+        let asked = asked_for(
+            state,
+            "SYSTEM_ACTIVATED",
+            payload(&[("player", "a".into()), ("system", "27".into())]),
+            &["reaction:generic:SYSTEM_ACTIVATED:after", "fs1", "decline"],
+        );
+        let outer = asked[0].context.as_ref().unwrap().trigger.clone().unwrap();
+        assert_eq!(outer.kind, TriggerKind::SystemActivated);
+        assert_eq!(outer.actor, Some(PlayerId::new("a")));
+        assert_eq!(outer.system, Some(SystemId::new("27")));
+        assert_eq!(outer.relation, "after");
+        let inner = asked
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|c| c.subtype == "play_reaction_after_SYSTEM_ACTIVATED")
+            })
+            .expect("several differently named cards ask the inner step");
+        assert_eq!(
+            inner.context.as_ref().unwrap().trigger.as_ref(),
+            Some(&outer),
+            "the inner decision repeats the outer's trigger"
+        );
+    }
+
+    #[test]
+    fn a_fleet_arrival_names_the_system_and_what_arrived() {
+        use crate::decision_context::TriggerKind;
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&PlayerId::new("a")).unwrap().action_cards =
+            vec![ActionCardId::new("experimental")];
+        state.player_mut(&PlayerId::new("b")).unwrap().action_cards.clear();
+        let asked = asked_for(
+            state,
+            "SHIP_MOVED",
+            payload(&[
+                ("player", "a".into()),
+                ("system", "27".into()),
+                (
+                    "units",
+                    serde_json::json!([{"owner": "a", "unit_type": "cruiser", "count": 2}]),
+                ),
+            ]),
+            &["decline"],
+        );
+        let trigger = only_trigger(&asked);
+        assert_eq!(trigger.kind, TriggerKind::ShipMoved);
+        assert_eq!(trigger.system, Some(SystemId::new("27")));
+        assert_eq!(trigger.units.len(), 1);
+        assert_eq!(trigger.units[0].unit_type, "cruiser");
+        assert_eq!(trigger.units[0].count, 2);
+    }
+
+    #[test]
+    fn a_strategic_action_names_the_strategy_card() {
+        use crate::decision_context::TriggerKind;
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&PlayerId::new("a")).unwrap().action_cards.clear();
+        state.player_mut(&PlayerId::new("b")).unwrap().action_cards =
+            vec![ActionCardId::new("coup")];
+        let asked = asked_for(
+            state,
+            "STRATEGIC_ACTION_BEGAN",
+            payload(&[("player", "a".into()), ("card", "pok1leadership".into())]),
+            &["decline"],
+        );
+        let trigger = only_trigger(&asked);
+        assert_eq!(trigger.kind, TriggerKind::StrategicActionBegan);
+        assert_eq!(trigger.actor, Some(PlayerId::new("a")));
+        assert_eq!(trigger.card.as_deref(), Some("pok1leadership"));
+        assert_eq!(trigger.relation, "when");
+    }
+
+    #[test]
+    fn every_mapped_window_event_has_a_trigger_kind() {
+        // A new window can never silently fall back to `other`.
+        for window in window_table().values() {
+            assert_ne!(
+                crate::trigger::kind_of(window.event),
+                crate::decision_context::TriggerKind::Other,
+                "{} has no trigger kind",
+                window.event
+            );
+        }
+    }
+
+    #[test]
+    fn the_trigger_is_not_part_of_the_recorded_decision_or_the_context_canon() {
+        use crate::decision_context::DecisionTrigger;
+        let event = event_with_card("ACTION_CARD_PLAYED", "a", "fs1");
+        let plain = DecisionContext::new(
+            PlayerId::new("b"),
+            DecisionSource::Reaction("ACTION_CARD_PLAYED".to_owned()),
+            "reaction_when_ACTION_CARD_PLAYED",
+            ti4_model::state::Phase::Action,
+            1,
+        );
+        let with = plain
+            .clone()
+            .with_trigger(DecisionTrigger::from_event(&event, "when", &[]));
+        assert_eq!(plain.canonical(), with.canonical());
+        let choice = crate::choice::Choice::new(
+            PlayerId::new("b"),
+            "when ACTION_CARD_PLAYED",
+            vec![crate::choice::ChoiceOption::decline()],
+        )
+        .contextualized(with.clone());
+        let mut log = crate::choice::DecisionLog::default();
+        log.record(&choice, &crate::choice::ChoiceOption::decline());
+        assert_eq!(log.records[0].context.as_ref().unwrap().trigger, None);
+        let record = crate::choice::DecisionRecord {
+            player: PlayerId::new("b"),
+            prompt: "when ACTION_CARD_PLAYED".to_owned(),
+            chosen: "decline".to_owned(),
+            offered: vec!["decline".to_owned()],
+            context: Some(with),
+        };
+        let stripped = crate::choice::DecisionRecord {
+            context: Some(plain),
+            ..record.clone()
+        };
+        for version in [
+            crate::fingerprint::CanonicalHashVersion::V1,
+            crate::fingerprint::CanonicalHashVersion::V2,
+        ] {
+            assert_eq!(
+                crate::fingerprint::decision_hash(version, &record),
+                crate::fingerprint::decision_hash(version, &stripped)
+            );
+        }
+    }
+
+    #[test]
+    fn an_old_context_without_a_trigger_still_reads_and_a_trigger_round_trips() {
+        let old = r#"{"version":1,"actor":"b","source":{"Reaction":"X"},"subtype":"reaction_when_X","phase":"action","round":1,"optional":true,"target":null,"outstanding":[]}"#;
+        let context: DecisionContext = serde_json::from_str(old).expect("old shape reads");
+        assert!(context.trigger.is_none());
+        let json = serde_json::to_string(&context).unwrap();
+        assert!(!json.contains("trigger"), "absent stays absent on the wire");
+        let event = event_with_card("ACTION_CARD_PLAYED", "a", "fs1");
+        let with = context.with_trigger(crate::decision_context::DecisionTrigger::from_event(
+            &event,
+            "when",
+            &[],
+        ));
+        let back: DecisionContext =
+            serde_json::from_str(&serde_json::to_string(&with).unwrap()).unwrap();
+        assert_eq!(back, with);
+    }
+
+    #[test]
+    fn hits_and_votes_never_name_the_wrong_seat_or_an_outcome() {
+        use crate::decision_context::{DecisionTrigger, TriggerKind};
+        let mut hits = BTreeMap::new();
+        hits.insert("player".to_owned(), "victim".into());
+        hits.insert("gunner".to_owned(), "shooter".into());
+        hits.insert("hits".to_owned(), 3.into());
+        let cannon = DecisionTrigger::from_event(&Event::new(5, "SPACE_CANNON_HITS", hits), "when", &[1, 2]);
+        assert_eq!(cannon.kind, TriggerKind::SpaceCannonHits);
+        assert_eq!(cannon.actor, Some(PlayerId::new("shooter")));
+        assert_eq!(cannon.subject, Some(PlayerId::new("victim")));
+        assert_eq!(cannon.hits, Some(3));
+        assert_eq!(cannon.chain, [1, 2]);
+        let mut votes = BTreeMap::new();
+        votes.insert("player".to_owned(), "a".into());
+        votes.insert("outcome".to_owned(), "for".into());
+        let cast = DecisionTrigger::from_event(&Event::new(6, "VOTES_CAST", votes), "after", &[]);
+        assert_eq!(cast.kind, TriggerKind::VotesCast);
+        let json = serde_json::to_string(&cast).unwrap();
+        assert!(!json.contains("outcome") && !json.contains("\"for\""), "{json}");
+        let mut agenda = BTreeMap::new();
+        agenda.insert("player".to_owned(), "an outcome".into());
+        agenda.insert("elected_player".to_owned(), "b".into());
+        let resolved = DecisionTrigger::from_event(&Event::new(7, "AGENDA_RESOLVED", agenda), "when", &[]);
+        assert_eq!(resolved.actor, None, "player here is the outcome, not a seat");
+        assert_eq!(resolved.subject, Some(PlayerId::new("b")));
     }
 
     #[test]

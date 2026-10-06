@@ -80,6 +80,7 @@ pub mod tactical;
 pub mod technology;
 pub mod thunders_edge;
 pub mod timing;
+pub mod trigger;
 pub mod tokens;
 pub mod transactions;
 pub mod transit;

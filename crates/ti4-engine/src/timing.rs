@@ -819,7 +819,12 @@ impl Resolver {
                 context.state.round,
             )
             .optional(declinable)
-            .about_battle(context.state),
+            .about_battle(context.state)
+            .with_trigger(crate::decision_context::DecisionTrigger::from_event(
+                event,
+                relation_name(relation),
+                &self.emission_chain(event),
+            )),
         );
         let chosen = context
             .ask_seeing(&choice)
@@ -833,6 +838,17 @@ impl Resolver {
             return Ok(None);
         }
         Ok(eligible.into_iter().find(|ability| ability.id == chosen.id))
+    }
+
+    /// Ids of the events being resolved right now, outermost first, `event` itself excluded: what
+    /// a reaction to a reaction was nested inside.
+    #[must_use]
+    pub fn emission_chain(&self, event: &Event) -> Vec<u64> {
+        self.emission_stack
+            .iter()
+            .map(|(_, id)| *id)
+            .filter(|id| *id != event.id)
+            .collect()
     }
 
     fn player_order(&self) -> Vec<PlayerId> {

@@ -533,7 +533,14 @@ impl Decider for PrivateDecider {
                         .iter()
                         .map(String::as_str)
                         .collect::<Vec<_>>()
-                && choice.context == record.context
+                && choice
+                    .context
+                    .as_ref()
+                    .map(ti4_engine::decision_context::DecisionContext::without_display_fields)
+                    == record
+                        .context
+                        .as_ref()
+                        .map(ti4_engine::decision_context::DecisionContext::without_display_fields)
                 && matching.len() == 1
             {
                 Ok(matching[0].clone())

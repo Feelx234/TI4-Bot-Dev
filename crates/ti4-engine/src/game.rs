@@ -1914,6 +1914,8 @@ impl<'a> Game<'a> {
                     "player".to_owned(),
                     serde_json::Value::String(active.to_string()),
                 );
+                // Which strategy card is about to be used, so a reaction can say so.
+                payload.insert("card".to_owned(), serde_json::Value::String(card.clone()));
                 self.emit_typed("STRATEGIC_ACTION_BEGAN", payload)?;
                 if self
                     .state
@@ -2541,7 +2543,7 @@ impl<'a> Game<'a> {
                     if let Some(destination) = self.state.active_system.clone() {
                         crate::exploration::flip_ion_storm(&mut self.state, &origin, &destination);
                     }
-                    self.note_arrival(&window.player, &outcome);
+                    self.note_arrival(&window.player, &ship, &outcome);
                     self.emit(match outcome {
                         MoveOutcome::Arrived { .. } => "SHIP_MOVED",
                         MoveOutcome::LostToGravityRift { .. } => "SHIP_LOST_TO_GRAVITY_RIFT",
@@ -2567,15 +2569,39 @@ impl<'a> Game<'a> {
     /// only for a player who owns the Dark Energy Tap technology or another game effect, and
     /// DET's own trigger fires when the tactical action ends (`close_tactical`), not on the
     /// move that landed the ship. The arrival here only emits the event other cards react to.
-    fn note_arrival(&mut self, player: &PlayerId, outcome: &MoveOutcome) {
-        if !matches!(outcome, MoveOutcome::Arrived { .. }) {
+    fn note_arrival(&mut self, player: &PlayerId, ship: &Unit, outcome: &MoveOutcome) {
+        let MoveOutcome::Arrived { cargo } = outcome else {
             return;
-        }
+        };
         // Three printed windows read "after a player moves ships into" a system.
         let mut payload = BTreeMap::new();
         payload.insert(
             "player".to_owned(),
             serde_json::Value::String(player.to_string()),
+        );
+        // Where the ships are now and what arrived: the ship plus what it carried, by type.
+        if let Some(system) = &self.state.active_system {
+            payload.insert(
+                "system".to_owned(),
+                serde_json::Value::String(system.to_string()),
+            );
+        }
+        let mut counts: BTreeMap<(String, String), u64> = BTreeMap::new();
+        for unit in std::iter::once(ship).chain(cargo.iter().map(|carried| &carried.unit)) {
+            *counts
+                .entry((unit.owner.to_string(), unit.type_id.to_string()))
+                .or_default() += 1;
+        }
+        payload.insert(
+            "units".to_owned(),
+            serde_json::Value::Array(
+                counts
+                    .into_iter()
+                    .map(|((owner, unit_type), count)| {
+                        serde_json::json!({"owner": owner, "unit_type": unit_type, "count": count})
+                    })
+                    .collect(),
+            ),
         );
         let _ = self.emit_typed("SHIP_MOVED", payload);
     }
@@ -6028,6 +6054,67 @@ mod tests {
                 .trust
                 < 0
         );
+    }
+
+    #[test]
+    fn the_typed_ship_moved_event_names_the_destination_and_what_arrived() {
+        // Reaction dialogs say "Anna moved 1 carrier into System X" from this payload.
+        let (mut state, galaxy, ids) = tactical_fixture();
+        crate::fixtures::put(&mut state, &ids[1], "carrier", &PlayerId::new("a"), 1);
+        crate::fixtures::put(&mut state, &ids[1], "infantry", &PlayerId::new("a"), 1);
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            format!("move|{}|0", ids[1]),
+            "done_loading".to_owned(),
+            "done_moving".to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        for _ in 0..40 {
+            assert_eq!(game.step().error, None);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        let moved = game
+            .timing
+            .applied_events()
+            .iter()
+            .find(|event| event.event_type == "SHIP_MOVED")
+            .expect("the cargo path announces the arrival");
+        assert_eq!(moved.text("player"), Some("a"));
+        assert_eq!(moved.text("system"), Some(ids[0].to_string().as_str()));
+        assert_eq!(
+            moved.payload.get("units"),
+            Some(&serde_json::json!([{"owner": "a", "unit_type": "carrier", "count": 1}]))
+        );
+    }
+
+    #[test]
+    fn the_typed_strategic_action_event_names_the_strategy_card() {
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut state =
+            start_game(ContentStore::embedded(), &[a.clone(), b.clone()], POK, None).unwrap();
+        state.phase = Phase::Action;
+        state.active = Some(a.clone());
+        state.deal_strategy_card(&a, StrategyCardId::new("leadership"));
+        state.deal_strategy_card(&b, StrategyCardId::new("imperial"));
+        let table = Table::with_default(Box::new(TurnDecider::new(&[]).taking_the_strategic_action()));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table);
+        let mut guard = 0;
+        while !game.events.iter().any(|e| e == "STRATEGIC_ACTION_BEGAN") && guard < 100 {
+            assert_eq!(game.step().error, None, "no turn step should refuse");
+            guard += 1;
+        }
+        let began = game
+            .timing
+            .applied_events()
+            .iter()
+            .find(|event| event.event_type == "STRATEGIC_ACTION_BEGAN")
+            .expect("the strategic action began");
+        assert_eq!(began.text("player"), Some("a"));
+        assert_eq!(began.text("card"), Some("leadership"));
     }
 
     #[test]
