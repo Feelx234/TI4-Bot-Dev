@@ -25,3 +25,62 @@ export const galleryDecision = (title: string) => {
   const { prompt, context, options } = galleryChoice(title);
   return { prompt, context: context as Record<string, unknown>, options };
 };
+
+import type { BoardView, CombatView, PlacedUnitView } from "../../../src/protocol/types";
+import { actor } from "../../../src/dev/decisionGalleryCases";
+import { galleryBoard } from "../../../src/dev/galleryBoard";
+
+const RIVAL = "other_seat";
+const unit = (unit_type: string, owner: string, damaged = false): PlacedUnitView => ({ unit_type, owner, damaged });
+const times = (n: number, make: () => PlacedUnitView) => Array.from({ length: n }, make);
+
+/** Fleets in system 18 before a space combat: the viewer's mixed fleet against a rival's cruiser and destroyers. */
+export const combatStartFleets: PlacedUnitView[] = [
+  ...times(8, () => unit("fighter", actor)),
+  ...times(2, () => unit("destroyer", actor)),
+  ...times(2, () => unit("dreadnought", actor)),
+  ...times(2, () => unit("carrier", actor)),
+  ...times(2, () => unit("cruiser", RIVAL)),
+  ...times(2, () => unit("destroyer", RIVAL)),
+];
+
+/** The same system after the fight: the rival is wiped out, the viewer lost two fighters and damaged a dreadnought. */
+export const combatEndFleets: PlacedUnitView[] = [
+  ...times(6, () => unit("fighter", actor)),
+  ...times(2, () => unit("destroyer", actor)),
+  unit("dreadnought", actor, true),
+  unit("dreadnought", actor),
+  ...times(2, () => unit("carrier", actor)),
+];
+
+/** A finished space combat in system 18, as the board shows it with `phase: "complete"`. */
+export function completedCombatBoard(overrides: Partial<CombatView> = {}): BoardView {
+  const base = galleryBoard.systems["18"];
+  return {
+    ...galleryBoard,
+    combat: {
+      system_id: "18",
+      round: 2,
+      phase: "complete",
+      attacker: actor,
+      defender: RIVAL,
+      round_start: combatStartFleets,
+      attacker_hits: 4,
+      defender_hits: 2,
+      dice_rolls: [
+        { player: actor, unit: "dreadnought", roll: 8, target: 5, hit: true },
+        { player: actor, unit: "dreadnought", roll: 3, target: 5, hit: false },
+        { player: actor, unit: "dreadnought", roll: 6, target: 5, hit: true },
+        { player: actor, unit: "destroyer", roll: 9, target: 9, hit: true },
+        { player: actor, unit: "destroyer", roll: 4, target: 9, hit: false },
+        { player: actor, unit: "carrier", roll: 7, target: 9, hit: false },
+        { player: actor, unit: "fighter", roll: 10, target: 9, hit: true },
+        { player: RIVAL, unit: "cruiser", roll: 8, target: 7, hit: true },
+        { player: RIVAL, unit: "cruiser", roll: 5, target: 7, hit: false },
+        { player: RIVAL, unit: "destroyer", roll: 9, target: 9, hit: true },
+      ],
+      ...overrides,
+    },
+    systems: { ...galleryBoard.systems, "18": { ...base, units: combatEndFleets } },
+  };
+}

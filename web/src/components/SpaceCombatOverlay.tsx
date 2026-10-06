@@ -15,6 +15,8 @@ import { WorkflowShell } from "./WorkflowShell.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitBaseType, getUnitDisplayName } from "./UnitIcon.tsx";
+import { CombatResultSummary } from "./CombatResultSummary.tsx";
+import { summarizeCombat } from "../presentation/combatSummary.ts";
 import { BattleOddsResponse } from "../protocol/advisorTypes.ts";
 import {
   fetchBattleOdds,
@@ -1746,6 +1748,14 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                   {renderActionCards(defenderSeat)}
                 </div>
               </div>
+
+              {phase === "complete" && board?.combat && (() => {
+                const summary = summarizeCombat(
+                  board.combat,
+                  board.systems[combatSystemId]?.units ?? [],
+                );
+                return summary ? <CombatResultSummary summary={summary} /> : null;
+              })()}
 
               <div
                 className="combat-spectator-waiting"

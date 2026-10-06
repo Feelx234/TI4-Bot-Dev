@@ -3739,3 +3739,30 @@ select:focus-visible,
   color: #f87171;
   font-size: 12px;
 }
+
+/* Space combat result summary (complete phase) */
+.combat-result-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid #334155;
+  border-left: 4px solid #38bdf8;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+}
+.combat-result-summary__headline { margin: 0; font-size: 1.1rem; color: #f8fafc; }
+.combat-result-summary__detail { margin: 0; color: #94a3b8; font-size: 0.85rem; }
+.combat-result-summary__sides { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.combat-result-side__name { font-weight: 600; margin-bottom: 6px; }
+.combat-result-side__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 0.85rem;
+}
+.combat-result-side__facts dt { color: #94a3b8; }
+.combat-result-side__facts dd { margin: 0; color: #e2e8f0; }
+@media (max-width: 700px) { .combat-result-summary__sides { grid-template-columns: 1fr; } }
