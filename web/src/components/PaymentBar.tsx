@@ -182,7 +182,7 @@ export const PaymentBar: React.FC<PaymentBarProps> = ({
             data-testid="resume-decision-btn"
             onClick={onOpenList}
           >
-            Open list
+            Open decision list
           </button>
           {declineOption && (
             <button
