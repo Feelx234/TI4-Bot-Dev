@@ -334,3 +334,18 @@ Phase 0 gives an immediate, safe improvement; Phase 1+2 deliver the user's examp
 7. Is revealing the trigger actor's faction colour in the spectator "waiting" notice desired, and may the notice also show the card name (it is public once played)?
 8. Timer: keep the auto-pass countdown default as is (currently only if `autoPassTimeoutSeconds` is passed; GameShell passes none), or introduce one?
 9. Which non-card reactions (leaders, technologies, promissory notes) should get the same treatment first beyond Instinct Training and the L1Z1X agent?
+
+## 12. Decisions (2026-10-06)
+
+- **Card text (open question 1): full text is the default.** A reaction dialog always opens with the
+  full printed text of every card shown (what happened, and each card you can play). Each card
+  block has a "Shrink" control for players who know the card; shrinking collapses that block to
+  its first sentence with a "Show full text" control. The choice is remembered per card in
+  localStorage (a player who shrinks Sabotage sees it compact next time), plus one "Compact card
+  text" switch that applies to all cards. Default state for a new player is expanded everywhere.
+  Reference: the side-by-side page with both versions (collapsed saves only about 60-100 px per
+  dialog at phone width).
+- **Defaults taken for the other open questions until the user says otherwise:** the actor is
+  shown as faction and colour, as elsewhere in the UI (question 2); the public event log stays
+  string-based and only the decision context gains the trigger (question 3); "Never offer" is per
+  card name and per game (question 6).
