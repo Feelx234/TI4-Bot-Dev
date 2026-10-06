@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { PendingChoiceDto, DecisionContextDto, DecisionTargetDto } from "../protocol/types.ts";
+import type { BoardView, GameEvent, PendingChoiceDto } from "../protocol/types.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { describeReaction, type ReactionCard } from "../presentation/reactionModel.ts";
+import { humanizeId } from "../protocol/contentCatalog.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import "./ReactionStatusBar.css";
 
 export interface ReactionStatusBarProps {
   choice: PendingChoiceDto | null;
@@ -13,53 +16,27 @@ export interface ReactionStatusBarProps {
   onClose?: () => void;
   lastError?: string | null;
   autoPassTimeoutSeconds?: number;
+  /** The public log: the fallback when the decision carries no trigger. */
+  events?: readonly GameEvent[];
+  boardView?: BoardView;
+  activePlayerId?: string | null;
+  activeSystemId?: string | null;
 }
 
-/**
- * Extracts human-readable trigger context from a decision context.
- */
-function extractTriggerContext(context?: DecisionContextDto | null): {
-  triggerActor?: string;
-  actionType?: string;
-  targetSystem?: string;
-  targetSystemId?: string;
-} {
-  if (!context) return {};
-
-  const result: ReturnType<typeof extractTriggerContext> = {};
-
-  // Actor who triggered the action
-  if (context.actor) {
-    result.triggerActor = context.actor;
-  }
-
-  // Action type (e.g., "Activated system", "Invaded system", "Traded with")
-  if (context.subtype) {
-    result.actionType = context.subtype
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (s) => s.toUpperCase());
-  }
-
-  // Target system information
-  if (context.target) {
-    const target = context.target as DecisionTargetDto;
-    if ("System" in target) {
-      result.targetSystemId = target.System;
-      // Try to get system name from details if available
-      if (context.details?.system_name) {
-        result.targetSystem = `${context.details.system_name} (System ${target.System})`;
-      } else {
-        result.targetSystem = `System ${target.System}`;
-      }
-    } else if ("Planet" in target) {
-      const planetTarget = target.Planet;
-      result.targetSystemId = planetTarget.system;
-      result.targetSystem = `${planetTarget.planet} (System ${planetTarget.system})`;
-    }
-  }
-
-  return result;
-}
+const CardBlock: React.FC<{ card: ReactionCard | null; note?: string | null; testId?: string }> = ({
+  card,
+  note,
+  testId,
+}) => {
+  const text = card?.text || note || "";
+  if (!card && !text) return null;
+  return (
+    <div className="reaction-card" data-testid={testId}>
+      {card && <div className="reaction-card__name">{card.name}</div>}
+      {text && <p className="reaction-card__text">{text}</p>}
+    </div>
+  );
+};
 
 export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   choice,
@@ -70,6 +47,10 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   onClose,
   lastError,
   autoPassTimeoutSeconds,
+  events,
+  boardView,
+  activePlayerId,
+  activeSystemId,
 }) => {
   const display = usePlayerIdentity();
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
@@ -80,11 +61,23 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   const [isPinned, setIsPinned] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
 
-  // Extract trigger context
-  const triggerContext = useMemo(
-    () => extractTriggerContext(choice?.context),
-    [choice?.context],
-  );
+  const reaction = useMemo(() => {
+    if (!choice) return null;
+    return describeReaction({
+      choice,
+      events,
+      activePlayerId,
+      activeSystemId: activeSystemId ?? boardView?.active_system ?? null,
+      viewerSeat,
+      playerLabel: (id) => display(id).label,
+      systemLabel: (id) => {
+        const planets = Object.keys(boardView?.systems?.[id]?.planets ?? {});
+        return planets.length
+          ? `System ${id} (${planets.map(humanizeId).join(", ")})`
+          : `System ${id}`;
+      },
+    });
+  }, [choice, events, activePlayerId, activeSystemId, boardView, viewerSeat, display]);
 
   // Reset state on nonce change
   useEffect(() => {
@@ -171,7 +164,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
     return () => clearTimeout(timer);
   }, [isOpen, choice, isActor, isPinned, secondsRemaining, isSubmitting, declineOption]);
 
-  if (!isOpen || !choice) return null;
+  if (!isOpen || !choice || !reaction) return null;
 
   return (
     <div
@@ -179,11 +172,11 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       aria-label="Reaction Window"
       data-testid="reaction-status-bar"
       className="reaction-status-bar"
+      title={choice.prompt}
     >
       <DecisionHeader
         actor={choice.actor}
-        title="Respond to the action card"
-        instruction={choice.prompt}
+        title={reaction.title}
         progress={
           secondsRemaining === null || isPinned
             ? undefined
@@ -191,105 +184,94 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
         }
         onMinimize={() => onClose?.()}
       />
-      {/* Icon & Details */}
-      <div className="reaction-status-bar__details">
-        <span className="reaction-status-bar__icon" role="img" aria-label="Reaction opportunity">
-          ⚡
-        </span>
-        <div className="reaction-status-bar__text">
-          <div data-testid="reaction-bar-title" className="reaction-status-bar__title">
-            Reaction Opportunity
-            {secondsRemaining !== null && !isPinned && (
-              <span className="reaction-status-bar__countdown">({secondsRemaining}s)</span>
-            )}
-          </div>
-          <div data-testid="reaction-bar-prompt" className="reaction-status-bar__prompt">
-            {choice.prompt}
-          </div>
-        </div>
-      </div>
 
-      {/* Trigger Context - Shows what action triggered this card */}
-      {(triggerContext.triggerActor ||
-        triggerContext.actionType ||
-        triggerContext.targetSystem) && (
-        <div
-          className="reaction-status-bar__trigger-context"
-          data-testid="reaction-trigger-context"
-        >
-          <div className="reaction-status-bar__trigger-context-title">Triggered by:</div>
-          <div className="reaction-status-bar__trigger-context-details">
-            {triggerContext.triggerActor && (
-              <span className="reaction-status-bar__trigger-actor">
-                {display(triggerContext.triggerActor).label}
-              </span>
-            )}
-            {triggerContext.actionType && (
-              <span className="reaction-status-bar__trigger-action">
-                {triggerContext.actionType}
-              </span>
-            )}
-            {triggerContext.targetSystem && (
-              <span
-                className="reaction-status-bar__trigger-target"
-                data-testid={`reaction-trigger-system-${triggerContext.targetSystemId}`}
-              >
-                {triggerContext.targetSystem}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+      <section
+        className="reaction-status-bar__happened"
+        data-testid="reaction-trigger-context"
+        data-trigger-source={reaction.source}
+        aria-label="What happened"
+      >
+        <h3 className="reaction-status-bar__heading">What happened</h3>
+        <p data-testid="reaction-bar-prompt" className="reaction-status-bar__sentence">
+          {reaction.sentence}
+        </p>
+        {reaction.facts.systemId && (
+          <span
+            className="reaction-status-bar__trigger-target"
+            data-testid={`reaction-trigger-system-${reaction.facts.systemId}`}
+          >
+            System {reaction.facts.systemId}
+          </span>
+        )}
+        <CardBlock card={reaction.facts.card} testId="reaction-trigger-card" />
+      </section>
 
-      {/* Spectator Notice */}
       {!isActor ? (
         <div data-testid="spectator-reaction-notice" className="reaction-status-bar__spectator">
           Waiting for {display(choice.actor).label}...
         </div>
       ) : (
-        /* Action Buttons */
-        <div className="reaction-status-bar__actions">
-          {/* Reaction Cards */}
-          {reactionOptions.map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              data-testid={`play-reaction-btn-${opt.id}`}
-              onClick={() => handleAction(opt.id)}
-              disabled={isSubmitting}
-              className="button button--primary reaction-status-bar__play"
-            >
-              Play {opt.label}
-            </button>
-          ))}
+        <>
+          <section className="reaction-status-bar__can-now" aria-label="You can now">
+            <h3 className="reaction-status-bar__heading">
+              You can now
+              {secondsRemaining !== null && !isPinned && (
+                <span className="reaction-status-bar__countdown">({secondsRemaining}s)</span>
+              )}
+            </h3>
+            <p className="reaction-status-bar__sentence" data-testid="reaction-can-now">
+              {reaction.canNowSentence}
+            </p>
+            <ul className="reaction-status-bar__rows">
+              {reaction.reactions.map((row) => (
+                <li key={row.optionId} className="reaction-status-bar__row">
+                  <CardBlock card={row.card} note={row.note} />
+                  {!row.card && !row.note && (
+                    <div className="reaction-card__name">{row.name}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+          <div className="reaction-status-bar__actions">
+            {reaction.reactions.map((row) => (
+              <button
+                key={row.optionId}
+                type="button"
+                data-testid={`play-reaction-btn-${row.optionId}`}
+                onClick={() => handleAction(row.optionId)}
+                disabled={isSubmitting}
+                className="button button--primary reaction-status-bar__play"
+              >
+                {row.buttonLabel}
+              </button>
+            ))}
 
-          {/* Pass Button */}
-          {declineOption && (
-            <button
-              type="button"
-              data-testid="pass-reaction-btn"
-              onClick={() => handleAction(declineOption.id)}
-              disabled={isSubmitting}
-              className="button button--secondary reaction-status-bar__pass"
-            >
-              Pass (Spacebar)
-            </button>
-          )}
+            {declineOption && (
+              <button
+                type="button"
+                data-testid="pass-reaction-btn"
+                onClick={() => handleAction(declineOption.id)}
+                disabled={isSubmitting}
+                className="button button--secondary reaction-status-bar__pass"
+              >
+                Pass (Spacebar)
+              </button>
+            )}
 
-          {/* Pinned Toggle */}
-          <label className="reaction-status-bar__pin">
-            <input
-              type="checkbox"
-              data-testid="pin-reaction-toggle"
-              checked={isPinned}
-              onChange={(e) => setIsPinned(e.target.checked)}
-            />
-            Pin
-          </label>
-        </div>
+            <label className="reaction-status-bar__pin">
+              <input
+                type="checkbox"
+                data-testid="pin-reaction-toggle"
+                checked={isPinned}
+                onChange={(e) => setIsPinned(e.target.checked)}
+              />
+              Pin
+            </label>
+          </div>
+        </>
       )}
 
-      {/* Error alert if present */}
       {(lastError || submissionError) && (
         <div data-testid="reaction-error-badge" role="alert" className="reaction-status-bar__error">
           {submissionError || lastError}

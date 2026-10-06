@@ -4,7 +4,7 @@ export const CONTENT_PRESENTATION_PROVENANCE = {
   generatorVersion: 1,
   corpusSchemaVersion: "1.1.0",
   corpusUpstreamCommit: "8e90459d789fb767b9d5aff3a55bd7dd0b3e781b",
-  presentationSha256: "92dfe8a9de445351c45d02a119dfb652686c665aec79b10aaaa70d5dc42512b8",
+  presentationSha256: "6cfb7ae3d8d32e3705d48d28cbd704beeddcc3d60e002841f2338483168ab274",
   recordCounts: {
     strategyCards: 12,
     secretObjectives: 40,
@@ -709,6 +709,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "abs",
       name: "Ancient Burial Sites",
       phase: "Agenda",
+      window: "At the start of the agenda phase",
       description: "Choose 1 player. Exhaust each cultural planet owned by that player.",
     },
     arch_expedition: {
@@ -722,12 +723,14 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "assassin",
       name: "Assassinate Representative",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description: "Choose 1 player. That player cannot vote on this agenda.",
     },
     blackmarketdealing: {
       id: "blackmarketdealing",
       name: "Black Market Dealings",
       phase: "Any",
+      window: "When you are negotiating a transaction",
       description:
         "You and the other player may include relics, action cards, and unscored secret objectives as part of the transaction. This card cannot be canceled.",
     },
@@ -735,6 +738,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "blitz",
       name: "Blitz",
       phase: "Action",
+      window: "At the start of an invasion",
       description:
         "Each of your non-fighter ships in the active system that do not have BOMBARDMENT gain BOMBARDMENT 6 until the end of the invasion.",
     },
@@ -742,6 +746,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "bribery",
       name: "Bribery",
       phase: "Agenda",
+      window: "After the speaker votes on an agenda",
       description:
         "Spend any number of trade goods. For each trade good spent, cast 1 additional vote for the outcome on which you voted.",
     },
@@ -756,6 +761,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "bunker",
       name: "Bunker",
       phase: "Action",
+      window: "At the start of an invasion",
       description:
         "During this invasion, apply -4 to the result of each BOMBARDMENT roll against planets you control.",
     },
@@ -763,18 +769,21 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "confounding",
       name: "Confounding Legal Text",
       phase: "Agenda",
+      window: "When another player is elected as the outcome of an agenda",
       description: "You are the elected player instead.",
     },
     confusing: {
       id: "confusing",
       name: "Confusing Legal Text",
       phase: "Agenda",
+      window: "When you are elected as the outcome of an agenda",
       description: "Choose 1 player. That player is the elected player instead.",
     },
     const_rider: {
       id: "const_rider",
       name: "Construction Rider",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description:
         "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, place 1 space dock from your reinforcements on a planet you control.",
     },
@@ -782,12 +791,14 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "counterstroke",
       name: "Counterstroke",
       phase: "Action",
+      window: "After another player activates a system that contains 1 of your command tokens",
       description: "Return that command token to your tactic pool.",
     },
     coup: {
       id: "coup",
       name: "Coup d'Etat",
       phase: "Action",
+      window: "When another player would perform a strategic action",
       description:
         "End that player's turn, the strategic action is not resolved and the strategy card is not exhausted.",
     },
@@ -795,6 +806,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "courageous",
       name: "Courageous to the End",
       phase: "Action",
+      window: "After 1 of your ships is destroyed during a space combat",
       description:
         "Roll 2 dice. For each result equal to or greater than that ship's combat value, your opponent must choose and destroy 1 of their ships.",
     },
@@ -802,6 +814,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "crashlanding",
       name: "Crash Landing",
       phase: "Action",
+      window: "When your last ship in the active system is destroyed",
       description:
         "Place 1 of your ground forces from the space area of the active system onto a planet in that system other than Mecatol Rex; if the planet contains other players' units, place your ground force into coexistence.",
     },
@@ -815,12 +828,14 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "crisis",
       name: "Crisis",
       phase: "Action",
+      window: "At the end of any players turn, if there are at least 2 players who have not passed",
       description: "Skip the next player's turn.",
     },
     deadly_plot: {
       id: "deadly_plot",
       name: "Deadly Plot",
       phase: "Agenda",
+      window: "During the agenda phase when an outcome would be resolved",
       description:
         "If you voted for or predicted another outcome, discard the agenda instead. The agenda is resolved with no effect and it is not replaced. Then, exhaust all of your planets.",
     },
@@ -828,6 +843,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "decoy",
       name: "Decoy Operation",
       phase: "Action",
+      window: "After another player activates a system that contains 1 or more of your structures",
       description:
         "Remove up to 2 of your ground forces from the game board and place them on a planet you control in the active system.",
     },
@@ -835,30 +851,39 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "dh1",
       name: "Direct Hit",
       phase: "Action",
+      window:
+        "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities",
       description: "Destroy that ship.",
     },
     dh2: {
       id: "dh2",
       name: "Direct Hit",
       phase: "Action",
+      window:
+        "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities",
       description: "Destroy that ship.",
     },
     dh3: {
       id: "dh3",
       name: "Direct Hit",
       phase: "Action",
+      window:
+        "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities",
       description: "Destroy that ship.",
     },
     dh4: {
       id: "dh4",
       name: "Direct Hit",
       phase: "Action",
+      window:
+        "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities",
       description: "Destroy that ship.",
     },
     diplo_pressure: {
       id: "diplo_pressure",
       name: "Diplomatic Pressure",
       phase: "Agenda",
+      window: "When an agenda is revealed",
       description:
         "Choose another player. That player must give you 1 promissory note from their hand.",
     },
@@ -866,6 +891,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "diplo_rider",
       name: "Diplomacy Rider",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description:
         "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, choose 1 system that contains a planet you control. Each other player places a command token from their reinforcements in that system.",
     },
@@ -873,12 +899,16 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "direct_hit",
       name: "Direct Hit",
       phase: "Action",
+      window:
+        "After another player's ship uses SUSTAIN DAMAGE to cancel a hit produced by your units or abilities",
       description: "Destroy that ship.",
     },
     disable: {
       id: "disable",
       name: "Disable",
       phase: "Action",
+      window:
+        "At the start of an invasion in a system that contains 1 or more of your opponents' PDS units",
       description:
         "Your opponents' PDS units lose PLANETARY SHIELD and SPACE CANNON during this invasion.",
     },
@@ -886,12 +916,14 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "disgrace",
       name: "Public Disgrace",
       phase: "Strategy",
+      window: "When another player chooses a strategy card during the strategy phase",
       description: "That player must choose a different strategy card instead, if able.",
     },
     distinguished: {
       id: "distinguished",
       name: "Distinguished Councilor",
       phase: "Agenda",
+      window: "After you cast votes on an outcome of an agenda",
       description: "Cast 5 additional votes for that outcome.",
     },
     divert_funding: {
@@ -905,6 +937,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "dp1",
       name: "Diplomatic Pressure",
       phase: "Agenda",
+      window: "When an agenda is revealed",
       description:
         "Choose another player. That player must give you 1 promissory note from their hand.",
     },
@@ -912,6 +945,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "dp2",
       name: "Diplomatic Pressure",
       phase: "Agenda",
+      window: "When an agenda is revealed",
       description:
         "Choose another player. That player must give you 1 promissory note from their hand.",
     },
@@ -919,6 +953,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "dp3",
       name: "Diplomatic Pressure",
       phase: "Agenda",
+      window: "When an agenda is revealed",
       description:
         "Choose another player. That player must give you 1 promissory note from their hand.",
     },
@@ -926,6 +961,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "dp4",
       name: "Diplomatic Pressure",
       phase: "Agenda",
+      window: "When an agenda is revealed",
       description:
         "Choose another player. That player must give you 1 promissory note from their hand.",
     },
@@ -939,12 +975,14 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "emergency",
       name: "Emergency Repairs",
       phase: "Action",
+      window: "At the start or end of a combat round",
       description: "Repair all of your units that have SUSTAIN DAMAGE in the active system.",
     },
     emergency_repairs: {
       id: "emergency_repairs",
       name: "Emergency Repairs",
       phase: "Action",
+      window: "At the start or end of a combat round",
       description: "Repair all of your units that have SUSTAIN DAMAGE in the active system.",
     },
     exchangeprogram: {
@@ -958,6 +996,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "experimental",
       name: "Experimental Battlestation",
       phase: "Action",
+      window: "After the active player moves ships into the active system during a tactical action",
       description:
         "Choose 1 of your space docks that is either in or adjacent to that system. That space dock uses SPACE CANNON 5(x3) against the active player's ships in the active system.",
     },
@@ -965,6 +1004,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "extremeduress",
       name: "Extreme Duress",
       phase: "Action",
+      window: "At the start of another player's turn, if they have a readied strategy card",
       description:
         "If that player's next action is not a strategic action, they discard all of their action cards, give you all of their trade goods, and show you all of their secret objectives.",
     },
@@ -985,6 +1025,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "f_prototype",
       name: "Fighter Prototype",
       phase: "Action",
+      window: "At the start of the first round of a space combat",
       description:
         "Apply +2 to the result of each of your fighters' combat rolls during this combat round.",
     },
@@ -998,42 +1039,49 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "fire_team",
       name: "Fire Team",
       phase: "Action",
+      window: "After your ground forces make combat rolls during a round of ground combat",
       description: "Reroll any number of your dice.",
     },
     flank_speed: {
       id: "flank_speed",
       name: "Flank Speed",
       phase: "Action",
+      window: "After you activate a system",
       description: "Apply +1 to the move value of each of your ships during this tactical action.",
     },
     fs1: {
       id: "fs1",
       name: "Flank Speed",
       phase: "Action",
+      window: "After you activate a system",
       description: "Apply +1 to the move value of each of your ships during this tactical action.",
     },
     fs2: {
       id: "fs2",
       name: "Flank Speed",
       phase: "Action",
+      window: "After you activate a system",
       description: "Apply +1 to the move value of each of your ships during this tactical action.",
     },
     fs3: {
       id: "fs3",
       name: "Flank Speed",
       phase: "Action",
+      window: "After you activate a system",
       description: "Apply +1 to the move value of each of your ships during this tactical action.",
     },
     fs4: {
       id: "fs4",
       name: "Flank Speed",
       phase: "Action",
+      window: "After you activate a system",
       description: "Apply +1 to the move value of each of your ships during this tactical action.",
     },
     fsb: {
       id: "fsb",
       name: "Forward Supply Base",
       phase: "Action",
+      window: "After another player activates a system that contains your units",
       description: "Gain 3 trade goods. Then, choose another player to gain 1 trade good.",
     },
     ghost_ship: {
@@ -1047,6 +1095,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "ghost_squad",
       name: "Ghost Squad",
       phase: "Action",
+      window: "After another player commits units to land on a planet you control",
       description:
         "Move any number of your ground forces from any planet you control in the active system to any other planet you control in the active system.",
     },
@@ -1054,18 +1103,21 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "hack",
       name: "Hack Election",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description: "During this agenda, you vote last.",
     },
     harness: {
       id: "harness",
       name: "Harness Energy",
       phase: "Action",
+      window: "After you activate an anomaly",
       description: "Replenish your commodities.",
     },
     imp_rider: {
       id: "imp_rider",
       name: "Imperial Rider",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description:
         "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, gain 1 victory point.",
     },
@@ -1085,6 +1137,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "infiltrate",
       name: "Infiltrate",
       phase: "Action",
+      window: "When you gain control of a planet",
       description:
         "Replace each PDS and space dock that is on that planet with a matching unit from your reinforcements.",
     },
@@ -1092,6 +1145,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "insider",
       name: "Insider Information",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description: "Look at the top 3 cards of the agenda deck.",
     },
     insub: {
@@ -1105,12 +1159,14 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "intercept",
       name: "Intercept",
       phase: "Action",
+      window: "After your opponent declares a retreat during a space combat",
       description: "Your opponent cannot retreat during this round of space combat.",
     },
     investments: {
       id: "investments",
       name: "Manipulate Investments",
       phase: "Strategy",
+      window: "At the start of the strategy phase",
       description:
         "Place a total of 5 trade goods from the supply on strategy cards of your choice. You must place these tokens on at least 3 different cards.",
     },
@@ -1125,6 +1181,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "lead_rider",
       name: "Leadership Rider",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description:
         "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, gain 3 command tokens.",
     },
@@ -1132,6 +1189,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "lieinwait",
       name: "Lie in Wait",
       phase: "Any",
+      window: "After 2 of your neighbors resolve a transaction",
       description:
         "Look at each of those players' hands of action cards, then choose and take 1 action card from each.",
     },
@@ -1139,6 +1197,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "lost_star",
       name: "Lost Star Chart",
       phase: "Action",
+      window: "After you activate a system",
       description:
         "During this tactical action, systems that contain alpha and beta wormholes are adjacent to each other.",
     },
@@ -1153,12 +1212,14 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "master_plan",
       name: "Master Plan",
       phase: "Action",
+      window: "After you perform an action",
       description: "Perform an additional action.",
     },
     mb1: {
       id: "mb1",
       name: "Morale Boost",
       phase: "Action",
+      window: "At the start of a combat round",
       description:
         "Apply +1 to the result of each of your unit's combat rolls during this combat round.",
     },
@@ -1166,6 +1227,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "mb2",
       name: "Morale Boost",
       phase: "Action",
+      window: "At the start of a combat round",
       description:
         "Apply +1 to the result of each of your unit's combat rolls during this combat round.",
     },
@@ -1173,6 +1235,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "mb3",
       name: "Morale Boost",
       phase: "Action",
+      window: "At the start of a combat round",
       description:
         "Apply +1 to the result of each of your unit's combat rolls during this combat round.",
     },
@@ -1180,6 +1243,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "mb4",
       name: "Morale Boost",
       phase: "Action",
+      window: "At the start of a combat round",
       description:
         "Apply +1 to the result of each of your unit's combat rolls during this combat round.",
     },
@@ -1212,30 +1276,35 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "mjets1",
       name: "Maneuvering Jets",
       phase: "Action",
+      window: "Before you assign hits produced by another player's SPACE CANNON roll",
       description: "Cancel 1 hit.",
     },
     mjets2: {
       id: "mjets2",
       name: "Maneuvering Jets",
       phase: "Action",
+      window: "Before you assign hits produced by another player's SPACE CANNON roll",
       description: "Cancel 1 hit.",
     },
     mjets3: {
       id: "mjets3",
       name: "Maneuvering Jets",
       phase: "Action",
+      window: "Before you assign hits produced by another player's SPACE CANNON roll",
       description: "Cancel 1 hit.",
     },
     mjets4: {
       id: "mjets4",
       name: "Maneuvering Jets",
       phase: "Action",
+      window: "Before you assign hits produced by another player's SPACE CANNON roll",
       description: "Cancel 1 hit.",
     },
     nav_suite: {
       id: "nav_suite",
       name: "Nav Suite",
       phase: "Action",
+      window: "After you activate a system",
       description:
         "During the 'Movement' step of this tactical action, ignore the effect of anomalies.",
     },
@@ -1249,6 +1318,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "parley",
       name: "Parley",
       phase: "Action",
+      window: "After another player commits units to land on a planet you control",
       description: "Return the committed units to the space area.",
     },
     piratecontract1: {
@@ -1304,6 +1374,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "politic_rider",
       name: "Politics Rider",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description:
         "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, draw 3 action cards and gain the speaker token.",
     },
@@ -1318,12 +1389,14 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "puppetsonastring",
       name: "Puppets on a String",
       phase: "Action",
+      window: "At the end of a player's turn, if you have passed",
       description: "Perform 1 action.",
     },
     rally: {
       id: "rally",
       name: "Rally",
       phase: "Action",
+      window: "After you activate a system that contains another player's ships",
       description: "Place 2 command tokens from your reinforcements in your fleet pool.",
     },
     refit: {
@@ -1337,12 +1410,14 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "reflective",
       name: "Reflective Shielding",
       phase: "Action",
+      window: "When one of your ships uses SUSTAIN DAMAGE during combat",
       description: "Produce 2 hits against your opponent's ships in the active system.",
     },
     reparations: {
       id: "reparations",
       name: "Reparations",
       phase: "Action",
+      window: "After another player gains control of a planet you control",
       description: "Exhaust 1 planet that player controls and ready 1 planet you control.",
     },
     repeal: {
@@ -1355,6 +1430,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "rescue",
       name: "Rescue",
       phase: "Action",
+      window: "After a player moves ships into a system that contains your ships",
       description:
         "You may move 1 of your ships into the active system from any system that does not contain one of your command tokens.",
     },
@@ -1362,6 +1438,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "reveal_prototype",
       name: "Reveal Prototype",
       phase: "Action",
+      window: "At the start of a combat",
       description:
         "Spend 4 resources to research a unit upgrade technology of the same type as 1 of your units that is participating in this combat.",
     },
@@ -1369,18 +1446,22 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "reverse_engineer",
       name: "Reverse Engineer",
       phase: "Any",
+      window: "After another player discards an action card that has a component action",
       description: "Take that action card from the discard pile.",
     },
     rout: {
       id: "rout",
       name: "Rout",
       phase: "Action",
+      window:
+        "At the start of the 'Announce Retreats' step of space combat, if you are the defender",
       description: "Your opponent must announce a retreat, if able.",
     },
     s_retreat1: {
       id: "s_retreat1",
       name: "Skilled Retreat",
       phase: "Action",
+      window: "At the start of a combat round",
       description:
         "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
     },
@@ -1388,6 +1469,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "s_retreat2",
       name: "Skilled Retreat",
       phase: "Action",
+      window: "At the start of a combat round",
       description:
         "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
     },
@@ -1395,6 +1477,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "s_retreat3",
       name: "Skilled Retreat",
       phase: "Action",
+      window: "At the start of a combat round",
       description:
         "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
     },
@@ -1402,6 +1485,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "s_retreat4",
       name: "Skilled Retreat",
       phase: "Action",
+      window: "At the start of a combat round",
       description:
         "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
     },
@@ -1409,36 +1493,42 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "sabo1",
       name: "Sabotage",
       phase: "Any",
+      window: "When another player plays an action card other than 'Sabotage'",
       description: "Cancel that action card.",
     },
     sabo2: {
       id: "sabo2",
       name: "Sabotage",
       phase: "Any",
+      window: "When another player plays an action card other than 'Sabotage'",
       description: "Cancel that action card.",
     },
     sabo3: {
       id: "sabo3",
       name: "Sabotage",
       phase: "Any",
+      window: "When another player plays an action card other than 'Sabotage'",
       description: "Cancel that action card.",
     },
     sabo4: {
       id: "sabo4",
       name: "Sabotage",
       phase: "Any",
+      window: "When another player plays an action card other than 'Sabotage'",
       description: "Cancel that action card.",
     },
     salvage: {
       id: "salvage",
       name: "Salvage",
       phase: "Action",
+      window: "After you win a space combat",
       description: "Your opponent gives you all of their commodities.",
     },
     sanction: {
       id: "sanction",
       name: "Sanction",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description:
         "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, each player that voted for that outcome returns 1 command token from their fleet supply to their reinforcements.",
     },
@@ -1446,6 +1536,8 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "scramble",
       name: "Scramble Frequency",
       phase: "Action",
+      window:
+        "After another player makes a BOMBARDMENT, SPACE CANNON, or ANTI-FIGHTER BARRAGE roll",
       description: "That player rerolls all of their dice.",
     },
     scuttle: {
@@ -1466,30 +1558,35 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "sh1",
       name: "Shields Holding",
       phase: "Action",
+      window: "Before you assign hits to your ships during a space combat",
       description: "Cancel up to 2 hits.",
     },
     sh2: {
       id: "sh2",
       name: "Shields Holding",
       phase: "Action",
+      window: "Before you assign hits to your ships during a space combat",
       description: "Cancel up to 2 hits.",
     },
     sh3: {
       id: "sh3",
       name: "Shields Holding",
       phase: "Action",
+      window: "Before you assign hits to your ships during a space combat",
       description: "Cancel up to 2 hits.",
     },
     sh4: {
       id: "sh4",
       name: "Shields Holding",
       phase: "Action",
+      window: "Before you assign hits to your ships during a space combat",
       description: "Cancel up to 2 hits.",
     },
     silence_space: {
       id: "silence_space",
       name: "In The Silence Of Space",
       phase: "Action",
+      window: "After you activate a system",
       description:
         "Choose 1 system. During this tactical action, your ships in the chosen system can move through systems that contain other players' ships.",
     },
@@ -1497,6 +1594,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "skilled_retreat",
       name: "Skilled Retreat",
       phase: "Action",
+      window: "At the start of a combat round",
       description:
         "Move all of your ships from the active system into an adjacent system that does not contain another player's ships. The space combat ends in a draw. Then, place a command token from your reinforcements in that system.",
     },
@@ -1504,6 +1602,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "solar_flare",
       name: "Solar Flare",
       phase: "Action",
+      window: "After you activate a system",
       description:
         'During the "Movement" step of this tactical action, other players cannot use SPACE CANNON against your ships.',
     },
@@ -1517,6 +1616,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "stability",
       name: "Political Stability",
       phase: "Status",
+      window: "When you would return your strategy card(s) during the status phase",
       description:
         "Do not return your strategy card(s). You do not choose strategy cards during the next strategy phase.",
     },
@@ -1548,6 +1648,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "summit",
       name: "Summit",
       phase: "Strategy",
+      window: "At the start of the strategy phase",
       description: "Gain 2 command tokens.",
     },
     tactical: {
@@ -1561,6 +1662,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "tech_rider",
       name: "Technology Rider",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description:
         "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, research 1 technology.",
     },
@@ -1568,6 +1670,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "trade_rider",
       name: "Trade Rider",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description:
         "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, gain 5 trade goods.",
     },
@@ -1589,6 +1692,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "upgrade",
       name: "Upgrade",
       phase: "Action",
+      window: "After you activate a system that contains 1 or more of your ships",
       description:
         "Replace 1 of your cruisers in that system with 1 dreadnought from your reinforcements.",
     },
@@ -1603,6 +1707,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "veto",
       name: "Veto",
       phase: "Agenda",
+      window: "When an agenda is revealed",
       description:
         "Discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this agenda instead.",
     },
@@ -1610,6 +1715,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "veto3",
       name: "Veto",
       phase: "Agenda",
+      window: "When an agenda is revealed",
       description:
         "Discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this agenda instead.",
     },
@@ -1617,6 +1723,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "veto4",
       name: "Veto",
       phase: "Agenda",
+      window: "When an agenda is revealed",
       description:
         "Discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this agenda instead.",
     },
@@ -1631,6 +1738,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "war_machine",
       name: "War Machine",
       phase: "Action",
+      window: "When 1 or more of your units use PRODUCTION",
       description:
         "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
     },
@@ -1638,6 +1746,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "war_machine1",
       name: "War Machine",
       phase: "Action",
+      window: "When 1 or more of your units use PRODUCTION",
       description:
         "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
     },
@@ -1645,6 +1754,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "war_machine2",
       name: "War Machine",
       phase: "Action",
+      window: "When 1 or more of your units use PRODUCTION",
       description:
         "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
     },
@@ -1652,6 +1762,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "war_machine3",
       name: "War Machine",
       phase: "Action",
+      window: "When 1 or more of your units use PRODUCTION",
       description:
         "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
     },
@@ -1659,6 +1770,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "war_machine4",
       name: "War Machine",
       phase: "Action",
+      window: "When 1 or more of your units use PRODUCTION",
       description:
         "Apply +4 to the total PRODUCTION value of your units and reduce the combined cost of the produced units by 1.",
     },
@@ -1666,6 +1778,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "war_rider",
       name: "Warfare Rider",
       phase: "Agenda",
+      window: "After an agenda is revealed",
       description:
         "You cannot vote on this agenda. Predict aloud an outcome of this agenda. If your prediction is correct, place 1 dreadnought from your reinforcements in a system that contains 1 or more of your ships.",
     },
@@ -1673,6 +1786,7 @@ export const GENERATED_CONTENT_CATALOG = {
       id: "waylay",
       name: "Waylay",
       phase: "Action",
+      window: "Before you roll dice for ANTI-FIGHTER BARRAGE",
       description: "Hits from this roll are produced against all ships (not just fighters).",
     },
   },

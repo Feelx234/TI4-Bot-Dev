@@ -31,8 +31,9 @@ describe("ReactionStatusBar", () => {
     );
 
     expect(screen.getByTestId("reaction-bar-prompt")).toHaveTextContent(
-      "Play Sabotage to cancel Action Card?",
+      "A reaction window opened: when an action card is played.",
     );
+    expect(screen.queryByText(/play_reaction|ACTION_CARD_PLAYED/)).toBeNull();
     const playBtn = screen.getByTestId("play-reaction-btn-sabotage");
     expect(playBtn).toBeInTheDocument();
 
@@ -209,5 +210,64 @@ describe("ReactionStatusBar", () => {
     const cardButton = screen.getByTestId("play-reaction-btn-decoy_operation");
     expect(cardButton).toBeInTheDocument();
     expect(cardButton).toHaveTextContent("Decoy Operation");
+  });
+
+  it("Phase 0: names the card, shows its text, no doubled verb, no viewer as trigger", () => {
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "50",
+      prompt: "when ACTION_CARD_PLAYED",
+      context: {
+        subtype: "reaction_when_ACTION_CARD_PLAYED",
+        optional: true,
+        source: { Reaction: "ACTION_CARD_PLAYED" },
+      },
+      options: [
+        {
+          id: "reaction:Sol:ACTION_CARD_PLAYED:when",
+          kind: "ability",
+          label: "Play Sabotage",
+          payload: { card: "sabo1", card_name: "Sabotage" },
+        },
+        {
+          id: "inner",
+          kind: "action_card",
+          label: "play Decoy Operation",
+          payload: { card: "decoy", card_name: "Decoy Operation" },
+        },
+        { id: "decline", kind: "decline", label: "Pass" },
+      ],
+    };
+    render(
+      <ReactionStatusBar
+        isOpen
+        choice={choice}
+        viewerSeat="seat_1"
+        onSubmit={vi.fn()}
+        events={[
+          {
+            visibility: "public",
+            id: "e1",
+            timestamp: "t",
+            actor: "seat_2",
+            detail: "seat_2 played Mining Initiative",
+            event: { kind: "decision_resolved" },
+          },
+        ]}
+      />,
+    );
+    const bar = screen.getByTestId("reaction-status-bar");
+    expect(bar).not.toHaveTextContent(/Play play/i);
+    expect(bar).not.toHaveTextContent(/Triggered by/);
+    expect(screen.getByTestId("play-reaction-btn-reaction:Sol:ACTION_CARD_PLAYED:when")).toHaveTextContent(
+      /^Play Sabotage$/,
+    );
+    expect(bar).toHaveTextContent("Cancel that action card.");
+    expect(screen.getByTestId("reaction-bar-prompt")).toHaveTextContent(
+      "played the action card Mining Initiative.",
+    );
+    expect(screen.getByTestId("reaction-can-now")).toHaveTextContent(
+      "Before this resolves, you can play Sabotage or play Decoy Operation.",
+    );
   });
 });

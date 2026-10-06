@@ -20,6 +20,8 @@ export interface CardMeta {
   id: string;
   name: string;
   phase?: string;
+  /** The printed timing of a reaction card ("When another player plays an action card ..."). */
+  window?: string;
   description: string;
 }
 

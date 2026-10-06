@@ -114,6 +114,11 @@ async function generate() {
         id,
         name: requiredString(record, "name", category),
         phase: optionalString(record, "phase") || undefined,
+        // The printed timing of a reaction card; plain action-phase cards carry "Action".
+        window:
+          optionalString(record, "window") && optionalString(record, "window").trim() !== "Action"
+            ? optionalString(record, "window").trim()
+            : undefined,
         description: optionalString(record, "text"),
       };
       addEntry(catalog, id, meta, category);

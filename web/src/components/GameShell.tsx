@@ -131,6 +131,8 @@ export interface ChoiceRendererDispatcherProps {
   landingDraft?: Landing[];
   onLandingDraftChange?: (draft: Landing[]) => void;
   turn?: TurnInfo;
+  /** The public log, for reaction dialogs that carry no trigger of their own. */
+  events?: GameLogEntry[];
 }
 
 type WorkflowRenderer = (
@@ -275,11 +277,19 @@ const workflowRenderers = new Map<
       isMinimized,
       onMinimizedChange,
       lastError,
+      events,
+      boardView,
+      activeSystemId,
+      turn,
     }) => (
       <ReactionStatusBar
         choice={choice}
         model={model}
         viewerSeat={viewerSeat}
+        events={events}
+        boardView={boardView}
+        activeSystemId={activeSystemId}
+        activePlayerId={turn?.activePlayer ?? null}
         onSubmit={onSubmit}
         isOpen={!isMinimized}
         onClose={() => onMinimizedChange(true)}
@@ -1101,6 +1111,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             scoredObjectives={scoredObjectives}
             objectiveProgress={objectiveProgress}
             turn={turn}
+            events={events}
             onSubmit={onSubmitChoice}
             onSubmitMovementBatch={onSubmitMovementBatch}
             onSubmitBasketBatch={onSubmitBasketBatch}

@@ -4,6 +4,7 @@ import {
   OutstandingConstraintDto,
   DecisionTargetDto,
 } from "../protocol/types.ts";
+import { isReactionStepSubtype } from "./reactionModel.ts";
 
 export type SelectionMode =
   | { mode: "single" }
@@ -581,11 +582,8 @@ export function deriveChoiceRendererModel(
 
   // 8. Reaction Windows
   if (
-    subtype.startsWith("play_reaction_") ||
-    (isOptional &&
-      choice.options.length <= 4 &&
-      choice.context?.source &&
-      "Reaction" in choice.context.source)
+    isReactionStepSubtype(subtype) ||
+    (isOptional && choice.context?.source && "Reaction" in choice.context.source)
   ) {
     return {
       workflow: "action_card_reaction",
