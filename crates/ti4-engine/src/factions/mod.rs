@@ -47,6 +47,7 @@ pub mod argent;
 mod borrowed_commanders;
 pub(crate) mod borrowed_commanders_b;
 pub mod borrowed_round_agents;
+pub mod cabal;
 pub mod ghost;
 pub mod hooks_cards;
 pub mod hooks_combat;
@@ -69,9 +70,10 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 14] = [
+pub const MODULES: [&FactionModule; 15] = [
     &arborec::MODULE,
     &argent::MODULE,
+    &cabal::MODULE,
     &ghost::MODULE,
     &mentak::MODULE,
     &muaat::MODULE,

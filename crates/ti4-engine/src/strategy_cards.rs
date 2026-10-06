@@ -443,7 +443,7 @@ fn resolve_research(
     };
     let payment = Choice::new(
         player.clone(),
-        format!("{}: choose an infantry to return", waiver.label),
+        format!("{}: choose the payment", waiver.label),
         waiver
             .payments
             .iter()

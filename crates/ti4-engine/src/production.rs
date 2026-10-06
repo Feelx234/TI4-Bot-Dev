@@ -2349,13 +2349,27 @@ impl ProductionWindow {
             }
             let (printed, pair) = price_of_under(Some(state), kind);
             let (cost, discount_used) = self.discounted_unit(state, *kind, printed);
+            // Cabal Amalgamation: "When you produce a unit: You may return 1 captured unit of that
+            // type to produce that unit without spending resources." The exchange is settled here,
+            // before affordability is asked, because a unit bought by returning a captured model is
+            // not bought with resources: a Cabal with nothing left to spend still has the option the
+            // card gives it. The hook is pure -- it asks nothing and changes nothing.
+            let exchange = crate::factions::hooks_economy::production_unit_exchange(
+                state,
+                content,
+                sources,
+                &self.player,
+                &self.system,
+                &id,
+            );
             // Credit already paid counts towards affordability, or a build the player has in fact
             // paid for would be withheld as unaffordable. Affordability is judged on the
             // discounted bill: a unit Sarween Tools or Harrugh Gefhara brings within reach must
-            // not be withheld for a price nobody would actually charge.
-            if cost
-                > available(state, content, sources, &self.player, Spend::Resources) + self.credit
-            {
+            // not be withheld for a price nobody would actually charge. A unit bought with a
+            // captured model is not withheld at all, because no resource is being asked for it.
+            let affordable =
+                cost <= available(state, content, sources, &self.player, Spend::Resources) + self.credit;
+            if !affordable && !exchange {
                 continue;
             }
             let spots = self.spots(state, content, sources, *kind);
@@ -2409,55 +2423,61 @@ impl ProductionWindow {
             }
             let (remaining_after, free_capacity_after) =
                 self.post_build_constraints(state, content, sources, &id, placed);
-            let credit_used = self.credit.min(cost);
-            let production_spent = self.remaining - remaining_after;
-            let mut deltas = vec![
-                Delta::new(
-                    Quantity::ProductionRemaining,
-                    self.remaining,
-                    remaining_after,
-                ),
-                Delta::new(
-                    Quantity::ProductionFreeCapacity,
-                    self.free_capacity + self.small_unit_exemptions,
-                    free_capacity_after,
-                ),
-            ];
-            let mut option = ChoiceOption::labelled(
-                format!("build|{id}|{made}"),
-                PRODUCE_KIND,
-                format!("produce {made}x {id} for {cost}"),
-            )
-            .with("cost", cost)
-            .with("printed_cost", printed)
-            .with("discount", discount_used)
-            .with("count", i64::try_from(made).unwrap_or(1))
-            .with("placed", i64::try_from(placed).unwrap_or(1))
-            .with("yield", i64::try_from(pair).unwrap_or(1))
-            .with("credit", self.credit)
-            .with("credit_used", credit_used)
-            .with("owed", cost - credit_used)
-            .with("production_spent", production_spent)
-            .with("unit", id.clone())
-            .with("system", self.system.to_string());
-            // A ship has one destination and no placement question follows, so its fleet and
-            // transport aftermath is settled here. A unit with a choice of destinations does not
-            // have one yet, and says so rather than reporting a consequence it cannot know.
-            if let [only] = spots.as_slice() {
-                let after = self.standing_after(
-                    &types,
-                    state,
-                    content,
-                    *kind,
-                    only,
-                    i64::try_from(placed).unwrap_or(0),
-                );
-                deltas.extend(limit_deltas(&before, &after));
-                option = placement_facts(option.with("destination", only.clone()), &before, &after);
-            } else {
-                option = option.with("placement_pending", i64::try_from(spots.len()).unwrap_or(2));
+            // The paid build is offered only when it can actually be paid for. An unaffordable
+            // unit reaches this point only through the exchange below, which charges nothing.
+            if affordable {
+                let credit_used = self.credit.min(cost);
+                let production_spent = self.remaining - remaining_after;
+                let mut deltas = vec![
+                    Delta::new(
+                        Quantity::ProductionRemaining,
+                        self.remaining,
+                        remaining_after,
+                    ),
+                    Delta::new(
+                        Quantity::ProductionFreeCapacity,
+                        self.free_capacity + self.small_unit_exemptions,
+                        free_capacity_after,
+                    ),
+                ];
+                let mut option = ChoiceOption::labelled(
+                    format!("build|{id}|{made}"),
+                    PRODUCE_KIND,
+                    format!("produce {made}x {id} for {cost}"),
+                )
+                .with("cost", cost)
+                .with("printed_cost", printed)
+                .with("discount", discount_used)
+                .with("count", i64::try_from(made).unwrap_or(1))
+                .with("placed", i64::try_from(placed).unwrap_or(1))
+                .with("yield", i64::try_from(pair).unwrap_or(1))
+                .with("credit", self.credit)
+                .with("credit_used", credit_used)
+                .with("owed", cost - credit_used)
+                .with("production_spent", production_spent)
+                .with("unit", id.clone())
+                .with("system", self.system.to_string());
+                // A ship has one destination and no placement question follows, so its fleet and
+                // transport aftermath is settled here. A unit with a choice of destinations does
+                // not have one yet, and says so rather than reporting a consequence it cannot know.
+                if let [only] = spots.as_slice() {
+                    let after = self.standing_after(
+                        &types,
+                        state,
+                        content,
+                        *kind,
+                        only,
+                        i64::try_from(placed).unwrap_or(0),
+                    );
+                    deltas.extend(limit_deltas(&before, &after));
+                    option =
+                        placement_facts(option.with("destination", only.clone()), &before, &after);
+                } else {
+                    option =
+                        option.with("placement_pending", i64::try_from(spots.len()).unwrap_or(2));
+                }
+                options.push(option.previewed(Preview::certain(deltas)));
             }
-            options.push(option.previewed(Preview::certain(deltas)));
             // 68.3b -- "a player can choose to produce only one unit; however, they must still
             // pay the entire cost" -- is honoured where it matters and not offered where it does
             // not. When the production limit leaves room for one, `made` is already 1 above and
@@ -2465,6 +2485,52 @@ impl ProductionWindow {
             // alongside the pair adds a strictly dominated option to every fighter and infantry
             // purchase: same price, half the units. A decider gains nothing from being asked, and
             // a learner has to spend capacity discovering it is never right.
+            //
+            // Cabal Amalgamation: "When you produce a unit: You may return 1 captured unit of that
+            // type to produce that unit without spending resources." A "when you" trigger has to be
+            // a real option in the window, not a refusal after the fact, so the exchange is offered
+            // beside the paid build and the player picks. One captured unit buys one unit. The
+            // production limit is still spent, because the card waives the cost and not the limit:
+            // the exchange ends in the same placing stage `place` charges capacity for.
+            if exchange {
+                let (limit_after, free_after) =
+                    self.post_build_constraints(state, content, sources, &id, 1);
+                let mut exchange = ChoiceOption::labelled(
+                    format!("exchange|{id}"),
+                    PRODUCE_KIND,
+                    format!("produce 1x {id} by returning a captured {id}"),
+                )
+                .with("cost", 0i64)
+                .with("printed_cost", printed)
+                .with("discount", 0i64)
+                .with("count", 1i64)
+                .with("placed", 1i64)
+                .with("credit", self.credit)
+                .with("credit_used", 0i64)
+                .with("owed", 0i64)
+                .with("production_spent", self.remaining - limit_after)
+                .with("unit", id.clone())
+                .with("system", self.system.to_string())
+                .with("exchange", true);
+                let mut deltas = vec![
+                    Delta::new(Quantity::ProductionRemaining, self.remaining, limit_after),
+                    Delta::new(
+                        Quantity::ProductionFreeCapacity,
+                        self.free_capacity + self.small_unit_exemptions,
+                        free_after,
+                    ),
+                ];
+                if let [only] = spots.as_slice() {
+                    let after = self.standing_after(&types, state, content, *kind, only, 1);
+                    deltas.extend(limit_deltas(&before, &after));
+                    exchange =
+                        placement_facts(exchange.with("destination", only.clone()), &before, &after);
+                } else {
+                    exchange =
+                        exchange.with("placement_pending", i64::try_from(spots.len()).unwrap_or(2));
+                }
+                options.push(exchange.previewed(Preview::certain(deltas)));
+            }
         }
         options
     }
@@ -2659,6 +2725,22 @@ impl Window for ProductionWindow {
                             id: id.to_owned(),
                             made,
                         }
+                    };
+                } else if let Some(id) = option.id.strip_prefix("exchange|") {
+                    // The unit is paid for with a captured model of that type, so no resources,
+                    // credit, or discount are spent. If the capture is gone -- something returned it
+                    // between the offer and this answer -- the exchange does not happen at all, the
+                    // same way a bill the player cannot pay ends the stage instead of becoming a
+                    // partial purchase.
+                    if !crate::factions::hooks_economy::perform_production_unit_exchange(
+                        state, content, sources, &self.player, &self.system, id,
+                    ) {
+                        self.stage = Stage::Done;
+                        return Ok(());
+                    }
+                    self.stage = Stage::Placing {
+                        id: id.to_owned(),
+                        made: 1,
                     };
                 }
             }

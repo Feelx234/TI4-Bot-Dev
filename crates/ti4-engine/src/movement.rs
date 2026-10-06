@@ -152,11 +152,19 @@ pub struct MovementRules<'a> {
     pub barred_transit: BTreeSet<String>,
     /// Systems made into gravity rifts by Dimensional Tears.
     pub gravity_rift_systems: BTreeSet<String>,
+    /// The subset of [`Self::gravity_rift_systems`] this mover's ships do not roll for
+    /// (`MovementHooks::rift_roll_exempt`). They are still gravity rifts for every other rule.
+    pub rift_roll_exempt: BTreeSet<String>,
     /// The Circlet of the Void: this player's units never roll for a rift.
     ///
     /// Kept beside the other modifiers rather than checked at the card, so the immunity is
     /// honoured wherever the roll happens — the mistake Nav Suite nearly made.
     pub rifts_ignored: bool,
+    /// Extra steps granted once per route, at the first gravity rift it leaves or passes, on top of
+    /// the printed +1 (Crucible: "apply an additional +1 to the move values of your ships that
+    /// would move out of or through a gravity rift"; the note: "only ever add +1 movement total,
+    /// regardless of how many gravity rifts you pass through").
+    pub rift_extra_steps: i32,
     /// Ship types of the moving player that may pass other players' ships, from
     /// `MovementHooks::may_move_through_ships`. Consulted only by [`Self::path_from_ship`].
     passing_ship_types: BTreeSet<String>,
@@ -211,7 +219,9 @@ impl<'a> MovementRules<'a> {
             token_wormhole_systems: BTreeSet::new(),
             barred_transit: BTreeSet::new(),
             gravity_rift_systems: BTreeSet::new(),
+            rift_roll_exempt: BTreeSet::new(),
             rifts_ignored: false,
+            rift_extra_steps: 0,
             passing_ship_types: BTreeSet::new(),
             ship_adjacent: BTreeMap::new(),
             token_free_types: BTreeSet::new(),
@@ -472,25 +482,33 @@ impl<'a> MovementRules<'a> {
             return None;
         }
 
-        let mut queue: VecDeque<(String, i32, i32, Vec<String>)> =
-            VecDeque::from([(origin.to_owned(), 0, budget, vec![origin.to_owned()])]);
-        // Revisiting is only worthwhile with a larger budget left over.
-        let mut best: BTreeMap<String, i32> = BTreeMap::new();
+        // The last field is whether this route has already taken the Crucible bonus: it is worth
+        // +1 in total however many rifts the route passes, so it is carried per route.
+        let mut queue: VecDeque<(String, i32, i32, Vec<String>, bool)> =
+            VecDeque::from([(origin.to_owned(), 0, budget, vec![origin.to_owned()], false)]);
+        // Revisiting is only worthwhile with a larger budget left over (and the same bonus state).
+        let mut best: BTreeMap<(String, bool), i32> = BTreeMap::new();
 
-        while let Some((current, entered, mut allowance, route)) = queue.pop_front() {
+        while let Some((current, entered, mut allowance, route, mut bonus_used)) = queue.pop_front()
+        {
             // 41.1: leaving a rift is worth an extra step, and 41.3 allows that to happen more
             // than once in one movement. The bonus must land *before* the budget is judged,
             // because it is what pays for the departure — a ship arriving at a rift with
             // nothing left can still leave it.
             if self.is_gravity_rift(&current) && !self.anomalies_ignored {
                 allowance += 1;
+                if !bonus_used && self.rift_extra_steps > 0 {
+                    allowance += self.rift_extra_steps;
+                    bonus_used = true;
+                }
             }
 
             let remaining = allowance - entered;
-            if best.get(&current).is_some_and(|seen| *seen >= remaining) {
+            let key = (current.clone(), bonus_used);
+            if best.get(&key).is_some_and(|seen| *seen >= remaining) {
                 continue;
             }
-            best.insert(current.clone(), remaining);
+            best.insert(key, remaining);
             if remaining <= 0 {
                 continue;
             }
@@ -539,7 +557,7 @@ impl<'a> MovementRules<'a> {
                 if !self.can_pass_through_ship(&neighbour, Some(origin), ship_type) {
                     continue;
                 }
-                queue.push_back((neighbour, entered + 1, allowance, arrived));
+                queue.push_back((neighbour, entered + 1, allowance, arrived, bonus_used));
             }
         }
 
@@ -1204,6 +1222,71 @@ mod tests {
             "no bar, but no bonus either - move 1 reaches one system"
         );
         assert!(rules.can_reach(&rift, 2));
+    }
+
+    /// A three-ring galaxy of ordinary systems, with the two opposite corners of the outer ring and
+    /// the systems strictly between them (the one straight line, so the only shortest route).
+    fn long_line() -> (Galaxy, String, String, Vec<String>) {
+        let ids: Vec<String> = plain_systems(200)
+            .into_iter()
+            .filter(|id| {
+                ti4_content::galaxy::system(ContentStore::embedded(), id, POK)
+                    .is_some_and(|system| system.wormholes().is_empty())
+            })
+            .take(37)
+            .collect();
+        assert_eq!(ids.len(), 37);
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let galaxy = Galaxy::build(ContentStore::embedded(), &refs, POK, 3).unwrap();
+        let line_between = |a: &String, b: &String| -> Vec<String> {
+            let mut between: Vec<String> = ids
+                .iter()
+                .filter(|x| {
+                    galaxy.distance(a, x).unwrap() + galaxy.distance(x, b).unwrap() == 6
+                        && *x != a
+                        && *x != b
+                })
+                .cloned()
+                .collect();
+            between.sort_by_key(|x| galaxy.distance(a, x));
+            between
+        };
+        // Opposite corners lie on a straight line, so the route between them is unique.
+        let (a, b) = ids
+            .iter()
+            .flat_map(|a| ids.iter().map(move |b| (a, b)))
+            .find(|(a, b)| galaxy.distance(a, b) == Some(6) && line_between(a, b).len() == 5)
+            .expect("opposite corners");
+        let between = line_between(a, b);
+        (galaxy, a.clone(), b.clone(), between)
+    }
+
+    #[test]
+    fn the_crucible_bonus_is_one_extra_step_however_many_rifts_the_route_passes() {
+        // Route a, s1..s5, b: six systems entered. Rifts at s1, s2, s3: printed +1 each.
+        let (galaxy, a, b, between) = long_line();
+        assert_eq!(between.len(), 5);
+        let make = |extra: i32, rifts: &[usize]| {
+            let mut rules =
+                MovementRules::new(&galaxy, ContentStore::embedded(), POK, &b, Board::default());
+            rules.gravity_rift_systems = rifts.iter().map(|i| between[*i].clone()).collect();
+            rules.rift_extra_steps = extra;
+            rules
+        };
+        // Three rifts: move 1 + 3 = 4 systems, short of six. One Crucible step makes five: still
+        // short. Per-rift it would make seven and arrive, so this fails if the bonus repeats.
+        assert!(!make(0, &[0, 1, 2]).can_reach(&a, 1));
+        assert!(
+            !make(1, &[0, 1, 2]).can_reach(&a, 1),
+            "the Crucible adds +1 in total, not per rift"
+        );
+        // Two rifts: move 1 + 2 = 3, plus the one step = 4; still six away. Needs the step: with
+        // move 3 the printed bonuses reach five, short by one that only the Crucible step pays.
+        assert!(!make(0, &[0, 1]).can_reach(&a, 3));
+        assert!(
+            make(1, &[0, 1]).can_reach(&a, 3),
+            "two rifts plus the single extra step reach a six-system route on move 3"
+        );
     }
 
     #[test]

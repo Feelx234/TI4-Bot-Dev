@@ -211,8 +211,11 @@ pub(crate) fn extra_prerequisite_colours(
         .collect()
 }
 
-/// Every module's prerequisite-ignoring way to research `tech`, with the index of the module (among
-/// those with this hook) that offered it, for [`research_waiver_paid`].
+/// Every module's prerequisite-ignoring way to research `tech`, indexed by its position among the
+/// waivers actually offered to `player` for this technology — not among the modules that carry the
+/// hook. Registering another faction therefore never renumbers an existing waiver. The same index
+/// selects the module that must pay in [`research_waiver_paid`], which re-evaluates the offers on
+/// the same state.
 pub(crate) fn research_waiver_offers(
     state: &GameState,
     content: &ContentStore,
@@ -221,8 +224,9 @@ pub(crate) fn research_waiver_offers(
 ) -> Vec<(usize, ResearchWaiver)> {
     tables()
         .filter_map(|table| table.research_waiver_offer)
+        .filter_map(|hook| hook(state, content, player, tech))
         .enumerate()
-        .filter_map(|(index, hook)| hook(state, content, player, tech).map(|w| (index, w)))
+        .map(|(index, waiver)| (index, waiver))
         .collect()
 }
 
@@ -237,7 +241,11 @@ pub(crate) fn research_waiver_paid(
     payment: &str,
 ) -> bool {
     if let Some(hook) = tables()
-        .filter(|table| table.research_waiver_offer.is_some())
+        .filter(|table| {
+            table
+                .research_waiver_offer
+                .is_some_and(|offer| offer(state, content, player, tech).is_some())
+        })
         .nth(index)
         .and_then(|table| table.research_waiver_paid)
     {

@@ -217,7 +217,8 @@ pub fn after_breakthrough_gained(
     let Some(record) = content.get(ContentType::Breakthroughs, breakthrough.as_str()) else {
         return Ok(false);
     };
-    if !breakthrough_roll(rng) {
+    // Al'Raith Ix Ianovar: "This breakthrough causes The Fracture to enter play without a roll".
+    if breakthrough.as_str() != "cabalbt" && !breakthrough_roll(rng) {
         return Ok(false);
     }
 

@@ -2319,6 +2319,7 @@ pub fn apply_movement_effects(
     player: &PlayerId,
 ) {
     rules.rifts_ignored = crate::relics::ignores_gravity_rifts(state, player);
+    crate::factions::hooks_movement::apply_rift_effects(rules, state, player);
     let Some(seat) = state.player(player) else {
         return;
     };

@@ -172,6 +172,21 @@ pub struct EconomyHooks {
     pub pds_placement_alternative_performed: Option<
         fn(&mut GameState, &ContentStore, SourceSet, &PlayerId, &SystemId, &PlanetId, &str) -> bool,
     >,
+    /// Whether this module may pay for one unit of type `unit` in `system` by returning one captured
+    /// unit of that type instead of spending resources ("When you produce a unit: You may return 1
+    /// captured unit of that type to produce that unit without spending resources", Cabal
+    /// Amalgamation). Consulted while the production window builds its options, so the exchange is
+    /// offered beside the paid build and is never a late rejection. Matched by unit type, like every
+    /// other capture in the engine. Pure: ask nothing, mutate nothing.
+    pub production_unit_exchange: Option<
+        fn(&GameState, &ContentStore, SourceSet, &PlayerId, &SystemId, &str) -> bool,
+    >,
+    /// Carry out that exchange for one unit of `unit`: return one captured unit of that type to its
+    /// owner's reinforcements. Atomic: re-check everything, return `false` and leave the state
+    /// untouched when it cannot happen; `true` once it has. No resources are spent; the production
+    /// limit is spent by the caller, which is all the card waives.
+    pub production_unit_exchange_performed:
+        Option<fn(&mut GameState, &ContentStore, SourceSet, &PlayerId, &SystemId, &str) -> bool>,
 }
 
 impl EconomyHooks {
@@ -195,6 +210,8 @@ impl EconomyHooks {
         explored: None,
         pds_placement_alternative: None,
         pds_placement_alternative_performed: None,
+        production_unit_exchange: None,
+        production_unit_exchange_performed: None,
     };
 }
 
@@ -359,6 +376,36 @@ pub(crate) fn production_destinations(
     out.sort();
     out.dedup();
     out
+}
+
+/// Whether any module may produce one `unit` in `system` by returning a captured unit of that type
+/// instead of paying for it.
+pub(crate) fn production_unit_exchange(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &str,
+) -> bool {
+    hooks()
+        .filter_map(|h| h.production_unit_exchange)
+        .any(|f| f(state, content, sources, player, system, unit))
+}
+
+/// Perform that exchange. The first module able to honour its own offer wins; `false` changes
+/// nothing, which is how a production window drops an exchange that is no longer available.
+pub(crate) fn perform_production_unit_exchange(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &str,
+) -> bool {
+    hooks()
+        .filter_map(|h| h.production_unit_exchange_performed)
+        .any(|f| f(state, content, sources, player, system, unit))
 }
 
 /// Whether any module sets `cannot_produce` (lets `production` skip its per-producer walk).

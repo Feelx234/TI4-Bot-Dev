@@ -167,6 +167,28 @@ pub struct MovementHooks {
     /// that contain your command tokens during this game round."
     pub ignores_command_tokens:
         Option<fn(&GameState, &ContentStore, SourceSet, &PlayerId, &str) -> bool>,
+    /// Systems this module's pieces make into gravity rifts **for every player**, in addition to
+    /// the printed ones. Derived from the state on every call and never stored, so a rift follows
+    /// the piece that makes it. Applied by [`apply_rift_effects`], which `action_cards::
+    /// apply_movement_effects` (the one door every real move's rules pass through) calls. Union
+    /// over modules.
+    ///
+    /// Cabal Dimensional Tear I/II: "This system is a gravity rift".
+    pub gravity_rifts: Option<fn(&GameState) -> Vec<String>>,
+    /// Whether `mover`'s ships do not roll for `system` when they move out of it (41.2). Asked
+    /// only of the systems [`Self::gravity_rifts`] made, so a printed rift always rolls. The system
+    /// is still a gravity rift for every other rule (the extra step, the +1 of Crucible, the
+    /// Cabal commander). Any module's `true` exempts.
+    ///
+    /// Cabal Dimensional Tear I/II: "your ships do not roll for this gravity rift".
+    pub rift_roll_exempt: Option<fn(&GameState, &PlayerId, &str) -> bool>,
+    /// Whether `mover`'s ships do not roll for any gravity rift during this movement and each rift is
+    /// worth one more step (any module's `true`). Read when the rules for a real move are built.
+    ///
+    /// Cabal Crucible: "Your ships do not roll for gravity rifts during this movement, apply an
+    /// additional +1 to the move values of your ships that would move out of or through a gravity
+    /// rift instead."
+    pub rift_crucible: Option<fn(&GameState, &PlayerId) -> bool>,
 }
 
 impl MovementHooks {
@@ -183,6 +205,9 @@ impl MovementHooks {
         cannot_activate: None,
         unit_adjacent_systems: None,
         ignores_command_tokens: None,
+        gravity_rifts: None,
+        rift_roll_exempt: None,
+        rift_crucible: None,
     };
 }
 
@@ -272,6 +297,35 @@ pub(crate) fn ignores_command_tokens(
     tables()
         .filter_map(|table| table.ignores_command_tokens)
         .any(|hook| hook(state, content, sources, player, ship_type))
+}
+
+/// Make the systems the modules' pieces turn into gravity rifts rifts in `rules`, and record the
+/// ones `mover`'s ships do not roll for. Idempotent; a no-op when no module installs the hooks.
+pub(crate) fn apply_rift_effects(
+    rules: &mut crate::movement::MovementRules<'_>,
+    state: &GameState,
+    mover: &PlayerId,
+) {
+    if tables()
+        .filter_map(|table| table.rift_crucible)
+        .any(|hook| hook(state, mover))
+    {
+        rules.rifts_ignored = true;
+        rules.rift_extra_steps = 1;
+    }
+    for system in tables()
+        .filter_map(|table| table.gravity_rifts)
+        .flat_map(|hook| hook(state))
+        .collect::<BTreeSet<String>>()
+    {
+        let exempt = tables()
+            .filter_map(|table| table.rift_roll_exempt)
+            .any(|hook| hook(state, mover, &system));
+        if exempt {
+            rules.rift_roll_exempt.insert(system.clone());
+        }
+        rules.gravity_rift_systems.insert(system);
+    }
 }
 
 /// Wormholes the modules' pieces put on the map, by system.

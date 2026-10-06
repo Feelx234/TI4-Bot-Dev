@@ -673,6 +673,8 @@ fn resolve_instant(
             } else {
                 let limit = commodity_limit(state, content, player);
                 gain_commodities(state, content, player, limit);
+                // A replenish like any other: Trade Agreement and Stillness of Stars read it.
+                crate::promissory::trade_agreement_on_replenish(state, player);
             }
             return true;
         }

@@ -608,6 +608,9 @@ pub fn turn_started(
 /// Priced for trading since the port, it never paid out, so a traded Trade Agreement bought
 /// nothing.
 pub fn trade_agreement_on_replenish(state: &mut GameState, player: &PlayerId) -> Option<PlayerId> {
+    // Every replenish site calls this, so it is also where the replenish is announced (staged) for
+    // Cabal's The Stillness of Stars, before this card can take the commodities.
+    crate::factions::cabal::note_replenished(state, player);
     let holder = holder_of(state, "ta", player)?;
     let given = state.player(player).map_or(0, |seat| seat.commodities);
     if given <= 0 {

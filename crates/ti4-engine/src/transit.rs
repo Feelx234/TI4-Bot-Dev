@@ -492,7 +492,7 @@ pub fn rifts_exited(rules: &MovementRules<'_>, path: &[String]) -> Vec<String> {
     }
     path[..path.len() - 1]
         .iter()
-        .filter(|system| rules.is_rift(system))
+        .filter(|system| rules.is_rift(system) && !rules.rift_roll_exempt.contains(*system))
         .cloned()
         .collect()
 }

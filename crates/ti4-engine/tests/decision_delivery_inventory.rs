@@ -414,6 +414,27 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Cabal: Vortex picks which reinforcement unit to capture (BF-cabal.md CB-06).
+        module: "cabal.rs",
+        function: "vortex_perform",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Cabal: The Stillness of Stars picks which reinforcement unit to capture (CB-07).
+        module: "cabal.rs",
+        function: "stillness_of_stars",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Cabal: Al'Raith Ix Ianovar moves up to two ingress tokens into gravity rifts (CB-11).
+        module: "cabal.rs",
+        function: "alraith",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Nomad: Future Sight, Thunder's Paradox, hero (BF-nomad.md).
         module: "nomad.rs",
         function: "ask",
@@ -1305,6 +1326,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("borrowed_commanders.rs", "ralnel_ask", 1),
     ("borrowed_commanders.rs", "crimson_ask", 1),
     ("titans.rs", "ask", 1),
+    ("cabal.rs", "vortex_perform", 1),
+    ("cabal.rs", "stillness_of_stars", 1),
+    ("cabal.rs", "alraith", 1),
     ("nomad.rs", "ask", 1),
     ("nomad.rs", "temporal_command_suite", 1),
     ("nomad_agents.rs", "ask", 1),
