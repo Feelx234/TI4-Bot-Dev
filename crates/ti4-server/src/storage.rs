@@ -180,6 +180,9 @@ pub struct PlayerLobbyRecord {
     pub seed: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_template: Option<String>,
+    /// Opening-state preset (see [`crate::preset`]); the result is saved in the init record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_preset: Option<String>,
     pub lobby_version: u64,
 }
 
@@ -1486,5 +1489,21 @@ mod player_record_tests {
                 Err(StorageError::InvalidPlayerRecord("nickname"))
             ));
         }
+    }
+
+    #[test]
+    fn a_lobby_record_without_a_start_preset_still_loads_and_a_preset_round_trips() {
+        let (mut record, _, _) =
+            PlayerLobbyRecord::create("g_preset".to_owned(), 3, 5, "Host").unwrap();
+        // Records written before presets existed carry no `start_preset` key at all.
+        let old = serde_json::to_string(&record).unwrap();
+        assert!(!old.contains("start_preset"), "{old}");
+        let loaded: PlayerLobbyRecord = serde_json::from_str(&old).unwrap();
+        assert_eq!(loaded.start_preset, None);
+
+        record.start_preset = Some("combat".to_owned());
+        let json = serde_json::to_string(&record).unwrap();
+        let back: PlayerLobbyRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.start_preset.as_deref(), Some("combat"));
     }
 }

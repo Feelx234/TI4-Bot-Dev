@@ -75,6 +75,9 @@ pub struct CreateGameRequest {
     pub seed: Option<u64>,
     pub nickname: String,
     pub map_template: Option<String>,
+    /// Opening-state preset for smoke runs (see [`crate::preset`]); unknown names are a 400.
+    /// Like the `/api/dev/scenarios` endpoints, this is not gated.
+    pub start_preset: Option<String>,
 }
 
 /// Response after creating a game.
@@ -184,14 +187,24 @@ pub async fn create_game(
         ),
     };
 
+    if let Some(preset) = &payload.start_preset
+        && !crate::preset::is_known(preset)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("unknown start_preset {preset:?}"),
+        ));
+    }
+
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
     let (lobby, player, session) = registry
-        .create_player_lobby_with_template(
+        .create_player_lobby_with_options(
             game_id.clone(),
             payload.player_count,
             seed,
             &payload.nickname,
             map_template,
+            payload.start_preset,
         )
         .map_err(lobby_error)?;
 
@@ -529,7 +542,30 @@ mod template_request_tests {
             seed: Some(1),
             nickname: "Host".to_owned(),
             map_template: template.map(str::to_owned),
+            start_preset: None,
         })
+    }
+
+    fn preset_request(count: usize, preset: &str) -> Json<CreateGameRequest> {
+        Json(CreateGameRequest {
+            player_count: count,
+            seed: Some(1),
+            nickname: "Host".to_owned(),
+            map_template: None,
+            start_preset: Some(preset.to_owned()),
+        })
+    }
+
+    #[tokio::test]
+    async fn an_unknown_start_preset_is_a_400_and_a_known_one_is_accepted() {
+        let registry = Arc::new(GameRegistry::new());
+        let unknown = create_game(State(registry.clone()), preset_request(3, "nope")).await;
+        assert_eq!(unknown.unwrap_err().0, StatusCode::BAD_REQUEST);
+        assert!(
+            create_game(State(registry), preset_request(3, crate::preset::COMBAT))
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]

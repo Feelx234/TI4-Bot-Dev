@@ -1155,6 +1155,7 @@ fn setup_base_3p_game(
         players: existing_players,
         seed,
         map_template: None,
+        start_preset: None,
         lobby_version: 1,
     };
 

@@ -385,6 +385,7 @@ impl PlayerLobbyRecord {
             players,
             seed,
             map_template: None,
+            start_preset: None,
             lobby_version: 1,
         };
         lobby.validate()?;
@@ -1757,6 +1758,20 @@ impl GameRegistry {
         nickname: &str,
         map_template: Option<String>,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        self.create_player_lobby_with_options(game_id, count, seed, nickname, map_template, None)
+    }
+
+    /// As [`Self::create_player_lobby_with_template`], also naming a start preset that prepares
+    /// the opening state (see [`crate::preset`]).
+    pub fn create_player_lobby_with_options(
+        &self,
+        game_id: String,
+        count: usize,
+        seed: u64,
+        nickname: &str,
+        map_template: Option<String>,
+        start_preset: Option<String>,
+    ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
         check_nickname(nickname)?;
         let mut state = self.state.lock().expect("registry lock");
         if state.lobbies.contains_key(&game_id)
@@ -1773,6 +1788,7 @@ impl GameRegistry {
             PlayerLobbyRecord::create(game_id.clone(), count, seed, nickname)
                 .map_err(|error| LobbyError::Storage(error.to_string()))?;
         record.map_template = map_template;
+        record.start_preset = start_preset;
         self.save_player_lobby(&record)?;
         let view = record.public_view();
         state
@@ -2177,11 +2193,12 @@ impl GameRegistry {
             .map(|slot| slot.occupant.clone().expect("full lobby"))
             .collect();
         let content = ContentStore::embedded();
-        let (initial_state, galaxy) = crate::map::create_game_with_template(
+        let (initial_state, galaxy) = crate::map::create_game_with_preset(
             content,
             &players,
             lobby.seed,
             lobby.map_template.as_deref(),
+            lobby.start_preset.as_deref(),
         )
         .map_err(LobbyError::Map)?;
         let map_tiles = crate::map::build_board_tiles(content, &galaxy);
