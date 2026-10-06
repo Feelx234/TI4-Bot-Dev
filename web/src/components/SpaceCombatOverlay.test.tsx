@@ -2,6 +2,7 @@ import { act } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SpaceCombatOverlay } from "./SpaceCombatOverlay.tsx";
+import { deriveChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { PendingChoiceDto, BoardView, PlayerView } from "../protocol/types.ts";
 
 describe("SpaceCombatOverlay", () => {
@@ -935,5 +936,75 @@ describe("SpaceCombatOverlay", () => {
     );
     expect(screen.queryByText(/Caution: Opponents holding/i)).not.toBeInTheDocument();
     expect(screen.queryByTestId("direct-hit-held-banner")).not.toBeInTheDocument();
+  });
+  // Space cannon and barrage hits are absorbed outside a combat window: the decision carries no
+  // amount and the board has no combat. The model then reads "0 hits", which once made the panel
+  // show "0 of 0 hits" with nothing to click.
+  describe("a sustain decision that does not state its hits", () => {
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "200",
+      prompt: "cancel a hit at 18",
+      context: {
+        subtype: "sustain_damage",
+        target: { System: "18" },
+        source: { Rule: "82" },
+      },
+      options: [
+        {
+          id: "sustain|0",
+          label: "sustain damage on dreadnought",
+          kind: "sustain",
+          payload: { unit: "dreadnought" },
+        },
+        { id: "decline", label: "take the hit", kind: "decline" },
+      ],
+    };
+
+    it("stages one hit in the panel instead of '0 of 0'", () => {
+      render(
+        <SpaceCombatOverlay
+          isOpen={true}
+          choice={choice}
+          model={deriveChoiceRendererModel(choice, "seat_1")}
+          viewerSeat="seat_1"
+          board={sampleBoard}
+          players={samplePlayers}
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+          onSubmitBatch={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+      expect(screen.getByTestId("hit-assignment-remaining")).toHaveTextContent(
+        "1 of 1 hit left to assign",
+      );
+      expect(screen.getByTestId("hit-sustain-dreadnought#1")).toBeEnabled();
+    });
+
+    it("keeps the per-click controls when the panel has nothing to assign", () => {
+      const strayBoard: BoardView = {
+        ...sampleBoard,
+        systems: { "18": { ...sampleBoard.systems["18"], units: [] } },
+      };
+      render(
+        <SpaceCombatOverlay
+          isOpen={true}
+          choice={choice}
+          model={deriveChoiceRendererModel(choice, "seat_1")}
+          viewerSeat="seat_1"
+          board={strayBoard}
+          players={samplePlayers}
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+          onSubmitBatch={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+      expect(
+        screen.queryByTestId("hit-assignment-panel"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getAllByRole("button").some((b) => /take the hit|sustain/i.test(b.textContent ?? "")),
+      ).toBe(true);
+    });
   });
 });

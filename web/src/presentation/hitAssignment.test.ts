@@ -5,6 +5,7 @@ import {
   autoFill,
   buildHitRows,
   canAddDestroy,
+  canStageHits,
   canSustain,
   casualtyPlan,
   destroyableFromOptions,
@@ -242,5 +243,26 @@ describe("hit staging", () => {
         { id: "decline", kind: "decline", label: "" },
       ]),
     ).toEqual(new Set(["carrier|intact", "mech|damaged"]));
+  });
+});
+
+describe("canStageHits", () => {
+  it("is false when the seat has no unit that can take a hit, so the old controls stay", () => {
+    expect(canStageHits({ units: [], sustainTypes: new Set() })).toBe(false);
+    expect(
+      canStageHits({
+        units: spaceHitUnits([unit("infantry", false, "p")], "p1"),
+        sustainTypes: new Set(),
+      }),
+    ).toBe(false);
+  });
+
+  it("is true for a seat with a sustaining ship on an unstated-amount sustain decision", () => {
+    expect(
+      canStageHits({
+        units: [unit("dreadnought")],
+        sustainTypes: new Set(["dreadnought"]),
+      }),
+    ).toBe(true);
   });
 });

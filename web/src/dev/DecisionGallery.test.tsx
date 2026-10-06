@@ -91,6 +91,16 @@ describe("development decision gallery", () => {
     );
   });
 
+  it("stages one hit when a sustain decision does not state its amount", () => {
+    render(<DecisionGallery />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Sustain with no amount stated/i }),
+    );
+    expect(screen.getByTestId("hit-assignment-remaining")).toHaveTextContent(
+      "1 of 1 hit left to assign",
+    );
+  });
+
   it("shows a consistent payment map with only ready offered planets targetable", () => {
     render(<DecisionGallery />);
     fireEvent.click(

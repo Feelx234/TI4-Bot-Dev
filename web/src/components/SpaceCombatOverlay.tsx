@@ -29,6 +29,7 @@ import {
   canParticipateInSpaceCombat,
 } from "../presentation/mapOverlays.ts";
 import {
+  canStageHits,
   destroyableFromOptions,
   onlyFighterOptions,
   getBaseCapacity,
@@ -190,12 +191,16 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   const subtype = choice?.context?.subtype ?? "";
   const constraints =
     model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
-  const hitsOwed =
+  // The model reads a decision without an amount as 0 hits; that is "not stated", not "none owed".
+  const hitsOwed = [
     model?.selectionMode.mode === "casualty"
       ? model.selectionMode.hitsToAssign
       : model?.selectionMode.mode === "sustain"
         ? model.selectionMode.hitsRemaining
-        : (constraints?.amount ?? board?.combat?.hits_to_assign);
+        : undefined,
+    constraints?.amount,
+    board?.combat?.hits_to_assign,
+  ].find((n): n is number => typeof n === "number" && n > 0);
 
   const isSustainStage =
     subtype === "sustain_damage" || model?.workflow === "combat_sustain";
@@ -212,7 +217,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     choice?.context?.subtype.startsWith("play_reaction_"),
   );
   // Sustains and casualties are staged in one panel and sent together as a plan.
-  const stagedHits =
+  const stagedStage =
     Boolean(onSubmitBatch) &&
     (isSustainStage || isCasualtyStage) &&
     !isReactionStage;
@@ -259,6 +264,27 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     if (!board?.systems || !combatSystemId) return [];
     return board.systems[combatSystemId]?.units ?? [];
   }, [board, combatSystemId]);
+
+  // The panel replaces the per-click controls only when it can take a hit: with nothing it could
+  // assign (no matching units on the map) the old controls stay, so the decision never goes dead.
+  const hitUnits = useMemo(
+    () => (choice ? spaceHitUnits(systemUnits, choice.actor) : []),
+    [systemUnits, choice],
+  );
+  const hitPanelContext = {
+    units: hitUnits,
+    sustainTypes: isSustainStage
+      ? sustainTypesFromOptions(choice?.options ?? [])
+      : new Set<string>(),
+    destroyable: isCasualtyStage
+      ? destroyableFromOptions(choice?.options ?? [])
+      : null,
+    onlyFighters:
+      phase === "barrage" && onlyFighterOptions(choice?.options ?? []),
+  };
+  const stagedHits =
+    stagedStage &&
+    canStageHits(hitPanelContext);
 
   // Discover sides
   const { attackerSeat, defenderSeat } = useMemo(() => {
@@ -1421,21 +1447,10 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                             : "Assign hits"
                         }
                         hits={hitsOwed ?? 1}
-                        units={spaceHitUnits(systemUnits, choice.actor)}
-                        sustainTypes={
-                          isSustainStage
-                            ? sustainTypesFromOptions(choice.options)
-                            : new Set()
-                        }
-                        destroyable={
-                          isCasualtyStage
-                            ? destroyableFromOptions(choice.options)
-                            : null
-                        }
-                        onlyFighters={
-                          phase === "barrage" &&
-                          onlyFighterOptions(choice.options)
-                        }
+                        units={hitPanelContext.units}
+                        sustainTypes={hitPanelContext.sustainTypes}
+                        destroyable={hitPanelContext.destroyable}
+                        onlyFighters={hitPanelContext.onlyFighters}
                         cargo={{
                           load: spaceCargo(systemUnits, choice.actor),
                           capacity: (choice.actor === attackerSeat

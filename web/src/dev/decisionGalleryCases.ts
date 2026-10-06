@@ -684,6 +684,25 @@ export const fallbackCases: GalleryCase[] = [
       ],
     },
   },
+  {
+    workflow: "combat_sustain",
+    boardId: "hit_assignment",
+    title: "Sustain with no amount stated (space cannon / barrage)",
+    fallback: "One hit staged in the panel; never '0 of 0 hits' with no control",
+    note: "Hits absorbed outside a combat window used to carry no amount, which the model read as 0. The panel treats an unstated amount as one hit and the engine now states the real count.",
+    choice: {
+      actor,
+      nonce: "gallery-hit-unstated",
+      prompt: "cancel a hit at 18",
+      context: { subtype: "sustain_damage", target: system },
+      options: [
+        option("sustain|10", "sustain damage on dreadnought", "sustain", {
+          unit: "dreadnought",
+        }),
+        option("decline", "take the hit", "decline"),
+      ],
+    },
+  },
   ...turnBarCases(),
 ];
 

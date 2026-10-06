@@ -202,6 +202,11 @@ export function hitsToCover(
   return Math.min(hits, assignableHits(rows, ctx));
 }
 
+/** Whether the panel can take any hit here; when it cannot, the per-click controls must stay. */
+export function canStageHits(ctx: HitContext): boolean {
+  return assignableHits(buildHitRows(ctx), ctx) > 0;
+}
+
 export function canAddDestroy(
   row: HitRow,
   staging: HitStaging,
