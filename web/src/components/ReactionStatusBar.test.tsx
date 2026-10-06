@@ -45,6 +45,27 @@ describe("ReactionStatusBar", () => {
     expect(onSubmit).toHaveBeenCalledWith("sabotage");
   });
 
+  it("offers every card of a window with more than four options, with names and pass", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const ids = ["sabotage", "shard_of_the_throne", "direct_hit", "skilled_retreat", "counterstroke", "reflective_shielding"];
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "42",
+      prompt: "reaction_after_SYSTEM_ACTIVATED",
+      context: { subtype: "reaction_after_SYSTEM_ACTIVATED", optional: true, source: { Reaction: "SYSTEM_ACTIVATED" } },
+      options: [
+        ...ids.map((id) => ({ id, label: `Play ${id}`, kind: "reaction" })),
+        { id: "decline", label: "Pass", kind: "decline" },
+      ],
+    };
+    render(<ReactionStatusBar isOpen={true} choice={choice} viewerSeat="seat_1" onSubmit={onSubmit} />);
+    for (const id of ids) expect(screen.getByTestId(`play-reaction-btn-${id}`)).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("pass-reaction-btn"));
+    });
+    expect(onSubmit).toHaveBeenCalledWith("decline");
+  });
+
   it("handles pass button click", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 

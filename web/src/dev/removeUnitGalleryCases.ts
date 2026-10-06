@@ -25,6 +25,7 @@ export function removeUnitCases(): GalleryCase[] {
     },
   });
   return [
+    manyReactionsCase(),
     make(
       "gallery-remove-supply",
       "Remove a unit: over fleet supply",
@@ -40,4 +41,40 @@ export function removeUnitCases(): GalleryCase[] {
       "Capacity: fighters and ground forces against the places the ships offer.",
     ),
   ];
+}
+
+/** A reaction window with more than four cards keeps the reaction dialog (it once became a bare list). */
+function manyReactionsCase(): GalleryCase {
+  const cards: Array<[string, string]> = [
+    ["sabo1", "Sabotage"],
+    ["direct_hit", "Direct Hit"],
+    ["skilled_retreat", "Skilled Retreat"],
+    ["counterstroke", "Counterstroke"],
+    ["reflective_shielding", "Reflective Shielding"],
+  ];
+  return {
+    workflow: "action_card_reaction",
+    title: "Reaction window with five cards",
+    fallback: "Used to fall into the generic list; now the reaction dialog with every card and Pass",
+    note: "More than four options no longer leave the reaction dialog; the bar scrolls.",
+    choice: {
+      actor,
+      nonce: "gallery-reaction-many",
+      prompt: "reaction_after_SYSTEM_ACTIVATED",
+      context: {
+        subtype: "reaction_after_SYSTEM_ACTIVATED",
+        optional: true,
+        source: { Reaction: "SYSTEM_ACTIVATED" },
+      },
+      options: [
+        ...cards.map(([id, name]) => ({
+          id,
+          label: `Play ${name}`,
+          kind: "ability",
+          payload: { card: id, card_name: name },
+        })),
+        { id: "decline", label: "Pass", kind: "decline" },
+      ],
+    },
+  };
 }
