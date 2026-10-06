@@ -590,7 +590,13 @@ impl VoteWindow {
                 content,
                 &self.order[index],
             )
-            + extra_votes(state, &self.order[index]);
+            + extra_votes(state, &self.order[index])
+            + crate::factions::empyrean_units::blood_pact_votes(
+                state,
+                &self.ballot.votes,
+                &self.order[index],
+                outcome,
+            );
         self.ballot
             .votes
             .insert(self.order[index].clone(), outcome.to_owned());

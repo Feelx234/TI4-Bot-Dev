@@ -287,6 +287,11 @@ pub fn deploy(
     // reached.
     crate::leaders::deploy(state, content, sources, player);
 
+    // Empyrean Dark Whispers: "During setup, take the additional Empyrean faction promissory
+    // note." Setup deals notes before factions are seated in some flows, so the seat's own pair
+    // is made certain here (a no-op for every other faction).
+    crate::factions::empyrean::deal_notes(state, content, player);
+
     Ok(())
 }
 

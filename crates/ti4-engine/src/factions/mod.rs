@@ -47,6 +47,8 @@ pub mod argent;
 mod borrowed_commanders;
 pub(crate) mod borrowed_commanders_b;
 pub mod borrowed_round_agents;
+pub mod empyrean;
+pub mod empyrean_units;
 pub mod cabal;
 pub mod ghost;
 pub mod hooks_cards;
@@ -70,10 +72,11 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 15] = [
+pub const MODULES: [&FactionModule; 16] = [
     &arborec::MODULE,
     &argent::MODULE,
     &cabal::MODULE,
+    &empyrean::MODULE,
     &ghost::MODULE,
     &mentak::MODULE,
     &muaat::MODULE,
@@ -982,7 +985,9 @@ mod tests {
             assert!(count(AssetKind::Ability) >= 1, "{}", module.alias);
             assert!(count(AssetKind::Technology) >= 2, "{}", module.alias);
             assert!(count(AssetKind::Unit) >= 2, "{}", module.alias);
-            assert_eq!(count(AssetKind::Promissory), 1, "{}", module.alias);
+            // Empyrean's Dark Whispers: "you have 2 faction promissory notes".
+            let notes = if module.alias == "empyrean" { 2 } else { 1 };
+            assert_eq!(count(AssetKind::Promissory), notes, "{}", module.alias);
             assert_eq!(
                 count(AssetKind::Leader),
                 leader_count(module.alias),

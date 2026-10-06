@@ -189,6 +189,24 @@ pub struct MovementHooks {
     /// additional +1 to the move values of your ships that would move out of or through a gravity
     /// rift instead."
     pub rift_crucible: Option<fn(&GameState, &PlayerId) -> bool>,
+    /// Whether nebulae do not affect `mover`'s ships' movement (59.1, 59.1a and 59.2 are all lifted
+    /// for it). Any module's `true` applies.
+    ///
+    /// Empyrean Voidborn: "Nebulae do not affect your ships' movement."
+    pub ignores_nebulae: Option<fn(&GameState, &PlayerId) -> bool>,
+    /// Players whose ships do **not** block `mover`'s ships from moving through their systems
+    /// (58.4b lifted for them, and only for them: a system that also holds a third player's ships
+    /// still blocks). Read when the rules for a real move are built. Union over modules.
+    ///
+    /// Empyrean Aetherpassage: "After a player activates a system: You may allow that player to move
+    /// their ships through systems that contain your ships."
+    pub passable_owners: Option<fn(&GameState, &PlayerId) -> Vec<PlayerId>>,
+    /// Borders (pairs of systems, any order) that `viewer` does not treat as adjacent. Applied by
+    /// `MovementRules` and [`crate::movement::PlayerAdjacency`]. Union over modules.
+    ///
+    /// Empyrean Void Tether: "other players do not treat those systems as adjacent to each other
+    /// unless you allow it."
+    pub blocked_borders: Option<fn(&GameState, &PlayerId) -> Vec<(String, String)>>,
 }
 
 impl MovementHooks {
@@ -208,6 +226,9 @@ impl MovementHooks {
         gravity_rifts: None,
         rift_roll_exempt: None,
         rift_crucible: None,
+        ignores_nebulae: None,
+        passable_owners: None,
+        blocked_borders: None,
     };
 }
 
@@ -297,6 +318,40 @@ pub(crate) fn ignores_command_tokens(
     tables()
         .filter_map(|table| table.ignores_command_tokens)
         .any(|hook| hook(state, content, sources, player, ship_type))
+}
+
+/// Whether any module makes nebulae not affect `mover`'s movement.
+pub(crate) fn ignores_nebulae(state: &GameState, mover: &PlayerId) -> bool {
+    tables()
+        .filter_map(|table| table.ignores_nebulae)
+        .any(|hook| hook(state, mover))
+}
+
+/// Players whose ships do not block `mover`, summed over modules (sorted, no repeats).
+pub(crate) fn passable_owners(state: &GameState, mover: &PlayerId) -> BTreeSet<PlayerId> {
+    tables()
+        .filter_map(|table| table.passable_owners)
+        .flat_map(|hook| hook(state, mover))
+        .collect()
+}
+
+/// Borders `viewer` does not treat as adjacent, normalised `(low, high)`.
+pub(crate) fn blocked_borders(state: &GameState, viewer: &PlayerId) -> BTreeSet<(String, String)> {
+    tables()
+        .filter_map(|table| table.blocked_borders)
+        .flat_map(|hook| hook(state, viewer))
+        .filter(|(a, b)| a != b)
+        .map(|(a, b)| if a < b { (a, b) } else { (b, a) })
+        .collect()
+}
+
+/// Every system the modules' pieces make a gravity rift, for rules outside movement (the Empyrean
+/// Aetherstream reads "adjacent to an anomaly").
+pub(crate) fn extra_gravity_rifts(state: &GameState) -> BTreeSet<String> {
+    tables()
+        .filter_map(|table| table.gravity_rifts)
+        .flat_map(|hook| hook(state))
+        .collect()
 }
 
 /// Make the systems the modules' pieces turn into gravity rifts rifts in `rules`, and record the

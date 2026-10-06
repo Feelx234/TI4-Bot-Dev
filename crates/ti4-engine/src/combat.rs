@@ -8448,6 +8448,12 @@ mod tests {
         // A play-area note whose owner faction is not seated resolves to no issuer rather than a
         // phantom id.
         crate::promissory::take(&mut state, content, &b, "blood_pact:empyrean");
+        // Blood Pact's own ACTION places it faceup (not receipt), so play it as the holder would.
+        assert!(crate::promissory::play_action_note(
+            &mut state,
+            &b,
+            "blood_pact:empyrean"
+        ));
         let notes = note_holdings(&state);
         assert_eq!(
             notes.get(&b),

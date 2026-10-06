@@ -435,6 +435,27 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Empyrean: Void Tether placement (BF-empyrean.md).
+        module: "empyrean.rs",
+        function: "tether_place",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Empyrean: Voidwatch, the mover gives a promissory note (BF-empyrean.md).
+        module: "empyrean.rs",
+        function: "voidwatch",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Empyrean units: Watcher's mech, Dynamo, notes (BF-empyrean-units.md).
+        module: "empyrean_units.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Nomad: Future Sight, Thunder's Paradox, hero (BF-nomad.md).
         module: "nomad.rs",
         function: "ask",
@@ -1330,6 +1351,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("cabal.rs", "stillness_of_stars", 1),
     ("cabal.rs", "alraith", 1),
     ("nomad.rs", "ask", 1),
+    ("empyrean.rs", "tether_place", 1),
+    ("empyrean.rs", "voidwatch", 1),
+    ("empyrean_units.rs", "ask", 1),
     ("nomad.rs", "temporal_command_suite", 1),
     ("nomad_agents.rs", "ask", 1),
     ("invasion.rs", "coexist_instead", 1),

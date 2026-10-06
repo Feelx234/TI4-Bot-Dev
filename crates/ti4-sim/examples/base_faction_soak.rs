@@ -17,9 +17,9 @@ use ti4_engine::setup::start_game_seeded;
 use ti4_model::content_types::DEFAULT;
 use ti4_model::id::{FactionId, PlayerId};
 
-const FACTIONS: [&str; 15] = [
-    "arborec", "argent", "cabal", "ghost", "mentak", "muaat", "naalu", "naaz", "nomad", "saar",
-    "sardakk", "titans", "winnu", "yin", "yssaril",
+const FACTIONS: [&str; 16] = [
+    "arborec", "argent", "cabal", "empyrean", "ghost", "mentak", "muaat", "naalu", "naaz", "nomad",
+    "saar", "sardakk", "titans", "winnu", "yin", "yssaril",
 ];
 const SEATS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
 const MAX_ROUNDS: u32 = 50;

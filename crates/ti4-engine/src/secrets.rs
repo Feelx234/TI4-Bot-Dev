@@ -2024,6 +2024,10 @@ mod tests {
         // Two play-area note kinds from the same seated issuer, plus its Support: one bond.
         crate::promissory::take(&mut state, content, &seat, "blood_pact:empyrean");
         crate::promissory::take(&mut state, content, &seat, "dark_pact:empyrean");
+        // Both pacts are placed faceup by their own ACTION, not on receipt.
+        for pact in ["blood_pact:empyrean", "dark_pact:empyrean"] {
+            assert!(crate::promissory::play_action_note(&mut state, &seat, pact));
+        }
         state.support_holders.insert(owner.clone(), seat.clone());
         let position = Position {
             state: &state,
@@ -2084,6 +2088,11 @@ mod tests {
             ti4_model::id::FactionId::new("empyrean");
         crate::promissory::take(&mut state, content, &player(), "terraform:titans");
         crate::promissory::take(&mut state, content, &player(), "blood_pact:empyrean");
+        assert!(crate::promissory::play_action_note(
+            &mut state,
+            &player(),
+            "blood_pact:empyrean"
+        ));
         let position = Position {
             state: &state,
             content,

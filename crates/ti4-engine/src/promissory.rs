@@ -153,7 +153,7 @@ pub fn take(state: &mut GameState, content: &ContentStore, holder: &PlayerId, no
     state
         .promissory_notes
         .insert(note.to_owned(), holder.clone());
-    if is_play_area(content, note) && alias_of(note) != CONVOYS {
+    if is_play_area(content, note) && !is_action_placed(alias_of(note)) {
         state.promissory_faceup.insert(note.to_owned());
     }
 }
@@ -162,6 +162,49 @@ pub fn take(state: &mut GameState, content: &ContentStore, holder: &PlayerId, no
 /// unlike the notes that go faceup on receipt it stays in the holder's hand until they spend an
 /// action on it ([`play_convoys`]).
 const CONVOYS: &str = "convoys";
+
+/// The Empyrean's Blood Pact and Dark Pact open the same way as Trade Convoys ("ACTION: Place
+/// this card faceup in your play area"), so they too wait in hand for the ACTION.
+const BLOOD_PACT: &str = "blood_pact";
+const DARK_PACT: &str = "dark_pact";
+
+/// Whether a note's own text places it faceup with an ACTION rather than on receipt.
+fn is_action_placed(alias: &str) -> bool {
+    matches!(alias, CONVOYS | BLOOD_PACT | DARK_PACT)
+}
+
+/// The notes `player` holds in hand (not yet faceup) whose ACTION places them in their play area
+/// (Trade Convoys, Blood Pact, Dark Pact), in note-id order. The owner's own copy is not offered:
+/// nobody plays a card they own.
+#[must_use]
+pub fn action_notes_in_hand(state: &GameState, player: &PlayerId) -> Vec<String> {
+    state
+        .promissory_notes
+        .iter()
+        .filter(|(note, holder)| {
+            *holder == player
+                && is_action_placed(alias_of(note))
+                && !state.promissory_faceup.contains(*note)
+                && owner_of(note).is_some_and(|name| name != faction_name(state, player))
+        })
+        .map(|(note, _)| note.clone())
+        .collect()
+}
+
+/// A note's ACTION: place it faceup in `player`'s play area.
+///
+/// Returns whether it was placed; nothing changes unless `player` holds `note` in hand and its
+/// text is an ACTION of this kind.
+pub fn play_action_note(state: &mut GameState, player: &PlayerId, note: &str) -> bool {
+    if !action_notes_in_hand(state, player)
+        .iter()
+        .any(|held| held == note)
+    {
+        return false;
+    }
+    state.promissory_faceup.insert(note.to_owned());
+    true
+}
 
 /// The Trade Convoys `player` holds in hand (not yet faceup) and could play with its ACTION.
 /// Hacan's own copy is not offered: nobody negotiates with a card they own.
@@ -387,6 +430,13 @@ pub fn spend_support_on_activation(
     // units, return this card to the Hacan player."
     for note in convoys_returned_by_activation(state, activator, system) {
         give_back(state, &note);
+    }
+    // Blood Pact and Dark Pact: "If you activate a system that contains 1 or more of the Empyrean
+    // player's units, return this card to the Empyrean player."
+    for alias in [BLOOD_PACT, DARK_PACT] {
+        for note in faceup_returned_by_activation(state, activator, system, alias) {
+            give_back(state, &note);
+        }
     }
     owners
 }

@@ -524,6 +524,9 @@ pub fn resolve(
         offer.received.trade_goods + offer.received.commodities,
         "transaction",
     );
+    // Dark Pact: "When you give a number of commodities to the Empyrean player equal to your
+    // maximum commodity value, you each gain 1 trade good."
+    crate::factions::empyrean_units::dark_pact_gains(state, content, offer);
     // Recorded here rather than at the window that opened the deal: this is the one place a
     // transaction is *resolved*, and Lie in Wait counts resolutions.
     state

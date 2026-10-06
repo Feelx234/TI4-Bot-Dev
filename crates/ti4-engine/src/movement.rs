@@ -175,6 +175,12 @@ pub struct MovementRules<'a> {
     /// Ship types of the moving player that may leave systems holding the player's command
     /// token (`MovementHooks::ignores_command_tokens`). Consulted only by [`Self::path_from_ship`].
     token_free_types: BTreeSet<String>,
+    /// Empyrean Voidborn: nebulae do not affect this mover's ships' movement
+    /// (`MovementHooks::ignores_nebulae`).
+    nebulae_ignored: bool,
+    /// Borders this mover does not treat as adjacent, normalised `(low, high)`
+    /// (`MovementHooks::blocked_borders`; Void Tether).
+    blocked_edges: BTreeSet<(String, String)>,
 }
 
 impl<'a> MovementRules<'a> {
@@ -225,6 +231,8 @@ impl<'a> MovementRules<'a> {
             passing_ship_types: BTreeSet::new(),
             ship_adjacent: BTreeMap::new(),
             token_free_types: BTreeSet::new(),
+            nebulae_ignored: false,
+            blocked_edges: BTreeSet::new(),
         };
         if let Some(state) = state {
             rules.apply_faction_modules(state, content, sources);
@@ -293,6 +301,52 @@ impl<'a> MovementRules<'a> {
         if hooks::may_pass_through_supernova(state, content, sources, &mover) {
             self.supernovae_pass_through = true;
         }
+        if hooks::any(|table| table.ignores_nebulae.is_some())
+            && hooks::ignores_nebulae(state, &mover)
+        {
+            self.nebulae_ignored = true;
+        }
+        if hooks::any(|table| table.blocked_borders.is_some()) {
+            self.blocked_edges = hooks::blocked_borders(state, &mover);
+        }
+        if hooks::any(|table| table.passable_owners.is_some()) {
+            // Aetherpassage: a system whose only foreign ships belong to players who allow the
+            // passage no longer blocks (58.4b); one that also holds anybody else's still does.
+            let allowed = hooks::passable_owners(state, &mover);
+            if !allowed.is_empty() {
+                let types = ti4_content::units::catalogue(content, sources);
+                let cleared: Vec<String> = self
+                    .board
+                    .enemy_ships
+                    .iter()
+                    .filter(|system_id| {
+                        state
+                            .board
+                            .get(&SystemId::new(system_id.as_str()))
+                            .is_some_and(|system| {
+                                // At least one foreign ship, all of them allowing: an entry with
+                                // none was put there by another hook and is not ours to clear.
+                                let mut foreign = system
+                                    .units
+                                    .iter()
+                                    .filter(|unit| {
+                                        unit.owner != mover
+                                            && types
+                                                .get(unit.type_id.as_str())
+                                                .is_some_and(ti4_content::units::UnitType::is_ship)
+                                    })
+                                    .peekable();
+                                foreign.peek().is_some()
+                                    && foreign.all(|unit| allowed.contains(&unit.owner))
+                            })
+                    })
+                    .cloned()
+                    .collect();
+                for system_id in cleared {
+                    self.board.enemy_ships.remove(&system_id);
+                }
+            }
+        }
         if hooks::any(|table| table.blocks_passage.is_some()) {
             // Aerie Hololattice: the system may still be entered (it is the active system), but
             // not crossed; `barred_transit` is exactly that rule.
@@ -354,7 +408,7 @@ impl<'a> MovementRules<'a> {
     }
 
     const fn nebulae_open(&self) -> bool {
-        self.nebulae_open || self.anomalies_ignored
+        self.nebulae_open || self.anomalies_ignored || self.nebulae_ignored
     }
 
     /// Whether a ship may end or pass a step in this system at all.
@@ -475,8 +529,9 @@ impl<'a> MovementRules<'a> {
 
         // 59.2: starting inside a nebula caps the move value at 1 — unless anomalies are being
         // ignored, in which case the nebula is not there to cap it.
-        let in_nebula =
-            self.system(origin).is_some_and(System::is_nebula) && !self.anomalies_ignored;
+        let in_nebula = self.system(origin).is_some_and(System::is_nebula)
+            && !self.anomalies_ignored
+            && !self.nebulae_ignored;
         let budget = if in_nebula { 1 } else { move_value };
         if budget <= 0 {
             return None;
@@ -541,6 +596,17 @@ impl<'a> MovementRules<'a> {
             } else if current == self.active_system {
                 neighbours.extend(self.also_adjacent.iter().cloned());
             }
+            // Void Tether: a tethered border is not an adjacency for this mover.
+            if !self.blocked_edges.is_empty() {
+                neighbours.retain(|other| {
+                    let edge = if current.as_str() < other.as_str() {
+                        (current.clone(), other.clone())
+                    } else {
+                        (other.clone(), current.clone())
+                    };
+                    !self.blocked_edges.contains(&edge)
+                });
+            }
 
             for neighbour in neighbours {
                 let ends_here = neighbour == self.active_system;
@@ -601,6 +667,8 @@ impl<'a> MovementRules<'a> {
 pub struct PlayerAdjacency<'a> {
     galaxy: Cow<'a, Galaxy>,
     links: BTreeMap<String, BTreeSet<String>>,
+    /// Borders this player does not treat as adjacent (`MovementHooks::blocked_borders`).
+    blocked: BTreeSet<(String, String)>,
 }
 
 impl<'a> PlayerAdjacency<'a> {
@@ -626,7 +694,16 @@ impl<'a> PlayerAdjacency<'a> {
             links.entry(a.clone()).or_default().insert(b.clone());
             links.entry(b).or_default().insert(a);
         }
-        Self { galaxy, links }
+        let blocked = if hooks::any(|table| table.blocked_borders.is_some()) {
+            hooks::blocked_borders(state, player)
+        } else {
+            BTreeSet::new()
+        };
+        Self {
+            galaxy,
+            links,
+            blocked,
+        }
     }
 
     /// Systems adjacent to `system` for this player.
@@ -642,6 +719,16 @@ impl<'a> PlayerAdjacency<'a> {
             found.extend(extra.iter().cloned());
         }
         found.remove(system);
+        if !self.blocked.is_empty() {
+            found.retain(|other| {
+                let edge = if system < other.as_str() {
+                    (system.to_owned(), other.clone())
+                } else {
+                    (other.clone(), system.to_owned())
+                };
+                !self.blocked.contains(&edge)
+            });
+        }
         found
     }
 
