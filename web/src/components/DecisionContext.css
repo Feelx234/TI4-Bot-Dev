@@ -95,3 +95,111 @@
   flex-wrap: wrap;
   gap: 10px;
 }
+.token-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.token-panel__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  align-items: baseline;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.9rem;
+}
+.token-panel__summary strong {
+  color: #e2e8f0;
+  font-size: 1.05rem;
+}
+.token-panel__remaining[data-done="true"] strong {
+  color: #4ade80;
+}
+.token-panel__pools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.token-panel__pool {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto minmax(0, 2fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border, #334155);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+}
+.token-panel__name {
+  font-weight: 700;
+}
+.token-panel__purpose {
+  display: block;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.token-panel__count {
+  min-width: 2ch;
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-align: center;
+}
+.token-panel__stepper {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.token-panel__pips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.token-panel__pip {
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.token-panel__pip--kept {
+  background: #64748b;
+}
+.token-panel__pip--added {
+  background: var(--color-accent, #38bdf8);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35);
+}
+.token-panel__pip--removed {
+  border: 1.5px dashed #94a3b8;
+  background: transparent;
+}
+.token-panel__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.75rem;
+}
+.token-panel__legend span {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.token-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.token-panel__note {
+  margin: 0;
+  color: #facc15;
+  font-size: 0.85rem;
+}
+@media (max-width: 640px) {
+  .token-panel__pool {
+    grid-template-columns: 1fr auto;
+  }
+  .token-panel__pips {
+    grid-column: 1 / -1;
+  }
+}

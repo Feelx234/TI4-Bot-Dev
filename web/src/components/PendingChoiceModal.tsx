@@ -12,12 +12,16 @@ import {
 } from "../presentation/cardOptions.ts";
 import { describeStrategySecondary } from "../presentation/strategySecondary.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import { describeCommandTokens, type TokenOutcome } from "../presentation/commandTokens.ts";
+import { CommandTokenPanel } from "./CommandTokenPanel.tsx";
 import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
   model?: ChoiceRendererModel | null;
   onSubmit: (optionId: string) => Promise<void>;
+  /** Sends a staged plan as one server batch; without it a token gain stays a plain list. */
+  onSubmitBatch?: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
   lastError?: string | null;
   isMinimized?: boolean;
   onMinimizedChange?: (isMinimized: boolean) => void;
@@ -31,6 +35,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   choice,
   model,
   onSubmit,
+  onSubmitBatch,
   lastError,
   isMinimized: controlledIsMinimized,
   onMinimizedChange,
@@ -168,6 +173,11 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     : choice.options.some((opt) => opt.id === selectedOptionId);
 
   const secondary = describeStrategySecondary(choice);
+  const tokens = secondary ? null : describeCommandTokens(choice, Boolean(onSubmitBatch));
+  const confirmTokens = async (outcome: TokenOutcome) => {
+    if (outcome.kind === "option") await onSubmit(outcome.optionId);
+    else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
+  };
   const submitOption = async (optionId: string) => {
     if (isSubmitting || isPipelineRunning) return;
     setSubmissionError(null);
@@ -309,7 +319,15 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               onChoose={(id) => void submitOption(id)}
             />
           )}
-          {!secondary && (
+          {tokens && (
+            <CommandTokenPanel
+              key={choice.nonce}
+              view={tokens}
+              disabled={isSubmitting || isPipelineRunning}
+              onConfirm={confirmTokens}
+            />
+          )}
+          {!secondary && !tokens && (
           <form
             onSubmit={handleSubmit}
             style={{ display: "flex", flexDirection: "column", gap: 12 }}

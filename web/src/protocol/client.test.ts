@@ -460,6 +460,42 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
+  it("sends a token plan while a command token gain is pending, and refuses it otherwise", async () => {
+    const { client, send } = await connectedPlayer();
+    const pending = (subtype: string) => ({
+      ...snapshot,
+      type: "initial_snapshot" as const,
+      viewer: { role: "player", seat: "player_a" },
+      pending_choice: {
+        nonce: "nonce-5",
+        choice: {
+          player: "player_a",
+          prompt: "gain a command token into which pool",
+          context: { subtype },
+          options: [{ id: "tactic_tokens", kind: "pool", label: "tactic pool" }],
+        },
+      },
+    });
+    const plan = {
+      kind: "tokens" as const,
+      steps: [{ kind: "pool" as const, pool: "tactic_tokens" }],
+    };
+    send(pending("ready_planet"));
+    await expect(client.submitBatch(plan)).rejects.toThrow("Workflow is no longer pending");
+    send(pending("gain_command_token"));
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        active: true,
+        snapshot: { ...snapshot, game_version: 5, viewer: { role: "player", seat: "player_a" } },
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    await client.submitBatch(plan);
+    expect(JSON.parse(request.mock.calls[0][1].body)).toMatchObject({ plan, nonce: "nonce-5" });
+    client.stop();
+  });
+
   it("sends a casualty plan while a sustain or casualty decision is pending", async () => {
     const { client, send } = await connectedPlayer();
     send({

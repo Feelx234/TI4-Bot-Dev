@@ -499,6 +499,7 @@ function renderGeneric({
   choice,
   model,
   onSubmit,
+  onSubmitBasketBatch,
   lastError,
   isMinimized,
   onMinimizedChange,
@@ -510,6 +511,7 @@ function renderGeneric({
       choice={choice}
       model={model}
       onSubmit={onSubmit}
+      onSubmitBatch={onSubmitBasketBatch}
       lastError={lastError}
       isMinimized={isMinimized}
       onMinimizedChange={onMinimizedChange}

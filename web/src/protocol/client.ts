@@ -62,6 +62,10 @@ export type BasketPlan =
   | {
       kind: "casualties";
       steps: import("../presentation/hitAssignment.ts").CasualtyStep[];
+    }
+  | {
+      kind: "tokens";
+      steps: import("../presentation/commandTokens.ts").TokenStep[];
     };
 
 const HISTORY_RETRY_ATTEMPTS = 20;
@@ -380,6 +384,7 @@ export class GameSessionClient {
         "assign_casualty",
         "assign_ground_casualty",
       ],
+      tokens: ["gain_command_token"],
     }[plan.kind];
     if (!expected.includes(pending.context.subtype))
       throw new Error("Workflow is no longer pending");

@@ -521,6 +521,62 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Gain command tokens",
+    fallback: "Per-pool +/- panel with pips; one batch submits the whole gain",
+    note: "Gaining three command tokens: assign each to a pool with + and -, see the count, the total, the tokens remaining and pips for tokens already there versus new ones. Confirm only unlocks when all are assigned.",
+    choice: {
+      actor,
+      nonce: "gallery-gain-command-tokens",
+      prompt: "gain a command token into which pool",
+      options: [
+        option("tactic_tokens", "tactic pool", "pool"),
+        option("fleet_tokens", "fleet pool", "pool"),
+        option("strategic_tokens", "strategy pool", "pool"),
+      ],
+      details: {
+        kind: "command_tokens",
+        mode: "gain",
+        pools: { tactic: 3, fleet: 4, strategic: 2 },
+        reinforcements: 7,
+        tokens_to_place: 3,
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Redistribute command tokens",
+    fallback: "Per-pool +/- panel over the arrangement options",
+    note: "Status-phase redistribution of the nine tokens held: move tokens between pools; only arrangements the engine offers can be confirmed.",
+    choice: {
+      actor,
+      nonce: "gallery-redistribute-command-tokens",
+      prompt: "redistribute your command tokens",
+      options: Array.from({ length: 10 }, (_, tactic) =>
+        Array.from({ length: 10 - tactic }, (_, offset) => {
+          const fleet = offset + 2;
+          const strategic = 9 - tactic - fleet;
+          return strategic >= 0
+            ? option(
+                `${tactic}|${fleet}|${strategic}`,
+                `tactic ${tactic} / fleet ${fleet} / strategy ${strategic}`,
+                "redistribute",
+              )
+            : null;
+        }),
+      )
+        .flat()
+        .filter((entry) => entry !== null),
+      details: {
+        kind: "command_tokens",
+        mode: "redistribute",
+        pools: { tactic: 3, fleet: 4, strategic: 2 },
+        reinforcements: 7,
+        total: 9,
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Unknown subtype",
     fallback: "Unknown subtype → generic modal",
     note: "Unknown engine subtypes fall back to the generic single-choice modal.",
