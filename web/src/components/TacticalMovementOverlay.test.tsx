@@ -862,4 +862,55 @@ describe("TacticalMovementOverlay Component", () => {
     expect(screen.getByTestId("cargo-capacity-gauge-24")).toHaveAttribute("data-alert", "false");
     expect(commitBtn).toBeEnabled();
   });
+
+  it("lets at most one Gravity Drive ship be staged across all groups", () => {
+    const gdChoice: PendingChoiceDto = {
+      prompt: "movement",
+      actor: "p1",
+      nonce: "nonce_gd",
+      context: { subtype: "movement_step", target: { System: "18" } },
+      options: [
+        {
+          id: "move_gd|16|0",
+          label: "Destroyer",
+          kind: "move",
+          payload: { origin: "16", unit: "destroyer", gravity_drive: true },
+        },
+        {
+          id: "move_gd|16|1",
+          label: "Destroyer",
+          kind: "move",
+          payload: { origin: "16", unit: "destroyer", gravity_drive: true },
+        },
+        {
+          id: "move_gd|17|0",
+          label: "Cruiser",
+          kind: "move",
+          payload: { origin: "17", unit: "cruiser", gravity_drive: true },
+        },
+        { id: "done_moving", label: "Finish Movement", kind: "decline" },
+      ],
+    };
+    render(
+      <TacticalMovementOverlay
+        choice={gdChoice}
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={vi.fn()}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    );
+    const destroyer = screen.getByTestId("rally-inc-16-destroyer");
+    const cruiser = screen.getByTestId("rally-inc-17-cruiser");
+    expect(destroyer).toBeEnabled();
+    expect(cruiser).toBeEnabled();
+    fireEvent.click(destroyer);
+    expect(screen.getByTestId("rally-count-16-destroyer")).toHaveTextContent("1");
+    // A second destroyer and a ship from another group are both refused.
+    expect(destroyer).toBeDisabled();
+    expect(cruiser).toBeDisabled();
+    fireEvent.click(cruiser);
+    expect(screen.getByTestId("rally-count-17-cruiser")).toHaveTextContent("0");
+  });
 });

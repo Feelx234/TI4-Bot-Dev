@@ -165,8 +165,21 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       }
     }
 
+    // Gravity Drive is spent once per tactical action and the engine offers it only to the one
+    // ship that needs the bonus, so a group offered purely through it holds one ship.
+    for (const group of groupMap.values()) {
+      if (group.options.every((option) => option.gravityDrive)) {
+        group.totalAvailable = Math.min(group.totalAvailable, 1);
+      }
+    }
     return Array.from(groupMap.values());
   }, [choice, board, isCargoStep]);
+
+  const groupKey = (g: OriginShipGroup) =>
+    `${g.originSystemId}:${g.unitType}${g.damaged ? ":damaged" : ""}`;
+  const gravityDriveKeys = new Set(
+    shipGroups.filter((g) => g.options.every((option) => option.gravityDrive)).map(groupKey),
+  );
 
   // Discover cargo (ground forces + fighters) in origin systems where ships can move from
   const originCargoGroups = useMemo(() => {
@@ -324,6 +337,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   const handleUpdateCount = (key: string, delta: number, max: number) => {
     setStagedMoves((prev) => {
       const current = prev[key] ?? 0;
+      // At most one Gravity Drive ship across all groups.
+      if (delta > 0 && gravityDriveKeys.has(key)) {
+        const staged = [...gravityDriveKeys].reduce((sum, k) => sum + (prev[k] ?? 0), 0);
+        if (staged >= 1) return prev;
+      }
       const next = Math.max(0, Math.min(max, current + delta));
       return { ...prev, [key]: next };
     });
@@ -852,6 +870,11 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                                 onClick={() => handleUpdateCount(key, 1, g.totalAvailable)}
                                 disabled={
                                   count >= g.totalAvailable ||
+                                  (gravityDriveKeys.has(key) &&
+                                    [...gravityDriveKeys].reduce(
+                                      (sum, k) => sum + (stagedMoves[k] ?? 0),
+                                      0,
+                                    ) >= 1) ||
                                   ((g.isFighter || g.isGroundForce) &&
                                     spareCapacity(g.originSystemId) <= 0) ||
                                   isExecuting ||
