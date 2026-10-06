@@ -937,4 +937,44 @@ describe("planet selection dispatch", () => {
     expect(screen.queryByTestId("payment-bar")).not.toBeInTheDocument();
     expect(screen.getByTestId("payment-drawer")).toBeInTheDocument();
   });
+
+  it("hands the public log, whose turn it is and the map link to the reaction dialog", () => {
+    const onShowSystem = vi.fn();
+    const offer: PendingChoiceDto = {
+      actor: "p2",
+      nonce: "reaction-wiring",
+      prompt: "after SYSTEM_ACTIVATED",
+      context: {
+        subtype: "reaction_after_SYSTEM_ACTIVATED",
+        optional: true,
+        source: { Reaction: "SYSTEM_ACTIVATED" },
+      },
+      options: [
+        {
+          id: "reaction:x:SYSTEM_ACTIVATED:after",
+          kind: "ability",
+          label: "Play Decoy Operation",
+          payload: { card: "decoy", card_name: "Decoy Operation" },
+        },
+        { id: "decline", kind: "decline", label: "Pass" },
+      ],
+    };
+    render(
+      <ChoiceRendererDispatcher
+        viewerSeat="p2"
+        choice={offer}
+        onSubmit={vi.fn()}
+        isMinimized={false}
+        onMinimizedChange={vi.fn()}
+        turn={{ phase: "action", activePlayer: "p1" }}
+        activeSystemId="27"
+        onShowSystem={onShowSystem}
+        events={[]}
+      />,
+    );
+    // No trigger on the wire: the dialog still names the active player and system from public state.
+    expect(screen.getByTestId("reaction-bar-prompt")).toHaveTextContent("activated System 27.");
+    fireEvent.click(screen.getByTestId("reaction-inspect-show-on-map"));
+    expect(onShowSystem).toHaveBeenCalledWith("27");
+  });
 });

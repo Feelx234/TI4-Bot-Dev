@@ -590,6 +590,8 @@ export const ChoiceRendererDispatcher: React.FC<
   landingDraft,
   onLandingDraftChange,
   turn,
+  events,
+  onShowSystem,
 }) => {
   const present = useParticipantText();
   const derivedModel = useMemo(() => {
@@ -763,6 +765,9 @@ export const ChoiceRendererDispatcher: React.FC<
     tacticalPlan,
     tacticalStep,
     onTacticalStep,
+    turn,
+    events,
+    onShowSystem,
   });
 
   return (

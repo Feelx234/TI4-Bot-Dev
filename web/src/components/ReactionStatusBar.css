@@ -1,7 +1,9 @@
 /* Reaction dialog: "What happened" and "You can now" blocks (desktop and phone). */
-.reaction-status-bar {
+/* One column that scrolls: with wrapping a height limit would spill sections into new columns. */
+.reaction-status-bar.reaction-status-bar.reaction-status-bar {
   align-items: stretch;
   flex-direction: column;
+  flex-wrap: nowrap;
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
 }
@@ -17,6 +19,16 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: rgba(148, 163, 184, 0.08);
+}
+/* The shared header asks for a full-width row (flex-basis 100%); in a column that is full height. */
+.reaction-status-bar.reaction-status-bar .decision-frame__header,
+.reaction-status-bar.reaction-status-bar .reaction-status-bar__happened,
+.reaction-status-bar.reaction-status-bar .reaction-status-bar__can-now,
+.reaction-status-bar.reaction-status-bar .reaction-status-bar__actions {
+  flex: 0 0 auto;
+}
+.reaction-status-bar .reaction-status-bar__trigger-target {
+  font-size: 13px;
 }
 .reaction-status-bar__heading {
   margin: 0;
@@ -63,11 +75,12 @@
   justify-content: flex-end;
 }
 @media (max-width: 720px) {
-  .reaction-status-bar {
+  .reaction-status-bar.reaction-status-bar.reaction-status-bar {
     bottom: 0;
     width: 100%;
     max-height: 100dvh;
   }
+
   .reaction-status-bar .reaction-status-bar__actions {
     position: sticky;
     bottom: 0;

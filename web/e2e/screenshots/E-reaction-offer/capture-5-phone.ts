@@ -2,9 +2,9 @@ import { test } from "@playwright/test";
 import { shot } from "../_shared/shot";
 import { openReaction, other, trigger, outerOffer, pass } from "./_reaction";
 
-// Another player played an action card; the viewer holds Sabotage. The dialog says who played what
-// (with the card's full text) and then what the viewer can do now.
-test("reaction: Sabotage when an action card is played", async ({ page }, testInfo) => {
+// The same dialog at a phone width: one scrolling body and a sticky Play / Pass row.
+test("reaction: phone width", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await openReaction(
     page,
     "reaction_when_ACTION_CARD_PLAYED",
@@ -13,5 +13,5 @@ test("reaction: Sabotage when an action card is played", async ({ page }, testIn
     { Reaction: "ACTION_CARD_PLAYED" },
     "when ACTION_CARD_PLAYED",
   );
-  await shot(page, testInfo, "1-action-card-played");
+  await shot(page, testInfo, "5-phone");
 });
