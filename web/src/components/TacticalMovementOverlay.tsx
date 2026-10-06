@@ -697,7 +697,15 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
         await onSubmitBatch(destinationSystemId, steps);
         setStagedMoves({});
       } catch (error) {
-        setLocalError(error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        // The engine moved on from the plan, so sending the same plan again is rejected again.
+        // Drop it and let the player stage from the current offer.
+        if (/workflow interrupted|option unavailable|ambiguous option/i.test(message)) {
+          setStagedMoves({});
+          setLocalError(`${message} Your staged moves were cleared; stage them again.`);
+        } else {
+          setLocalError(message);
+        }
       } finally {
         planRef.current.active = false;
         setIsExecuting(false);

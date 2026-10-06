@@ -188,6 +188,31 @@ describe("TacticalMovementOverlay Component", () => {
       ]),
     );
   });
+  it("clears the staged plan after the server reports the workflow was interrupted", async () => {
+    const onSubmitBatch = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("Batch rejected: workflow interrupted: the engine moved on to your load_cargo decision"),
+      );
+    render(
+      <TacticalMovementOverlay
+        choice={mockMoveChoice}
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={vi.fn()}
+        onSubmitBatch={onSubmitBatch}
+        isOpen
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("rally-inc-24-cruiser"));
+    expect(screen.getByTestId("rally-count-24-cruiser")).toHaveTextContent("1");
+    fireEvent.click(screen.getByTestId("commit-moves-btn"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("staged moves were cleared");
+    expect(screen.getByTestId("rally-count-24-cruiser")).toHaveTextContent("0");
+    expect(onSubmitBatch).toHaveBeenCalledTimes(1);
+  });
+
   it("continues a staged ship and planet cargo across a missing choice and fresh engine decisions", async () => {
     const plan = { current: emptyMovementPlan() };
     const cargoChoice: PendingChoiceDto = {
