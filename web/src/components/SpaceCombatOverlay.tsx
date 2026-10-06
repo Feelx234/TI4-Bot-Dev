@@ -465,7 +465,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
         data-testid={`combat-roll-group-${seat}-${type}`}
         tabIndex={0}
         aria-label={`${rollSummary}${results.length ? ` ${results.join(", ")}` : ""}`}
-        onClick={(event) => event.stopPropagation()}
+        // Clicks must reach the row: during casualty assignment the row is the control, and the
+        // badge sits in its middle. Keys stay local so Enter on the focused badge only shows rolls.
         onKeyDown={(event) => event.stopPropagation()}
       >
         {hits} hit{hits === 1 ? "" : "s"}

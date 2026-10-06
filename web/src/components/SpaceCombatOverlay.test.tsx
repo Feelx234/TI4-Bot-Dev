@@ -228,6 +228,35 @@ describe("SpaceCombatOverlay", () => {
     expect(screen.getByTestId("combat-hits-callout")).toHaveTextContent("2");
   });
 
+  it("assigns the casualty when the click lands on the row's roll badge", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "103",
+      prompt: "Assign hits",
+      context: { subtype: "assign_casualty", outstanding: [{ amount: 1 }], target: { System: "18" } },
+      options: [
+        { id: "destroy|0", label: "Destroy Fighter", kind: "casualty", payload: { unit: "fighter" } },
+      ],
+    };
+    render(
+      <SpaceCombatOverlay
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        board={sampleBoard}
+        players={samplePlayers}
+        recentDiceRolls={[{ player: "seat_2", unit: "Cruiser", roll: 7, target: 7, hit: true }]}
+        onSubmit={onSubmit}
+        onClose={vi.fn()}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("combat-roll-group-seat_1-fighter"));
+    });
+    expect(onSubmit).toHaveBeenCalledWith("destroy|0");
+  });
+
   it("renders dockable minimized bar when isMinimized is true", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onMinimize = vi.fn();
@@ -856,9 +885,6 @@ describe("SpaceCombatOverlay", () => {
     expect(screen.queryByText(/Location: System 18/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Assign this hit/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Assign this hit:/i)).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("combat-roll-group-seat_1-carrier"));
-    expect(onSubmit).not.toHaveBeenCalled();
 
     // Click directly on the carrier row
     await act(async () => {
