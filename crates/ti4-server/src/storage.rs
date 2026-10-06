@@ -183,7 +183,15 @@ pub struct PlayerLobbyRecord {
     /// Opening-state preset (see [`crate::preset`]); the result is saved in the init record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_preset: Option<String>,
+    /// Bumped whenever the map the table will get changes (a new choice, a re-roll, a new seat
+    /// order) so clients know to refetch the preview.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub map_revision: u64,
     pub lobby_version: u64,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 impl PlayerLobbyRecord {

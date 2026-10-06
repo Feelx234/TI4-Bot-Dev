@@ -36,6 +36,17 @@ pub struct MapTemplateSummary {
     pub alias: String,
     pub author: String,
     pub player_count: usize,
+    /// Whether the template builds under the shipped content (always filled in by the server).
+    #[serde(default)]
+    pub buildable: bool,
+    /// Main-map systems (hyperlane tiles excluded); 0 when the template does not build.
+    #[serde(default)]
+    pub systems: usize,
+    #[serde(default)]
+    pub hyperlanes: bool,
+    /// The template a lobby of this size starts with when nobody chooses.
+    #[serde(default)]
+    pub recommended: bool,
 }
 
 /// Manages loading and listing of map templates.
@@ -69,6 +80,10 @@ impl TemplateLoader {
                 alias: t.alias.clone(),
                 author: t.author.clone(),
                 player_count: t.player_count,
+                buildable: false,
+                systems: 0,
+                hyperlanes: false,
+                recommended: false,
             })
             .collect()
     }

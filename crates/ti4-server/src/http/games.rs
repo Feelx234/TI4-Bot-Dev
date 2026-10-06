@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +75,8 @@ pub struct CreateGameRequest {
     pub seed: Option<u64>,
     pub nickname: String,
     pub map_template: Option<String>,
+    /// `"random"` asks for the seeded random board explicitly (no template).
+    pub map: Option<String>,
     /// Opening-state preset for smoke runs (see [`crate::preset`]); unknown names are a 400.
     /// Like the `/api/dev/scenarios` endpoints, this is not gated.
     pub start_preset: Option<String>,
@@ -133,10 +135,94 @@ pub async fn list_games(State(registry): State<Arc<GameRegistry>>) -> Json<Vec<G
 }
 
 /// Handler for `GET /api/maps`.
-pub async fn list_maps() -> Result<Json<Vec<MapTemplateSummary>>, (StatusCode, String)> {
-    let loader =
-        crate::maps::TemplateLoader::load().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(loader.list_summaries()))
+///
+/// With `?player_count=N` only the templates that seat N and build are listed; without it every
+/// template is, with `buildable` telling them apart.
+pub async fn list_maps(
+    Query(query): Query<MapsQuery>,
+) -> Result<Json<Vec<MapTemplateSummary>>, (StatusCode, String)> {
+    crate::maps::catalog::catalog(query.player_count)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MapsQuery {
+    pub player_count: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MapPreviewQuery {
+    pub player_count: Option<usize>,
+    pub variant: Option<u32>,
+}
+
+/// Handler for `GET /api/maps/{alias}/preview?variant=K` (`alias` may be `random`, which needs
+/// `player_count`). A picture of the card, built with a seed the server never reveals.
+pub async fn preview_map(
+    Path(alias): Path<String>,
+    Query(query): Query<MapPreviewQuery>,
+) -> Result<Json<crate::maps::MapPreview>, (StatusCode, String)> {
+    let bad = |message: String| (StatusCode::BAD_REQUEST, message);
+    let (choice, count) = if alias == "random" {
+        let count = query
+            .player_count
+            .ok_or_else(|| bad("random needs player_count".to_owned()))?;
+        (crate::maps::MapChoice::Random, count)
+    } else {
+        let loader = crate::maps::TemplateLoader::load()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let template = loader
+            .get(&alias)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("unknown map {alias:?}")))?;
+        (
+            crate::maps::MapChoice::Template { alias },
+            template.player_count,
+        )
+    };
+    if !(2..=MAX_PLAYERS).contains(&count) {
+        return Err(bad("player_count must be 2-8".to_owned()));
+    }
+    let seed = crate::maps::catalog::variant_seed(&choice, count, query.variant.unwrap_or(0));
+    crate::maps::catalog::preview(&choice, count, seed)
+        .map(Json)
+        .map_err(bad)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChooseMapRequest {
+    pub map: crate::maps::MapChoice,
+}
+
+/// Handler for `POST /api/games/{game_id}/lobby/map` (host only, before Start).
+pub async fn choose_lobby_map(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<ChooseMapRequest>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?.to_owned();
+    tokio::task::spawn_blocking(move || {
+        registry.choose_player_lobby_map(&game_id, &token, &payload.map)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map(Json)
+    .map_err(lobby_error)
+}
+
+/// Handler for `GET /api/games/{game_id}/lobby/map-preview`: the board this table's choice and
+/// seat order give.
+pub async fn lobby_map_preview(
+    Path(game_id): Path<String>,
+    State(registry): State<Arc<GameRegistry>>,
+) -> Result<Json<crate::maps::MapPreview>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || registry.player_lobby_map_preview(&game_id))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .map_err(lobby_error)
 }
 
 /// Handler for `POST /api/games`.
@@ -160,7 +246,16 @@ pub async fn create_game(
 
     let loader =
         crate::maps::TemplateLoader::load().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if let Some(map) = &payload.map
+        && (map != "random" || payload.map_template.is_some())
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "map must be \"random\" and cannot be combined with map_template".to_owned(),
+        ));
+    }
     let map_template = match payload.map_template {
+        _ if payload.map.is_some() => None,
         Some(alias) => {
             let template = loader.get(&alias).ok_or_else(|| {
                 (
@@ -421,6 +516,7 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
         | LobbyError::TakeoverUnavailable => StatusCode::CONFLICT,
         LobbyError::InvalidPlayerId
         | LobbyError::InvalidSlotOrder
+        | LobbyError::InvalidMap(_)
         | LobbyError::InvalidNickname => StatusCode::BAD_REQUEST,
         LobbyError::Map(_) | LobbyError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
@@ -542,6 +638,7 @@ mod template_request_tests {
             seed: Some(1),
             nickname: "Host".to_owned(),
             map_template: template.map(str::to_owned),
+            map: None,
             start_preset: None,
         })
     }
@@ -552,6 +649,7 @@ mod template_request_tests {
             seed: Some(1),
             nickname: "Host".to_owned(),
             map_template: None,
+            map: None,
             start_preset: Some(preset.to_owned()),
         })
     }

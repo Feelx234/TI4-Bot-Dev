@@ -127,6 +127,20 @@ pub fn build_template_galaxy(
     Ok(galaxy)
 }
 
+/// The home systems of the first `player_count` seats, in seat order (the in-scope factions,
+/// cycling), which is what every game of that size seats.
+#[must_use]
+pub fn placeholder_homes(content: &ContentStore, player_count: usize) -> Vec<SystemId> {
+    seating::IN_SCOPE_FACTIONS
+        .iter()
+        .cycle()
+        .take(player_count)
+        .filter_map(|f| {
+            ti4_content::factions::get(content, f).and_then(|f| f.home_system().map(SystemId::new))
+        })
+        .collect()
+}
+
 /// The template a game of `player_count` uses when the host names none: the first one for that
 /// size that builds under `sources`, preferring plain `Standard` layouts, then `StaticEq`, then `Hyperlanes`.
 #[must_use]
@@ -136,14 +150,7 @@ pub fn default_template_for(
     player_count: usize,
     sources: SourceSet,
 ) -> Option<String> {
-    let homes: Vec<SystemId> = seating::IN_SCOPE_FACTIONS
-        .iter()
-        .cycle()
-        .take(player_count)
-        .filter_map(|f| {
-            ti4_content::factions::get(content, f).and_then(|f| f.home_system().map(SystemId::new))
-        })
-        .collect();
+    let homes = placeholder_homes(content, player_count);
     let rank = |alias: &str| {
         if alias.ends_with("Standard") {
             0

@@ -322,6 +322,10 @@ pub struct PlayerLobbyView {
     pub slots: Vec<PlayerSlotView>,
     pub lobby_version: u64,
     pub bot_service_enabled: bool,
+    /// What the table will play on; never the seed.
+    pub map: crate::maps::MapChoiceView,
+    /// Changes whenever the previewed board changes; refetch the preview when it does.
+    pub map_revision: u64,
 }
 
 /// Configuration for running bot agents on this server.
@@ -390,6 +394,7 @@ impl PlayerLobbyRecord {
             seed,
             map_template: None,
             start_preset: None,
+            map_revision: 0,
             lobby_version: 1,
         };
         lobby.validate()?;
@@ -428,6 +433,11 @@ impl PlayerLobbyRecord {
                 .collect(),
             lobby_version: self.lobby_version,
             bot_service_enabled: false,
+            map: crate::maps::catalog::describe(
+                &crate::maps::MapChoice::from_stored(self.map_template.as_deref()),
+                self.slots.len(),
+            ),
+            map_revision: self.map_revision,
         }
     }
 }
@@ -531,6 +541,8 @@ pub enum LobbyError {
     InvalidPlayerId,
     InvalidSlotOrder,
     InvalidNickname,
+    /// A map choice the lobby cannot use (unknown, wrong size, or does not build).
+    InvalidMap(String),
     Map(String),
     Storage(String),
 }
@@ -551,6 +563,7 @@ impl LobbyError {
             Self::InvalidPlayerId => "Invalid player ID".to_owned(),
             Self::InvalidSlotOrder => "Slot order must be a complete permutation".to_owned(),
             Self::InvalidNickname => "Nickname must be trimmed, nonempty Unicode text of at most 64 UTF-8 bytes without control or formatting characters".to_owned(),
+            Self::InvalidMap(error) => format!("Invalid map choice: {error}"),
             Self::Map(error) => format!("Failed to start game with map: {error}"),
             Self::Storage(error) => format!("Failed to persist lobby lifecycle: {error}"),
         }
@@ -2135,10 +2148,71 @@ impl GameRegistry {
             .ne(lobby.slots.iter().map(|s| &s.slot_id))
         {
             updated.lobby_version += 1;
+            updated.map_revision += 1;
             self.save_player_lobby(&updated)?;
             *lobby = updated;
         }
         Ok(self.player_view(&state, &state.player_lobbies[game_id]))
+    }
+
+    /// Host-only, lobby phase only: choose the map the table will play. Every call draws a new
+    /// private seed, so choosing again re-rolls the open slots (or the whole random board).
+    /// The seed is never part of any response.
+    ///
+    /// # Errors
+    /// [`LobbyError::InvalidMap`] for an unknown, wrongly sized or unbuildable template;
+    /// [`LobbyError::HostRequired`]; [`LobbyError::AlreadyRunning`].
+    pub fn choose_player_lobby_map(
+        &self,
+        game_id: &str,
+        credential: &str,
+        choice: &crate::maps::MapChoice,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        if authenticate_player(lobby, credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let seed = rand::random::<u64>();
+        crate::maps::catalog::preview(choice, lobby.slots.len(), seed)
+            .map_err(LobbyError::InvalidMap)?;
+        let mut updated = lobby.clone();
+        updated.map_template = choice.stored();
+        updated.seed = seed;
+        updated.map_revision += 1;
+        updated.lobby_version += 1;
+        self.save_player_lobby(&updated)?;
+        *lobby = updated;
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
+    }
+
+    /// The board the lobby's current choice and seed give, laid out for its slot order.
+    ///
+    /// # Errors
+    /// [`LobbyError::NotFound`], or [`LobbyError::Map`] if the stored choice no longer builds.
+    pub fn player_lobby_map_preview(
+        &self,
+        game_id: &str,
+    ) -> Result<crate::maps::MapPreview, LobbyError> {
+        let (choice, count, seed) = {
+            let state = self.state.lock().expect("registry lock");
+            let lobby = state
+                .player_lobbies
+                .get(game_id)
+                .ok_or(LobbyError::NotFound)?;
+            (
+                crate::maps::MapChoice::from_stored(lobby.map_template.as_deref()),
+                lobby.slots.len(),
+                lobby.seed,
+            )
+        };
+        crate::maps::catalog::preview(&choice, count, seed).map_err(LobbyError::Map)
     }
 
     pub fn set_player_ready(

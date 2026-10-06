@@ -246,7 +246,20 @@ pub fn create_game_with_map(
 
     let filler = seating::map_filler(content, 36, POK, seed);
     let filler_refs: Vec<&str> = filler.iter().map(SystemId::as_str).collect();
-    let galaxy = seating::build_board(content, &assignments, &filler_refs, POK)?;
+    // `build_board` places homes in key order. Real player ids sort arbitrarily, so key the
+    // table by seat number instead: seat order, not id order, decides who sits where, which is
+    // what a lobby's map preview (made before anyone has an id) can show.
+    let by_seat: std::collections::BTreeMap<PlayerId, _> = player_ids
+        .iter()
+        .enumerate()
+        .map(|(seat, player)| {
+            (
+                PlayerId::new(format!("seat_{seat:02}")),
+                assignments[player].clone(),
+            )
+        })
+        .collect();
+    let galaxy = seating::build_board(content, &by_seat, &filler_refs, POK)?;
 
     Ok((state, galaxy))
 }
