@@ -414,6 +414,28 @@ impl Decider for PrivateDecider {
         {
             script.next += 1;
         }
+        // The engine opens a cargo hold for every ship that can carry along the path, including
+        // pickups the plan never mentioned. A plan that goes straight on to another move (or
+        // finishes) means "carry nothing here", so decline the hold instead of interrupting.
+        if script.kind == BatchKind::TacticalMovement
+            && choice.player == script.actor
+            && choice
+                .context
+                .as_ref()
+                .is_some_and(|c| c.actor == script.actor && c.subtype == "load_cargo")
+            && matches!(
+                script.steps.get(script.next),
+                Some(MovementStep::Move { .. } | MovementStep::DoneMoving)
+            )
+            && let Some(done) = choice
+                .options
+                .iter()
+                .find(|o| MovementStep::DoneLoading.matches_option(o))
+        {
+            let done = done.clone();
+            script.selected.push(done.clone());
+            return Ok(done);
+        }
         if script.next == script.steps.len() {
             script.finished = true;
             return Err(IllegalChoice::DeciderFailed {
@@ -856,6 +878,64 @@ mod tests {
             failure: None,
             finished: false,
         })))
+    }
+
+    #[test]
+    fn unplanned_cargo_hold_is_declined_when_the_plan_moves_on() {
+        // A carrier with nothing at its origin still gets a load_cargo offer, because the
+        // active system holds own infantry. The plan [Move, DoneMoving] carries nothing.
+        let mut decider = decider(
+            BatchKind::TacticalMovement,
+            vec![
+                MovementStep::Move {
+                    origin: "20".into(),
+                    unit: "carrier".into(),
+                    damaged: false,
+                },
+                MovementStep::DoneMoving,
+            ],
+        );
+        let mut mv = ChoiceOption::labelled("move|20|0", "move", "Carrier");
+        mv.payload.insert("origin".into(), "20".into());
+        mv.payload.insert("unit".into(), "carrier".into());
+        let step = offered("movement_step", vec![mv]);
+        assert_eq!(decider.choose(&step).unwrap().id, "move|20|0");
+
+        let hold = offered(
+            "load_cargo",
+            vec![
+                ChoiceOption::labelled("load|0", "load", "load infantry"),
+                ChoiceOption::labelled("done_loading", "decline", "done loading"),
+            ],
+        );
+        assert_eq!(decider.choose(&hold).unwrap().id, "done_loading");
+
+        let finish = offered(
+            "movement_step",
+            vec![ChoiceOption::labelled("done_moving", "decline", "finish")],
+        );
+        assert_eq!(decider.choose(&finish).unwrap().id, "done_moving");
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert_eq!(script.next, 2);
+    }
+
+    #[test]
+    fn cargo_hold_still_interrupts_a_plan_that_expected_to_load() {
+        let mut decider = decider(
+            BatchKind::TacticalMovement,
+            vec![MovementStep::Load {
+                origin: "20".into(),
+                unit: "infantry".into(),
+                source: None,
+                damaged: false,
+            }],
+        );
+        let hold = offered(
+            "load_cargo",
+            vec![ChoiceOption::labelled("done_loading", "decline", "done loading")],
+        );
+        assert!(decider.choose(&hold).is_err());
     }
 
     #[test]

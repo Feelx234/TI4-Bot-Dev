@@ -642,6 +642,13 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
               }
             }
           }
+          // The engine's cargo hold also takes own forces waiting in the active system (95.1),
+          // so they count as candidates even when the origin holds none.
+          for (const u of board?.systems?.[destinationSystemId]?.units ?? []) {
+            if (u.owner !== choice?.actor) continue;
+            const base = getUnitBaseType(u.unit_type);
+            if (base === "infantry" || base === "mech" || base === "fighter") count++;
+          }
           remainingCandidatesByOrigin[ship.origin] = count;
         }
       }

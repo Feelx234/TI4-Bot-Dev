@@ -146,6 +146,48 @@ describe("TacticalMovementOverlay Component", () => {
     );
     expect(onSubmit).not.toHaveBeenCalled();
   });
+  it("plans done_loading when only the active system holds cargo the carrier could pick up", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TacticalMovementOverlay
+        choice={mockMoveChoice}
+        board={
+          {
+            systems: {
+              "24": {
+                system_id: "24",
+                command_tokens: [],
+                planets: {},
+                units: [{ owner: "p1", unit_type: "carrier", damaged: false }],
+              },
+              "18": {
+                system_id: "18",
+                command_tokens: [],
+                planets: {},
+                units: [{ owner: "p1", unit_type: "infantry", planet: "mecatol_rex", damaged: false }],
+              },
+            },
+          } as any
+        }
+        activeSystemId="18"
+        player={mockPlayer}
+        onSubmit={onSubmit}
+        onSubmitBatch={onSubmitBatch}
+        isOpen
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
+    fireEvent.click(screen.getByTestId("commit-moves-btn"));
+    await waitFor(() =>
+      expect(onSubmitBatch).toHaveBeenCalledExactlyOnceWith("18", [
+        { kind: "move", origin: "24", unit: "carrier", damaged: false },
+        { kind: "done_loading" },
+        { kind: "done_moving" },
+      ]),
+    );
+  });
   it("continues a staged ship and planet cargo across a missing choice and fresh engine decisions", async () => {
     const plan = { current: emptyMovementPlan() };
     const cargoChoice: PendingChoiceDto = {

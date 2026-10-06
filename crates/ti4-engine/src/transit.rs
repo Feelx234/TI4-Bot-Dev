@@ -135,8 +135,9 @@ pub enum CargoError {
 
 /// Filling one ship's hold before it moves (LRR 95).
 ///
-/// Units are taken from the system the ship starts in — its space area or a planet there — up
-/// to the ship's capacity. Picking up en route (95.1) is not modelled.
+/// Units are taken from the system the ship starts in — its space area or a planet there — and
+/// from each system on its path, including the active system (95.1; see
+/// [`CargoWindow::for_ship`]), up to the ship's capacity.
 ///
 /// Candidates are tracked **by index, never by value**: units are plain data, so two infantry
 /// compare equal, and filtering an "already taken" list by equality would silently make the
