@@ -32,12 +32,12 @@ const Pips: React.FC<{ count: number }> = ({ count }) => (
 
 const KEY_HINTS: [string, string][] = [
   ["T", "tactical"],
-  ["S", "strategic"],
+  ["S", "strategic (several cards: S cycles, Enter picks)"],
   ["C", "components"],
   ["A", "action cards"],
   ["D", "trade (deal)"],
   ["P", "pass"],
-  ["Enter", "end turn when highlighted"],
+  ["Enter", "end turn when no button has focus"],
   ["Esc", "close menu"],
 ];
 
@@ -115,7 +115,8 @@ const BarButton: React.FC<BarButtonProps> = (p) => (
  * The persistent action bar for the action phase. One bar that never moves: Tactical, one
  * Strategic button per held strategy card, Components, Action cards, Trade, Pass and End turn.
  * Disabled buttons stay in place and say why; card text appears in a side panel on hover or focus.
- * Letter keys jump to a button (menus open); Enter ends the turn when nothing else has focus.
+ * Letter keys trigger their button: a single option submits, a picker opens, several strategy cards
+ * take focus and cycle. Enter ends the turn when no button has focus.
  */
 export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, lastError }) => {
   const display = usePlayerIdentity();
@@ -144,20 +145,29 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
     [busy, onSubmit, readOnly],
   );
 
-  const focusIn = (selector: string) => {
-    const el = rootRef.current?.querySelector<HTMLElement>(selector);
-    el?.focus();
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flash = (text: string) => {
+    setNotice(text);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 2500);
   };
+  useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
 
   const toggleMenu = (key: MenuKey) => setOpen((current) => (current === key ? null : key));
 
   useEffect(() => {
     if (readOnly) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
-      if (typingTarget(event.target)) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented || event.repeat) return;
+      if (typingTarget(event.target) || typingTarget(document.activeElement)) return;
       // A dialog owns the keyboard; the bar must not act behind it.
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      const focused = document.activeElement as HTMLElement | null;
+      const foreign = focused?.closest?.('[role="dialog"],[role="alertdialog"]');
+      if (foreign && !rootRef.current?.contains(foreign)) return;
       const key = event.key;
       if (key === "Escape") {
         if (open) {
@@ -177,29 +187,41 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
         return;
       }
       const lower = key.toLowerCase();
-      const jump: Record<string, () => void> = {
-        t: () => focusIn('[data-bar-key="tactical"]'),
-        s: () =>
-          focusIn(
-            rootRef.current?.querySelector('[data-bar-key="strategic"]:not([aria-disabled="true"])')
-              ? '[data-bar-key="strategic"]:not([aria-disabled="true"])'
-              : '[data-bar-key="strategic"]',
-          ),
-        p: () => focusIn('[data-bar-key="pass"]'),
-        c: () => {
-          if (model.components.enabled) setOpen("components");
-          else focusIn('[data-bar-key="components"]');
-        },
-        a: () => {
-          if (model.actionCards.enabled) setOpen("cards");
-          else focusIn('[data-bar-key="cards"]');
-        },
-        d: () => {
-          if (model.trade.enabled) setOpen("trade");
-          else focusIn('[data-bar-key="trade"]');
-        },
+      const direct = (a: BarAction) => {
+        if (a.enabled) void submit(a.optionId);
+        else flash(a.reason ?? "Not available");
       };
-      const action = jump[lower];
+      const picker = (a: { enabled: boolean; reason: string | null }, menu: MenuKey) => {
+        if (a.enabled) setOpen(menu);
+        else flash(a.reason ?? "Not available");
+      };
+      const strategic = () => {
+        const cards = model.strategic;
+        if (cards.length === 1) {
+          if (cards[0].enabled) void submit(cards[0].optionId);
+          else flash(cards[0].reason ?? "Not available");
+          return;
+        }
+        const nodes = Array.from(
+          rootRef.current?.querySelectorAll<HTMLElement>('[data-bar-key="strategic"]') ?? [],
+        );
+        const usable = nodes.filter((n) => n.getAttribute("aria-disabled") !== "true");
+        if (usable.length === 0) {
+          flash(cards[0]?.reason ?? "No strategy card");
+          return;
+        }
+        const at = usable.indexOf(document.activeElement as HTMLElement);
+        usable[(at + 1) % usable.length].focus();
+      };
+      const actions: Record<string, () => void> = {
+        t: () => direct(model.tactical),
+        p: () => direct(model.pass),
+        s: strategic,
+        c: () => picker(model.components, "components"),
+        a: () => picker(model.actionCards, "cards"),
+        d: () => picker(model.trade, "trade"),
+      };
+      const action = actions[lower];
       if (!action) return;
       event.preventDefault();
       action();
@@ -540,6 +562,12 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
       {errorText && (
         <div className="turn-bar__error" role="alert" data-testid="turn-bar-error">
           {errorText}
+        </div>
+      )}
+
+      {notice && (
+        <div className="turn-bar__notice" role="status" data-testid="turn-bar-notice">
+          {notice}
         </div>
       )}
 

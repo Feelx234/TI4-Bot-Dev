@@ -203,15 +203,111 @@ describe("TurnActionBar", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("jumps to a button with its letter and opens menus, Escape closes them", async () => {
-    render(<TurnActionBar model={modelOf(fullMenu())} onSubmit={vi.fn()} />);
+  it("letter keys submit single options directly and open pickers; Escape closes them", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<TurnActionBar model={modelOf(fullMenu())} onSubmit={onSubmit} />);
     fireEvent.keyDown(document.body, { key: "t" });
-    expect(screen.getByTestId("turn-bar-tactical")).toHaveFocus();
+    expect(onSubmit).toHaveBeenLastCalledWith("tactical");
     fireEvent.keyDown(document.body, { key: "d" });
     expect(screen.getByTestId("turn-bar-menu-trade")).toBeInTheDocument();
     expect(screen.getByTestId("turn-bar-open-hacan")).toHaveFocus();
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.queryByTestId("turn-bar-menu-trade")).toBeNull();
+    fireEvent.keyDown(document.body, { key: "c" });
+    expect(screen.getByTestId("turn-bar-menu-components")).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "a" });
+    expect(screen.getByTestId("turn-bar-menu-cards")).toBeInTheDocument();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("P passes and S submits the only strategy card", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const one = turnChoice(
+      [
+        opt("strategic|pok2diplomacy", "take the strategic action of 2. Diplomacy"),
+        opt("pass", "pass", "pass"),
+      ],
+      { strategy_cards: [twoCards[0]] },
+    );
+    render(<TurnActionBar model={modelOf(one)} onSubmit={onSubmit} />);
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: "s" });
+    });
+    expect(onSubmit).toHaveBeenLastCalledWith("strategic|pok2diplomacy");
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: "P" });
+    });
+    expect(onSubmit).toHaveBeenLastCalledWith("pass");
+  });
+
+  it("with several strategy cards S cycles focus and Enter on the focused card does not end the turn", async () => {
+    const onSubmit = vi.fn();
+    render(<TurnActionBar model={modelOf(fullMenu())} onSubmit={onSubmit} />);
+    const first = screen.getByTestId("turn-bar-strategic-pok2diplomacy");
+    const second = screen.getByTestId("turn-bar-strategic-pok8imperial");
+    fireEvent.keyDown(document.body, { key: "s" });
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: "s" });
+    expect(second).toHaveFocus();
+    fireEvent.keyDown(second, { key: "s" });
+    expect(first).toHaveFocus();
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(first, { key: "Enter" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    await click(first);
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith("strategic|pok2diplomacy");
+    expect(screen.getByLabelText("Keyboard shortcuts")).toHaveTextContent("S cycles");
+  });
+
+  it("disabled buttons ignore their key and flash the reason", async () => {
+    const onSubmit = vi.fn();
+    const closing = turnChoice([opt("end_turn", "end your turn", "end_turn")], { closing: true });
+    render(<TurnActionBar model={modelOf(closing)} onSubmit={onSubmit} />);
+    for (const k of ["t", "p", "s"]) fireEvent.keyDown(document.body, { key: k });
+    for (const k of ["c", "a", "d"]) fireEvent.keyDown(document.body, { key: k });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("turn-bar-menu-trade")).toBeNull();
+    expect(screen.getByTestId("turn-bar-notice")).toBeInTheDocument();
+  });
+
+  it("ignores keys while typing, with modifiers, on repeat, inside a dialog", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <>
+        <input data-testid="field" />
+        <div role="dialog" aria-modal="false">
+          <button data-testid="in-dialog">x</button>
+        </div>
+        <TurnActionBar model={modelOf(fullMenu())} onSubmit={onSubmit} />
+      </>,
+    );
+    fireEvent.keyDown(screen.getByTestId("field"), { key: "t" });
+    fireEvent.keyDown(document.body, { key: "t", ctrlKey: true });
+    fireEvent.keyDown(document.body, { key: "t", metaKey: true });
+    fireEvent.keyDown(document.body, { key: "t", altKey: true });
+    fireEvent.keyDown(document.body, { key: "t", repeat: true });
+    await act(async () => {
+      screen.getByTestId("in-dialog").focus();
+    });
+    fireEvent.keyDown(screen.getByTestId("in-dialog"), { key: "t" });
+    expect(onSubmit).not.toHaveBeenCalled();
+    await act(async () => {
+      (document.activeElement as HTMLElement).blur();
+    });
+    fireEvent.keyDown(document.body, { key: "t" });
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith("tactical");
+  });
+
+  it("ignores letter keys when read-only", async () => {
+    const onSubmit = vi.fn();
+    const player = {
+      id: "b", passed: false, strategy_cards: ["pok2diplomacy"], exhausted_strategy_cards: [],
+      tactic_tokens: 3, fleet_tokens: 3, strategic_tokens: 2, action_cards_count: 1,
+    } as unknown as PlayerView;
+    render(<TurnActionBar model={deriveReadOnlyTurnBar(player, "a")} onSubmit={onSubmit} />);
+    for (const k of ["t", "p", "s", "c", "a", "d"]) fireEvent.keyDown(document.body, { key: k });
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("shows a rejected submission and lets the player try again", async () => {
