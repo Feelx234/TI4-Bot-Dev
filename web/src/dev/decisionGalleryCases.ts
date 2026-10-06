@@ -687,6 +687,27 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Trade: replenish another player",
+    fallback: "Seats with commodities now and after a replenish",
+    note: "The Trade primary after your own gain: each candidate seat with its commodities and what a replenish gives them, one button per seat, and a way to stop.",
+    choice: {
+      actor,
+      nonce: "gallery-trade-replenish",
+      prompt: "let another player replenish commodities",
+      context: { subtype: "trade_choose_replenish" },
+      options: [
+        option("hacan", "hacan replenishes commodities", "replenish"),
+        option("sol", "sol replenishes commodities", "replenish"),
+        option("done", "nobody else replenishes", "decline"),
+      ],
+      details: {
+        seats: { hacan: "other_seat", sol: "third_seat" },
+        commodities: { hacan: { have: 1, max: 6 }, sol: { have: 0, max: 4 } },
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Gain command tokens",
     fallback: "Per-pool +/- panel with pips; one batch submits the whole gain",
     note: "Gaining three command tokens: assign each to a pool with + and -, see the count, the total, the tokens remaining and pips for tokens already there versus new ones. Confirm only unlocks when all are assigned.",

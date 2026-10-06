@@ -15,6 +15,8 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { describeCommandTokens, type TokenOutcome } from "../presentation/commandTokens.ts";
 import { CommandTokenPanel } from "./CommandTokenPanel.tsx";
 import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
+import { describeTradeReplenish } from "../presentation/tradeReplenish.ts";
+import { TradeReplenishPanel } from "./TradeReplenishPanel.tsx";
 import { SystemPickConfirmBar, SystemPickMapButton, SystemPickOptionFacts } from "./SystemPickParts.tsx";
 import { RemoveUnitPanel, RemoveUnitOptionNote } from "./RemoveUnitParts.tsx";
 import { UnitAbilityOptionNote } from "./UnitAbilityParts.tsx";
@@ -190,6 +192,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   // Leadership's secondary window plans its purchase on the token panel instead.
   const tokens = describeCommandTokens(choice, Boolean(onSubmitBatch));
   const secondary = tokens ? null : describeStrategySecondary(choice);
+  const replenish = tokens || secondary ? null : describeTradeReplenish(choice);
   const confirmTokens = async (outcome: TokenOutcome) => {
     if (outcome.kind === "option") await onSubmit(outcome.optionId);
     else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
@@ -335,6 +338,13 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               onChoose={(id) => void submitOption(id)}
             />
           )}
+          {replenish && (
+            <TradeReplenishPanel
+              view={replenish}
+              disabled={isSubmitting || isPipelineRunning}
+              onChoose={(id) => void submitOption(id)}
+            />
+          )}
           {tokens && (
             <CommandTokenPanel
               key={choice.nonce}
@@ -344,8 +354,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
             />
           )}
           {!secondary && !tokens && <RemoveUnitPanel choice={choice} board={boardView} />}
-          {!secondary && !tokens && <PoliticsContextPanel choice={choice} />}
-          {!secondary && !tokens && (
+          {!secondary && !tokens && !replenish && <PoliticsContextPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && (
           <form
             onSubmit={handleSubmit}
             style={{ display: "flex", flexDirection: "column", gap: 12 }}
