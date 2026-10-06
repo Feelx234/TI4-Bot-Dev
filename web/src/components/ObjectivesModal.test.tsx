@@ -282,4 +282,74 @@ describe("ObjectivesModal", () => {
     // Selection MUST remain Negotiate Trade Routes, NOT reset to Lead From the Front!
     expect(footer).toHaveTextContent("Negotiate Trade Routes");
   });
+
+  describe("Imperial", () => {
+    const imperial = (controlsMecatol: boolean) => ({
+      actor: "p1",
+      nonce: "imperial-1",
+      prompt: "score a public objective with Imperial",
+      context: { subtype: "imperial_score_objective" },
+      options: [
+        { id: "lead", label: "lead" },
+        { id: "decline", kind: "decline", label: "decline" },
+      ],
+      details: {
+        kind: "imperial",
+        controls_mecatol: controlsMecatol,
+        secrets_held: 2,
+        secrets_max: 3,
+      },
+    });
+    const open = (controlsMecatol: boolean, onSubmit = vi.fn().mockResolvedValue(undefined)) =>
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["lead"]}
+          players={mockPlayers}
+          viewerSeat="p1"
+          choice={imperial(controlsMecatol)}
+          onSubmit={onSubmit}
+        />,
+      );
+
+    it("always shows the Mecatol point when the seat holds Mecatol Rex", () => {
+      open(true);
+      expect(screen.getByTestId("imperial-outcome")).toHaveAttribute("data-variant", "mecatol");
+      expect(screen.getByTestId("imperial-outcome-headline")).toHaveTextContent(
+        "+1 VP (you hold Mecatol Rex)",
+      );
+    });
+
+    it("shows the secret draw with the hand when it does not", () => {
+      open(false);
+      expect(screen.getByTestId("imperial-outcome")).toHaveAttribute("data-variant", "secret");
+      expect(screen.getByTestId("imperial-outcome-headline")).toHaveTextContent(
+        "Draw a secret objective (2/3 held)",
+      );
+    });
+
+    it("repeats the outcome in the confirm summary, scored or skipped", () => {
+      open(true);
+      fireEvent.click(document.querySelector('[data-option-id="decline"]')!);
+      expect(screen.getByTestId("objectives-scoring-footer")).toHaveTextContent(
+        "Do not score (Decline) · +1 VP for Mecatol Rex",
+      );
+    });
+
+    it("shows no outcome card for an ordinary scoring window", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["lead"]}
+          players={mockPlayers}
+          viewerSeat="p1"
+          choice={{ ...imperial(true), context: { subtype: "score_objective" } }}
+          isScoringMode={true}
+        />,
+      );
+      expect(screen.queryByTestId("imperial-outcome")).toBeNull();
+    });
+  });
 });

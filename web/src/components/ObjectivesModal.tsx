@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import type { PlayerView, ObjectiveProgressView, PendingChoiceDto } from "../protocol/types.ts";
 import type { ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import { describeImperialOutcome } from "../presentation/imperialOutcome.ts";
 import { Dialog } from "../primitives/index.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { getPublicObjectiveMeta, humanizeId } from "../protocol/contentCatalog.ts";
@@ -43,6 +44,7 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
   isScoringMode = false,
 }) => {
   const display = usePlayerIdentity();
+  const imperial = choice ? describeImperialOutcome(choice) : null;
 
   const activeScoringMode = Boolean(
     isScoringMode ||
@@ -387,6 +389,21 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
             )}
           </header>
 
+          {imperial && (
+            <div
+              className="objectives-modal__outcome"
+              data-testid="imperial-outcome"
+              data-variant={imperial.controlsMecatol ? "mecatol" : "secret"}
+            >
+              <span className="objectives-modal__outcome-tag">Imperial · always applies</span>
+              <strong data-testid="imperial-outcome-headline">{imperial.headline}</strong>
+              <span className="text-muted">
+                Scoring an objective is optional. This follows either way: holding Mecatol Rex
+                gives the point, otherwise you draw the secret.
+              </span>
+            </div>
+          )}
+
           <div className="objectives-modal__scroll-body">
             {effectiveRevealedObjectives.length === 0 ? (
               <div className="objectives-modal__empty" data-testid="objectives-empty">
@@ -476,10 +493,12 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
                         {getPublicObjectiveMeta(selectedOptionId).name}
                       </strong>{" "}
                       (+{getPublicObjectiveMeta(selectedOptionId).points} VP)
+                      {imperial && <> · {imperial.summary}</>}
                     </>
                   ) : selectedOptionId === "decline" ? (
                     <>
                       Selected: <strong>Do not score (Decline)</strong>
+                      {imperial && <> · {imperial.summary}</>}
                     </>
                   ) : (
                     <span style={{ color: "#94a3b8" }}>Select an objective to score</span>

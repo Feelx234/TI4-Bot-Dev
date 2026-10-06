@@ -686,6 +686,50 @@ export const fallbackCases: GalleryCase[] = [
     },
   },
   {
+    workflow: "objective_scoring",
+    title: "Imperial: you hold Mecatol Rex",
+    fallback: "Objective overview plus the +1 VP outcome card",
+    note: "Imperial's primary: score a public objective (optional) in the objectives overview. The card above it always says what follows: +1 VP because you hold Mecatol Rex.",
+    choice: {
+      actor,
+      nonce: "gallery-imperial-mecatol",
+      prompt: "score a public objective with Imperial",
+      context: { subtype: "imperial_score_objective" },
+      options: [
+        option("expand_borders", "expand_borders", "objective"),
+        finish("decline", "decline"),
+      ],
+      details: {
+        kind: "imperial",
+        controls_mecatol: true,
+        secrets_held: 2,
+        secrets_max: 3,
+      },
+    },
+  },
+  {
+    workflow: "objective_scoring",
+    title: "Imperial: draw a secret",
+    fallback: "Objective overview plus the draw-a-secret outcome card",
+    note: "Imperial's primary without Mecatol Rex: the same overview, and the card says you draw a secret objective afterwards, with your hand (2 of 3).",
+    choice: {
+      actor,
+      nonce: "gallery-imperial-secret",
+      prompt: "score a public objective with Imperial",
+      context: { subtype: "imperial_score_objective" },
+      options: [
+        option("expand_borders", "expand_borders", "objective"),
+        finish("decline", "decline"),
+      ],
+      details: {
+        kind: "imperial",
+        controls_mecatol: false,
+        secrets_held: 2,
+        secrets_max: 3,
+      },
+    },
+  },
+  {
     workflow: "generic_selection",
     title: "Trade: replenish another player",
     fallback: "Seats with commodities now and after a replenish",

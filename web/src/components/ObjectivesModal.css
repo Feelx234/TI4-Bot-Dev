@@ -467,3 +467,21 @@
   padding: 8px 20px;
   font-weight: 700;
 }
+
+.objectives-modal__outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-accent, #38bdf8);
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.08);
+}
+.objectives-modal__outcome-tag {
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
