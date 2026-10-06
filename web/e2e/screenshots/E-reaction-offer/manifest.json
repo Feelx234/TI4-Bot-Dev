@@ -1,0 +1,15 @@
+{
+  "title": "Reaction Offers",
+  "description": "What a player sees when the game offers an action card as a reaction, shaped like the engine's real decision.",
+  "tag": "web/e2e/screenshots/E-reaction-offer",
+  "shots": [
+    { "file": "out/1-action-card-played.png", "heading": "Offered Sabotage", "caption": "Another player played an action card and the viewer holds Sabotage. The dialog names the window, \"when ACTION_CARD_PLAYED\", and offers Play or Pass (Spacebar), with a Pin to stop the countdown." },
+    { "file": "out/2-after-movement.png", "heading": "Offered a card after ships move", "caption": "The same dialog for the window \"after SHIP_MOVED\" (Decoy Operation). The wording changes, the layout does not." },
+    { "file": "out/3-two-cards.png", "heading": "Several cards for one window", "caption": "Each card that can answer the window gets its own button." }
+  ],
+  "notes": [
+    { "title": "Gap: what is being reacted to", "text": "The dialog shows the window name and the humanised decision type, but not which card was played, by whom, or the card's own trigger text. The player has to read the event log." },
+    { "title": "Gap: wording", "text": "The button reads \"Play play Sabotage\" because the engine's option label already starts with \"play\"." },
+    { "title": "Gap: raw names", "text": "The window name and the orange turn banner show internal identifiers such as ACTION_CARD_PLAYED and play_reaction_when_ACTION_CARD_PLAYED." }
+  ]
+}
