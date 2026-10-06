@@ -228,6 +228,9 @@ const GameViewContainer: React.FC<{
     changeHistory,
     submitMovementBatch,
     submitBatch,
+    batchResume,
+    resumeBatch,
+    dismissBatchResume,
   } = useGameSession({ gameId, viewer });
   const { playTurnNotification } = useTurnSound();
   const logHistoryKey = useRef<unknown>(null);
@@ -439,6 +442,9 @@ const GameViewContainer: React.FC<{
         onSubmitChoice={submitChoice}
         onSubmitMovementBatch={submitMovementBatch}
         onSubmitBasketBatch={submitBatch}
+        batchResume={batchResume}
+        onResumeBatch={resumeBatch}
+        onDismissBatchResume={dismissBatchResume}
         lastError={lastError}
         selectedOptionId={selectedOptionId}
         onSelectOption={setSelectedOptionId}

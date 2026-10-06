@@ -330,6 +330,25 @@ html,
   pointer-events: none;
 }
 
+.paused-plan {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: min(640px, calc(100% - 32px));
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong, #8886);
+  border-radius: 8px;
+  background: var(--surface-raised, #1c2230);
+  color: inherit;
+  font-size: 0.9rem;
+  pointer-events: auto;
+}
+
 .invasion-overlay {
   position: fixed;
   z-index: var(--layer-dialog);

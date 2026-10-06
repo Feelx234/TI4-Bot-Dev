@@ -496,6 +496,135 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
+  describe("a plan paused at a reaction window", () => {
+    let version = 6;
+    const pendingAt = (subtype: string, nonce: string) => ({
+      ...snapshot,
+      type: "initial_snapshot" as const,
+      game_version: version++,
+      viewer: { role: "player", seat: "player_a" },
+      pending_choice: {
+        nonce,
+        choice: {
+          player: "player_a",
+          prompt: subtype,
+          context: { subtype },
+          options: [{ id: "decline", kind: "decline", label: "decline" }],
+        },
+      },
+    });
+    const plan = {
+      kind: "agenda_vote_planets" as const,
+      steps: [
+        { kind: "vote_planet" as const, planet: "jord" },
+        { kind: "vote_planet" as const, planet: "arc_prime" },
+        { kind: "done_voting" as const },
+      ],
+    };
+    // A confirmed batch reconnects the client, so later server messages arrive on the new socket.
+    const later = (message: object) => {
+      const socket = FakeWebSocket.latest!;
+      socket.readyState = FakeWebSocket.OPEN;
+      socket.onmessage?.({
+        data: JSON.stringify({
+          protocol_version: PROTOCOL_VERSION,
+          game_id: "game_12345",
+          ...message,
+        }),
+      } as MessageEvent);
+    };
+    const paused = (remaining: unknown[], shot: unknown) => ({
+      ok: true,
+      json: async () => ({
+        active: true,
+        interrupted: {
+          applied_steps: 1,
+          remaining_steps: remaining,
+          offered: { subtype: "reaction_after_VOTES_CAST", own_seat: true },
+        },
+        snapshot: shot,
+      }),
+    });
+
+    it("resolves without error, keeps the remainder, and sends it again on request", async () => {
+      const { client, send } = await connectedPlayer();
+      send(pendingAt("vote_exhaust_planet", "nonce-v1"));
+      const remaining = plan.steps.slice(1);
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce(
+          paused(remaining, pendingAt("reaction_after_VOTES_CAST", "nonce-r")),
+        )
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ active: true, snapshot: pendingAt("agenda_vote", "nonce-done") }),
+        });
+      vi.stubGlobal("fetch", request);
+      await expect(client.submitBatch(plan)).resolves.toBeUndefined();
+      expect(client.getState().batchResume).toMatchObject({
+        applied: 1,
+        plan: { kind: "agenda_vote_planets", steps: remaining },
+        waiting: { subtype: "reaction_after_VOTES_CAST", ownSeat: true },
+      });
+      expect(client.getState().lastError).toBeNull();
+      // The reaction is pending: the plan cannot be continued yet, the server would call it stale.
+      await expect(client.resumeBatch()).rejects.toThrow("Workflow is no longer pending");
+      later(pendingAt("vote_exhaust_planet", "nonce-v2"));
+      expect(client.getState().batchResume).not.toBeNull();
+      await client.resumeBatch();
+      const body = JSON.parse(request.mock.calls[1][1].body);
+      expect(body.plan).toEqual({ kind: "agenda_vote_planets", steps: remaining });
+      expect(body.nonce).toBe("nonce-v2");
+      expect(client.getState().batchResume).toBeNull();
+      client.stop();
+    });
+
+    it("drops the remainder when the server refuses it, and when the game moves on", async () => {
+      const { client, send } = await connectedPlayer();
+      send(pendingAt("vote_exhaust_planet", "nonce-v1"));
+      const remaining = plan.steps.slice(1);
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(paused(remaining, pendingAt("vote_exhaust_planet", "nonce-v2")))
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 409,
+            text: async () => JSON.stringify({ message: "option unavailable" }),
+          }),
+      );
+      await client.submitBatch(plan);
+      expect(client.getState().batchResume).not.toBeNull();
+      await expect(client.resumeBatch()).rejects.toThrow("option unavailable");
+      expect(client.getState().batchResume).toBeNull();
+      expect(client.getState().lastError).toContain("option unavailable");
+
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(paused(remaining, pendingAt("reaction_after_VOTES_CAST", "r"))));
+      later(pendingAt("vote_exhaust_planet", "nonce-v3"));
+      await client.submitBatch(plan);
+      expect(client.getState().batchResume).not.toBeNull();
+      later(pendingAt("action_phase", "nonce-a"));
+      expect(client.getState().batchResume).toBeNull();
+      client.stop();
+    });
+
+    it("treats a plan the server applied whole as finished", async () => {
+      const { client, send } = await connectedPlayer();
+      send(pendingAt("vote_exhaust_planet", "nonce-v1"));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ active: true, snapshot: pendingAt("agenda_vote", "n2") }),
+        }),
+      );
+      await client.submitBatch(plan);
+      expect(client.getState().batchResume).toBeNull();
+      client.stop();
+    });
+  });
+
   it("sends a casualty plan while a sustain or casualty decision is pending", async () => {
     const { client, send } = await connectedPlayer();
     send({

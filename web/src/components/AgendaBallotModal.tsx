@@ -143,6 +143,8 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
               : []),
           ],
         });
+        // A reaction may have paused the vote half-way; what was staged is spent either way.
+        setStagedPlanets([]);
       } catch (error) {
         setBatchError(error instanceof Error ? error.message : String(error));
       } finally {

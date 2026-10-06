@@ -27,6 +27,7 @@ export interface UseGameSessionReturn {
   lastError: string | null;
   events: GameLogEntry[];
   history: import("../protocol/types.ts").HistoryStatus;
+  batchResume?: import("../protocol/client.ts").BatchResume | null;
   submitChoice: (optionId: string) => Promise<void>;
   changeHistory: (action: import("../protocol/client.ts").HistoryChange) => Promise<void>;
   submitMovementBatch: (
@@ -34,6 +35,8 @@ export interface UseGameSessionReturn {
     steps: import("../protocol/client.ts").MovementStep[],
   ) => Promise<void>;
   submitBatch: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
+  resumeBatch: () => Promise<void>;
+  dismissBatchResume: () => void;
 }
 
 export function useGameSession({
@@ -65,5 +68,7 @@ export function useGameSession({
     changeHistory,
     submitMovementBatch: (destination, steps) => client.submitMovementBatch(destination, steps),
     submitBatch: (plan) => client.submitBatch(plan),
+    resumeBatch: () => client.resumeBatch(),
+    dismissBatchResume: () => client.dismissBatchResume(),
   };
 }

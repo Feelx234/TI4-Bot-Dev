@@ -68,6 +68,62 @@ export type BasketPlan =
       steps: import("../presentation/commandTokens.ts").TokenStep[];
     };
 
+export type BatchPlan =
+  | BasketPlan
+  | { kind: "tactical_movement"; destination: string; steps: MovementStep[] };
+
+/**
+ * A plan the server stopped part-way because a reaction window opened between its steps. The
+ * applied steps are committed and the window waits for its holder; `plan` is what was left. It is
+ * sent again only when the player asks, and the server re-checks it against the offers then.
+ */
+export interface BatchResume {
+  plan: BatchPlan;
+  /** Planned steps the server applied before it stopped. */
+  applied: number;
+  /** What the engine is waiting on now. */
+  waiting: { subtype: string | null; ownSeat: boolean };
+}
+
+/** Decision subtypes each plan kind is answered through. */
+const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
+  tactical_movement: ["movement_step"],
+  payment: ["pay_resources", "pay_influence"],
+  agenda_vote_planets: ["vote_exhaust_planet"],
+  production: ["produce_unit"],
+  casualties: ["sustain_damage", "assign_casualty", "assign_ground_casualty"],
+  tokens: ["gain_command_token"],
+};
+
+/**
+ * Keeps a paused plan only while it can still be continued: the engine is asking for a reaction,
+ * or is back at a decision the plan answers. Anything else means the game moved on.
+ */
+export function settleBatchResume(state: GameSessionState): GameSessionState {
+  const resume = state.batchResume;
+  if (!resume) return state;
+  const subtype = state.pendingChoice?.context?.subtype;
+  if (!state.pendingChoice || !subtype) return state;
+  if (subtype.startsWith("reaction_") || subtype.startsWith("play_reaction_")) return state;
+  if (PLAN_SUBTYPES[resume.plan.kind].includes(subtype)) return state;
+  return { ...state, batchResume: null };
+}
+
+/** Whether the paused plan can be sent again now: its own seat is back at a decision it answers. */
+export function canContinueBatch(
+  resume: BatchResume,
+  pending: { actor: string; context?: { subtype: string } } | null,
+  seat: string | null | undefined,
+): boolean {
+  return Boolean(
+    pending &&
+      seat &&
+      pending.actor === seat &&
+      pending.context &&
+      PLAN_SUBTYPES[resume.plan.kind].includes(pending.context.subtype),
+  );
+}
+
 const HISTORY_RETRY_ATTEMPTS = 20;
 /** A submit the server never acknowledges is abandoned after this long, so a click can re-send. */
 const SUBMISSION_TIMEOUT_MS = 10_000;
@@ -81,6 +137,8 @@ export interface GameSessionState {
   lastError: string | null;
   events: GameLogEntry[];
   history: HistoryStatus;
+  /** A plan the server paused at a reaction window; see {@link BatchResume}. */
+  batchResume?: BatchResume | null;
 }
 
 export interface GameSessionClientOptions {
@@ -353,15 +411,33 @@ export class GameSessionClient {
     return this.submitBatch({ kind: "tactical_movement", destination, steps });
   }
 
-  async submitBatch(
-    plan:
-      | BasketPlan
-      | {
-          kind: "tactical_movement";
-          destination: string;
-          steps: MovementStep[];
-        },
-  ): Promise<void> {
+  /** Sends what is left of a plan the server paused at a reaction window. */
+  async resumeBatch(): Promise<void> {
+    const resume = this.state.batchResume;
+    if (!resume) throw new Error("There is no paused plan to continue");
+    const seat =
+      this.options.viewer.role === "player" ? this.options.viewer.seat : null;
+    if (!canContinueBatch(resume, this.state.pendingChoice, seat))
+      throw new Error("Workflow is no longer pending");
+    try {
+      await this.submitBatch(resume.plan);
+    } catch (error) {
+      // The server checked the remainder against the current offers and refused it: stage again.
+      if (this.state.batchResume === resume)
+        this.setState({
+          ...this.state,
+          batchResume: null,
+          lastError: error instanceof Error ? error.message : String(error),
+        });
+      throw error;
+    }
+  }
+
+  dismissBatchResume(): void {
+    if (this.state.batchResume) this.setState({ ...this.state, batchResume: null });
+  }
+
+  async submitBatch(plan: BatchPlan): Promise<void> {
     if (
       this.options.viewer.role !== "player" ||
       !this.options.viewer.playerSession
@@ -374,18 +450,7 @@ export class GameSessionClient {
       !pending.context
     )
       throw new Error("Decision is no longer pending");
-    const expected = {
-      tactical_movement: ["movement_step"],
-      payment: ["pay_resources", "pay_influence"],
-      agenda_vote_planets: ["vote_exhaust_planet"],
-      production: ["produce_unit"],
-      casualties: [
-        "sustain_damage",
-        "assign_casualty",
-        "assign_ground_casualty",
-      ],
-      tokens: ["gain_command_token"],
-    }[plan.kind];
+    const expected = PLAN_SUBTYPES[plan.kind];
     if (!expected.includes(pending.context.subtype))
       throw new Error("Workflow is no longer pending");
     const serialized = JSON.stringify(plan);
@@ -444,6 +509,11 @@ export class GameSessionClient {
     const result = (await response.json()) as {
       snapshot: unknown;
       active?: boolean;
+      interrupted?: {
+        applied_steps: number;
+        remaining_steps: unknown[];
+        offered?: { subtype?: string | null; own_seat?: boolean };
+      };
     };
     if (result.active === false)
       throw new Error(
@@ -453,12 +523,31 @@ export class GameSessionClient {
       { type: "initial_snapshot", ...(result.snapshot as object) },
       this.options.gameId,
     );
+    // A reaction window opened between planned steps: what was applied is kept, the window waits
+    // for its holder, and the rest of the plan is offered again once it resolves.
+    const stopped = result.interrupted?.remaining_steps.length
+      ? result.interrupted
+      : undefined;
     this.rejectSubmission("Game history changed");
     this.detachSocket();
     this.clearTimers();
     this.setState(
       reduceServerMessage(
-        { ...this.state, pendingChoice: null, lastError: null },
+        {
+          ...this.state,
+          pendingChoice: null,
+          lastError: null,
+          batchResume: stopped
+            ? {
+                plan: { ...plan, steps: stopped.remaining_steps } as BatchPlan,
+                applied: stopped.applied_steps,
+                waiting: {
+                  subtype: stopped.offered?.subtype ?? null,
+                  ownSeat: stopped.offered?.own_seat ?? false,
+                },
+              }
+            : null,
+        },
         { ...snapshot, type: "initial_snapshot" },
       ),
     );
@@ -538,7 +627,7 @@ export class GameSessionClient {
     this.clearTimers();
     this.setState(
       reduceServerMessage(
-        { ...this.state, pendingChoice: null, lastError: null },
+        { ...this.state, pendingChoice: null, lastError: null, batchResume: null },
         { ...snapshot, type: "initial_snapshot" },
       ),
     );
@@ -760,7 +849,7 @@ export class GameSessionClient {
   }
 
   private setState(next: GameSessionState): void {
-    this.state = next;
+    this.state = settleBatchResume(next);
     this.listeners.forEach((listener) => listener());
   }
 

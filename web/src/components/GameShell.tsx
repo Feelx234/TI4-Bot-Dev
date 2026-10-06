@@ -9,6 +9,7 @@ import {
   ObjectiveProgressView,
 } from "../protocol/types.ts";
 import { EventLog } from "./EventLog.tsx";
+import { PausedPlanBanner } from "./PausedPlanBanner.tsx";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { TechnologyModal } from "./TechnologyModal.tsx";
 import { ObjectivesModal } from "./ObjectivesModal.tsx";
@@ -70,6 +71,10 @@ export interface GameShellProps {
   onSubmitBasketBatch?: (
     plan: import("../protocol/client.ts").BasketPlan,
   ) => Promise<void>;
+  /** A plan the server paused at a reaction window, with how to continue or drop it. */
+  batchResume?: import("../protocol/client.ts").BatchResume | null;
+  onResumeBatch?: () => Promise<void>;
+  onDismissBatchResume?: () => void;
   lastError?: string | null;
   selectedOptionId?: string;
   selectedSystemId?: string | null;
@@ -823,6 +828,9 @@ export const GameShell: React.FC<GameShellProps> = ({
   onSubmitChoice,
   onSubmitMovementBatch,
   onSubmitBasketBatch,
+  batchResume,
+  onResumeBatch,
+  onDismissBatchResume,
   lastError,
   selectedOptionId,
   selectedSystemId,
@@ -1056,6 +1064,15 @@ export const GameShell: React.FC<GameShellProps> = ({
       </section>
 
       <div className="app-shell__overlays">
+        {batchResume && onResumeBatch && onDismissBatchResume && (
+          <PausedPlanBanner
+            resume={batchResume}
+            choice={choice}
+            viewerSeat={viewerSeat}
+            onContinue={onResumeBatch}
+            onDismiss={onDismissBatchResume}
+          />
+        )}
         <PipelineRunnerContext.Provider value={pipelineRunner}>
           <ChoiceRendererDispatcher
             key={`${history?.generation ?? 0}:${boardView?.invasion?.invasion_seq ?? "none"}`}
