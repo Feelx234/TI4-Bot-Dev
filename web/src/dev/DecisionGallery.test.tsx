@@ -259,4 +259,36 @@ describe("development decision gallery", () => {
       ).toBeInTheDocument(),
     );
   });
+
+  it("previews the persistent turn bar: one card, two cards, a used card, end turn and not your turn", async () => {
+    render(<DecisionGallery />);
+    const open = (name: RegExp) =>
+      fireEvent.click(screen.getByRole("button", { name }));
+    open(/Turn bar: your turn, one strategy card/);
+    expect(screen.getByTestId("turn-action-bar")).toHaveAttribute("data-mode", "active");
+    expect(screen.getAllByTestId(/^turn-bar-strategic-/)).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("turn-bar-trade"));
+    expect(screen.getByTestId("turn-bar-partner-xxcha")).toHaveTextContent("No contact");
+    fireEvent.click(screen.getByTestId("turn-bar-open-hacan"));
+    await waitFor(() =>
+      expect(screen.getByText(/Local submission: component\|trade\|hacan/)).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "All decisions" }));
+    open(/Turn bar: two strategy cards/);
+    expect(screen.getAllByTestId(/^turn-bar-strategic-/)).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "All decisions" }));
+    open(/Turn bar: strategic card used/);
+    expect(screen.getByTestId("turn-bar-strategic-pok2diplomacy")).toHaveAttribute("aria-disabled", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "All decisions" }));
+    open(/Turn bar: end your turn/);
+    expect(screen.getByTestId("turn-bar-end")).toHaveAttribute("aria-disabled", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "All decisions" }));
+    open(/Turn bar: not your turn/);
+    expect(screen.getByTestId("turn-action-bar")).toHaveAttribute("data-mode", "readonly");
+    expect(screen.getByTestId("turn-bar-tactical")).toHaveTextContent("Not your turn");
+  });
 });

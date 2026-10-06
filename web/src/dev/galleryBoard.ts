@@ -28,6 +28,7 @@ const player = (
   id: string,
   faction: string,
   trade_goods: number,
+  strategy_cards: string[] = [],
 ): PlayerView => ({
   id,
   faction,
@@ -38,7 +39,7 @@ const player = (
   fleet_tokens: 3,
   strategic_tokens: 2,
   passed: false,
-  strategy_cards: [],
+  strategy_cards,
   exhausted_strategy_cards: [],
   technologies: [],
   exhausted_technologies: [],
@@ -50,8 +51,8 @@ const player = (
 });
 
 export const galleryPlayers = [
-  player(actor, "sol", 2),
-  player("other_seat", "hacan", 1),
+  player(actor, "sol", 2, ["pok2diplomacy", "pok8imperial"]),
+  player("other_seat", "hacan", 1, ["pok1leadership", "pok5trade"]),
 ];
 
 const mapTiles: BoardTileView[] = [

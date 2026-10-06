@@ -43,7 +43,7 @@ export const DecisionGallery: React.FC = () => {
     setSelected(item);
     setLastSubmitted(null);
     setRejectNext(false);
-    setViewer("actor");
+    setViewer(item?.viewer ?? "actor");
     setSelectedOption(undefined);
     setSelectedPlanetId(null);
     setSelectedSystemId(null);
@@ -291,6 +291,7 @@ export const DecisionGallery: React.FC = () => {
                 stage: "production",
               }}
               players={galleryPlayers}
+              turn={{ phase: "action", activePlayer: selected.choice.actor }}
               boardView={previewBoard}
               onSubmitBasketBatch={async (plan) => {
                 if (!choice) return;

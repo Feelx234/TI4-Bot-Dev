@@ -27,6 +27,8 @@ export interface GalleryCase {
   fallback?: string;
   /** Preview against a different board than the shared gallery board. */
   boardId?: "hit_assignment";
+  /** Open the preview as the other seat (the viewer who is not the one deciding). */
+  viewer?: "other";
 }
 
 const cases = {
@@ -682,4 +684,153 @@ export const fallbackCases: GalleryCase[] = [
       ],
     },
   },
+  ...turnBarCases(),
 ];
+
+function turnBarCases(): GalleryCase[] {
+  const tokens = { tactic: 3, fleet: 3, strategy: 2 };
+  const partners = [
+    {
+      seat: "other_seat",
+      faction: "hacan",
+      available: true,
+      in_contact: true,
+      reason: null,
+      trade_goods: 2,
+      commodities: 3,
+      promissory_notes: 1,
+    },
+    {
+      seat: "seat_c",
+      faction: "letnev",
+      available: true,
+      in_contact: true,
+      reason: null,
+      trade_goods: 0,
+      commodities: 2,
+      promissory_notes: 2,
+    },
+    {
+      seat: "seat_d",
+      faction: "xxcha",
+      available: false,
+      in_contact: false,
+      reason: "No contact: not neighbours",
+      trade_goods: 1,
+      commodities: 1,
+      promissory_notes: 0,
+    },
+  ];
+  const trade = [
+    option("component|trade|hacan", "open a transaction with hacan", "open_transaction"),
+    option("component|trade|letnev", "open a transaction with letnev", "open_transaction"),
+  ];
+  const components = [
+    option("faction|orbital_drop", "Orbital Drop: spend a strategy token to land 2 infantry", "component"),
+    option("component|tech|sr", "use Sling Relay", "component"),
+    option("action_card|0", "play Reactor Meltdown", "component"),
+    option("action_card|1", "play Ghost Ship", "component"),
+  ];
+  const menu = (
+    nonce: string,
+    options: ReturnType<typeof option>[],
+    details: Record<string, unknown>,
+    prompt = "action phase",
+  ): PendingChoiceDto => ({
+    actor,
+    nonce,
+    prompt,
+    context: { subtype: `prompt:${prompt}` } as PendingChoiceDto["context"],
+    options,
+    details: { kind: "turn_menu", closing: false, tokens, partners, ...details },
+  });
+  const oneCard = [{ card: "pok8imperial", used: false, option: "strategic" }];
+  const twoCards = [
+    { card: "pok2diplomacy", used: false, option: "strategic|pok2diplomacy" },
+    { card: "pok8imperial", used: false, option: "strategic|pok8imperial" },
+  ];
+  return [
+    {
+      workflow: "generic_selection",
+      title: "Turn bar: your turn, one strategy card",
+      fallback: "Action phase menu becomes the persistent bottom bar (5-6 players)",
+      note: "One Strategic action button; Pass stays disabled until the card is used; Trade opens a partner picker (press D).",
+      choice: menu(
+        "gallery-turn-bar-one",
+        [
+          option("strategic", "take your strategic action", "action"),
+          option("tactical", "take a tactical action", "action"),
+          ...trade,
+          ...components,
+        ],
+        { strategy_cards: oneCard },
+      ),
+    },
+    {
+      workflow: "generic_selection",
+      title: "Turn bar: two strategy cards",
+      fallback: "One Strategic button per held card (3-4 players)",
+      note: "Each card has its own name, one-line effect and used/available state; hover shows the full text.",
+      choice: menu(
+        "gallery-turn-bar-two",
+        [
+          option("strategic|pok2diplomacy", "take the strategic action of 2. Diplomacy", "action"),
+          option("strategic|pok8imperial", "take the strategic action of 8. Imperial", "action"),
+          option("tactical", "take a tactical action", "action"),
+          ...trade,
+          ...components,
+        ],
+        { strategy_cards: twoCards },
+      ),
+    },
+    {
+      workflow: "generic_selection",
+      title: "Turn bar: strategic card used",
+      fallback: "A used card stays on the bar, disabled with its reason",
+      note: "Diplomacy is used, Imperial remains and keeps the bare strategic option id.",
+      choice: menu(
+        "gallery-turn-bar-used",
+        [
+          option("strategic", "take your strategic action", "action"),
+          option("tactical", "take a tactical action", "action"),
+          ...trade,
+        ],
+        {
+          strategy_cards: [
+            { card: "pok2diplomacy", used: true, option: null },
+            { card: "pok8imperial", used: false, option: "strategic" },
+          ],
+        },
+      ),
+    },
+    {
+      workflow: "generic_selection",
+      title: "Turn bar: end your turn",
+      fallback: "The end-turn modal becomes a highlighted End turn button",
+      note: "After an action: End turn is highlighted (Enter), Tactical and Strategic say Already acted, trading stays open.",
+      choice: menu(
+        "gallery-turn-bar-end",
+        [option("end_turn", "end your turn", "end_turn"), ...trade],
+        {
+          closing: true,
+          tokens: { tactic: 2, fleet: 3, strategy: 2 },
+          strategy_cards: twoCards.map((c) => ({ ...c, option: null })),
+        },
+        "end your turn",
+      ),
+    },
+    {
+      workflow: "generic_selection",
+      title: "Turn bar: not your turn",
+      fallback: "Read-only bar while another seat acts",
+      note: "Every button is disabled with the reason; the pools and your own strategy cards stay readable.",
+      viewer: "other",
+      choice: menu(
+        "gallery-turn-bar-readonly",
+        [option("tactical", "take a tactical action", "action")],
+        { strategy_cards: oneCard },
+      ),
+    },
+  ];
+}
+
