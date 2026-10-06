@@ -4060,6 +4060,9 @@ impl CombatWindow {
             return Ok(false);
         }
         self.hit_phase = HitPhase::RoundEnd;
+        // Hits produced after the round are their own "before you assign hits" moment, so the
+        // once-per-round guard on the ordinary assignment must not swallow their announcement.
+        self.hit_reaction_offered.retain(|(seen, _)| *seen != round);
         self.stage = Stage::Sustaining { queue, round };
         Ok(true)
     }
