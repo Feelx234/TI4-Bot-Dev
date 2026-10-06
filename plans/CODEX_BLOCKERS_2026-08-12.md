@@ -72,7 +72,7 @@ crates/ti4-engine/src/lib.rs:97:pub use timing::{
 ```
 
 This is the **seventh** module in this project to arrive correct, fully tested, and called by
-nothing — the failure mode `HANDOVER_2026-08-12.md` lists first, and the reason `wiring.rs`
+nothing — the failure mode `plans/archive/HANDOVER_2026-08-12.md` lists first, and the reason `wiring.rs`
 exists. It needs `Game` to own a `Resolver`, and a guard in `wiring.rs` that fails when the
 driver stops reaching it. Without that it will keep passing every test while doing nothing in a
 real game.

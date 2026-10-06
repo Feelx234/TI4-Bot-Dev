@@ -1,6 +1,6 @@
 # Handoff: the rest of the engine completion plan
 
-> **Superseded 2026-08-31** by `plans/PI_HANDOFF_ENGINE_REMAINDER.md`. The counts below are
+> **Superseded 2026-08-31** by `plans/archive/PI_HANDOFF_ENGINE_REMAINDER.md`. The counts below are
 > stale (action cards 82 of 142 here; 142 of 142 now). Kept for the reasoning, not the numbers.
 
 

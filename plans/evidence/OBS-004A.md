@@ -4,7 +4,7 @@
 
 - Branch: `wp/tier-c-review-remediation-obs008c2b-003e1`, after `c73649b` (OBS-004 handover).
 - Normative sources: `plans/STAGE2_COMPLETE_DECISION_CONTRACT.md` §1;
-  `plans/OBS-004A_ACTOR_PRIVATE_INVENTORY.md`; `plans/HANDOVER_2026-09-04_OBS004.md`; LRR 73.4, 35.9,
+  `plans/OBS-004A_ACTOR_PRIVATE_INVENTORY.md`; `plans/archive/HANDOVER_2026-09-04_OBS004.md`; LRR 73.4, 35.9,
   Thunder's Edge, and the Leader Sheet rule (leader lifecycle is not hidden information).
 - Historical Python: not inspected and not used as an acceptance oracle.
 - Permission: P1 only. No network, external write, destructive action, or committed generated

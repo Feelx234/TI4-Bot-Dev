@@ -99,7 +99,7 @@ contains pre-existing drift elsewhere in `production.rs`; no c2a-added hunk requ
 1. `AGENTS.md`
 2. `plans/SCOPED_PERMISSIONS.md`
 3. `plans/EXECUTION_STATE.md`
-4. `plans/HANDOVER_2026-09-04_OBS_MILESTONE.md`
+4. `plans/archive/HANDOVER_2026-09-04_OBS_MILESTONE.md`
 5. `plans/STAGE2_COMPLETE_DECISION_CONTRACT.md`
 6. `plans/PI_WORK_PACKAGE_STANDARD.md`
 7. `plans/evidence/OBS-008C1.md` and `plans/evidence/OBS-008C2A.md`

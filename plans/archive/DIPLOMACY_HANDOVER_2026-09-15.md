@@ -495,7 +495,7 @@ This addendum records the state of the work.
 ## Codex continuation addendum — 2026-09-15
 
 Superseded as the immediate operational resume point by
-`plans/CLAUDE_HANDOVER_2026-09-16.md`; retain this file for the fuller implementation history.
+`plans/archive/CLAUDE_HANDOVER_2026-09-16.md`; retain this file for the fuller implementation history.
 
 The user authorized continuation. This work remains uncommitted pending the required independent Tier-C review.
 Exact evidence is in `plans/evidence/DIPLOMACY_V2_CONTINUATION_2026-09-15.md`.

@@ -12,8 +12,8 @@ marked as such — please tell us if we are measuring the wrong thing.
 - Worktree `C:/Users/Niko/Documents/ChatGPT/ti4-engine-rs/diplomacy-worktree`, branch
   `codex/diplomacy-v1`, HEAD `85d0151`.
 - **Everything discussed here is uncommitted.** Do not reset or clean the tree.
-- Background: `plans/DIPLOMACY_HANDOVER_2026-09-15.md`, `plans/DIPLOMACY_V2_PLAN_2026-09-15.md`,
-  `plans/CLAUDE_HANDOVER_2026-09-16.md`, and `plans/TODO_2026-09-16.md` (today's changes, with
+- Background: `plans/archive/DIPLOMACY_HANDOVER_2026-09-15.md`, `plans/DIPLOMACY_V2_PLAN_2026-09-15.md`,
+  `plans/archive/CLAUDE_HANDOVER_2026-09-16.md`, and `plans/TODO_2026-09-16.md` (today's changes, with
   before/after numbers).
 - Build env: `LIBTORCH=D:/Projects/ti4-engine-rs/out/libtorch-2.9.1-cu128`,
   `LIBTORCH_BYPASS_VERSION_CHECK=1`, that `lib/` on `PATH`.

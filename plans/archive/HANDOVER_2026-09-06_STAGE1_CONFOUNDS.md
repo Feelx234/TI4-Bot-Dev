@@ -1,7 +1,7 @@
 # Handover — Stage-1: three confounds found, hybrid screen concluded, reward control in flight
 
 Date: 2026-09-06 (Europe/Vienna). Supersedes the execution plan in
-`plans/HANDOVER_2026-09-06_STAGE1_HYBRID_CORRECTED.md` (its *measurement conventions and artifact
+`plans/archive/HANDOVER_2026-09-06_STAGE1_HYBRID_CORRECTED.md` (its *measurement conventions and artifact
 inventory remain valid and authoritative*; its remaining execution sequence does not — see §3).
 
 ## 0. Read this first, in this order
@@ -10,7 +10,7 @@ inventory remain valid and authoritative*; its remaining execution sequence does
 2. `plans/STAGE1_TRAINING_TECHNIQUES.md` — measurement conventions, tool table, prior recipes.
    **Contains one error corrected in §7 below; fix it before citing it.**
 3. `plans/SITUATION_REPORT_2026-09-05_STAGE1_BC_FAILURE.md` — the escalation and its five questions.
-4. `plans/HANDOVER_2026-09-06_STAGE1_HYBRID_CORRECTED.md` — artifact inventory, invalid-artifact
+4. `plans/archive/HANDOVER_2026-09-06_STAGE1_HYBRID_CORRECTED.md` — artifact inventory, invalid-artifact
    list, eval commands. Still correct on all of that.
 5. `plans/STAGE2_TRANSFERABLE_LESSONS.md` — the noise floor. Non-negotiable background.
 

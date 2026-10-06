@@ -10,7 +10,7 @@ Date: 2026-09-16 (Europe/Vienna)
 - HEAD: `85d01517a196315a5062b706199513c7570f15c0`
 - Tree: heavily dirty and intentionally uncommitted. Do not reset, clean, rebase, or overwrite it.
 - Read `AGENTS.md`, `plans/EXECUTION_STATE.md`, and
-  `plans/DIPLOMACY_HANDOVER_2026-09-15.md` before editing.
+  `plans/archive/DIPLOMACY_HANDOVER_2026-09-15.md` before editing.
 - Independent Tier-C review is still required before committing or integrating the legality/schema
   work.
 

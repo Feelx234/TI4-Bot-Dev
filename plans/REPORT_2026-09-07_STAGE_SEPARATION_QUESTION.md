@@ -347,6 +347,6 @@ out/eval-corrp5-s1-u2050-*.log                        89.02% / 2.60% — same ar
 out/blank-corrected-p5.log                            corrected-reward stage-1 training log
 crates/ti4-training/src/reward.rs                     reward definition (unit-term fix uncommitted)
 crates/ti4-training/src/rollout.rs:38-80              Horizon::opening() / ::rounds()
-plans/HANDOVER_2026-09-06_STAGE1_CONFOUNDS.md         the three confounds behind the stage-1 history
+plans/archive/HANDOVER_2026-09-06_STAGE1_CONFOUNDS.md         the three confounds behind the stage-1 history
 plans/STAGE2_TRANSFERABLE_LESSONS.md                  noise-floor replicate study
 ```

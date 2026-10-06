@@ -3192,7 +3192,7 @@ mod tests {
 
     /// Four infantry in one use of PRODUCTION cost two resources, from one two-resource planet.
     ///
-    /// The acceptance case from `plans/BUG_2026-08-29_PRODUCTION_COMBINED_PAYMENT.md`. Selected as
+    /// The acceptance case from `plans/archive/BUG_2026-08-29_PRODUCTION_COMBINED_PAYMENT.md`. Selected as
     /// two batches of two, which is the shape that used to throw the planet's second resource away
     /// and then demand a second payment source for a bill that was already covered.
     #[test]

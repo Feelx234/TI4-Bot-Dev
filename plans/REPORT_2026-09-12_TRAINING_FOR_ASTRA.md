@@ -155,5 +155,5 @@ In rough order of value:
   `provenance.txt`)
 - Trainer performance work, reports and frozen binaries: `out/perf-20260911/`
   (one update went 20.32 s → 17.10 s; `report-performance.md` is the consolidated account)
-- Earlier handover, still accurate on performance: `plans/HANDOVER_2026-09-12_TRAINING_AND_PERFORMANCE.md`
+- Earlier handover, still accurate on performance: `plans/archive/HANDOVER_2026-09-12_TRAINING_AND_PERFORMANCE.md`
 - The governing plan for the performance work: `plans/TRAINING_PERFORMANCE_HANDOFF_2026-09-11.md`

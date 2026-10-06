@@ -1104,7 +1104,7 @@ mod tests {
 
     /// A non-Support promissory note is scored by its own identity, not the zero fallback.
     ///
-    /// The behavioural half of `plans/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md`. The
+    /// The behavioural half of `plans/archive/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md`. The
     /// option being *present* was never the problem -- the engine has enumerated note sales for a
     /// while. It scored zero, which made it indistinguishable from declining and from every other
     /// note, so Support was the only note ever traded. This asserts selection, not enumeration.

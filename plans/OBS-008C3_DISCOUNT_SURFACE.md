@@ -4,7 +4,7 @@
 
 - Milestone: Stage 2 complete decision contract; final slice of `OBS-008c`.
 - Dependencies: `OBS-003a–c`, `OBS-004`, `OBS-007b`, `OBS-008c1`, `OBS-008c2a`, `OBS-008c2b`, and
-  `plans/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md` (the discount this package exposes did not
+  `plans/archive/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md` (the discount this package exposes did not
   exist to expose before that fix).
 - Objective: let an actor see the resource-cost discount a build carries (Sarween Tools, AI
   Development Algorithm, Harrugh Gefhara) and, on AI Development Algorithm's own exhaust-or-not ask,
@@ -38,7 +38,7 @@
 ## Boundaries
 
 - No change to production/payment legality, option IDs, labels, the legal set, or how the discount
-  is computed or spent — that is `plans/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md`.
+  is computed or spent — that is `plans/archive/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md`.
 - Harrugh Gefhara's own ask (whether to purge the leader) is not exposed here: it has no invocation
   path in real play at all (`plans/BUG_2026-09-04_LEADER_USE_UNREACHABLE.md`), so there is no live
   choice to attach a feature to. `free_this_use`'s effect on `cost`/`discount` is already covered by

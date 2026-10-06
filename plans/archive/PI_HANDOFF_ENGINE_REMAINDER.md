@@ -1,6 +1,6 @@
 # Handover to PI: finishing the engine
 
-> **Closed 2026-08-31.** Superseded by `plans/HANDOVER_2026-08-31_PHASE_9.md`, which carries what is
+> **Closed 2026-08-31.** Superseded by `plans/archive/HANDOVER_2026-08-31_PHASE_9.md`, which carries what is
 > actually left.
 >
 > **Closed 2026-08-31.** PI was unavailable, so I finished the work myself. Everything listed below
@@ -13,7 +13,7 @@
 > The dice cluster listed below was implemented twice, concurrently. The owner kept the version
 > written in the main checkout; mine was removed in `acb898b`.
 
-Written 2026-08-31. Supersedes `plans/HANDOFF_ENGINE_COMPLETION.md`, whose numbers are stale.
+Written 2026-08-31. Supersedes `plans/archive/HANDOFF_ENGINE_COMPLETION.md`, whose numbers are stale.
 Companions: `plans/ENGINE_COMPLETION_PLAN.md`, `engine-rules-audit.md`.
 
 Branch `wp/engine-completion`, worktree `D:/Projects/ti4-engine-work`, head `4422407`.
@@ -80,7 +80,7 @@ All three land on `production::payment_faces`, which is the single place a plane
 is computed and is already substituted through `planet_value_now`. Change it once and every
 spending path sees it. `production::pay` already takes a `Table`, so the decider is in reach.
 
-Note the overlap with `plans/BUG_2026-08-29_PRODUCTION_COMBINED_PAYMENT.md` — read it before
+Note the overlap with `plans/archive/BUG_2026-08-29_PRODUCTION_COMBINED_PAYMENT.md` — read it before
 touching `payment_faces`; you may fix both at once.
 
 `grant_chosen_technology` in relics.rs is the "ask which technology, gain it, no prerequisites"
@@ -210,8 +210,8 @@ is explicitly not in scope. Training is paused by the user's decision; do not re
 
 ## Two open bugs
 
-- `plans/BUG_2026-08-29_PRODUCTION_COMBINED_PAYMENT.md` — overlaps cluster 2.
-- `plans/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md` — independent.
+- `plans/archive/BUG_2026-08-29_PRODUCTION_COMBINED_PAYMENT.md` — overlaps cluster 2.
+- `plans/archive/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md` — independent.
 
 ## On ownership
 

@@ -3,7 +3,7 @@
 Written 2026-08-31. Branch `wp/r01-review-viewer-contract`, head `55b8cb1`. Tree clean, all suites
 green: **1,086 engine, 189 policy, 52 sim**. Clippy clean under `RUSTFLAGS="-D warnings"`.
 
-Supersedes `plans/PI_HANDOFF_ENGINE_REMAINDER.md`, which is closed — everything it listed is done.
+Supersedes `plans/archive/PI_HANDOFF_ENGINE_REMAINDER.md`, which is closed — everything it listed is done.
 
 ## Where things stand
 

@@ -1,156 +1,74 @@
-# Autonomous migration agent instructions
+# Repository agent instructions
 
-## Mission
+## Mission and sources
 
-Implement the Rust engine described in `plans/MASTER_PLAN.md` from M00 through M13 with minimal
-human involvement. Progress independently, but never trade correctness, determinism, the accepted
-Rust behavior, security, or evidence for apparent speed.
+Maintain the TI4 Rust engine and its policy, training, review, and bridge tools according to the current operator request, accepted contracts, and active workstreams in plans/INDEX.md. Progress independently without trading correctness, determinism, security, or evidence for apparent speed.
 
-As of the 2026-08-21 project decision, behavioral parity with the former Python
-implementation is **not an acceptance criterion**. The separate Python repository is a historical,
-read-only reference only:
+Python behavioral parity is not an acceptance criterion (project decision 2026-08-21). The historical reference is D:\Projects\ti4-engine, branch codex/fully-learned-policy, commit 37061c5. Treat it as read-only: never edit, format, stage, commit, clean, reset, generate caches in, or run a command that writes artifacts into it. Inspect pinned tracked content with non-mutating Git commands. A dirty reference tree or unavailable Python runtime does not block Rust work. Official rules, accepted Rust specifications, and package tests govern behavior; claim Python parity only when explicitly tested.
 
-```text
-D:\Projects\ti4-engine
-branch: codex/fully-learned-policy
-commit: 37061c5
-```
+## Start and resume
 
-Treat that repository as read-only. Never edit, format, stage, commit, clean, reset, generate caches
-in, or run a command that writes artifacts into it. When historical inspection is useful, read tracked
-content from the pinned commit with non-mutating Git commands. A dirty working tree or unavailable
-Python runtime does not block Rust work. Do not claim Python parity unless a package explicitly tests
-it; official rules, accepted Rust specifications, and package tests govern new behavior.
+Read this file, plans/SCOPED_PERMISSIONS.md, plans/INDEX.md, the short current plans/EXECUTION_STATE.md, the active workstream plan/task and evidence, then git status --short --branch and the last five commits. Read plans/MASTER_PLAN.md, architecture notes, and historical evidence when relevant to the task or an unresolved gate. Until execution state is split, read its current position and latest relevant entries; do not mistake historical entries for current status.
 
-## Required reading order
+Verify handovers against repository state after compaction. Do not rely on memory where durable state answers the question. Historical PIDs and run descriptions are not live process status. If state disagrees, investigate before editing.
 
-At the beginning of a fresh session or after context compaction, read:
+## Workstreams, ownership, and coordination
 
-1. This file completely.
-2. `plans/SCOPED_PERMISSIONS.md`.
-3. `plans/EXECUTION_STATE.md`.
-4. `plans/MASTER_PLAN.md`.
-5. `plans/PI_WORK_PACKAGE_STANDARD.md`.
-6. The active milestone plan linked from `plans/INDEX.md`.
-7. The active package evidence file and the two most recent completed evidence files, if present.
-8. `git status --short --branch` and the last five commits.
+Execute dependency-ready packages in the active operator-authorized workstreams. The original M00–M13 order is historical planning context; unresolved M11–M13 bridge, qualification, cutover, and rollback obligations remain gates for their own outcomes. Later work does not waive them.
 
-Do not rely on remembered context when durable repository state can answer the question.
+There is no repository-wide Pi/Qwen default implementer (operator decision 2026-10-02). The coordinator follows the current task's authorized implementation route. For Claude subagents, use Sonnet only, at most two at a time, with disjoint edit scopes. Do not start overlapping writers. Follow explicit ownership of intentionally dirty files/hunks; unrelated work is not yours to repair or format.
 
-## Execution order
+Several sessions may use the same working tree. Do not switch the shared checkout's branch while another session may be working in it. Ask peers what they are running instead of guessing from timestamps; use authorized coordination channels or ask the operator to establish ownership when direct peer contact is unavailable.
 
-- Execute milestones strictly from M00 through M13.
-- Do not start a milestone until the preceding exit gate is met and its frontier review is resolved.
-- Execute work packages in dependency order.
-- Keep at most one package in progress unless packages have disjoint edit scopes and the harness can
-  isolate them safely.
-- Never mark a package or milestone complete merely because code exists. Completion requires all
-  specified tests, evidence, and reviews.
-- When a milestone row is too large for the atomic limits in `PI_WORK_PACKAGE_STANDARD.md`, split it
-  into suffixed tasks such as `M05-008a` and `M05-008b`. Record the split before implementation and
-  preserve the original acceptance criterion across the children.
-- Do not silently shrink scope. Record every deferred, excluded, or intentionally changed behavior
-  in the scope ledger and active evidence file.
+For operator-authorized Pi queues, Pi implements one specified package and reports; Pi never stages, commits, merges, switches branches, or begins the next package on its own. The coordinator reviews the diff and evidence, verifies checks, resolves findings, then stages exact scoped changes and commits. Task-specific ownership and command restrictions remain binding. Follow plans/PI_WORK_PACKAGE_STANDARD.md and plans/PI_RPC_CONTROL.md when using Pi; every Pi task prompt must explicitly name plans/PI_RPC_CONTROL.md for required reading. Managed-controller rules do not govern unrelated harnesses.
 
-## Package loop
-
-For every work package:
-
-1. Confirm dependencies are complete in `plans/EXECUTION_STATE.md`.
-2. Create or update its exact task specification using the template in
-   `plans/PI_WORK_PACKAGE_STANDARD.md`.
-3. Declare its permission class, writable/read-only paths, network/process needs, artifact bounds,
-   and external-state effects using `plans/SCOPED_PERMISSIONS.md`.
-4. Create the package branch from the active milestone integration branch.
-5. Inspect the package's named normative sources and tests. Inspect Python read-only only when the
-   package explicitly names it as historical context or a compatibility target.
-6. Write a failing focused test or compatibility fixture first where practical.
-7. Implement the smallest complete behavior. Do not add speculative abstractions or unrelated
-   cleanup.
-8. Run formatting, focused tests, affected-crate tests, lints, and any specified differential,
-   property, fuzz, mutation, or benchmark check.
-9. Write `plans/evidence/<package-id>.md` with commands, exact results, specification/rules evidence,
-   benchmark effect, unresolved differences, and source versions. Include the historical Python
-   commit only when it was actually used.
-10. Run the required independent review tier. The implementer may not be the sole reviewer.
-11. Fix every actionable finding and rerun affected checks.
-12. Commit only the package's scoped changes.
-13. Update `plans/EXECUTION_STATE.md`, including the next ready package.
-
-There is no Pi/Qwen default implementer (operator decision 2026-10-02). Implementation is done by
-Claude Code: a coordinating session that may delegate packages to Claude subagents (Sonnet for
-implementation, with disjoint edit scopes). Evidence files naming Qwen or Pi record what actually
-implemented or reviewed those packages at the time and must not be rewritten. Use a frontier model for review tiers C and D, milestone exit reviews, repeated
-failures, architecture decisions, timing, legality, payments, hidden information, schema migration,
-training mathematics, security boundaries, unsafe code, and performance claims.
-
-## Context-compaction protocol
-
-Compact context regularly. Long context is not an execution record.
-
-Perform a compaction checkpoint at the earliest of:
-
-- completion of three atomic work packages;
-- reaching approximately 50–60% of the harness context budget;
-- finishing a large investigation, benchmark, differential campaign, or review;
-- switching subsystem or milestone;
-- before and after a milestone exit review;
-- whenever tool output has made the conversation difficult to navigate.
-
-Before compacting:
-
-1. Finish or safely stop the current command; do not compact during an unknown mutation.
-2. Update `plans/EXECUTION_STATE.md` with current milestone/package, status, last commit, exact tests,
-   decisions, open findings, blockers, modified files, and next command.
-3. Update the active evidence file. Evidence must not exist only in conversation.
-4. Record `git status --short --branch` and confirm whether the tree is clean.
-5. If the tree is intentionally dirty, list every changed path and why it is safe.
-6. Write a compact handover summary using the format below.
-7. Invoke the Pi harness's supported context-compaction mechanism. If no explicit compaction command
-   is available, end the current agent session after persisting the handover and resume in a fresh
-   session from the required reading order.
-
-Handover format:
-
-```text
-Objective:
-Normative source versions (and historical Python commit if used):
-Active milestone/package:
-Status and completed acceptance criteria:
-Current branch and HEAD:
-Working-tree state:
-Tests last run and exact results:
-Compatibility evidence:
-Decisions made and rationale:
-Open review findings or blockers:
-Next exact action/command:
-Files to read first after compaction:
-```
-
-After compacting, do not immediately continue from memory. Follow the required reading order, verify
-Git state against the handover, and only then resume. If the handover and repository disagree, trust
-the repository and investigate before changing files.
+Use one coherent, reviewable behavior change, with explicit dependencies, writable paths, permissions, acceptance criteria, resource bounds, and evidence. Remove arbitrary file/line/test counts; cross-crate work is allowed when needed for a complete behavior. Inspect relevant callers and consumers and test driven-game reachability, not only isolated handlers. Split unrelated or unsafe overlapping work. Do not silently shrink scope; record deferred, excluded, or intentionally changed behavior in the scope ledger and evidence.
 
 ## Accuracy rules
 
-- Legal actions are generated, not accepted by late rejection.
-- Invalid or failed transitions are atomic.
-- Deterministic behavior must not depend on hash-map iteration, thread scheduling, filesystem order,
-  locale, or wall-clock time.
-- Rules legality uses exact arithmetic. Floating-point tolerances are restricted to policy/training
-  math and must be specified by tests.
+- Legal actions are generated, not accepted by late rejection. Invalid or failed transitions are atomic.
+- Determinism must not depend on hash-map iteration, scheduling, filesystem order, locale, or wall-clock time.
+- Rules legality uses exact arithmetic. Floating-point tolerances are restricted to policy/training math and specified by tests.
 - Hidden information is enforced through typed views and API boundaries, not convention.
-- Preserve stable choice IDs and canonical projections.
-- Preserve current implemented/partial/unimplemented registries exactly until an explicit later
-  project changes scope.
-- Never claim parity from aggregate outcomes alone. Use decision-boundary differential evidence.
-- Never claim a speedup without the M00 protocol, the same machine/workload, raw measurements,
-  variance, and passing semantic gates.
-- Never turn a parser error, bridge refusal, worker crash, or incomplete game into an apparent success.
-- Validate schema version, size limits, references, and checksums before mutating state.
-- Keep checkpoint writes atomic and recoverable.
+- Preserve stable choice IDs, canonical projections, and implemented/partial/unimplemented registries until an explicit project decision changes scope.
+- Never claim parity from aggregate outcomes alone; use decision-boundary differential evidence.
+- Never claim a speedup without the applicable M00 protocol, the same machine/workload, raw measurements, variance, and passing semantic gates.
+- Never turn parser errors, bridge refusals, worker crashes, or incomplete games into apparent success.
+- Validate schema version, size limits, references, and checksums before mutating state. Keep checkpoint writes atomic and recoverable.
 
 ## Testing discipline
+
+### Multi-minute CPU-bound commands (operator rule, 2026-10-04)
+
+CPU-bound commands estimated to take several minutes (roughly two minutes or more) MUST use
+reasonable bounded parallelism when their work can run independently. On this workstation the
+operator authorizes all 16 physical cores (2026-10-04 hour-run update); use up to 16 workers
+for independent CPU work while preserving memory headroom and other active workloads. Record the selected worker count and any reason for a lower
+count in package evidence. Do not silently run a parallelizable long campaign serially.
+
+Set parallelism at the layer that does the work: Cargo `-j8` bounds compilation, Rust test
+`-- --test-threads=8` bounds independent tests, and a single long simulation/seed loop requires
+bounded per-seed/per-case workers or deterministic shards. Cargo build jobs alone do not parallelize
+that loop. Preserve every original case and deterministic per-case seed/results; collect results
+in canonical order and keep separate mutable game/RNG state per worker. Do not weaken coverage,
+share unsafe mutable state, or change benchmark protocols to claim a speedup. When parallelizing
+existing test/campaign code requires edits outside the active package, record a bounded follow-up
+and identify the bottleneck; do not make unrelated edits to force concurrency.
+
+Only one coordinator may run Cargo against the shared target directory. Prefer one invocation
+covering independent requested packages instead of competing Cargo processes. If work must remain
+serial because of dependencies, shared resources, reproducibility, or memory constraints, state the
+concrete reason before the multi-minute run and record it. A long single-core tail should trigger
+inspection of CPU activity and the remaining case, not repeated blind reruns.
+
+Long commands must expose useful progress and preserve full logs and the real command exit status.
+Do not rely on `cargo ... | grep ... | head ...` as verification: it hides progress, truncates
+failures, can close the producer's pipe, and without pipefail can report the filter's success in
+place of Cargo's failure. In Bash use `set -o pipefail` and `tee` to an existing ignored output
+area; retain the producer status and report it. In PowerShell capture `$LASTEXITCODE` immediately
+after the native command and propagate failure. Timeouts/incomplete runs are failures to complete,
+not passing evidence. Monitor long jobs without launching duplicate builds or interrupting another
+session's owned process.
 
 During a package, run the narrowest useful tests first, then the affected crate. Before merging a
 milestone, run the entire workspace suite and every milestone-specific gate. Do not repeatedly rerun
@@ -163,71 +81,60 @@ package's named rules/specification rather than to Python test names.
 Do not update golden fixtures simply to make a failure disappear. Regenerate a fixture only through
 its versioned, package-approved process, inspect the semantic diff, and record why it is correct.
 
-## Review and failure handling
+## Review and completion
 
-- First failure: diagnose in the current implementer context and retry once.
-- Second failure of the same invariant: use a fresh implementer context for independent diagnosis.
-- Third failure, architecture conflict, nondeterminism, or an unexplained mismatch with a package's
-  normative source: obtain a frontier-model diagnosis before further implementation.
-- A reviewer reports findings; it does not silently rewrite critical code without preserving the
-  review trail.
-- Record rejected review suggestions and technical rationale in evidence.
+The implementer must not be the sole reviewer. Use this mapping; task-specific requirements may be stronger:
 
-If blocked, continue with another dependency-ready, non-overlapping package only when doing so cannot
-hide or compound the blocker. Otherwise persist a full checkpoint and stop. Do not fabricate a user
-decision or broaden authority.
+| Tier | Areas | Required review |
+|---|---|---|
+| A | Documentation, repetitive content fixtures | Independent coordinator/reviewer pass, not the author |
+| B | Ordinary model/rule/policy code | Independent review plus milestone/workstream integration tests |
+| C | Timing, legality, payments, hidden information, schema migration, training mathematics, bridge security | Frontier-model review |
+| D | Unsafe code, cutover, claimed performance gate | Two independent frontier passes |
+
+Do not describe an independent review as complete unless a different reviewing agent or model actually performed it.
+
+Architecture decisions, security boundaries, milestone exit reviews, repeated invariant failures, nondeterminism, and material performance claims also require frontier involvement. Retain existing outstanding Tier-C/D obligations; this refresh does not resolve them. Record reviewer identity, findings, fixes, rejected suggestions with rationale, and exact rerun results. Reviewers must preserve the review trail when changing critical code.
+
+The coordinator reviews and verifies before committing task-owned changes. A commit is a recorded code state, not proof of independent qualification: when an operator-authorized checkpoint retains review debt, label it explicitly and keep the package open. Do not mark completion until specified tests, evidence, and required reviews are resolved; no TODO may stand in for accepted scope.
+
+At a milestone/workstream exit, close rows or record approved exceptions, run full workspace and specific gates, reconcile scope/test/artifact/difference ledgers, verify the historical reference remained untouched if accessed, resolve required frontier reviews, and publish the report/current state.
+
+Diagnose failures before retrying. Distinguish infrastructure/tool failures from invariant failures. Repeated failure of the same invariant needs fresh independent diagnosis; a third failure, architecture conflict, nondeterminism, or unexplained normative mismatch requires frontier diagnosis before further implementation. If blocked, move only to dependency-ready non-overlapping work that cannot hide or compound the blocker; otherwise checkpoint and stop. Never fabricate authority.
+
+## Current state and handover
+
+Keep plans/EXECUTION_STATE.md short: current workstreams, package ownership, branch/HEAD, last-verified facts, checks, decisions, open reviews, blockers, dirty paths, and next action. Put exact commands/results in package evidence. Preserve older state verbatim in a dated file within plans/archive/; do not append unlimited history to the resume point.
+
+Checkpoint before compaction, handoff, or a workstream exit. Finish or safely stop commands first; do not compact during an unknown mutation. Update state/evidence and record Git status and dirty-path ownership. Use the current harness's supported compaction mechanism when needed, then verify state on resume.
+
+Handover format:
+
+```text
+Objective and normative sources:
+Active workstream/package and acceptance status:
+Branch and HEAD; dirty paths and owners:
+Checks actually run and exact results; evidence:
+Decisions, review debt, blockers, and limitations:
+Next exact action/command; files to read first:
+```
 
 ## Git and filesystem safety
 
-- Work only inside `D:\Projects\ti4-engine-rs`, except for read-only historical-reference inspection.
-- Follow `plans/SCOPED_PERMISSIONS.md`; delegation never broadens those permissions.
+- Work only inside the operator-authorized repository checkout, except for read-only historical-reference inspection. Resolving the checkout root is not permission to write to another checkout.
+- Follow plans/SCOPED_PERMISSIONS.md; delegation never broadens those permissions.
 - Preserve unrelated changes. Never use destructive reset or checkout commands.
-- Use one branch and one focused commit per atomic package.
-- Do not commit build products, large training outputs, private captures, or copied artifacts without
-  the repository's artifact policy and a checksum manifest.
+- Follow coordinator branch/commit ownership and task-specific branch rules; do not automatically create or switch a branch per package. Commit only scoped changes after review and checks.
+- Do not commit build products, large training outputs, private captures, or copied artifacts without the repository's artifact policy and a checksum manifest.
 - Do not rewrite shared branch history.
-- Before deletion or bulk movement, resolve and verify the absolute target is inside this repository.
+- No folders outside the repository. Ask before creating one inside it. Do not run git worktree add outside the repository; obey stricter task-specific bans on worktree creation.
+- Never delete or overwrite anything you did not create as throwaway, especially gitignored data (out/, checkpoints, runs, pools, libtorch), which has no second copy. Normal edits to tracked files are fine. Append new run/checkpoint directories; never write over existing ones.
+- Do not use rm -rf / Remove-Item -Recurse -Force, git clean (especially -x), git checkout -f, git reset --hard, git worktree remove/prune, or cargo clean. Worktree/junction cleanup can follow links and destroy retained out/ data. There is no archival cleanup step.
+- Do merges with refs only where possible: merge-tree, commit-tree, update-ref. The coordinator reviews inputs/results and changes only authorized refs. Never update-ref a branch checked out in the shared tree: the unchanged working tree would silently show the merge reversed as uncommitted changes. If a merge has conflicts, stop and ask rather than resolving them in the shared checkout.
+- scripts/stage2_confirm.ps1 deletes out\confirm as a side effect. Do not run it against retained data; a separate reviewed fix must remove the destructive behavior before that use.
+- Before any bulk movement, resolve and verify exact absolute targets are inside this repository. Archive only through plain git mv operations listed in a reviewed manifest, to non-existing filenames in existing approved directories; never overwrite a destination.
 - Keep secrets, access tokens, machine-specific paths, and personal TTS data out of Git.
 
 ## Autonomous decision policy
 
-Proceed without asking for routine implementation choices when the answer follows from the accepted
-plans, rules, tests, or established architecture. Prefer the smallest reversible decision and record it.
-
-Stop and request authority only when a choice would materially change public behavior, accepted
-compatibility, security posture, licensing, deployment scope, external systems, or destructive data
-handling and the plans do not already decide it.
-
-## Managed RPC operation
-
-When Pi is launched through `tools/pi_rpc_bridge.py`, that controller is the sole owner of the Pi
-session. Do not launch a TUI, `--continue`, `--resume`, print-mode job, or second RPC process against
-the same session. Prompts, steering, status checks, aborts, and compaction may arrive through the
-native Pi RPC queue. Treat them like operator instructions, while still enforcing this file and
-`plans/SCOPED_PERMISSIONS.md`.
-
-Normal autonomous work must be submitted as one bounded package through the controller's `/task`
-endpoint. Make the first repository edit promptly, use at most one simpler retry after a failed
-approach, run the package acceptance checks, report compactly, and stop. Never begin the next package
-from the same prompt. The controller may abort work after the configured no-edit timeout, absolute
-timeout, or tool-error limit. After an abort, the next prompt must be smaller than the failed one.
-
-Monitoring uses `/summary` at checkpoints. Token-level `message_update` events, streaming tool-output
-deltas, and full transcript reads are not part of normal supervision. See
-`plans/PI_RPC_CONTROL.md` for the low-token policy and limits.
-
-Before settling after a triggered work unit, update `plans/EXECUTION_STATE.md` and package evidence,
-then report the exact branch, commit, checks, findings, and next safe action. Do not describe an
-independent review as complete unless a different reviewing agent or model actually performed it.
-
-## Milestone completion
-
-At a milestone exit:
-
-1. Close every work-package row or record an approved exception.
-2. Run the full workspace suite and all milestone-specific campaigns.
-3. Reconcile the scope, test, artifact, and known-difference ledgers.
-4. Confirm no command run by the package wrote to the historical Python reference, if it was accessed.
-5. Obtain and resolve the specified frontier review.
-6. Write the milestone report and update `plans/EXECUTION_STATE.md`.
-7. Compact context before beginning the next milestone.
+Proceed without asking for routine implementation choices that follow from accepted plans, rules, tests, or architecture. Prefer the smallest reversible decision and record it. Stop and request authority for choices materially changing public behavior, accepted compatibility, security, licensing, deployment, external systems, or destructive data handling when not already authorized. Existing scoped operator authorization persists. Archive proposals and review recommendations do not themselves authorize adoption.
