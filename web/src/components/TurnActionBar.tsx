@@ -8,6 +8,7 @@ import {
   type TradePartnerView,
   type TurnBarModel,
 } from "../presentation/turnBar.ts";
+import { useBottomBarOffset } from "../hooks/useBottomBarOffset.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import "./TurnActionBar.css";
 
@@ -121,6 +122,7 @@ const BarButton: React.FC<BarButtonProps> = (p) => (
 export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, lastError }) => {
   const display = usePlayerIdentity();
   const rootRef = useRef<HTMLElement | null>(null);
+  useBottomBarOffset(rootRef);
   const [open, setOpen] = useState<MenuKey | null>(null);
   const [info, setInfo] = useState<BarInfo | null>(null);
   const [busy, setBusy] = useState(false);

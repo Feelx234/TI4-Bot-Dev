@@ -113,7 +113,8 @@ html,
 .app-shell__event-log {
   position: absolute;
   right: 330px;
-  bottom: 0;
+  /* Docks above the turn action bar, whose height TurnActionBar publishes while it is shown. */
+  bottom: var(--bottom-bar-offset, 0px);
   left: 0;
   z-index: var(--layer-drawer);
   border-top: 1px solid var(--color-border);
