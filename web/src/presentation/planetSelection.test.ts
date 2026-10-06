@@ -6,6 +6,8 @@ import {
 } from "./choiceModel.ts";
 import {
   describePlanetDecision,
+  describeStructureStep,
+  formatStructureStep,
   formatDecisionSource,
   formatPlanetStats,
   getPlanetDetails,
@@ -407,5 +409,28 @@ describe("board planet targeting mode", () => {
       },
     };
     expect(deriveActorTargetHighlights(miningInitiative, "p1", invading).targetMode).toBeNull();
+  });
+});
+
+describe("describeStructureStep", () => {
+  const place = (details?: Record<string, unknown>, subtype = "place_structure") => ({
+    context: { subtype },
+    details,
+  });
+  it("reads the step, the total and the PDS-only flag", () => {
+    expect(describeStructureStep(place({ step: 2, of: 2, only_pds: true }) as never)).toEqual({
+      step: 2,
+      of: 2,
+      onlyPds: true,
+    });
+    expect(formatStructureStep({ step: 1, of: 2, onlyPds: false })).toBe("Structure 1 of 2");
+    expect(formatStructureStep({ step: 2, of: 2, onlyPds: true })).toBe(
+      "Structure 2 of 2 · PDS only",
+    );
+  });
+  it("is null for other decisions or a missing step", () => {
+    expect(describeStructureStep(place({ step: 1, of: 2 }, "cast_vote") as never)).toBeNull();
+    expect(describeStructureStep(place(undefined) as never)).toBeNull();
+    expect(describeStructureStep(place({ step: "1", of: 2 }) as never)).toBeNull();
   });
 });

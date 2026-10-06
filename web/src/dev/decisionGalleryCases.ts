@@ -374,6 +374,36 @@ export const fallbackCases: GalleryCase[] = [
         }),
         finish(),
       ],
+      details: { step: 1, of: 2 },
+    },
+  },
+  {
+    workflow: "planet_selection",
+    title: "Construction: second structure",
+    fallback: "Step label 2 of 2 with the PDS-only note",
+    note: "Construction's second placement must be a PDS: the bar says which step this is and offers only PDS options.",
+    choice: {
+      actor,
+      nonce: "gallery-place-structure-2",
+      prompt: "place a structure",
+      context: {
+        subtype: "place_structure",
+        source: { Content: "place_structure" },
+      },
+      options: [
+        option("pds|18|jord", "place pds on jord", "build", {
+          planet: "jord",
+          system: "18",
+          unit: "pds",
+        }),
+        option("pds|26|lodor", "place pds on lodor", "build", {
+          planet: "lodor",
+          system: "26",
+          unit: "pds",
+        }),
+        finish(),
+      ],
+      details: { step: 2, of: 2, only_pds: true },
     },
   },
   {

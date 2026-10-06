@@ -9,7 +9,9 @@ import {
 import {
   PlanetDetails,
   describePlanetDecision,
+  describeStructureStep,
   formatPlanetStats,
+  formatStructureStep,
   getPlanetDetails,
   groupPlanetCandidates,
   isSpecificOptionLabel,
@@ -93,6 +95,7 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
   const [localPlanetId, setLocalPlanetId] = useState<string | null>(null);
 
   const description = describePlanetDecision(choice);
+  const structureStep = describeStructureStep(choice);
   const sourceLabel = description.sourceLabel;
   const isActor = Boolean(viewerSeat && choice.actor === viewerSeat);
 
@@ -200,6 +203,11 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
           <span className="badge badge--primary" data-testid="planet-selection-source">
             {sourceLabel ?? "Choose a planet"}
           </span>
+          {structureStep && (
+            <span className="badge" data-testid="structure-step">
+              {formatStructureStep(structureStep)}
+            </span>
+          )}
           <span className="system-activation-bar__prompt">
             {present(capitalize(description.actionPrompt))}
           </span>

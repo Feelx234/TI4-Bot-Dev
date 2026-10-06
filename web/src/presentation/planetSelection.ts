@@ -205,3 +205,27 @@ export function resolveMapTargetSelection(
   );
   return { kind: "select", optionId: match?.id, planetId: null };
 }
+
+export interface StructureStep {
+  step: number;
+  of: number;
+  onlyPds: boolean;
+}
+
+/**
+ * Which placement of a card's structure sequence a `place_structure` decision is (Construction:
+ * "1 of 2", then "2 of 2, PDS only"). `null` for any other decision or when the engine sent no
+ * step.
+ */
+export function describeStructureStep(
+  choice: Pick<PendingChoiceDto, "context" | "details">,
+): StructureStep | null {
+  if (choice.context?.subtype !== "place_structure") return null;
+  const { step, of, only_pds: onlyPds } = choice.details ?? {};
+  if (typeof step !== "number" || typeof of !== "number" || of < 1) return null;
+  return { step, of, onlyPds: onlyPds === true };
+}
+
+export function formatStructureStep(view: StructureStep): string {
+  return `Structure ${view.step} of ${view.of}${view.onlyPds ? " · PDS only" : ""}`;
+}

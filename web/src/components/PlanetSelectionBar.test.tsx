@@ -191,6 +191,22 @@ describe("PlanetSelectionBar", () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("pds|26|lodor"));
   });
 
+  it("Construction numbers its placements and says when only a PDS is allowed", () => {
+    const first = { ...structures, details: { step: 1, of: 2 } };
+    const { rerender } = render(<Host choice={first} onSubmit={vi.fn()} />);
+    expect(screen.getByTestId("structure-step")).toHaveTextContent("Structure 1 of 2");
+    expect(screen.getByTestId("structure-step")).not.toHaveTextContent("PDS only");
+    rerender(
+      <Host choice={{ ...structures, details: { step: 2, of: 2, only_pds: true } }} onSubmit={vi.fn()} />,
+    );
+    expect(screen.getByTestId("structure-step")).toHaveTextContent("Structure 2 of 2 · PDS only");
+  });
+
+  it("shows no step label when the engine sent none", () => {
+    render(<Host choice={structures} onSubmit={vi.fn()} />);
+    expect(screen.queryByTestId("structure-step")).toBeNull();
+  });
+
   it("submits the decline option directly", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<Host choice={structures} onSubmit={onSubmit} />);
