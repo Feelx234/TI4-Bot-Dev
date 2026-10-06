@@ -86,9 +86,10 @@ export const MapPreviewBoard: React.FC<{
                 y={geometry.center.y + 26}
                 textAnchor="middle"
                 fontSize="20"
+                fontWeight={600}
                 fill="#0b1220"
               >
-                {seat.faction_name}
+                {seat.faction.toUpperCase()}
               </text>
             )}
             {!seat && tile.planets && tile.planets.length > 0 && (

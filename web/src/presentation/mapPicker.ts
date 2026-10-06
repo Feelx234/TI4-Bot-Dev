@@ -26,15 +26,15 @@ const WORDS: [suffix: string, label: string][] = [
   ["Hyperlanes", "Hyperlanes"],
 ];
 
-/** `6pStandardNucleus` becomes "Standard"; the player count is already on screen. */
+/** `6pStandardNucleus` becomes "Standard + Nucleus"; the player count is already on screen. */
 export function templateTitle(alias: string): string {
   const base = alias
     .replace(/^\d+p/, "")
     .replace(/InPerson/, "")
     .replace(/Nucleus$/, "");
   const hit = WORDS.find(([suffix]) => base === suffix);
-  if (hit) return hit[1];
-  return base.replace(/([a-z])([A-Z0-9])/g, "$1 $2") || alias;
+  const name = hit ? hit[1] : base.replace(/([a-z])([A-Z0-9])/g, "$1 $2") || alias;
+  return /Nucleus$/.test(alias) ? `${name} + Nucleus` : name;
 }
 
 /**

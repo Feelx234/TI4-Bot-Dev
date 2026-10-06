@@ -37,7 +37,7 @@ describe("map picker model", () => {
     expect(templateTitle("6pStandard")).toBe("Standard");
     expect(templateTitle("6pBeMyNeighbor")).toBe("Be my neighbor");
     expect(templateTitle("3pInPersonHyperlanes")).toBe("Hyperlanes");
-    expect(templateTitle("6pStandardNucleus")).toBe("Standard");
+    expect(templateTitle("6pStandardNucleus")).toBe("Standard + Nucleus");
     expect(templateBadges("6pStandardNucleus")).toEqual(["Nucleus (no special rules yet)"]);
     expect(templateBadges("3pInPersonHyperlanes", { hyperlanes: true })).toEqual([
       "Hyperlanes",

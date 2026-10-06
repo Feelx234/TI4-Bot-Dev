@@ -22,6 +22,8 @@ test("creates, joins, leaves, rejoins, starts, and restores using the real serve
   await host.getByLabel("Nickname").fill("Player 1");
   await host.getByTestId("create-game-button").click();
   await expect(host.getByText("Game lobby")).toBeVisible();
+  // The map picker opens by itself for a fresh host; the lobby is behind it until Done.
+  await host.getByTestId("map-picker-done").click();
   const hostUrl = host.url();
   expect(hostUrl).not.toContain("#");
   await expect(host.getByTestId("start-game-button")).toBeDisabled();
@@ -75,6 +77,8 @@ test("reorders open positions, watches a running game, and revokes a disconnecte
   await host.getByLabel("Nickname").fill("Player 1");
   await host.getByTestId("create-game-button").click();
   await expect(host.getByText("Game lobby")).toBeVisible();
+  // The map picker opens by itself for a fresh host; the lobby is behind it until Done.
+  await host.getByTestId("map-picker-done").click();
   const gameUrl = host.url();
   const gameId = new URL(gameUrl).pathname.split("/").pop()!;
   const hostSession = await host.evaluate(
@@ -156,4 +160,98 @@ test("reorders open positions, watches a running game, and revokes a disconnecte
   await takeoverContext.close();
   await spectatorContext.close();
   await hostContext.close();
+});
+
+test("the host picks a map, a guest sees it within seconds, and the started board matches the preview", async ({
+  browser,
+  request,
+}) => {
+  const backend = `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? "8080"}`;
+  const hostContext = await browser.newContext();
+  const host = await hostContext.newPage();
+  failOnBrowserErrors(host);
+  await host.goto("/");
+  await host.getByLabel("Players").selectOption("3");
+  await host.getByLabel("Nickname").fill("Mapper");
+  await host.getByTestId("create-game-button").click();
+
+  // Opens by itself, offers only maps the server says build, plus Random.
+  const picker = host.getByRole("dialog", { name: "Choose your map" });
+  await expect(picker).toBeVisible();
+  const listed: { alias: string; buildable: boolean }[] = await (
+    await request.get(`${backend}/api/maps?player_count=3`)
+  ).json();
+  expect(listed.length).toBeGreaterThan(0);
+  await expect(host.getByTestId("map-picker-loading")).toBeHidden();
+  await expect(picker.locator('[data-testid^="map-card-"]')).toHaveCount(listed.length + 1);
+  await expect(host.getByTestId("map-preview-board")).toBeVisible();
+
+  // A guest joins from the shared URL and watches the lobby.
+  const gameUrl = host.url();
+  const guestContext = await browser.newContext();
+  const guest = await guestContext.newPage();
+  failOnBrowserErrors(guest);
+  await guest.goto(gameUrl);
+  await guest.getByLabel("Nickname").fill("Guest");
+  await guest.getByRole("button", { name: "Join game" }).click();
+  await expect(guest.getByTestId("lobby-map-button")).toHaveText("View map");
+
+  const gameId = new URL(gameUrl).pathname.split("/").pop()!;
+
+  // The host picks another template; the guest's row follows (polled every 2 s).
+  const other = listed.find((m) => !(m as { recommended?: boolean }).recommended) ?? listed[0];
+  await host.getByTestId(`map-card-${other.alias}`).click();
+  await expect(host.getByTestId(`map-card-${other.alias}`)).toHaveAttribute("aria-pressed", "true");
+  await expect(guest.getByTestId("lobby-map-row")).toContainText(other.alias, { timeout: 6_000 });
+  await expect(guest.getByTestId("map-change-notice")).toContainText("The host changed the map");
+
+  // Re-roll Random until the picture is settled, then keep it.
+  await host.getByTestId("map-card-random").click();
+  await expect(host.getByTestId("map-card-random")).toHaveAttribute("aria-pressed", "true");
+  await expect(host.getByTestId("map-picker-summary")).toContainText("Random map");
+  await host.getByTestId("map-reroll").click();
+  await expect(host.getByTestId("map-reroll")).toHaveText("Re-roll");
+  const previewIds = async () =>
+    host
+      .getByTestId("map-preview-board")
+      .locator("[data-testid^='map-tile-']")
+      .evaluateAll((nodes) =>
+        nodes.map((n) => n.getAttribute("data-testid")!.replace("map-tile-", "")).sort(),
+      );
+  const serverPreviewIds = async (): Promise<string[]> => {
+    const preview: { tiles: { system_id: string; special_area?: string }[] } = await (
+      await request.get(`${backend}/api/games/${gameId}/lobby/map-preview`)
+    ).json();
+    return preview.tiles
+      .filter((tile) => !tile.special_area)
+      .map((tile) => tile.system_id)
+      .sort();
+  };
+  await expect.poll(previewIds).toEqual(await serverPreviewIds());
+  const before = await serverPreviewIds();
+  await host.getByTestId("map-picker-done").click();
+
+  // Guest opens the read-only view: no host controls, own seat marked.
+  await guest.getByTestId("lobby-map-button").click();
+  const readonly = guest.getByRole("dialog", { name: "Map" });
+  await expect(readonly.getByTestId("map-reroll")).toHaveCount(0);
+  await expect(readonly.locator('[data-mine="true"]')).toHaveCount(1);
+  await readonly.getByTestId("map-picker-close").click();
+
+  // Ready up and start: the real board has the previewed systems.
+  await host.getByTestId("ready-button").click();
+  await guest.getByTestId("ready-button").click();
+  await expect(host.getByTestId("start-game-button")).toBeEnabled();
+  await host.getByTestId("start-game-button").click();
+  await expect(host.getByTestId("turn-status-bar")).toBeVisible();
+  const board: { system_id: string; special_area?: string }[] = await (
+    await request.get(`${backend}/api/games/${gameId}/map`)
+  ).json();
+  const actual = board
+    .filter((tile) => !tile.special_area)
+    .map((tile) => tile.system_id)
+    .sort();
+  expect(actual).toEqual(before);
+  await hostContext.close();
+  await guestContext.close();
 });
