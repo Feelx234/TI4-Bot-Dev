@@ -19,7 +19,9 @@ import {
   preferTokenConfirm,
   steerWeight as policySteerWeight,
   strongUnselected,
-  isUnstage,
+  classifyControl,
+  isBarControl,
+  turnBarPool,
 } from "./smokePolicy";
 
 /**
@@ -62,10 +64,19 @@ export interface PlaythroughReport {
   subtypes: Record<string, number>;
   /** Error banners the UI showed after a click, usually server rejections of offered controls. */
   rejections: string[];
+  /** Action-phase decisions (the turn menu and the end-turn question) seen in the run. */
+  turnMenuDecisions: number;
+  /** Of those, resolved with a click on the persistent turn bar. */
+  barDecisions: number;
+  /** Bar clicks that submitted, by control (`turn-bar-strategic-<card>`, `turn-bar-open`, ...). */
+  barControls: Record<string, number>;
+  /** Turn-menu decisions that fell back to the old list because the bar could not map them. */
+  turnMenuFallbacks: string[];
 }
 
 // Containers that render a decision for the acting seat.
 const DECISION_CONTAINERS = [
+  "turn-action-bar",
   "pending-choice-dialog",
   "system-activation-bar",
   "planet-selection-bar",
@@ -99,10 +110,6 @@ const EXCLUDED =
   /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect/i;
 // Controls that take back staged selections. Only used to escape a staging dead end, such as
 // cargo over transport capacity, where every submit button is disabled.
-// Controls that submit something to the server.
-const COMMIT =
-  /submit|confirm|commit|done|finish|pass|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn/i;
-
 interface Candidate {
   idx: number;
   desc: string;
@@ -220,8 +227,7 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
     { containers: DECISION_CONTAINERS, excluded: EXCLUDED.source },
   );
   return raw.map((c) => {
-    const unstage = isUnstage(c.desc);
-    return { ...c, unstage, commit: !unstage && COMMIT.test(c.desc) };
+    return { ...c, ...classifyControl(c.desc) };
   });
 }
 
@@ -310,6 +316,12 @@ function pick(
   policy: "random" | "steer",
   hexWeights: Map<string, number>,
 ): Candidate {
+  // The turn bar has no staging step: choose one of its controls by weight (or uniformly).
+  const bar = turnBarPool(candidates);
+  if (bar) {
+    if (policy === "random") return bar[Math.floor(rng() * bar.length)];
+    return weightedPick(bar, (c) => steerWeight(c.full, hexWeights), rng);
+  }
   candidates = preferTokenConfirm(preferHitConfirm(preferPayment(candidates)));
   const resume = candidates.filter((c) => c.resume);
   if (resume.length) return resume[Math.floor(rng() * resume.length)];
@@ -458,6 +470,10 @@ export async function randomUiPlaythrough(
     finalStatus: null,
     subtypes: {},
     rejections: [],
+    turnMenuDecisions: 0,
+    barDecisions: 0,
+    barControls: {},
+    turnMenuFallbacks: [],
   };
 
   const trace = (file: string, data: unknown, append = false) => {
@@ -622,6 +638,10 @@ export async function randomUiPlaythrough(
         fail(page, `seat ${actorIndex + 1} UI never reached v${before}`),
       );
 
+    const isTurnMenu =
+      choice.prompt === "action phase" || subtype === "end_turn";
+    if (isTurnMenu) report.turnMenuDecisions++;
+    let barControl: string | null = null;
     let progressed = false;
     let emptyPolls = 0;
     for (let clicks = 0; clicks < options.maxClicksPerDecision;) {
@@ -668,6 +688,11 @@ export async function randomUiPlaythrough(
         );
       clicks++;
       report.clicks++;
+      if (isTurnMenu && isBarControl(chosen.desc) && chosen.commit)
+        barControl = chosen.desc
+          .split(" | ")[0]
+          .replace(/^(turn-bar-open)-.*/, "$1")
+          .replace(/^(turn-bar-item)-.*/, "$1");
 
       if (chosen.commit) {
         // Wait for the tab to show the new version; fall back to one server check in case the
@@ -711,6 +736,17 @@ export async function randomUiPlaythrough(
         page,
         `${subtype} did not advance after ${options.maxClicksPerDecision} clicks (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
       );
+    }
+    if (isTurnMenu) {
+      if (barControl) {
+        report.barDecisions++;
+        report.barControls[barControl] =
+          (report.barControls[barControl] ?? 0) + 1;
+      } else {
+        report.turnMenuFallbacks.push(
+          `${subtype}: ${JSON.stringify(choice.options.map((o) => o.id))}`,
+        );
+      }
     }
     report.decisions++;
   }

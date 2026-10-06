@@ -7,6 +7,9 @@ import {
   steerWeight,
   strongUnselected,
   isUnstage,
+  classifyControl,
+  turnBarPool,
+  isBarControl,
 } from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
@@ -192,5 +195,75 @@ describe("preferTokenConfirm", () => {
   it("leaves other decisions alone", () => {
     const stages = [c("choice-option | tactic pool")];
     expect(preferTokenConfirm(stages)).toEqual(stages);
+  });
+});
+
+describe("turn bar controls (smoke harness)", () => {
+  const tactical = c("turn-bar-tactical | Tactical action 3 tactic tokens left T");
+  const imperial = c(
+    "turn-bar-strategic-pok8imperial | 8. Imperial Immediately score 1 public objective if you remove",
+  );
+  const diplomacy = c("turn-bar-strategic-pok2diplomacy | 2. Diplomacy Choose 1 system");
+  const trade = c("turn-bar-trade | Trade 3 partners · 2 in contact D");
+  const components = c("turn-bar-components | Components 2 usable C");
+  const open = c("turn-bar-open-hacan | Open");
+  const item = c("turn-bar-item-faction|orbital_drop | Orbital Drop");
+  const end = c("turn-bar-end | End turn Enter Enter or click");
+
+  it("treats a bar button as one click that submits, not as staging", () => {
+    expect(classifyControl(tactical.desc)).toEqual({ unstage: false, commit: true });
+    expect(classifyControl(diplomacy.desc)).toEqual({ unstage: false, commit: true });
+    expect(classifyControl(end.desc)).toEqual({ unstage: false, commit: true });
+    expect(classifyControl(open.desc)).toEqual({ unstage: false, commit: true });
+    expect(classifyControl(item.desc)).toEqual({ unstage: false, commit: true });
+  });
+
+  it("does not read a card's effect text as a take-back control", () => {
+    // The Imperial text above contains "remove"; the old test-id-free rule would unstage it.
+    expect(isUnstage(imperial.desc)).toBe(false);
+    expect(classifyControl(imperial.desc).unstage).toBe(false);
+  });
+
+  it("treats the menu toggles as opening a list, not submitting", () => {
+    expect(classifyControl(trade.desc)).toEqual({ unstage: false, commit: false });
+    expect(classifyControl(components.desc)).toEqual({ unstage: false, commit: false });
+    expect(classifyControl("turn-bar-cards | Action cards 2 A").commit).toBe(false);
+  });
+
+  it("keeps non-bar controls classified as before", () => {
+    expect(classifyControl("decline-trade-btn | Decline")).toEqual({
+      unstage: false,
+      commit: true,
+    });
+    expect(classifyControl("hit-reset | Reset").unstage).toBe(true);
+  });
+
+  it("chooses among every enabled bar button when no menu is open", () => {
+    const pool = turnBarPool([tactical, imperial, trade, c("choice-option | stray")]);
+    expect(pool).toEqual([tactical, imperial, trade]);
+  });
+
+  it("answers an open menu first, never a second toggle", () => {
+    expect(turnBarPool([tactical, trade, open])).toEqual([open]);
+    expect(turnBarPool([components, item, tactical])).toEqual([item]);
+  });
+
+  it("is not the bar's business when there is no bar", () => {
+    expect(turnBarPool([c("choice-option | a"), c("confirm-payment-btn")])).toBeNull();
+    expect(isBarControl("choice-option | a")).toBe(false);
+  });
+
+  it("steers toward tactical play, rarely trades or passes, and takes End turn", () => {
+    expect(steerWeight(tactical.desc)).toBeGreaterThan(steerWeight(imperial.desc));
+    expect(steerWeight(imperial.desc)).toBeGreaterThan(steerWeight(trade.desc));
+    expect(steerWeight(trade.desc)).toBeLessThan(1);
+    expect(steerWeight("turn-bar-pass | Pass")).toBeLessThan(1);
+    expect(steerWeight(end.desc)).toBeGreaterThan(steerWeight(components.desc));
+    // The test id decides, not the words in a card's text.
+    expect(steerWeight("turn-bar-components | Components take a tactical action")).toBe(1);
+  });
+
+  it("gives every split strategic button the same weight so each card gets played", () => {
+    expect(steerWeight(imperial.desc)).toBe(steerWeight(diplomacy.desc));
   });
 });

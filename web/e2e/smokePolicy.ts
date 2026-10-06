@@ -43,9 +43,44 @@ export function preferTokenConfirm<T extends PolicyCandidate>(
   return plus.length ? plus : candidates;
 }
 
+/**
+ * The persistent turn bar. Every button there submits (or opens a menu) in one click, so none of
+ * the staging-then-confirm logic applies, and the button text (strategy card effects mention
+ * "remove", "pass", "done") must never be read as a take-back or a submit control.
+ */
+export const isBarControl = (desc: string): boolean => /^turn-bar-/.test(desc);
+
+/** Bar controls that send an engine option; the three menu toggles only open a list. */
+export function isBarSubmit(desc: string): boolean {
+  return /^turn-bar-(tactical|strategic-|pass|end|item-|open-)/.test(desc);
+}
+
+/** Rows inside an open bar menu (components, action cards, trade partners). */
+const isBarRow = (desc: string): boolean => /^turn-bar-(item|open)-/.test(desc);
+
+/**
+ * The controls to choose among while the turn bar is up, or `null` when it is not. An open menu
+ * must be answered first (its rows, never a second toggle), otherwise every enabled bar button.
+ */
+export function turnBarPool<T extends PolicyCandidate>(candidates: T[]): T[] | null {
+  const bar = candidates.filter((c) => isBarControl(c.desc));
+  if (!bar.length) return null;
+  const rows = bar.filter((c) => isBarRow(c.desc));
+  return rows.length ? rows : bar;
+}
+
 // Steering weights, first match wins; anything unmatched weighs 1. They push random play toward
 // moving fleets into contested systems and Mecatol Rex instead of passing and trading.
 const STEER_WEIGHTS: [RegExp, number][] = [
+  // The turn bar (matched on the test id, which comes first in the description).
+  [/^turn-bar-tactical\b/, 30],
+  [/^turn-bar-strategic-/, 3],
+  [/^turn-bar-trade\b/, 0.1],
+  [/^turn-bar-open-/, 1],
+  [/^turn-bar-pass\b/, 0.3],
+  // Ending the turn is the closing question; when it is enabled it should usually be taken.
+  [/^turn-bar-end\b/, 20],
+  [/^turn-bar-/, 1],
   [/take a tactical action/i, 30],
   [/strategic action/i, 3],
   [/open a transaction|propose-trade-btn|trade-opt-/i, 0.1],
@@ -81,8 +116,22 @@ const CUSTODIANS_YES = /remove it for a victory point/i;
  * treated as one, so it was almost never clicked and "no" was submitted instead.
  */
 export function isUnstage(desc: string): boolean {
-  if (/^choice-option\b/.test(desc) || CUSTODIANS_YES.test(desc)) return false;
+  if (isBarControl(desc) || /^choice-option\b/.test(desc) || CUSTODIANS_YES.test(desc)) return false;
   return UNSTAGE.test(desc);
+}
+
+// Controls that submit something to the server.
+const COMMIT =
+  /submit|confirm|commit|done|finish|pass|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn/i;
+
+/**
+ * Whether a control takes back staging and whether it submits. A turn bar button submits in one
+ * click, and its text must never be read for submit or take-back words.
+ */
+export function classifyControl(desc: string): { unstage: boolean; commit: boolean } {
+  if (isBarControl(desc)) return { unstage: false, commit: isBarSubmit(desc) };
+  const unstage = isUnstage(desc);
+  return { unstage, commit: !unstage && COMMIT.test(desc) };
 }
 
 /** Weight at which an option is worth choosing before anything is submitted. */
