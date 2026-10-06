@@ -781,6 +781,17 @@ impl Resolver {
                         event,
                         relation,
                     );
+                    // Every printed name this slot could play, so a seat's "never offer"
+                    // preference can tell a slot that holds only such cards. Not part of the
+                    // option's identity or of the recorded decision.
+                    let mut names: Vec<String> = Vec::new();
+                    for candidate in &cards {
+                        let name = crate::action_cards::name_of(context.content, candidate);
+                        if !names.contains(&name) {
+                            names.push(name);
+                        }
+                    }
+                    option = option.with("card_names", serde_json::json!(names));
                     if let Some(card) = cards.first().filter(|first| {
                         cards.iter().all(|candidate| {
                             crate::action_cards::name_of(context.content, candidate)

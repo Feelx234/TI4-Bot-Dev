@@ -11,8 +11,9 @@ use ti4_engine::choice::{
 };
 use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash};
 use ti4_engine::game::Game;
+use ti4_engine::reaction_modes::NeverOffer;
 use ti4_model::id::PlayerId;
-use ti4_model::state::GameState;
+use ti4_model::state::{GameState, ReactionMode};
 
 use crate::projection::project_turn_status;
 use crate::protocol::PROTOCOL_VERSION;
@@ -99,9 +100,79 @@ pub struct SessionShared {
     /// Decisions auto-resolved since the last state update, with the seat they belong to.
     /// Transient by design: not persisted, so a restart's replay never re-announces them.
     pub pending_auto_resolved: Vec<(PlayerId, crate::protocol::server::AutoResolvedNote)>,
+    /// Card names each seat asked never to be offered. The sets are shared with the seats'
+    /// deciders, which read them as each question is asked.
+    pub reaction_modes: BTreeMap<PlayerId, ti4_engine::reaction_modes::NeverSet>,
 }
 
 impl SessionShared {
+    /// Every seat's Never set as plain data, for persistence and for a restarted worker.
+    #[must_use]
+    pub fn reaction_modes_snapshot(&self) -> BTreeMap<PlayerId, std::collections::BTreeSet<String>> {
+        self.reaction_modes
+            .iter()
+            .map(|(seat, set)| (seat.clone(), set.lock().expect("never set lock").clone()))
+            .filter(|(_, set)| !set.is_empty())
+            .collect()
+    }
+
+    /// One seat's choices by card name, as the protocol sends them.
+    #[must_use]
+    pub fn reaction_modes_for(&self, viewer: &ViewerRole) -> BTreeMap<String, ReactionMode> {
+        let ViewerRole::Player(seat) = viewer else {
+            return BTreeMap::new();
+        };
+        self.reaction_modes.get(seat).map_or_else(BTreeMap::new, |set| {
+            set.lock()
+                .expect("never set lock")
+                .iter()
+                .map(|card| (card.clone(), ReactionMode::Never))
+                .collect()
+        })
+    }
+
+    /// Record one seat's choice for one printed card name, persist it, and tell that seat's
+    /// clients. Idempotent: setting the mode a card already has changes nothing.
+    ///
+    /// # Errors
+    /// A message for the client when the seat is unknown or the card is not an action card, or
+    /// when the choice could not be saved (in which case it is not applied).
+    pub fn set_reaction_mode(
+        &mut self,
+        seat: &PlayerId,
+        card: &str,
+        mode: ReactionMode,
+    ) -> Result<(), String> {
+        let Some(set) = self.reaction_modes.get(seat).cloned() else {
+            return Err("no such seat".to_owned());
+        };
+        if !is_action_card_name(card) {
+            return Err(format!("unknown action card '{card}'"));
+        }
+        let before = set.lock().expect("never set lock").clone();
+        {
+            let mut guard = set.lock().expect("never set lock");
+            match mode {
+                ReactionMode::Never => guard.insert(card.to_owned()),
+                ReactionMode::Always => guard.remove(card),
+            };
+        }
+        if *set.lock().expect("never set lock") == before {
+            return Ok(());
+        }
+        if let Some(store) = &self.store {
+            let record = crate::storage::ReactionModesRecord {
+                never: self.reaction_modes_snapshot(),
+            };
+            if let Err(error) = store.save_reaction_modes(&self.game_id, &record) {
+                *set.lock().expect("never set lock") = before;
+                return Err(format!("could not save the setting: {error}"));
+            }
+        }
+        self.broadcast_state_update();
+        Ok(())
+    }
+
     /// Queue a note for the seat's next state update, merging a repeat of the same reason.
     pub fn note_auto_resolved(&mut self, seat: &PlayerId, prompt: &str, selected: &str, reason: &str) {
         if let Some((_, existing)) = self
@@ -190,6 +261,7 @@ impl SessionShared {
             history_generation: 0,
             batches: Vec::new(),
             pending_auto_resolved: Vec::new(),
+            reaction_modes: BTreeMap::new(),
         }
     }
 
@@ -410,6 +482,16 @@ impl SessionShared {
             &self.decision_log,
         );
         let auto_resolved = std::mem::take(&mut self.pending_auto_resolved);
+        let modes_by_seat: BTreeMap<PlayerId, BTreeMap<String, ReactionMode>> = self
+            .reaction_modes
+            .keys()
+            .map(|seat| {
+                (
+                    seat.clone(),
+                    self.reaction_modes_for(&ViewerRole::Player(seat.clone())),
+                )
+            })
+            .collect();
         self.publish(|viewer| {
             let mut update = crate::projection::project_state_update_with_map(
                 &game_id,
@@ -424,6 +506,13 @@ impl SessionShared {
             )
             .with_history(self_decision_count, self_redo_count, self_generation);
             update.current_path = path.clone();
+            update.reaction_modes = modes_by_seat
+                .get(match viewer {
+                    ViewerRole::Player(seat) => seat,
+                    _ => return ServerMessage::StateUpdate(update),
+                })
+                .cloned()
+                .unwrap_or_default();
             // Only the seat the decision belonged to is told; it already saw those options.
             update.auto_resolved = auto_resolved
                 .iter()
@@ -598,6 +687,14 @@ impl Decider for ReplayingDecider {
     }
 }
 
+/// Whether `name` is the printed name of some action card in the content corpus.
+fn is_action_card_name(name: &str) -> bool {
+    ContentStore::embedded()
+        .records(ti4_model::content_types::ContentType::ActionCards)
+        .iter()
+        .any(|record| record.text("name") == Some(name))
+}
+
 /// Spawns the dedicated session worker thread for an active game session.
 #[allow(clippy::too_many_lines)]
 #[must_use]
@@ -637,6 +734,12 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     initial_shared.event_counter = config.event_counter;
     initial_shared.history_generation = config.history_generation;
     initial_shared.batches.clone_from(&config.batches);
+    for seat in config.seats.keys() {
+        let never = config.reaction_modes.get(seat).cloned().unwrap_or_default();
+        initial_shared
+            .reaction_modes
+            .insert(seat.clone(), Arc::new(Mutex::new(never)));
+    }
 
     if !config.prior_events.is_empty() {
         initial_shared.event_counter = initial_shared
@@ -665,6 +768,13 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
 
         // Configure table deciders
         for (seat, controller) in config.seats {
+            let inner_human = matches!(controller, SeatController::Human);
+            let never_set = worker_shared
+                .lock()
+                .expect("shared lock")
+                .reaction_modes
+                .get(&seat)
+                .cloned();
             let inner: Box<dyn Decider> = match controller {
                 SeatController::Human => {
                     let (inbox_tx, inbox_rx) = mpsc::channel();
@@ -683,6 +793,30 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 SeatController::BotFirstOption => Box::new(FirstOption),
                 SeatController::BotAlwaysDecline => Box::new(AlwaysDecline),
                 SeatController::BotScripted(script) => Box::new(Scripted::new(script)),
+            };
+
+            // A human seat's "never offer" choices are applied here, below the replay layer: a
+            // declined window is an ordinary journaled decision and replay never reaches this.
+            let inner: Box<dyn Decider> = match (inner_human, never_set) {
+                (true, Some(never)) => {
+                    let note_shared = worker_shared.clone();
+                    Box::new(
+                        NeverOffer::new(inner, never).on_skip(move |choice, cards| {
+                            let mut lock = note_shared.lock().expect("shared lock");
+                            if lock.stopped {
+                                return;
+                            }
+                            let names = cards.join(", ");
+                            lock.note_auto_resolved(
+                                &choice.player,
+                                &format!("Reaction window ({names})"),
+                                "Pass",
+                                &format!("you set {names} to never offer"),
+                            );
+                        }),
+                    )
+                }
+                _ => inner,
             };
 
             let inner: Box<dyn Decider> = Box::new(ObservedDecider {

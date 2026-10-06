@@ -334,6 +334,17 @@ pub struct BatchRecord {
     pub interrupted: Option<crate::session::batch::BatchInterruption>,
 }
 
+/// Per-seat "never offer" choices, saved beside the decision log in `reaction_modes.json`.
+///
+/// Session settings, not game inputs: replay answers from the decision log (a declined window is
+/// an ordinary journaled decision), so this file only has to restore what each seat last asked
+/// for. A game without it simply has no preferences, which is how every older save loads.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReactionModesRecord {
+    #[serde(default)]
+    pub never: BTreeMap<PlayerId, std::collections::BTreeSet<String>>,
+}
+
 /// Initial configuration record saved atomically to `init.json`.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GameInitRecord {
@@ -675,6 +686,33 @@ impl FileGameStore {
         Ok(())
     }
 
+    /// Atomically stores every seat's reaction modes.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the file cannot be written.
+    pub fn save_reaction_modes(
+        &self,
+        game_id: &str,
+        record: &ReactionModesRecord,
+    ) -> Result<(), StorageError> {
+        let dir = self.game_dir(game_id)?;
+        fs::create_dir_all(&dir)?;
+        atomic_write_json(&dir.join("reaction_modes.json"), record)?;
+        Ok(())
+    }
+
+    /// Loads the saved reaction modes; a game that never set one has none.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the file exists but cannot be read.
+    pub fn load_reaction_modes(&self, game_id: &str) -> Result<ReactionModesRecord, StorageError> {
+        let path = self.game_dir(game_id)?.join("reaction_modes.json");
+        if !path.exists() {
+            return Ok(ReactionModesRecord::default());
+        }
+        read_json_file(&path, MAX_SNAPSHOT_BYTES)
+    }
+
     /// Atomically stores a bounded replay-validation snapshot.
     pub fn save_snapshot(
         &self,
@@ -948,6 +986,7 @@ impl FileGameStore {
         let mut config =
             SessionConfig::new(&init_record.game_id, init_record.initial_state.clone())
                 .with_store(self.clone())
+                .with_reaction_modes(self.load_reaction_modes(game_id)?.never)
                 .with_prior_history(decisions.clone(), events.clone());
         if let Some(history) = history {
             config.initial_version = history.revision;

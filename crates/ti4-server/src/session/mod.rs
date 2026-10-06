@@ -5,7 +5,7 @@ pub mod replay;
 pub mod transport;
 pub mod worker;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::thread::JoinHandle;
 
@@ -96,6 +96,8 @@ pub struct SessionConfig {
     pub batches: Vec<crate::storage::BatchRecord>,
     /// State at the first unplanned choice, computed by private replay for a committed batch.
     pub replay_boundary_state: Option<GameState>,
+    /// Card names each seat asked never to be offered (see `ti4_engine::reaction_modes`).
+    pub reaction_modes: BTreeMap<PlayerId, BTreeSet<String>>,
 }
 
 impl SessionConfig {
@@ -127,7 +129,14 @@ impl SessionConfig {
             history_generation: 0,
             batches: Vec::new(),
             replay_boundary_state: None,
+            reaction_modes: BTreeMap::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_reaction_modes(mut self, modes: BTreeMap<PlayerId, BTreeSet<String>>) -> Self {
+        self.reaction_modes = modes;
+        self
     }
 
     #[must_use]
@@ -383,6 +392,7 @@ impl GameSession {
             lock.redo_decisions.len(),
             lock.history_generation,
         );
+        snapshot.reaction_modes = lock.reaction_modes_for(viewer);
         snapshot.current_path = crate::protocol::server::current_log_path(
             &lock.latest_state,
             pending.map(|(choice, _)| choice),
@@ -504,6 +514,22 @@ impl GameSession {
         }
     }
 
+    /// Set one seat's handling of one action card, by printed name.
+    ///
+    /// # Errors
+    /// A client-facing message when the seat or card is unknown or the setting cannot be saved.
+    pub fn set_reaction_mode(
+        &self,
+        seat: &PlayerId,
+        card: &str,
+        mode: ti4_model::state::ReactionMode,
+    ) -> Result<(), String> {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .set_reaction_mode(seat, card, mode)
+    }
+
     pub fn game_version(&self) -> u64 {
         self.shared.lock().expect("shared lock").game_version
     }
@@ -513,6 +539,8 @@ impl GameSession {
         // Callers can replace the decision prefix (batch commit, undo, redo).
         // The old speculative view must never be reused for a different cursor.
         config.replay_boundary_state = None;
+        // A rewind or a batch starts a new worker; what each seat asked for survives it.
+        config.reaction_modes = self.shared.lock().expect("shared lock").reaction_modes_snapshot();
         config
     }
 

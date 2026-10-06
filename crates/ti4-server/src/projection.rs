@@ -659,6 +659,7 @@ pub fn project_initial_snapshot_with_map(
             .collect(),
         history: crate::protocol::server::HistoryStatus::default(),
         current_path: None,
+        reaction_modes: BTreeMap::new(),
     }
 }
 
@@ -718,6 +719,7 @@ pub fn project_state_update_with_map(
         pending_choice: project_pending_choice(viewer, pending_choice),
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
         auto_resolved: Vec::new(),
+        reaction_modes: BTreeMap::new(),
     }
 }
 

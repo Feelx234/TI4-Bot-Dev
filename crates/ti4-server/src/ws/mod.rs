@@ -290,6 +290,40 @@ async fn handle_socket(
                     }
                 });
             }
+            ClientMessage::SetReactionMode {
+                game_id: message_game_id,
+                card,
+                mode,
+                ..
+            } => {
+                let refusal = if message_game_id != game_id {
+                    Some((
+                        ErrorKind::MalformedMessage,
+                        "set_reaction_mode game_id does not match the WebSocket path".to_owned(),
+                    ))
+                } else {
+                    match &current_role {
+                        // The seat is the connection's own, never taken from the message.
+                        Some(ViewerRole::Player(seat)) => session
+                            .set_reaction_mode(seat, &card, mode)
+                            .err()
+                            .map(|message| (ErrorKind::MalformedMessage, message)),
+                        Some(ViewerRole::Spectator) | None => Some((
+                            ErrorKind::Unauthorized,
+                            "only a seated player can change reaction modes".to_owned(),
+                        )),
+                    }
+                };
+                if let Some((kind, message)) = refusal {
+                    let _ = outbound_tx
+                        .send(ServerMessage::Error(ProtocolErrorMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            kind,
+                            message,
+                        }))
+                        .await;
+                }
+            }
             ClientMessage::SubmitChoice {
                 game_id: message_game_id,
                 expected_version,

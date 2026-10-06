@@ -63,6 +63,7 @@ pub mod planets;
 pub mod preview;
 pub mod production;
 pub mod promissory;
+pub mod reaction_modes;
 pub mod reactions;
 pub mod registry;
 pub mod relics;

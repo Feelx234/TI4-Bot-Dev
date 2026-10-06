@@ -3138,6 +3138,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         history_generation: 0,
         batches: Vec::new(),
         replay_boundary_state: None,
+        reaction_modes: BTreeMap::new(),
     })
 }
 
@@ -3250,5 +3251,6 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         history_generation: 0,
         batches: Vec::new(),
         replay_boundary_state: None,
+        reaction_modes: BTreeMap::new(),
     })
 }

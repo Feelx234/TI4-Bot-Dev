@@ -11,6 +11,7 @@ use crate::map::GalaxyLayout;
 pub use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::state::GameState;
 use ti4_model::state::Phase;
+use ti4_model::state::ReactionMode;
 
 /// Server submission metadata around the engine's wire-serialized choice.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +41,10 @@ pub struct InitialSnapshotMsg {
     pub history: HistoryStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_path: Option<CurrentLogPath>,
+    /// The receiving seat's own "never offer" choices, by printed card name; absent when it has
+    /// none. Always empty for spectators and for every other seat's view.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reaction_modes: BTreeMap<String, ReactionMode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +99,12 @@ fn is_default_history(value: &HistoryStatus) -> bool {
 }
 
 impl InitialSnapshotMsg {
+    #[must_use]
+    pub fn with_reaction_modes(mut self, modes: BTreeMap<String, ReactionMode>) -> Self {
+        self.reaction_modes = modes;
+        self
+    }
+
     #[must_use]
     pub fn with_history(mut self, cursor: usize, redo_count: usize, generation: u64) -> Self {
         self.history = HistoryStatus {
@@ -1429,6 +1440,10 @@ pub struct StateUpdateMsg {
     /// exactly one option was legal. Feedback only: never journaled, never sent to other seats.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub auto_resolved: Vec<AutoResolvedNote>,
+    /// The receiving seat's own "never offer" choices, by printed card name; absent when it has
+    /// none. Always empty for spectators and for every other seat's view.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reaction_modes: BTreeMap<String, ReactionMode>,
 }
 
 /// One decision made on a seat's behalf because it had a single legal option.
@@ -1458,6 +1473,12 @@ const fn is_one(count: &u32) -> bool {
 }
 
 impl StateUpdateMsg {
+    #[must_use]
+    pub fn with_reaction_modes(mut self, modes: BTreeMap<String, ReactionMode>) -> Self {
+        self.reaction_modes = modes;
+        self
+    }
+
     #[must_use]
     pub fn with_history(mut self, cursor: usize, redo_count: usize, generation: u64) -> Self {
         self.history = HistoryStatus {

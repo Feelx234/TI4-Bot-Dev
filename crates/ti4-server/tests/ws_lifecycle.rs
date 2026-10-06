@@ -831,3 +831,90 @@ async fn running_takeover_closes_old_subscription_and_refuses_old_choices() {
     );
     server.abort();
 }
+
+#[tokio::test]
+async fn set_reaction_mode_is_owner_only_and_reaches_only_the_owners_clients() {
+    let (addr, _registry) = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let (game_id, p1_token) =
+        create_game(&client, &addr, &["p1", "p2", "p3"], &["p2", "p3"], 321).await;
+    ready_and_start(&client, &addr, &game_id, &[&p1_token]).await;
+    let ws_url = format!("ws://{addr}/ws/games/{game_id}");
+
+    async fn connect(
+        ws_url: &str,
+        game_id: &str,
+        token: Option<&str>,
+    ) -> (
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        ti4_server::protocol::server::InitialSnapshotMsg,
+    ) {
+        let (mut stream, _) = tokio_tungstenite::connect_async(ws_url).await.expect("connect");
+        let subscribe = ClientMessage::Subscribe {
+            protocol_version: PROTOCOL_VERSION,
+            game_id: game_id.to_owned(),
+            player_session: token.map(str::to_owned),
+        };
+        stream
+            .send(Message::Text(serde_json::to_string(&subscribe).unwrap().into()))
+            .await
+            .expect("subscribe");
+        let reply = stream.next().await.expect("snapshot").expect("ws ok");
+        match serde_json::from_str::<ServerMessage>(reply.to_text().unwrap()).unwrap() {
+            ServerMessage::InitialSnapshot(snapshot) => (stream, snapshot),
+            other => panic!("expected a snapshot, got {other:?}"),
+        }
+    }
+    let set = |card: &str, mode: ti4_model::state::ReactionMode| {
+        Message::Text(
+            serde_json::to_string(&ClientMessage::SetReactionMode {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game_id.clone(),
+                card: card.to_owned(),
+                mode,
+            })
+            .unwrap()
+            .into(),
+        )
+    };
+
+    // A spectator cannot change anyone's modes.
+    let (mut spectator, snapshot) = connect(&ws_url, &game_id, None).await;
+    assert!(snapshot.reaction_modes.is_empty());
+    spectator
+        .send(set("Sabotage", ti4_model::state::ReactionMode::Never))
+        .await
+        .unwrap();
+    assert_eq!(
+        wait_for_protocol_error(&mut spectator).await,
+        ti4_server::protocol::error::ErrorKind::Unauthorized
+    );
+
+    // The owner can; an unknown card is refused; the state update carries the change.
+    let (mut owner, snapshot) = connect(&ws_url, &game_id, Some(&p1_token)).await;
+    assert!(snapshot.reaction_modes.is_empty());
+    owner
+        .send(set("Not A Card", ti4_model::state::ReactionMode::Never))
+        .await
+        .unwrap();
+    assert_eq!(
+        wait_for_protocol_error(&mut owner).await,
+        ti4_server::protocol::error::ErrorKind::MalformedMessage
+    );
+    owner
+        .send(set("Sabotage", ti4_model::state::ReactionMode::Never))
+        .await
+        .unwrap();
+    let update = wait_for_state_update(&mut owner).await;
+    assert_eq!(
+        update.reaction_modes.get("Sabotage"),
+        Some(&ti4_model::state::ReactionMode::Never)
+    );
+    // A reconnect of the same seat sees it; a spectator never does.
+    let (_again, snapshot) = connect(&ws_url, &game_id, Some(&p1_token)).await;
+    assert_eq!(snapshot.reaction_modes.len(), 1);
+    let (_spectator_again, snapshot) = connect(&ws_url, &game_id, None).await;
+    assert!(snapshot.reaction_modes.is_empty());
+}
