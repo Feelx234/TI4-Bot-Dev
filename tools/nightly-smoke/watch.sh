@@ -23,7 +23,7 @@ progress() {
     tail -n 1 "$trace" | python3 -c '
 import json, sys
 t = json.loads(sys.stdin.read())
-print(f"progress: decision #{t[\"decision\"]} round {t[\"round\"]} {t[\"phase\"]} seat{t[\"seat\"]} ({t.get(\"faction\")}) {t[\"subtype\"]}")'
+print("progress: decision #{} round {} {} seat{} ({}) {}".format(t["decision"], t["round"], t["phase"], t["seat"], t.get("faction"), t["subtype"]))'
   else
     echo "progress: no decision yet (server building or starting)"
   fi
