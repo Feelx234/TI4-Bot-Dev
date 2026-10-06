@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { createGameBody } from "./smokePreset";
 import type { InitialSnapshotMsg } from "../src/protocol/types";
 
 const backend = `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? "8080"}`;
@@ -19,9 +20,10 @@ export async function createStartedGame(
   request: APIRequestContext,
   playerCount: number,
   seed: number,
+  startPreset?: string,
 ) {
   const created = await request.post(`${backend}/api/games`, {
-    data: { player_count: playerCount, seed, nickname: "E2E Host" },
+    data: createGameBody(playerCount, seed, startPreset),
   });
   expect(created.ok()).toBeTruthy();
   const host = await created.json();

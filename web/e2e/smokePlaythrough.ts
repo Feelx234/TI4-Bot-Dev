@@ -14,6 +14,8 @@ export interface PlaythroughOptions {
   playerCount: number;
   gameSeed: number;
   clickSeed: number;
+  /** Start preset for the game (e.g. "combat": fleets beside homes and Mecatol). */
+  startPreset?: string;
   /** Stop successfully after this many resolved decisions. */
   maxDecisions: number;
   /** Fail when a single decision does not advance after this many clicks. */
@@ -33,6 +35,7 @@ export interface PlaythroughOptions {
 
 export interface PlaythroughReport {
   gameId: string;
+  startPreset: string | null;
   decisions: number;
   clicks: number;
   finished: boolean;
@@ -331,8 +334,11 @@ export async function randomUiPlaythrough(
     request,
     options.playerCount,
     options.gameSeed,
+    options.startPreset,
   );
-  log(`game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed}`);
+  log(
+    `game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed} preset=${options.startPreset ?? "none"}`,
+  );
 
   const browserErrors: string[] = [];
   const pages: Page[] = [];
@@ -390,6 +396,7 @@ export async function randomUiPlaythrough(
 
   const report: PlaythroughReport = {
     gameId,
+    startPreset: options.startPreset ?? null,
     decisions: 0,
     clicks: 0,
     finished: false,
