@@ -1357,6 +1357,84 @@ mod tests {
     }
 
     #[test]
+    fn casualty_plan_sustains_a_ship_then_destroys_the_same_ship() {
+        // Two hits on one undamaged dreadnought: the engine asks to sustain it, finds it damaged
+        // and no longer offers a sustain, then offers it as a damaged casualty.
+        let mut decider = decider(
+            BatchKind::Casualties,
+            vec![
+                MovementStep::Sustain {
+                    unit: "dreadnought".into(),
+                },
+                MovementStep::Destroy {
+                    unit: "dreadnought".into(),
+                    damaged: true,
+                },
+            ],
+        );
+        assert_eq!(decider.choose(&sustain_ask(2)).unwrap().id, "sustain|0");
+        let damaged_ask = hit_ask(
+            "assign_casualty",
+            1,
+            vec![hit_option("destroy|0", "casualty", "dreadnought", true)],
+        );
+        assert_eq!(decider.choose(&damaged_ask).unwrap().id, "destroy|0");
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert_eq!(script.next, 2);
+        assert_eq!(script.selected.len(), 2);
+    }
+
+    #[test]
+    fn casualty_plan_with_one_hit_stops_after_the_sustain() {
+        // One hit only: the sustain absorbs it, the engine asks nothing more about this
+        // assignment, and the destroy step must not answer whatever comes next.
+        let mut decider = decider(
+            BatchKind::Casualties,
+            vec![
+                MovementStep::Sustain {
+                    unit: "dreadnought".into(),
+                },
+                MovementStep::Destroy {
+                    unit: "dreadnought".into(),
+                    damaged: true,
+                },
+            ],
+        );
+        assert_eq!(decider.choose(&sustain_ask(1)).unwrap().id, "sustain|0");
+        let next = offered(
+            "end_turn",
+            vec![ChoiceOption::labelled("end", "end_turn", "end your turn")],
+        );
+        assert!(decider.choose(&next).is_err());
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert!(script.finished);
+        assert_eq!(script.steps.len(), 1);
+    }
+
+    #[test]
+    fn casualty_plan_does_not_destroy_an_undamaged_ship_as_damaged() {
+        // The engine offers the fresh dreadnought only as an intact casualty; a plan that
+        // destroys it "as damaged" without sustaining first is rejected, not silently changed.
+        let mut decider = decider(
+            BatchKind::Casualties,
+            vec![MovementStep::Destroy {
+                unit: "dreadnought".into(),
+                damaged: true,
+            }],
+        );
+        let ask = hit_ask(
+            "assign_casualty",
+            1,
+            vec![hit_option("destroy|0", "casualty", "dreadnought", false)],
+        );
+        assert!(decider.choose(&ask).is_err());
+        let script = decider.0.lock().unwrap();
+        assert_eq!(script.failure.as_ref().unwrap().reason, "option unavailable");
+    }
+
+    #[test]
     fn casualty_plan_rejects_a_ship_the_engine_does_not_offer() {
         let mut decider = decider(BatchKind::Casualties, vec![destroy("war_sun")]);
         assert!(
