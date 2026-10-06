@@ -771,8 +771,11 @@ fn simulate_script(
                     "next planned choice",
                 ));
             }
+            // Every decision after the prefix must be one this batch answered. That is not one
+            // per planned step: a declined cargo hold adds an answer, a skipped DoneLoading
+            // removes one. `selected` is what the caller pairs with each recorded decision.
             if game.table.log.records.get(..prefix.len()) != Some(prefix)
-                || game.table.log.records.len() != prefix.len() + guard.steps.len()
+                || game.table.log.records.len() != prefix.len() + guard.selected.len()
             {
                 return Err(BatchFailure::new(0, "replay diverged", "recorded prefix"));
             }

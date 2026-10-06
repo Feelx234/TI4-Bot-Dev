@@ -613,6 +613,88 @@ fn pending(session: &GameSession) -> (PlayerId, String, u64, String) {
 }
 
 #[test]
+fn movement_batch_survives_a_declined_cargo_hold_for_ground_forces_in_the_active_system() {
+    // 95.1: a carrier moving into the active system may pick up own ground forces there, so
+    // the engine opens a cargo hold the plan never mentioned. The batch declines it; the
+    // recorded decisions then outnumber the planned steps, which must not read as divergence.
+    let registry = GameRegistry::new();
+    let host = PlayerId::new("p1");
+    let guest = PlayerId::new("p2");
+    let (mut state, galaxy) = ti4_server::map::create_game_with_map(
+        ContentStore::embedded(),
+        &[host.clone(), guest.clone()],
+        42,
+    )
+    .unwrap();
+    let origin = SystemId::new(galaxy.adjacent("22").into_iter().next().unwrap());
+    state
+        .system_mut(&origin)
+        .units
+        .push(Unit::new(UnitTypeId::new("carrier"), host.clone()));
+    state
+        .system_mut(&SystemId::new("22"))
+        .planet_units
+        .entry(ti4_model::id::PlanetId::new("tarmann"))
+        .or_default()
+        .push(Unit::new(UnitTypeId::new("infantry"), host.clone()));
+    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let config = SessionConfig::new("cargo_hold_batch", state)
+        .with_seed(42)
+        .with_player_ids(vec![host.clone(), guest.clone()])
+        .with_galaxy(galaxy, tiles)
+        .with_seat(host.clone(), SeatController::Human)
+        .with_seat(guest, SeatController::Human);
+    let session = registry.create_game(config).unwrap();
+    let token = session.seat_tokens()[&host].clone();
+    for _ in 0..4 {
+        let (seat, nonce, version, _) = pending(&session);
+        let choice = session
+            .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+                seat.clone(),
+            ))
+            .pending_choice
+            .unwrap()
+            .choice;
+        let option = choice
+            .options
+            .iter()
+            .find(|o| o.id == "tactical" || o.id == "22")
+            .unwrap_or(&choice.options[0]);
+        session
+            .submit_choice(&seat, &nonce, version, &option.id)
+            .unwrap();
+    }
+    let (seat, nonce, version, _) = pending(&session);
+    assert_eq!(seat, host);
+    let before = session.decision_log().len();
+    let request = BatchRequest {
+        request_id: "carrier_only".into(),
+        expected_version: version,
+        nonce,
+        plan: MovementPlan {
+            kind: BatchKind::TacticalMovement,
+            destination: "22".into(),
+            steps: vec![
+                MovementStep::Move {
+                    origin: origin.to_string(),
+                    unit: "carrier".into(),
+                    damaged: false,
+                },
+                MovementStep::DoneMoving,
+            ],
+        },
+    };
+    let result = registry.submit_batch("cargo_hold_batch", &token, request);
+    assert!(result.is_ok(), "carrier batch with an unplanned hold: {result:?}");
+    let log = registry.get_game("cargo_hold_batch").unwrap().decision_log();
+    assert!(
+        log[before..].iter().any(|d| d.chosen == "done_loading"),
+        "the hold was offered and declined: {:?}",
+        log[before..].iter().map(|d| &d.chosen).collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn undo_action_rewinds_the_whole_movement_pipeline_and_preserves_redo() {
     let registry = GameRegistry::new();
     let host = PlayerId::new("p1");
