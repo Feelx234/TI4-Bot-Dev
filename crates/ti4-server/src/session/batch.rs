@@ -58,6 +58,9 @@ enum TypedPlan {
     Casualties {
         steps: Vec<CasualtyStep>,
     },
+    Tokens {
+        steps: Vec<TokenStep>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -108,6 +111,13 @@ enum ProductionStep {
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum TokenStep {
+    /// Place the next command token into this pool (an option id such as `tactic_tokens`).
+    Pool { pool: String },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CasualtyStep {
     Sustain { unit: String },
     Destroy { unit: String, damaged: bool },
@@ -144,6 +154,11 @@ impl<'de> Deserialize<'de> for MovementPlan {
             },
             WirePlan::Typed(TypedPlan::Casualties { steps }) => Self {
                 kind: BatchKind::Casualties,
+                destination: String::new(),
+                steps: steps.into_iter().map(Into::into).collect(),
+            },
+            WirePlan::Typed(TypedPlan::Tokens { steps }) => Self {
+                kind: BatchKind::Tokens,
                 destination: String::new(),
                 steps: steps.into_iter().map(Into::into).collect(),
             },
@@ -204,6 +219,14 @@ impl From<ProductionStep> for MovementStep {
     }
 }
 
+impl From<TokenStep> for MovementStep {
+    fn from(step: TokenStep) -> Self {
+        match step {
+            TokenStep::Pool { pool } => Self::Pool { pool },
+        }
+    }
+}
+
 impl From<CasualtyStep> for MovementStep {
     fn from(step: CasualtyStep) -> Self {
         match step {
@@ -223,6 +246,8 @@ pub enum BatchKind {
     Production,
     /// Hits assigned in space or ground combat: sustains and casualties of one seat.
     Casualties,
+    /// Several command tokens gained at once, each placed into a pool of the seat's choice.
+    Tokens,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,6 +286,9 @@ pub enum MovementStep {
         unit: String,
         damaged: bool,
     },
+    Pool {
+        pool: String,
+    },
 }
 
 /// The decisions a casualty plan answers.
@@ -293,6 +321,7 @@ impl MovementStep {
             Self::Produce { .. } | Self::DoneProducing => "produce_unit",
             Self::Sustain { .. } => "sustain_damage",
             Self::Destroy { .. } => "assign_casualty",
+            Self::Pool { .. } => "gain_command_token",
         }
     }
 
@@ -340,6 +369,7 @@ impl MovementStep {
             Self::VotePlanet { planet } => option.kind == "vote_planet" && option.id == *planet,
             Self::DoneVoting => option.id == "decline",
             Self::DoneProducing => option.id == "done_producing",
+            Self::Pool { pool } => option.kind == "pool" && option.id == *pool,
             Self::Sustain { unit } => {
                 option.kind == ti4_engine::combat::SUSTAIN_KIND
                     && value("unit") == Some(unit.as_str())
@@ -818,6 +848,15 @@ fn plan_problem(plan: &MovementPlan) -> Option<String> {
             .iter()
             .all(|s| matches!(s, MovementStep::Sustain { .. } | MovementStep::Destroy { .. })))
         .then_some("a casualty plan may only contain sustain and destroy steps"),
+        BatchKind::Tokens => (!plan
+            .steps
+            .iter()
+            .all(|s| matches!(s, MovementStep::Pool { .. })))
+        .then_some("a token plan may only contain pool steps")
+        .or_else(|| {
+            (plan.steps.len() > usize::try_from(ti4_model::state::TOKENS_PER_FACTION).unwrap_or(16))
+                .then_some("a token plan places at most 16 tokens")
+        }),
     };
     problem.map(str::to_owned)
 }
@@ -1524,5 +1563,103 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn pool_option(id: &str) -> ChoiceOption {
+        ChoiceOption::labelled(id, "pool", id.replace("_tokens", " pool"))
+    }
+
+    fn gain_ask() -> Choice {
+        offered(
+            "gain_command_token",
+            vec![
+                pool_option("tactic_tokens"),
+                pool_option("fleet_tokens"),
+                pool_option("strategic_tokens"),
+            ],
+        )
+    }
+
+    fn pool(id: &str) -> MovementStep {
+        MovementStep::Pool { pool: id.into() }
+    }
+
+    #[test]
+    fn token_plan_places_each_token_into_the_planned_pool_in_order() {
+        let mut decider = decider(
+            BatchKind::Tokens,
+            vec![pool("fleet_tokens"), pool("fleet_tokens"), pool("tactic_tokens")],
+        );
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "fleet_tokens");
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "fleet_tokens");
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "tactic_tokens");
+        // The plan is spent: the next question, whatever it is, ends the batch cleanly.
+        assert!(decider.choose(&gain_ask()).is_err());
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none(), "an exhausted plan is a boundary, not a failure");
+        assert!(script.finished);
+        assert_eq!(script.selected.len(), 3);
+    }
+
+    #[test]
+    fn token_plan_is_interrupted_when_the_engine_asks_something_else() {
+        let mut decider = decider(BatchKind::Tokens, vec![pool("tactic_tokens"), pool("fleet_tokens")]);
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "tactic_tokens");
+        let other = offered("ready_planet", vec![ChoiceOption::labelled("jord", "ready", "Jord")]);
+        assert!(decider.choose(&other).is_err());
+        assert!(
+            decider.0.lock().unwrap().failure.is_some(),
+            "a plan with a token left over must not end silently"
+        );
+    }
+
+    #[test]
+    fn token_plan_rejects_a_pool_the_engine_does_not_offer() {
+        let mut decider = decider(BatchKind::Tokens, vec![pool("moon_tokens")]);
+        assert!(decider.choose(&gain_ask()).is_err());
+        assert!(decider.0.lock().unwrap().failure.is_some());
+    }
+
+    #[test]
+    fn token_plan_is_for_the_planning_seat_only() {
+        let mut decider = decider(BatchKind::Tokens, vec![pool("tactic_tokens")]);
+        let player = PlayerId::new("p2");
+        let theirs = Choice::new(player.clone(), "basket", vec![pool_option("tactic_tokens")])
+            .contextualized(DecisionContext::new(
+                player,
+                DecisionSource::Rule("test".into()),
+                "gain_command_token",
+                Phase::Action,
+                1,
+            ));
+        assert!(decider.choose(&theirs).is_err());
+    }
+
+    #[test]
+    fn token_plans_accept_only_pool_steps_and_at_most_sixteen() {
+        let plan = serde_json::from_str::<MovementPlan>(
+            r#"{"kind":"tokens","steps":[{"kind":"pool","pool":"tactic_tokens"},{"kind":"pool","pool":"fleet_tokens"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(plan.kind, BatchKind::Tokens);
+        assert!(plan_problem(&plan).is_none());
+        assert!(
+            serde_json::from_str::<MovementPlan>(
+                r#"{"kind":"tokens","steps":[{"kind":"trade_good"}]}"#
+            )
+            .is_err()
+        );
+        let many = MovementPlan {
+            kind: BatchKind::Tokens,
+            destination: String::new(),
+            steps: (0..17).map(|_| pool("tactic_tokens")).collect(),
+        };
+        assert!(plan_problem(&many).unwrap().contains("at most 16"));
+        let empty = MovementPlan {
+            kind: BatchKind::Tokens,
+            destination: String::new(),
+            steps: Vec::new(),
+        };
+        assert!(plan_problem(&empty).is_some());
     }
 }

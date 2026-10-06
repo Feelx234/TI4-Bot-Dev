@@ -77,7 +77,7 @@ pub(crate) fn gain_tokens(
     player: &PlayerId,
     count: u32,
 ) -> Result<(), IllegalChoice> {
-    for _ in 0..count {
+    for placed in 0..count {
         // OBS-008d2: each pool option previews the exact count it would reach, read fresh every
         // iteration since an earlier pick in this same ask already changed it.
         let (tactic, fleet, strategic) = state.player(player).map_or((0, 0, 0), |seat| {
@@ -117,6 +117,12 @@ pub(crate) fn gain_tokens(
             state.phase,
             state.round,
         ));
+        let choice = crate::tokens::with_pool_details(
+            choice,
+            state,
+            "gain",
+            Some(usize::try_from(count - placed).unwrap_or(0)),
+        );
         let answer = ask(state, content, sources, galaxy, table, &choice)?;
         let pool = match answer.id.as_str() {
             "tactic_tokens" => TokenPool::Tactic,
@@ -1280,6 +1286,7 @@ pub(crate) fn redistribute_tokens(
             state.phase,
             state.round,
         ));
+    let choice = crate::tokens::with_pool_details(choice, state, "redistribute", None);
     let answer = ask(state, content, sources, galaxy, table, &choice)?;
     window.resolve(state, answer).map_err(|error| match error {
         crate::tokens::RedistributeError::IllegalChoice(error) => error,

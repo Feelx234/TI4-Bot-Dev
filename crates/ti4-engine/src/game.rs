@@ -1022,13 +1022,19 @@ impl<'a> Game<'a> {
         if let Some((window, _)) = &self.tokens {
             return window.pending_choice().map(|choice| {
                 let actor = choice.player.clone();
-                choice.contextualized(DecisionContext::new(
+                let choice = choice.contextualized(DecisionContext::new(
                     actor,
                     DecisionSource::Rule("52.4".to_owned()),
                     "gain_command_token",
                     self.state.phase,
                     self.state.round,
-                ))
+                ));
+                crate::tokens::with_pool_details(
+                    choice,
+                    &self.state,
+                    "gain",
+                    Some(window.remaining_for_next_player()),
+                )
             });
         }
         if let Some((window, _)) = &self.voting {
