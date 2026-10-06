@@ -147,12 +147,22 @@ export async function openMockedGame(page: Page, options: MockGameOptions = {}):
   const socketReady = new Promise<WebSocketRoute>((resolve) => {
     connected = resolve;
   });
+  // Like the real server: a seat's reaction modes live on the server, `set_reaction_mode` changes
+  // them and the seat's next state update carries the result (only "never" is listed).
+  const reactionModes: Record<string, "never"> = {};
   await page.routeWebSocket(`**/ws/games/${GAME_ID}`, (socket) => {
     socket.onMessage((data) => {
       const message = JSON.parse(String(data)) as ClientMessage;
       if (message.type === "subscribe") {
         socket.send(JSON.stringify(snapshot));
         connected(socket);
+      } else if (message.type === "set_reaction_mode" && !options.spectator) {
+        if (message.mode === "never") reactionModes[message.card] = "never";
+        else delete reactionModes[message.card];
+        const { events: _events, ...update } = snapshot;
+        socket.send(
+          JSON.stringify({ ...update, type: "state_update", reaction_modes: { ...reactionModes } }),
+        );
       }
     });
   });

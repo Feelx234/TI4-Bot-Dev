@@ -7,7 +7,7 @@ import { playerWithHand, opponent } from "../_shared/players";
 // The toggle explains itself on hover (native title text, drawn by the helper).
 test("action cards: toggle tooltip", async ({ page }, testInfo) => {
   await openMockedGame(page, { players: [playerWithHand(), opponent] });
-  const toggle = page.getByTestId("action-card-item-sabo1").locator("button").last();
+  const toggle = page.getByTestId("reaction-inspect-mode-sabo1");
   await showTitleTooltip(page, toggle);
   await shot(page, testInfo, "3-toggle-tooltip", { of: page.getByTestId("player-card").first(), pad: 120 });
 });
