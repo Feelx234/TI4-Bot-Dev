@@ -1,0 +1,175 @@
+import { describe, expect, it } from "vitest";
+import {
+  addDestroy,
+  addSustain,
+  autoFill,
+  buildHitRows,
+  canAddDestroy,
+  canSustain,
+  casualtyPlan,
+  destroyableFromOptions,
+  groundHitUnits,
+  hitsToCover,
+  removeHit,
+  spaceHitUnits,
+  strandedCargo,
+  type HitContext,
+} from "./hitAssignment.ts";
+import type { PlacedUnitView } from "../protocol/types.ts";
+
+const unit = (
+  unit_type: string,
+  damaged = false,
+  planet?: string,
+): PlacedUnitView => ({
+  unit_type,
+  owner: "p1",
+  damaged,
+  planet,
+});
+
+const fleet = [
+  ...Array.from({ length: 10 }, () => unit("fighter")),
+  unit("destroyer"),
+  unit("destroyer"),
+  unit("dreadnought"),
+  unit("dreadnought", true),
+  unit("carrier"),
+  unit("infantry"),
+];
+
+const ctx = (extra: Partial<HitContext> = {}): HitContext => ({
+  units: spaceHitUnits(fleet, "p1"),
+  sustainTypes: new Set(["dreadnought"]),
+  ...extra,
+});
+
+describe("hit assignment rows", () => {
+  it("groups simple ships and lists sustaining and capacity ships one by one", () => {
+    const rows = buildHitRows(ctx());
+    const fighters = rows.find((r) => r.unitType === "fighter")!;
+    expect(fighters).toMatchObject({ individual: false, count: 10 });
+    expect(rows.filter((r) => r.unitType === "destroyer")).toHaveLength(1);
+    expect(rows.find((r) => r.unitType === "destroyer")!.count).toBe(2);
+    const dreadnoughts = rows.filter((r) => r.unitType === "dreadnought");
+    expect(dreadnoughts).toHaveLength(2);
+    expect(dreadnoughts.every((r) => r.individual)).toBe(true);
+    expect(dreadnoughts.find((r) => r.damaged)!.canSustain).toBe(false);
+    expect(dreadnoughts.find((r) => !r.damaged)!.canSustain).toBe(true);
+    expect(rows.find((r) => r.unitType === "carrier")).toMatchObject({
+      individual: true,
+      capacity: 4,
+    });
+    expect(rows.some((r) => r.unitType === "infantry")).toBe(false);
+  });
+
+  it("offers only fighters to an anti-fighter barrage", () => {
+    const rows = buildHitRows(ctx({ onlyFighters: true }));
+    expect(rows.map((r) => r.unitType)).toEqual(["fighter"]);
+  });
+
+  it("takes the ground forces on the planet for a ground combat", () => {
+    const units = [
+      unit("infantry", false, "jord"),
+      unit("mech", false, "jord"),
+      unit("fighter"),
+    ];
+    expect(groundHitUnits(units, "p1", "jord").map((u) => u.unit_type)).toEqual(
+      ["infantry", "mech"],
+    );
+  });
+});
+
+describe("hit staging", () => {
+  it("never stages more hits than owed or ships in a group", () => {
+    const c = ctx({ units: [unit("fighter"), unit("fighter")] });
+    const [fighters] = buildHitRows(c);
+    let staging = addDestroy({}, fighters);
+    staging = addDestroy(staging, fighters);
+    expect(canAddDestroy(fighters, staging, 5, c)).toBe(false);
+    expect(hitsToCover(5, buildHitRows(c), c)).toBe(2);
+    expect(canAddDestroy(fighters, addDestroy({}, fighters), 1, c)).toBe(false);
+  });
+
+  it("moves a hit from one ship to another", () => {
+    const c = ctx();
+    const rows = buildHitRows(c);
+    const fighters = rows.find((r) => r.unitType === "fighter")!;
+    const destroyers = rows.find((r) => r.unitType === "destroyer")!;
+    let staging = addDestroy({}, fighters);
+    staging = removeHit(staging, fighters);
+    staging = addDestroy(staging, destroyers);
+    expect(casualtyPlan(rows, staging)).toEqual([
+      { kind: "destroy", unit: "destroyer", damaged: false },
+    ]);
+  });
+
+  it("lets a ship sustain or be destroyed, not both, and only ships the engine offers", () => {
+    const c = ctx({ destroyable: new Set(["fighter|intact"]) });
+    const rows = buildHitRows(c);
+    const dread = rows.find((r) => r.unitType === "dreadnought" && !r.damaged)!;
+    const staging = addSustain({}, dread);
+    expect(canSustain(dread, staging, 3)).toBe(false);
+    expect(canAddDestroy(dread, staging, 3, c)).toBe(false);
+    const destroyer = rows.find((r) => r.unitType === "destroyer")!;
+    expect(canAddDestroy(destroyer, {}, 3, c)).toBe(false);
+  });
+
+  it("puts every sustain before the losses in the plan", () => {
+    const c = ctx();
+    const rows = buildHitRows(c);
+    const fighters = rows.find((r) => r.unitType === "fighter")!;
+    const dread = rows.find((r) => r.unitType === "dreadnought" && !r.damaged)!;
+    const damaged = rows.find(
+      (r) => r.unitType === "dreadnought" && r.damaged,
+    )!;
+    let staging = addDestroy({}, fighters);
+    staging = addDestroy(staging, damaged);
+    staging = addSustain(staging, dread);
+    expect(casualtyPlan(rows, staging)).toEqual([
+      { kind: "sustain", unit: "dreadnought" },
+      { kind: "destroy", unit: "fighter", damaged: false },
+      { kind: "destroy", unit: "dreadnought", damaged: true },
+    ]);
+  });
+
+  it("auto-assigns sustains first, then the cheapest ships", () => {
+    const c = ctx();
+    const rows = buildHitRows(c);
+    const plan = casualtyPlan(rows, autoFill(rows, {}, 3, c));
+    expect(plan).toEqual([
+      { kind: "sustain", unit: "dreadnought" },
+      { kind: "destroy", unit: "fighter", damaged: false },
+      { kind: "destroy", unit: "fighter", damaged: false },
+    ]);
+  });
+
+  it("warns when lost capacity strands cargo", () => {
+    const c = ctx({ units: [unit("carrier"), unit("fighter")] });
+    const rows = buildHitRows(c);
+    const carrier = rows.find((r) => r.unitType === "carrier")!;
+    // 5 cargo against 4 capacity is already one over; losing the carrier strands 4 more.
+    expect(strandedCargo(rows, addDestroy({}, carrier), 5, 4)).toBe(4);
+    expect(strandedCargo(rows, {}, 3, 4)).toBe(0);
+  });
+
+  it("reads what a casualty decision lets the seat destroy", () => {
+    expect(
+      destroyableFromOptions([
+        {
+          id: "destroy|0",
+          kind: "casualty",
+          label: "",
+          payload: { unit: "carrier", damaged: false },
+        },
+        {
+          id: "destroy|1",
+          kind: "ground_casualty",
+          label: "",
+          payload: { unit: "mech", damaged: true },
+        },
+        { id: "decline", kind: "decline", label: "" },
+      ]),
+    ).toEqual(new Set(["carrier|intact", "mech|damaged"]));
+  });
+});

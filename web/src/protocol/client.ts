@@ -9,9 +9,14 @@ import {
   ViewerRole,
   HistoryStatus,
 } from "./types.ts";
-import { decodeInitialSnapshot, decodeServerMessage, isStaleServerMessage } from "./decode.ts";
+import {
+  decodeInitialSnapshot,
+  decodeServerMessage,
+  isStaleServerMessage,
+} from "./decode.ts";
 
-export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
+export type ConnectionStatus =
+  "connecting" | "connected" | "disconnected" | "error";
 export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
 export type GameLogEntry = import("./types.ts").GameEvent;
 export type HistoryChange =
@@ -26,19 +31,37 @@ export type HistoryChange =
 
 export type MovementStep =
   | { kind: "move"; origin: string; unit: string; damaged: boolean }
-  | { kind: "load"; origin: string; unit: string; source: string | null; damaged: boolean }
+  | {
+      kind: "load";
+      origin: string;
+      unit: string;
+      source: string | null;
+      damaged: boolean;
+    }
   | { kind: "done_loading" }
   | { kind: "done_moving" };
 export type BasketPlan =
-  | { kind: "payment"; steps: ({ kind: "exhaust"; planet: string } | { kind: "trade_good" })[] }
+  | {
+      kind: "payment";
+      steps: ({ kind: "exhaust"; planet: string } | { kind: "trade_good" })[];
+    }
   | {
       kind: "agenda_vote_planets";
-      steps: ({ kind: "vote_planet"; planet: string } | { kind: "done_voting" })[];
+      steps: (
+        { kind: "vote_planet"; planet: string } | { kind: "done_voting" }
+      )[];
     }
   | {
       kind: "production";
       destination: string;
-      steps: ({ kind: "produce"; unit: string; count: number } | { kind: "done_producing" })[];
+      steps: (
+        | { kind: "produce"; unit: string; count: number }
+        | { kind: "done_producing" }
+      )[];
+    }
+  | {
+      kind: "casualties";
+      steps: import("../presentation/hitAssignment.ts").CasualtyStep[];
     };
 
 const HISTORY_RETRY_ATTEMPTS = 20;
@@ -76,7 +99,9 @@ const initialState: GameSessionState = {
 };
 
 /** Keep the complete authoritative history, including early rounds and batches. */
-export function serverEventLog(entries: readonly GameLogEntry[] | undefined): GameLogEntry[] {
+export function serverEventLog(
+  entries: readonly GameLogEntry[] | undefined,
+): GameLogEntry[] {
   return [...(entries ?? [])];
 }
 
@@ -90,7 +115,9 @@ function idsFor(entries: GameLogEntry[]): Set<string> {
   return ids;
 }
 
-function rejectionMessage(message: Extract<ServerMessage, { type: "action_rejected" }>): string {
+function rejectionMessage(
+  message: Extract<ServerMessage, { type: "action_rejected" }>,
+): string {
   switch (message.reason.reason) {
     case "stale_version":
       return `Rejected: Stale version (expected ${message.reason.expected}, server at ${message.reason.current})`;
@@ -107,7 +134,9 @@ function rejectionMessage(message: Extract<ServerMessage, { type: "action_reject
   }
 }
 
-function pendingChoice(envelope: import("./types.ts").PendingChoiceEnvelope): PendingChoiceDto {
+function pendingChoice(
+  envelope: import("./types.ts").PendingChoiceEnvelope,
+): PendingChoiceDto {
   if (!envelope.choice) return envelope as unknown as PendingChoiceDto;
   return {
     nonce: envelope.nonce,
@@ -133,8 +162,13 @@ export function reduceServerMessage(
         snapshot: message,
         gameVersion: message.game_version,
         turnStatus: message.turn_status,
-        pendingChoice: message.pending_choice ? pendingChoice(message.pending_choice) : null,
-        events: message.type === "initial_snapshot" ? serverEventLog(message.events) : state.events,
+        pendingChoice: message.pending_choice
+          ? pendingChoice(message.pending_choice)
+          : null,
+        events:
+          message.type === "initial_snapshot"
+            ? serverEventLog(message.events)
+            : state.events,
         history: message.history ?? state.history,
       };
     case "event":
@@ -149,7 +183,10 @@ export function reduceServerMessage(
             ? state.history
             : {
                 ...state.history,
-                cursor: Math.max(state.history.cursor, message.entry.decision_count),
+                cursor: Math.max(
+                  state.history.cursor,
+                  message.entry.decision_count,
+                ),
                 redo_count: 0,
               },
       };
@@ -157,7 +194,10 @@ export function reduceServerMessage(
       return {
         ...state,
         gameVersion: message.game_version,
-        pendingChoice: pendingChoice({ nonce: message.nonce, choice: message.choice }),
+        pendingChoice: pendingChoice({
+          nonce: message.nonce,
+          choice: message.choice,
+        }),
       };
     case "turn_status":
       return {
@@ -202,7 +242,11 @@ export class GameSessionClient {
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private pingSequence = 0;
-  private pendingBatch: { nonce: string; plan: string; requestId: string } | null = null;
+  private pendingBatch: {
+    nonce: string;
+    plan: string;
+    requestId: string;
+  } | null = null;
 
   constructor(private readonly options: GameSessionClientOptions) {}
 
@@ -242,7 +286,10 @@ export class GameSessionClient {
       throw new Error(message);
     }
     if (this.submission) {
-      if (this.submission.nonce === pendingChoice.nonce && this.submission.optionId === optionId)
+      if (
+        this.submission.nonce === pendingChoice.nonce &&
+        this.submission.optionId === optionId
+      )
         return this.submission.promise;
       if (this.submission.nonce === pendingChoice.nonce)
         throw new Error("Another choice submission is still pending");
@@ -294,48 +341,87 @@ export class GameSessionClient {
     return promise;
   }
 
-  async submitMovementBatch(destination: string, steps: MovementStep[]): Promise<void> {
+  async submitMovementBatch(
+    destination: string,
+    steps: MovementStep[],
+  ): Promise<void> {
     return this.submitBatch({ kind: "tactical_movement", destination, steps });
   }
 
   async submitBatch(
-    plan: BasketPlan | { kind: "tactical_movement"; destination: string; steps: MovementStep[] },
+    plan:
+      | BasketPlan
+      | {
+          kind: "tactical_movement";
+          destination: string;
+          steps: MovementStep[];
+        },
   ): Promise<void> {
-    if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
+    if (
+      this.options.viewer.role !== "player" ||
+      !this.options.viewer.playerSession
+    )
       throw new Error("A player session is required");
     const pending = this.state.pendingChoice;
-    if (!pending || pending.actor !== this.options.viewer.seat || !pending.context)
+    if (
+      !pending ||
+      pending.actor !== this.options.viewer.seat ||
+      !pending.context
+    )
       throw new Error("Decision is no longer pending");
     const expected = {
       tactical_movement: ["movement_step"],
       payment: ["pay_resources", "pay_influence"],
       agenda_vote_planets: ["vote_exhaust_planet"],
       production: ["produce_unit"],
+      casualties: [
+        "sustain_damage",
+        "assign_casualty",
+        "assign_ground_casualty",
+      ],
     }[plan.kind];
     if (!expected.includes(pending.context.subtype))
       throw new Error("Workflow is no longer pending");
     const serialized = JSON.stringify(plan);
-    if (this.pendingBatch?.nonce !== pending.nonce || this.pendingBatch.plan !== serialized)
+    if (
+      this.pendingBatch?.nonce !== pending.nonce ||
+      this.pendingBatch.plan !== serialized
+    )
       this.pendingBatch = {
         nonce: pending.nonce,
         plan: serialized,
         requestId: crypto.randomUUID(),
       };
-    const response = await fetch(this.snapshotUrl().replace(/\/snapshot$/, "/batches"), {
-      method: "POST",
-      headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
-      body: JSON.stringify({
-        request_id: this.pendingBatch.requestId,
-        expected_version: this.state.gameVersion,
-        nonce: pending.nonce,
-        plan,
-      }),
-    });
+    const response = await fetch(
+      this.snapshotUrl().replace(/\/snapshot$/, "/batches"),
+      {
+        method: "POST",
+        headers: {
+          ...this.snapshotHeaders(),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          request_id: this.pendingBatch.requestId,
+          expected_version: this.state.gameVersion,
+          nonce: pending.nonce,
+          plan,
+        }),
+      },
+    );
     if (!response.ok) {
-      if (response.status !== 500 && response.status !== 502 && response.status !== 503)
+      if (
+        response.status !== 500 &&
+        response.status !== 502 &&
+        response.status !== 503
+      )
         this.pendingBatch = null;
       const body = await response.text();
-      let failure: { failed_step?: number; reason?: string; expected?: string; message?: string };
+      let failure: {
+        failed_step?: number;
+        reason?: string;
+        expected?: string;
+        message?: string;
+      };
       try {
         failure = JSON.parse(body);
       } catch {
@@ -349,7 +435,10 @@ export class GameSessionClient {
       );
     }
     this.pendingBatch = null;
-    const result = (await response.json()) as { snapshot: unknown; active?: boolean };
+    const result = (await response.json()) as {
+      snapshot: unknown;
+      active?: boolean;
+    };
     if (result.active === false)
       throw new Error(
         "This confirmation was already committed but is now undone. Refresh the decision before confirming again.",
@@ -372,7 +461,10 @@ export class GameSessionClient {
 
   /** The host changes the authoritative Rust timeline; all clients reconnect to it. */
   async changeHistory(action: HistoryChange): Promise<void> {
-    if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
+    if (
+      this.options.viewer.role !== "player" ||
+      !this.options.viewer.playerSession
+    )
       throw new Error("A player session is required");
     const url = this.snapshotUrl().replace(/\/snapshot$/, "/history");
     const body =
@@ -389,7 +481,10 @@ export class GameSessionClient {
       conflictReason = undefined;
       response = await fetch(url, {
         method: "POST",
-        headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
+        headers: {
+          ...this.snapshotHeaders(),
+          "content-type": "application/json",
+        },
         body: JSON.stringify({ ...body, expected_version: version }),
       });
       if (response.ok || response.status !== 409) break;
@@ -402,9 +497,14 @@ export class GameSessionClient {
       // The worker may still be advancing automatically toward its next human choice.
       // Refresh the version, but never rewind a different decision if someone acted meanwhile.
       await new Promise((resolve) => setTimeout(resolve, 100));
-      const latest = await fetch(this.snapshotUrl(), { headers: this.snapshotHeaders() });
+      const latest = await fetch(this.snapshotUrl(), {
+        headers: this.snapshotHeaders(),
+      });
       if (!latest.ok) break;
-      const snapshot = decodeInitialSnapshot(await latest.json(), this.options.gameId);
+      const snapshot = decodeInitialSnapshot(
+        await latest.json(),
+        this.options.gameId,
+      );
       if (snapshot.history?.cursor !== cursor) break;
       version = snapshot.game_version;
     }
@@ -414,12 +514,16 @@ export class GameSessionClient {
       this.setState({ ...this.state, lastError: error });
       throw new Error(error);
     }
-    const snapshot = decodeInitialSnapshot(await response.json(), this.options.gameId);
+    const snapshot = decodeInitialSnapshot(
+      await response.json(),
+      this.options.gameId,
+    );
     const expected = this.options.viewer;
     if (
       snapshot.viewer.role !== expected.role ||
       (expected.role === "player" &&
-        (snapshot.viewer.role !== "player" || snapshot.viewer.seat !== expected.seat))
+        (snapshot.viewer.role !== "player" ||
+          snapshot.viewer.seat !== expected.seat))
     ) {
       throw new Error("Server viewer identity does not match this session");
     }
@@ -437,7 +541,9 @@ export class GameSessionClient {
 
   private async loadSnapshot(): Promise<void> {
     try {
-      const response = await fetch(this.snapshotUrl(), { headers: this.snapshotHeaders() });
+      const response = await fetch(this.snapshotUrl(), {
+        headers: this.snapshotHeaders(),
+      });
       if (!response.ok)
         throw new Error(
           `Snapshot request failed (${response.status}): ${await response.text().catch(() => "")}`,
@@ -445,7 +551,10 @@ export class GameSessionClient {
       this.ingestHttpSnapshot(await response.json());
     } catch (error) {
       if (!this.stopped)
-        this.setState({ ...this.state, lastError: `Snapshot request failed: ${String(error)}` });
+        this.setState({
+          ...this.state,
+          lastError: `Snapshot request failed: ${String(error)}`,
+        });
     }
   }
 
@@ -455,7 +564,9 @@ export class GameSessionClient {
     socket.onopen = () => {
       if (this.stopped || this.socket !== socket) return;
       const playerSession =
-        this.options.viewer.role === "player" ? this.options.viewer.playerSession : undefined;
+        this.options.viewer.role === "player"
+          ? this.options.viewer.playerSession
+          : undefined;
       const message: ClientMessage = {
         type: "subscribe",
         protocol_version: PROTOCOL_VERSION,
@@ -537,12 +648,16 @@ export class GameSessionClient {
   }
 
   private apply(message: ServerMessage): void {
-    if (message.type === "initial_snapshot" || message.type === "state_update") {
+    if (
+      message.type === "initial_snapshot" ||
+      message.type === "state_update"
+    ) {
       const expected = this.options.viewer;
       if (
         message.viewer.role !== expected.role ||
         (expected.role === "player" &&
-          (message.viewer.role !== "player" || message.viewer.seat !== expected.seat))
+          (message.viewer.role !== "player" ||
+            message.viewer.seat !== expected.seat))
       ) {
         this.setState({
           ...initialState,
@@ -558,7 +673,8 @@ export class GameSessionClient {
     if (message.type === "action_accepted") {
       const index = this.priorSubmissions.findIndex(
         (pending) =>
-          pending.optionId === message.option_id && message.game_version >= pending.version,
+          pending.optionId === message.option_id &&
+          message.game_version >= pending.version,
       );
       if (index !== -1) {
         this.priorSubmissions.splice(index, 1)[0].resolve();
@@ -611,7 +727,8 @@ export class GameSessionClient {
     const submission = this.submission;
     this.submission = null;
     submission?.reject(new Error(reason));
-    for (const prior of this.priorSubmissions.splice(0)) prior.reject(new Error(reason));
+    for (const prior of this.priorSubmissions.splice(0))
+      prior.reject(new Error(reason));
   }
 
   private detachSocket(): void {
@@ -622,7 +739,10 @@ export class GameSessionClient {
     socket.onmessage = null;
     socket.onerror = null;
     socket.onclose = null;
-    if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)
+    if (
+      socket.readyState === WebSocket.CONNECTING ||
+      socket.readyState === WebSocket.OPEN
+    )
       socket.close();
   }
 
@@ -655,7 +775,8 @@ export class GameSessionClient {
   }
 
   private snapshotHeaders(): HeadersInit {
-    return this.options.viewer.role === "player" && this.options.viewer.playerSession
+    return this.options.viewer.role === "player" &&
+      this.options.viewer.playerSession
       ? { "x-ti4-player-session": this.options.viewer.playerSession }
       : {};
   }

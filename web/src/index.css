@@ -3687,3 +3687,50 @@ select:focus-visible,
     padding: 8px;
   }
 }
+
+/* Staged hit assignment (space combat, barrage, ground combat) */
+.hit-assignment {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hit-assignment__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.hit-assignment__cargo {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted, #94a3b8);
+}
+.hit-assignment__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hit-assignment__row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto 3.5em auto auto auto;
+  align-items: center;
+  gap: 6px;
+}
+.hit-assignment__row[data-staged]:not([data-staged="0"]) {
+  outline: 1px solid rgba(248, 113, 113, 0.6);
+  border-radius: 4px;
+}
+.hit-assignment__hint,
+.hit-assignment__staged {
+  font-size: 12px;
+  color: var(--color-text-muted, #94a3b8);
+}
+.hit-assignment__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.hit-assignment__error {
+  color: #f87171;
+  font-size: 12px;
+}

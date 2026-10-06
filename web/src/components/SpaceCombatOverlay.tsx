@@ -6,20 +6,37 @@ import {
   PlacedUnitView,
   CombatDieRoll,
 } from "../protocol/types.ts";
-import { getCombatPayload, ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import {
+  getCombatPayload,
+  ChoiceRendererModel,
+} from "../presentation/choiceModel.ts";
 import { Dialog } from "../primitives/index.ts";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitBaseType, getUnitDisplayName } from "./UnitIcon.tsx";
 import { BattleOddsResponse } from "../protocol/advisorTypes.ts";
-import { fetchBattleOdds, buildBattleRequest } from "../services/advisorService.ts";
+import {
+  fetchBattleOdds,
+  buildBattleRequest,
+} from "../services/advisorService.ts";
 import { getActionCardMeta } from "../protocol/contentCatalog.ts";
 import {
   getExpectedSpaceHits,
   hasSustainDamage,
   canParticipateInSpaceCombat,
 } from "../presentation/mapOverlays.ts";
+import {
+  destroyableFromOptions,
+  onlyFighterOptions,
+  getBaseCapacity,
+  requiresCapacity,
+  spaceCargo,
+  spaceHitUnits,
+  sustainTypesFromOptions,
+} from "../presentation/hitAssignment.ts";
+import type { BasketPlan } from "../protocol/client.ts";
+import { HitAssignmentPanel } from "./HitAssignmentPanel.tsx";
 
 export interface SpaceCombatOverlayProps {
   choice: PendingChoiceDto | null;
@@ -36,23 +53,8 @@ export interface SpaceCombatOverlayProps {
   isMinimized?: boolean;
   onMinimize?: (minimized: boolean) => void;
   advisorUrl?: string;
-}
-
-/** Standard base transport capacity per ship type in TI4 */
-export function getBaseCapacity(unitType: string): number {
-  const base = getUnitBaseType(unitType);
-  switch (base) {
-    case "carrier":
-      return 4;
-    case "warsun":
-      return 6;
-    case "dreadnought":
-      return 1;
-    case "flagship":
-      return 3;
-    default:
-      return 0;
-  }
+  /** When present, hits are staged in a panel and sent as one casualty plan. */
+  onSubmitBatch?: (plan: BasketPlan) => Promise<void>;
 }
 
 /** Returns true if unit is a non-fighter ship that consumes fleet supply */
@@ -66,12 +68,6 @@ export function isNonFighterShip(unitType: string): boolean {
     base === "cruiser" ||
     base === "destroyer"
   );
-}
-
-/** Returns true if unit is transported / requires capacity in space */
-export function requiresCapacity(unitType: string): boolean {
-  const base = getUnitBaseType(unitType);
-  return base === "fighter" || base === "infantry" || base === "mech";
 }
 
 // Fleet estimate used while the advisor is pending or unavailable.
@@ -96,7 +92,10 @@ export interface FleetStats {
   }[];
 }
 
-export function computeFleetStats(units: PlacedUnitView[], fleetSupply = 3): FleetStats {
+export function computeFleetStats(
+  units: PlacedUnitView[],
+  fleetSupply = 3,
+): FleetStats {
   const spaceUnits = units.filter((u) => !u.planet);
   let nonFighterCount = 0;
   let totalCapacity = 0;
@@ -104,7 +103,12 @@ export function computeFleetStats(units: PlacedUnitView[], fleetSupply = 3): Fle
 
   const groupMap = new Map<
     string,
-    { unitType: string; count: number; damagedCount: number; undamagedCount: number }
+    {
+      unitType: string;
+      count: number;
+      damagedCount: number;
+      undamagedCount: number;
+    }
   >();
 
   for (const u of spaceUnits) {
@@ -146,8 +150,9 @@ export function computeFleetStats(units: PlacedUnitView[], fleetSupply = 3): Fle
     units: spaceUnits,
     groupedUnits: Array.from(groupMap.values()).sort(
       (a, b) =>
-        getUnitBaseType(a.unitType).localeCompare(getUnitBaseType(b.unitType)) ||
-        a.unitType.localeCompare(b.unitType),
+        getUnitBaseType(a.unitType).localeCompare(
+          getUnitBaseType(b.unitType),
+        ) || a.unitType.localeCompare(b.unitType),
     ),
   };
 }
@@ -167,6 +172,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   isMinimized = false,
   onMinimize,
   advisorUrl,
+  onSubmitBatch,
 }) => {
   const display = usePlayerIdentity();
 
@@ -180,7 +186,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   }, [players]);
 
   const subtype = choice?.context?.subtype ?? "";
-  const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
+  const constraints =
+    model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
   const hitsOwed =
     model?.selectionMode.mode === "casualty"
       ? model.selectionMode.hitsToAssign
@@ -188,7 +195,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
         ? model.selectionMode.hitsRemaining
         : (constraints?.amount ?? board?.combat?.hits_to_assign);
 
-  const isSustainStage = subtype === "sustain_damage" || model?.workflow === "combat_sustain";
+  const isSustainStage =
+    subtype === "sustain_damage" || model?.workflow === "combat_sustain";
   const isCasualtyStage =
     subtype === "assign_casualty" ||
     model?.workflow === "combat_casualty" ||
@@ -201,6 +209,11 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     choice?.context?.subtype.startsWith("reaction_") ||
     choice?.context?.subtype.startsWith("play_reaction_"),
   );
+  // Sustains and casualties are staged in one panel and sent together as a plan.
+  const stagedHits =
+    Boolean(onSubmitBatch) &&
+    (isSustainStage || isCasualtyStage) &&
+    !isReactionStage;
   const phase =
     board?.combat?.phase ??
     (isRetreatStage && subtype === "retreat_to"
@@ -256,7 +269,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     const spaceUnits = systemUnits.filter((u) => !u.planet);
     const owners = Array.from(new Set(spaceUnits.map((u) => u.owner)));
     const active = choice?.actor ?? owners[0] ?? "Attacker";
-    const opponent = owners.find((o) => o !== active) ?? owners[1] ?? "Defender";
+    const opponent =
+      owners.find((o) => o !== active) ?? owners[1] ?? "Defender";
     return { attackerSeat: active, defenderSeat: opponent };
   }, [board?.combat, systemUnits, choice]);
 
@@ -275,10 +289,12 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
 
   // Remember rows within a battle so losing the last ship of a type cannot move
   // the next casualty target under a player's pointer (even if that ship never rolled).
-  const fleetRows = useRef<{ battle: string; types: Map<string, Set<string>> }>({
-    battle: "",
-    types: new Map(),
-  });
+  const fleetRows = useRef<{ battle: string; types: Map<string, Set<string>> }>(
+    {
+      battle: "",
+      types: new Map(),
+    },
+  );
   const battleId = `${combatSystemId}:${attackerSeat}:${defenderSeat}:${board?.combat?.battle_seq ?? 0}`;
   if (fleetRows.current.battle !== battleId) {
     fleetRows.current = { battle: battleId, types: new Map() };
@@ -325,7 +341,13 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
 
   const battleKey =
     isPreRoll && board?.combat
-      ? JSON.stringify([battleId, board.combat.round, phase, battleParams, advisorUrl])
+      ? JSON.stringify([
+          battleId,
+          board.combat.round,
+          phase,
+          battleParams,
+          advisorUrl,
+        ])
       : null;
 
   const fallbackOdds = useMemo(() => {
@@ -333,15 +355,26 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       const combatUnits = stats.units.filter((unit) =>
         canParticipateInSpaceCombat(unit.unit_type, player),
       );
-      const hits = combatUnits.reduce((sum, unit) => sum + expectedHits(unit.unit_type, player), 0);
+      const hits = combatUnits.reduce(
+        (sum, unit) => sum + expectedHits(unit.unit_type, player),
+        0,
+      );
       const health = combatUnits.reduce(
-        (sum, unit) => sum + (unit.damaged ? 1 : hasSustainDamage(unit.unit_type, player) ? 2 : 1),
+        (sum, unit) =>
+          sum +
+          (unit.damaged ? 1 : hasSustainDamage(unit.unit_type, player) ? 2 : 1),
         0,
       );
       return (hits + 0.1) * (health + 0.1);
     };
-    const attacker = power(attackerStats, attackerSeat ? playersMap[attackerSeat] : null);
-    const defender = power(defenderStats, defenderSeat ? playersMap[defenderSeat] : null);
+    const attacker = power(
+      attackerStats,
+      attackerSeat ? playersMap[attackerSeat] : null,
+    );
+    const defender = power(
+      defenderStats,
+      defenderSeat ? playersMap[defenderSeat] : null,
+    );
     const attWinPct = Math.round((attacker / (attacker + defender)) * 100);
     return {
       attWinPct,
@@ -391,15 +424,20 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
 
   // Merged odds for rendering
   const displayedOdds = useMemo(() => {
-    const advisorOdds = advisorResult?.key === battleKey ? advisorResult.odds : undefined;
+    const advisorOdds =
+      advisorResult?.key === battleKey ? advisorResult.odds : undefined;
     if (advisorOdds) {
       const attWinPct = Math.round(advisorOdds.attacker_win_rate * 100);
       const defWinPct = Math.round(advisorOdds.defender_win_rate * 100);
       const mutWinPct = Math.round(advisorOdds.mutual_destruction_rate * 100);
-      const attExpSurvivors = Object.values(advisorOdds.attacker_expected_survivors)
+      const attExpSurvivors = Object.values(
+        advisorOdds.attacker_expected_survivors,
+      )
         .reduce((a, b) => a + b, 0)
         .toFixed(1);
-      const defExpSurvivors = Object.values(advisorOdds.defender_expected_survivors)
+      const defExpSurvivors = Object.values(
+        advisorOdds.defender_expected_survivors,
+      )
         .reduce((a, b) => a + b, 0)
         .toFixed(1);
 
@@ -424,11 +462,13 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   // Gather dice feed
   const activeDiceFeed: CombatDieRoll[] = useMemo(() => {
     if (!showAssignment) return [];
-    if (phase === "barrage" || showBarrageRecap) return board?.combat?.barrage_dice ?? [];
+    if (phase === "barrage" || showBarrageRecap)
+      return board?.combat?.barrage_dice ?? [];
     if (board?.combat?.dice_rolls && board.combat.dice_rolls.length > 0) {
       return board.combat.dice_rolls;
     }
-    if (recentDiceRolls && recentDiceRolls.length > 0 && !board?.combat) return recentDiceRolls;
+    if (recentDiceRolls && recentDiceRolls.length > 0 && !board?.combat)
+      return recentDiceRolls;
     return [];
   }, [recentDiceRolls, board?.combat, phase, showAssignment, showBarrageRecap]);
   const hasRollResults =
@@ -457,7 +497,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     const dice = rollsBySide.get(seat)?.get(type) ?? [];
     const hits = dice.filter((die) => die.hit).length;
     const name = getUnitDisplayName(type);
-    const results = dice.map((die) => `${die.roll} (${die.target}+) ${die.hit ? "hit" : "miss"}`);
+    const results = dice.map(
+      (die) => `${die.roll} (${die.target}+) ${die.hit ? "hit" : "miss"}`,
+    );
     const rollSummary = `${name}: ${hits} hit${hits === 1 ? "" : "s"} from ${dice.length} roll${dice.length === 1 ? "" : "s"}.`;
     return (
       <span
@@ -475,7 +517,11 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
             {name} · {dice.length} roll{dice.length === 1 ? "" : "s"}
           </strong>
           {dice.map((die, index) => (
-            <span key={index} className="combat-unit-row__roll-result" data-hit={die.hit}>
+            <span
+              key={index}
+              className="combat-unit-row__roll-result"
+              data-hit={die.hit}
+            >
               {die.roll} vs {die.target}+ — {die.hit ? "HIT" : "MISS"}
             </span>
           ))}
@@ -485,14 +531,20 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   };
 
   const casualtyOptions =
-    choice?.options.filter((o) => o.id !== "decline" && o.kind !== "decline") ?? [];
+    choice?.options.filter((o) => o.id !== "decline" && o.kind !== "decline") ??
+    [];
 
-  const activeCasualtyStats = choice?.actor === attackerSeat ? attackerStats : defenderStats;
+  const activeCasualtyStats =
+    choice?.actor === attackerSeat ? attackerStats : defenderStats;
   const unmatchedCasualties = isCasualtyStage
     ? casualtyOptions.filter(
         (opt) =>
           !activeCasualtyStats.groupedUnits.some((group) =>
-            matchesUnitType(group.unitType, getCombatPayload(opt).unit, opt.label),
+            matchesUnitType(
+              group.unitType,
+              getCombatPayload(opt).unit,
+              opt.label,
+            ),
           ),
       )
     : [];
@@ -504,9 +556,17 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     if (typeof board?.combat?.attacker_hits === "number") {
       return board.combat.attacker_hits;
     }
-    return activeDiceFeed.filter((d) => d.hit && (d.player ? d.player === attackerSeat : true))
-      .length;
-  }, [board?.combat, activeDiceFeed, attackerSeat, phase, isResolving, showBarrageRecap]);
+    return activeDiceFeed.filter(
+      (d) => d.hit && (d.player ? d.player === attackerSeat : true),
+    ).length;
+  }, [
+    board?.combat,
+    activeDiceFeed,
+    attackerSeat,
+    phase,
+    isResolving,
+    showBarrageRecap,
+  ]);
 
   const defenderHitsDealt = useMemo(() => {
     if (phase === "barrage" || showBarrageRecap)
@@ -515,40 +575,60 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     if (typeof board?.combat?.defender_hits === "number") {
       return board.combat.defender_hits;
     }
-    return activeDiceFeed.filter((d) => d.hit && (d.player ? d.player === defenderSeat : false))
-      .length;
-  }, [board?.combat, activeDiceFeed, defenderSeat, phase, isResolving, showBarrageRecap]);
+    return activeDiceFeed.filter(
+      (d) => d.hit && (d.player ? d.player === defenderSeat : false),
+    ).length;
+  }, [
+    board?.combat,
+    activeDiceFeed,
+    defenderSeat,
+    phase,
+    isResolving,
+    showBarrageRecap,
+  ]);
 
   const attackerPlayer = playersMap[attackerSeat];
   const defenderPlayer = playersMap[defenderSeat];
   const hasDirectHit = (player?: PlayerView) =>
     Boolean(
-      player?.held_action_cards?.some((card) => card === "direct_hit" || /^dh[1-4]$/.test(card)),
+      player?.held_action_cards?.some(
+        (card) => card === "direct_hit" || /^dh[1-4]$/.test(card),
+      ),
     );
   const attackerHasDirectHit = hasDirectHit(attackerPlayer);
   const defenderHasDirectHit = hasDirectHit(defenderPlayer);
   const isAttackerDeciding = choice?.actor === attackerSeat;
-  const opponentHasDirectHit = isAttackerDeciding ? defenderHasDirectHit : attackerHasDirectHit;
+  const opponentHasDirectHit = isAttackerDeciding
+    ? defenderHasDirectHit
+    : attackerHasDirectHit;
 
   const renderActionCards = (seat: string) => {
     const player = playersMap[seat];
     if (!player) return null;
     const isViewer = seat === viewerSeat;
     return (
-      <div className="combat-fleet-card__cards" data-testid={`combat-cards-${seat}`}>
+      <div
+        className="combat-fleet-card__cards"
+        data-testid={`combat-cards-${seat}`}
+      >
         <span>Action cards: {player.action_cards_count}</span>
-        {isViewer && player.held_action_cards && player.held_action_cards.length > 0 && (
-          <ul className="combat-fleet-card__card-list">
-            {player.held_action_cards.map((id, index) => {
-              const card = getActionCardMeta(id);
-              return (
-                <li key={`${id}-${index}`} title={`${card.name} — ${card.description}`}>
-                  {card.name}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        {isViewer &&
+          player.held_action_cards &&
+          player.held_action_cards.length > 0 && (
+            <ul className="combat-fleet-card__card-list">
+              {player.held_action_cards.map((id, index) => {
+                const card = getActionCardMeta(id);
+                return (
+                  <li
+                    key={`${id}-${index}`}
+                    title={`${card.name} — ${card.description}`}
+                  >
+                    {card.name}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
       </div>
     );
   };
@@ -585,8 +665,10 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
         : board?.combat?.round_start;
     if (showAssignment)
       for (const unit of start ?? [])
-        if (unit.owner === seat) knownTypes.add(getUnitBaseType(unit.unit_type));
-    for (const group of stats.groupedUnits) knownTypes.add(getUnitBaseType(group.unitType));
+        if (unit.owner === seat)
+          knownTypes.add(getUnitBaseType(unit.unit_type));
+    for (const group of stats.groupedUnits)
+      knownTypes.add(getUnitBaseType(group.unitType));
     for (const type of rolledTypes?.keys() ?? []) knownTypes.add(type);
     fleetRows.current.types.set(seat, knownTypes);
     if (knownTypes.size === 0) {
@@ -600,16 +682,22 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     const rows = stats.groupedUnits.map((group) => {
       const started = (start ?? []).filter(
         (unit) =>
-          unit.owner === seat && unit.unit_type.toLowerCase() === group.unitType.toLowerCase(),
+          unit.owner === seat &&
+          unit.unit_type.toLowerCase() === group.unitType.toLowerCase(),
       );
       const destroyed = Math.max(0, started.length - group.count);
       const newlyDamaged = !start
         ? 0
-        : Math.max(0, group.damagedCount - started.filter((unit) => unit.damaged).length);
+        : Math.max(
+            0,
+            group.damagedCount - started.filter((unit) => unit.damaged).length,
+          );
       // The pill compares damage carried into this round with damage sustained
       // during it. The total ship count (including undamaged ships) is shown by ×.
-      const previouslyDamaged = showAssignment && start ? group.damagedCount - newlyDamaged : 0;
-      const damageInPill = showAssignment && start ? newlyDamaged : group.damagedCount;
+      const previouslyDamaged =
+        showAssignment && start ? group.damagedCount - newlyDamaged : 0;
+      const damageInPill =
+        showAssignment && start ? newlyDamaged : group.damagedCount;
       // Casualty stage options for this group
       const matchingCasualties =
         isCurrentDecider && isCasualtyStage
@@ -643,7 +731,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           void submitDirect(matchingCasualties[0].id);
         } else if (matchingCasualties.length > 1) {
           const damagedOpt = matchingCasualties.find(
-            (o) => getCombatPayload(o).damaged || o.label.toLowerCase().includes("damaged"),
+            (o) =>
+              getCombatPayload(o).damaged ||
+              o.label.toLowerCase().includes("damaged"),
           );
           void submitDirect((damagedOpt ?? matchingCasualties[0]).id);
         }
@@ -711,7 +801,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
               ) : (
                 matchingCasualties.map((opt) => {
                   const payload = getCombatPayload(opt);
-                  const isDamaged = payload.damaged || opt.label.toLowerCase().includes("damaged");
+                  const isDamaged =
+                    payload.damaged ||
+                    opt.label.toLowerCase().includes("damaged");
                   return (
                     <button
                       key={opt.id}
@@ -767,13 +859,16 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           data-testid={`unit-row-lost-${type}`}
         >
           <UnitIcon type={type} size={20} />
-          <span className="combat-unit-row__name">{getUnitDisplayName(type)}</span>
+          <span className="combat-unit-row__name">
+            {getUnitDisplayName(type)}
+          </span>
           <span className="combat-unit-row__count" title="No ships remaining">
             ×0
           </span>
           {showAssignment &&
             (start ?? []).some(
-              (unit) => unit.owner === seat && getUnitBaseType(unit.unit_type) === type,
+              (unit) =>
+                unit.owner === seat && getUnitBaseType(unit.unit_type) === type,
             ) && (
               <span
                 className="combat-unit-row__loss"
@@ -783,7 +878,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                 −
                 {
                   (start ?? []).filter(
-                    (unit) => unit.owner === seat && getUnitBaseType(unit.unit_type) === type,
+                    (unit) =>
+                      unit.owner === seat &&
+                      getUnitBaseType(unit.unit_type) === type,
                   ).length
                 }
               </span>
@@ -811,12 +908,19 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
         <div className="combat-arena-dock__info">
           <span className="combat-arena-dock__badge">⚔️ SPACE COMBAT</span>
           <span className="combat-arena-dock__system">
-            System {combatSystemId} — {display(attackerSeat).label} vs {display(defenderSeat).label}
+            System {combatSystemId} — {display(attackerSeat).label} vs{" "}
+            {display(defenderSeat).label}
           </span>
           {hitsOwed != null && (
-            <span className="combat-arena-dock__hits">({hitsOwed} hits to resolve)</span>
+            <span className="combat-arena-dock__hits">
+              ({hitsOwed} hits to resolve)
+            </span>
           )}
-          {isActor && <span className="combat-arena-dock__alert-pill">Your Decision Required</span>}
+          {isActor && (
+            <span className="combat-arena-dock__alert-pill">
+              Your Decision Required
+            </span>
+          )}
         </div>
         <button
           type="button"
@@ -837,7 +941,11 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       open={isOpen}
       onOpenChange={(open) => {
         if (!open) {
-          phase === "complete" ? onClose() : onMinimize ? onMinimize(true) : onClose();
+          phase === "complete"
+            ? onClose()
+            : onMinimize
+              ? onMinimize(true)
+              : onClose();
         }
       }}
     >
@@ -853,14 +961,24 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           <DecisionHeader
             title={`Space Combat · System ${combatSystemId} · Round ${board?.combat?.round ?? 1} · ${phase === "pre_roll" ? "Before rolls" : phase === "barrage" ? "Anti-fighter barrage" : phase === "resolving_hits" ? "Resolve hits" : phase === "retreating" ? "Retreat / next round" : "Combat complete"}`}
             onMinimize={() =>
-              phase === "complete" ? onClose() : onMinimize ? onMinimize(true) : onClose()
+              phase === "complete"
+                ? onClose()
+                : onMinimize
+                  ? onMinimize(true)
+                  : onClose()
             }
-            minimizeLabel={phase === "complete" ? "Close combat" : "Minimize combat"}
+            minimizeLabel={
+              phase === "complete" ? "Close combat" : "Minimize combat"
+            }
             minimizeIcon={phase === "complete" ? "×" : "−"}
             titleTestId="combat-stage-title"
             minimizeTestId="close-combat-modal"
           />
-          <div data-testid="combat-phase" data-phase={phase} className="combat-action-prompt">
+          <div
+            data-testid="combat-phase"
+            data-phase={phase}
+            className="combat-action-prompt"
+          >
             {phase === "pre_roll"
               ? "Before rolls"
               : phase === "barrage"
@@ -872,11 +990,14 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                     : "Combat complete"}
           </div>
           {(phase === "barrage" || showBarrageRecap) && (
-            <div className="combat-barrage-note" data-testid="combat-barrage-results">
+            <div
+              className="combat-barrage-note"
+              data-testid="combat-barrage-results"
+            >
               <strong>Anti-fighter barrage</strong>
               <span>
-                Hits automatically destroy opposing fighters. Waylay lets the defender assign hits
-                to other ships instead.
+                Hits automatically destroy opposing fighters. Waylay lets the
+                defender assign hits to other ships instead.
               </span>
             </div>
           )}
@@ -892,17 +1013,27 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
               spectatorNoticeTestId="spectator-combat-notice"
               errorTestId="combat-error-banner"
             >
-              {({ isActor, isDirectSubmitting, declineOption, submitDirect }) => (
+              {({
+                isActor,
+                isDirectSubmitting,
+                declineOption,
+                submitDirect,
+              }) => (
                 <>
                   {/* Both Sides Arena Grid */}
-                  <div className="combat-arena-sides-grid" data-testid="combat-arena-sides">
+                  <div
+                    className="combat-arena-sides-grid"
+                    data-testid="combat-arena-sides"
+                  >
                     {/* Attacker Side */}
                     <div
                       className={`combat-fleet-card ${choice?.actor === attackerSeat ? "combat-fleet-card--active" : ""}`}
                       data-testid="attacker-fleet-card"
                     >
                       <div className="combat-fleet-card__header">
-                        <span className="combat-fleet-card__role">ATTACKER</span>
+                        <span className="combat-fleet-card__role">
+                          ATTACKER
+                        </span>
                         <span className="combat-fleet-card__name">
                           {display(attackerSeat).label}
                         </span>
@@ -916,7 +1047,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                             className="combat-fleet-card__hits"
                             data-testid="attacker-hits-dealt"
                           >
-                            💥 {attackerHitsDealt} hit{attackerHitsDealt === 1 ? "" : "s"}
+                            💥 {attackerHitsDealt} hit
+                            {attackerHitsDealt === 1 ? "" : "s"}
                           </span>
                         )}
                       </div>
@@ -929,9 +1061,12 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                           title="Non-fighter ships vs Fleet Supply pool"
                           data-testid="attacker-fleet-supply-gauge"
                         >
-                          <span className="combat-gauge-stat__label">Fleet Supply:</span>
+                          <span className="combat-gauge-stat__label">
+                            Fleet Supply:
+                          </span>
                           <span className="combat-gauge-stat__value">
-                            {attackerStats.nonFighterCount} / {attackerStats.fleetSupply}
+                            {attackerStats.nonFighterCount} /{" "}
+                            {attackerStats.fleetSupply}
                           </span>
                         </div>
                         <div
@@ -940,19 +1075,25 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                           title="Capacity consumed by fighters/infantry vs total transport capacity"
                           data-testid="attacker-capacity-gauge"
                         >
-                          <span className="combat-gauge-stat__label">Capacity:</span>
+                          <span className="combat-gauge-stat__label">
+                            Capacity:
+                          </span>
                           <span className="combat-gauge-stat__value">
-                            {attackerStats.usedCapacity} / {attackerStats.totalCapacity}
+                            {attackerStats.usedCapacity} /{" "}
+                            {attackerStats.totalCapacity}
                           </span>
                         </div>
                       </div>
 
                       {/* Units in fight */}
-                      <div className="combat-fleet-card__units" data-testid="attacker-units-list">
+                      <div
+                        className="combat-fleet-card__units"
+                        data-testid="attacker-units-list"
+                      >
                         {renderFleetUnits(
                           attackerStats,
                           attackerSeat,
-                          isActor,
+                          isActor && !stagedHits,
                           isDirectSubmitting,
                           submitDirect,
                         )}
@@ -964,7 +1105,10 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                     <div className="combat-arena-center">
                       {/* Round Hits Scorecard */}
                       {hasRollResults && (
-                        <div className="combat-round-hits-card" data-testid="combat-round-hits">
+                        <div
+                          className="combat-round-hits-card"
+                          data-testid="combat-round-hits"
+                        >
                           <div className="combat-round-hits__header">
                             {phase === "barrage" || showBarrageRecap
                               ? "Anti-fighter barrage"
@@ -1001,7 +1145,10 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
 
                       {/* Combat Odds Analysis */}
                       {isPreRoll && (
-                        <div className="combat-odds-card" data-testid="combat-odds-card">
+                        <div
+                          className="combat-odds-card"
+                          data-testid="combat-odds-card"
+                        >
                           <div className="combat-odds-card__title">
                             <span>Combat Odds · Fleets only</span>
                             {displayedOdds && (
@@ -1028,19 +1175,25 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                               <div className="combat-odds-bar">
                                 <div
                                   className="combat-odds-bar__att"
-                                  style={{ width: `${displayedOdds.attWinPct}%` }}
+                                  style={{
+                                    width: `${displayedOdds.attWinPct}%`,
+                                  }}
                                   title={`Attacker Win: ${displayedOdds.attWinPct}%`}
                                 />
                                 {displayedOdds.mutWinPct > 0 && (
                                   <div
                                     className="combat-odds-bar__mutual"
-                                    style={{ width: `${displayedOdds.mutWinPct}%` }}
+                                    style={{
+                                      width: `${displayedOdds.mutWinPct}%`,
+                                    }}
                                     title={`Mutual Destruction: ${displayedOdds.mutWinPct}%`}
                                   />
                                 )}
                                 <div
                                   className="combat-odds-bar__def"
-                                  style={{ width: `${displayedOdds.defWinPct}%` }}
+                                  style={{
+                                    width: `${displayedOdds.defWinPct}%`,
+                                  }}
                                   title={`Defender Win: ${displayedOdds.defWinPct}%`}
                                 />
                               </div>
@@ -1072,8 +1225,13 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
 
                       {/* Hits Remaining Banner */}
                       {isResolving && hitsOwed != null && hitsOwed > 0 && (
-                        <div className="combat-hits-callout" data-testid="combat-hits-callout">
-                          <span className="combat-hits-callout__count">{hitsOwed}</span>
+                        <div
+                          className="combat-hits-callout"
+                          data-testid="combat-hits-callout"
+                        >
+                          <span className="combat-hits-callout__count">
+                            {hitsOwed}
+                          </span>
                           <span className="combat-hits-callout__label">
                             Hit{hitsOwed > 1 ? "s" : ""} to Resolve
                           </span>
@@ -1087,7 +1245,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                       data-testid="defender-fleet-card"
                     >
                       <div className="combat-fleet-card__header">
-                        <span className="combat-fleet-card__role">DEFENDER</span>
+                        <span className="combat-fleet-card__role">
+                          DEFENDER
+                        </span>
                         <span className="combat-fleet-card__name">
                           {display(defenderSeat).label}
                         </span>
@@ -1101,7 +1261,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                             className="combat-fleet-card__hits"
                             data-testid="defender-hits-dealt"
                           >
-                            💥 {defenderHitsDealt} hit{defenderHitsDealt === 1 ? "" : "s"}
+                            💥 {defenderHitsDealt} hit
+                            {defenderHitsDealt === 1 ? "" : "s"}
                           </span>
                         )}
                       </div>
@@ -1114,9 +1275,12 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                           title="Non-fighter ships vs Fleet Supply pool"
                           data-testid="defender-fleet-supply-gauge"
                         >
-                          <span className="combat-gauge-stat__label">Fleet Supply:</span>
+                          <span className="combat-gauge-stat__label">
+                            Fleet Supply:
+                          </span>
                           <span className="combat-gauge-stat__value">
-                            {defenderStats.nonFighterCount} / {defenderStats.fleetSupply}
+                            {defenderStats.nonFighterCount} /{" "}
+                            {defenderStats.fleetSupply}
                           </span>
                         </div>
                         <div
@@ -1125,19 +1289,25 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                           title="Capacity consumed by fighters/infantry vs total transport capacity"
                           data-testid="defender-capacity-gauge"
                         >
-                          <span className="combat-gauge-stat__label">Capacity:</span>
+                          <span className="combat-gauge-stat__label">
+                            Capacity:
+                          </span>
                           <span className="combat-gauge-stat__value">
-                            {defenderStats.usedCapacity} / {defenderStats.totalCapacity}
+                            {defenderStats.usedCapacity} /{" "}
+                            {defenderStats.totalCapacity}
                           </span>
                         </div>
                       </div>
 
                       {/* Units in fight */}
-                      <div className="combat-fleet-card__units" data-testid="defender-units-list">
+                      <div
+                        className="combat-fleet-card__units"
+                        data-testid="defender-units-list"
+                      >
                         {renderFleetUnits(
                           defenderStats,
                           defenderSeat,
-                          isActor,
+                          isActor && !stagedHits,
                           isDirectSubmitting,
                           submitDirect,
                         )}
@@ -1150,13 +1320,22 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                   <div className="combat-action-area">
                     {isActor && isReactionStage && (
                       <div className="workflow-inline">
-                        <div className="combat-action-prompt">{reactionTiming}</div>
+                        <div className="combat-action-prompt">
+                          {reactionTiming}
+                        </div>
                         {choice.options
-                          .filter((opt) => opt.kind !== "decline" && opt.id !== "decline")
+                          .filter(
+                            (opt) =>
+                              opt.kind !== "decline" && opt.id !== "decline",
+                          )
                           .map((opt) => {
                             const alias =
-                              typeof opt.payload?.card === "string" ? opt.payload.card : null;
-                            const card = alias ? getActionCardMeta(alias) : null;
+                              typeof opt.payload?.card === "string"
+                                ? opt.payload.card
+                                : null;
+                            const card = alias
+                              ? getActionCardMeta(alias)
+                              : null;
                             return (
                               <div key={opt.id} className="combat-card-offer">
                                 <div className="combat-card-offer__body">
@@ -1210,8 +1389,13 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                       !isSustainStage &&
                       !isCasualtyStage &&
                       !isRetreatStage && (
-                        <div className="workflow-inline" data-testid="combat-follow-up">
-                          <div className="combat-action-prompt">{choice.prompt}</div>
+                        <div
+                          className="workflow-inline"
+                          data-testid="combat-follow-up"
+                        >
+                          <div className="combat-action-prompt">
+                            {choice.prompt}
+                          </div>
                           {choice.options.map((opt) => (
                             <button
                               key={opt.id}
@@ -1226,15 +1410,53 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                           ))}
                         </div>
                       )}
+                    {isActor && stagedHits && onSubmitBatch && (
+                      <HitAssignmentPanel
+                        key={choice.nonce}
+                        title={
+                          opponentHasDirectHit
+                            ? "Assign hits · opponent holds Direct Hit, a sustained ship may still be destroyed"
+                            : "Assign hits"
+                        }
+                        hits={hitsOwed ?? 1}
+                        units={spaceHitUnits(systemUnits, choice.actor)}
+                        sustainTypes={
+                          isSustainStage
+                            ? sustainTypesFromOptions(choice.options)
+                            : new Set()
+                        }
+                        destroyable={
+                          isCasualtyStage
+                            ? destroyableFromOptions(choice.options)
+                            : null
+                        }
+                        onlyFighters={
+                          phase === "barrage" &&
+                          onlyFighterOptions(choice.options)
+                        }
+                        cargo={{
+                          load: spaceCargo(systemUnits, choice.actor),
+                          capacity: (choice.actor === attackerSeat
+                            ? attackerStats
+                            : defenderStats
+                          ).totalCapacity,
+                        }}
+                        disabled={isDirectSubmitting}
+                        onSubmitPlan={(steps) =>
+                          onSubmitBatch({ kind: "casualties", steps })
+                        }
+                      />
+                    )}
                     {/* Stage 1: Sustain Damage */}
-                    {isActor && isSustainStage && (
+                    {isActor && isSustainStage && !stagedHits && (
                       <div className="workflow-inline">
                         {opponentHasDirectHit && (
                           <div
                             className="combat-direct-hit-banner"
                             data-testid="direct-hit-threat-banner"
                           >
-                            Opponent holds Direct Hit — sustained ships may be destroyed.
+                            Opponent holds Direct Hit — sustained ships may be
+                            destroyed.
                           </div>
                         )}
 
@@ -1245,13 +1467,20 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                         {/* Fallback sustain buttons when no unit rows exist on board */}
                         {(() => {
                           const activeStats =
-                            choice.actor === attackerSeat ? attackerStats : defenderStats;
-                          const hasUnitRows = activeStats.groupedUnits.length > 0;
+                            choice.actor === attackerSeat
+                              ? attackerStats
+                              : defenderStats;
+                          const hasUnitRows =
+                            activeStats.groupedUnits.length > 0;
                           if (!hasUnitRows) {
                             return (
                               <div className="combat-action-buttons">
                                 {choice.options
-                                  .filter((o) => o.id !== "decline" && o.kind !== "decline")
+                                  .filter(
+                                    (o) =>
+                                      o.id !== "decline" &&
+                                      o.kind !== "decline",
+                                  )
                                   .map((opt) => (
                                     <button
                                       key={opt.id}
@@ -1261,9 +1490,15 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                                       disabled={isDirectSubmitting}
                                       className="button button--secondary combat-sustain-btn"
                                     >
-                                      <span className="combat-btn-icon">🛡️</span>
-                                      <span className="combat-btn-label">{opt.label}</span>
-                                      <span className="combat-btn-sub">Sustain Hit</span>
+                                      <span className="combat-btn-icon">
+                                        🛡️
+                                      </span>
+                                      <span className="combat-btn-label">
+                                        {opt.label}
+                                      </span>
+                                      <span className="combat-btn-sub">
+                                        Sustain Hit
+                                      </span>
                                     </button>
                                   ))}
                               </div>
@@ -1277,7 +1512,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                             <button
                               type="button"
                               data-testid="decline-sustain-btn"
-                              onClick={() => void submitDirect(declineOption.id)}
+                              onClick={() =>
+                                void submitDirect(declineOption.id)
+                              }
                               disabled={isDirectSubmitting}
                               className="button button--secondary"
                             >
@@ -1289,24 +1526,27 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                     )}
 
                     {/* Stage 2: Assign Casualty */}
-                    {isActor && isCasualtyStage && unmatchedCasualties.length > 0 && (
-                      <div className="workflow-inline">
-                        <div className="combat-casualty-options-grid">
-                          {unmatchedCasualties.map((opt) => (
-                            <button
-                              key={opt.id}
-                              type="button"
-                              data-testid={`casualty-opt-${opt.id}`}
-                              className="button button--secondary combat-casualty-btn"
-                              disabled={isDirectSubmitting}
-                              onClick={() => void submitDirect(opt.id)}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
+                    {isActor &&
+                      isCasualtyStage &&
+                      !stagedHits &&
+                      unmatchedCasualties.length > 0 && (
+                        <div className="workflow-inline">
+                          <div className="combat-casualty-options-grid">
+                            {unmatchedCasualties.map((opt) => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                data-testid={`casualty-opt-${opt.id}`}
+                                className="button button--secondary combat-casualty-btn"
+                                disabled={isDirectSubmitting}
+                                onClick={() => void submitDirect(opt.id)}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* Stage 3: Retreat */}
                     {isActor && isRetreatStage && (
@@ -1340,26 +1580,50 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           ) : (
             <>
               {/* Both Sides Read-only Arena Grid */}
-              <div className="combat-arena-sides-grid" data-testid="combat-arena-sides">
-                <div className="combat-fleet-card" data-testid="attacker-fleet-card">
+              <div
+                className="combat-arena-sides-grid"
+                data-testid="combat-arena-sides"
+              >
+                <div
+                  className="combat-fleet-card"
+                  data-testid="attacker-fleet-card"
+                >
                   <div className="combat-fleet-card__header">
                     <span className="combat-fleet-card__role">ATTACKER</span>
-                    <span className="combat-fleet-card__name">{display(attackerSeat).label}</span>
+                    <span className="combat-fleet-card__name">
+                      {display(attackerSeat).label}
+                    </span>
                     {hasRollResults && (
-                      <span className="combat-fleet-card__hits" data-testid="attacker-hits-dealt">
-                        💥 {attackerHitsDealt} hit{attackerHitsDealt === 1 ? "" : "s"}
+                      <span
+                        className="combat-fleet-card__hits"
+                        data-testid="attacker-hits-dealt"
+                      >
+                        💥 {attackerHitsDealt} hit
+                        {attackerHitsDealt === 1 ? "" : "s"}
                       </span>
                     )}
                   </div>
-                  <div className="combat-fleet-card__units" data-testid="attacker-units-list">
-                    {renderFleetUnits(attackerStats, attackerSeat, false, false, async () => {})}
+                  <div
+                    className="combat-fleet-card__units"
+                    data-testid="attacker-units-list"
+                  >
+                    {renderFleetUnits(
+                      attackerStats,
+                      attackerSeat,
+                      false,
+                      false,
+                      async () => {},
+                    )}
                   </div>
                   {renderActionCards(attackerSeat)}
                 </div>
 
                 <div className="combat-arena-center">
                   {hasRollResults && (
-                    <div className="combat-round-hits-card" data-testid="combat-round-hits">
+                    <div
+                      className="combat-round-hits-card"
+                      data-testid="combat-round-hits"
+                    >
                       <div className="combat-round-hits__header">
                         {phase === "barrage" || showBarrageRecap
                           ? "Anti-fighter barrage"
@@ -1394,8 +1658,13 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                     </div>
                   )}
                   {isPreRoll && (
-                    <div className="combat-odds-card" data-testid="combat-odds-card">
-                      <div className="combat-odds-card__title">Combat Odds · Fleets only</div>
+                    <div
+                      className="combat-odds-card"
+                      data-testid="combat-odds-card"
+                    >
+                      <div className="combat-odds-card__title">
+                        Combat Odds · Fleets only
+                      </div>
                       {displayedOdds && (
                         <>
                           <div
@@ -1419,7 +1688,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                               {displayedOdds.mutWinPct > 0 && (
                                 <div
                                   className="combat-odds-bar__mutual"
-                                  style={{ width: `${displayedOdds.mutWinPct}%` }}
+                                  style={{
+                                    width: `${displayedOdds.mutWinPct}%`,
+                                  }}
                                   title={`Mutual Destruction: ${displayedOdds.mutWinPct}%`}
                                 />
                               )}
@@ -1441,18 +1712,36 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                   )}
                 </div>
 
-                <div className="combat-fleet-card" data-testid="defender-fleet-card">
+                <div
+                  className="combat-fleet-card"
+                  data-testid="defender-fleet-card"
+                >
                   <div className="combat-fleet-card__header">
                     <span className="combat-fleet-card__role">DEFENDER</span>
-                    <span className="combat-fleet-card__name">{display(defenderSeat).label}</span>
+                    <span className="combat-fleet-card__name">
+                      {display(defenderSeat).label}
+                    </span>
                     {hasRollResults && (
-                      <span className="combat-fleet-card__hits" data-testid="defender-hits-dealt">
-                        💥 {defenderHitsDealt} hit{defenderHitsDealt === 1 ? "" : "s"}
+                      <span
+                        className="combat-fleet-card__hits"
+                        data-testid="defender-hits-dealt"
+                      >
+                        💥 {defenderHitsDealt} hit
+                        {defenderHitsDealt === 1 ? "" : "s"}
                       </span>
                     )}
                   </div>
-                  <div className="combat-fleet-card__units" data-testid="defender-units-list">
-                    {renderFleetUnits(defenderStats, defenderSeat, false, false, async () => {})}
+                  <div
+                    className="combat-fleet-card__units"
+                    data-testid="defender-units-list"
+                  >
+                    {renderFleetUnits(
+                      defenderStats,
+                      defenderSeat,
+                      false,
+                      false,
+                      async () => {},
+                    )}
                   </div>
                   {renderActionCards(defenderSeat)}
                 </div>
@@ -1461,7 +1750,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
               <div
                 className="combat-spectator-waiting"
                 data-testid={
-                  phase === "complete" ? "combat-complete-notice" : "spectator-combat-notice"
+                  phase === "complete"
+                    ? "combat-complete-notice"
+                    : "spectator-combat-notice"
                 }
               >
                 {phase === "complete"

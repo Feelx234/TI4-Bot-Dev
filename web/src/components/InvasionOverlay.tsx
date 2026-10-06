@@ -1,7 +1,21 @@
 import React, { useRef } from "react";
-import type { BoardView, PendingChoiceDto, PlacedUnitView, PlayerView } from "../protocol/types.ts";
-import { findExplorationCardMeta, findActionCardMeta } from "../protocol/contentCatalog.ts";
+import type {
+  BoardView,
+  PendingChoiceDto,
+  PlacedUnitView,
+  PlayerView,
+} from "../protocol/types.ts";
+import {
+  findExplorationCardMeta,
+  findActionCardMeta,
+} from "../protocol/contentCatalog.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import {
+  destroyableFromOptions,
+  groundHitUnits,
+} from "../presentation/hitAssignment.ts";
+import type { BasketPlan } from "../protocol/client.ts";
+import { HitAssignmentPanel } from "./HitAssignmentPanel.tsx";
 import { InvasionLandingTray, type Landing } from "./InvasionLandingTray.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
@@ -23,11 +37,13 @@ export function getInvasionEffectInfo(
   // 1. Check if it's an exploration card (by prompt, subtype, or explore option)
   const exploreMeta =
     findExplorationCardMeta(choice.prompt) ||
-    (choice.context?.subtype ? findExplorationCardMeta(choice.context.subtype) : undefined) ||
+    (choice.context?.subtype
+      ? findExplorationCardMeta(choice.context.subtype)
+      : undefined) ||
     (choice.options.some((o) => o.kind === "explore")
       ? findExplorationCardMeta(
-          (choice.options.find((o) => typeof o.payload?.card === "string")?.payload
-            ?.card as string) ?? "",
+          (choice.options.find((o) => typeof o.payload?.card === "string")
+            ?.payload?.card as string) ?? "",
         )
       : undefined);
 
@@ -50,8 +66,9 @@ export function getInvasionEffectInfo(
   }
 
   // 2. Check if it's an action card
-  const cardPayload = choice.options.find((o) => typeof o.payload?.card === "string")?.payload
-    ?.card as string | undefined;
+  const cardPayload = choice.options.find(
+    (o) => typeof o.payload?.card === "string",
+  )?.payload?.card as string | undefined;
   const cardId = cardPayload ?? choice.context?.subtype;
   const actionCardMeta = cardId ? findActionCardMeta(cardId) : undefined;
   if (actionCardMeta) {
@@ -92,7 +109,14 @@ export const InvasionEffectCard: React.FC<{
   isDirectSubmitting?: boolean;
   onSubmit?: (id: string) => Promise<void> | void;
   waitingFor?: string;
-}> = ({ choice, currentPlanet, groundRound, isDirectSubmitting, onSubmit, waitingFor }) => {
+}> = ({
+  choice,
+  currentPlanet,
+  groundRound,
+  isDirectSubmitting,
+  onSubmit,
+  waitingFor,
+}) => {
   const info = getInvasionEffectInfo(choice, currentPlanet, groundRound);
 
   return (
@@ -102,7 +126,9 @@ export const InvasionEffectCard: React.FC<{
     >
       <div className="invasion-effect-card__header">
         <div className="invasion-effect-card__meta">
-          <span className={`invasion-effect-badge invasion-effect-badge--${info.typeClass}`}>
+          <span
+            className={`invasion-effect-badge invasion-effect-badge--${info.typeClass}`}
+          >
             <span className="invasion-effect-badge__icon" aria-hidden="true">
               {info.icon}
             </span>
@@ -126,7 +152,9 @@ export const InvasionEffectCard: React.FC<{
       )}
 
       {info.flavorText && (
-        <blockquote className="invasion-effect-card__flavor">{info.flavorText}</blockquote>
+        <blockquote className="invasion-effect-card__flavor">
+          {info.flavorText}
+        </blockquote>
       )}
 
       {waitingFor ? (
@@ -140,7 +168,9 @@ export const InvasionEffectCard: React.FC<{
         <div className="decision-frame__options invasion-effect-card__options">
           {choice.options.map((option, index) => {
             const isDecline =
-              option.kind === "decline" || option.id === "decline" || option.id === "pass";
+              option.kind === "decline" ||
+              option.id === "decline" ||
+              option.id === "pass";
             const isPrimary = index === 0 && !isDecline;
             return (
               <button
@@ -156,7 +186,10 @@ export const InvasionEffectCard: React.FC<{
                     : option.label}
                 </span>
                 {option.description && (
-                  <small className="invasion-effect-btn__sub"> · {option.description}</small>
+                  <small className="invasion-effect-btn__sub">
+                    {" "}
+                    · {option.description}
+                  </small>
                 )}
               </button>
             );
@@ -177,6 +210,8 @@ export const InvasionOverlay: React.FC<{
   lastError?: string | null;
   landingDraft?: Landing[];
   onLandingDraftChange?: (draft: Landing[]) => void;
+  /** When present, ground combat hits are staged in a panel and sent as one casualty plan. */
+  onSubmitBatch?: (plan: BasketPlan) => Promise<void>;
 }> = ({
   board,
   choice,
@@ -187,6 +222,7 @@ export const InvasionOverlay: React.FC<{
   lastError,
   landingDraft,
   onLandingDraftChange,
+  onSubmitBatch,
 }) => {
   const display = usePlayerIdentity();
   const lastLandingChoice = useRef<PendingChoiceDto | null>(null);
@@ -194,7 +230,8 @@ export const InvasionOverlay: React.FC<{
   if (!invasion) return null;
 
   const isLandingChoice =
-    choice?.context?.subtype === "commit_ground_forces" && choice.actor === invasion.invader;
+    choice?.context?.subtype === "commit_ground_forces" &&
+    choice.actor === invasion.invader;
   if (isLandingChoice) {
     lastLandingChoice.current = choice;
   }
@@ -205,7 +242,10 @@ export const InvasionOverlay: React.FC<{
 
   const describe = (units: PlacedUnitView[]) =>
     units
-      .map((unit) => `${unit.owner} ${unit.unit_type}${unit.damaged ? " (damaged)" : ""}`)
+      .map(
+        (unit) =>
+          `${unit.owner} ${unit.unit_type}${unit.damaged ? " (damaged)" : ""}`,
+      )
       .join(", ") || "None";
 
   return (
@@ -217,7 +257,9 @@ export const InvasionOverlay: React.FC<{
       <header className="invasion-overlay__header">
         <div className="invasion-overlay__header-main">
           <div className="invasion-overlay__badges">
-            <span className="invasion-badge invasion-badge--phase">⚔️ INVASION</span>
+            <span className="invasion-badge invasion-badge--phase">
+              ⚔️ INVASION
+            </span>
             <span className="invasion-badge invasion-badge--system">
               System {invasion.system_id}
             </span>
@@ -225,7 +267,9 @@ export const InvasionOverlay: React.FC<{
               {invasion.phase.replaceAll("_", " ")}
             </span>
           </div>
-          <h2 className="invasion-overlay__title">Invasion · {invasion.system_id}</h2>
+          <h2 className="invasion-overlay__title">
+            Invasion · {invasion.system_id}
+          </h2>
           <p className="invasion-overlay__subtitle">
             <span className="invasion-invader-label">
               <span
@@ -234,11 +278,16 @@ export const InvasionOverlay: React.FC<{
               />
               <strong>{invaderDisplay.label}</strong>
               {players?.[invasion.invader]?.faction && (
-                <span className="text-muted"> ({players[invasion.invader].faction})</span>
+                <span className="text-muted">
+                  {" "}
+                  ({players[invasion.invader].faction})
+                </span>
               )}
             </span>
             <span className="invasion-sep">·</span>
-            <span className="invasion-phase-text">{invasion.phase.replaceAll("_", " ")}</span>
+            <span className="invasion-phase-text">
+              {invasion.phase.replaceAll("_", " ")}
+            </span>
           </p>
         </div>
         <button
@@ -270,7 +319,9 @@ export const InvasionOverlay: React.FC<{
                     <>
                       <span
                         className="invasion-planet-chip__dot"
-                        style={{ backgroundColor: ctrlDisplay.color ?? undefined }}
+                        style={{
+                          backgroundColor: ctrlDisplay.color ?? undefined,
+                        }}
                       />
                       {ctrlDisplay.label}
                     </>
@@ -278,7 +329,11 @@ export const InvasionOverlay: React.FC<{
                     (controller ?? "uncontrolled")
                   )}
                 </span>
-                {isCurrent && <span className="invasion-planet-chip__target-tag">Target</span>}
+                {isCurrent && (
+                  <span className="invasion-planet-chip__target-tag">
+                    Target
+                  </span>
+                )}
               </span>
             );
           })}
@@ -293,7 +348,9 @@ export const InvasionOverlay: React.FC<{
           <span className="invasion-sep">·</span>
           <span className="invasion-current-planet-banner__item">
             Defender:{" "}
-            <strong>{invasion.defender ? display(invasion.defender).label : "none"}</strong>
+            <strong>
+              {invasion.defender ? display(invasion.defender).label : "none"}
+            </strong>
           </span>
           <span className="invasion-sep">·</span>
           <span className="invasion-current-planet-banner__item">
@@ -316,7 +373,9 @@ export const InvasionOverlay: React.FC<{
             </h3>
           </div>
           <div className="invasion-step-card__body">
-            <p className="invasion-step-card__forces">Before: {describe(step.before)}</p>
+            <p className="invasion-step-card__forces">
+              Before: {describe(step.before)}
+            </p>
             <div className="invasion-step-card__hits">
               <span className="invasion-step-card__hits-label">Hits: </span>
               <span className="invasion-step-card__hits-value">
@@ -327,13 +386,18 @@ export const InvasionOverlay: React.FC<{
               </span>
             </div>
             {step.dice.length > 0 && (
-              <div aria-label="Ground dice" className="invasion-step-card__dice">
+              <div
+                aria-label="Ground dice"
+                className="invasion-step-card__dice"
+              >
                 {step.dice.map((die, index) => (
                   <span
                     key={index}
                     className={`card invasion-die-chip ${die.hit ? "invasion-die-chip--hit" : "invasion-die-chip--miss"}`}
                   >
-                    <span className="invasion-die-chip__icon">{die.hit ? "💥" : "⚪"}</span>
+                    <span className="invasion-die-chip__icon">
+                      {die.hit ? "💥" : "⚪"}
+                    </span>
                     <span className="invasion-die-chip__text">
                       {die.player} · {die.group}: {die.face} / {die.target}{" "}
                       {die.hit ? "hit" : "miss"}
@@ -342,7 +406,9 @@ export const InvasionOverlay: React.FC<{
                 ))}
               </div>
             )}
-            <p className="invasion-step-card__forces">After: {describe(step.after)}</p>
+            <p className="invasion-step-card__forces">
+              After: {describe(step.after)}
+            </p>
           </div>
         </section>
       )}
@@ -350,13 +416,15 @@ export const InvasionOverlay: React.FC<{
       {!isLandingChoice && invasion.planets.length > 0 && (
         <div className="invasion-planets-grid">
           {invasion.planets.map((planet) => {
-            const planetUnits = system?.units.filter((unit) => unit.planet === planet) ?? [];
+            const planetUnits =
+              system?.units.filter((unit) => unit.planet === planet) ?? [];
             return (
               <div key={planet} className="invasion-planet-card">
                 <div className="invasion-planet-card__header">
                   <h3 className="invasion-planet-card__name">🪐 {planet}</h3>
                   <span className="invasion-planet-card__count">
-                    {planetUnits.length} force{planetUnits.length === 1 ? "" : "s"}
+                    {planetUnits.length} force
+                    {planetUnits.length === 1 ? "" : "s"}
                   </span>
                 </div>
                 <div className="invasion-planet-card__forces">
@@ -368,21 +436,29 @@ export const InvasionOverlay: React.FC<{
                           <span key={idx} className="invasion-unit-chip">
                             <span
                               className="invasion-unit-chip__dot"
-                              style={{ backgroundColor: ownerDisplay.color ?? undefined }}
+                              style={{
+                                backgroundColor:
+                                  ownerDisplay.color ?? undefined,
+                              }}
                             />
                             <UnitIcon type={unit.unit_type} />
                             <span className="invasion-unit-chip__name">
-                              {ownerDisplay.label} {getUnitDisplayName(unit.unit_type)}
+                              {ownerDisplay.label}{" "}
+                              {getUnitDisplayName(unit.unit_type)}
                             </span>
                             {unit.damaged && (
-                              <span className="invasion-unit-chip__damaged">damaged</span>
+                              <span className="invasion-unit-chip__damaged">
+                                damaged
+                              </span>
                             )}
                           </span>
                         );
                       })}
                     </div>
                   ) : (
-                    <p className="invasion-planet-card__empty text-muted">No forces on planet</p>
+                    <p className="invasion-planet-card__empty text-muted">
+                      No forces on planet
+                    </p>
                   )}
                   <p className="visually-hidden">
                     {planetUnits
@@ -402,12 +478,18 @@ export const InvasionOverlay: React.FC<{
       {viewerSeat === invasion.invader &&
       landingDraft?.length &&
       (!isLandingChoice || choice?.actor !== viewerSeat) ? (
-        <div className="invasion-draft-banner" data-testid="invasion-interrupted-draft">
+        <div
+          className="invasion-draft-banner"
+          data-testid="invasion-interrupted-draft"
+        >
           <span className="invasion-draft-banner__icon">⏸️</span>
           <div className="invasion-draft-banner__text">
             <strong>Landing paused</strong> · remaining draft:{" "}
             {landingDraft
-              .map((item) => `${item.unit}${item.damaged ? " (damaged)" : ""} → ${item.planet}`)
+              .map(
+                (item) =>
+                  `${item.unit}${item.damaged ? " (damaged)" : ""} → ${item.planet}`,
+              )
               .join(", ")}
           </div>
         </div>
@@ -430,7 +512,9 @@ export const InvasionOverlay: React.FC<{
         </div>
       )}
 
-      {choice && isLandingChoice && viewerSeat === choice.actor ? null : choice &&
+      {choice &&
+      isLandingChoice &&
+      viewerSeat === choice.actor ? null : choice &&
         viewerSeat === choice.actor ? (
         <WorkflowShell
           choice={choice}
@@ -439,15 +523,41 @@ export const InvasionOverlay: React.FC<{
           lastError={lastError}
           errorTestId="invasion-error"
         >
-          {({ isDirectSubmitting, submitDirect }) => (
-            <InvasionEffectCard
-              choice={choice}
-              currentPlanet={invasion.current_planet}
-              groundRound={invasion.ground_round}
-              isDirectSubmitting={isDirectSubmitting}
-              onSubmit={submitDirect}
-            />
-          )}
+          {({ isDirectSubmitting, submitDirect }) => {
+            const target = choice.context?.target;
+            const planet =
+              target && "Planet" in target
+                ? target.Planet.planet
+                : invasion.current_planet;
+            return onSubmitBatch &&
+              choice.context?.subtype === "assign_ground_casualty" &&
+              planet ? (
+              <HitAssignmentPanel
+                key={choice.nonce}
+                title={`Assign ground combat hits on ${planet}`}
+                hits={choice.context.outstanding?.[0]?.amount ?? 1}
+                units={groundHitUnits(
+                  board.systems[invasion.system_id]?.units ?? [],
+                  choice.actor,
+                  planet,
+                )}
+                sustainTypes={new Set()}
+                destroyable={destroyableFromOptions(choice.options)}
+                disabled={isDirectSubmitting}
+                onSubmitPlan={(steps) =>
+                  onSubmitBatch({ kind: "casualties", steps })
+                }
+              />
+            ) : (
+              <InvasionEffectCard
+                choice={choice}
+                currentPlanet={invasion.current_planet}
+                groundRound={invasion.ground_round}
+                isDirectSubmitting={isDirectSubmitting}
+                onSubmit={submitDirect}
+              />
+            );
+          }}
         </WorkflowShell>
       ) : (
         <div className="invasion-waiting-wrap">
@@ -459,7 +569,9 @@ export const InvasionOverlay: React.FC<{
               waitingFor={display(choice.actor).label}
             />
           ) : (
-            <p className="invasion-waiting-note">Waiting for invasion resolution</p>
+            <p className="invasion-waiting-note">
+              Waiting for invasion resolution
+            </p>
           )}
         </div>
       )}
