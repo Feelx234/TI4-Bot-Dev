@@ -29,6 +29,12 @@ import type { Landing } from "./InvasionLandingTray.tsx";
 import { InvasionOverlay } from "./InvasionOverlay.tsx";
 import { SystemActivationBar } from "./SystemActivationBar.tsx";
 import { PlanetSelectionBar } from "./PlanetSelectionBar.tsx";
+import { TurnActionBar } from "./TurnActionBar.tsx";
+import {
+  deriveReadOnlyTurnBar,
+  deriveTurnBar,
+  isTurnMenuChoice,
+} from "../presentation/turnBar.ts";
 import {
   deriveChoiceRendererModel,
   ChoiceRendererModel,
@@ -80,6 +86,13 @@ export interface GameShellProps {
   productionQueue?: readonly string[];
   productionError?: string | null;
   onQueueProduction?: (units: string[]) => void;
+  /** The phase and whose turn it is, for the read-only action bar when it is not your turn. */
+  turn?: TurnInfo;
+}
+
+export interface TurnInfo {
+  phase: string;
+  activePlayer: string | null;
 }
 
 export interface ChoiceRendererDispatcherProps {
@@ -111,6 +124,7 @@ export interface ChoiceRendererDispatcherProps {
   onTacticalStep?: () => void;
   landingDraft?: Landing[];
   onLandingDraftChange?: (draft: Landing[]) => void;
+  turn?: TurnInfo;
 }
 
 type WorkflowRenderer = (
@@ -552,6 +566,7 @@ export const ChoiceRendererDispatcher: React.FC<
   onTacticalStep,
   landingDraft,
   onLandingDraftChange,
+  turn,
 }) => {
   const present = useParticipantText();
   const derivedModel = useMemo(() => {
@@ -642,13 +657,23 @@ export const ChoiceRendererDispatcher: React.FC<
       />
     );
 
+  // Not your turn in the action phase: the same bar, read-only, with the reason on every button.
+  const viewer = viewerSeat ? players?.[viewerSeat] : undefined;
+  const readOnlyBar =
+    viewer && turn?.phase === "action" && !isCombatWorkflow ? (
+      <TurnActionBar
+        model={deriveReadOnlyTurnBar(viewer, turn.activePlayer)}
+        onSubmit={onSubmit}
+      />
+    ) : null;
+
   if (
     !choice ||
     (viewerSeat !== undefined &&
       choice.actor !== viewerSeat &&
       !isCombatWorkflow)
   )
-    return null;
+    return readOnlyBar;
 
   // A view-only copy: IDs, payloads and the original pending choice stay intact.
   const visibleChoice = {
@@ -663,6 +688,20 @@ export const ChoiceRendererDispatcher: React.FC<
           : present(option.description),
     })),
   };
+
+  // The turn menu and the end-turn question live on the persistent bar. Options the bar cannot
+  // place keep the old list.
+  if (isTurnMenuChoice(visibleChoice) && choice.actor === viewerSeat) {
+    const barModel = deriveTurnBar(visibleChoice, viewer);
+    if (barModel)
+      return (
+        <TurnActionBar
+          model={barModel}
+          onSubmit={onSubmit}
+          lastError={lastError ? present(lastError) : lastError}
+        />
+      );
+  }
 
   const renderer =
     isBattleChoice || (spectatorCombatWorkflow && !model)
@@ -797,6 +836,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   revealedObjectives,
   scoredObjectives,
   objectiveProgress,
+  turn,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<"events" | "players" | null>(
     null,
@@ -1027,6 +1067,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             revealedObjectives={revealedObjectives}
             scoredObjectives={scoredObjectives}
             objectiveProgress={objectiveProgress}
+            turn={turn}
             onSubmit={onSubmitChoice}
             onSubmitMovementBatch={onSubmitMovementBatch}
             onSubmitBasketBatch={onSubmitBasketBatch}

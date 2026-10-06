@@ -425,6 +425,14 @@ const GameViewContainer: React.FC<{
         choice={pendingChoice}
         viewerSeat={userSeat}
         players={snapshot?.view.players}
+        turn={
+          snapshot
+            ? {
+                phase: snapshot.view.phase,
+                activePlayer: snapshot.view.active_player ?? null,
+              }
+            : undefined
+        }
         revealedObjectives={snapshot?.view.table.revealed_objectives}
         scoredObjectives={snapshot?.view.table.scored_objectives}
         objectiveProgress={snapshot?.view.table.objective_progress}
