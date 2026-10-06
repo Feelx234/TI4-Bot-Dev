@@ -2060,7 +2060,7 @@ fn pay_sustain_commander(state: &mut GameState, content: &ContentStore, player: 
 }
 
 /// Barony of Letnev, Non-Euclidean Shielding: each use of SUSTAIN DAMAGE cancels two hits.
-fn non_euclidean_shielding(state: &GameState, player: &PlayerId) -> bool {
+pub(crate) fn non_euclidean_shielding(state: &GameState, player: &PlayerId) -> bool {
     state
         .player(player)
         .is_some_and(|seat| seat.technologies.iter().any(|held| held.as_str() == "nes"))

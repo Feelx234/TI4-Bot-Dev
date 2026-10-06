@@ -47,10 +47,6 @@ pub fn blocked() -> BTreeMap<&'static str, &'static str> {
             "the Naalu 0 token cannot override initiative order yet (BF-00i)",
         ),
         (
-            "quash",
-            "an agenda cannot be discarded and replaced mid-window",
-        ),
-        (
             "your_ships_have_no_shields",
             "no window exists between rolling and assigning hits",
         ),
@@ -352,6 +348,14 @@ pub fn component_actions(
             "Production Biomes: exhaust and spend a strategy token for 4 trade goods",
         ));
     }
+    // Trade Convoys (Hacan promissory note): "ACTION: Place this card faceup in your play area."
+    if crate::promissory::convoys_in_hand(state, player).is_some() {
+        options.push(crate::choice::ChoiceOption::labelled(
+            "faction|trade_convoys",
+            ACTION_KIND,
+            "Trade Convoys: place it faceup in your play area",
+        ));
+    }
     options.extend(crate::factions::component_actions(state, content, player));
     options
 }
@@ -429,6 +433,9 @@ pub fn perform_component(
     }
     if option.id == "faction|production_biomes" {
         return production_biomes(context, player);
+    }
+    if option.id == "faction|trade_convoys" {
+        return crate::promissory::play_convoys(context.state, player);
     }
     if option.id != "faction|orbital_drop" {
         return false;
@@ -927,6 +934,7 @@ pub fn registered() -> Vec<&'static str> {
         "munitions",
         "orbital_drop",
         "peace_accords",
+        "quash",
         "unrelenting",
         "versatile",
     ]
@@ -1462,6 +1470,47 @@ mod tests {
                 .iter()
                 .all(|option| option.id != "faction|production_biomes"),
             "exhausted, it is not offered again"
+        );
+    }
+
+    #[test]
+    fn trade_convoys_is_an_action_that_places_the_card_faceup() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let (hacan, other) = (PlayerId::new("a"), PlayerId::new("b"));
+        state.player_mut(&hacan).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        state.player_mut(&other).unwrap().faction = ti4_model::id::FactionId::new("jolnar");
+        assert!(
+            component_actions(&state, content, &other)
+                .iter()
+                .all(|option| option.id != "faction|trade_convoys"),
+            "nothing to place without the card"
+        );
+        crate::promissory::take(&mut state, content, &other, "convoys:hacan");
+
+        let option = component_actions(&state, content, &other)
+            .into_iter()
+            .find(|option| option.id == "faction|trade_convoys")
+            .expect("the holder may spend an action on it");
+        assert!(
+            component_actions(&state, content, &hacan)
+                .iter()
+                .all(|option| option.id != "faction|trade_convoys"),
+            "its owner is never offered their own card"
+        );
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(
+            Vec::<String>::new(),
+        )));
+        let done = with_table_context(&mut state, None, &mut table, |context| {
+            perform_component(context, &other, &option)
+        });
+        assert!(done);
+        assert!(crate::promissory::reaches_anyone(&state, &other));
+        assert!(
+            component_actions(&state, content, &other)
+                .iter()
+                .all(|option| option.id != "faction|trade_convoys"),
+            "placed once"
         );
     }
 

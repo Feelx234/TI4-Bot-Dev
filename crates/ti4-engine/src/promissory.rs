@@ -153,9 +153,41 @@ pub fn take(state: &mut GameState, content: &ContentStore, holder: &PlayerId, no
     state
         .promissory_notes
         .insert(note.to_owned(), holder.clone());
-    if is_play_area(content, note) {
+    if is_play_area(content, note) && alias_of(note) != CONVOYS {
         state.promissory_faceup.insert(note.to_owned());
     }
+}
+
+/// Trade Convoys' alias. Its text opens "ACTION: Place this card faceup in your play area", so
+/// unlike the notes that go faceup on receipt it stays in the holder's hand until they spend an
+/// action on it ([`play_convoys`]).
+const CONVOYS: &str = "convoys";
+
+/// The Trade Convoys `player` holds in hand (not yet faceup) and could play with its ACTION.
+/// Hacan's own copy is not offered: nobody negotiates with a card they own.
+#[must_use]
+pub fn convoys_in_hand(state: &GameState, player: &PlayerId) -> Option<String> {
+    state
+        .promissory_notes
+        .iter()
+        .find(|(note, holder)| {
+            *holder == player
+                && alias_of(note) == CONVOYS
+                && !state.promissory_faceup.contains(*note)
+                && owner_of(note).is_some_and(|name| name != faction_name(state, player))
+        })
+        .map(|(note, _)| note.clone())
+}
+
+/// Trade Convoys' ACTION: place the card faceup in the holder's play area.
+///
+/// Returns whether a card was placed (nothing changes when the holder has none in hand).
+pub fn play_convoys(state: &mut GameState, player: &PlayerId) -> bool {
+    let Some(note) = convoys_in_hand(state, player) else {
+        return false;
+    };
+    state.promissory_faceup.insert(note);
+    true
 }
 
 /// Return a note to its owner once it has done its work.
@@ -351,7 +383,22 @@ pub fn spend_support_on_activation(
     for note in alliances_returned_by_activation(state, activator, system) {
         give_back(state, &note);
     }
+    // Trade Convoys: "If you activate a system that contains 1 or more of the Hacan player's
+    // units, return this card to the Hacan player."
+    for note in convoys_returned_by_activation(state, activator, system) {
+        give_back(state, &note);
+    }
     owners
+}
+
+/// The faceup Trade Convoys `activator` holds whose owner has a unit in `system`.
+#[must_use]
+pub fn convoys_returned_by_activation(
+    state: &GameState,
+    activator: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) -> Vec<String> {
+    faceup_returned_by_activation(state, activator, system, CONVOYS)
 }
 
 /// The faceup Alliances `activator` holds whose owner has a unit in `system`.
@@ -360,6 +407,16 @@ pub fn alliances_returned_by_activation(
     state: &GameState,
     activator: &PlayerId,
     system: &ti4_model::id::SystemId,
+) -> Vec<String> {
+    faceup_returned_by_activation(state, activator, system, "an")
+}
+
+/// The faceup notes of `alias` `activator` holds whose owner has a unit in `system`.
+fn faceup_returned_by_activation(
+    state: &GameState,
+    activator: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    alias: &str,
 ) -> Vec<String> {
     let board = state.system_state(system);
     let present: std::collections::BTreeSet<&PlayerId> = board
@@ -373,7 +430,7 @@ pub fn alliances_returned_by_activation(
         .iter()
         .filter(|(note, holder)| {
             *holder == activator
-                && alias_of(note) == "an"
+                && alias_of(note) == alias
                 && state.promissory_faceup.contains(*note)
         })
         .filter(|(note, _)| {
@@ -549,55 +606,48 @@ pub fn grant_commander_ability(
     true
 }
 
-/// Military Support: the holder plants two infantry when the owner's turn begins.
+/// Military Support: "At the start of the Sol player's turn: Remove 1 token from the Sol player's
+/// strategy pool, if able, and return it to their reinforcements. Then, you may place 2 infantry
+/// from your reinforcements on any planet you control. Then, return this card to the Sol player."
 ///
-/// The note is returned whether or not the troops land: it was spent on the turn starting, and a
-/// holder with nowhere to put them has still used the card.
+/// The card resolves whenever its window comes (operator ruling, 2026-10-06: only clauses that
+/// say "may" are optional). The token removal ("if able") and the return always happen; the only
+/// choice is the infantry: the holder picks a planet they control or declines. Nothing is asked
+/// when the holder has no planet or the box holds no infantry for them. The holder's own infantry
+/// are placed (their upgrade, if they own it), within what the box holds. The placement question
+/// comes first so an illegal answer leaves everything unchanged.
+///
+/// # Errors
+/// [`crate::choice::IllegalChoice`] when the holder answers with something not offered; nothing
+/// has changed.
 pub fn turn_started(
-    state: &mut GameState,
-    content: &ContentStore,
-    sources: SourceSet,
+    context: &mut crate::timing::TimingContext<'_>,
     player: &PlayerId,
-) -> bool {
-    let Some(holder) = holder_of(state, "ms", player) else {
-        return false;
+) -> Result<bool, crate::choice::IllegalChoice> {
+    let Some(holder) = holder_of(context.state, "ms", player) else {
+        return Ok(false);
     };
-    if let Some(seat) = state.player_mut(player)
+    let placed = crate::action_cards::place_units_choosing(
+        context,
+        &holder,
+        "infantry",
+        2,
+        crate::action_cards::PlacementTarget::ControlledPlanet,
+        None,
+        true,
+        "ms",
+        crate::action_cards::PlacementLimits::Respect,
+    )?;
+    let _ = placed; // placing is the card's only "may"; the rest resolves either way
+    if let Some(seat) = context.state.player_mut(player)
         && seat.tokens(ti4_model::state::TokenPool::Strategic) > 0
     {
         seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
-        crate::supply::note_strategy_token_spent(state, player, "military_support");
+        crate::supply::note_strategy_token_spent(context.state, player, "military_support");
     }
-    let spot = state
-        .controlled_planets(&holder)
-        .first()
-        .map(|(system, planet)| ((*system).clone(), (*planet).clone()));
-    if let Some((system, planet)) = spot {
-        let generic = ti4_content::units::catalogue(content, sources)
-            .get("infantry")
-            .map(|unit| unit.id().to_owned());
-        let faction = state
-            .player(&holder)
-            .map(|seat| seat.faction.to_string())
-            .unwrap_or_default();
-        if let Some(id) = ti4_content::units::faction_unit(content, &faction, "infantry", sources)
-            .map(|unit| unit.id().to_owned())
-            .or(generic)
-        {
-            let unit =
-                ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(id), holder.clone());
-            let troops = state
-                .system_mut(&system)
-                .planet_units
-                .entry(planet)
-                .or_default();
-            troops.push(unit.clone());
-            troops.push(unit);
-        }
-    }
-    let name = faction_name(state, player);
-    give_back(state, &note_id("ms", &name));
-    true
+    let name = faction_name(context.state, player);
+    give_back(context.state, &note_id("ms", &name));
+    Ok(true)
 }
 
 /// Trade Agreement: "When the <color> player replenishes commodities: The <color> player gives you
@@ -823,9 +873,12 @@ mod tests {
             "out of hand while it sits faceup"
         );
 
-        // Trade Convoys is Hacan's card: lent to b, it sits faceup in b's play area. (A key like
-        // `convoys:jolnar` cannot exist — Jolnar owns no such note.)
+        // Trade Convoys is Hacan's card: lent to b, it sits in b's hand until b spends the ACTION
+        // that places it faceup. (A key like `convoys:jolnar` cannot exist — Jolnar owns no such
+        // note.)
         take(&mut state, content, &b(), "convoys:hacan");
+        assert!(!state.promissory_faceup.contains("convoys:hacan"));
+        assert!(play_convoys(&mut state, &b()));
         assert!(state.promissory_faceup.contains("convoys:hacan"));
         assert!(
             !available_notes(&state, content, &b())
@@ -1047,9 +1100,43 @@ mod tests {
             "a note in hand is not in play"
         );
 
-        take(&mut state, content, &b(), "convoys:hacan"); // lent to b: faceup from then on
+        take(&mut state, content, &b(), "convoys:hacan");
+        assert!(
+            !reaches_anyone(&state, &b()),
+            "ACTION: it is placed faceup by its holder, not on receipt"
+        );
+        assert_eq!(
+            convoys_in_hand(&state, &b()).as_deref(),
+            Some("convoys:hacan")
+        );
+        assert_eq!(convoys_in_hand(&state, &a()), None, "never its own owner");
+
+        assert!(play_convoys(&mut state, &b()));
         assert!(reaches_anyone(&state, &b()));
         assert!(!reaches_anyone(&state, &a()), "and only for its holder");
+        assert!(!play_convoys(&mut state, &b()), "nothing left to place");
+    }
+
+    #[test]
+    fn trade_convoys_return_when_the_holder_activates_a_system_with_hacan_units() {
+        let mut state = game_hacan_jolnar();
+        let content = ContentStore::embedded();
+        let (system, _) = crate::fixtures::a_placed_planet();
+        take(&mut state, content, &b(), "convoys:hacan");
+        assert!(play_convoys(&mut state, &b()));
+
+        // No Hacan unit in the system: the card stays.
+        crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
+        spend_support_on_activation(&mut state, &b(), &system);
+        assert_eq!(holder_of(&state, "convoys", &a()), Some(b()));
+        assert!(state.promissory_faceup.contains("convoys:hacan"));
+
+        // A Hacan unit is there: it goes home, and out of the play area.
+        crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+        spend_support_on_activation(&mut state, &b(), &system);
+        assert_eq!(holder_of(&state, "convoys", &a()), None);
+        assert!(!state.promissory_faceup.contains("convoys:hacan"));
+        assert!(!reaches_anyone(&state, &b()));
     }
 
     #[test]
@@ -1078,8 +1165,8 @@ mod tests {
         assert!(dear > cheap, "{dear} should beat {cheap}");
     }
 
-    #[test]
-    fn military_support_plants_two_and_the_note_goes_home() {
+    /// Sol (a) with Military Support lent to b, who controls one planet.
+    fn military_support_fixture() -> (GameState, ti4_model::id::SystemId, ti4_model::id::PlanetId) {
         let content = ContentStore::embedded();
         let mut state = game(&["a", "b"]);
         // Military Support belongs to Sol, so seat a as sol and deal with factions known.
@@ -1089,20 +1176,144 @@ mod tests {
         let (system, planet) = crate::fixtures::a_placed_planet();
         state.system_mut(&system).set_control(planet.clone(), b());
         take(&mut state, content, &b(), "ms:sol");
+        (state, system, planet)
+    }
 
-        assert!(turn_started(&mut state, content, POK, &a()));
-
-        let landed = state
-            .system_state(&system)
+    fn infantry_on(
+        state: &GameState,
+        system: &ti4_model::id::SystemId,
+        planet: &ti4_model::id::PlanetId,
+    ) -> Vec<String> {
+        state
+            .system_state(system)
             .planet_units
-            .get(&planet)
-            .map_or(0, |units| units.iter().filter(|u| u.owner == b()).count());
-        assert_eq!(landed, 2, "two infantry, for the holder");
+            .get(planet)
+            .map(|units| {
+                units
+                    .iter()
+                    .filter(|u| u.owner == b())
+                    .map(|u| u.type_id.to_string())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn run_turn_started(state: &mut GameState, answers: &[&str]) -> bool {
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(
+            answers.iter().map(|s| (*s).to_owned()),
+        )));
+        crate::fixtures::with_context(state, POK, None, &mut table, |context| {
+            turn_started(context, &a()).expect("a legal answer")
+        })
+    }
+
+    #[test]
+    fn military_support_plants_two_of_the_holders_infantry_and_the_note_goes_home() {
+        let (mut state, system, planet) = military_support_fixture();
+        let tokens = state
+            .player(&a())
+            .unwrap()
+            .tokens(ti4_model::state::TokenPool::Strategic);
+        assert!(tokens > 0, "the fixture gives Sol a token to lose");
+
+        assert!(run_turn_started(
+            &mut state,
+            &[&format!("{system}|{planet}")]
+        ));
+
+        let landed = infantry_on(&state, &system, &planet);
+        assert_eq!(landed.len(), 2, "two infantry, for the holder");
+        assert!(
+            landed.iter().all(|id| id.contains("infantry")),
+            "{landed:?}"
+        );
         assert_eq!(
             holder_of(&state, "ms", &a()),
             None,
             "and the note went home"
         );
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .tokens(ti4_model::state::TokenPool::Strategic),
+            tokens - 1,
+            "Sol paid a strategy token"
+        );
+    }
+
+    #[test]
+    fn declining_the_infantry_still_takes_the_token_and_sends_the_card_home() {
+        // Only the infantry is a "may": the token removal and the return happen regardless.
+        let (mut state, system, planet) = military_support_fixture();
+        let tokens = state
+            .player(&a())
+            .unwrap()
+            .tokens(ti4_model::state::TokenPool::Strategic);
+
+        assert!(run_turn_started(&mut state, &["decline"]));
+
+        assert!(infantry_on(&state, &system, &planet).is_empty());
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .tokens(ti4_model::state::TokenPool::Strategic),
+            tokens - 1
+        );
+        assert_eq!(holder_of(&state, "ms", &a()), None, "the card went home");
+    }
+
+    #[test]
+    fn military_support_lets_the_holder_pick_the_planet_and_uses_their_upgrade() {
+        let (mut state, system, first) = military_support_fixture();
+        let content = ContentStore::embedded();
+        // A second controlled planet in another system.
+        let (other_system, second) = ti4_content::galaxy::all_planets(content, POK)
+            .iter()
+            .filter(|(_, planet)| planet.system_id().is_some() && !planet.is_placed_during_play())
+            .map(|(id, planet)| {
+                (
+                    ti4_model::id::SystemId::new(planet.system_id().unwrap()),
+                    ti4_model::id::PlanetId::new(*id),
+                )
+            })
+            .find(|(sys, planet)| *sys != system && *planet != first)
+            .expect("another planet");
+        state
+            .system_mut(&other_system)
+            .set_control(second.clone(), b());
+        // b is Jol-Nar and owns the infantry upgrade, so the upgraded unit is what lands.
+        state
+            .player_mut(&b())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("inf2"));
+        let expected = crate::action_cards::placed_unit_id(&state, content, POK, &b(), "infantry")
+            .expect("an infantry form")
+            .to_string();
+
+        assert!(run_turn_started(
+            &mut state,
+            &[&format!("{other_system}|{second}")]
+        ));
+
+        assert!(infantry_on(&state, &system, &first).is_empty());
+        assert_eq!(
+            infantry_on(&state, &other_system, &second),
+            vec![expected.clone(), expected]
+        );
+    }
+
+    #[test]
+    fn without_a_planet_nothing_is_asked_but_the_card_still_resolves() {
+        let (mut state, system, planet) = military_support_fixture();
+        state.system_mut(&system).set_control(planet, a());
+
+        // An empty script fails the run if anything were asked.
+        assert!(run_turn_started(&mut state, &[]));
+
+        assert_eq!(holder_of(&state, "ms", &a()), None, "the card went home");
     }
 
     #[test]
@@ -1191,9 +1402,11 @@ mod tests {
         let content = ContentStore::embedded();
         let mut state = game_hacan_jolnar();
 
-        // Trade Convoys is Hacan's play-area card: receipt puts it faceup in the recipient's
-        // play area.
+        // Trade Convoys is Hacan's play-area card, but its text opens ACTION: receipt leaves it
+        // in hand until the recipient places it.
         take(&mut state, content, &b(), "convoys:hacan");
+        assert!(!state.promissory_faceup.contains("convoys:hacan"));
+        assert!(play_convoys(&mut state, &b()));
         assert!(state.promissory_faceup.contains("convoys:hacan"));
 
         // Jolnar's note is not a play-area card: it stays held in hand.

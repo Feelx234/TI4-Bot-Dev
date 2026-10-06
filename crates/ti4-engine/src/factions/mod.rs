@@ -817,9 +817,97 @@ pub fn assets(content: &ContentStore, sources: SourceSet, alias: &str) -> Vec<As
     found.into_iter().collect()
 }
 
-/// Whether the engine claims this asset, through a module or a pre-existing registry.
+use AssetKind as K;
+
+/// Assets of the original six factions (the ones in [`crate::seating::IN_SCOPE_FACTIONS`]) that
+/// are audited complete, by faction alias.
+///
+/// These factions are deliberately *not* in [`MODULES`]: `supply::staging_enabled` and other paths
+/// switch on "a module faction is seated", so a module for them would change the behaviour of
+/// every game that seats one of the six, and every training checkpoint plays them. Their rules
+/// live in the shared engine instead, and this table only records, row by row, which of their
+/// ledger assets were verified (BF-ORIGINAL-SIX). A row is added only when its text is fully
+/// implemented and tested; [`implemented`] and [`missing`] consult it next to the modules.
+pub const LEGACY_CLAIMS: &[(&str, &[(AssetKind, &str)])] = &[
+    (
+        "sol",
+        &[
+            (K::Technology, "ac2"),
+            (K::Technology, "so2"),
+            (K::Unit, "sol_carrier"),
+            (K::Unit, "sol_carrier2"),
+            (K::Unit, "sol_flagship"),
+            (K::Unit, "sol_infantry"),
+            (K::Unit, "sol_infantry2"),
+            (K::Promissory, "ms"),
+        ],
+    ),
+    (
+        "hacan",
+        &[
+            (K::Technology, "pm"),
+            (K::Technology, "qdn"),
+            (K::Unit, "hacan_flagship"),
+            (K::Promissory, "convoys"),
+        ],
+    ),
+    (
+        "letnev",
+        &[
+            (K::Technology, "l4"),
+            (K::Technology, "nes"),
+            (K::Unit, "letnev_flagship"),
+            (K::Promissory, "war_funding"),
+        ],
+    ),
+    (
+        "xxcha",
+        &[
+            (K::Ability, "quash"),
+            (K::Technology, "it"),
+            (K::Technology, "nf"),
+            (K::Unit, "xxcha_flagship"),
+            (K::Promissory, "favor"),
+        ],
+    ),
+    (
+        "jolnar",
+        &[
+            (K::Technology, "ers"),
+            (K::Technology, "scc"),
+            (K::Unit, "jolnar_flagship"),
+            (K::Promissory, "ra"),
+        ],
+    ),
+    (
+        "l1z1x",
+        &[
+            (K::Technology, "is"),
+            (K::Technology, "sdn2"),
+            (K::Unit, "l1z1x_dreadnought"),
+            (K::Unit, "l1z1x_dreadnought2"),
+            (K::Unit, "l1z1x_flagship"),
+            (K::Promissory, "ce"),
+        ],
+    ),
+];
+
+/// Whether [`LEGACY_CLAIMS`] claims this asset.
+fn legacy_claimed(asset: &Asset) -> bool {
+    LEGACY_CLAIMS.iter().any(|(_, claims)| {
+        claims
+            .iter()
+            .any(|(kind, id)| *kind == asset.kind && *id == asset.id)
+    })
+}
+
+/// Whether the engine claims this asset, through a module, a legacy claim or a pre-existing
+/// registry.
 #[must_use]
 pub fn implemented(asset: &Asset) -> bool {
+    if legacy_claimed(asset) {
+        return true;
+    }
     let id = asset.id.as_str();
     let claimed = |pick: fn(&FactionModule) -> &'static [&'static str]| {
         MODULES.iter().any(|m| pick(m).contains(&id))
@@ -972,6 +1060,30 @@ mod tests {
                 "{} leaders",
                 module.alias
             );
+        }
+    }
+
+    #[test]
+    fn legacy_claims_name_real_assets_of_their_own_original_faction() {
+        let content = ContentStore::embedded();
+        let mut seen = std::collections::BTreeSet::new();
+        for (alias, claims) in LEGACY_CLAIMS {
+            assert!(
+                crate::seating::IN_SCOPE_FACTIONS.contains(alias),
+                "{alias} is not one of the original six"
+            );
+            assert!(
+                MODULES.iter().all(|module| module.alias != *alias),
+                "{alias} must stay out of MODULES"
+            );
+            assert!(seen.insert(*alias), "{alias} twice");
+            let sheet = assets(content, DEFAULT, alias);
+            for (kind, id) in *claims {
+                assert!(
+                    sheet.iter().any(|a| a.kind == *kind && a.id == *id),
+                    "{alias} claims {kind:?} {id}"
+                );
+            }
         }
     }
 

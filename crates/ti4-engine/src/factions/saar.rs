@@ -512,7 +512,9 @@ fn deorbit_resolve(owner_name: &str, seat: &PlayerId) -> Ability {
                 .dice
                 .roll_by(context.rng, count, "saarbt", Some(4), &owner);
             let hits = roll.faces.iter().filter(|face| **face >= 4).count();
-            for _ in 0..hits {
+            let mut remaining = hits;
+            while remaining > 0 {
+                remaining -= 1;
                 let types = catalogue(context.content, context.sources);
                 let units: Vec<_> = context
                     .state
@@ -558,9 +560,11 @@ fn deorbit_resolve(owner_name: &str, seat: &PlayerId) -> Ability {
                 else {
                     continue;
                 };
-                crate::invasion::assign_selected_ground_hit_in_timing(
+                // A sustain under Non-Euclidean Shielding cancels a second hit as well.
+                let used = crate::invasion::assign_selected_ground_hit_in_timing(
                     resolver, context, &system, &planet, unit, "saarbt",
                 )?;
+                remaining = remaining.saturating_sub(used.saturating_sub(1));
             }
             Ok(())
         }),

@@ -1259,9 +1259,10 @@ impl<'a> Game<'a> {
             // Military Support (Sol): "At the start of the Sol player's turn: ... you may place 2
             // infantry ... Then, return this card to the Sol player." The effect existed but
             // nothing called it, so a held Military Support never did anything.
-            if crate::promissory::turn_started(&mut self.state, self.content, self.sources, &active)
-            {
-                self.emit("MILITARY_SUPPORT_USED");
+            match self.resolve_military_support(&active) {
+                Ok(true) => self.emit("MILITARY_SUPPORT_USED"),
+                Ok(false) => {}
+                Err(error) => return self.result(false, Some(error.into())),
             }
             let returned = crate::faction_techs::return_spec_ops(&mut self.state, &active);
             if returned > 0 {
@@ -2694,6 +2695,33 @@ impl<'a> Game<'a> {
         };
         self.mirror_timing_log(logged);
         done
+    }
+
+    /// Military Support (Sol): offer its holder the infantry at the start of `player`'s turn.
+    fn resolve_military_support(
+        &mut self,
+        player: &PlayerId,
+    ) -> Result<bool, crate::choice::IllegalChoice> {
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.clone();
+        let (state, table, dice, rng, event_sequence) = (
+            &mut self.state,
+            &mut self.table,
+            &mut self.dice,
+            &mut self.rng,
+            &mut self.event_sequence,
+        );
+        let mut context = TimingContext {
+            state,
+            content,
+            sources,
+            table,
+            dice,
+            rng,
+            event_sequence,
+            galaxy: galaxy.as_ref(),
+        };
+        crate::promissory::turn_started(&mut context, player)
     }
 
     /// Offer the legendary abilities that read "when you pass".
@@ -4577,6 +4605,9 @@ impl<'a> Game<'a> {
             self.emit_typed("AGENDA_REVEALED", payload)?;
             // Political Favor replaces the agenda the same way Veto does, so it is offered only
             // when nothing has replaced it already.
+            if self.state.agenda_veto_replacement.is_none() && self.offer_quash()? {
+                self.emit("QUASH_USED");
+            }
             if self.state.agenda_veto_replacement.is_none() && self.offer_political_favor()? {
                 self.emit("POLITICAL_FAVOR_USED");
             }
@@ -4681,6 +4712,42 @@ impl<'a> Game<'a> {
             let replacement = self.state.agenda_deck.remove(0);
             self.state.agenda_veto_replacement = Some(replacement);
             crate::promissory::give_back(&mut self.state, &note);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Quash (Xxcha): "When an agenda is revealed: You may spend 1 token from your strategy pool to
+    /// discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this
+    /// agenda instead."
+    ///
+    /// Offered to each seat with the ability and a strategy token, in seat order, until one uses
+    /// it. The replacement is handed over exactly as Veto and Political Favor hand theirs, so the
+    /// reveal loop discards this agenda and continues (and offers Quash again on the new one).
+    fn offer_quash(&mut self) -> Result<bool, GameError> {
+        if self.state.agenda_deck.is_empty() {
+            return Ok(false);
+        }
+        let owners: Vec<PlayerId> = self
+            .state
+            .players
+            .iter()
+            .filter(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) > 0)
+            .map(|seat| seat.id.clone())
+            .filter(|id| crate::faction_abilities::has(&self.state, self.content, id, "quash"))
+            .collect();
+        for owner in owners {
+            let prompt = "Quash: spend 1 strategy token to discard this agenda and reveal the next"
+                .to_owned();
+            if !self.ask_to_use_note(&owner, "quash", prompt)? {
+                continue;
+            }
+            if let Some(seat) = self.state.player_mut(&owner) {
+                seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
+            }
+            crate::supply::note_strategy_token_spent(&mut self.state, &owner, "quash");
+            let replacement = self.state.agenda_deck.remove(0);
+            self.state.agenda_veto_replacement = Some(replacement);
             return Ok(true);
         }
         Ok(false)
@@ -6985,6 +7052,76 @@ mod tests {
             Some(&b),
             "the card went home"
         );
+    }
+
+    fn quash_game(tokens: i32, script: &[&str]) -> Game<'static> {
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("xxcha");
+        let seat = state.player_mut(&b).unwrap();
+        let held = seat.tokens(ti4_model::state::TokenPool::Strategic);
+        seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, tokens - held);
+        state.agenda_deck = vec!["committee".to_owned(), "conventions".to_owned()];
+        let table = Table::with_default(Box::new(Scripted::new(
+            script.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
+        )));
+        Game::with_table(state, ContentStore::embedded(), table)
+    }
+
+    #[test]
+    fn quash_discards_the_agenda_and_costs_xxcha_a_strategy_token() {
+        let b = PlayerId::new("b");
+        // Quash on the first agenda, then declined on the replacement.
+        let mut game = quash_game(2, &["use", "decline"]);
+        let (alias, _) = game
+            .reveal_agenda("secret")
+            .expect("reveals")
+            .expect("an agenda to vote on");
+        assert_eq!(alias, "committee", "the replacement is voted on instead");
+        assert!(game.events.contains(&"AGENDA_DISCARDED:secret".to_owned()));
+        assert!(game.events.contains(&"QUASH_USED".to_owned()));
+        assert_eq!(
+            game.state
+                .player(&b)
+                .unwrap()
+                .tokens(ti4_model::state::TokenPool::Strategic),
+            1
+        );
+        assert_eq!(game.state.agenda_deck, vec!["conventions".to_owned()]);
+    }
+
+    #[test]
+    fn quash_declined_leaves_the_agenda_and_the_token() {
+        let b = PlayerId::new("b");
+        let mut game = quash_game(2, &["decline"]);
+        let (alias, _) = game
+            .reveal_agenda("secret")
+            .expect("reveals")
+            .expect("an agenda to vote on");
+        assert_eq!(alias, "secret");
+        assert!(!game.events.contains(&"QUASH_USED".to_owned()));
+        assert_eq!(
+            game.state
+                .player(&b)
+                .unwrap()
+                .tokens(ti4_model::state::TokenPool::Strategic),
+            2
+        );
+        assert_eq!(game.state.agenda_deck.len(), 2);
+    }
+
+    #[test]
+    fn quash_without_a_strategy_token_is_never_offered() {
+        // An empty script would fail the run if Quash asked anything.
+        let mut game = quash_game(0, &[]);
+        let (alias, _) = game
+            .reveal_agenda("secret")
+            .expect("reveals")
+            .expect("an agenda to vote on");
+        assert_eq!(alias, "secret");
+        assert_eq!(game.state.agenda_deck.len(), 2);
     }
 
     #[test]

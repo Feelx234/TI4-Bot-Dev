@@ -1256,6 +1256,7 @@ fn complete_research(
     crate::laws::revolution_tax(state, content, sources, player);
     // Research Agreement (Jol-Nar): "After the Jol-Nar player researches a technology that is not
     // a faction technology: Gain that technology. Then, return this card to the Jol-Nar player."
+    // Not optional: the card has no "may", so the holder gains it whenever the condition holds.
     // The holder gains it rather than researching it, so nothing that fires on research fires for
     // them. A holder who already owns the technology has nothing to gain and keeps the card.
     if faction_of(content, alias).is_none()
@@ -1980,6 +1981,74 @@ mod tests {
             name(ContentStore::embedded(), &TechnologyId::new("sr")),
             "Sling Relay"
         );
+    }
+
+    /// Faction unit upgrades swap the faction's units already on the board, by the faction's own
+    /// ids: Advanced Carrier II (Sol), Spec Ops II (Sol) and Super Dreadnought II (L1Z1X).
+    #[test]
+    fn faction_unit_upgrades_replace_the_units_already_on_the_board() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let (planet_system, planet) = crate::fixtures::a_placed_planet();
+        let plain = ti4_model::id::SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+        for (faction, tech, before, after, on_planet) in [
+            ("sol", "ac2", "sol_carrier", "sol_carrier2", false),
+            ("sol", "so2", "sol_infantry", "sol_infantry2", true),
+            (
+                "l1z1x",
+                "sdn2",
+                "l1z1x_dreadnought",
+                "l1z1x_dreadnought2",
+                false,
+            ),
+        ] {
+            let mut state =
+                crate::fixtures::seated_game(&[("a", faction), ("b", "hacan")], sources);
+            let player = PlayerId::new("a");
+            let system = if on_planet {
+                planet_system.clone()
+            } else {
+                plain.clone()
+            };
+            state.board.entry(system.clone()).or_default();
+            let place = |state: &mut GameState| {
+                if on_planet {
+                    crate::fixtures::put_on_planet(state, &system, &planet, before, &player, 2);
+                } else {
+                    crate::fixtures::put(state, &system, before, &player, 2);
+                }
+            };
+            let ids = |state: &GameState| -> Vec<String> {
+                let board = state.system_state(&system);
+                let units = if on_planet {
+                    board.on_planet(&planet).to_vec()
+                } else {
+                    board.units_of(&player).into_iter().cloned().collect()
+                };
+                units
+                    .iter()
+                    .filter(|unit| unit.owner == player)
+                    .map(|unit| unit.type_id.to_string())
+                    .filter(|id| id == before || id == after)
+                    .collect()
+            };
+            let standing = ids(&state).len();
+            place(&mut state);
+            assert_eq!(
+                ids(&state),
+                vec![before.to_owned(); standing + 2],
+                "{faction} starts on {before}"
+            );
+
+            grant(&mut state, &player, &TechnologyId::new(tech));
+            apply_unit_upgrades(&mut state, content, sources, &player);
+
+            assert_eq!(
+                ids(&state),
+                vec![after.to_owned(); standing + 2],
+                "{faction} {tech}"
+            );
+        }
     }
 
     #[test]

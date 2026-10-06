@@ -574,21 +574,29 @@ fn take_bombard_hits(
     produced: usize,
     log: &mut Vec<PendingEvent>,
 ) -> usize {
-    (0..produced)
-        .filter(|_| {
-            ground_hit_logged(
-                state,
-                content,
-                sources,
-                system,
-                planet,
-                owner,
-                "bombardment",
-                log,
-            )
-            .is_some()
-        })
-        .count()
+    let mut destroyed = 0;
+    let mut remaining = produced;
+    while remaining > 0 {
+        remaining -= 1;
+        match ground_hit_outcome_logged(
+            state,
+            content,
+            sources,
+            system,
+            planet,
+            owner,
+            "bombardment",
+            log,
+            true,
+        ) {
+            GroundHit::Destroyed(_) => destroyed += 1,
+            GroundHit::Sustained(_) => {
+                remaining = remaining.saturating_sub(sustain_extra(state, owner))
+            }
+            GroundHit::Wasted => {}
+        }
+    }
+    destroyed
 }
 
 /// The coexistence 7/7.1 question: whose units on the planet take this bombarding unit's
@@ -1303,6 +1311,13 @@ fn apply_ground_hit_with_origin(
     clippy::too_many_arguments,
     reason = "one parameter per distinct input"
 )]
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the tests assign single logged hits; production uses the outcome"
+    )
+)]
 fn ground_hit_logged(
     state: &mut GameState,
     content: &ContentStore,
@@ -1337,6 +1352,41 @@ fn ground_hit_logged_with_origin(
     log: &mut Vec<PendingEvent>,
     unit_ability: bool,
 ) -> Option<Unit> {
+    match ground_hit_outcome_logged(
+        state,
+        content,
+        sources,
+        system,
+        planet,
+        player,
+        cause,
+        log,
+        unit_ability,
+    ) {
+        GroundHit::Destroyed(unit) => Some(unit),
+        GroundHit::Sustained(_) | GroundHit::Wasted => None,
+    }
+}
+
+/// How many further hits one use of SUSTAIN DAMAGE by `player`'s ground force cancels: one with
+/// Non-Euclidean Shielding ("cancel 2 hits instead of 1"), none otherwise. Per *use*, as in
+/// space, so the caller's remaining hits shrink by this much after a sustain.
+fn sustain_extra(state: &GameState, player: &PlayerId) -> usize {
+    usize::from(crate::combat::non_euclidean_shielding(state, player))
+}
+
+/// [`ground_hit_logged_with_origin`] that reports what the hit did.
+fn ground_hit_outcome_logged(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    planet: &PlanetId,
+    player: &PlayerId,
+    cause: &'static str,
+    log: &mut Vec<PendingEvent>,
+    unit_ability: bool,
+) -> GroundHit {
     let event = |name: &'static str, unit: &Unit, damaged: Option<bool>| -> PendingEvent {
         let mut payload = std::collections::BTreeMap::new();
         payload.insert("system".to_owned(), system.to_string().into());
@@ -1360,7 +1410,7 @@ fn ground_hit_logged_with_origin(
     ) {
         GroundHit::Sustained(unit) => {
             log.push(event("GROUND_FORCE_SUSTAINED", &unit, None));
-            None
+            GroundHit::Sustained(unit)
         }
         GroundHit::Destroyed(unit) => {
             log.push(event(
@@ -1368,9 +1418,9 @@ fn ground_hit_logged_with_origin(
                 &unit,
                 Some(unit.sustained_damage),
             ));
-            Some(unit)
+            GroundHit::Destroyed(unit)
         }
-        GroundHit::Wasted => None,
+        GroundHit::Wasted => GroundHit::Wasted,
     }
 }
 
@@ -1436,9 +1486,11 @@ fn assign_ground_hits_with_origin_in_timing(
     unit_ability: bool,
 ) -> Result<usize, crate::timing::TimingError> {
     let mut destroyed = 0;
-    for _ in 0..hits {
+    let mut remaining = hits;
+    while remaining > 0 {
+        remaining -= 1;
         let mut log = Vec::new();
-        if ground_hit_logged_with_origin(
+        match ground_hit_outcome_logged(
             ctx.state,
             ctx.content,
             ctx.sources,
@@ -1448,10 +1500,12 @@ fn assign_ground_hits_with_origin_in_timing(
             cause,
             &mut log,
             unit_ability,
-        )
-        .is_some()
-        {
-            destroyed += 1;
+        ) {
+            GroundHit::Destroyed(_) => destroyed += 1,
+            GroundHit::Sustained(_) => {
+                remaining = remaining.saturating_sub(sustain_extra(ctx.state, player));
+            }
+            GroundHit::Wasted => {}
         }
         for (event_type, payload) in log {
             let event = ctx.event_sequence.next(event_type, payload)?;
@@ -1463,6 +1517,10 @@ fn assign_ground_hits_with_origin_in_timing(
 
 /// Assign a hit to the specific ground force selected by an effect's controller.
 /// The selected unit's owner retains the optional SUSTAIN DAMAGE decision (87.4a).
+///
+/// Returns how many of the effect's hits this assignment used up: 0 when `unit` is not a ground
+/// force there, 1 for a hit that was taken or sustained, and 2 when the owner's SUSTAIN DAMAGE
+/// also cancelled a second hit (Non-Euclidean Shielding). The caller skips that many.
 pub(crate) fn assign_selected_ground_hit_in_timing(
     resolver: &mut crate::timing::Resolver,
     ctx: &mut crate::timing::TimingContext<'_>,
@@ -1470,7 +1528,7 @@ pub(crate) fn assign_selected_ground_hit_in_timing(
     planet: &PlanetId,
     unit: &Unit,
     cause: &'static str,
-) -> Result<bool, crate::timing::TimingError> {
+) -> Result<usize, crate::timing::TimingError> {
     if !ctx
         .state
         .system_state(system)
@@ -1478,7 +1536,7 @@ pub(crate) fn assign_selected_ground_hit_in_timing(
         .contains(unit)
         || !is_ground_force_here(ctx.state, ctx.content, ctx.sources, system, planet, unit)
     {
-        return Ok(false);
+        return Ok(0);
     }
     let sustain = if can_sustain_here(ctx.state, ctx.content, ctx.sources, unit, system, planet) {
         let choice = Choice::new(
@@ -1542,7 +1600,11 @@ pub(crate) fn assign_selected_ground_hit_in_timing(
     };
     let event = ctx.event_sequence.next(kind, payload)?;
     resolver.emit_with_context(ctx, event, |_, _| {})?;
-    Ok(!sustain)
+    Ok(if sustain {
+        1 + sustain_extra(ctx.state, &unit.owner)
+    } else {
+        1
+    })
 }
 
 /// Remove `hits` of one player's ground forces from a planet, the owner choosing.
@@ -1572,7 +1634,9 @@ fn absorb_ground_with_origin(
     hits: usize,
     unit_ability: bool,
 ) -> Result<(), IllegalChoice> {
-    for _ in 0..hits {
+    let mut remaining = hits;
+    while remaining > 0 {
+        remaining -= 1;
         // A mech's SUSTAIN DAMAGE cancels the hit before anyone chooses a casualty.
         let sturdy = state
             .system_state(system)
@@ -1587,6 +1651,8 @@ fn absorb_ground_with_origin(
             state
                 .system_mut(system)
                 .replace_planet_unit(planet, &sturdy, sturdy.sustained());
+            // Non-Euclidean Shielding: the same use cancels a second hit.
+            remaining = remaining.saturating_sub(sustain_extra(state, player));
             continue;
         }
         // LRR 42: only ground forces take hits in a ground combat; structures survive the
@@ -3879,8 +3945,23 @@ fn remove_ground(
     cause: &'static str,
     log: &mut Vec<PendingEvent>,
 ) {
-    for _ in 0..hits {
-        let _ = ground_hit_logged(state, content, sources, system, planet, player, cause, log);
+    let mut remaining = hits;
+    while remaining > 0 {
+        remaining -= 1;
+        let sustained = ground_hit_outcome_logged(
+            state,
+            content,
+            sources,
+            system,
+            planet,
+            player,
+            cause,
+            log,
+            matches!(cause, "bombardment" | "space_cannon_defense" | "harrow"),
+        );
+        if matches!(sustained, GroundHit::Sustained(_)) {
+            remaining = remaining.saturating_sub(sustain_extra(state, player));
+        }
     }
 }
 
@@ -4007,18 +4088,17 @@ fn space_cannon_defense(
         "space_cannon_defense",
     );
     let mut log = Vec::new();
-    for _ in 0..hits {
-        let _ = ground_hit_logged(
-            state,
-            content,
-            sources,
-            system,
-            planet,
-            invader,
-            "space_cannon_defense",
-            &mut log,
-        );
-    }
+    remove_ground(
+        state,
+        content,
+        sources,
+        system,
+        planet,
+        invader,
+        hits,
+        "space_cannon_defense",
+        &mut log,
+    );
     flush_events(state, ctx, log);
 }
 
@@ -4741,8 +4821,8 @@ mod tests {
     fn ground_combat_uses_note_holdings_from_tactical_action_start() {
         let (mut state, system, _) = arena();
         // Production-format key: the suffix is the owner's faction name, resolved to that
-        // faction's seat. holder b plays Hacan and owns the Trade Convoys note; receipt puts it
-        // faceup in the invader's play area (the corpus marks convoys playArea).
+        // faction's seat. holder b plays Hacan and owns the Trade Convoys note; the invader places it
+        // faceup in its play area with the card's ACTION (the corpus marks convoys playArea).
         state.player_mut(&holder()).unwrap().faction = ti4_model::id::FactionId::new("hacan");
         crate::promissory::take(
             &mut state,
@@ -4750,6 +4830,8 @@ mod tests {
             &invader(),
             "convoys:hacan",
         );
+        // Its text opens ACTION, so the holder places it faceup deliberately.
+        assert!(crate::promissory::play_convoys(&mut state, &invader()));
         let notes = crate::combat::note_holdings(&state);
         state.promissory_notes.clear();
         let occurrence = state.begin_feat_occurrence();
@@ -5656,6 +5738,120 @@ mod tests {
             planet_units(&state, &system, &planet),
             vec![("spacedock".to_owned(), false)]
         );
+    }
+
+    /// A defender with a mech (SUSTAIN DAMAGE) and an infantry; `nes` gives it Non-Euclidean
+    /// Shielding.
+    fn nes_defender(nes: bool) -> (GameState, SystemId, PlanetId) {
+        let (mut state, system, planet) = arena_off_mecatol();
+        on_planet(&mut state, &system, &planet, "mech", &holder(), 1);
+        on_planet(&mut state, &system, &planet, "infantry", &holder(), 1);
+        if nes {
+            state
+                .player_mut(&holder())
+                .unwrap()
+                .technologies
+                .insert(ti4_model::id::TechnologyId::new("nes"));
+        }
+        (state, system, planet)
+    }
+
+    #[test]
+    fn non_euclidean_shielding_cancels_two_ground_hits_per_sustain() {
+        let content = ContentStore::embedded();
+        for (nes, survivors) in [
+            (false, vec![("mech", true)]),
+            (true, vec![("infantry", false), ("mech", true)]),
+        ] {
+            let (mut state, system, planet) = nes_defender(nes);
+            // Without the technology the second hit asks which force falls: the infantry.
+            let mut table =
+                Table::with_default(Box::new(crate::choice::Scripted::new(["destroy|1"])));
+            absorb_ground(
+                &mut state,
+                content,
+                POK,
+                &mut table,
+                &holder(),
+                &system,
+                &planet,
+                2,
+            )
+            .unwrap();
+            let mut left = planet_units(&state, &system, &planet);
+            left.sort();
+            let mut expected: Vec<(String, bool)> = survivors
+                .into_iter()
+                .map(|(id, damaged)| (id.to_owned(), damaged))
+                .collect();
+            expected.sort();
+            assert_eq!(left, expected, "nes = {nes}");
+        }
+    }
+
+    #[test]
+    fn non_euclidean_shielding_applies_per_use_not_per_hit() {
+        // Three hits: the mech sustains (cancelling two), the third hit kills the infantry.
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = nes_defender(true);
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(["destroy|1"])));
+        absorb_ground(
+            &mut state,
+            content,
+            POK,
+            &mut table,
+            &holder(),
+            &system,
+            &planet,
+            3,
+        )
+        .unwrap();
+        assert_eq!(
+            planet_units(&state, &system, &planet),
+            vec![("mech".to_owned(), true)]
+        );
+    }
+
+    #[test]
+    fn non_euclidean_shielding_cancels_two_bombardment_hits_per_sustain() {
+        let content = ContentStore::embedded();
+        for (nes, destroyed) in [(false, 1), (true, 0)] {
+            let (mut state, system, planet) = nes_defender(nes);
+            let taken = take_bombard_hits(
+                &mut state,
+                content,
+                POK,
+                &system,
+                &planet,
+                &holder(),
+                2,
+                &mut Vec::new(),
+            );
+            assert_eq!(taken, destroyed, "nes = {nes}");
+            assert_eq!(
+                planet_units(&state, &system, &planet).len(),
+                2 - destroyed,
+                "nes = {nes}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_euclidean_shielding_cancels_two_removed_ground_hits_per_sustain() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = nes_defender(true);
+        remove_ground(
+            &mut state,
+            content,
+            POK,
+            &system,
+            &planet,
+            &holder(),
+            2,
+            "space_cannon_defense",
+            &mut Vec::new(),
+        );
+        assert_eq!(planet_units(&state, &system, &planet).len(), 2);
     }
 
     #[test]

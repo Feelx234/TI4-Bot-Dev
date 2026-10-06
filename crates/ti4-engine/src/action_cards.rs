@@ -6716,6 +6716,63 @@ mod tests {
         assert!(state.pending_destructions[0].4);
     }
 
+    /// Dreadnought II and Super Dreadnought II: "This unit cannot be destroyed by 'Direct Hit'
+    /// action cards." A plain Dreadnought I still can be.
+    #[test]
+    fn direct_hit_cannot_destroy_a_dreadnought_ii_or_a_super_dreadnought_ii() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        for (unit, destroyed) in [
+            ("dreadnought", true),
+            ("dreadnought2", false),
+            ("l1z1x_dreadnought", true),
+            ("l1z1x_dreadnought2", false),
+        ] {
+            let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "l1z1x")], sources);
+            let player = PlayerId::new("a");
+            let victim = PlayerId::new("b");
+            let system = ti4_model::id::SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+            state.board.entry(system.clone()).or_default();
+            let mut ship =
+                ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(unit), victim.clone());
+            ship.sustained_damage = true;
+            state.system_mut(&system).units.push(ship);
+            state.last_sustain = Some((
+                system.clone(),
+                victim.clone(),
+                ti4_model::id::UnitTypeId::new(unit),
+                player.clone(),
+                true,
+            ));
+            let mut table = Table::new();
+            let mut dice = crate::dice::Dice::new();
+            let mut rng = crate::rng::GameRng::new(1);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut context = crate::timing::TimingContext {
+                state: &mut state,
+                content,
+                sources,
+                table: &mut table,
+                dice: &mut dice,
+                rng: &mut rng,
+                event_sequence: &mut sequence,
+                galaxy: None,
+            };
+            direct_hit(&mut context, &player);
+            assert_eq!(state.pending_destructions.len(), usize::from(destroyed), "{unit}");
+            assert_eq!(
+                state
+                    .system_state(&system)
+                    .units
+                    .iter()
+                    .filter(|ship| ship.owner == victim && ship.type_id.as_str() == unit)
+                    .count(),
+                usize::from(!destroyed),
+                "{unit}"
+            );
+        }
+    }
+
     #[test]
     fn courageous_removes_and_stages_a_planetary_maximum() {
         let content = ContentStore::embedded();
