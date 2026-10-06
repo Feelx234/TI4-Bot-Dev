@@ -42,6 +42,8 @@ export type BasketPlan =
     };
 
 const HISTORY_RETRY_ATTEMPTS = 20;
+/** A submit the server never acknowledges is abandoned after this long, so a click can re-send. */
+const SUBMISSION_TIMEOUT_MS = 10_000;
 
 export interface GameSessionState {
   status: ConnectionStatus;
@@ -258,9 +260,16 @@ export class GameSessionClient {
     };
     let resolve!: () => void;
     let reject!: (error: Error) => void;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     const promise = new Promise<void>((done, fail) => {
-      resolve = done;
-      reject = fail;
+      resolve = () => {
+        clearTimeout(timeout);
+        done();
+      };
+      reject = (error) => {
+        clearTimeout(timeout);
+        fail(error);
+      };
     });
     this.submission = {
       nonce: pendingChoice.nonce,
@@ -276,6 +285,12 @@ export class GameSessionClient {
     } catch (error) {
       this.rejectSubmission(`Could not send choice: ${String(error)}`);
     }
+    // Without this, a submit that never gets an answer keeps returning the same dead promise to
+    // every later click for the same option, and the decision looks frozen.
+    timeout = setTimeout(() => {
+      if (this.submission?.promise === promise && !this.submission.accepted)
+        this.rejectSubmission("No response from the server; try again");
+    }, SUBMISSION_TIMEOUT_MS);
     return promise;
   }
 

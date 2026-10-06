@@ -330,6 +330,9 @@ async fn handle_socket(
                         let acting_seat = acting_seat.clone();
                         let outbound_tx = outbound_tx.clone();
                         tokio::spawn(async move {
+                            debug!(%game_id, %nonce, expected_version, %option_id, "submit_choice received");
+                            let log_game_id = game_id.clone();
+                            let log_nonce = nonce.clone();
                             let result = tokio::task::spawn_blocking(move || {
                                 registry.submit_player_choice(
                                     &game_id,
@@ -343,8 +346,12 @@ async fn handle_socket(
                             })
                             .await;
                             let message = match result {
-                                Ok(Ok(accepted)) => ServerMessage::ActionAccepted(accepted),
+                                Ok(Ok(accepted)) => {
+                                    debug!(game_id = %log_game_id, nonce = %log_nonce, "submit_choice accepted");
+                                    ServerMessage::ActionAccepted(accepted)
+                                }
                                 Ok(Err(reason)) => {
+                                    debug!(game_id = %log_game_id, nonce = %log_nonce, ?reason, "submit_choice rejected");
                                     ServerMessage::ActionRejected(ActionRejectedMsg {
                                         protocol_version: PROTOCOL_VERSION,
                                         game_id: message_game_id.clone(),
@@ -352,7 +359,11 @@ async fn handle_socket(
                                         reason,
                                     })
                                 }
-                                Err(_) => return,
+                                Err(error) => {
+                                    // The client gets no reply at all in this case.
+                                    warn!(game_id = %log_game_id, nonce = %log_nonce, %error, "submit_choice task failed");
+                                    return;
+                                }
                             };
                             let _ = outbound_tx.send(message).await;
                         });

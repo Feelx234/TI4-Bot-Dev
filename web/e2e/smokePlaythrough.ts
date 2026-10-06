@@ -340,6 +340,16 @@ export async function randomUiPlaythrough(
     page.on("pageerror", (err) => browserErrors.push(`[seat ${index + 1}] ${err.message}`));
     const frames: string[] = (wsFrames[index] = []);
     page.on("websocket", (ws) => {
+      ws.on("framesent", ({ payload }) => {
+        try {
+          const m = JSON.parse(String(payload));
+          if (m.type === "ping") return;
+          frames.push(`SENT ${m.type} nonce=${String(m.nonce ?? "").slice(0, 6)} option=${m.option_id ?? ""} v${m.expected_version ?? "?"}`);
+        } catch {
+          frames.push("SENT unparsed frame");
+        }
+        if (frames.length > 40) frames.shift();
+      });
       ws.on("framereceived", ({ payload }) => {
         let line: string;
         try {

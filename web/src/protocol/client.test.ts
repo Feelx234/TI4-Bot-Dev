@@ -566,6 +566,26 @@ describe("GameSessionClient ingress lifecycle", () => {
     },
   );
 
+  it("abandons a submission that gets no reply so the next click sends a new frame", async () => {
+    const { client, socket } = await connectedPlayer();
+    vi.useFakeTimers();
+    try {
+      const first = client.submitChoice("opt-4");
+      const timedOut = expect(first).rejects.toThrow(/no response/i);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await timedOut;
+      const second = client.submitChoice("opt-4");
+      expect(
+        socket.sent.filter((message) => JSON.parse(message).type === "submit_choice"),
+      ).toHaveLength(2);
+      const stopped = expect(second).rejects.toThrow(/disconnected|stopped/i);
+      client.stop();
+      await stopped;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(["ack-first", "update-first"])(
     "waits for acceptance and a newer authoritative state (%s)",
     async (order) => {
