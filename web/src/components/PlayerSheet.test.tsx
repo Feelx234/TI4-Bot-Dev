@@ -295,3 +295,17 @@ describe("PlayerSheet Component & Human Readable Metadata", () => {
     });
   });
 });
+
+describe("PlayerSheet toast mute", () => {
+  it("toggles the notification mute and remembers it", async () => {
+    const { TOAST_MUTE_KEY } = await import("../hooks/useToastMute.ts");
+    localStorage.clear();
+    render(<PlayerSheet players={mockPlayers} />);
+    const button = screen.getByTestId("toast-mute-btn");
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem(TOAST_MUTE_KEY)).toBe("true");
+    localStorage.clear();
+  });
+});

@@ -12,6 +12,7 @@ import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx
 import { computePlayerStats } from "../presentation/playerStats.ts";
 import { Tooltip } from "../primitives/index.ts";
 import { useTurnSound } from "../hooks/useTurnSound.ts";
+import { useToastMute } from "../hooks/useToastMute.ts";
 
 type ReactionMode = "always" | "never";
 type ReactionModeMap = Record<string, Record<string, ReactionMode>>;  // playerId -> cardId -> mode
@@ -194,6 +195,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   const [reactionModes, setReactionModes] = useState<ReactionModeMap>({});
   const { isMuted, toggleMute } = useTurnSound();
   const [isMutedState, setIsMutedState] = useState(isMuted);
+  const { muted: toastsMuted, toggleMute: toggleToastMute } = useToastMute();
 
   // Sort players: current player first, then by turn order
   const sortedPlayers = React.useMemo(() => {
@@ -259,6 +261,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
       >
         <h2 style={{ fontSize: 16, fontWeight: "bold", margin: 0, color: "#94a3b8" }}>Players</h2>
 
+        <div style={{ display: "flex", gap: 6 }}>
         {/* Sound Settings Toggle */}
         <button
           type="button"
@@ -290,6 +293,30 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
         >
           {isMutedState ? "🔇 Muted" : "🔊 Sound"}
         </button>
+        <button
+          type="button"
+          data-testid="toast-mute-btn"
+          aria-pressed={toastsMuted}
+          title={
+            toastsMuted
+              ? "Show notifications about other players' actions"
+              : "Hide notifications about other players' actions"
+          }
+          onClick={toggleToastMute}
+          style={{
+            background: toastsMuted ? "rgba(148, 163, 184, 0.1)" : "transparent",
+            border: "1px solid #94a3b8",
+            color: "#94a3b8",
+            borderRadius: 4,
+            padding: "4px 8px",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: "500",
+          }}
+        >
+          {toastsMuted ? "🔕 Toasts off" : "🔔 Toasts"}
+        </button>
+        </div>
       </div>
 
       {sortedPlayers.map((player) => {

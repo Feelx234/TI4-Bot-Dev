@@ -22,6 +22,7 @@ import {
   paymentOptionForPlanet,
   paymentPlanetKey,
 } from "./presentation/paymentDraft.ts";
+import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
 import { PaymentDraftProvider, usePaymentDraftState } from "./presentation/PaymentDraftContext.tsx";
 
 const DevDecisionGallery = import.meta.env.DEV
@@ -344,6 +345,13 @@ const GameViewContainer: React.FC<{
           {historyError}
         </div>
       )}
+      <CornerToastLayer
+        events={events}
+        players={snapshot?.view.players}
+        viewerSeat={userSeat}
+        pendingChoice={pendingChoice}
+        ready={Boolean(snapshot)}
+      />
       <GameShell
         header={
           <div className="game-header">

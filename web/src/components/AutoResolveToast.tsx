@@ -1,11 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import './AutoResolveToast.css';
+import React, { useEffect, useState } from "react";
+import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
+import "./AutoResolveToast.css";
 
 export interface AutoResolveNotification {
   id: string;
+  /** "auto-resolve" (default): the game took the only legal option. "action": another player acted. */
+  kind?: "auto-resolve" | "action";
   decisionType: string;
   selectedValue: string;
+  /** Action toasts: the acting seat and what they did, without their name. */
+  actor?: string;
+  text?: string;
+  /** Bumped when a toast absorbs another action, so its timer starts over. */
+  revision?: number;
 }
+
+/** How long a toast stays, in ms. */
+export const TOAST_DURATION_MS = { "auto-resolve": 3500, action: 5000 } as const;
 
 interface AutoResolveToastProps {
   notification: AutoResolveNotification;
@@ -13,67 +25,90 @@ interface AutoResolveToastProps {
 }
 
 /**
- * Toast notification for auto-resolved single-choice decisions.
- * Displays in the bottom-left corner and auto-dismisses after 3.5 seconds.
+ * A corner toast. Auto-resolved decisions say what was taken and why; action toasts say what
+ * another player did, with their name and seat colour. Clicking dismisses early.
  */
 export const AutoResolveToast: React.FC<AutoResolveToastProps> = ({
   notification,
   onDismiss,
 }) => {
   const [isDismissing, setIsDismissing] = useState(false);
+  const display = usePlayerIdentity();
+  const present = useParticipantText();
+  const kind = notification.kind ?? "auto-resolve";
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsDismissing(true);
-      // Give animation time to finish before removing from DOM
-      const animationTimer = setTimeout(() => {
-        onDismiss(notification.id);
-      }, 300);
+    if (isDismissing) {
+      // Give the animation time to finish before removing from DOM
+      const animationTimer = setTimeout(() => onDismiss(notification.id), 300);
       return () => clearTimeout(animationTimer);
-    }, 3500); // 3.5 seconds
-
+    }
+    const timer = setTimeout(() => setIsDismissing(true), TOAST_DURATION_MS[kind]);
     return () => clearTimeout(timer);
-  }, [notification.id, onDismiss]);
+  }, [notification.id, notification.revision, isDismissing, kind, onDismiss]);
+
+  const actor = notification.actor ? display(notification.actor) : null;
 
   return (
-    <div
-      className={`auto-resolve-toast ${isDismissing ? 'dismissing' : ''}`}
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
+    <button
+      type="button"
+      data-testid="corner-toast"
+      data-toast-kind={kind}
+      title="Click to dismiss"
+      className={`auto-resolve-toast auto-resolve-toast--${kind} ${isDismissing ? "dismissing" : ""}`}
+      style={actor ? ({ "--toast-accent": actor.color } as React.CSSProperties) : undefined}
+      onClick={() => setIsDismissing(true)}
     >
-      <span className="toast-decision-type">{notification.decisionType}</span>
-      {' '}auto-selected:{' '}
-      <span className="toast-value">{notification.selectedValue}</span>
-    </div>
+      {kind === "action" && actor ? (
+        <>
+          <span className="toast-actor" data-testid="toast-actor">
+            <span aria-hidden="true" className="toast-actor__symbol">
+              {actor.symbol}
+            </span>
+            {actor.label}
+          </span>{" "}
+          <span className="toast-value">{present(notification.text ?? "")}</span>
+        </>
+      ) : (
+        <>
+          <span className="toast-decision-type">{notification.decisionType}</span> auto-selected:{" "}
+          <span className="toast-value">{notification.selectedValue}</span>
+          <span className="toast-reason"> (the only legal option)</span>
+        </>
+      )}
+    </button>
   );
 };
 
 interface AutoResolveToastContainerProps {
   notifications: AutoResolveNotification[];
   onDismiss: (id: string) => void;
+  /** Extra space above the bottom edge, so toasts clear bars and overlays down there. */
+  bottomOffset?: number;
 }
 
 /**
- * Container for stacking auto-resolve toast notifications.
- * Positioned in the bottom-left corner of the screen.
+ * Stack of toasts in the bottom-left corner. The container is always rendered, because a polite
+ * live region is only announced reliably when it exists before its content does.
  */
 export const AutoResolveToastContainer: React.FC<
   AutoResolveToastContainerProps
-> = ({ notifications, onDismiss }) => {
-  if (notifications.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="auto-resolve-toast-container">
-      {notifications.map((notification) => (
-        <AutoResolveToast
-          key={notification.id}
-          notification={notification}
-          onDismiss={onDismiss}
-        />
-      ))}
-    </div>
-  );
-};
+> = ({ notifications, onDismiss, bottomOffset }) => (
+  <div
+    className="auto-resolve-toast-container"
+    data-testid="corner-toasts"
+    role="log"
+    aria-live="polite"
+    aria-relevant="additions"
+    aria-label="Game notifications"
+    style={bottomOffset === undefined ? undefined : { bottom: bottomOffset }}
+  >
+    {notifications.map((notification) => (
+      <AutoResolveToast
+        key={notification.id}
+        notification={notification}
+        onDismiss={onDismiss}
+      />
+    ))}
+  </div>
+);

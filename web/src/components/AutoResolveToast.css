@@ -2,14 +2,15 @@
 
 .auto-resolve-toast-container {
   position: fixed;
-  bottom: 20px;
-  left: 20px;
-  z-index: 9999;
+  /* Above the bottom bars; the layer lifts it further when a bar is in the way. */
+  bottom: 12px;
+  left: 12px;
+  z-index: var(--layer-popover, 40);
   pointer-events: none;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-width: 300px;
+  gap: 8px;
+  width: min(280px, calc(100vw - 24px));
 }
 
 .auto-resolve-toast {
@@ -23,8 +24,14 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   animation: slideInLeft 0.3s ease-out forwards;
   pointer-events: auto;
-  cursor: default;
+  cursor: pointer;
   user-select: none;
+  /* The toast is a button so it can be dismissed from the keyboard. */
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  border-left: 4px solid var(--toast-accent, rgba(255, 255, 255, 0.35));
   /* Wrap instead of cutting the selected value off with an ellipsis. */
   white-space: normal;
   overflow-wrap: anywhere;
@@ -33,6 +40,32 @@
 .toast-decision-type {
   font-weight: 600;
   color: #e0e0e0;
+}
+
+.toast-actor {
+  font-weight: 700;
+  color: inherit;
+}
+
+/* The seat colour as a badge with a light rim, so every seat (including the black one) shows. */
+.toast-actor__symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  border-radius: 50%;
+  border: 1.5px solid #f8fafc;
+  background: var(--toast-accent, #94a3b8);
+  color: #0b1220;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.toast-reason {
+  color: #b8b8b8;
+  font-size: 12px;
 }
 
 .toast-value {
@@ -98,9 +131,7 @@
 /* Mobile/tablet responsive adjustments */
 @media (max-width: 640px) {
   .auto-resolve-toast-container {
-    bottom: 16px;
-    left: 16px;
-    max-width: 280px;
+    left: 8px;
   }
   .auto-resolve-toast {
     font-size: 13px;
@@ -108,9 +139,14 @@
   }
 }
 
-/* Ensure toasts don't interfere with other UI elements */
-@media (pointer: coarse) {
-  .auto-resolve-toast {
-    pointer-events: none;
+@media (prefers-reduced-motion: reduce) {
+  .auto-resolve-toast,
+  .auto-resolve-toast.dismissing {
+    animation: none;
   }
+}
+
+.auto-resolve-toast--action .toast-value {
+  color: inherit;
+  font-weight: 400;
 }

@@ -8,7 +8,7 @@ describe("ToastGallery", () => {
     await act(async () => {
       render(<ToastGallery />);
     });
-    const toasts = screen.getAllByRole("status");
+    const toasts = screen.getAllByTestId("corner-toast");
     expect(toasts).toHaveLength(TOAST_SCENARIOS.stack.length);
     expect(toasts[0]).toHaveTextContent("Strategy Card auto-selected: Technology");
   });
