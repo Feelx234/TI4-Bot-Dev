@@ -24,7 +24,11 @@ export const galleryLobby: LobbyDto = {
   })),
 };
 
-const player = (id: string, faction: string, trade_goods: number): PlayerView => ({
+const player = (
+  id: string,
+  faction: string,
+  trade_goods: number,
+): PlayerView => ({
   id,
   faction,
   victory_points: 2,
@@ -45,7 +49,10 @@ const player = (id: string, faction: string, trade_goods: number): PlayerView =>
   leaders: {},
 });
 
-export const galleryPlayers = [player(actor, "sol", 2), player("other_seat", "hacan", 1)];
+export const galleryPlayers = [
+  player(actor, "sol", 2),
+  player("other_seat", "hacan", 1),
+];
 
 const mapTiles: BoardTileView[] = [
   // Ring 0 (Center)
@@ -198,7 +205,13 @@ const mapTiles: BoardTileView[] = [
     r: 0,
     planets: [
       { id: "centauri", label: "Centauri", resources: 1, influence: 3 },
-      { id: "gral", label: "Gral", resources: 1, influence: 1, tech_specialties: ["propulsion"] },
+      {
+        id: "gral",
+        label: "Gral",
+        resources: 1,
+        influence: 1,
+        tech_specialties: ["propulsion"],
+      },
     ],
   },
   {
@@ -215,7 +228,13 @@ const mapTiles: BoardTileView[] = [
     q: 0,
     r: -2,
     planets: [
-      { id: "lazar", label: "Lazar", resources: 1, influence: 0, tech_specialties: ["cybernetic"] },
+      {
+        id: "lazar",
+        label: "Lazar",
+        resources: 1,
+        influence: 0,
+        tech_specialties: ["cybernetic"],
+      },
       { id: "sakulag", label: "Sakulag", resources: 2, influence: 1 },
     ],
   },
@@ -294,7 +313,13 @@ const mapTiles: BoardTileView[] = [
     r: 3,
     planets: [
       { id: "arinam", label: "Arinam", resources: 1, influence: 2 },
-      { id: "meer", label: "Meer", resources: 0, influence: 4, tech_specialties: ["warfare"] },
+      {
+        id: "meer",
+        label: "Meer",
+        resources: 0,
+        influence: 4,
+        tech_specialties: ["warfare"],
+      },
     ],
   },
   {
@@ -350,7 +375,15 @@ const mapTiles: BoardTileView[] = [
     label: "Primor",
     q: -2,
     r: -1,
-    planets: [{ id: "primor", label: "Primor", resources: 2, influence: 1, legendary: true }],
+    planets: [
+      {
+        id: "primor",
+        label: "Primor",
+        resources: 2,
+        influence: 1,
+        legendary: true,
+      },
+    ],
   },
   {
     system_id: "44",
@@ -376,7 +409,13 @@ const mapTiles: BoardTileView[] = [
     q: 1,
     r: -3,
     planets: [
-      { id: "hopes_end", label: "Hope's End", resources: 3, influence: 0, legendary: true },
+      {
+        id: "hopes_end",
+        label: "Hope's End",
+        resources: 3,
+        influence: 0,
+        legendary: true,
+      },
     ],
   },
   {
@@ -411,7 +450,15 @@ const mapTiles: BoardTileView[] = [
     q: 3,
     r: -1,
     wormholes: ["alpha", "beta"],
-    planets: [{ id: "mallice", label: "Mallice", resources: 0, influence: 3, legendary: true }],
+    planets: [
+      {
+        id: "mallice",
+        label: "Mallice",
+        resources: 0,
+        influence: 3,
+        legendary: true,
+      },
+    ],
   },
 ];
 
@@ -422,7 +469,11 @@ const dynamicSystems: Record<string, SystemView> = {
     command_tokens: [],
     planets: {
       jord: { planet_id: "jord", controlled_by: actor, exhausted: false },
-      exhausted: { planet_id: "exhausted", controlled_by: actor, exhausted: true },
+      exhausted: {
+        planet_id: "exhausted",
+        controlled_by: actor,
+        exhausted: true,
+      },
     },
     units: [
       { unit_type: "fighter", owner: actor, damaged: false },
@@ -459,7 +510,14 @@ const dynamicSystems: Record<string, SystemView> = {
     planets: {
       tarmann: { planet_id: "tarmann", controlled_by: actor, exhausted: false },
     },
-    units: [{ unit_type: "infantry", owner: actor, planet: "tarmann", damaged: false }],
+    units: [
+      {
+        unit_type: "infantry",
+        owner: actor,
+        planet: "tarmann",
+        damaged: false,
+      },
+    ],
   },
   "25": {
     system_id: "25",
@@ -473,7 +531,11 @@ const dynamicSystems: Record<string, SystemView> = {
     system_id: "24",
     command_tokens: [],
     planets: {
-      mehar_xull: { planet_id: "mehar_xull", controlled_by: null, exhausted: false },
+      mehar_xull: {
+        planet_id: "mehar_xull",
+        controlled_by: null,
+        exhausted: false,
+      },
     },
     units: [{ unit_type: "cruiser", owner: actor, damaged: false }],
   },
@@ -491,8 +553,16 @@ const dynamicSystems: Record<string, SystemView> = {
     system_id: "27",
     command_tokens: [],
     planets: {
-      new_albion: { planet_id: "new_albion", controlled_by: null, exhausted: false },
-      starpoint: { planet_id: "starpoint", controlled_by: null, exhausted: false },
+      new_albion: {
+        planet_id: "new_albion",
+        controlled_by: null,
+        exhausted: false,
+      },
+      starpoint: {
+        planet_id: "starpoint",
+        controlled_by: null,
+        exhausted: false,
+      },
     },
     units: [],
   },
@@ -501,14 +571,27 @@ const dynamicSystems: Record<string, SystemView> = {
     // Pre-activated by Hacan: Alex can still attack this!
     command_tokens: ["other_seat"],
     planets: {
-      tequran: { planet_id: "tequran", controlled_by: "other_seat", exhausted: false },
-      torkan: { planet_id: "torkan", controlled_by: "other_seat", exhausted: false },
+      tequran: {
+        planet_id: "tequran",
+        controlled_by: "other_seat",
+        exhausted: false,
+      },
+      torkan: {
+        planet_id: "torkan",
+        controlled_by: "other_seat",
+        exhausted: false,
+      },
     },
     units: [
       { unit_type: "carrier", owner: "other_seat", damaged: false },
       { unit_type: "fighter", owner: "other_seat", damaged: false },
       { unit_type: "fighter", owner: "other_seat", damaged: false },
-      { unit_type: "infantry", owner: "other_seat", planet: "tequran", damaged: false },
+      {
+        unit_type: "infantry",
+        owner: "other_seat",
+        planet: "tequran",
+        damaged: false,
+      },
     ],
   },
   "29": {
@@ -521,7 +604,11 @@ const dynamicSystems: Record<string, SystemView> = {
     system_id: "30",
     command_tokens: [],
     planets: {
-      centauri: { planet_id: "centauri", controlled_by: null, exhausted: false },
+      centauri: {
+        planet_id: "centauri",
+        controlled_by: null,
+        exhausted: false,
+      },
       gral: { planet_id: "gral", controlled_by: null, exhausted: false },
     },
     units: [],
@@ -551,14 +638,33 @@ const dynamicSystems: Record<string, SystemView> = {
     // Pre-activated by Sol: blocked from activation!
     command_tokens: [actor],
     planets: {
-      sol_jord: { planet_id: "sol_jord", controlled_by: actor, exhausted: false },
+      sol_jord: {
+        planet_id: "sol_jord",
+        controlled_by: actor,
+        exhausted: false,
+      },
     },
     units: [
       { unit_type: "carrier", owner: actor, damaged: false },
       { unit_type: "destroyer", owner: actor, damaged: false },
-      { unit_type: "infantry", owner: actor, planet: "sol_jord", damaged: false },
-      { unit_type: "infantry", owner: actor, planet: "sol_jord", damaged: false },
-      { unit_type: "space_dock", owner: actor, planet: "sol_jord", damaged: false },
+      {
+        unit_type: "infantry",
+        owner: actor,
+        planet: "sol_jord",
+        damaged: false,
+      },
+      {
+        unit_type: "infantry",
+        owner: actor,
+        planet: "sol_jord",
+        damaged: false,
+      },
+      {
+        unit_type: "space_dock",
+        owner: actor,
+        planet: "sol_jord",
+        damaged: false,
+      },
     ],
   },
   "16": {
@@ -566,14 +672,31 @@ const dynamicSystems: Record<string, SystemView> = {
     // Pre-activated by Hacan
     command_tokens: ["other_seat"],
     planets: {
-      arretze: { planet_id: "arretze", controlled_by: "other_seat", exhausted: false },
-      hercan: { planet_id: "hercan", controlled_by: "other_seat", exhausted: false },
-      kamdorn: { planet_id: "kamdorn", controlled_by: "other_seat", exhausted: false },
+      arretze: {
+        planet_id: "arretze",
+        controlled_by: "other_seat",
+        exhausted: false,
+      },
+      hercan: {
+        planet_id: "hercan",
+        controlled_by: "other_seat",
+        exhausted: false,
+      },
+      kamdorn: {
+        planet_id: "kamdorn",
+        controlled_by: "other_seat",
+        exhausted: false,
+      },
     },
     units: [
       { unit_type: "dreadnought", owner: "other_seat", damaged: false },
       { unit_type: "cruiser", owner: "other_seat", damaged: false },
-      { unit_type: "space_dock", owner: "other_seat", planet: "arretze", damaged: false },
+      {
+        unit_type: "space_dock",
+        owner: "other_seat",
+        planet: "arretze",
+        damaged: false,
+      },
     ],
   },
   "34": {
@@ -600,7 +723,11 @@ const dynamicSystems: Record<string, SystemView> = {
     system_id: "66",
     command_tokens: [],
     planets: {
-      hopes_end: { planet_id: "hopes_end", controlled_by: null, exhausted: false },
+      hopes_end: {
+        planet_id: "hopes_end",
+        controlled_by: null,
+        exhausted: false,
+      },
     },
     units: [],
   },
@@ -610,4 +737,32 @@ export const galleryBoard: BoardView = {
   active_system: null,
   map_tiles: mapTiles,
   systems: dynamicSystems,
+};
+
+/** A mixed fleet in system 18 for the hit-assignment preview: groupable ships, two sustainers and cargo. */
+export const hitAssignmentBoard: BoardView = {
+  ...galleryBoard,
+  systems: {
+    ...galleryBoard.systems,
+    "18": {
+      ...galleryBoard.systems["18"],
+      units: [
+        ...Array.from({ length: 8 }, () => ({
+          unit_type: "fighter",
+          owner: actor,
+          damaged: false,
+        })),
+        { unit_type: "destroyer", owner: actor, damaged: false },
+        { unit_type: "destroyer", owner: actor, damaged: false },
+        { unit_type: "dreadnought", owner: actor, damaged: false },
+        { unit_type: "dreadnought", owner: actor, damaged: false },
+        { unit_type: "carrier", owner: actor, damaged: false },
+        { unit_type: "carrier", owner: actor, damaged: false },
+        { unit_type: "infantry", owner: actor, damaged: false },
+        { unit_type: "infantry", owner: actor, damaged: false },
+        { unit_type: "cruiser", owner: "gallery_rival", damaged: false },
+        { unit_type: "destroyer", owner: "gallery_rival", damaged: false },
+      ],
+    },
+  },
 };

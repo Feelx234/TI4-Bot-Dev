@@ -3,13 +3,19 @@ import type { DecisionTargetDto, PendingChoiceDto } from "../protocol/types.ts";
 
 // Illustrative UI inputs, not captured engine states or legal-game fixtures.
 export const actor = "gallery_seat";
-const option = (id: string, label: string, kind?: string, payload?: Record<string, unknown>) => ({
+const option = (
+  id: string,
+  label: string,
+  kind?: string,
+  payload?: Record<string, unknown>,
+) => ({
   id,
   label,
   kind,
   payload,
 });
-const finish = (id = "decline", label = "Finish") => option(id, label, "decline");
+const finish = (id = "decline", label = "Finish") =>
+  option(id, label, "decline");
 const system = { System: "18" } as const;
 
 export interface GalleryCase {
@@ -19,6 +25,8 @@ export interface GalleryCase {
   workflow: ChoiceWorkflowKind;
   /** A scenario, not an additional workflow kind. */
   fallback?: string;
+  /** Preview against a different board than the shared gallery board. */
+  boardId?: "hit_assignment";
 }
 
 const cases = {
@@ -31,25 +39,47 @@ const cases = {
       option("25", "Activate Quann (#25)", "activate", { system: "25" }),
       option("20", "Activate Vefun 5 (#20)", "activate", { system: "20" }),
       option("27", "Activate New Albion (#27)", "activate", { system: "27" }),
-      option("28", "Activate Tequ'ran / Torkan (#28)", "activate", { system: "28" }),
-      option("29", "Activate Qucen'n / Rarron (#29)", "activate", { system: "29" }),
-      option("30", "Activate Centauri / Gral (#30)", "activate", { system: "30" }),
-      option("31", "Activate Lazar / Sakulag (#31)", "activate", { system: "31" }),
-      option("32", "Activate Dal Bootha / Xxehan (#32)", "activate", { system: "32" }),
-      option("33", "Activate Corneeq / Resculon (#33)", "activate", { system: "33" }),
+      option("28", "Activate Tequ'ran / Torkan (#28)", "activate", {
+        system: "28",
+      }),
+      option("29", "Activate Qucen'n / Rarron (#29)", "activate", {
+        system: "29",
+      }),
+      option("30", "Activate Centauri / Gral (#30)", "activate", {
+        system: "30",
+      }),
+      option("31", "Activate Lazar / Sakulag (#31)", "activate", {
+        system: "31",
+      }),
+      option("32", "Activate Dal Bootha / Xxehan (#32)", "activate", {
+        system: "32",
+      }),
+      option("33", "Activate Corneeq / Resculon (#33)", "activate", {
+        system: "33",
+      }),
       option("34", "Activate Abyz / Fria (#34)", "activate", { system: "34" }),
-      option("35", "Activate Bereq / Sem-Lore (#35)", "activate", { system: "35" }),
-      option("36", "Activate Arinam / Meer (#36)", "activate", { system: "36" }),
+      option("35", "Activate Bereq / Sem-Lore (#35)", "activate", {
+        system: "35",
+      }),
+      option("36", "Activate Arinam / Meer (#36)", "activate", {
+        system: "36",
+      }),
       option("37", "Activate Arnor / Lor (#37)", "activate", { system: "37" }),
-      option("38", "Activate Bereg / Lirta IV (#38)", "activate", { system: "38" }),
+      option("38", "Activate Bereg / Lirta IV (#38)", "activate", {
+        system: "38",
+      }),
       option("41", "Activate Gravity Rift (#41)", "activate", { system: "41" }),
       option("39", "Activate Supernova (#39)", "activate", { system: "39" }),
       option("42", "Activate Nebula (#42)", "activate", { system: "42" }),
-      option("40", "Activate Asteroid Field (#40)", "activate", { system: "40" }),
+      option("40", "Activate Asteroid Field (#40)", "activate", {
+        system: "40",
+      }),
       option("45", "Activate Cormund (#45)", "activate", { system: "45" }),
       option("16", "Activate Hacan Home (#16)", "activate", { system: "16" }),
       option("12", "Activate Jol-Nar Home (#12)", "activate", { system: "12" }),
-      option("43", "Activate Asteroid Field (#43)", "activate", { system: "43" }),
+      option("43", "Activate Asteroid Field (#43)", "activate", {
+        system: "43",
+      }),
       option("13", "Activate Sardakk Home (#13)", "activate", { system: "13" }),
       option("65", "Activate Primor (#65)", "activate", { system: "65" }),
       option("44", "Activate Supernova (#44)", "activate", { system: "44" }),
@@ -68,8 +98,14 @@ const cases = {
     options: [
       option("lodor", "Lodor", "planet", { planet: "lodor", system: "26" }),
       option("quann", "Quann", "planet", { planet: "quann" }),
-      option("corneeq", "Corneeq", "planet", { planet: "corneeq", system: "33" }),
-      option("resculon", "Resculon", "planet", { planet: "resculon", system: "33" }),
+      option("corneeq", "Corneeq", "planet", {
+        planet: "corneeq",
+        system: "33",
+      }),
+      option("resculon", "Resculon", "planet", {
+        planet: "resculon",
+        system: "33",
+      }),
     ],
     note: "Pick a highlighted planet on the map (or a chip in the bar); the bar names the card and the action before you confirm.",
   },
@@ -145,7 +181,9 @@ const cases = {
     subtype: "sustain_damage",
     outstanding: [{ amount: 1 }],
     options: [
-      option("sustain|dreadnought", "Sustain dreadnought", "sustain", { unit: "dreadnought" }),
+      option("sustain|dreadnought", "Sustain dreadnought", "sustain", {
+        unit: "dreadnought",
+      }),
       finish(),
     ],
     note: "Sustain or pass.",
@@ -166,24 +204,36 @@ const cases = {
   combat_retreat: {
     subtype: "retreat_to",
     target: system,
-    options: [option("retreat|24", "Retreat to 24", "retreat", { system: "24" }), finish()],
+    options: [
+      option("retreat|24", "Retreat to 24", "retreat", { system: "24" }),
+      finish(),
+    ],
     note: "Retreat from system 18 to offered destination 24, or pass.",
   },
   agenda_vote_outcome: {
     subtype: "cast_vote",
-    options: [option("FOR", "For", "outcome"), option("AGAINST", "Against", "outcome")],
+    options: [
+      option("FOR", "For", "outcome"),
+      option("AGAINST", "Against", "outcome"),
+    ],
     note: "Choose an outcome.",
   },
   agenda_vote_planets: {
     subtype: "vote_exhaust_planet",
-    options: [option("jord", "Exhaust Jord for 2 votes", "vote_planet"), finish()],
+    options: [
+      option("jord", "Exhaust Jord for 2 votes", "vote_planet"),
+      finish(),
+    ],
     note: "Exhaust an offered ready planet or finish voting.",
   },
   transaction_propose: {
     subtype: "propose_transaction",
     target: { Player: "other_seat" },
     options: [
-      option("offer|1", "Offer one trade good", "offer", { net: -1, their_net: 1 }),
+      option("offer|1", "Offer one trade good", "offer", {
+        net: -1,
+        their_net: 1,
+      }),
       finish(),
     ],
     note: "Propose terms to another seat.",
@@ -191,12 +241,18 @@ const cases = {
   transaction_answer: {
     subtype: "answer_transaction",
     target: { Player: "other_seat" },
-    options: [option("accept", "Accept offer", "accept"), finish("refuse", "Refuse offer")],
+    options: [
+      option("accept", "Accept offer", "accept"),
+      finish("refuse", "Refuse offer"),
+    ],
     note: "Accept or refuse incoming terms.",
   },
   action_card_reaction: {
     subtype: "play_reaction_after_ACTION_CARD_PLAYED",
-    options: [option("sabotage", "Play Sabotage", "action_card"), finish("decline", "Pass")],
+    options: [
+      option("sabotage", "Play Sabotage", "action_card"),
+      finish("decline", "Pass"),
+    ],
     note: "Reaction window with pass.",
   },
   objective_scoring: {
@@ -206,7 +262,10 @@ const cases = {
   },
   strategy_card_draft: {
     subtype: "draft_strategy_card",
-    options: [option("pok1leadership", "Leadership"), option("pok3politics", "Politics")],
+    options: [
+      option("pok1leadership", "Leadership"),
+      option("pok3politics", "Politics"),
+    ],
     note: "Choose a corpus strategy card with printed text.",
   },
   generic_selection: {
@@ -235,50 +294,50 @@ const cases = {
   }
 >;
 
-export const galleryCases: GalleryCase[] = (Object.keys(cases) as ChoiceWorkflowKind[]).map(
-  (workflow) => {
-    const entry = cases[workflow];
-    return {
-      workflow,
-      title: workflow.replaceAll("_", " "),
-      note: entry.note,
-      choice: {
-        actor,
-        nonce: `gallery-${workflow}`,
-        prompt: (
-          {
-            system_activation: "Choose a system to activate",
-            planet_selection: "Mining Initiative: mine which planet",
-            tactical_movement: "Move units to Mecatol Rex",
-            tactical_cargo: "Load units into your fleet",
-            tactical_invasion: "Land ground forces on Jord",
-            payment: "Spend resources to pay",
-            production: "Produce units in Mecatol Rex",
-            combat_sustain: "Choose a unit to sustain damage",
-            combat_casualty: "Assign a casualty",
-            combat_retreat: "Choose a retreat destination",
-            agenda_vote_outcome: "Choose an outcome",
-            agenda_vote_planets: "Spend influence to vote",
-            transaction_propose: "Propose a trade",
-            transaction_answer: "Answer the trade offer",
-            action_card_reaction: "Respond to the action card",
-            objective_scoring: "Score an objective",
-            strategy_card_draft: "Choose a strategy card",
-            technology_research: "Research a technology",
-            generic_selection: "Choose an option",
-          } satisfies Record<ChoiceWorkflowKind, string>
-        )[workflow],
-        context: {
-          subtype: entry.subtype,
-          ...("target" in entry ? { target: entry.target } : {}),
-          ...("source" in entry ? { source: entry.source } : {}),
-          ...("outstanding" in entry ? { outstanding: entry.outstanding } : {}),
-        },
-        options: entry.options,
+export const galleryCases: GalleryCase[] = (
+  Object.keys(cases) as ChoiceWorkflowKind[]
+).map((workflow) => {
+  const entry = cases[workflow];
+  return {
+    workflow,
+    title: workflow.replaceAll("_", " "),
+    note: entry.note,
+    choice: {
+      actor,
+      nonce: `gallery-${workflow}`,
+      prompt: (
+        {
+          system_activation: "Choose a system to activate",
+          planet_selection: "Mining Initiative: mine which planet",
+          tactical_movement: "Move units to Mecatol Rex",
+          tactical_cargo: "Load units into your fleet",
+          tactical_invasion: "Land ground forces on Jord",
+          payment: "Spend resources to pay",
+          production: "Produce units in Mecatol Rex",
+          combat_sustain: "Choose a unit to sustain damage",
+          combat_casualty: "Assign a casualty",
+          combat_retreat: "Choose a retreat destination",
+          agenda_vote_outcome: "Choose an outcome",
+          agenda_vote_planets: "Spend influence to vote",
+          transaction_propose: "Propose a trade",
+          transaction_answer: "Answer the trade offer",
+          action_card_reaction: "Respond to the action card",
+          objective_scoring: "Score an objective",
+          strategy_card_draft: "Choose a strategy card",
+          technology_research: "Research a technology",
+          generic_selection: "Choose an option",
+        } satisfies Record<ChoiceWorkflowKind, string>
+      )[workflow],
+      context: {
+        subtype: entry.subtype,
+        ...("target" in entry ? { target: entry.target } : {}),
+        ...("source" in entry ? { source: entry.source } : {}),
+        ...("outstanding" in entry ? { outstanding: entry.outstanding } : {}),
       },
-    };
-  },
-);
+      options: entry.options,
+    },
+  };
+});
 
 export const fallbackCases: GalleryCase[] = [
   {
@@ -290,7 +349,10 @@ export const fallbackCases: GalleryCase[] = [
       actor,
       nonce: "gallery-place-structure",
       prompt: "place a structure",
-      context: { subtype: "place_structure", source: { Content: "place_structure" } },
+      context: {
+        subtype: "place_structure",
+        source: { Content: "place_structure" },
+      },
       options: [
         option("pds|18|jord", "place pds on jord", "build", {
           planet: "jord",
@@ -327,10 +389,15 @@ export const fallbackCases: GalleryCase[] = [
           system: "30",
           technology: "bs",
         }),
-        option("ready|technology|st", "Bio-Stims: ready Sarween Tools", "ready_technology", {
-          technology: "st",
-          bio_stims: true,
-        }),
+        option(
+          "ready|technology|st",
+          "Bio-Stims: ready Sarween Tools",
+          "ready_technology",
+          {
+            technology: "st",
+            bio_stims: true,
+          },
+        ),
         finish(),
       ],
     },
@@ -346,9 +413,20 @@ export const fallbackCases: GalleryCase[] = [
       prompt: "vote for which outcome",
       context: { subtype: "cast_vote", source: { Rule: "8.10" } },
       options: [
-        option("vote|lodor", "Lodor", "vote", { planet: "lodor", system: "26", current_votes: 3 }),
-        option("vote|bereg", "Bereg", "vote", { planet: "bereg", system: "38", current_votes: 0 }),
-        option("vote|lirta_iv", "Lirta IV", "vote", { planet: "lirta_iv", system: "38" }),
+        option("vote|lodor", "Lodor", "vote", {
+          planet: "lodor",
+          system: "26",
+          current_votes: 3,
+        }),
+        option("vote|bereg", "Bereg", "vote", {
+          planet: "bereg",
+          system: "38",
+          current_votes: 0,
+        }),
+        option("vote|lirta_iv", "Lirta IV", "vote", {
+          planet: "lirta_iv",
+          system: "38",
+        }),
         finish("decline", "Abstain"),
       ],
     },
@@ -391,7 +469,11 @@ export const fallbackCases: GalleryCase[] = [
         subtype: "gallery_bounded",
         outstanding: [{ min_selection: 2, max_selection: 2 }],
       },
-      options: [option("a", "Option A"), option("b", "Option B"), option("c", "Option C")],
+      options: [
+        option("a", "Option A"),
+        option("b", "Option B"),
+        option("c", "Option C"),
+      ],
     },
   },
   {
@@ -431,6 +513,29 @@ export const fallbackCases: GalleryCase[] = [
       prompt: "No options offered",
       context: { subtype: "gallery_empty" },
       options: [],
+    },
+  },
+  {
+    workflow: "combat_sustain",
+    boardId: "hit_assignment",
+    title: "Assign hits across a mixed fleet",
+    fallback: "Five hits staged in one panel instead of one click per hit",
+    note: "Eight fighters and two destroyers are grouped; the dreadnoughts (sustain) and carriers (cargo) are one row each. Stage with - / +, then confirm the whole plan.",
+    choice: {
+      actor,
+      nonce: "gallery-hit-assignment",
+      prompt: "cancel a hit at 18",
+      context: {
+        subtype: "sustain_damage",
+        target: system,
+        outstanding: [{ kind: "UnitsToRemove", amount: 5, paid: 0 }],
+      },
+      options: [
+        option("sustain|10", "sustain damage on dreadnought", "sustain", {
+          unit: "dreadnought",
+        }),
+        option("decline", "take the hit", "decline"),
+      ],
     },
   },
 ];

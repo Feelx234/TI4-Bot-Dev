@@ -9,7 +9,12 @@ export const galleryEventLog: GameEvent[] = [
     id: "start",
     timestamp: "10:00",
     visibility: "public",
-    event: { kind: "game_initialized", round: 1, phase: "action", speaker: alex },
+    event: {
+      kind: "game_initialized",
+      round: 1,
+      phase: "action",
+      speaker: alex,
+    },
   },
   ...(
     [
