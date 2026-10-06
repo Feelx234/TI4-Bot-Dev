@@ -30,6 +30,19 @@ export function preferHitConfirm<T extends PolicyCandidate>(
   return confirm ? [confirm] : candidates;
 }
 
+/**
+ * Command tokens: Confirm unlocks only once every token is assigned, so confirm as soon as it is
+ * enabled; until then only "+" can make progress (a "-" or Reset would loop forever).
+ */
+export function preferTokenConfirm<T extends PolicyCandidate>(
+  candidates: T[],
+): T[] {
+  const confirm = candidates.find((c) => /^token-confirm\b/.test(c.desc));
+  if (confirm) return [confirm];
+  const plus = candidates.filter((c) => /^token-plus-/.test(c.desc));
+  return plus.length ? plus : candidates;
+}
+
 // Steering weights, first match wins; anything unmatched weighs 1. They push random play toward
 // moving fleets into contested systems and Mecatol Rex instead of passing and trading.
 const STEER_WEIGHTS: [RegExp, number][] = [

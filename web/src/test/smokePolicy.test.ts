@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activationWeight,
   preferHitConfirm,
+  preferTokenConfirm,
   preferPayment,
   steerWeight,
   strongUnselected,
@@ -166,5 +167,30 @@ describe("preferHitConfirm", () => {
     expect(isUnstage("hit-destroy-fighter|intact | Destroy Fighters | +")).toBe(
       false,
     );
+  });
+});
+
+describe("preferTokenConfirm", () => {
+  it("confirms once every token is assigned", () => {
+    const confirm = c("token-confirm | Confirm tokens");
+    expect(
+      preferTokenConfirm([c("token-minus-fleet | Remove a token from Fleet | −"), confirm]),
+    ).toEqual([confirm]);
+  });
+
+  it("only adds tokens while some are left, so staging cannot loop", () => {
+    const plus = c("token-plus-fleet | Add a token to Fleet | +");
+    expect(
+      preferTokenConfirm([
+        c("token-minus-fleet | Remove a token from Fleet | −"),
+        c("token-reset | Reset"),
+        plus,
+      ]),
+    ).toEqual([plus]);
+  });
+
+  it("leaves other decisions alone", () => {
+    const stages = [c("choice-option | tactic pool")];
+    expect(preferTokenConfirm(stages)).toEqual(stages);
   });
 });

@@ -16,6 +16,7 @@ import {
   activationWeight,
   preferHitConfirm,
   preferPayment,
+  preferTokenConfirm,
   steerWeight as policySteerWeight,
   strongUnselected,
   isUnstage,
@@ -90,6 +91,7 @@ const ERROR_BANNERS = [
   "reaction-error-badge",
   "combat-error-banner",
   "hit-assignment-error",
+  "token-error",
 ];
 
 // Controls that hide the decision or rewrite history; clicking them never advances the game.
@@ -308,7 +310,7 @@ function pick(
   policy: "random" | "steer",
   hexWeights: Map<string, number>,
 ): Candidate {
-  candidates = preferHitConfirm(preferPayment(candidates));
+  candidates = preferTokenConfirm(preferHitConfirm(preferPayment(candidates)));
   const resume = candidates.filter((c) => c.resume);
   if (resume.length) return resume[Math.floor(rng() * resume.length)];
   const unstage = candidates.filter((c) => c.unstage);
