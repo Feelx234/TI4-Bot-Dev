@@ -114,6 +114,12 @@ enum ProductionStep {
 enum TokenStep {
     /// Place the next command token into this pool (an option id such as `tactic_tokens`).
     Pool { pool: String },
+    /// Answer a "spend 3 influence for a command token" question.
+    Purchase { buy: bool },
+    /// Pay part of a purchase by exhausting a planet.
+    Exhaust { planet: String },
+    /// Pay part of a purchase with a trade good.
+    TradeGood,
 }
 
 #[derive(Deserialize)]
@@ -223,6 +229,9 @@ impl From<TokenStep> for MovementStep {
     fn from(step: TokenStep) -> Self {
         match step {
             TokenStep::Pool { pool } => Self::Pool { pool },
+            TokenStep::Purchase { buy } => Self::Purchase { buy },
+            TokenStep::Exhaust { planet } => Self::Exhaust { planet },
+            TokenStep::TradeGood => Self::TradeGood,
         }
     }
 }
@@ -289,6 +298,10 @@ pub enum MovementStep {
     Pool {
         pool: String,
     },
+    /// Leadership's "spend 3 influence for a command token?" answer: `true` is yes.
+    Purchase {
+        buy: bool,
+    },
 }
 
 /// The decisions a casualty plan answers.
@@ -322,6 +335,7 @@ impl MovementStep {
             Self::Sustain { .. } => "sustain_damage",
             Self::Destroy { .. } => "assign_casualty",
             Self::Pool { .. } => "gain_command_token",
+            Self::Purchase { .. } => "buy_token_with_influence",
         }
     }
 
@@ -370,6 +384,10 @@ impl MovementStep {
             Self::DoneVoting => option.id == "decline",
             Self::DoneProducing => option.id == "done_producing",
             Self::Pool { pool } => option.kind == "pool" && option.id == *pool,
+            Self::Purchase { buy } => {
+                option.kind == ti4_engine::strategy::STRATEGY_KIND
+                    && option.id == if *buy { "yes" } else { "no" }
+            }
             Self::Sustain { unit } => {
                 option.kind == ti4_engine::combat::SUSTAIN_KIND
                     && value("unit") == Some(unit.as_str())
@@ -566,6 +584,24 @@ impl Decider for PrivateDecider {
         {
             return answer;
         }
+        // A token plan names every payment of a purchase, but the engine takes a lone payment
+        // option without asking. Payment steps that were settled that way are skipped once the
+        // engine moves on to a decision that is not a payment.
+        if script.kind == BatchKind::Tokens
+            && !is_reaction_window(choice)
+            && !(choice.player == script.actor
+                && choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|c| c.subtype == "pay_influence"))
+        {
+            while matches!(
+                script.steps.get(script.next),
+                Some(MovementStep::Exhaust { .. } | MovementStep::TradeGood)
+            ) {
+                script.next += 1;
+            }
+        }
         if script.next == script.steps.len() {
             script.finished = true;
             return Err(IllegalChoice::DeciderFailed {
@@ -609,9 +645,9 @@ impl Decider for PrivateDecider {
         let context_ok = choice.context.as_ref().is_some_and(|c| {
             c.actor == script.actor && (c.subtype == subtype ||
                 (script.kind == BatchKind::Casualties && subtype == "assign_casualty" && c.subtype == "assign_ground_casualty") ||
-                (script.kind == BatchKind::Payment && c.subtype == "pay_influence" && subtype == "pay_resources")) &&
+                (matches!(script.kind, BatchKind::Payment | BatchKind::Tokens) && c.subtype == "pay_influence" && subtype == "pay_resources")) &&
                 script.payment_subtype.as_ref().is_none_or(|first| *first == c.subtype) &&
-                (script.kind == BatchKind::TacticalMovement || script.kind == BatchKind::Casualties || script.workflow_context.as_ref().is_none_or(|first| {
+                (matches!(script.kind, BatchKind::TacticalMovement | BatchKind::Casualties | BatchKind::Tokens) || script.workflow_context.as_ref().is_none_or(|first| {
                     first.source == c.source && first.phase == c.phase && first.round == c.round
                         && first.target == c.target && first.subtype == c.subtype
                         && first.outstanding.iter().all(|owed| c.outstanding.iter().any(|next| {
@@ -912,13 +948,23 @@ fn plan_problem(plan: &MovementPlan) -> Option<String> {
             .iter()
             .all(|s| matches!(s, MovementStep::Sustain { .. } | MovementStep::Destroy { .. })))
         .then_some("a casualty plan may only contain sustain and destroy steps"),
-        BatchKind::Tokens => (!plan
-            .steps
-            .iter()
-            .all(|s| matches!(s, MovementStep::Pool { .. })))
-        .then_some("a token plan may only contain pool steps")
+        BatchKind::Tokens => (!plan.steps.iter().all(|s| {
+            matches!(
+                s,
+                MovementStep::Pool { .. }
+                    | MovementStep::Purchase { .. }
+                    | MovementStep::Exhaust { .. }
+                    | MovementStep::TradeGood
+            )
+        }))
+        .then_some("a token plan may only contain pool, purchase, exhaust and trade_good steps")
         .or_else(|| {
-            (plan.steps.len() > usize::try_from(ti4_model::state::TOKENS_PER_FACTION).unwrap_or(16))
+            let pools = plan
+                .steps
+                .iter()
+                .filter(|s| matches!(s, MovementStep::Pool { .. }))
+                .count();
+            (pools > usize::try_from(ti4_model::state::TOKENS_PER_FACTION).unwrap_or(16))
                 .then_some("a token plan places at most 16 tokens")
         }),
     };
@@ -1885,7 +1931,7 @@ mod tests {
         assert!(plan_problem(&plan).is_none());
         assert!(
             serde_json::from_str::<MovementPlan>(
-                r#"{"kind":"tokens","steps":[{"kind":"trade_good"}]}"#
+                r#"{"kind":"tokens","steps":[{"kind":"produce","unit":"fighter","count":1}]}"#
             )
             .is_err()
         );
@@ -1901,5 +1947,143 @@ mod tests {
             steps: Vec::new(),
         };
         assert!(plan_problem(&empty).is_some());
+    }
+
+    fn buy_ask() -> Choice {
+        offered(
+            "buy_token_with_influence",
+            vec![
+                ChoiceOption::labelled("no", "strategy", "spend nothing further"),
+                ChoiceOption::labelled("yes", "strategy", "spend 3 influence"),
+            ],
+        )
+    }
+
+    fn pay_ask() -> Choice {
+        offered(
+            "pay_influence",
+            vec![
+                ChoiceOption::labelled("exhaust|arcturus", "pay", "exhaust arcturus for 4 influence"),
+                ChoiceOption::labelled("trade_good", "pay", "spend a trade good"),
+            ],
+        )
+    }
+
+    fn buy(buy: bool) -> MovementStep {
+        MovementStep::Purchase { buy }
+    }
+
+    fn exhaust(planet: &str) -> MovementStep {
+        MovementStep::Exhaust {
+            planet: planet.into(),
+        }
+    }
+
+    #[test]
+    fn purchase_plan_answers_the_questions_in_the_order_the_engine_asks_them() {
+        // Primary: a free token, then per purchase: yes, its payment, its pool; then "no".
+        let mut decider = decider(
+            BatchKind::Tokens,
+            vec![
+                pool("fleet_tokens"),
+                buy(true),
+                exhaust("arcturus"),
+                pool("tactic_tokens"),
+                buy(false),
+            ],
+        );
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "fleet_tokens");
+        assert_eq!(decider.choose(&buy_ask()).unwrap().id, "yes");
+        assert_eq!(decider.choose(&pay_ask()).unwrap().id, "exhaust|arcturus");
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "tactic_tokens");
+        assert_eq!(decider.choose(&buy_ask()).unwrap().id, "no");
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert_eq!(script.selected.len(), 5);
+    }
+
+    #[test]
+    fn payments_the_engine_settled_without_asking_are_skipped() {
+        // With only trade goods to spend the engine takes each lone option silently, so the
+        // planned trade_good steps never meet a question and must not block the pool step.
+        let mut decider = decider(
+            BatchKind::Tokens,
+            vec![
+                buy(true),
+                MovementStep::TradeGood,
+                MovementStep::TradeGood,
+                MovementStep::TradeGood,
+                pool("strategic_tokens"),
+            ],
+        );
+        assert_eq!(decider.choose(&buy_ask()).unwrap().id, "yes");
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "strategic_tokens");
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert_eq!(script.next, 5);
+        assert_eq!(script.selected.len(), 2);
+    }
+
+    #[test]
+    fn a_purchase_answer_the_engine_does_not_ask_is_rejected() {
+        // The seat can no longer afford the purchase: the engine moves straight to the next
+        // decision, so the planned `yes` fails instead of being skipped.
+        let mut decider = decider(BatchKind::Tokens, vec![buy(true), pool("tactic_tokens")]);
+        assert!(decider.choose(&gain_ask()).is_err());
+        assert!(decider.0.lock().unwrap().failure.is_some());
+    }
+
+    #[test]
+    fn a_payment_the_engine_offers_differently_is_rejected() {
+        let mut decider = decider(
+            BatchKind::Tokens,
+            vec![buy(true), exhaust("arinam"), pool("tactic_tokens")],
+        );
+        assert_eq!(decider.choose(&buy_ask()).unwrap().id, "yes");
+        assert!(decider.choose(&pay_ask()).is_err());
+        assert!(decider.0.lock().unwrap().failure.is_some());
+    }
+
+    #[test]
+    fn a_purchase_plan_stops_at_a_reaction_window_keeping_the_rest() {
+        let mut decider = decider(
+            BatchKind::Tokens,
+            vec![buy(true), exhaust("arcturus"), pool("tactic_tokens"), buy(false)],
+        );
+        assert_eq!(decider.choose(&buy_ask()).unwrap().id, "yes");
+        assert_eq!(decider.choose(&pay_ask()).unwrap().id, "exhaust|arcturus");
+        let reaction = offered(
+            "reaction_after_planet_exhausted",
+            vec![ChoiceOption::labelled("decline", "decline", "decline")],
+        );
+        assert!(decider.choose(&reaction).is_err());
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        let interruption = script.interruption.as_ref().expect("interrupted");
+        assert_eq!(interruption.applied_steps, 2);
+        assert_eq!(interruption.remaining_steps.len(), 2);
+        assert!(matches!(
+            interruption.remaining_steps[0],
+            MovementStep::Pool { .. }
+        ));
+    }
+
+    #[test]
+    fn token_plans_with_purchases_parse_and_validate() {
+        let plan = serde_json::from_str::<MovementPlan>(
+            r#"{"kind":"tokens","steps":[{"kind":"pool","pool":"tactic_tokens"},{"kind":"purchase","buy":true},{"kind":"exhaust","planet":"arcturus"},{"kind":"trade_good"},{"kind":"pool","pool":"fleet_tokens"},{"kind":"purchase","buy":false}]}"#,
+        )
+        .unwrap();
+        assert_eq!(plan.kind, BatchKind::Tokens);
+        assert!(plan_problem(&plan).is_none());
+        // Payments and purchases do not count against the 16 tokens a faction can hold.
+        let many = MovementPlan {
+            kind: BatchKind::Tokens,
+            destination: String::new(),
+            steps: (0..16)
+                .flat_map(|_| [buy(true), MovementStep::TradeGood, pool("tactic_tokens")])
+                .collect(),
+        };
+        assert!(plan_problem(&many).is_none());
     }
 }
