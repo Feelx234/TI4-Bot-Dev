@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preferPayment } from "../../e2e/smokePolicy.ts";
+import { activationWeight, preferPayment } from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
 
@@ -24,5 +24,21 @@ describe("preferPayment (smoke harness payment policy)", () => {
   it("leaves non-payment controls alone", () => {
     const list = [c("choice-option | take a tactical action"), c("submit-choice-button | Confirm choice")];
     expect(preferPayment(list)).toEqual(list);
+  });
+});
+
+describe("activationWeight (smoke harness steering)", () => {
+  it("favours Mecatol and enemy systems, and avoids unreachable ones", () => {
+    expect(activationWeight("18", true, false, false)).toBe(40);
+    expect(activationWeight("35", true, true, false)).toBe(30);
+    expect(activationWeight("35", true, false, false)).toBe(5);
+    expect(activationWeight("35", false, true, false)).toBe(0.2);
+  });
+
+  it("lets a seat with ground forces already in Mecatol activate it in place", () => {
+    expect(activationWeight("18", false, false, true)).toBe(40);
+    // Only Mecatol, and only with ground forces there.
+    expect(activationWeight("35", false, false, true)).toBe(0.2);
+    expect(activationWeight("18", false, false, false)).toBe(0.2);
   });
 });

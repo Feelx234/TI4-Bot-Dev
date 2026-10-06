@@ -16,3 +16,20 @@ export function preferPayment<T extends PolicyCandidate>(candidates: T[]): T[] {
   const kept = candidates.filter((c) => !(c.checked && /^planet-card-/.test(c.desc)));
   return kept.length ? kept : candidates;
 }
+
+/**
+ * Steering weight for activating one system. Unreachable systems are rarely worth it; Mecatol Rex
+ * and systems holding other players' units are favoured. A seat whose ground forces already stand
+ * in Mecatol (the combat start preset) can activate it in place and lift the custodians without
+ * moving, so that counts as reachable even though no ship can "move" there.
+ */
+export function activationWeight(
+  id: string,
+  reachable: boolean,
+  hasEnemies: boolean,
+  groundForcesInPlaceOnMecatol: boolean,
+): number {
+  if (id === "18" && groundForcesInPlaceOnMecatol) return 40;
+  if (!reachable) return 0.2;
+  return id === "18" ? 40 : hasEnemies ? 30 : 5;
+}

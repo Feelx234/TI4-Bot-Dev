@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import { createStartedGame, gameSnapshot, openPlayerGame } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
-import { preferPayment } from "./smokePolicy";
+import { activationWeight, preferPayment } from "./smokePolicy";
 
 /**
  * Random UI playthrough: every pending decision is resolved by clicking randomly among the
@@ -248,7 +248,13 @@ function activationWeights(board: BoardView, actor: string): Map<string, number>
       return distance > 0 && distance <= move;
     });
     const enemies = board.systems[id]?.units.some((u) => u.owner !== actor) ?? false;
-    weights.set(id, !reachable ? 0.2 : id === "18" ? 40 : enemies ? 30 : 5);
+    const inPlace =
+      id === "18" &&
+      (board.systems[id]?.units.some(
+        (u) => u.owner === actor && /infantry|mech|spec_ops/i.test(u.unit_type),
+      ) ??
+        false);
+    weights.set(id, activationWeight(id, reachable, enemies, inPlace));
   }
   return weights;
 }
