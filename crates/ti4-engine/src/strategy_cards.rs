@@ -177,11 +177,16 @@ pub(crate) fn purchase_details(
     if available < INFLUENCE_PER_TOKEN {
         return None;
     }
-    let planets: Vec<serde_json::Value> =
-        crate::production::native_payment_planets(state, content, sources, player, Spend::Influence)
-            .into_iter()
-            .map(|(planet, worth)| serde_json::json!({ "id": planet.to_string(), "worth": worth }))
-            .collect();
+    let planets: Vec<serde_json::Value> = crate::production::native_payment_planets(
+        state,
+        content,
+        sources,
+        player,
+        Spend::Influence,
+    )
+    .into_iter()
+    .map(|(planet, worth)| serde_json::json!({ "id": planet.to_string(), "worth": worth }))
+    .collect();
     let goods = state
         .player(player)
         .map_or(0, |seat| i64::from(seat.trade_goods));
@@ -1032,6 +1037,26 @@ fn seat_map(named: &[(String, PlayerId)]) -> serde_json::Value {
     )
 }
 
+/// Display only: each named seat's commodities now and at its printed limit.
+fn commodity_map(
+    state: &GameState,
+    content: &ContentStore,
+    named: &[(String, PlayerId)],
+) -> serde_json::Value {
+    serde_json::Value::Object(
+        named
+            .iter()
+            .map(|(name, seat)| {
+                let have = state.player(seat).map_or(0, |p| p.commodities);
+                (
+                    name.clone(),
+                    serde_json::json!({ "have": have, "max": commodity_limit(state, content, seat) }),
+                )
+            })
+            .collect(),
+    )
+}
+
 /// Display only: the agenda card being placed, as printed.
 fn agenda_details(content: &ContentStore, alias: &str) -> serde_json::Value {
     let record = content.get(ContentType::Agendas, alias);
@@ -1101,6 +1126,27 @@ pub(crate) fn place_structure(
     player: &PlayerId,
     only_pds: bool,
 ) -> Result<Option<SystemId>, IllegalChoice> {
+    place_structure_step(
+        state, content, sources, galaxy, table, player, only_pds, None,
+    )
+}
+
+/// [`place_structure`] that tells the client which placement of a card's sequence this is
+/// (`step` of `of`), e.g. Construction's two structures. Display only.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the shared structure ability plus its display step"
+)]
+pub(crate) fn place_structure_step(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    only_pds: bool,
+    step: Option<(u32, u32)>,
+) -> Result<Option<SystemId>, IllegalChoice> {
     let mut options = structure_options(state, content, sources, player, only_pds);
     if options.is_empty() {
         return Ok(None);
@@ -1109,7 +1155,7 @@ pub(crate) fn place_structure(
     // Shared across every card offering the structure ability (Construction, and Politics/Warfare
     // where a law extends it) with which unit `structure_options` prices, so this names the
     // mechanic rather than one card that does not always own it.
-    let choice = Choice::new(player.clone(), "place a structure", options).contextualized(
+    let mut choice = Choice::new(player.clone(), "place a structure", options).contextualized(
         DecisionContext::new(
             player.clone(),
             DecisionSource::Content("place_structure".to_owned()),
@@ -1118,6 +1164,12 @@ pub(crate) fn place_structure(
             state.round,
         ),
     );
+    if let Some((step, of)) = step {
+        choice = choice.detailed("step", step).detailed("of", of);
+    }
+    if only_pds {
+        choice = choice.detailed("only_pds", true);
+    }
     let answer = ask(state, content, sources, galaxy, table, &choice)?;
     if answer.is_decline() {
         return Ok(None);
@@ -1252,6 +1304,7 @@ fn trade_primary(
                 .collect(),
         )
         .detailed("seats", seat_map(&named))
+        .detailed("commodities", commodity_map(state, content, &named))
         .contextualized(DecisionContext::new(
             player.clone(),
             DecisionSource::StrategyCard {
@@ -1417,6 +1470,10 @@ fn imperial_primary(
     player: &PlayerId,
 ) -> Result<(), IllegalChoice> {
     let scoreable = crate::objectives::scoreable_on(state, content, sources, player, galaxy);
+    let controls_mecatol = state
+        .controlled_planets(player)
+        .into_iter()
+        .any(|(system, _)| system.as_str() == crate::seating::MECATOL);
     if !scoreable.is_empty() {
         let choice = Choice::new(
             player.clone(),
@@ -1432,6 +1489,16 @@ fn imperial_primary(
                 })
                 .chain(std::iter::once(ChoiceOption::decline()))
                 .collect(),
+        )
+        .detailed("kind", "imperial")
+        .detailed("controls_mecatol", controls_mecatol)
+        .detailed(
+            "secrets_held",
+            crate::secrets::held_count(state, content, player),
+        )
+        .detailed(
+            "secrets_max",
+            crate::secrets::HAND_LIMIT + crate::relics::secret_objective_bonus(state, player),
         )
         .contextualized(DecisionContext::new(
             player.clone(),
@@ -1454,10 +1521,6 @@ fn imperial_primary(
             );
         }
     }
-    let controls_mecatol = state
-        .controlled_planets(player)
-        .into_iter()
-        .any(|(system, _)| system.as_str() == crate::seating::MECATOL);
     if controls_mecatol {
         if let Some(seat) = state.player_mut(player) {
             seat.victory_points = (seat.victory_points + 1).min(crate::objectives::VICTORY_TARGET);
@@ -1576,9 +1639,27 @@ pub fn primary(
                 &SystemId::new(system),
             )?;
         } else {
-            place_structure(state, content, sources, galaxy, table, player, false)?;
+            place_structure_step(
+                state,
+                content,
+                sources,
+                galaxy,
+                table,
+                player,
+                false,
+                Some((1, 2)),
+            )?;
         }
-        place_structure(state, content, sources, galaxy, table, player, false)?;
+        place_structure_step(
+            state,
+            content,
+            sources,
+            galaxy,
+            table,
+            player,
+            false,
+            Some((2, 2)),
+        )?;
         return Ok(Ability::Resolved);
     }
 
@@ -1602,8 +1683,26 @@ pub fn primary(
         "Diplomacy" => diplomacy_primary(state, content, sources, galaxy, table, player)?,
         "Politics" => politics_primary(state, content, sources, galaxy, table, player)?,
         "Construction" => {
-            place_structure(state, content, sources, galaxy, table, player, false)?;
-            place_structure(state, content, sources, galaxy, table, player, true)?;
+            place_structure_step(
+                state,
+                content,
+                sources,
+                galaxy,
+                table,
+                player,
+                false,
+                Some((1, 2)),
+            )?;
+            place_structure_step(
+                state,
+                content,
+                sources,
+                galaxy,
+                table,
+                player,
+                true,
+                Some((2, 2)),
+            )?;
         }
         "Trade" => trade_primary(state, content, sources, galaxy, table, player)?,
         "Warfare" => warfare_primary(state, content, sources, galaxy, table, player)?,
@@ -2544,6 +2643,114 @@ mod tests {
     }
 
     #[test]
+    fn construction_numbers_its_two_placements_for_the_client() {
+        let mut state = game(&["a"]);
+        let player = PlayerId::new("a");
+        let (system, planet) = a_placed_planet();
+        state.system_mut(&system).set_control(planet, player.clone());
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = Table::with_default(Box::new(capturing));
+
+        primary(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            &player,
+            &card("Construction"),
+        )
+        .unwrap();
+
+        let seen = seen.borrow();
+        let placements: Vec<_> = seen
+            .iter()
+            .filter(|choice| choice.prompt == "place a structure")
+            .collect();
+        assert_eq!(placements.len(), 2);
+        assert_eq!(placements[0].details["step"], 1);
+        assert_eq!(placements[0].details["of"], 2);
+        assert!(!placements[0].details.contains_key("only_pds"));
+        assert_eq!(placements[1].details["step"], 2);
+        assert_eq!(placements[1].details["of"], 2);
+        assert_eq!(placements[1].details["only_pds"], true);
+    }
+
+    #[test]
+    fn trade_replenish_question_states_each_seats_commodities() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let player = PlayerId::new("a");
+        let other = PlayerId::new("b");
+        state.player_mut(&player).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        state.player_mut(&other).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        let limit = commodity_limit(&state, content, &other);
+        state.player_mut(&other).unwrap().commodities = 1;
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+        let mut table = Table::with_default(Box::new(capturing));
+
+        trade_primary(&mut state, content, POK, None, &mut table, &player).unwrap();
+
+        let seen = seen.borrow();
+        let ask = seen
+            .iter()
+            .find(|choice| choice.prompt == "let another player replenish commodities")
+            .expect("the replenish question");
+        assert_eq!(ask.details["commodities"]["hacan"]["have"], 1);
+        assert_eq!(ask.details["commodities"]["hacan"]["max"], limit);
+    }
+
+    #[test]
+    fn imperial_objective_question_states_the_mecatol_or_secret_outcome() {
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("a");
+        let upgrades: Vec<_> = content
+            .records(ContentType::Technologies)
+            .iter()
+            .filter(|record| record.strings("types").contains(&"UNITUPGRADE"))
+            .filter_map(|record| record.text("alias"))
+            .take(2)
+            .map(ToOwned::to_owned)
+            .collect();
+        let imperial = |hold_mecatol: bool| {
+            let mut state = game(&["a"]);
+            state.revealed_objectives = vec![ti4_model::id::ObjectiveId::new("develop")];
+            for alias in &upgrades {
+                state
+                    .player_mut(&player)
+                    .unwrap()
+                    .technologies
+                    .insert(ti4_model::id::TechnologyId::new(alias.clone()));
+            }
+            if hold_mecatol {
+                state
+                    .system_mut(&SystemId::new(crate::seating::MECATOL))
+                    .set_control(PlanetId::new("mecatol_rex"), player.clone());
+            }
+            let (capturing, seen) =
+                crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+            let mut table = Table::with_default(Box::new(capturing));
+            primary(&mut state, content, POK, None, &mut table, &player, &card("Imperial")).unwrap();
+            let asked = seen.borrow();
+            asked
+                .iter()
+                .find(|choice| choice.prompt == "score a public objective with Imperial")
+                .expect("the objective question")
+                .details
+                .clone()
+        };
+
+        let without = imperial(false);
+        assert_eq!(without["kind"], "imperial");
+        assert_eq!(without["controls_mecatol"], false);
+        assert_eq!(without["secrets_max"], 3);
+        assert!(without["secrets_held"].is_u64());
+
+        let with = imperial(true);
+        assert_eq!(with["controls_mecatol"], true);
+    }
+
+    #[test]
     fn the_simple_secondaries_apply_their_effects() {
         let content = ContentStore::embedded();
         let player = PlayerId::new("a");
@@ -2947,7 +3154,9 @@ mod tests {
     /// Answers from a queue and keeps each question's `details` for inspection.
     struct DetailRecording {
         wanted: std::collections::VecDeque<String>,
-        seen: std::rc::Rc<std::cell::RefCell<Vec<(String, serde_json::Map<String, serde_json::Value>)>>>,
+        seen: std::rc::Rc<
+            std::cell::RefCell<Vec<(String, serde_json::Map<String, serde_json::Value>)>>,
+        >,
     }
 
     impl crate::choice::Decider for DetailRecording {
@@ -2982,25 +3191,32 @@ mod tests {
             .system_mut(&SystemId::new("53"))
             .set_control(PlanetId::new("arcturus"), actor.clone());
         let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let answers = [
-            "tactic_tokens",
-            "tactic_tokens",
-            "tactic_tokens",
-            "no",
-        ];
+        let answers = ["tactic_tokens", "tactic_tokens", "tactic_tokens", "no"];
         let mut table = Table::with_default(Box::new(DetailRecording {
             wanted: answers.iter().map(|id| (*id).to_owned()).collect(),
             seen: seen.clone(),
         }));
 
-        primary(&mut state, content, POK, None, &mut table, &actor, &card("Leadership")).unwrap();
+        primary(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut table,
+            &actor,
+            &card("Leadership"),
+        )
+        .unwrap();
 
         let seen = seen.borrow();
         assert_eq!(seen.len(), 4);
         for (index, (prompt, details)) in seen.iter().enumerate() {
             let purchase = &details["purchase"];
             assert_eq!(purchase["cost"], 3, "{prompt}");
-            assert_eq!(purchase["influence_available"], 11, "4 from Arcturus + 7 goods");
+            assert_eq!(
+                purchase["influence_available"], 11,
+                "4 from Arcturus + 7 goods"
+            );
             assert_eq!(purchase["max"], 3);
             assert_eq!(purchase["trade_goods"], 7);
             assert_eq!(purchase["trade_good_worth"], 1);
