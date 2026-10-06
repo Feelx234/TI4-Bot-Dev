@@ -9,7 +9,11 @@ const board: BoardView = {
     "26": {
       system_id: "26",
       command_tokens: [],
-      units: [],
+      units: [
+        { unit_type: "infantry", owner: "p1", planet: "lodor", damaged: false },
+        { unit_type: "infantry", owner: "p1", planet: "lodor", damaged: false },
+        { unit_type: "pds", owner: "p1", planet: "lodor", damaged: false },
+      ],
       planets: { lodor: { planet_id: "lodor", controlled_by: "p1", exhausted: false } },
     },
   },
@@ -171,6 +175,20 @@ describe("PlanetSelectionBar", () => {
     );
     fireEvent.click(screen.getByTestId("confirm-planet-btn"));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("spacedock|26|lodor"));
+  });
+
+  it("place_structure says where, the cost and what is already on the planet, keeping the ids", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<Host choice={structures} onSubmit={onSubmit} initialPlanet="lodor" />);
+    expect(screen.getByTestId("structure-info-where")).toHaveTextContent("Lodor in Lodor (#26)");
+    expect(screen.getByTestId("structure-info-cost")).toHaveTextContent(/No cost/);
+    expect(screen.getByTestId("structure-info-there")).toHaveTextContent(
+      "Already there: p1 2 infantry, 1 PDS",
+    );
+    expect(screen.getByTestId("planet-chip-lodor")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("planet-option-pds|26|lodor"));
+    fireEvent.click(screen.getByTestId("confirm-planet-btn"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("pds|26|lodor"));
   });
 
   it("submits the decline option directly", async () => {

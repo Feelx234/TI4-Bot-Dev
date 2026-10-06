@@ -16,6 +16,8 @@ import {
   optionActionLabel,
 } from "../presentation/planetSelection.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
+import { StructureInfo } from "./SystemFactsView.tsx";
+import "./SystemFacts.css";
 
 export interface PlanetSelectionBarProps {
   choice: PendingChoiceDto;
@@ -260,6 +262,10 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
             </div>
           </div>
         ) : null}
+
+        {choice.context?.subtype === "place_structure" && activePlanetId && (
+          <StructureInfo planetId={activePlanetId} board={boardView} />
+        )}
 
         <div
           className="planet-selection-bar__chips"
