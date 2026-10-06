@@ -436,6 +436,46 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Diplomacy: choose a system",
+    fallback: "Bare system numbers -> named systems with facts, also clickable on the map",
+    note: "Each option shows the system name, planets with resources and influence, ships and command tokens; Choose on the map highlights the candidates and offers a confirm bar. The list keeps working.",
+    choice: {
+      actor,
+      nonce: "gallery-diplomacy-system",
+      prompt: "choose a system to lock down",
+      context: {
+        subtype: "diplomacy_choose_system",
+        source: { StrategyCard: { card: "Diplomacy", secondary: false } },
+      },
+      options: [
+        option("18", "18", "system"),
+        option("26", "26", "system"),
+        option("25", "25", "system"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Warfare: recall a command token",
+    fallback: "Bare system numbers -> named systems with facts, also clickable on the map",
+    note: "Same system facts for each system holding one of your command tokens.",
+    choice: {
+      actor,
+      nonce: "gallery-warfare-recall",
+      prompt: "recall a command token",
+      context: {
+        subtype: "warfare_recall_token",
+        source: { StrategyCard: { card: "Warfare", secondary: false } },
+      },
+      options: [
+        option("18", "18", "system"),
+        option("26", "26", "system"),
+        option("25", "25", "system"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Context header on a generic decision",
     fallback: "Source card, topic, phase and rule above the question",
     note: "The shared header shows who is asking (the Politics secondary), what it is about, and when it was asked, using only the context the server already sends.",

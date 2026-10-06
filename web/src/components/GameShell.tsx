@@ -554,9 +554,11 @@ function renderGeneric({
   onMinimizedChange,
   selectedOptionId,
   onSelectOption,
+  boardView,
 }: Parameters<WorkflowRenderer>[0]) {
   return (
     <PendingChoiceModal
+      boardView={boardView}
       choice={choice}
       model={model}
       onSubmit={onSubmit}

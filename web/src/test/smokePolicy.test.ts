@@ -365,3 +365,16 @@ describe("reaction dialog contract (smoke harness)", () => {
     expect(reactionTextProblem("Play play Sabotage")).toMatch(/doubled verb/);
   });
 });
+
+describe("system pick controls", () => {
+  it("never clicks the list-hiding map button, and the map confirm is a commit", () => {
+    expect(EXCLUDED_CONTROLS.test("system-pick-inspect-map-btn | Choose on the map")).toBe(true);
+    expect(classifyControl("confirm-activation-btn | Confirm")).toEqual({
+      unstage: false,
+      commit: true,
+    });
+    // The list stays the path: option rows are choice-option, the submit is a commit.
+    expect(classifyControl("choice-option | 14").unstage).toBe(false);
+    expect(classifyControl("submit-choice-button | Confirm choice").commit).toBe(true);
+  });
+});

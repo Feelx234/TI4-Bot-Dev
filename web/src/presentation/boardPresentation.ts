@@ -8,6 +8,7 @@ import {
 import { SEAT_COLORS } from "./playerDisplay.ts";
 import { isPlanetSelectionChoice } from "./choiceModel.ts";
 import { isPaymentChoice } from "./paymentDraft.ts";
+import { isSystemPickChoice, systemPickOptionSystem } from "./systemFacts.ts";
 
 /** What a map click answers: a system hex (activation) or a planet (planet selection). */
 export type MapTargetMode = "system" | "planet" | "payment" | null;
@@ -317,8 +318,15 @@ export function deriveActorTargetHighlights(
         ? "payment"
         : null;
 
+  // Bare system-id picks (diplomacy, warfare recall, ...) highlight their systems on the map.
+  const isSystemPick = isSystemPickChoice(pendingChoice, board);
+
   // 2. Structured ChoiceOption payloads (zero regexes)
   for (const opt of pendingChoice.options) {
+    if (isSystemPick) {
+      const pickSystem = systemPickOptionSystem(opt);
+      if (pickSystem) addSystemOption(pickSystem, opt.id);
+    }
     const payload = opt.payload;
     const subtype = pendingChoice.context?.subtype;
     const isPaymentPlanet =

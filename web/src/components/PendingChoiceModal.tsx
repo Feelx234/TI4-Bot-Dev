@@ -15,6 +15,7 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { describeCommandTokens, type TokenOutcome } from "../presentation/commandTokens.ts";
 import { CommandTokenPanel } from "./CommandTokenPanel.tsx";
 import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
+import { SystemPickConfirmBar, SystemPickMapButton, SystemPickOptionFacts } from "./SystemPickParts.tsx";
 import { RemoveUnitPanel, RemoveUnitOptionNote } from "./RemoveUnitParts.tsx";
 import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
@@ -162,6 +163,12 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     return (
       <div data-testid="minimized-choice-banner" className="choice-banner panel">
         <span>{choice.prompt}</span>
+        <SystemPickConfirmBar
+          choice={choice}
+          board={boardView}
+          selectedOptionId={selectedOptionId}
+          onSubmit={onSubmit}
+        />
         <button
           type="button"
           data-testid="resume-choice-button"
@@ -434,6 +441,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         )}
                         <RemoveUnitOptionNote choice={choice} option={opt} board={boardView} />
                         <PoliticsOptionNote choice={choice} option={opt} />
+                        <SystemPickOptionFacts choice={choice} optionId={opt.id} board={boardView} />
                         {opt.description && (
                           <div
                             style={{
@@ -453,7 +461,12 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               )}
             </div>
 
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+              <SystemPickMapButton
+                choice={choice}
+                board={boardView}
+                onMinimize={() => setIsMinimized(true)}
+              />
               <button
                 type="submit"
                 data-testid="submit-choice-button"

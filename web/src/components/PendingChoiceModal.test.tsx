@@ -410,3 +410,64 @@ describe("PendingChoiceModal strategy secondary", () => {
     expect(screen.getAllByTestId("choice-option")).toHaveLength(2);
   });
 });
+
+describe("PendingChoiceModal system pick", () => {
+  const board = {
+    systems: {
+      "14": {
+        system_id: "14",
+        command_tokens: ["p2"],
+        units: [{ unit_type: "fighter", owner: "p1", damaged: false }],
+        planets: {},
+      },
+      "18": { system_id: "18", command_tokens: [], units: [], planets: {} },
+    },
+    map_tiles: [
+      { system_id: "14", label: "Arinam", q: 0, r: 0, planets: [] },
+      { system_id: "18", label: "Mecatol Rex", q: 1, r: 0, planets: [] },
+    ],
+  };
+  const pick: PendingChoiceDto = {
+    prompt: "choose a system",
+    actor: "p1",
+    nonce: "sp1",
+    context: { subtype: "diplomacy_choose_system" },
+    options: [
+      { id: "14", kind: "system", label: "14" },
+      { id: "18", kind: "system", label: "18" },
+    ],
+  };
+
+  it("shows each system's facts and still submits the option id from the list", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<PendingChoiceModal choice={pick} onSubmit={onSubmit} boardView={board} />);
+    expect(screen.getByTestId("system-facts-14")).toHaveTextContent("Arinam (#14)");
+    expect(screen.getByTestId("system-facts-14")).toHaveTextContent("1 fighter");
+    expect(screen.getByTestId("system-facts-14")).toHaveTextContent("Command tokens: p2");
+    expect(screen.getAllByTestId("choice-option")).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("radio")[1]);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("submit-choice-button"));
+    });
+    expect(onSubmit).toHaveBeenCalledWith("18");
+  });
+
+  it("can be answered on the map: minimize, then confirm the selected system", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PendingChoiceModal choice={pick} onSubmit={onSubmit} boardView={board} selectedOptionId="18" />,
+    );
+    fireEvent.click(screen.getByTestId("system-pick-inspect-map-btn"));
+    expect(screen.getByTestId("system-pick-selected")).toHaveTextContent("Mecatol Rex (#18)");
+    expect(screen.getByTestId("resume-choice-button")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("confirm-activation-btn"));
+    });
+    expect(onSubmit).toHaveBeenCalledWith("18");
+  });
+
+  it("leaves other decisions without the map button", () => {
+    render(<PendingChoiceModal choice={mockChoice} onSubmit={vi.fn()} boardView={board} />);
+    expect(screen.queryByTestId("system-pick-inspect-map-btn")).not.toBeInTheDocument();
+  });
+});
