@@ -31,6 +31,23 @@ export async function createStartedGame(
   const players: { id: string; session: string }[] = [
     { id: host.player.id, session: host.player_session },
   ];
+  // Opt-in (TI4_SMOKE_MAP=1): exercise the host's map choice on part of the runs. The server
+  // draws a fresh private seed for every choice, so a run that sets this is not reproducible
+  // from `seed` alone.
+  if (process.env.TI4_SMOKE_MAP) {
+    const listed = await request.get(`${backend}/api/maps?player_count=${playerCount}`);
+    expect(listed.ok()).toBeTruthy();
+    const templates: { alias: string }[] = await listed.json();
+    const map =
+      templates.length > 0
+        ? { kind: "template", alias: templates[seed % templates.length].alias }
+        : { kind: "random" };
+    const chosen = await request.post(`${backend}/api/games/${gameId}/lobby/map`, {
+      data: { map },
+      headers: { "x-ti4-player-session": players[0].session },
+    });
+    expect(chosen.ok(), `choosing ${JSON.stringify(map)}: ${chosen.status()}`).toBeTruthy();
+  }
   for (let i = 1; i < playerCount; i++) {
     const joined = await request.post(`${backend}/api/games/${gameId}/lobby/join`, {
       data: { kind: "new", nickname: `E2E Player ${i + 1}` },

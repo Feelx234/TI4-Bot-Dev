@@ -118,7 +118,7 @@ interface LobbyStatusProps {
   onAddBot?: (password: string, nickname?: string) => Promise<boolean | void>;
   onRemoveBot?: (playerId: string) => Promise<boolean | void>;
   /** Host only: save a map choice (resolves once the lobby has been updated). */
-  onChooseMap?: (choice: MapChoice) => Promise<boolean | void>;
+  onChooseMap?: (choice: MapChoice, startPreset?: string) => Promise<boolean | void>;
   watching?: boolean;
   pendingAction?: string | null;
 }
@@ -299,7 +299,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
             editable={canEditMap}
             viewerPosition={viewer?.position ?? null}
             saving={pendingAction === "map"}
-            onChoose={(choice) => void onChooseMap?.(choice)}
+            onChoose={(choice, startPreset) => void onChooseMap?.(choice, startPreset)}
             onClose={closePicker}
           />
         )}

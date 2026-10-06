@@ -206,3 +206,11 @@
     flex-basis: 128px;
   }
 }
+
+.map-picker__dev {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}

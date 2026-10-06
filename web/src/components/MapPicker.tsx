@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import "./MapPicker.css";
 import { useMapCatalog, useMapPreview } from "../hooks/useMapCatalog.ts";
 import { choiceOf, mapCards, mapSummaryLine, viewerSeat } from "../presentation/mapPicker.ts";
@@ -6,6 +6,9 @@ import type { LobbyDto, MapChoice } from "../protocol/types.ts";
 import { seatStyle } from "../presentation/playerDisplay.ts";
 import { MapCard } from "./MapCard.tsx";
 import { MapPreviewBoard } from "./MapPreviewBoard.tsx";
+
+/** Opening-state presets the server accepts (`crates/ti4-server/src/preset.rs`), dev builds only. */
+const DEV_START_PRESETS = ["combat"];
 
 interface MapPickerProps {
   lobby: LobbyDto;
@@ -15,7 +18,8 @@ interface MapPickerProps {
   viewerPosition: number | null;
   /** A choice is being saved. */
   saving: boolean;
-  onChoose: (choice: MapChoice) => void;
+  /** `startPreset` is the dev opening-state preset ("" clears it); undefined leaves it alone. */
+  onChoose: (choice: MapChoice, startPreset?: string) => void;
   onClose: () => void;
 }
 
@@ -33,6 +37,10 @@ export const MapPicker: React.FC<MapPickerProps> = ({
   onClose,
 }) => {
   const map = lobby.map;
+  const [preset, setPreset] = useState("");
+  // Only chosen presets are sent, so an untouched picker never changes the lobby's preset.
+  const [presetTouched, setPresetTouched] = useState(false);
+  const choose = (choice: MapChoice) => onChoose(choice, presetTouched ? preset : undefined);
   const playerCount = lobby.slots.length;
   const catalog = useMapCatalog(editable ? playerCount : 0);
   const preview = useMapPreview(
@@ -118,7 +126,7 @@ export const MapPicker: React.FC<MapPickerProps> = ({
                       playerCount={playerCount}
                       disabled={saving}
                       saving={saving && card.selected}
-                      onChoose={() => !card.selected && onChoose(card.choice)}
+                      onChoose={() => !card.selected && choose(card.choice)}
                     />
                   ))}
                 </div>
@@ -167,12 +175,36 @@ export const MapPicker: React.FC<MapPickerProps> = ({
           </p>
           {editable ? (
             <div className="map-picker__actions">
+              {import.meta.env.DEV && (
+                <label className="map-picker__dev">
+                  Start preset (dev)
+                  <select
+                    data-testid="dev-start-preset"
+                    className="input"
+                    value={preset}
+                    disabled={saving}
+                    onChange={(event) => {
+                      setPreset(event.target.value);
+                      setPresetTouched(true);
+                      // The preset travels with a map choice, so this re-rolls the open slots.
+                      if (current) onChoose(current, event.target.value);
+                    }}
+                  >
+                    <option value="">none</option>
+                    {DEV_START_PRESETS.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <button
                 type="button"
                 className="button button--outline"
                 data-testid="map-reroll"
                 disabled={saving || !current}
-                onClick={() => current && onChoose(current)}
+                onClick={() => current && choose(current)}
               >
                 {saving ? "Saving…" : "Re-roll"}
               </button>

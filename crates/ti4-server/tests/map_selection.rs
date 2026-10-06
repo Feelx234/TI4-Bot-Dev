@@ -505,3 +505,44 @@ async fn a_table_that_cannot_build_any_map_is_told_so_instead_of_failing_at_star
         .unwrap();
     assert!(list.is_empty(), "{list:?}");
 }
+
+#[tokio::test]
+async fn a_dev_start_preset_rides_along_with_the_choice_and_is_validated() {
+    let base = spawn(Arc::new(GameRegistry::new())).await;
+    let made = lobby(&base, 3).await;
+    let post = |body: Value| {
+        let made = &made;
+        async move {
+            let response = made
+                .client
+                .post(made.url("/map"))
+                .header("x-ti4-player-session", &made.host)
+                .json(&body)
+                .send()
+                .await
+                .unwrap();
+            (response.status(), response.text().await.unwrap())
+        }
+    };
+    let (status, _) = post(json!({"map": {"kind": "random"}, "start_preset": "nope"})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = post(json!({"map": {"kind": "random"}, "start_preset": "combat"})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !body.contains("combat"),
+        "the preset is never public: {body}"
+    );
+    let (status, _) = post(json!({"map": {"kind": "random"}, "start_preset": ""})).await;
+    assert_eq!(status, StatusCode::OK);
+    // Chosen again with the preset, the table still starts.
+    let (status, _) = post(json!({"map": {"kind": "random"}, "start_preset": "combat"})).await;
+    assert_eq!(status, StatusCode::OK);
+    let mut tokens = vec![made.host.clone()];
+    for _ in 0..2 {
+        tokens.push(made.join().await);
+    }
+    for token in &tokens {
+        made.post_ok("/ready", token, json!({"ready": true})).await;
+    }
+    made.post_ok("/start", &made.host, Value::Null).await;
+}

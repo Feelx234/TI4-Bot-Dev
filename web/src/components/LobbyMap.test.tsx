@@ -43,10 +43,10 @@ describe("lobby map row", () => {
     );
     expect(screen.getByRole("dialog", { name: "Choose your map" })).toBeInTheDocument();
     fireEvent.click(await screen.findByTestId("map-card-6pHyperlanes"));
-    expect(onChooseMap).toHaveBeenCalledWith({
-      kind: "template",
-      alias: "6pHyperlanes",
-    });
+    expect(onChooseMap).toHaveBeenCalledWith(
+      { kind: "template", alias: "6pHyperlanes" },
+      undefined,
+    );
     fireEvent.click(screen.getByTestId("map-picker-done"));
     expect(screen.queryByRole("dialog")).toBeNull();
     // Still editable from the lobby until Start.

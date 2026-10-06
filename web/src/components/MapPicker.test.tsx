@@ -65,21 +65,21 @@ describe("MapPicker (host)", () => {
     stubServer();
     render(<MapPicker {...props} editable />);
     fireEvent.click(await screen.findByTestId("map-card-6pHyperlanes"));
-    expect(props.onChoose).toHaveBeenLastCalledWith({
-      kind: "template",
-      alias: "6pHyperlanes",
-    });
+    expect(props.onChoose).toHaveBeenLastCalledWith(
+      { kind: "template", alias: "6pHyperlanes" },
+      undefined,
+    );
     fireEvent.click(screen.getByTestId("map-card-random"));
-    expect(props.onChoose).toHaveBeenLastCalledWith({ kind: "random" });
+    expect(props.onChoose).toHaveBeenLastCalledWith({ kind: "random" }, undefined);
     // The selected card is not saved again by a click; Re-roll does that on purpose.
     props.onChoose.mockClear();
     fireEvent.click(screen.getByTestId("map-card-6pStandard"));
     expect(props.onChoose).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("map-reroll"));
-    expect(props.onChoose).toHaveBeenCalledWith({
-      kind: "template",
-      alias: "6pStandard",
-    });
+    expect(props.onChoose).toHaveBeenCalledWith(
+      { kind: "template", alias: "6pStandard" },
+      undefined,
+    );
     fireEvent.click(screen.getByTestId("map-picker-done"));
     expect(props.onClose).toHaveBeenCalled();
   });
@@ -92,6 +92,23 @@ describe("MapPicker (host)", () => {
     expect(screen.getByTestId("map-card-random")).toBeDisabled();
     expect(within(card).getByRole("status", { name: "Saving" })).toBeInTheDocument();
     expect(screen.getByTestId("map-reroll")).toBeDisabled();
+  });
+
+  it("sends a dev start preset only once the host has picked one", async () => {
+    stubServer();
+    render(<MapPicker {...props} editable />);
+    fireEvent.click(await screen.findByTestId("map-card-6pHyperlanes"));
+    expect(props.onChoose).toHaveBeenLastCalledWith(
+      { kind: "template", alias: "6pHyperlanes" },
+      undefined,
+    );
+    fireEvent.change(screen.getByTestId("dev-start-preset"), { target: { value: "combat" } });
+    expect(props.onChoose).toHaveBeenLastCalledWith(
+      { kind: "template", alias: "6pStandard" },
+      "combat",
+    );
+    fireEvent.click(screen.getByTestId("map-card-random"));
+    expect(props.onChoose).toHaveBeenLastCalledWith({ kind: "random" }, "combat");
   });
 
   it("shows an error with Retry when the list fails", async () => {

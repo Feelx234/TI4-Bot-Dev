@@ -14,7 +14,7 @@ export interface LobbySessionState {
   start: () => Promise<void>;
   reorder: (slotIds: string[]) => Promise<void>;
   /** Host only, before Start: choose the map (every call re-rolls the open slots). */
-  chooseMap: (choice: MapChoice) => Promise<void>;
+  chooseMap: (choice: MapChoice, startPreset?: string) => Promise<void>;
   join: (nickname: string, playerId?: string) => Promise<string | undefined>;
   leave: () => Promise<boolean>;
   addBot: (password: string, nickname?: string, temperature?: number) => Promise<boolean>;
@@ -240,7 +240,8 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     setReady: (ready) => mutate("ready", { ready }),
     start: () => mutate("start"),
     reorder: (slot_ids) => mutate("reorder", { slot_ids }),
-    chooseMap: (map) => mutate("map", { map }),
+    chooseMap: (map, startPreset) =>
+      mutate("map", startPreset === undefined ? { map } : { map, start_preset: startPreset }),
     join,
     leave,
     addBot,

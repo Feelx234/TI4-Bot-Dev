@@ -2161,13 +2161,23 @@ impl GameRegistry {
     ///
     /// # Errors
     /// [`LobbyError::InvalidMap`] for an unknown, wrongly sized or unbuildable template;
-    /// [`LobbyError::HostRequired`]; [`LobbyError::AlreadyRunning`].
+    /// [`LobbyError::HostRequired`]; [`LobbyError::AlreadyRunning`]. `start_preset` is the dev
+    /// opening-state preset (see [`crate::preset`]); it is validated here and is not public.
     pub fn choose_player_lobby_map(
         &self,
         game_id: &str,
         credential: &str,
         choice: &crate::maps::MapChoice,
+        start_preset: Option<&str>,
     ) -> Result<PlayerLobbyView, LobbyError> {
+        if let Some(name) = start_preset
+            && !name.is_empty()
+            && !crate::preset::is_known(name)
+        {
+            return Err(LobbyError::InvalidMap(format!(
+                "unknown start_preset {name:?}"
+            )));
+        }
         let mut state = self.state.lock().expect("registry lock");
         let lobby = state
             .player_lobbies
@@ -2185,6 +2195,12 @@ impl GameRegistry {
         let mut updated = lobby.clone();
         updated.map_template = choice.stored();
         updated.seed = seed;
+        // Dev/smoke only: `Some("")` clears the preset, `None` leaves it as it is.
+        match start_preset {
+            Some("") => updated.start_preset = None,
+            Some(name) => updated.start_preset = Some(name.to_owned()),
+            None => {}
+        }
         updated.map_revision += 1;
         updated.lobby_version += 1;
         self.save_player_lobby(&updated)?;

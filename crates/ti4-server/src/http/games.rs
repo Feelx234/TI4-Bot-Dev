@@ -193,6 +193,8 @@ pub async fn preview_map(
 #[serde(deny_unknown_fields)]
 pub struct ChooseMapRequest {
     pub map: crate::maps::MapChoice,
+    /// Dev only (like `start_preset` at creation): `\"\"` clears it. Never shown to players.
+    pub start_preset: Option<String>,
 }
 
 /// Handler for `POST /api/games/{game_id}/lobby/map` (host only, before Start).
@@ -204,7 +206,12 @@ pub async fn choose_lobby_map(
 ) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
     let token = require_player_session(&headers)?.to_owned();
     tokio::task::spawn_blocking(move || {
-        registry.choose_player_lobby_map(&game_id, &token, &payload.map)
+        registry.choose_player_lobby_map(
+            &game_id,
+            &token,
+            &payload.map,
+            payload.start_preset.as_deref(),
+        )
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
