@@ -1,4 +1,5 @@
 import type { ChoiceWorkflowKind } from "../presentation/choiceModel.ts";
+import { removeUnitCases } from "./removeUnitGalleryCases.ts";
 import type { DecisionTargetDto, PendingChoiceDto } from "../protocol/types.ts";
 
 // Illustrative UI inputs, not captured engine states or legal-game fixtures.
@@ -864,6 +865,7 @@ export const fallbackCases: GalleryCase[] = [
     },
   },
   ...reactionCases(),
+  ...removeUnitCases(),
   ...turnBarCases(),
 ];
 

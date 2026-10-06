@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { PendingChoiceDto } from "../protocol/types.ts";
+import { BoardView, PendingChoiceDto } from "../protocol/types.ts";
 import { Dialog } from "../primitives/index.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
@@ -15,6 +15,8 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { describeCommandTokens, type TokenOutcome } from "../presentation/commandTokens.ts";
 import { CommandTokenPanel } from "./CommandTokenPanel.tsx";
 import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
+import { RemoveUnitPanel, RemoveUnitOptionNote } from "./RemoveUnitParts.tsx";
+import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
 
 export interface PendingChoiceModalProps {
@@ -30,6 +32,8 @@ export interface PendingChoiceModalProps {
   onSelectOption?: (optionId: string) => void;
   selectedOptionIds?: string[];
   onSelectOptions?: (optionIds: string[]) => void;
+  /** Lets decisions that name units and systems show what is there. */
+  boardView?: BoardView;
 }
 
 export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
@@ -44,6 +48,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   onSelectOption,
   selectedOptionIds: controlledSelectedOptionIds,
   onSelectOptions,
+  boardView,
 }) => {
   const present = useParticipantText();
   const [uncontrolledSelectedOptionId, setUncontrolledSelectedOptionId] = useState<string>("");
@@ -329,6 +334,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               onConfirm={confirmTokens}
             />
           )}
+          {!secondary && !tokens && <RemoveUnitPanel choice={choice} board={boardView} />}
           {!secondary && !tokens && <PoliticsContextPanel choice={choice} />}
           {!secondary && !tokens && (
           <form
@@ -404,7 +410,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                       />
                       <div>
                         <div style={{ fontWeight: 600, color: isChecked ? "#38bdf8" : "#e2e8f0" }}>
-                          {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? opt.label)}
+                          {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? opt.label)}
                         </div>
                         {handCard?.badge && (
                           <div className="card-option__badge" data-testid="card-option-badge">
@@ -426,6 +432,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                             <p>{card.secondaryText || "No printed text available."}</p>
                           </div>
                         )}
+                        <RemoveUnitOptionNote choice={choice} option={opt} board={boardView} />
                         <PoliticsOptionNote choice={choice} option={opt} />
                         {opt.description && (
                           <div
