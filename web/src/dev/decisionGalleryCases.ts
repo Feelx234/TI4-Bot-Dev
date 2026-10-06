@@ -252,7 +252,7 @@ const cases = {
   action_card_reaction: {
     subtype: "play_reaction_after_ACTION_CARD_PLAYED",
     options: [
-      option("sabotage", "Play Sabotage", "action_card"),
+      option("sabo1", "play Sabotage", "action_card", { card: "sabo1", card_name: "Sabotage" }),
       finish("decline", "Pass"),
     ],
     note: "Reaction window with pass.",
@@ -770,8 +770,159 @@ export const fallbackCases: GalleryCase[] = [
       ],
     },
   },
+  ...reactionCases(),
   ...turnBarCases(),
 ];
+
+/** The reaction dialog's scenarios: what happened and why the seat may answer. */
+function reactionCases(): GalleryCase[] {
+  const other = "other_seat";
+  const trigger = (
+    kind: string,
+    event_type: string,
+    relation: "when" | "after",
+    rest: Record<string, unknown> = {},
+  ) => ({ kind, event_type, event_id: 12, relation, ...rest });
+  const outer = (card: string, name: string, event: string, relation: "when" | "after") =>
+    option(`reaction:hacan:${event}:${relation}`, `Play ${name}`, "ability", {
+      card,
+      card_name: name,
+    });
+  const make = (
+    nonce: string,
+    title: string,
+    fallback: string,
+    note: string,
+    subtype: string,
+    options: PendingChoiceDto["options"],
+    triggerDto: Record<string, unknown> | null,
+    source: Record<string, unknown> = {},
+  ): GalleryCase => ({
+    workflow: "action_card_reaction",
+    title,
+    fallback,
+    note,
+    choice: {
+      actor,
+      nonce,
+      prompt: subtype,
+      context: {
+        subtype,
+        optional: true,
+        ...(Object.keys(source).length ? { source } : {}),
+        ...(triggerDto
+          ? { trigger: triggerDto as unknown as NonNullable<PendingChoiceDto["context"]>["trigger"] }
+          : {}),
+      },
+      options: [...options, finish("decline", "Pass")],
+    },
+  });
+  return [
+    make(
+      "gallery-reaction-sabotage",
+      "Reaction: Sabotage",
+      "Another seat played an action card: who, which card and its full text, then Sabotage",
+      "Trigger from the engine: the played card with its printed text, then the card you can answer with.",
+      "reaction_when_ACTION_CARD_PLAYED",
+      [outer("sabo1", "Sabotage", "ACTION_CARD_PLAYED", "when")],
+      trigger("action_card_played", "ACTION_CARD_PLAYED", "when", { actor: other, card: "uprising" }),
+      { Reaction: "ACTION_CARD_PLAYED" },
+    ),
+    make(
+      "gallery-reaction-instinct",
+      "Reaction: Instinct Training",
+      "A technology that cancels the card, used or declined",
+      "Not a card: the printed technology text and a Use button.",
+      "instinct_training_cancel",
+      [option("use", "cancel it", "technology")],
+      trigger("action_card_played", "ACTION_CARD_PLAYED", "when", { actor: other, card: "uprising" }),
+      { Content: "it" },
+    ),
+    make(
+      "gallery-reaction-activated-yours",
+      "Reaction: system activated, you have units there",
+      "Activation of a system you have units in, with Show on map",
+      "The activated system links to the map and says how many of your units stand there.",
+      "reaction_after_SYSTEM_ACTIVATED",
+      [outer("decoy", "Decoy Operation", "SYSTEM_ACTIVATED", "after")],
+      trigger("system_activated", "SYSTEM_ACTIVATED", "after", { actor: other, system: "18" }),
+      { Reaction: "SYSTEM_ACTIVATED" },
+    ),
+    make(
+      "gallery-reaction-activated-none",
+      "Reaction: system activated, none of your units",
+      "Activation of a system without your units",
+      "No presence note; the window text says why the card applies.",
+      "reaction_after_SYSTEM_ACTIVATED",
+      [outer("decoy", "Decoy Operation", "SYSTEM_ACTIVATED", "after")],
+      trigger("system_activated", "SYSTEM_ACTIVATED", "after", { actor: other, system: "27" }),
+      { Reaction: "SYSTEM_ACTIVATED" },
+    ),
+    make(
+      "gallery-reaction-ship-moved",
+      "Reaction: ships moved",
+      "Moved ships named by type and count",
+      "The engine's SHIP_MOVED now carries the destination and the arriving units.",
+      "reaction_after_SHIP_MOVED",
+      [outer("rescue", "Rescue", "SHIP_MOVED", "after")],
+      trigger("ship_moved", "SHIP_MOVED", "after", {
+        actor: other,
+        system: "26",
+        units: [
+          { owner: other, unit_type: "cruiser", count: 2 },
+          { owner: other, unit_type: "dreadnought", count: 1 },
+        ],
+      }),
+      { Reaction: "SHIP_MOVED" },
+    ),
+    make(
+      "gallery-reaction-agenda",
+      "Reaction: agenda revealed",
+      "No actor: the speaker flips the agenda",
+      "Phase and agenda events name nobody; the sentence says what was revealed.",
+      "reaction_when_AGENDA_REVEALED",
+      [outer("sabo1", "Sabotage", "AGENDA_REVEALED", "when")],
+      trigger("agenda_revealed", "AGENDA_REVEALED", "when", { agenda: "mutiny" }),
+      { Reaction: "AGENDA_REVEALED" },
+    ),
+    make(
+      "gallery-reaction-combat",
+      "Reaction: combat starts",
+      "A space combat begins in a system",
+      "Combat windows name the attacker and the system.",
+      "reaction_after_COMBAT_ROUND_STARTED",
+      [outer("sh1", "Shields Holding", "COMBAT_ROUND_STARTED", "after")],
+      trigger("combat_started", "COMBAT_ROUND_STARTED", "after", {
+        actor: other,
+        subject: actor,
+        system: "18",
+      }),
+      { Reaction: "COMBAT_ROUND_STARTED" },
+    ),
+    make(
+      "gallery-reaction-two-cards",
+      "Reaction: two different cards",
+      "Inner step: pick one of two cards, each with its window and text",
+      "Several differently named cards for one window repeat the same trigger.",
+      "play_reaction_after_SYSTEM_ACTIVATED",
+      [
+        option("fs1", "play Flank Speed", "action_card", { card: "fs1", card_name: "Flank Speed" }),
+        option("decoy", "play Decoy Operation", "action_card", { card: "decoy", card_name: "Decoy Operation" }),
+      ],
+      trigger("system_activated", "SYSTEM_ACTIVATED", "after", { actor: other, system: "18" }),
+    ),
+    make(
+      "gallery-reaction-no-trigger",
+      "Reaction: no trigger data",
+      "An older server: only the window is known",
+      "Without a trigger the dialog says only that a window opened, never a raw engine id.",
+      "reaction_after_SHIP_DESTROYED",
+      [outer("sabo1", "Sabotage", "SHIP_DESTROYED", "after")],
+      null,
+      { Reaction: "SHIP_DESTROYED" },
+    ),
+  ];
+}
 
 function turnBarCases(): GalleryCase[] {
   const tokens = { tactic: 3, fleet: 3, strategy: 2 };

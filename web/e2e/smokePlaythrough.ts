@@ -23,6 +23,9 @@ import {
   isBarControl,
   turnBarPool,
   pausedBatch,
+  EXCLUDED_CONTROLS,
+  isReactionSubtype,
+  reactionTextProblem,
 } from "./smokePolicy";
 
 /**
@@ -75,6 +78,10 @@ export interface PlaythroughReport {
   barControls: Record<string, number>;
   /** Turn-menu decisions that fell back to the old list because the bar could not map them. */
   turnMenuFallbacks: string[];
+  /** Reaction decisions (windows, the inner card pick, Instinct Training, the L1Z1X agent) seen. */
+  reactionDecisions: number;
+  /** Reaction dialogs whose text showed a raw engine id or a doubled verb ("Play play"). */
+  reactionTextProblems: string[];
 }
 
 // Containers that render a decision for the acting seat.
@@ -111,8 +118,7 @@ const ERROR_BANNERS = [
 ];
 
 // Controls that hide the decision or rewrite history; clicking them never advances the game.
-const EXCLUDED =
-  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss/i;
+const EXCLUDED = EXCLUDED_CONTROLS;
 // Controls that take back staged selections. Only used to escape a staging dead end, such as
 // cargo over transport capacity, where every submit button is disabled.
 interface Candidate {
@@ -496,6 +502,8 @@ export async function randomUiPlaythrough(
     barDecisions: 0,
     barControls: {},
     turnMenuFallbacks: [],
+    reactionDecisions: 0,
+    reactionTextProblems: [],
   };
 
   const trace = (file: string, data: unknown, append = false) => {
@@ -666,12 +674,27 @@ export async function randomUiPlaythrough(
     let barControl: string | null = null;
     let progressed = false;
     let emptyPolls = 0;
+    const isReaction = isReactionSubtype(subtype);
+    if (isReaction) report.reactionDecisions++;
+    let reactionChecked = !isReaction;
     for (let clicks = 0; clicks < options.maxClicksPerDecision;) {
       // Progress is read from the actor's tab (free) rather than the API; it follows the server
       // over the websocket. A late-landing commit is caught here before another click.
       if (clicks > 0 && (await uiVersion(page)) > before) {
         progressed = true;
         break;
+      }
+      if (!reactionChecked) {
+        const shown = await page
+          .getByTestId("reaction-status-bar")
+          .first()
+          .textContent({ timeout: 500 })
+          .catch(() => null);
+        if (shown !== null) {
+          reactionChecked = true;
+          const problem = reactionTextProblem(shown);
+          if (problem) report.reactionTextProblems.push(`${subtype}: ${problem}`);
+        }
       }
       const candidates = await collectCandidates(page);
       if (!candidates.length) {

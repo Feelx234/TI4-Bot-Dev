@@ -75,3 +75,39 @@
     background: var(--color-surface);
   }
 }
+.reaction-actor {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.reaction-actor__faction {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.reaction-card__window {
+  color: var(--color-text-faint, var(--color-text-muted));
+  font-size: 12px;
+  font-style: italic;
+}
+.reaction-card__toggle {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.reaction-status-bar__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.reaction-status-bar__system {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

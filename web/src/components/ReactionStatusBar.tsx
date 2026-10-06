@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
-import type { BoardView, GameEvent, PendingChoiceDto } from "../protocol/types.ts";
+import type { BoardView, GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
-import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { firstSentence, useCardTextPrefs, type CardTextPrefs } from "../presentation/cardTextPrefs.ts";
 import { describeReaction, type ReactionCard } from "../presentation/reactionModel.ts";
 import { humanizeId } from "../protocol/contentCatalog.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
@@ -21,20 +22,65 @@ export interface ReactionStatusBarProps {
   boardView?: BoardView;
   activePlayerId?: string | null;
   activeSystemId?: string | null;
+  players?: Record<string, PlayerView>;
+  /** Highlights a system on the map (the "Show on map" link of the system involved). */
+  onShowSystem?: (systemId: string) => void;
 }
 
-const CardBlock: React.FC<{ card: ReactionCard | null; note?: string | null; testId?: string }> = ({
-  card,
-  note,
-  testId,
-}) => {
+const CardBlock: React.FC<{
+  card: ReactionCard | null;
+  note?: string | null;
+  prefs: CardTextPrefs;
+  showWindow?: boolean;
+  testId?: string;
+}> = ({ card, note, prefs, showWindow = false, testId }) => {
   const text = card?.text || note || "";
   if (!card && !text) return null;
+  const name = card?.name ?? "";
+  const brief = text ? firstSentence(text) : null;
+  const collapsed = brief !== null && prefs.isCollapsed(name || text);
   return (
-    <div className="reaction-card" data-testid={testId}>
+    <div className="reaction-card" data-testid={testId} data-collapsed={collapsed || undefined}>
       {card && <div className="reaction-card__name">{card.name}</div>}
-      {text && <p className="reaction-card__text">{text}</p>}
+      {showWindow && card?.window && (
+        <div className="reaction-card__window" data-testid="reaction-card-window">
+          Window: {card.window}
+        </div>
+      )}
+      {text && (
+        <p className="reaction-card__text" data-testid="reaction-card-text">
+          {collapsed ? brief : text}
+        </p>
+      )}
+      {brief !== null && (
+        <button
+          type="button"
+          className="reaction-card__toggle"
+          data-testid={`reaction-inspect-text-${name || "note"}`}
+          aria-expanded={!collapsed}
+          onClick={() => prefs.toggle(name || text)}
+        >
+          {collapsed ? "Show full text" : "Shrink"}
+        </button>
+      )}
     </div>
+  );
+};
+
+/** Faction and colour, as everywhere else: the seat badge, the player and the faction. */
+const ActorChip: React.FC<{ id: string; viewerSeat?: string | null; faction?: string }> = ({
+  id,
+  viewerSeat,
+  faction,
+}) => {
+  const display = usePlayerIdentity();
+  const who = display(id);
+  return (
+    <span className="reaction-actor" data-testid="reaction-actor">
+      {who.position != null && <SeatBadge position={who.position} />}
+      <span className="reaction-actor__name">{id === viewerSeat ? "You" : who.label}</span>
+      {faction && <span className="reaction-actor__faction">{humanizeId(faction)}</span>}
+    </span>
   );
 };
 
@@ -51,8 +97,11 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   boardView,
   activePlayerId,
   activeSystemId,
+  players,
+  onShowSystem,
 }) => {
   const display = usePlayerIdentity();
+  const prefs = useCardTextPrefs();
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(
@@ -69,6 +118,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       activePlayerId,
       activeSystemId: activeSystemId ?? boardView?.active_system ?? null,
       viewerSeat,
+      board: boardView,
       playerLabel: (id) => display(id).label,
       systemLabel: (id) => {
         const planets = Object.keys(boardView?.systems?.[id]?.planets ?? {});
@@ -192,18 +242,43 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
         aria-label="What happened"
       >
         <h3 className="reaction-status-bar__heading">What happened</h3>
+        {reaction.facts.actorId && (
+          <ActorChip
+            id={reaction.facts.actorId}
+            viewerSeat={viewerSeat}
+            faction={players?.[reaction.facts.actorId]?.faction}
+          />
+        )}
         <p data-testid="reaction-bar-prompt" className="reaction-status-bar__sentence">
           {reaction.sentence}
         </p>
-        {reaction.facts.systemId && (
-          <span
-            className="reaction-status-bar__trigger-target"
-            data-testid={`reaction-trigger-system-${reaction.facts.systemId}`}
-          >
-            System {reaction.facts.systemId}
-          </span>
+        {reaction.inResponse && (
+          <p className="reaction-status-bar__note">
+            This was played in response to another reaction.
+          </p>
         )}
-        <CardBlock card={reaction.facts.card} testId="reaction-trigger-card" />
+        {reaction.facts.systemId && (
+          <div className="reaction-status-bar__system">
+            <span
+              className="reaction-status-bar__trigger-target"
+              data-testid={`reaction-trigger-system-${reaction.facts.systemId}`}
+            >
+              System {reaction.facts.systemId}
+            </span>
+            {onShowSystem && (
+              <button
+                type="button"
+                className="reaction-card__toggle"
+                data-testid="reaction-inspect-show-on-map"
+                onClick={() => onShowSystem(reaction.facts.systemId!)}
+              >
+                Show on map
+              </button>
+            )}
+          </div>
+        )}
+        {reaction.note && <p className="reaction-status-bar__note">{reaction.note}</p>}
+        <CardBlock card={reaction.facts.card} prefs={prefs} testId="reaction-trigger-card" />
       </section>
 
       {!isActor ? (
@@ -225,10 +300,8 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
             <ul className="reaction-status-bar__rows">
               {reaction.reactions.map((row) => (
                 <li key={row.optionId} className="reaction-status-bar__row">
-                  <CardBlock card={row.card} note={row.note} />
-                  {!row.card && !row.note && (
-                    <div className="reaction-card__name">{row.name}</div>
-                  )}
+                  {!row.card && <div className="reaction-card__name">{row.name}</div>}
+                  <CardBlock card={row.card} note={row.note} prefs={prefs} showWindow />
                 </li>
               ))}
             </ul>
@@ -258,6 +331,16 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
                 Pass (Spacebar)
               </button>
             )}
+
+            <label className="reaction-status-bar__pin">
+              <input
+                type="checkbox"
+                data-testid="reaction-inspect-compact"
+                checked={prefs.compact}
+                onChange={(e) => prefs.setCompact(e.target.checked)}
+              />
+              Compact card text
+            </label>
 
             <label className="reaction-status-bar__pin">
               <input

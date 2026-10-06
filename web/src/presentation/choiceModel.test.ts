@@ -400,4 +400,43 @@ describe("choiceModel", () => {
       });
     });
   });
+
+  describe("reaction routing", () => {
+    const options = (count: number): PendingChoiceDto["options"] => [
+      ...Array.from({ length: count }, (_, index) => ({
+        id: `reaction:f:X:${index}`,
+        label: `Play Card ${index}`,
+        kind: "ability",
+      })),
+      { id: "decline", label: "Pass", kind: "decline" },
+    ];
+    const reaction = (subtype: string, count: number, source?: Record<string, unknown>) =>
+      deriveChoiceRendererModel(
+        {
+          ...baseChoice,
+          options: options(count),
+          context: { subtype, optional: true, ...(source ? { source } : {}) },
+        },
+        "seat_1",
+      )?.workflow;
+
+    it("routes the outer window, however many options it has", () => {
+      expect(reaction("reaction_when_ACTION_CARD_PLAYED", 1, { Reaction: "X" })).toBe(
+        "action_card_reaction",
+      );
+      expect(reaction("reaction_after_SYSTEM_ACTIVATED", 6, { Reaction: "X" })).toBe(
+        "action_card_reaction",
+      );
+    });
+
+    it("routes the inner card pick and the two reaction abilities", () => {
+      expect(reaction("play_reaction_after_SYSTEM_ACTIVATED", 2)).toBe("action_card_reaction");
+      expect(reaction("instinct_training_cancel", 1, { Content: "it" })).toBe(
+        "action_card_reaction",
+      );
+      expect(reaction("l1z1x_agent_swap", 1, { Content: "l1z1xagent" })).toBe(
+        "action_card_reaction",
+      );
+    });
+  });
 });

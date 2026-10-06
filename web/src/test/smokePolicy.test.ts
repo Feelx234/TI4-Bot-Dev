@@ -11,6 +11,9 @@ import {
   turnBarPool,
   isBarControl,
   pausedBatch,
+  EXCLUDED_CONTROLS,
+  isReactionSubtype,
+  reactionTextProblem,
 } from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
@@ -321,5 +324,44 @@ describe("pausedBatch (batch results the harness must not treat as failures)", (
   });
   it("lets the continue button submit and leaves dismiss alone", () => {
     expect(classifyControl("paused-plan-continue | Continue plan").commit).toBe(true);
+  });
+});
+
+describe("reaction dialog contract (smoke harness)", () => {
+  it("clicks Play and Pass but never the card-text, compact, pin or map controls", () => {
+    const clickable = [
+      "play-reaction-btn-reaction:hacan:ACTION_CARD_PLAYED:when | Play Sabotage",
+      "play-reaction-btn-use | Use Instinct Training",
+      "pass-reaction-btn | Pass (Spacebar)",
+    ];
+    const inert = [
+      "reaction-inspect-text-Uprising | Shrink",
+      "reaction-inspect-text-Uprising | Show full text",
+      "reaction-inspect-compact | Compact card text",
+      "reaction-inspect-show-on-map | Show on map",
+      "pin-reaction-toggle | Pin",
+    ];
+    for (const desc of clickable) expect(EXCLUDED_CONTROLS.test(desc), desc).toBe(false);
+    for (const desc of inert) expect(EXCLUDED_CONTROLS.test(desc), desc).toBe(true);
+    for (const desc of clickable) expect(classifyControl(desc).commit, desc).toBe(true);
+    for (const desc of inert) expect(steerWeight(desc), desc).toBeLessThanOrEqual(1);
+  });
+
+  it("recognises every reaction decision subtype, including the two ability steps", () => {
+    for (const subtype of [
+      "reaction_when_ACTION_CARD_PLAYED",
+      "reaction_after_SYSTEM_ACTIVATED",
+      "play_reaction_after_SYSTEM_ACTIVATED",
+      "instinct_training_cancel",
+      "l1z1x_agent_swap",
+    ])
+      expect(isReactionSubtype(subtype), subtype).toBe(true);
+    expect(isReactionSubtype("activate_system")).toBe(false);
+  });
+
+  it("flags raw engine ids and doubled verbs in the dialog text", () => {
+    expect(reactionTextProblem("Anna activated System 27. Now you can play Sabotage.")).toBeNull();
+    expect(reactionTextProblem("when ACTION_CARD_PLAYED")).toMatch(/raw engine id/);
+    expect(reactionTextProblem("Play play Sabotage")).toMatch(/doubled verb/);
   });
 });

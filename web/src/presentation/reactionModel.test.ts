@@ -123,4 +123,147 @@ describe("describeReaction", () => {
     const model = describeReaction({ choice, ...labels, viewerSeat: "p2" });
     expect(model.reactions[0].buttonLabel).toBe("Choose an action card…");
   });
+
+  const triggered = (
+    subtype: string,
+    trigger: NonNullable<PendingChoiceDto["context"]>["trigger"],
+  ): PendingChoiceDto => {
+    const choice = sabotageOffer(subtype);
+    choice.context = { ...choice.context!, trigger };
+    return choice;
+  };
+
+  it("level 1: the typed trigger wins over the log and says it verbatim (user example 1)", () => {
+    const model = describeReaction({
+      choice: triggered("reaction_when_ACTION_CARD_PLAYED", {
+        kind: "action_card_played",
+        event_type: "ACTION_CARD_PLAYED",
+        event_id: 4,
+        relation: "when",
+        actor: "p1",
+        card: "uprising",
+      }),
+      // A stale log entry must not override the trigger.
+      events: [logEntry("p1", "p1 played Plague")],
+      ...labels,
+      viewerSeat: "p2",
+    });
+    expect(model.source).toBe("trigger");
+    expect(model.sentence).toBe("Anna played the action card Uprising.");
+    expect(model.facts.card?.text).toMatch(/^Exhaust 1 non-home planet/);
+    expect(model.canNowSentence).toBe("Before this resolves, you can play Sabotage.");
+  });
+
+  it("level 1: a system activation names the system and, after, says 'Now you can' (example 2)", () => {
+    const model = describeReaction({
+      choice: triggered("reaction_after_SYSTEM_ACTIVATED", {
+        kind: "system_activated",
+        event_type: "SYSTEM_ACTIVATED",
+        event_id: 5,
+        relation: "after",
+        actor: "p1",
+        system: "27",
+      }),
+      ...labels,
+      systemLabel: (id) => `System ${id} (Lodor)`,
+      viewerSeat: "p2",
+    });
+    expect(model.sentence).toBe("Anna activated System 27 (Lodor).");
+    expect(model.canNowSentence).toBe("Now you can play Sabotage.");
+    expect(model.facts.systemId).toBe("27");
+  });
+
+  it("says You when the viewer is the actor and lists moved ships", () => {
+    const model = describeReaction({
+      choice: triggered("reaction_after_SHIP_MOVED", {
+        kind: "ship_moved",
+        event_type: "SHIP_MOVED",
+        event_id: 6,
+        relation: "after",
+        actor: "p2",
+        system: "27",
+        units: [
+          { owner: "p2", unit_type: "cruiser", count: 2 },
+          { owner: "p2", unit_type: "dreadnought", count: 1 },
+        ],
+      }),
+      ...labels,
+      viewerSeat: "p2",
+    });
+    expect(model.sentence).toBe("You moved ships into System 27: 2 cruisers, 1 dreadnought.");
+  });
+
+  it("has no actor for an agenda reveal and uses the strategy card's name", () => {
+    const agenda = describeReaction({
+      choice: triggered("reaction_when_AGENDA_REVEALED", {
+        kind: "agenda_revealed",
+        event_type: "AGENDA_REVEALED",
+        event_id: 7,
+        relation: "when",
+        agenda: "mutiny",
+      }),
+      ...labels,
+      viewerSeat: "p2",
+    });
+    expect(agenda.sentence).toBe("The agenda Mutiny was revealed.");
+    expect(agenda.facts.actorId).toBeNull();
+    const strategic = describeReaction({
+      choice: triggered("reaction_when_STRATEGIC_ACTION_BEGAN", {
+        kind: "strategic_action_began",
+        event_type: "STRATEGIC_ACTION_BEGAN",
+        event_id: 8,
+        relation: "when",
+        actor: "p1",
+        card: "pok1leadership",
+      }),
+      ...labels,
+      viewerSeat: "p2",
+    });
+    expect(strategic.sentence).toBe("Anna is about to use the Leadership strategy card.");
+  });
+
+  it("marks a reaction to a reaction and notes how many of your units stand in the system", () => {
+    const model = describeReaction({
+      choice: triggered("reaction_after_SYSTEM_ACTIVATED", {
+        kind: "system_activated",
+        event_type: "SYSTEM_ACTIVATED",
+        event_id: 9,
+        relation: "after",
+        actor: "p1",
+        system: "27",
+        chain: [3],
+      }),
+      board: {
+        systems: {
+          "27": {
+            system_id: "27",
+            command_tokens: [],
+            planets: {},
+            units: [
+              { unit_type: "cruiser", owner: "p2", damaged: false },
+              { unit_type: "cruiser", owner: "p2", damaged: false },
+              { unit_type: "cruiser", owner: "p1", damaged: false },
+            ],
+          },
+        },
+      },
+      ...labels,
+      viewerSeat: "p2",
+    });
+    expect(model.inResponse).toBe(true);
+    expect(model.note).toBe("You have 2 units there.");
+  });
+
+  it("falls back to the log when a malformed trigger arrives", () => {
+    const choice = sabotageOffer();
+    choice.context = { ...choice.context!, trigger: { nonsense: true } as never };
+    const model = describeReaction({
+      choice,
+      events: [logEntry("p1", "p1 played Plague")],
+      ...labels,
+      viewerSeat: "p2",
+    });
+    expect(model.source).toBe("log");
+    expect(model.sentence).toBe("Anna played the action card Plague.");
+  });
 });

@@ -752,6 +752,60 @@ mod tests {
     use ti4_model::id::{FactionId, ObjectiveId, PlayerId};
     use ti4_model::state::GameState;
 
+    fn reaction_offer() -> (Choice, String) {
+        use ti4_engine::choice::ChoiceOption;
+        use ti4_engine::decision_context::{
+            DecisionContext, DecisionSource, DecisionTrigger,
+        };
+        let mut payload = BTreeMap::new();
+        payload.insert("player".to_owned(), "player_1".into());
+        payload.insert("card".to_owned(), "fs1".into());
+        let event = ti4_engine::event::Event::new(4, "ACTION_CARD_PLAYED", payload);
+        let choice = Choice::new(
+            PlayerId::new("player_2"),
+            "when ACTION_CARD_PLAYED",
+            vec![
+                ChoiceOption::labelled("reaction:x:ACTION_CARD_PLAYED:when", "ability", "Play Sabotage"),
+                ChoiceOption::decline(),
+            ],
+        )
+        .contextualized(
+            DecisionContext::new(
+                PlayerId::new("player_2"),
+                DecisionSource::Reaction("ACTION_CARD_PLAYED".to_owned()),
+                "reaction_when_ACTION_CARD_PLAYED",
+                ti4_model::state::Phase::Action,
+                1,
+            )
+            .optional(true)
+            .with_trigger(DecisionTrigger::from_event(&event, "when", &[])),
+        );
+        (choice, "7".to_owned())
+    }
+
+    #[test]
+    fn the_reaction_trigger_reaches_the_asked_seat_and_only_that_seat() {
+        let (choice, nonce) = reaction_offer();
+        let owner = ViewerRole::Player(PlayerId::new("player_2"));
+        let sent = project_pending_choice(&owner, Some((&choice, &nonce))).expect("the owner is asked");
+        let json = serde_json::to_value(&sent).unwrap();
+        let trigger = &json["choice"]["context"]["trigger"];
+        assert_eq!(trigger["kind"], "action_card_played");
+        assert_eq!(trigger["actor"], "player_1");
+        assert_eq!(trigger["card"], "fs1");
+        assert_eq!(trigger["relation"], "when");
+        assert_eq!(trigger["event_id"], 4);
+        assert!(trigger.get("chain").is_none(), "an empty chain stays off the wire");
+        let other = ViewerRole::Player(PlayerId::new("player_1"));
+        assert!(project_pending_choice(&other, Some((&choice, &nonce))).is_none());
+        assert!(project_pending_choice(&ViewerRole::Spectator, Some((&choice, &nonce))).is_none());
+        // And a message written before triggers existed still decodes, with none.
+        let mut old = json.clone();
+        old["choice"]["context"].as_object_mut().unwrap().remove("trigger");
+        let back: PendingChoiceEnvelope = serde_json::from_value(old).unwrap();
+        assert!(back.choice.context.unwrap().trigger.is_none());
+    }
+
     #[test]
     fn a_tied_game_goes_to_the_first_seat_in_initiative_order() {
         let ids: Vec<PlayerId> = ["player_1", "player_2", "player_3"]

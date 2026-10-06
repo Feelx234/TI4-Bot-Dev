@@ -82,6 +82,8 @@ export interface GameShellProps {
   onSelectOption?: (optionId: string) => void;
   selectedPlanetId?: string | null;
   onSelectPlanet?: (planetId: string | null) => void;
+  /** Highlights a system on the map (reaction dialogs link the system involved). */
+  onShowSystem?: (systemId: string) => void;
   viewerSeat?: string | null;
   players?: Record<string, PlayerView> | PlayerView[];
   boardView?: BoardView;
@@ -114,6 +116,7 @@ export interface ChoiceRendererDispatcherProps {
   onSelectOption?: (optionId: string) => void;
   selectedPlanetId?: string | null;
   onSelectPlanet?: (planetId: string | null) => void;
+  onShowSystem?: (systemId: string) => void;
   isMinimized: boolean;
   onMinimizedChange: (minimized: boolean) => void;
   players?: Record<string, PlayerView>;
@@ -281,8 +284,12 @@ const workflowRenderers = new Map<
       boardView,
       activeSystemId,
       turn,
+      players,
+      onShowSystem,
     }) => (
       <ReactionStatusBar
+        players={players}
+        onShowSystem={onShowSystem}
         choice={choice}
         model={model}
         viewerSeat={viewerSeat}
@@ -863,6 +870,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   onSelectOption,
   selectedPlanetId,
   onSelectPlanet,
+  onShowSystem,
   viewerSeat,
   players,
   boardView,
@@ -1121,6 +1129,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             onSelectOption={onSelectOption}
             selectedPlanetId={selectedPlanetId}
             onSelectPlanet={onSelectPlanet}
+            onShowSystem={onShowSystem}
             isMinimized={isChoiceMinimized}
             onMinimizedChange={setIsChoiceMinimized}
             tacticalPlan={tacticalPlan}

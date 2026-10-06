@@ -1,7 +1,14 @@
-import type { GameEvent, PendingChoiceDto } from "../protocol/types.ts";
+import type {
+  BoardView,
+  DecisionTriggerDto,
+  GameEvent,
+  PendingChoiceDto,
+} from "../protocol/types.ts";
+import { decodeDecisionTrigger } from "../protocol/decode.ts";
 import {
   findActionCardByName,
   findActionCardMeta,
+  findStrategyCardMeta,
   findTechnologyMeta,
   humanizeId,
 } from "../protocol/contentCatalog.ts";
@@ -64,6 +71,10 @@ export interface ReactionModel {
   reactions: ReactionRow[];
   /** "Now you can play Sabotage." */
   canNowSentence: string;
+  /** Extra public context for the trigger ("You have 2 units there."), when known. */
+  note: string | null;
+  /** This was played in response to another reaction. */
+  inResponse: boolean;
   declineOptionId: string | null;
 }
 
@@ -79,6 +90,8 @@ export interface ReactionModelInput {
   playerLabel: (id: string) => string;
   /** "System 27 (Lodor)"; defaults to "System 27". */
   systemLabel?: (id: string) => string;
+  /** The public board, to say how many of the viewer's units stand in the system involved. */
+  board?: BoardView;
 }
 
 const SUBTYPE = /^(?:play_)?reaction_(when|after)_(.+)$/;
@@ -259,7 +272,41 @@ function unitPhrase(units: ReactionTriggerFacts["units"]): string {
 }
 
 function strategyCardName(id: string | null): string {
-  return id ? humanizeId(id) : "a";
+  return id ? (findStrategyCardMeta(id)?.name ?? humanizeId(id)) : "a";
+}
+
+/** Facts from the engine's typed trigger: the best source, and the only one for exact units. */
+export function factsFromTrigger(trigger: DecisionTriggerDto): ReactionTriggerFacts {
+  const facts = emptyFacts(trigger.event_type);
+  facts.actorId = trigger.actor ?? null;
+  facts.subjectId = trigger.subject ?? null;
+  if (trigger.card) {
+    if (trigger.kind === "strategic_action_began" || trigger.kind === "strategy_card_chosen") {
+      facts.strategyCardId = trigger.card;
+    } else {
+      facts.card = cardFromId(trigger.card);
+    }
+  }
+  facts.agendaId = trigger.agenda ?? null;
+  facts.systemId = trigger.system ?? null;
+  facts.planetId = trigger.planet ?? null;
+  facts.units = trigger.units ?? [];
+  facts.hits = trigger.hits ?? null;
+  return facts;
+}
+
+/** "You have 2 units there." for the system the trigger names, from the public board. */
+export function viewerPresenceNote(
+  board: BoardView | undefined,
+  systemId: string | null,
+  viewerSeat: string | null | undefined,
+): string | null {
+  if (!board || !systemId || !viewerSeat) return null;
+  const system = board.systems?.[systemId];
+  if (!system) return null;
+  const count = system.units.filter((unit) => unit.owner === viewerSeat).length;
+  if (count === 0) return null;
+  return `You have ${count} unit${count === 1 ? "" : "s"} there.`;
 }
 
 /** The "what happened" sentence for the facts, with `A` the actor's label. */
@@ -272,6 +319,7 @@ export function triggerSentence(
   const you = facts.actorId !== null && facts.actorId === labels.viewerSeat;
   const actor = facts.actorId ? labels.actor(facts.actorId) : null;
   const A = actor ?? "A player";
+  const be = you ? "are" : "is";
   const poss = you ? "your" : `${A}'s`;
   const system = facts.systemId ? labels.system(facts.systemId) : null;
   const subject = facts.subjectId ? labels.actor(facts.subjectId) : null;
@@ -293,8 +341,8 @@ export function triggerSentence(
     }
     case "STRATEGIC_ACTION_BEGAN":
       return facts.strategyCardId
-        ? `${A} is about to use the ${strategyCardName(facts.strategyCardId)} strategy card.`
-        : `${A} is about to use a strategy card.`;
+        ? `${A} ${be} about to use the ${strategyCardName(facts.strategyCardId)} strategy card.`
+        : `${A} ${be} about to use a strategy card.`;
     case "STRATEGY_CARD_CHOSEN":
       return facts.strategyCardId
         ? `${A} chose the ${strategyCardName(facts.strategyCardId)} strategy card.`
@@ -350,7 +398,7 @@ export function triggerSentence(
       return `A ship was destroyed${inSystem}.`;
     case "RETREAT_STEP_STARTED":
     case "RETREAT_DECLARED":
-      return `${A} is retreating${inSystem}.`;
+      return `${A} ${be} retreating${inSystem}.`;
     case "SPACE_COMBAT_WON":
       return `${A} won a space combat${inSystem}.`;
     case "PRODUCTION_USED":
@@ -494,8 +542,9 @@ function joinNames(names: string[]): string {
 export function describeReaction(input: ReactionModelInput): ReactionModel {
   const { choice } = input;
   const parsed = parseReactionSubtype(choice.context?.subtype);
-  const relation = parsed?.relation ?? null;
-  const eventType = parsed?.eventType ?? null;
+  const trigger = decodeDecisionTrigger(choice.context?.trigger);
+  const relation = trigger?.relation ?? parsed?.relation ?? null;
+  const eventType = trigger?.event_type ?? parsed?.eventType ?? null;
   const systemLabel = input.systemLabel ?? ((id: string) => `System ${id}`);
   const labels = {
     actor: (id: string) => (id === input.viewerSeat ? "You" : input.playerLabel(id)),
@@ -505,8 +554,13 @@ export function describeReaction(input: ReactionModelInput): ReactionModel {
 
   let source: ReactionTriggerSource = "subtype";
   let facts = emptyFacts(eventType);
-  const fromLog = factsFromLog(eventType, input);
-  if (fromLog) {
+  let relationUsed = relation;
+  const fromLog = trigger ? null : factsFromLog(eventType, input);
+  if (trigger) {
+    facts = factsFromTrigger(trigger);
+    source = "trigger";
+    relationUsed = trigger.relation;
+  } else if (fromLog) {
     facts = fromLog;
     source = "log";
   }
@@ -522,11 +576,11 @@ export function describeReaction(input: ReactionModelInput): ReactionModel {
   const sentence =
     source === "subtype"
       ? `A reaction window opened: ${relation ?? "after"} ${describeEventPhrase(eventType ?? "event")}.`
-      : triggerSentence(facts, relation, labels);
+      : triggerSentence(facts, relationUsed, labels);
   const title =
-    source === "subtype" ? "Reaction window" : triggerTitle(facts, relation, labels);
+    source === "subtype" ? "Reaction window" : triggerTitle(facts, relationUsed, labels);
   const names = reactions.map((row) => row.name);
-  const lead = relation === "when" ? "Before this resolves, you can" : "Now you can";
+  const lead = relationUsed === "when" ? "Before this resolves, you can" : "Now you can";
   const canNowSentence = names.length
     ? `${lead} ${joinNames(reactions.map((row) => (/^choose\b/i.test(row.name) ? row.name.toLowerCase() : row.buttonLabel.replace(/^Play /, "play ").replace(/^Use /, "use "))))}.`
     : `${lead} react.`;
@@ -540,6 +594,11 @@ export function describeReaction(input: ReactionModelInput): ReactionModel {
     title,
     reactions,
     canNowSentence,
+    note:
+      source === "subtype" || facts.eventType !== "SYSTEM_ACTIVATED"
+        ? null
+        : viewerPresenceNote(input.board, facts.systemId, input.viewerSeat),
+    inResponse: (trigger?.chain?.length ?? 0) > 0,
     declineOptionId,
   };
 }

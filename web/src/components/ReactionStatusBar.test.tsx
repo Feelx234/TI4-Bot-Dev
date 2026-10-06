@@ -1,8 +1,10 @@
 import { act } from "react";
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ReactionStatusBar } from "./ReactionStatusBar.tsx";
 import { PendingChoiceDto } from "../protocol/types.ts";
+import { fallbackCases } from "../dev/decisionGalleryCases.ts";
+import { COMPACT_KEY, SHRUNK_KEY } from "../presentation/cardTextPrefs.ts";
 
 describe("ReactionStatusBar", () => {
   it("renders reaction card options and handles click", async () => {
@@ -269,5 +271,165 @@ describe("ReactionStatusBar", () => {
     expect(screen.getByTestId("reaction-can-now")).toHaveTextContent(
       "Before this resolves, you can play Sabotage or play Decoy Operation.",
     );
+  });
+
+  describe("Phase 2: typed trigger, card text controls", () => {
+    const offer = (): PendingChoiceDto => ({
+      actor: "seat_1",
+      nonce: "60",
+      prompt: "when ACTION_CARD_PLAYED",
+      context: {
+        subtype: "reaction_when_ACTION_CARD_PLAYED",
+        optional: true,
+        source: { Reaction: "ACTION_CARD_PLAYED" },
+        trigger: {
+          kind: "action_card_played",
+          event_type: "ACTION_CARD_PLAYED",
+          event_id: 3,
+          relation: "when",
+          actor: "seat_2",
+          card: "uprising",
+        },
+      },
+      options: [
+        {
+          id: "reaction:Sol:ACTION_CARD_PLAYED:when",
+          kind: "ability",
+          label: "Play Sabotage",
+          payload: { card: "sabo1", card_name: "Sabotage" },
+        },
+        { id: "decline", kind: "decline", label: "Pass" },
+      ],
+    });
+
+    beforeEach(() => {
+      window.localStorage.clear();
+    });
+
+    it("says who played which card with its full text, then what you can do now", () => {
+      render(
+        <ReactionStatusBar isOpen choice={offer()} viewerSeat="seat_1" onSubmit={vi.fn()} />,
+      );
+      expect(screen.getByTestId("reaction-trigger-context")).toHaveAttribute(
+        "data-trigger-source",
+        "trigger",
+      );
+      expect(screen.getByTestId("reaction-bar-prompt")).toHaveTextContent(
+        "played the action card Uprising.",
+      );
+      expect(screen.getByTestId("reaction-trigger-card")).toHaveTextContent(
+        /Uprising.*Exhaust 1 non-home planet/s,
+      );
+      expect(screen.getByTestId("reaction-can-now")).toHaveTextContent(
+        "Before this resolves, you can play Sabotage.",
+      );
+      expect(screen.getByTestId("reaction-card-window")).toHaveTextContent(
+        "Window: When another player plays an action card",
+      );
+    });
+
+    it("shrinks one card to its first sentence, remembers it per card, and can show it again", () => {
+      const first = render(
+        <ReactionStatusBar isOpen choice={offer()} viewerSeat="seat_1" onSubmit={vi.fn()} />,
+      );
+      const trigger = screen.getByTestId("reaction-trigger-card");
+      const full = trigger.querySelector("p")!.textContent!;
+      expect(full.length).toBeGreaterThan(40);
+      fireEvent.click(screen.getByTestId("reaction-inspect-text-Uprising"));
+      const shrunk = screen.getByTestId("reaction-trigger-card").querySelector("p")!.textContent!;
+      expect(shrunk.length).toBeLessThan(full.length);
+      expect(full.startsWith(shrunk)).toBe(true);
+      expect(screen.getByTestId("reaction-inspect-text-Uprising")).toHaveTextContent(
+        "Show full text",
+      );
+      expect(JSON.parse(window.localStorage.getItem(SHRUNK_KEY)!)).toEqual(["Uprising"]);
+      first.unmount();
+      // A new session: the same card comes back compact, the other card stays full.
+      render(<ReactionStatusBar isOpen choice={offer()} viewerSeat="seat_1" onSubmit={vi.fn()} />);
+      expect(screen.getByTestId("reaction-trigger-card").querySelector("p")!.textContent).toBe(
+        shrunk,
+      );
+      fireEvent.click(screen.getByTestId("reaction-inspect-text-Uprising"));
+      expect(screen.getByTestId("reaction-trigger-card").querySelector("p")!.textContent).toBe(
+        full,
+      );
+      expect(JSON.parse(window.localStorage.getItem(SHRUNK_KEY)!)).toEqual([]);
+    });
+
+    it("new players see every card in full; the compact switch collapses all of them", () => {
+      render(<ReactionStatusBar isOpen choice={offer()} viewerSeat="seat_1" onSubmit={vi.fn()} />);
+      const before = screen.getByTestId("reaction-trigger-card").querySelector("p")!.textContent!;
+      expect(screen.getByTestId("reaction-inspect-compact")).not.toBeChecked();
+      fireEvent.click(screen.getByTestId("reaction-inspect-compact"));
+      expect(window.localStorage.getItem(COMPACT_KEY)).toBe("1");
+      expect(
+        screen.getByTestId("reaction-trigger-card").querySelector("p")!.textContent!.length,
+      ).toBeLessThan(before.length);
+    });
+
+    it("still renders when localStorage throws", () => {
+      const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("blocked");
+      });
+      render(<ReactionStatusBar isOpen choice={offer()} viewerSeat="seat_1" onSubmit={vi.fn()} />);
+      expect(screen.getByTestId("play-reaction-btn-reaction:Sol:ACTION_CARD_PLAYED:when")).toBeVisible();
+      spy.mockRestore();
+    });
+
+    it("links the system involved to the map without blocking Pass", async () => {
+      const onShowSystem = vi.fn();
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      const choice = offer();
+      choice.context!.trigger = {
+        kind: "system_activated",
+        event_type: "SYSTEM_ACTIVATED",
+        event_id: 5,
+        relation: "after",
+        actor: "seat_2",
+        system: "27",
+      };
+      choice.context!.subtype = "reaction_after_SYSTEM_ACTIVATED";
+      render(
+        <ReactionStatusBar
+          isOpen
+          choice={choice}
+          viewerSeat="seat_1"
+          onSubmit={onSubmit}
+          onShowSystem={onShowSystem}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("reaction-inspect-show-on-map"));
+      expect(onShowSystem).toHaveBeenCalledWith("27");
+      expect(screen.getByTestId("reaction-trigger-system-27")).toBeVisible();
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("pass-reaction-btn"));
+      });
+      expect(onSubmit).toHaveBeenCalledWith("decline");
+    });
+
+    it("every gallery reaction case says what happened without engine ids or doubled verbs", () => {
+      const cases = fallbackCases.filter((item) => item.workflow === "action_card_reaction");
+      expect(cases.length).toBeGreaterThanOrEqual(8);
+      for (const item of cases) {
+        const { unmount } = render(
+          <ReactionStatusBar
+            isOpen
+            choice={item.choice}
+            viewerSeat={item.choice.actor}
+            onSubmit={vi.fn()}
+          />,
+        );
+        const bar = screen.getByTestId("reaction-status-bar");
+        const text = bar.textContent ?? "";
+        expect(text, item.title).not.toMatch(/\b[A-Z]{3,}_[A-Z_]{3,}\b/);
+        expect(text, item.title).not.toMatch(/Play play/i);
+        expect(screen.getByTestId("reaction-trigger-context"), item.title).toBeVisible();
+        expect(screen.getByTestId("pass-reaction-btn"), item.title).toBeVisible();
+        for (const option of item.choice.options.filter((o) => o.kind !== "decline")) {
+          expect(screen.getByTestId(`play-reaction-btn-${option.id}`), item.title).toBeVisible();
+        }
+        unmount();
+      }
+    });
   });
 });

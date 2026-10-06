@@ -133,6 +133,26 @@ export function isUnstage(desc: string): boolean {
   return UNSTAGE.test(desc);
 }
 
+// Controls that hide the decision or rewrite history; clicking them never advances the game. The
+// reaction dialog's card-text, compact and map controls are all `reaction-inspect-*`.
+export const EXCLUDED_CONTROLS =
+  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss/i;
+
+/** Whether a decision subtype is a reaction window, its inner card pick or a reaction ability. */
+export function isReactionSubtype(subtype: string): boolean {
+  return /^(play_)?reaction_(when|after)_|^instinct_training_cancel$|^l1z1x_agent_swap$/.test(
+    subtype,
+  );
+}
+
+/** What is wrong with a reaction dialog's visible text, if anything: raw engine ids, doubled verbs. */
+export function reactionTextProblem(text: string): string | null {
+  const raw = /\b[A-Z]{3,}_[A-Z_]{3,}\b/.exec(text);
+  if (raw) return `raw engine id ${raw[0]}`;
+  if (/Play play/i.test(text)) return "doubled verb 'Play play'";
+  return null;
+}
+
 // Controls that submit something to the server.
 const COMMIT =
   /submit|confirm|commit|done|finish|pass|paused-plan-continue|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn/i;

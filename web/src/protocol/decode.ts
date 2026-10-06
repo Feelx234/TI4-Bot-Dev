@@ -2,10 +2,13 @@ import {
   JoinResponse,
   CreateGameResponse,
   AutoResolvedNote,
+  DecisionTriggerDto,
   InitialSnapshotMsg,
   LobbyDto,
   PROTOCOL_VERSION,
   ServerMessage,
+  TriggerKindDto,
+  TriggerUnitsDto,
 } from "./types.ts";
 import { validNickname } from "./nickname.ts";
 import { decodeMapChoice } from "./mapDecode.ts";
@@ -121,6 +124,47 @@ export function decodeJoinResponse(value: unknown, expectedGameId: string): Join
     player_session: value.player_session ?? undefined,
     player: { id: player.id as string },
     lobby,
+  };
+}
+
+const optionalString = (value: unknown): string | undefined =>
+  typeof value === "string" && value.length > 0 ? value : undefined;
+
+/**
+ * The reaction trigger of a decision context, or null when absent or malformed. Tolerant on
+ * purpose: it is display data, so an unknown or damaged shape degrades the dialog's wording and
+ * never fails the message. An unknown `kind` reads as "other".
+ */
+export function decodeDecisionTrigger(raw: unknown): DecisionTriggerDto | null {
+  if (!isRecord(raw) || typeof raw.event_type !== "string" || raw.event_type.length === 0)
+    return null;
+  const units: TriggerUnitsDto[] = [];
+  if (Array.isArray(raw.units)) {
+    for (const entry of raw.units) {
+      if (
+        isRecord(entry) &&
+        typeof entry.owner === "string" &&
+        typeof entry.unit_type === "string" &&
+        isNonNegativeInteger(entry.count)
+      )
+        units.push({ owner: entry.owner, unit_type: entry.unit_type, count: entry.count });
+    }
+  }
+  const chain = Array.isArray(raw.chain) ? raw.chain.filter(isNonNegativeInteger) : [];
+  return {
+    kind: (typeof raw.kind === "string" ? raw.kind : "other") as TriggerKindDto,
+    event_type: raw.event_type,
+    event_id: isNonNegativeInteger(raw.event_id) ? raw.event_id : 0,
+    relation: raw.relation === "when" ? "when" : "after",
+    ...(optionalString(raw.actor) ? { actor: optionalString(raw.actor) } : {}),
+    ...(optionalString(raw.subject) ? { subject: optionalString(raw.subject) } : {}),
+    ...(optionalString(raw.card) ? { card: optionalString(raw.card) } : {}),
+    ...(optionalString(raw.agenda) ? { agenda: optionalString(raw.agenda) } : {}),
+    ...(optionalString(raw.system) ? { system: optionalString(raw.system) } : {}),
+    ...(optionalString(raw.planet) ? { planet: optionalString(raw.planet) } : {}),
+    ...(units.length ? { units } : {}),
+    ...(isNonNegativeInteger(raw.hits) ? { hits: raw.hits } : {}),
+    ...(chain.length ? { chain } : {}),
   };
 }
 

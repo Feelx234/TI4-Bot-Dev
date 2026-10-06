@@ -10,6 +10,7 @@ import {
   HistoryStatus,
 } from "./types.ts";
 import {
+  decodeDecisionTrigger,
   decodeInitialSnapshot,
   decodeServerMessage,
   isStaleServerMessage,
@@ -200,12 +201,17 @@ function pendingChoice(
   envelope: import("./types.ts").PendingChoiceEnvelope,
 ): PendingChoiceDto {
   if (!envelope.choice) return envelope as unknown as PendingChoiceDto;
+  const context = envelope.choice.context;
   return {
     nonce: envelope.nonce,
     actor: envelope.choice.player,
     prompt: envelope.choice.prompt,
     options: envelope.choice.options,
-    context: envelope.choice.context,
+    // The trigger is display data: keep a well-formed one, drop a damaged one.
+    context:
+      context && "trigger" in context
+        ? { ...context, trigger: decodeDecisionTrigger(context.trigger) }
+        : context,
     ...(envelope.choice.details ? { details: envelope.choice.details } : {}),
   };
 }

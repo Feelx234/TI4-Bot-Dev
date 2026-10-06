@@ -493,6 +493,7 @@ const GameViewContainer: React.FC<{
         onSelectOption={setSelectedOptionId}
         selectedPlanetId={selectedPlanetId}
         onSelectPlanet={setSelectedPlanetId}
+        onShowSystem={setSelectedSystemId}
       />
       <TechnologyModal
         isOpen={isTechModalOpen}
