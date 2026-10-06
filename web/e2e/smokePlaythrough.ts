@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import { createStartedGame, gameSnapshot, openPlayerGame } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
-import { activationWeight, preferPayment } from "./smokePolicy";
+import { activationWeight, preferPayment, steerWeight as policySteerWeight } from "./smokePolicy";
 
 /**
  * Random UI playthrough: every pending decision is resolved by clicking randomly among the
@@ -198,22 +198,6 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
   });
 }
 
-// Steering weights, first match wins; anything unmatched weighs 1. They push random play toward
-// moving fleets into contested systems and Mecatol Rex instead of passing and trading.
-const STEER_WEIGHTS: [RegExp, number][] = [
-  [/take a tactical action/i, 30],
-  [/strategic action/i, 3],
-  [/open a transaction|propose-trade-btn|trade-opt-/i, 0.1],
-  [/decline-trade-btn/i, 5],
-  [/\| pass$/i, 0.3],
-  [/^rally-inc-cargo-/, 4],
-  [/^rally-inc-/, 10],
-  [/ in space/i, 10],
-  // Finishing while moves are staged throws them away, so a populated commit wins.
-  [/^commit-moves-btn \| Commit Moves/, 50],
-  [/finish-movement-btn|done committing/i, 0.05],
-];
-
 // Base move values; faction variants such as `sol_carrier` share the suffix. Ground forces,
 // structures and fighters cannot move on their own.
 function shipMove(unitType: string): number {
@@ -262,7 +246,7 @@ function activationWeights(board: BoardView, actor: string): Map<string, number>
 function steerWeight(desc: string, hexWeights: Map<string, number>): number {
   const hex = /^system-hex-(\S+) /.exec(desc);
   if (hex) return hexWeights.get(hex[1]) ?? 1;
-  return STEER_WEIGHTS.find(([pattern]) => pattern.test(desc))?.[1] ?? 1;
+  return policySteerWeight(desc);
 }
 
 function weightedPick(pool: Candidate[], weight: (c: Candidate) => number, rng: () => number) {

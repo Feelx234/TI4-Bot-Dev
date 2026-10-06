@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activationWeight, preferPayment } from "../../e2e/smokePolicy.ts";
+import { activationWeight, preferPayment, steerWeight } from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
 
@@ -24,6 +24,25 @@ describe("preferPayment (smoke harness payment policy)", () => {
   it("leaves non-payment controls alone", () => {
     const list = [c("choice-option | take a tactical action"), c("submit-choice-button | Confirm choice")];
     expect(preferPayment(list)).toEqual(list);
+  });
+});
+
+describe("steerWeight (smoke harness steering)", () => {
+  it("strongly prefers lifting the custodians over leaving them", () => {
+    const yes = steerWeight("choice-option | remove it for a victory point");
+    const no = steerWeight("choice-option | leave it");
+    expect(yes).toBeGreaterThanOrEqual(50);
+    expect(no).toBeLessThan(0.1);
+  });
+
+  it("loads cargo more readily than it moves more ships", () => {
+    expect(steerWeight("rally-inc-cargo-65-infantry-space | +")).toBeGreaterThan(
+      steerWeight("rally-inc-65-carrier | +"),
+    );
+  });
+
+  it("weighs unknown controls 1", () => {
+    expect(steerWeight("choice-option | something else")).toBe(1);
   });
 });
 
