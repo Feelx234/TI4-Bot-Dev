@@ -24,6 +24,12 @@ You may make **minor repairs**; otherwise you observe. Rules:
   narrowest `cargo check` / `cargo test -p <crate> <filter>` / `npx vitest run <file>`, then
   commit (`git add <files>` + `git commit`, message naming the run and the symptom). A repair that
   breaks the build is dropped automatically before the next run. Never push or switch branches.
+- Early fix round: Opus fix round 1 normally starts at 23:59. Request it earlier with
+  `{{TOOLS}}/request_fix.sh <reason>` only when you see a defect that will make several following
+  runs fail or stall the same way (the game cannot start, every run dies in round 1, a crash or
+  panic on a common path, a harness defect hiding everything else). At most once per night, and
+  give a precise reason: symptom, decision/round, evidence path. Rare or cosmetic problems wait
+  for 23:59; just report them. The script refuses when a request or the round already exists.
 - At most 3 repairs and about 25 extra tool calls per run.
 
 About half the runs start from the **combat preset** (`preset` in meta.json, `TI4_SMOKE_PRESET=combat`

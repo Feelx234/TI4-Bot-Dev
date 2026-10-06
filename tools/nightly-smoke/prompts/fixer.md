@@ -10,6 +10,9 @@ night's branch. The games run from a different checkout; nothing you do here dis
 finish, your commits are merged into the night branch between games (round 1) or after the sweep
 (round 2), and the next builds include them.
 
+{{REQUEST}}
+If the line above is not empty, start with exactly that problem (verify it against the evidence first), then continue with the procedure.
+
 Procedure:
 1. Read the report. Cluster the findings: the same symptom in several runs is one bug. Rank real
    bugs by how many runs they killed or blocked. Verify each candidate against the raw evidence

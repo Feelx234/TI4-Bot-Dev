@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Nightly random-UI smoke sweep: Sonnet proctors play games from 09:00 to 06:00 Berlin, Opus fixes
-# the first real findings around midday (round 1) and again after the sweep (round 2), and an Opus
+# Nightly random-UI smoke sweep: Sonnet proctors play games from 20:30 to 06:00 Berlin, Opus fixes
+# the first real findings at 23:59 (round 1, earlier when a proctor asks via request_fix.sh) and again after the sweep (round 2), and an Opus
 # morning summary follows round 2. See README.md.
 #
 #   nightly.sh tick              called by cron every 5 minutes; starts whatever is due
@@ -31,7 +31,7 @@ render() { # render <template> KEY=VALUE...
   local text
   text=$(cat "$1")
   shift
-  for pair in "$@"; do text=${text//"{{${pair%%=*}}}"/${pair#*=}}; done
+  for pair in "$@"; do text=${text//"{{${pair%%=*}}}"/"${pair#*=}"}; done
   printf '%s' "$text"
 }
 
@@ -186,7 +186,7 @@ cmd_loop() {
     (cd "$REPO" && timeout --kill-after=30 $(( END_EPOCH - $(now_epoch) + 600 )) \
       "$CLAUDE_BIN" -p --model "$PROCTOR_MODEL" --no-session-persistence \
       --permission-mode auto --tools Bash Read Grep Glob Edit Write \
-      --allowedTools "Bash($NIGHTLY_DIR/run_game.sh:*)" "Bash($NIGHTLY_DIR/watch.sh:*)" \
+      --allowedTools "Bash($NIGHTLY_DIR/run_game.sh:*)" "Bash($NIGHTLY_DIR/watch.sh:*)" "Bash($NIGHTLY_DIR/request_fix.sh:*)" \
       "Bash(python3 $NIGHTLY_DIR/digest.py:*)" "Read" "Grep" "Glob" "Edit" "Write" \
       "Bash(git status:*)" "Bash(git diff:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git log:*)" \
       "Bash(cargo check:*)" "Bash(cargo test:*)" "Bash(cargo fmt:*)" "Bash(npm test:*)" "Bash(npx tsc:*)" "Bash(npx vitest:*)" \
@@ -257,10 +257,19 @@ cmd_fix() {
   fi
 
   log "fixer round $round: working in $wt on $fixer_branch ($FIXER_MODEL, budget ${max}s)"
+  # Round 1 started early because a proctor asked (request_fix.sh): say so in the prompt and report.
+  local request="" req_reason req_run
+  if [ "$round" = 1 ] && [ -f "$NIGHT_DIR/fix-requested" ]; then
+    req_reason=$(sed -n '/^reason: /,$p' "$NIGHT_DIR/fix-requested" | sed '1s/^reason: //')
+    req_run=$(sed -n 's/^run: //p' "$NIGHT_DIR/fix-requested" | head -1)
+    request="A proctor (run ${req_run:-unknown}) asked for this round early because: $req_reason"
+    note_report "## Fixer round 1 started early on a proctor's request (run ${req_run:-unknown}): $req_reason"
+    log "fixer round 1: started early on request: $req_reason"
+  fi
   local prompt
   prompt=$(render "$NIGHTLY_DIR/prompts/fixer.md" "ROUND=$round" "REPORT=$NIGHT_DIR/report.md" \
     "RUNS_DIR=$NIGHT_DIR/runs" "FIXER_BRANCH=$fixer_branch" "MAX_FIXES=$MAX_FIXES_PER_ROUND" \
-    "BUDGET_MINUTES=$(( max / 60 ))")
+    "BUDGET_MINUTES=$(( max / 60 ))" "REQUEST=$request")
   # Own worktree, own target dir, low priority: the games keep their memory and CPU.
   (cd "$wt" && CARGO_TARGET_DIR="$REPORT_ROOT/target-fixer" CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 \
     nice -n 10 timeout --kill-after=60 "$max" \
@@ -333,7 +342,7 @@ cmd_summary() {
 
 # ---------------------------------------------------------------------------------------------
 # tick: decide what is due. Looks at the previous night too, whose round 2 and summary run after
-# the next window has already started (the 06:00-09:00 gap is short).
+# the next window has already started (the gap before the next 20:30 start is long).
 # ---------------------------------------------------------------------------------------------
 decide_night() { # decide_night <night> <current: 1|0>; prints "<action> <night> [round]"
   set_night "$1"
@@ -351,7 +360,7 @@ decide_night() { # decide_night <night> <current: 1|0>; prints "<action> <night>
   fi
 
   if [ "$current" = 1 ] && fixer_enabled 1 && [ ! -f "$NIGHT_DIR/.fixer-1-started" ] \
-    && [ "$now" -ge "$(fix1_epoch)" ] && [ "$now" -lt "$END_EPOCH" ] \
+    && { [ "$now" -ge "$(fix1_epoch)" ] || [ -f "$NIGHT_DIR/fix-requested" ]; } && [ "$now" -lt "$END_EPOCH" ] \
     && [ ! -f "$NIGHT_DIR/sweep.done" ] && [ "$(report_entries)" -ge 1 ]; then
     echo "fix $NIGHT 1"
     return 0
