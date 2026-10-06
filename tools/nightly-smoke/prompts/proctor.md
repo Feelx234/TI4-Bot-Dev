@@ -26,6 +26,12 @@ You may make **minor repairs**; otherwise you observe. Rules:
   breaks the build is dropped automatically before the next run. Never push or switch branches.
 - At most 3 repairs and about 25 extra tool calls per run.
 
+About half the runs start from the **combat preset** (`preset` in meta.json, `TI4_SMOKE_PRESET=combat`
+in the repro): each seat gets an extra fleet one jump from an opponent's home system, and half the
+seats get a raiding party beside Mecatol Rex with enough trade goods for the custodians. Early
+combats, casualty assignments, Mecatol activations and agenda phases are therefore *expected* in
+those runs, not suspicious. Extra units on the board at the start are by design.
+
 Run directory: {{RUN_DIR}}
 Tools directory: {{TOOLS}}
 

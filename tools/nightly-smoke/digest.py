@@ -128,7 +128,7 @@ def main():
     out = []
     p = out.append
     p(f"### Run digest — game seed {meta.get('game_seed')} · click seed {meta.get('click_seed')} · "
-      f"{meta.get('players')} players · policy {meta.get('policy')}")
+      f"{meta.get('players')} players · policy {meta.get('policy')} · preset {meta.get('preset') or 'none'}")
     p("")
     p("#### Outcome")
     rounds = report.get("roundStarts", {})
