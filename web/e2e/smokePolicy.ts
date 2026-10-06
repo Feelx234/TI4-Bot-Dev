@@ -41,6 +41,18 @@ const STEER_WEIGHTS: [RegExp, number][] = [
   [/finish-movement-btn|done committing/i, 0.05],
 ];
 
+/** Weight at which an option is worth choosing before anything is submitted. */
+const STRONG = 50;
+
+/**
+ * A strongly preferred option that is not selected yet. Choice dialogs preselect their first
+ * option, so submitting before choosing takes it: the custodians dialog lists "no" first, and a
+ * 35% chance of an early submit kept the custodians on Mecatol.
+ */
+export function strongUnselected<T extends PolicyCandidate>(stages: T[]): T | undefined {
+  return stages.find((c) => !c.checked && steerWeight(c.desc) >= STRONG);
+}
+
 /** Steering weight of one control, by its description (`<testid> | <label>`). */
 export function steerWeight(desc: string): number {
   return STEER_WEIGHTS.find(([pattern]) => pattern.test(desc))?.[1] ?? 1;

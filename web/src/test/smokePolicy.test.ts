@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { activationWeight, preferPayment, steerWeight } from "../../e2e/smokePolicy.ts";
+import {
+  activationWeight,
+  preferPayment,
+  steerWeight,
+  strongUnselected,
+} from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
 
@@ -65,5 +70,22 @@ describe("activationWeight (smoke harness steering)", () => {
     // Only Mecatol, and only with ground forces there.
     expect(activationWeight("35", false, false, true)).toBe(0.2);
     expect(activationWeight("18", false, false, false)).toBe(0.2);
+  });
+});
+
+describe("strongUnselected (smoke harness steering)", () => {
+  const no = c("choice-option | leave it VP 0 → 0", true);
+  const yes = c("choice-option | remove it for a victory point VP 0 → 1");
+
+  it("chooses the custodians removal before submitting the preselected 'no'", () => {
+    expect(strongUnselected([no, yes])).toEqual(yes);
+  });
+
+  it("lets the submit go ahead once the strong option is selected", () => {
+    expect(strongUnselected([{ ...no, checked: false }, { ...yes, checked: true }])).toBeUndefined();
+  });
+
+  it("ignores ordinary options", () => {
+    expect(strongUnselected([c("choice-option | end your turn"), c("rally-inc-cargo-1-infantry-space | +")])).toBeUndefined();
   });
 });

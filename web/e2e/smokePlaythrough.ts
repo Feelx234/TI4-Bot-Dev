@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import { createStartedGame, gameSnapshot, openPlayerGame } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
-import { activationWeight, preferPayment, steerWeight as policySteerWeight } from "./smokePolicy";
+import {
+  activationWeight,
+  preferPayment,
+  steerWeight as policySteerWeight,
+  strongUnselected,
+} from "./smokePolicy";
 
 /**
  * Random UI playthrough: every pending decision is resolved by clicking randomly among the
@@ -286,6 +291,8 @@ function pick(
     return weightedPick(unstage, (c) => (/cargo|decrement|remove/i.test(c.desc) ? 5 : 0.5), rng);
   const commits = forward.filter((c) => c.commit);
   const stages = forward.filter((c) => !c.commit);
+  const strong = policy === "steer" ? strongUnselected(stages.map((c) => ({ ...c, desc: c.full }))) : undefined;
+  if (strong) return stages.find((c) => c.idx === strong.idx) ?? strong;
   // Stage a few selections first, then lean toward submitting as the decision drags on. Steered
   // fleet and landing trays stage longer so ships and ground forces actually move.
   const staging = policy === "steer" && stages.some((c) => /^rally-inc-| in space/i.test(c.full));
