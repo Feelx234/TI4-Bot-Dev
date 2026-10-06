@@ -52,6 +52,10 @@ describe("steerWeight (smoke harness steering)", () => {
     expect(steerWeight("rally-inc-cargo-18-infantry-space | +")).toBe(25);
   });
 
+  it("rarely spends a raider's trade goods on Munitions Reserves rerolls", () => {
+    expect(steerWeight("choice-option | reroll this round's misses TG 12 → 10")).toBeLessThan(0.2);
+  });
+
   it("weighs unknown controls 1", () => {
     expect(steerWeight("choice-option | something else")).toBe(1);
   });

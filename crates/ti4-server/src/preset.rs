@@ -263,10 +263,11 @@ fn place(
     Ok(())
 }
 
-/// Influence a raider keeps beyond the custodians' six. Random play spends influence early (two
-/// Leadership token buys drained a raider's six before it reached Mecatol), and 27.2 checks the
-/// cost when the invasion starts, not when the game does.
-const RAIDER_SPARE_INFLUENCE: i64 = 6;
+/// Influence a raider keeps beyond the custodians' six. Random play spends it early: two
+/// Leadership token buys, or four Letnev Munitions Reserves rerolls (2 trade goods each) in the
+/// strike fleets' first fights, drained raiders before they reached Mecatol. 27.2 checks the cost
+/// when the invasion starts, not when the game does.
+const RAIDER_SPARE_INFLUENCE: i64 = 10;
 
 /// Trade goods so a raider can pay the custodians' six influence (27.2) without any rule change.
 fn top_up_influence(content: &ContentStore, state: &mut GameState, player: &PlayerId) {

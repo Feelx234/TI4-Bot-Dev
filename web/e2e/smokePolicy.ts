@@ -27,6 +27,9 @@ const STEER_WEIGHTS: [RegExp, number][] = [
   [/\| pass$/i, 0.3],
   // 27.2: lifting the custodians opens the agenda phase, which random play otherwise never sees.
   [/remove it for a victory point/i, 60],
+  // Munitions Reserves (Letnev) spends 2 trade goods per reroll, which a raider needs for the
+  // custodians.
+  [/reroll this round's misses/i, 0.1],
   [/(^|\| )leave it\b/i, 0.05],
   // Carry ground forces along: a carrier that moves empty can never invade, and the batch
   // declines an unplanned cargo hold, so the infantry stays behind (27.2a then forbids the
