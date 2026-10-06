@@ -1,0 +1,15 @@
+{
+  "title": "Command Tokens",
+  "description": "The command-token panel, where a player assigns gained tokens or rearranges all their tokens across the tactic, fleet and strategy pools before confirming.",
+  "tag": "web/e2e/screenshots/I-command-tokens",
+  "shots": [
+    { "file": "out/1-redistribute-initial.png", "heading": "Redistribute: start", "caption": "Status-phase rearrangement starts from the current 3 / 4 / 2 split of nine tokens; every pip is grey (already there), Remaining is 0, Reset is disabled because nothing changed, while Confirm arrangement is already enabled (keeping the current split is a legal arrangement)." },
+    { "file": "out/2-redistribute-moving.png", "heading": "Redistribute: moving tokens", "caption": "Taking two tokens out of tactic and adding one to strategy: each pool shows its new count, removed pips are marked as moved out, the new pip as moved in, Remaining shows 1 and Confirm stays disabled with a prompt to assign one more." },
+    { "file": "out/3-redistribute-invalid.png", "heading": "Redistribute: not allowed", "caption": "All nine tokens are placed (Remaining 0) but the fleet pool holds only 1, so the arrangement is not offered: the note says to keep at least 2 in fleet and Confirm is disabled." },
+    { "file": "out/4-redistribute-valid.png", "heading": "Redistribute: ready", "caption": "One token moved from tactic to strategy gives 2 / 4 / 3: Remaining is 0, there is no warning, the pips show one moved out and one moved in, and Confirm arrangement is enabled." },
+    { "file": "out/5-gain-initial.png", "heading": "Gain: start", "caption": "Gaining three command tokens: Tokens to assign 3, Remaining 3, the three pools at their current counts with reinforcements shown, and Confirm disabled." },
+    { "file": "out/6-gain-partial.png", "heading": "Gain: partly assigned", "caption": "Two tokens placed (tactic and strategy): their counts rise and new pips appear in the newly-assigned colour, Remaining drops to 1 and Confirm is still disabled with a note." },
+    { "file": "out/7-gain-complete.png", "heading": "Gain: all assigned", "caption": "All three tokens assigned: Remaining is 0, the note is gone and Confirm tokens is enabled; the whole gain goes out as one batch." }
+  ],
+  "notes": []
+}
