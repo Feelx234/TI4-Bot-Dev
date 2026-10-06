@@ -10,6 +10,6 @@ describe("ToastGallery", () => {
     });
     const toasts = screen.getAllByTestId("corner-toast");
     expect(toasts).toHaveLength(TOAST_SCENARIOS.stack.length);
-    expect(toasts[0]).toHaveTextContent("Strategy Card auto-selected: Technology");
+    expect(toasts[0]).toHaveTextContent("Only one strategy card was left: you took Technology");
   });
 });

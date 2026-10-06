@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
+import { autoResolveText } from "../presentation/autoResolveText.ts";
 import "./AutoResolveToast.css";
 
 export interface AutoResolveNotification {
@@ -73,11 +74,8 @@ export const AutoResolveToast: React.FC<AutoResolveToastProps> = ({
         </>
       ) : (
         <>
-          <span className="toast-decision-type">{notification.decisionType}</span> auto-selected:{" "}
-          <span className="toast-value">{notification.selectedValue}</span>
-          <span className="toast-reason">
-            {" "}
-            ({notification.reason ?? "the only legal option"})
+          <span className="toast-value">
+            {autoResolveText(notification.decisionType, notification.selectedValue, notification.reason)}
           </span>
         </>
       )}

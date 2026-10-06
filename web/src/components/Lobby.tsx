@@ -12,6 +12,9 @@ export const CreateLobby: React.FC<{
   onError: (message: string) => void;
 }> = ({ onCreated, onError }) => {
   const [count, setCount] = useState(3);
+  // The seed lets whoever knows it predict dice and deck order, so players never see the field;
+  // it exists only in dev builds (the API field itself is unchanged).
+  const showSeed = import.meta.env.DEV;
   const [seed, setSeed] = useState("");
   const [nickname, setNickname] = useState(preferredNickname);
   const [creating, setCreating] = useState(false);
@@ -19,7 +22,7 @@ export const CreateLobby: React.FC<{
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     if (inFlight.current) return;
-    const parsedSeed = seed === "" ? undefined : Number(seed);
+    const parsedSeed = !showSeed || seed === "" ? undefined : Number(seed);
     if (parsedSeed !== undefined && (!Number.isSafeInteger(parsedSeed) || parsedSeed < 0))
       return onError("Seed must be a non-negative whole number.");
     if (!validNickname(nickname))
@@ -76,18 +79,20 @@ export const CreateLobby: React.FC<{
               onChange={(event) => setNickname(event.target.value)}
             />
           </label>
-          <label className="field-label">
-            Seed (advanced, optional)
-            <input
-              className="input"
-              disabled={creating}
-              type="number"
-              min="0"
-              step="1"
-              value={seed}
-              onChange={(event) => setSeed(event.target.value)}
-            />
-          </label>
+          {showSeed && (
+            <label className="field-label">
+              Seed (dev, optional)
+              <input
+                className="input"
+                disabled={creating}
+                type="number"
+                min="0"
+                step="1"
+                value={seed}
+                onChange={(event) => setSeed(event.target.value)}
+              />
+            </label>
+          )}
           <p className="text-faint">
             You join as host. Other players and bots join from the shared URL.
           </p>

@@ -77,6 +77,32 @@ describe("lobby UI", () => {
     expect(localStorage.getItem("ti4.nickname")).toBe("Host 🪐");
   });
 
+  it("hides the seed input outside dev builds and never sends a seed", async () => {
+    vi.stubEnv("DEV", false);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "x" });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateLobby onCreated={vi.fn()} onError={vi.fn()} />);
+    expect(screen.queryByLabelText(/Seed/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "Host" } });
+    fireEvent.click(screen.getByTestId("create-game-button"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("seed");
+    vi.unstubAllEnvs();
+  });
+
+  it("shows the seed input behind the dev flag and sends the typed seed", async () => {
+    vi.stubEnv("DEV", true);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "x" });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateLobby onCreated={vi.fn()} onError={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "Host" } });
+    fireEvent.change(screen.getByLabelText(/Seed/), { target: { value: "42" } });
+    fireEvent.click(screen.getByTestId("create-game-button"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).seed).toBe(42);
+    vi.unstubAllEnvs();
+  });
+
   it("prefills the saved preference and refuses invalid creation before any request", async () => {
     localStorage.setItem("ti4.nickname", "Returning visitor");
     const fetchMock = vi.fn();
