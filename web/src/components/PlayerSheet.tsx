@@ -16,32 +16,30 @@ import { useTurnSound } from "../hooks/useTurnSound.ts";
 type ReactionMode = "always" | "never";
 type ReactionModeMap = Record<string, Record<string, ReactionMode>>;  // playerId -> cardId -> mode
 
-interface VPBreakdown {
+export interface VPBreakdown {
   publicObjectives: number;
   publicVP: number;
   secretObjectives: number;
   secretVP: number;
-  mecatolRex: boolean;
-  mecatolVP: number;
-  shardsOfTheThroneVP: number;
+  /** Points the client cannot attribute (custodians, Imperial, relics, laws, abilities). */
+  otherVP: number;
+  /** Server-authoritative total (player.victory_points). */
+  total: number;
+  /** True when the known objective points exceed the server total. */
+  knownExceedsTotal: boolean;
 }
 
-const calculateVPBreakdown = (
+export const calculateVPBreakdown = (
   player: PlayerView,
-  board?: BoardView,
+  _board?: BoardView,
   table?: TableView
 ): VPBreakdown => {
   let publicObjectives = 0;
   let publicVP = 0;
   let secretObjectives = 0;
   let secretVP = 0;
-  let mecatolRex = false;
-  let mecatolVP = 0;
-  let shardsOfTheThroneVP = 0;
 
-  // Count public objectives
-  const scoredPublicIds = table?.scored_objectives[player.id] ?? [];
-  for (const objId of scoredPublicIds) {
+  for (const objId of table?.scored_objectives?.[player.id] ?? []) {
     const objMeta = PUBLIC_OBJECTIVES[objId as keyof typeof PUBLIC_OBJECTIVES];
     if (objMeta) {
       publicObjectives++;
@@ -49,46 +47,35 @@ const calculateVPBreakdown = (
     }
   }
 
-  // Count secret objectives
-  if (player.scored_secret_objectives) {
-    for (const objId of player.scored_secret_objectives) {
-      const objMeta = SECRET_OBJECTIVES[objId as keyof typeof SECRET_OBJECTIVES];
-      if (objMeta) {
-        secretObjectives++;
-        secretVP += objMeta.points;
-      }
+  for (const objId of player.scored_secret_objectives ?? []) {
+    const objMeta = SECRET_OBJECTIVES[objId as keyof typeof SECRET_OBJECTIVES];
+    if (objMeta) {
+      secretObjectives++;
+      secretVP += objMeta.points;
     }
   }
 
-  // Check Mecatol Rex control
-  if (board?.systems["18"]) {
-    const mecatolPlanets = board.systems["18"].planets ?? {};
-    for (const planet of Object.values(mecatolPlanets)) {
-      if (planet.controlled_by === player.id) {
-        mecatolRex = true;
-        mecatolVP = 1;
-        break;
-      }
-    }
+  const total = Math.max(0, player.victory_points);
+  const known = publicVP + secretVP;
+  const knownExceedsTotal = known > total;
+  if (knownExceedsTotal) {
+    // Never show more than the server total: clamp the known lines to it.
+    const cappedPublic = Math.min(publicVP, total);
+    secretVP = Math.min(secretVP, total - cappedPublic);
+    publicVP = cappedPublic;
   }
-
-  // Check Shard of the Throne
-  if (table?.laws["shard_of_the_throne"] === player.id) {
-    shardsOfTheThroneVP = 1;
-  }
-
   return {
     publicObjectives,
     publicVP,
     secretObjectives,
     secretVP,
-    mecatolRex,
-    mecatolVP,
-    shardsOfTheThroneVP,
+    otherVP: Math.max(0, total - publicVP - secretVP),
+    total,
+    knownExceedsTotal,
   };
 };
 
-const VPBreakdownTooltip: React.FC<{ breakdown: VPBreakdown }> = ({ breakdown }) => (
+export const VPBreakdownTooltip: React.FC<{ breakdown: VPBreakdown }> = ({ breakdown }) => (
   <div className="vp-breakdown-tooltip">
     <div className="vp-breakdown-row">
       <span className="vp-breakdown-label">Public Objectives:</span>
@@ -100,16 +87,19 @@ const VPBreakdownTooltip: React.FC<{ breakdown: VPBreakdown }> = ({ breakdown })
       <span className="vp-breakdown-count">{breakdown.secretObjectives}</span>
       <span className="vp-breakdown-vp">+{breakdown.secretVP} VP</span>
     </div>
-    <div className="vp-breakdown-row">
-      <span className="vp-breakdown-label">Mecatol Rex:</span>
-      <span className="vp-breakdown-count">{breakdown.mecatolRex ? "Yes" : "No"}</span>
-      <span className="vp-breakdown-vp">{breakdown.mecatolVP > 0 ? `+${breakdown.mecatolVP} VP` : "-"}</span>
+    <div className="vp-breakdown-row" data-testid="vp-breakdown-other">
+      <span className="vp-breakdown-label">Other sources (custodians, Imperial, relics, laws, abilities):</span>
+      <span className="vp-breakdown-vp">+{breakdown.otherVP} VP</span>
     </div>
-    <div className="vp-breakdown-row">
-      <span className="vp-breakdown-label">Shards of the Throne:</span>
-      <span className="vp-breakdown-count">{breakdown.shardsOfTheThroneVP > 0 ? "Yes" : "No"}</span>
-      <span className="vp-breakdown-vp">{breakdown.shardsOfTheThroneVP > 0 ? `+${breakdown.shardsOfTheThroneVP} VP` : "-"}</span>
+    <div className="vp-breakdown-row" data-testid="vp-breakdown-total">
+      <span className="vp-breakdown-label">Total:</span>
+      <span className="vp-breakdown-vp">{breakdown.total} VP</span>
     </div>
+    {breakdown.knownExceedsTotal && (
+      <div className="vp-breakdown-note">
+        Scored objectives exceed the reported total; showing the server total.
+      </div>
+    )}
   </div>
 );
 

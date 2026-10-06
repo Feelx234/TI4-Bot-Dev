@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { PlayerSheet } from "./PlayerSheet.tsx";
+import { PlayerSheet, calculateVPBreakdown, VPBreakdownTooltip } from "./PlayerSheet.tsx";
 import { CardDetails } from "./CardDetails.tsx";
-import { PlayerView } from "../protocol/types.ts";
+import { PlayerView, TableView } from "../protocol/types.ts";
 
 const mockPlayers: PlayerView[] = [
   {
@@ -259,5 +259,39 @@ describe("PlayerSheet Component & Human Readable Metadata", () => {
     const currentPlayerCard = playerCards.find(card => card.getAttribute("data-is-self") === "true");
     expect(currentPlayerCard).toBeInTheDocument();
     expect(currentPlayerCard?.textContent).toContain("Federation of Sol");
+  });
+
+  describe("VP breakdown", () => {
+    const mecatolBoard = {
+      systems: { "18": { planets: { mecatol_rex: { controlled_by: "p1" } } } },
+    } as never;
+    const sum = (b: ReturnType<typeof calculateVPBreakdown>) => b.publicVP + b.secretVP + b.otherVP;
+
+    it("Mecatol control gives no VP", () => {
+      const b = calculateVPBreakdown({ ...mockPlayers[0], victory_points: 0 }, mecatolBoard);
+      expect(b.total).toBe(0);
+      expect(b.otherVP).toBe(0);
+      expect(sum(b)).toBe(0);
+    });
+
+    it("shows an unexplained remainder as Other", () => {
+      const b = calculateVPBreakdown({ ...mockPlayers[0], victory_points: 3 });
+      expect(b.otherVP).toBe(3);
+      render(<VPBreakdownTooltip breakdown={b} />);
+      expect(screen.getByTestId("vp-breakdown-other")).toHaveTextContent("Other sources");
+      expect(screen.getByTestId("vp-breakdown-other")).toHaveTextContent("+3 VP");
+    });
+
+    it("always sums to the server total, even when known points exceed it", () => {
+      const publicId = "amass_wealth";
+      const table = { scored_objectives: { p1: [publicId, publicId] }, laws: {} } as unknown as TableView;
+      for (const vp of [0, 1, 2, 5]) {
+        const b = calculateVPBreakdown({ ...mockPlayers[0], victory_points: vp }, undefined, table);
+        expect(sum(b)).toBe(vp);
+        expect(b.otherVP).toBeGreaterThanOrEqual(0);
+      }
+      const over = calculateVPBreakdown({ ...mockPlayers[0], victory_points: 1 }, undefined, table);
+      expect(over.knownExceedsTotal).toBe(true);
+    });
   });
 });
