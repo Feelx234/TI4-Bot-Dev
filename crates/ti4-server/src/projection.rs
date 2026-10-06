@@ -581,11 +581,7 @@ pub fn project_game_view(state: &GameState, viewer: &ViewerRole) -> GameView {
 #[must_use]
 pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -> PublicTurnStatus {
     if state.finished {
-        let winner = state
-            .players
-            .iter()
-            .max_by_key(|p| p.victory_points)
-            .map(|p| p.id.clone());
+        let winner = ti4_engine::objectives::leader(state);
         return PublicTurnStatus::GameOver { winner };
     }
 
@@ -754,6 +750,30 @@ mod tests {
     use super::*;
     use ti4_model::id::{FactionId, ObjectiveId, PlayerId};
     use ti4_model::state::GameState;
+
+    #[test]
+    fn a_tied_game_goes_to_the_first_seat_in_initiative_order() {
+        let ids: Vec<PlayerId> = ["player_1", "player_2", "player_3"]
+            .iter()
+            .map(|id| PlayerId::new(*id))
+            .collect();
+        let mut state = GameState::new(&ids, &[], BTreeMap::new(), None, 1);
+        state.players = ids
+            .iter()
+            .map(|id| {
+                let mut player = Player::new(id.clone());
+                player.victory_points = 3;
+                player
+            })
+            .collect();
+        state.finished = true;
+        // 98.8, 61.15a: a three-way tie is broken by initiative order. With nobody holding a
+        // strategy card that is seating order, so the first seat wins, not the last.
+        match project_turn_status(&state, None) {
+            PublicTurnStatus::GameOver { winner } => assert_eq!(winner, Some(ids[0].clone())),
+            other => panic!("expected game over, got {other:?}"),
+        }
+    }
 
     #[test]
     fn project_table_view_calculates_objective_progress() {

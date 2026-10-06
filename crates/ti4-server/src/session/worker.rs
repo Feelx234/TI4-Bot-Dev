@@ -414,12 +414,7 @@ impl SessionShared {
     /// Records and broadcasts every terminal-game consequence through one path.
     fn finish_session(&mut self, game: &Game) -> Result<(), String> {
         self.finished = true;
-        let winner = game
-            .state
-            .players
-            .iter()
-            .max_by_key(|player| player.victory_points)
-            .map(|player| player.id.clone());
+        let winner = ti4_engine::objectives::leader(&game.state);
         let final_scores = game
             .state
             .players
@@ -1095,12 +1090,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         break;
                     }
                     lock.publish_history_events_since(event_start);
-                    let winner = game
-                        .state
-                        .players
-                        .iter()
-                        .max_by_key(|p| p.victory_points)
-                        .map(|p| p.id.clone());
+                    let winner = ti4_engine::objectives::leader(&game.state);
                     let scores = game
                         .state
                         .players

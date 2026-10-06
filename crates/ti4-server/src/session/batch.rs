@@ -777,13 +777,7 @@ fn simulate_script(
                 return Err(BatchFailure::new(0, "replay diverged", "recorded prefix"));
             }
             let winner = (game.state.finished || result.finished)
-                .then(|| {
-                    game.state
-                        .players
-                        .iter()
-                        .max_by_key(|player| player.victory_points)
-                        .map(|player| player.id.clone())
-                })
+                .then(|| ti4_engine::objectives::leader(&game.state))
                 .flatten();
             return Ok(Simulation {
                 decisions: game.table.log.records[prefix.len()..].to_vec(),
