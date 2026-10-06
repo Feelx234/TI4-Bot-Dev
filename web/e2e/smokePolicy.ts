@@ -27,7 +27,7 @@ const STEER_WEIGHTS: [RegExp, number][] = [
   [/\| pass$/i, 0.3],
   // 27.2: lifting the custodians opens the agenda phase, which random play otherwise never sees.
   [/remove it for a victory point/i, 60],
-  [/\| leave it$/i, 0.05],
+  [/(^|\| )leave it\b/i, 0.05],
   // Carry ground forces along: a carrier that moves empty can never invade, and the batch
   // declines an unplanned cargo hold, so the infantry stays behind (27.2a then forbids the
   // custodians and Mecatol stays unlanded).
@@ -42,14 +42,18 @@ const STEER_WEIGHTS: [RegExp, number][] = [
 ];
 
 const UNSTAGE = /reset|remove|rally-dec|decrement/i;
+// The invasion overlay renders the custodians options as bare buttons (no test id), so the
+// description is just the label.
+const CUSTODIANS_YES = /remove it for a victory point/i;
 
 /**
- * Controls that take back a staged selection. A choice-dialog option never does, even when its
- * text says "remove": the custodians option "remove it for a victory point" was treated as one,
- * so it was almost never clicked and the preselected "no" was submitted instead.
+ * Controls that take back a staged selection. A choice-dialog option never does, and neither does
+ * the custodians option, even though its text says "remove": "remove it for a victory point" was
+ * treated as one, so it was almost never clicked and "no" was submitted instead.
  */
 export function isUnstage(desc: string): boolean {
-  return !/^choice-option\b/.test(desc) && UNSTAGE.test(desc);
+  if (/^choice-option\b/.test(desc) || CUSTODIANS_YES.test(desc)) return false;
+  return UNSTAGE.test(desc);
 }
 
 /** Weight at which an option is worth choosing before anything is submitted. */

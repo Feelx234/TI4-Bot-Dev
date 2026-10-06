@@ -96,6 +96,11 @@ describe("isUnstage (smoke harness)", () => {
     expect(isUnstage("choice-option | remove it for a victory point VP 0 → 1")).toBe(false);
   });
 
+  it("treats the invasion overlay's bare custodians button as an option", () => {
+    expect(isUnstage("remove it for a victory point")).toBe(false);
+    expect(steerWeight("remove it for a victory point")).toBeGreaterThan(50 * steerWeight("leave it"));
+  });
+
   it("still recognises real take-back controls", () => {
     expect(isUnstage("rally-dec-18-carrier | −")).toBe(true);
     expect(isUnstage("produce-dec | Remove Fighter (0.5 cost)")).toBe(true);
