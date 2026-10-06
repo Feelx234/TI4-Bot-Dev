@@ -1,0 +1,26 @@
+{
+  "title": "Auto-Trigger Cards",
+  "description": "Every action card in a player's hand has a switch that decides whether the card is offered when its window opens or declined automatically.",
+  "tag": "web/e2e/screenshots/A-auto-trigger-cards",
+  "shots": [
+    {
+      "file": "out/1-all-offered.png",
+      "heading": "Default: every card is offered",
+      "caption": "The private hand in the player sheet. A green tick beside each action card means the card is offered whenever its trigger happens."
+    },
+    {
+      "file": "out/2-some-never.png",
+      "heading": "Two cards set to Never",
+      "caption": "Direct Hit and Skilled Retreat show a red cross. Their windows still open, but the game declines them without asking, so the player is not interrupted."
+    },
+    {
+      "file": "out/3-toggle-tooltip.png",
+      "heading": "The switch explains itself",
+      "caption": "Hovering the switch shows what a click does. The tooltip is drawn by the capture helper from the button's title text, because browsers draw native tooltips outside the page."
+    }
+  ],
+  "notes": [
+    { "title": "Who sees it", "text": "Only the owner of the hand gets the switch. Other players' cards stay hidden." },
+    { "title": "Scope", "text": "The setting is per card and resets for each new game." }
+  ]
+}
