@@ -117,6 +117,31 @@
       "file": "out/23-reaction-toggle.png",
       "heading": "Reaction switch",
       "caption": "The per-card switch says whether a click turns the card to Never or back to Always."
+    },
+    {
+      "file": "out/24-odds-attacker-win.png",
+      "heading": "Combat odds: attacker win",
+      "caption": "Before the first roll the odds card shows a bar; hovering the attacker's part says \"Attacker Win: 62%\". The numbers come from a fixed simulated response."
+    },
+    {
+      "file": "out/25-odds-mutual-destruction.png",
+      "heading": "Combat odds: mutual destruction",
+      "caption": "The thin middle part of the bar is the chance both fleets are destroyed: \"Mutual Destruction: 10%\"."
+    },
+    {
+      "file": "out/26-odds-defender-win.png",
+      "heading": "Combat odds: defender win",
+      "caption": "The defender's part of the bar: \"Defender Win: 28%\"."
+    },
+    {
+      "file": "out/27-legendary-planet.png",
+      "heading": "Legendary planet",
+      "caption": "In the system inspector the star beside a legendary planet's name is labelled \"Legendary Planet\" (Primor here)."
+    },
+    {
+      "file": "out/28-lobby-remove-button.png",
+      "heading": "Lobby: remove player",
+      "caption": "In the lobby the host sees a cross on every other player's seat; its label names the seat: \"Remove player at position 2\"."
     }
   ],
   "notesHeading": "Notes",
@@ -130,8 +155,8 @@
       "text": "Map overlay and zoom tooltips opened upward and were clipped by the map container; they now open downward. Tooltips no longer wrap into a narrow column."
     },
     {
-      "title": "Left out",
-      "text": "Win-probability tooltips in the combat window need the odds service, which is not part of the mocked game."
+      "title": "Win-probability tooltips",
+      "text": "They need the odds service (POST /advisor/battle). The capture intercepts that request with Playwright route interception and answers a fixed simulation result (62% / 10% / 28%), so no advisor process is needed and the pixels are repeatable."
     }
   ]
 }

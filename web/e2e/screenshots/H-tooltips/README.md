@@ -31,5 +31,10 @@ The web UI first appeared on this branch, so every tooltip below is absent from 
 | 21 | Combat: fleet supply gauge | components/SpaceCombatOverlay.tsx | 008a421 add space combat modal with dice hits |
 | 22 | Combat: capacity gauge | components/SpaceCombatOverlay.tsx | 008a421 add space combat modal with dice hits |
 | 23 | Reaction switch | components/PlayerSheet.tsx | 5a7f407 Add per-card reaction mode toggle |
+| 24 | Combat odds: attacker win | components/SpaceCombatOverlay.tsx | 008a421 add space combat modal with dice hits |
+| 25 | Combat odds: mutual destruction | components/SpaceCombatOverlay.tsx | 008a421 add space combat modal with dice hits |
+| 26 | Combat odds: defender win | components/SpaceCombatOverlay.tsx | 008a421 add space combat modal with dice hits |
+| 27 | Legendary planet | components/SystemInspector.tsx | 01e26a5 clean up ui interaction model |
+| 28 | Lobby: remove player | components/Lobby.tsx | 6c3fa6b implement bot play in server |
 
-Not captured: the win-probability titles in the space combat window (they need the odds service), the Legendary Planet title in the system inspector and the lobby remove button.
+The win-probability tooltips (24 to 26) need the odds service: `odds.ts` intercepts `POST /advisor/battle` with Playwright route interception and answers a fixed response. Shot 28 renders the real lobby as its host through `_shared/mockLobby.ts`.
