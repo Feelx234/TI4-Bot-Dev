@@ -55,6 +55,9 @@ enum TypedPlan {
         destination: String,
         steps: Vec<ProductionStep>,
     },
+    Casualties {
+        steps: Vec<CasualtyStep>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -103,6 +106,13 @@ enum ProductionStep {
     DoneProducing,
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum CasualtyStep {
+    Sustain { unit: String },
+    Destroy { unit: String, damaged: bool },
+}
+
 impl<'de> Deserialize<'de> for MovementPlan {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let plan = WirePlan::deserialize(deserializer)?;
@@ -130,6 +140,11 @@ impl<'de> Deserialize<'de> for MovementPlan {
             WirePlan::Typed(TypedPlan::Production { destination, steps }) => Self {
                 kind: BatchKind::Production,
                 destination,
+                steps: steps.into_iter().map(Into::into).collect(),
+            },
+            WirePlan::Typed(TypedPlan::Casualties { steps }) => Self {
+                kind: BatchKind::Casualties,
+                destination: String::new(),
                 steps: steps.into_iter().map(Into::into).collect(),
             },
         })
@@ -189,6 +204,15 @@ impl From<ProductionStep> for MovementStep {
     }
 }
 
+impl From<CasualtyStep> for MovementStep {
+    fn from(step: CasualtyStep) -> Self {
+        match step {
+            CasualtyStep::Sustain { unit } => Self::Sustain { unit },
+            CasualtyStep::Destroy { unit, damaged } => Self::Destroy { unit, damaged },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BatchKind {
@@ -197,6 +221,8 @@ pub enum BatchKind {
     Payment,
     AgendaVotePlanets,
     Production,
+    /// Hits assigned in space or ground combat: sustains and casualties of one seat.
+    Casualties,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,6 +254,33 @@ pub enum MovementStep {
         count: u32,
     },
     DoneProducing,
+    Sustain {
+        unit: String,
+    },
+    Destroy {
+        unit: String,
+        damaged: bool,
+    },
+}
+
+/// The decisions a casualty plan answers.
+const CASUALTY_SUBTYPES: [&str; 3] = [
+    "sustain_damage",
+    "assign_casualty",
+    "assign_ground_casualty",
+];
+
+/// Hits still to assign in a casualty decision, when the engine states them.
+fn hits_owed(choice: &Choice) -> Option<i64> {
+    choice
+        .context
+        .as_ref()?
+        .outstanding
+        .iter()
+        .find_map(|owed| {
+            (owed.kind == ti4_engine::decision_context::ConstraintKind::UnitsToRemove)
+                .then_some(owed.amount - owed.paid)
+        })
 }
 
 impl MovementStep {
@@ -238,6 +291,8 @@ impl MovementStep {
             Self::Exhaust { .. } | Self::TradeGood => "pay_resources",
             Self::VotePlanet { .. } | Self::DoneVoting => "vote_exhaust_planet",
             Self::Produce { .. } | Self::DoneProducing => "produce_unit",
+            Self::Sustain { .. } => "sustain_damage",
+            Self::Destroy { .. } => "assign_casualty",
         }
     }
 
@@ -285,6 +340,21 @@ impl MovementStep {
             Self::VotePlanet { planet } => option.kind == "vote_planet" && option.id == *planet,
             Self::DoneVoting => option.id == "decline",
             Self::DoneProducing => option.id == "done_producing",
+            Self::Sustain { unit } => {
+                option.kind == ti4_engine::combat::SUSTAIN_KIND
+                    && value("unit") == Some(unit.as_str())
+            }
+            Self::Destroy { unit, damaged } => {
+                (option.kind == ti4_engine::combat::CASUALTY_KIND
+                    || option.kind == ti4_engine::invasion::GROUND_CASUALTY_KIND)
+                    && value("unit") == Some(unit.as_str())
+                    && option
+                        .payload
+                        .get("damaged")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                        == *damaged
+            }
             Self::Produce { unit, count } => {
                 option.kind == "produce"
                     && value("unit") == Some(unit.as_str())
@@ -361,6 +431,8 @@ struct Script {
     selected: Vec<ChoiceOption>,
     failure: Option<BatchFailure>,
     finished: bool,
+    /// Casualty plans: the most hits a later decision of the same assignment may still owe.
+    casualty_owed: Option<i64>,
 }
 
 struct PrivateDecider(Arc<Mutex<Script>>);
@@ -436,6 +508,11 @@ impl Decider for PrivateDecider {
             script.selected.push(done.clone());
             return Ok(done);
         }
+        if script.kind == BatchKind::Casualties
+            && let Some(answer) = casualty_shortcut(&mut script, choice)
+        {
+            return answer;
+        }
         if script.next == script.steps.len() {
             script.finished = true;
             return Err(IllegalChoice::DeciderFailed {
@@ -450,9 +527,10 @@ impl Decider for PrivateDecider {
         let subtype = step.subtype();
         let context_ok = choice.context.as_ref().is_some_and(|c| {
             c.actor == script.actor && (c.subtype == subtype ||
+                (script.kind == BatchKind::Casualties && subtype == "assign_casualty" && c.subtype == "assign_ground_casualty") ||
                 (script.kind == BatchKind::Payment && c.subtype == "pay_influence" && subtype == "pay_resources")) &&
                 script.payment_subtype.as_ref().is_none_or(|first| *first == c.subtype) &&
-                (script.kind == BatchKind::TacticalMovement || script.workflow_context.as_ref().is_none_or(|first| {
+                (script.kind == BatchKind::TacticalMovement || script.kind == BatchKind::Casualties || script.workflow_context.as_ref().is_none_or(|first| {
                     first.source == c.source && first.phase == c.phase && first.round == c.round
                         && first.target == c.target && first.subtype == c.subtype
                         && first.outstanding.iter().all(|owed| c.outstanding.iter().any(|next| {
@@ -529,10 +607,66 @@ impl Decider for PrivateDecider {
         if script.workflow_context.is_none() {
             script.workflow_context = choice.context.clone();
         }
+        if script.kind == BatchKind::Casualties {
+            script.casualty_owed = hits_owed(choice).map(|owed| owed - 1);
+        }
         script.selected.push(selected.clone());
         script.next += 1;
         Ok(selected)
     }
+}
+
+/// Casualty plans: end the batch where the assignment ends, and answer a sustain question with
+/// "take the hit" when the plan's next step destroys a ship. `None` lets the planned step run.
+fn casualty_shortcut(
+    script: &mut Script,
+    choice: &Choice,
+) -> Option<Result<ChoiceOption, IllegalChoice>> {
+    let subtype = choice.context.as_ref().map(|c| c.subtype.as_str());
+    let owed = hits_owed(choice);
+    // Same seat, a sustain or casualty question, about the same place, and owing fewer
+    // hits than before: anything else means this assignment is over (the engine took the
+    // remaining hits itself, another seat reacts, or a new round's hits arrived).
+    let same_assignment = choice.player == script.actor
+        && subtype.is_some_and(|s| CASUALTY_SUBTYPES.contains(&s))
+        && script.workflow_context.as_ref().is_none_or(|first| {
+            choice
+                .context
+                .as_ref()
+                .is_some_and(|c| c.target == first.target)
+        })
+        && match (script.casualty_owed, owed) {
+            (Some(most), Some(now)) => now <= most,
+            _ => true,
+        };
+    if !same_assignment && !script.selected.is_empty() {
+        let next = script.next;
+        script.steps.truncate(next);
+        script.finished = true;
+        return Some(Err(IllegalChoice::DeciderFailed {
+            player: choice.player.clone(),
+            prompt: choice.prompt.clone(),
+            reason: "batch boundary reached".into(),
+        }));
+    }
+    // A sustain question before a planned destroy is answered "take the hit": the plan
+    // chose to lose a ship for this hit.
+    if same_assignment
+        && subtype == Some("sustain_damage")
+        && matches!(
+            script.steps.get(script.next),
+            Some(MovementStep::Destroy { .. })
+        )
+        && let Some(take) = choice.options.iter().find(|o| o.is_decline())
+    {
+        let take = take.clone();
+        if script.workflow_context.is_none() {
+            script.workflow_context.clone_from(&choice.context);
+        }
+        script.selected.push(take.clone());
+        return Some(Ok(take));
+    }
+    None
 }
 
 /// Describes why the engine's offer could not take a planned step, without exposing another
@@ -679,6 +813,11 @@ fn plan_problem(plan: &MovementPlan) -> Option<String> {
                 .any(|s| matches!(s, MovementStep::DoneProducing))
                 .then_some("done_producing may only be the last step")
         }),
+        BatchKind::Casualties => (!plan
+            .steps
+            .iter()
+            .all(|s| matches!(s, MovementStep::Sustain { .. } | MovementStep::Destroy { .. })))
+        .then_some("a casualty plan may only contain sustain and destroy steps"),
     };
     problem.map(str::to_owned)
 }
@@ -719,6 +858,7 @@ fn simulate_script(
         selected: Vec::new(),
         failure: None,
         finished: false,
+        casualty_owed: None,
     }));
     let table = Table::with_default(Box::new(PrivateDecider(script.clone())));
     let mut game = Game::with_table(config.state.clone(), ContentStore::embedded(), table);
@@ -874,6 +1014,7 @@ mod tests {
             selected: Vec::new(),
             failure: None,
             finished: false,
+            casualty_owed: None,
         })))
     }
 
@@ -930,7 +1071,11 @@ mod tests {
         );
         let hold = offered(
             "load_cargo",
-            vec![ChoiceOption::labelled("done_loading", "decline", "done loading")],
+            vec![ChoiceOption::labelled(
+                "done_loading",
+                "decline",
+                "done loading",
+            )],
         );
         assert!(decider.choose(&hold).is_err());
     }
@@ -1116,6 +1261,190 @@ mod tests {
                 .unwrap()
                 .failed_step,
             0
+        );
+    }
+
+    fn hit_option(id: &str, kind: &str, unit: &str, damaged: bool) -> ChoiceOption {
+        let mut option = ChoiceOption::labelled(id, kind, format!("{kind} {unit}"));
+        option.payload.insert("unit".into(), unit.into());
+        option.payload.insert("damaged".into(), damaged.into());
+        option
+    }
+
+    fn hit_ask(subtype: &str, owed: i64, options: Vec<ChoiceOption>) -> Choice {
+        use ti4_engine::decision_context::{ConstraintKind, OutstandingConstraint};
+        let mut choice = offered(subtype, options);
+        let context = choice.context.take().unwrap();
+        choice.context = Some(
+            context
+                .about(DecisionTarget::System(ti4_model::id::SystemId::new("18")))
+                .owing(OutstandingConstraint::new(
+                    ConstraintKind::UnitsToRemove,
+                    owed,
+                    0,
+                )),
+        );
+        choice
+    }
+
+    fn sustain_ask(owed: i64) -> Choice {
+        hit_ask(
+            "sustain_damage",
+            owed,
+            vec![
+                hit_option("sustain|0", "sustain", "dreadnought", false),
+                ChoiceOption::labelled("decline", "decline", "take the hit"),
+            ],
+        )
+    }
+
+    fn casualty_ask(owed: i64, units: &[&str]) -> Choice {
+        hit_ask(
+            "assign_casualty",
+            owed,
+            units
+                .iter()
+                .enumerate()
+                .map(|(i, unit)| hit_option(&format!("destroy|{i}"), "casualty", unit, false))
+                .collect(),
+        )
+    }
+
+    fn destroy(unit: &str) -> MovementStep {
+        MovementStep::Destroy {
+            unit: unit.into(),
+            damaged: false,
+        }
+    }
+
+    #[test]
+    fn casualty_plan_assigns_hits_across_several_ships() {
+        let mut decider = decider(
+            BatchKind::Casualties,
+            vec![
+                MovementStep::Sustain {
+                    unit: "dreadnought".into(),
+                },
+                destroy("fighter"),
+                destroy("carrier"),
+            ],
+        );
+        assert_eq!(decider.choose(&sustain_ask(3)).unwrap().id, "sustain|0");
+        // The next hit is offered for sustaining again; the plan loses a ship instead.
+        assert_eq!(decider.choose(&sustain_ask(2)).unwrap().id, "decline");
+        assert_eq!(
+            decider
+                .choose(&casualty_ask(2, &["fighter", "carrier"]))
+                .unwrap()
+                .id,
+            "destroy|0"
+        );
+        assert_eq!(
+            decider
+                .choose(&casualty_ask(1, &["fighter", "carrier"]))
+                .unwrap()
+                .id,
+            "destroy|1"
+        );
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert_eq!(script.next, 3);
+        assert_eq!(
+            script.selected.len(),
+            4,
+            "the take-the-hit answer is recorded too"
+        );
+    }
+
+    #[test]
+    fn casualty_plan_rejects_a_ship_the_engine_does_not_offer() {
+        let mut decider = decider(BatchKind::Casualties, vec![destroy("war_sun")]);
+        assert!(
+            decider
+                .choose(&casualty_ask(1, &["fighter", "carrier"]))
+                .is_err()
+        );
+        let script = decider.0.lock().unwrap();
+        let failure = script.failure.as_ref().unwrap();
+        assert_eq!(failure.reason, "option unavailable");
+        assert_eq!(failure.failed_step, 0);
+        assert!(script.selected.is_empty());
+    }
+
+    #[test]
+    fn casualty_plan_stops_at_another_seats_reaction() {
+        // Direct Hit: the opponent may react after the sustain. The sustained hit stands; the
+        // rest of the plan is dropped for the seat to re-plan once the window closes.
+        let mut decider = decider(
+            BatchKind::Casualties,
+            vec![
+                MovementStep::Sustain {
+                    unit: "dreadnought".into(),
+                },
+                destroy("fighter"),
+            ],
+        );
+        decider.choose(&sustain_ask(2)).unwrap();
+        let mut reaction = offered(
+            "play_reaction_direct_hit",
+            vec![ChoiceOption::labelled("decline", "decline", "pass")],
+        );
+        reaction.player = PlayerId::new("p2");
+        assert!(decider.choose(&reaction).is_err());
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert!(script.finished);
+        assert_eq!(script.steps.len(), 1);
+    }
+
+    #[test]
+    fn casualty_plan_never_spills_into_the_next_rounds_hits() {
+        // The engine took the second hit itself (only fighters were left), and the next question
+        // is a new round owing two hits again: the leftover step must not answer it.
+        let mut decider = decider(
+            BatchKind::Casualties,
+            vec![destroy("carrier"), destroy("fighter")],
+        );
+        decider
+            .choose(&casualty_ask(2, &["fighter", "carrier"]))
+            .unwrap();
+        assert!(
+            decider
+                .choose(&casualty_ask(2, &["fighter", "carrier"]))
+                .is_err()
+        );
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert!(script.finished);
+        assert_eq!(script.steps.len(), 1);
+    }
+
+    #[test]
+    fn casualty_plan_answers_ground_combat_hits() {
+        let mut decider = decider(BatchKind::Casualties, vec![destroy("infantry")]);
+        let ground = offered(
+            "assign_ground_casualty",
+            vec![
+                hit_option("destroy|0", "ground_casualty", "mech", true),
+                hit_option("destroy|1", "ground_casualty", "infantry", false),
+            ],
+        );
+        assert_eq!(decider.choose(&ground).unwrap().id, "destroy|1");
+    }
+
+    #[test]
+    fn casualty_plans_accept_only_casualty_steps() {
+        let plan = serde_json::from_str::<MovementPlan>(
+            r#"{"kind":"casualties","steps":[{"kind":"sustain","unit":"dreadnought"},{"kind":"destroy","unit":"fighter","damaged":false}]}"#,
+        )
+        .unwrap();
+        assert_eq!(plan.kind, BatchKind::Casualties);
+        assert!(plan_problem(&plan).is_none());
+        assert!(
+            serde_json::from_str::<MovementPlan>(
+                r#"{"kind":"casualties","steps":[{"kind":"trade_good"}]}"#
+            )
+            .is_err()
         );
     }
 }

@@ -685,8 +685,14 @@ fn movement_batch_survives_a_declined_cargo_hold_for_ground_forces_in_the_active
         },
     };
     let result = registry.submit_batch("cargo_hold_batch", &token, request);
-    assert!(result.is_ok(), "carrier batch with an unplanned hold: {result:?}");
-    let log = registry.get_game("cargo_hold_batch").unwrap().decision_log();
+    assert!(
+        result.is_ok(),
+        "carrier batch with an unplanned hold: {result:?}"
+    );
+    let log = registry
+        .get_game("cargo_hold_batch")
+        .unwrap()
+        .decision_log();
     assert!(
         log[before..].iter().any(|d| d.chosen == "done_loading"),
         "the hold was offered and declined: {:?}",
