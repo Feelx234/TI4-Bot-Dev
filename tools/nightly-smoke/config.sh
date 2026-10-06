@@ -12,12 +12,13 @@ START_HHMM="${NIGHTLY_START:-23:00}"
 END_HHMM="${NIGHTLY_END:-08:00}"
 
 # Each run plays until this round (or game over / first failure).
-STOP_ROUND="${NIGHTLY_STOP_ROUND:-10}"
+# Games end in round 9: the public objectives run out, so round 10 is never reached.
+STOP_ROUND="${NIGHTLY_STOP_ROUND:-9}"
 MAX_DECISIONS="${NIGHTLY_MAX_DECISIONS:-20000}"
 PLAYER_COUNTS="${NIGHTLY_PLAYER_COUNTS:-3 4}"
 POLICIES="${NIGHTLY_POLICIES:-steer random}"
 # Do not start a new run with less time than this left before END (seconds).
-MIN_RUN_SECONDS="${NIGHTLY_MIN_RUN_SECONDS:-1200}"
+MIN_RUN_SECONDS="${NIGHTLY_MIN_RUN_SECONDS:-1800}"
 # Kill a run when its seat UI makes no progress for this long (seconds); the proctor reports it.
 STALL_SECONDS="${NIGHTLY_STALL_SECONDS:-900}"
 

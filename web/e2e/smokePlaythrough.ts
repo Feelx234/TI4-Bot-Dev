@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 import { createStartedGame, gameSnapshot, openPlayerGame } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
+import { preferPayment } from "./smokePolicy";
 
 /**
  * Random UI playthrough: every pending decision is resolved by clicking randomly among the
@@ -89,6 +90,7 @@ interface Candidate {
   resume: boolean;
   commit: boolean;
   unstage: boolean;
+  checked: boolean;
 }
 
 function mulberry32(seed: number) {
@@ -156,7 +158,8 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
             });
         });
       }
-      const out: { idx: number; desc: string; full: string; resume: boolean }[] = [];
+      const out: { idx: number; desc: string; full: string; resume: boolean; checked: boolean }[] =
+        [];
       let idx = 0;
       for (const el of found) {
         if (!visible(el) || !enabled(el)) continue;
@@ -178,6 +181,7 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
           resume:
             testId.startsWith("resume-") ||
             el.closest('[data-testid="choice-minimized-pill"]') !== null,
+          checked: el instanceof HTMLInputElement && el.checked,
         });
         idx++;
       }
@@ -269,6 +273,7 @@ function pick(
   policy: "random" | "steer",
   hexWeights: Map<string, number>,
 ): Candidate {
+  candidates = preferPayment(candidates);
   const resume = candidates.filter((c) => c.resume);
   if (resume.length) return resume[Math.floor(rng() * resume.length)];
   const unstage = candidates.filter((c) => c.unstage);
@@ -427,6 +432,7 @@ export async function randomUiPlaythrough(
     throw new Error(detail);
   };
 
+  let noChoicePolls = 0;
   while (report.decisions < options.maxDecisions) {
     // Through `fail` so the trace (failure.txt, report.json) is written for browser errors too.
     if (browserErrors.length)
@@ -467,7 +473,13 @@ export async function randomUiPlaythrough(
     const actorState = await gameSnapshot(request, gameId, players[actorIndex].session);
     const choice = actorState.pending_choice?.choice;
     // The status was read before the offer moved on (e.g. to the secondary of a strategy card); re-poll.
-    if (!choice) continue;
+    if (!choice) {
+      if (++noChoicePolls > 40)
+        await fail(undefined, `seat ${status.seat} is waiting but has no pending choice: ${JSON.stringify(status)}`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      continue;
+    }
+    noChoicePolls = 0;
     const subtype = choice?.context?.subtype ?? `prompt:${choice?.prompt.slice(0, 40) ?? "none"}`;
     const before = actorState.game_version;
     const hexWeights =
@@ -547,6 +559,9 @@ export async function randomUiPlaythrough(
         progressed = (await uiVersion(page)) > before;
       }
       if (progressed) break;
+      // A rejected batch is rejected again if re-sent, so stop at the first one.
+      const batchRejection = browserErrors.find((e) => /\/batches \d{3}:/.test(e));
+      if (batchRejection) await fail(page, `batch rejected: ${batchRejection}`);
       const errors = await visibleErrors(page);
       for (const error of errors) {
         const entry = `${subtype}: ${error}`;

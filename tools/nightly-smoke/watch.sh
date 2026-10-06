@@ -16,6 +16,8 @@ limit="${2:-540}"
 trace="$run_dir/trace/trace.jsonl"
 log_file="$run_dir/run.log"
 seen_file="$run_dir/.watch-log-offset"
+# Dev-proxy noise: the /battle advisor is not started for e2e runs, and sockets close at teardown.
+harmless='/battle|ECONNREFUSED|ECONNRESET|socket has been ended by the other party|ws proxy error|http proxy error'
 suspicious='panicked|thread .* panicked|RUST_BACKTRACE|ERROR|Error:|error\[|rejected:|click failed|pageerror|console:|did not advance|no actionable control|never reached|game idle|Timeout|timed out|failed|✘'
 
 progress() {
@@ -35,7 +37,7 @@ new_log_lines() {
   offset=$(cat "$seen_file" 2>/dev/null || echo 0)
   size=$(stat -c %s "$log_file")
   [ "$size" -gt "$offset" ] || return
-  tail -c +"$((offset + 1))" "$log_file" | grep -E "$suspicious" | grep -v "^\s*$" | cut -c1-400 | head -n 40
+  tail -c +"$((offset + 1))" "$log_file" | grep -E "$suspicious" | grep -vE "$harmless" | grep -v "^\s*$" | cut -c1-400 | head -n 40
   echo "$size" > "$seen_file"
 }
 
