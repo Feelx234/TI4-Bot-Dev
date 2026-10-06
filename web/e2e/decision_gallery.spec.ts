@@ -37,7 +37,9 @@ test("dev gallery exposes all workflows and an actionable empty-state fallback",
 }) => {
   await page.goto("/dev/decisions");
   await expect(page.getByText(/Workflow kinds \(19\)/)).toBeVisible();
-  await expect(page.getByText("Fallbacks and boundary states (6)")).toBeVisible();
+  await expect(
+    page.getByText(`Fallbacks and boundary states (${fallbackCases.length})`),
+  ).toBeVisible();
   await page.getByRole("button", { name: /Empty movement Explicit finish/i }).click();
   await expect(page.getByTestId("tactical-movement-tray")).toBeVisible();
   await page.getByTestId("commit-moves-btn").click();
