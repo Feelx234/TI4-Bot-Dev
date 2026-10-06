@@ -1,5 +1,7 @@
-import React, { useRef, useState } from "react";
-import { CreateGameResponse, LobbyDto, LobbySlot } from "../protocol/types.ts";
+import React, { useEffect, useRef, useState } from "react";
+import { CreateGameResponse, LobbyDto, LobbySlot, MapChoice } from "../protocol/types.ts";
+import { MapPicker } from "./MapPicker.tsx";
+import { mapChangeNotice, mapName } from "../presentation/mapPicker.ts";
 import { decodeCreateGameResponse } from "../protocol/decode.ts";
 import { preferredNickname, rememberNickname, validNickname } from "../protocol/nickname.ts";
 import { SeatBadge } from "../presentation/PlayerIdentity.tsx";
@@ -115,8 +117,26 @@ interface LobbyStatusProps {
   onWatch: () => void;
   onAddBot?: (password: string, nickname?: string) => Promise<boolean | void>;
   onRemoveBot?: (playerId: string) => Promise<boolean | void>;
+  /** Host only: save a map choice (resolves once the lobby has been updated). */
+  onChooseMap?: (choice: MapChoice) => Promise<boolean | void>;
   watching?: boolean;
   pendingAction?: string | null;
+}
+
+function rememberedSeen(key: string): boolean {
+  try {
+    return sessionStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markSeen(key: string): void {
+  try {
+    sessionStorage.setItem(key, "1");
+  } catch {
+    // Without storage the picker may open again after a reload; that is harmless.
+  }
 }
 
 /** Nicknames are public display data; the position distinguishes duplicate names. */
@@ -136,6 +156,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   onWatch,
   onAddBot,
   onRemoveBot,
+  onChooseMap,
   watching,
   pendingAction,
 }) => {
@@ -154,6 +175,23 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   const viewer =
     playerId === null ? undefined : lobby.slots.find((slot) => slot.occupant === playerId);
   const isHost = playerId !== null && playerId === lobby.host_player_id;
+  const canEditMap = isHost && lobby.phase === "lobby" && !!onChooseMap;
+  // The picker opens by itself for a host who has not chosen yet (a fresh lobby), once per tab.
+  const seenKey = `ti4.map-picker-seen:${lobby.game_id}`;
+  const [pickerOpen, setPickerOpen] = useState(
+    () => canEditMap && !!lobby.map && !lobby.map_revision && !rememberedSeen(seenKey),
+  );
+  const closePicker = () => {
+    setPickerOpen(false);
+    markSeen(seenKey);
+  };
+  const [mapNotice, setMapNotice] = useState<string | null>(null);
+  const previousMap = useRef<{ revision: number | undefined; map: LobbyDto["map"] } | null>(null);
+  useEffect(() => {
+    const now = { revision: lobby.map_revision, map: lobby.map };
+    if (!isHost) setMapNotice((old) => mapChangeNotice(previousMap.current, now) ?? old);
+    previousMap.current = now;
+  }, [lobby.map_revision, lobby.map, isHost]);
   const canStart =
     lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant && slot.ready);
   const handleAddBot = async (event: React.FormEvent) => {
@@ -225,6 +263,45 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
           <p role="status" className="text-muted">
             {copyState}
           </p>
+        )}
+        {lobby.map && (
+          <div className="lobby-map-row" data-testid="lobby-map-row">
+            <span className="lobby-map-row__name">
+              Map: <strong>{mapName(lobby.map)}</strong>
+              {lobby.map.recommended ? " (recommended)" : ""}
+            </span>
+            <button
+              type="button"
+              className="button button--outline"
+              data-testid="lobby-map-button"
+              disabled={!!pendingAction && pendingAction !== "map"}
+              onClick={() => setPickerOpen(true)}
+            >
+              {canEditMap ? "Choose map" : "View map"}
+            </button>
+          </div>
+        )}
+        {mapNotice && (
+          <p role="status" className="text-muted" data-testid="map-change-notice">
+            {mapNotice}{" "}
+            <button
+              type="button"
+              className="button button--outline"
+              onClick={() => setMapNotice(null)}
+            >
+              Dismiss
+            </button>
+          </p>
+        )}
+        {pickerOpen && lobby.map && (
+          <MapPicker
+            lobby={lobby}
+            editable={canEditMap}
+            viewerPosition={viewer?.position ?? null}
+            saving={pendingAction === "map"}
+            onChoose={(choice) => void onChooseMap?.(choice)}
+            onClose={closePicker}
+          />
         )}
         <div className="lobby-list">
           {lobby.slots.map((slot, index) => (

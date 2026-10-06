@@ -7,6 +7,7 @@ import {
   ServerMessage,
 } from "./types.ts";
 import { validNickname } from "./nickname.ts";
+import { decodeMapChoice } from "./mapDecode.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -73,6 +74,12 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
       can_take_over: entry.can_take_over,
     })),
     bot_service_enabled: Boolean(value.bot_service_enabled),
+    ...(value.map === undefined
+      ? {}
+      : {
+          map: decodeMapChoice(value.map),
+          map_revision: isNonNegativeInteger(value.map_revision) ? value.map_revision : 0,
+        }),
   } as LobbyDto;
 }
 

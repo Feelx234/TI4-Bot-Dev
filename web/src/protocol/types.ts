@@ -28,6 +28,47 @@ export interface LobbyDto {
   host_player_id: string;
   slots: LobbySlot[];
   bot_service_enabled?: boolean;
+  /** What the table plays on; absent from servers that predate the map choice. Never a seed. */
+  map?: MapChoiceDto;
+  /** Changes whenever the previewed board changes (new choice, re-roll, new seat order). */
+  map_revision?: number;
+}
+
+/** The host's choice: a predefined layout or the seeded random board. */
+export type MapChoice = { kind: "template"; alias: string } | { kind: "random" };
+
+export interface MapChoiceDto {
+  kind: "template" | "random";
+  alias?: string;
+  author?: string;
+  systems: number;
+  hyperlanes: boolean;
+  recommended: boolean;
+}
+
+export interface MapTemplateSummary {
+  alias: string;
+  author: string;
+  player_count: number;
+  buildable: boolean;
+  systems: number;
+  hyperlanes: boolean;
+  recommended: boolean;
+}
+
+export interface MapSeatPreview {
+  /** 1-based, the lobby position. */
+  seat: number;
+  faction: string;
+  faction_name: string;
+  home_system_id: string;
+}
+
+export interface MapPreviewDto {
+  choice: MapChoice;
+  player_count: number;
+  tiles: BoardTileView[];
+  seats: MapSeatPreview[];
 }
 
 export interface CreateGameResponse {

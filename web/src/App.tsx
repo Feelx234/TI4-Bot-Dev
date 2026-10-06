@@ -41,6 +41,13 @@ const DevScenarioLauncher = import.meta.env.DEV
     )
   : null;
 
+const DevMapPickerGallery = import.meta.env.DEV
+  ? React.lazy(() =>
+      import("./dev/MapPickerGallery.tsx").then(({ MapPickerGallery }) => ({
+        default: MapPickerGallery,
+      })),
+    )
+  : null;
 const DevToastGallery = import.meta.env.DEV
   ? React.lazy(() =>
       import("./dev/ToastGallery.tsx").then(({ ToastGallery }) => ({
@@ -82,6 +89,12 @@ export const App: React.FC = () => {
     return (
       <React.Suspense fallback={<main>Loading decision gallery…</main>}>
         <DevDecisionGallery />
+      </React.Suspense>
+    );
+  if (DevMapPickerGallery && window.location.pathname === "/dev/map-picker")
+    return (
+      <React.Suspense fallback={<main>Loading map picker…</main>}>
+        <DevMapPickerGallery />
       </React.Suspense>
     );
   if (DevToastGallery && window.location.pathname === "/dev/toasts")
@@ -148,6 +161,7 @@ const GameRoute: React.FC<{
     setReady,
     start,
     reorder,
+    chooseMap,
     join,
     leave,
     addBot,
@@ -208,6 +222,7 @@ const GameRoute: React.FC<{
           onJoin={(name) => void enter(name)}
           onTakeover={(id, name) => void enter(name, id)}
           onReorder={(ids) => void reorder(ids)}
+          onChooseMap={chooseMap}
           onWatch={() => setWatching(true)}
           onAddBot={(password, name) => addBot(password, name)}
           onRemoveBot={(targetId) => removeBot(targetId)}

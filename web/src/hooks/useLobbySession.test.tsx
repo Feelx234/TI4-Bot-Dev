@@ -70,3 +70,31 @@ it("serializes lobby mutations, keeps failed actions actionable, and permits a r
   expect(result.current.error).toBeNull();
   expect(result.current.lobby?.slots[0].ready).toBe(true);
 });
+
+it("posts the host's map choice with the credential and adopts the lobby it returns", async () => {
+  const chosen = {
+    ...lobby,
+    lobby_version: 2,
+    map: { kind: "random", systems: 36, hyperlanes: false, recommended: false },
+    map_revision: 1,
+  };
+  const fetchMock = vi
+    .fn()
+    .mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).endsWith("/map") ? json(chosen) : json({ player: { id: "player_a" }, lobby }),
+      ),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+  const { result } = renderHook(() => useLobbySession("game", "session_secret"));
+  await waitFor(() => expect(result.current.playerId).toBe("player_a"));
+  await act(async () => {
+    await result.current.chooseMap({ kind: "random" });
+  });
+  const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/lobby/map"))!;
+  expect(call[1].method).toBe("POST");
+  expect(call[1].headers["x-ti4-player-session"]).toBe("session_secret");
+  expect(JSON.parse(call[1].body)).toEqual({ map: { kind: "random" } });
+  expect(result.current.lobby?.map?.kind).toBe("random");
+  expect(result.current.lobby?.map_revision).toBe(1);
+});

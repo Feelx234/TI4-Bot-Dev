@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { decodeJoinResponse, decodeLobby } from "../protocol/decode.ts";
-import { LobbyDto } from "../protocol/types.ts";
+import { LobbyDto, MapChoice } from "../protocol/types.ts";
 import { rememberNickname, validNickname } from "../protocol/nickname.ts";
 
 export interface LobbySessionState {
@@ -13,6 +13,8 @@ export interface LobbySessionState {
   setReady: (ready: boolean) => Promise<void>;
   start: () => Promise<void>;
   reorder: (slotIds: string[]) => Promise<void>;
+  /** Host only, before Start: choose the map (every call re-rolls the open slots). */
+  chooseMap: (choice: MapChoice) => Promise<void>;
   join: (nickname: string, playerId?: string) => Promise<string | undefined>;
   leave: () => Promise<boolean>;
   addBot: (password: string, nickname?: string, temperature?: number) => Promise<boolean>;
@@ -106,7 +108,7 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
   );
 
   const mutate = useCallback(
-    async (path: "ready" | "start" | "reorder", body?: object) =>
+    async (path: "ready" | "start" | "reorder" | "map", body?: object) =>
       run(
         path,
         async () => {
@@ -238,6 +240,7 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     setReady: (ready) => mutate("ready", { ready }),
     start: () => mutate("start"),
     reorder: (slot_ids) => mutate("reorder", { slot_ids }),
+    chooseMap: (map) => mutate("map", { map }),
     join,
     leave,
     addBot,
