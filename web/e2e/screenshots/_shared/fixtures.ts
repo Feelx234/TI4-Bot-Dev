@@ -84,3 +84,28 @@ export function completedCombatBoard(overrides: Partial<CombatView> = {}): Board
     systems: { ...galleryBoard.systems, "18": { ...base, units: combatEndFleets } },
   };
 }
+
+import type { GameEvent } from "../../../src/protocol/types";
+
+/** A short public log: round 2 action phase with one other-player action card play. */
+export function actionCardEventLog(by = "other_seat", text = "Played Direct Hit on your Dreadnought in Mecatol Rex"): GameEvent[] {
+  return [
+    { id: "start", timestamp: "10:00", visibility: "public", event: { kind: "game_initialized", round: 2, phase: "action", speaker: actor } },
+    {
+      id: "choice-1",
+      timestamp: "10:04",
+      version: 2,
+      visibility: "public",
+      event: { kind: "decision_resolved" },
+      round: 2,
+      phase: "action",
+      action_id: "action_7",
+      action_type: "tactical",
+      action_actor: by,
+      actor: by,
+      stage: "reactions",
+      decision_count: 2,
+      detail: text,
+    } as GameEvent,
+  ];
+}

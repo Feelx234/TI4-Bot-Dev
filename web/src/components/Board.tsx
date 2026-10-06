@@ -145,7 +145,7 @@ export const Board: React.FC<BoardProps> = ({
         }}
       >
         <div style={{ display: "flex", gap: 6 }}>
-          <Tooltip content="Zoom In">
+          <Tooltip content="Zoom In" position="bottom">
             <button
               type="button"
               onClick={zoomIn}
@@ -156,7 +156,7 @@ export const Board: React.FC<BoardProps> = ({
               +
             </button>
           </Tooltip>
-          <Tooltip content="Zoom Out">
+          <Tooltip content="Zoom Out" position="bottom">
             <button
               type="button"
               onClick={zoomOut}
@@ -167,7 +167,7 @@ export const Board: React.FC<BoardProps> = ({
               −
             </button>
           </Tooltip>
-          <Tooltip content="Reset Pan & Zoom">
+          <Tooltip content="Reset Pan & Zoom" position="bottom">
             <button
               type="button"
               onClick={resetView}

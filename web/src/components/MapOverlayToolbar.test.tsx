@@ -1,8 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MapOverlayToolbar } from "./MapOverlayToolbar.tsx";
 
 describe("MapOverlayToolbar", () => {
+  it("opens its tooltips below the buttons so the map container does not clip them", async () => {
+    render(<MapOverlayToolbar activeMode="none" onSelectMode={vi.fn()} />);
+    fireEvent.pointerEnter(screen.getByTestId("overlay-btn-ground_combat"));
+    const tooltip = await screen.findByRole("tooltip", {}, { timeout: 1500 });
+    expect(tooltip).toHaveAttribute("data-position", "bottom");
+    await act(async () => {});
+  });
+
   it("renders all overlay options and Standard button", () => {
     render(<MapOverlayToolbar activeMode="none" onSelectMode={vi.fn()} />);
 

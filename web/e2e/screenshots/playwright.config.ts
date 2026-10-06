@@ -16,6 +16,10 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${port}`,
     viewport: { width: 1440, height: 900 },
     colorScheme: "dark",
+    // Software rendering with fixed font hinting and colour profile, so reruns give the same pixels.
+    launchOptions: {
+      args: ["--disable-gpu", "--font-render-hinting=none", "--disable-lcd-text", "--force-color-profile=srgb", "--disable-skia-runtime-opts"],
+    },
     actionTimeout: 10_000,
     navigationTimeout: 15_000,
   },

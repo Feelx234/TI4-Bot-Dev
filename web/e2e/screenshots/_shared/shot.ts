@@ -5,6 +5,13 @@ import type { Locator, Page, TestInfo } from "@playwright/test";
 /** Folder of the artifact the running capture belongs to. */
 export const artifactDir = (testInfo: TestInfo) => dirname(testInfo.file);
 
+/** Stops every CSS animation and transition, so pulsing highlights render the same on each run. */
+export async function freeze(page: Page) {
+  await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}" });
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(300);
+}
+
 export interface ShotOptions {
   /** Capture only this element (default: the viewport). */
   of?: Locator;
@@ -20,6 +27,7 @@ export async function shot(page: Page, testInfo: TestInfo, name: string, options
   const out = join(artifactDir(testInfo), "out");
   mkdirSync(out, { recursive: true });
   const path = join(out, `${name}.png`);
+  await freeze(page);
   if (options.of) {
     const box = await options.of.boundingBox();
     if (!box) throw new Error(`shot ${name}: element has no bounding box`);

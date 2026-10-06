@@ -73,7 +73,7 @@ export const MapOverlayToolbar: React.FC<MapOverlayToolbarProps> = ({
         boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
       }}
     >
-      <Tooltip content="Standard Map View (Clear Overlay)">
+      <Tooltip content="Standard Map View (Clear Overlay)" position="bottom">
         <button
           type="button"
           data-testid="overlay-btn-none"
@@ -108,7 +108,7 @@ export const MapOverlayToolbar: React.FC<MapOverlayToolbarProps> = ({
       {OVERLAY_OPTIONS.map((opt) => {
         const isActive = activeMode === opt.mode;
         return (
-          <Tooltip key={opt.mode} content={opt.description}>
+          <Tooltip key={opt.mode} content={opt.description} position="bottom">
             <button
               type="button"
               data-testid={opt.testId}
