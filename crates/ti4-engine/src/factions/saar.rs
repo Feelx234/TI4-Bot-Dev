@@ -656,8 +656,12 @@ fn scavenger_zeta(owner_name: &str, seat: &PlayerId) -> Ability {
             if !deploy_ready(context.state, context.content, context.sources, &owner) {
                 return Ok(());
             }
-            if let Some(seat) = context.state.player_mut(&owner) {
-                seat.trade_goods -= 1;
+            // Xander Alexin Victori III (Keleres): the agent may let a commodity pay the trade good.
+            let paid = crate::supply::with_goods_window(context, &owner, 1, |context| {
+                crate::supply::spend_goods(context.state, &owner, 1)
+            });
+            if paid != Some(true) {
+                return Ok(());
             }
             crate::action_cards::place_units_counted(
                 context,
@@ -690,9 +694,7 @@ fn deploy_ready(
     owner: &PlayerId,
 ) -> bool {
     is_saar(state, owner)
-        && state
-            .player(owner)
-            .is_some_and(|seat| seat.trade_goods >= 1)
+        && crate::supply::potential_goods(state, owner) >= 1
         && mech_id(state, content, sources, owner)
             .is_some_and(|id| crate::supply::allowed(state, content, sources, owner, &id, 1) > 0)
 }

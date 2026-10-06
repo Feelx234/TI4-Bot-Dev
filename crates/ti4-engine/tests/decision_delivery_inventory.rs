@@ -435,6 +435,34 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Keleres (BF-keleres.md, BF-keleres-units.md).
+        module: "keleres.rs",
+        function: "laws_order",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Keleres agent: offered once per payment window (BF-keleres.md).
+        module: "keleres.rs",
+        function: "offer_agent",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Keleres (BF-keleres.md, BF-keleres-units.md).
+        module: "keleres_units.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Keleres (BF-keleres.md, BF-keleres-units.md).
+        module: "production.rs",
+        function: "agency_supply_network",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Empyrean: Void Tether placement (BF-empyrean.md).
         module: "empyrean.rs",
         function: "tether_place",
@@ -686,9 +714,10 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
-        // Wrath of Kenara: how many near-miss dice to buy +1 on, or decline.
+        // Wrath of Kenara: how many near-miss dice to buy +1 on, or decline. The question sits in
+        // the purchase half, inside the Keleres agent's goods window (`wrath_of_kenara` opens it).
         module: "combat.rs",
-        function: "wrath_of_kenara",
+        function: "wrath_of_kenara_buy",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -792,8 +821,10 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Munitions Reserves, asked inside the Keleres agent's goods window that
+        // `space_combat_round_started` opens.
         module: "faction_abilities.rs",
-        function: "space_combat_round_started",
+        function: "munitions_offer",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1351,6 +1382,10 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("cabal.rs", "stillness_of_stars", 1),
     ("cabal.rs", "alraith", 1),
     ("nomad.rs", "ask", 1),
+    ("keleres.rs", "laws_order", 1),
+    ("keleres.rs", "offer_agent", 1),
+    ("keleres_units.rs", "ask", 1),
+    ("production.rs", "agency_supply_network", 2),
     ("empyrean.rs", "tether_place", 1),
     ("empyrean.rs", "voidwatch", 1),
     ("empyrean_units.rs", "ask", 1),
@@ -1396,11 +1431,11 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "heart_ixth", 1),
     ("combat.rs", "offer_sustain", 1),
     ("combat.rs", "roll_round", 1),
-    ("combat.rs", "wrath_of_kenara", 1),
+    ("combat.rs", "wrath_of_kenara_buy", 1),
     ("exploration.rs", "ask", 1),
+    ("faction_abilities.rs", "munitions_offer", 1),
     ("faction_abilities.rs", "perform_component", 2),
     ("faction_abilities.rs", "production_biomes", 1),
-    ("faction_abilities.rs", "space_combat_round_started", 1),
     ("faction_abilities.rs", "strategy_resolved", 1),
     ("faction_techs.rs", "offer_nullification_field", 1),
     ("faction_techs.rs", "offer_quantum_datahub", 1),

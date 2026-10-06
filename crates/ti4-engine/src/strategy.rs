@@ -521,6 +521,19 @@ fn secondary_can_do_something(
                     crate::strategy_cards::TECHNOLOGY_SECONDARY_COST,
                     crate::production::Spend::Resources,
                 )
+                // Xander Alexin Victori III: commodities as trade goods, offered when the paid
+                // research opens.
+                || crate::factions::keleres::with_agent_granted(state, player, |granted| {
+                    crate::payment::affordable(
+                        granted,
+                        content,
+                        sources,
+                        player,
+                        crate::strategy_cards::TECHNOLOGY_SECONDARY_COST,
+                        crate::production::Spend::Resources,
+                    )
+                })
+                .unwrap_or(false)
         }
         "Diplomacy" => state
             .controlled_planets(player)

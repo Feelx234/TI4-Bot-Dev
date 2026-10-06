@@ -183,7 +183,7 @@ pub fn attachment_cannons(
     else {
         return Vec::new();
     };
-    state
+    let mut found: Vec<(ti4_model::id::PlayerId, u32, usize)> = state
         .planet_attachments
         .get(planet)
         .into_iter()
@@ -194,7 +194,10 @@ pub fn attachment_cannons(
             let dice = usize::try_from(record.int("spaceCannonDieCount")?).ok()?;
             (dice > 0).then(|| (owner.clone(), hits_on, dice))
         })
-        .collect()
+        .collect();
+    // Custodian's Favour (Custodia Vigilia): Mecatol Rex gains SPACE CANNON 5 for its controller.
+    found.extend(crate::factions::keleres::custodian_cannon(state, planet, owner));
+    found
 }
 
 #[cfg(test)]

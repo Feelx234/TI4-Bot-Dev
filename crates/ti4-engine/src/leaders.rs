@@ -176,9 +176,9 @@ pub fn for_faction(content: &ContentStore, sources: SourceSet, faction: &str) ->
     let records = content
         .from_sources(ContentType::Leaders, sources)
         .filter(|record| {
-            record
-                .text("faction")
-                .is_some_and(|owner| owner.eq_ignore_ascii_case(faction))
+            record.text("faction").is_some_and(|owner| {
+                crate::factions::keleres::tag_belongs_to(owner, faction, false)
+            })
         })
         .collect::<Vec<_>>();
     let replaced: std::collections::BTreeSet<&str> = records

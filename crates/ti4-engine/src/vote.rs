@@ -279,7 +279,17 @@ pub struct VoteWindow {
     order: Vec<PlayerId>,
     stage: Stage,
     ballot: Ballot,
+    /// Executive Order (Keleres): the seat that "can spend trade goods and resources on this agenda
+    /// as if they were votes". Besides influence, its planets may be exhausted for resources, and
+    /// its trade goods are a vote each.
+    spender: Option<PlayerId>,
 }
+
+/// One way for a voter to exhaust a planet: the option id, the planet and the votes it casts.
+type PlanetOffer = (String, PlanetId, i64);
+
+/// The suffix of the option id that exhausts a planet for its resources instead of its influence.
+const RESOURCES_SUFFIX: &str = "|resources";
 
 impl VoteWindow {
     /// Open a vote on `alias`.
@@ -336,6 +346,66 @@ impl VoteWindow {
             order: final_order,
             stage: opening,
             ballot: Ballot::default(),
+            spender: None,
+        }
+    }
+
+    /// Let `player` spend trade goods and resources on this agenda as if they were votes
+    /// (Executive Order). Set before [`Self::open`].
+    #[must_use]
+    pub fn with_spender(mut self, player: PlayerId) -> Self {
+        self.spender = Some(player);
+        self
+    }
+
+    /// The planets `player` may exhaust now, with the option id and votes each casts. Everyone
+    /// exhausts a planet for its influence (option id: the planet). The spender may also exhaust it
+    /// for its resources (`"<planet>|resources"`). Elder Qanoj adds a vote per planet.
+    fn planet_offers(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+    ) -> Vec<PlanetOffer> {
+        let qanoj = i64::from(crate::leaders::elder_qanoj(state, player));
+        let spends = self.spender.as_ref() == Some(player);
+        let mut offers = Vec::new();
+        for (_, planet) in state.controlled_planets(player) {
+            if state.exhausted_planets.contains(planet) {
+                continue;
+            }
+            let influence = influence_of(state, content, sources, planet);
+            if influence > 0 {
+                offers.push((planet.to_string(), planet.clone(), influence + qanoj));
+            }
+            if spends {
+                let resources = crate::production::planet_value_now(
+                    state,
+                    content,
+                    sources,
+                    planet,
+                    crate::production::Spend::Resources,
+                );
+                if resources > 0 {
+                    offers.push((
+                        format!("{planet}{RESOURCES_SUFFIX}"),
+                        planet.clone(),
+                        resources + qanoj,
+                    ));
+                }
+            }
+        }
+        offers
+    }
+
+    /// Votes one trade good casts for `player`, `0` if none may be spent. Gila the Silvertongue's
+    /// holder gets two for each once a vote is cast; the Executive Order spender one for each.
+    fn trade_goods_rate(&self, state: &GameState, player: &PlayerId, votes: i64) -> i64 {
+        if votes > 0 && crate::promissory::has_commander_ability(state, player, "hacancommander") {
+            2
+        } else {
+            i64::from(self.spender.as_ref() == Some(player))
         }
     }
 
@@ -368,6 +438,17 @@ impl VoteWindow {
     #[must_use]
     pub fn order(&self) -> &[PlayerId] {
         &self.order
+    }
+
+    /// The seat now deciding how many trade goods to spend on votes, if that is the stage. The game
+    /// driver offers the Keleres agent to this seat before asking
+    /// ([`crate::supply::open_goods_window`]).
+    #[must_use]
+    pub fn trade_goods_payer(&self) -> Option<&PlayerId> {
+        match &self.stage {
+            Stage::TradeGoods { index, .. } => self.order.get(*index),
+            _ => None,
+        }
     }
 
     /// The decision currently owed, or `None` once the vote is finished.
@@ -415,27 +496,33 @@ impl VoteWindow {
                 votes,
             } => {
                 let player = self.order.get(*index)?;
-                let remaining = votable_planets(state, content, sources, player);
+                let remaining = self.planet_offers(state, content, sources, player);
                 if remaining.is_empty() {
                     return None;
                 }
                 let votes_so_far = *votes;
-                let qanoj = i64::from(crate::leaders::elder_qanoj(state, player));
-                let mut options: Vec<ChoiceOption> =
-                    remaining
-                        .iter()
-                        .map(|planet| {
-                            let influence = influence_of(state, content, sources, planet) + qanoj;
-                            ChoiceOption::labelled(
-                                planet.as_str(),
-                                VOTE_PLANET_KIND,
-                                format!("exhaust {planet} for {influence} votes"),
-                            )
-                            .previewed(Preview::certain(vec![
-                                Delta::new(Quantity::Votes, votes_so_far, votes_so_far + influence),
-                            ]))
-                        })
-                        .collect();
+                let mut options: Vec<ChoiceOption> = remaining
+                    .iter()
+                    .map(|(id, planet, cast)| {
+                        let face = if id.ends_with(RESOURCES_SUFFIX) {
+                            "resources"
+                        } else {
+                            "influence"
+                        };
+                        let label = if self.spender.is_some() {
+                            format!("exhaust {planet} for {cast} votes ({face})")
+                        } else {
+                            format!("exhaust {planet} for {cast} votes")
+                        };
+                        ChoiceOption::labelled(id, VOTE_PLANET_KIND, label).previewed(
+                            Preview::certain(vec![Delta::new(
+                                Quantity::Votes,
+                                votes_so_far,
+                                votes_so_far + cast,
+                            )]),
+                        )
+                    })
+                    .collect();
                 options.push(ChoiceOption::decline());
                 Some(
                     Choice::new(
@@ -458,20 +545,22 @@ impl VoteWindow {
                 votes,
             } => {
                 let player = self.order.get(*index)?;
-                let goods = state.player(player).map_or(0, |seat| seat.trade_goods);
+                // Trade goods, plus the commodities an open Keleres agent window lets this seat
+                // spend as trade goods (the game driver offers the agent before asking).
+                let goods = crate::supply::spendable_goods(state, player);
+                let rate = self.trade_goods_rate(state, player, *votes);
                 let mut options: Vec<ChoiceOption> = (1..=goods)
                     .map(|spent| {
-                        let spent = i64::from(spent);
                         ChoiceOption::labelled(
                             format!("spend|{spent}"),
                             VOTE_TRADE_GOODS_KIND,
-                            format!("spend {spent} trade goods for {} votes", 2 * spent),
+                            format!("spend {spent} trade goods for {} votes", rate * spent),
                         )
                         .with("trade_goods", spent)
                         .previewed(Preview::certain(vec![Delta::new(
                             Quantity::Votes,
                             *votes,
-                            *votes + 2 * spent,
+                            *votes + rate * spent,
                         )]))
                     })
                     .collect();
@@ -484,7 +573,14 @@ impl VoteWindow {
                     )
                     .contextualized(DecisionContext::new(
                         player.clone(),
-                        DecisionSource::Content("hacancommander".to_owned()),
+                        DecisionSource::Content(
+                            if rate == 2 {
+                                "hacancommander"
+                            } else {
+                                "executiveorder"
+                            }
+                            .to_owned(),
+                        ),
                         "vote_spend_trade_goods",
                         state.phase,
                         state.round,
@@ -527,7 +623,10 @@ impl VoteWindow {
                     votes,
                 } => {
                     let player = &self.order[*index];
-                    if votable_planets(state, content, sources, player).is_empty() {
+                    if self
+                        .planet_offers(state, content, sources, player)
+                        .is_empty()
+                    {
                         let (index, outcome, votes) = (*index, outcome.clone(), *votes);
                         self.finish_planets(state, content, index, outcome, votes);
                         continue;
@@ -539,8 +638,9 @@ impl VoteWindow {
         }
     }
 
-    /// A player is done exhausting planets: offer Gila the Silvertongue's trade-goods votes when
-    /// they hold the ability, have trade goods, and are casting votes at all; else bank the votes.
+    /// A player is done exhausting planets: offer trade goods for votes when they may spend them
+    /// (Gila the Silvertongue's holder once casting votes, or the Executive Order spender) and have
+    /// some; else bank the votes.
     fn finish_planets(
         &mut self,
         state: &GameState,
@@ -550,12 +650,9 @@ impl VoteWindow {
         votes: i64,
     ) {
         let player = &self.order[index];
-        let gila = votes > 0
-            && crate::promissory::has_commander_ability(state, player, "hacancommander")
-            && state
-                .player(player)
-                .is_some_and(|seat| seat.trade_goods > 0);
-        if gila {
+        let may_spend = self.trade_goods_rate(state, player, votes) > 0
+            && crate::supply::potential_goods(state, player) > 0;
+        if may_spend {
             self.stage = Stage::TradeGoods {
                 index,
                 outcome,
@@ -657,15 +754,20 @@ impl VoteWindow {
                 if option.is_decline() {
                     self.finish_planets(state, content, index, outcome, votes);
                 } else {
-                    let planet = PlanetId::new(option.id);
-                    // Elder Qanoj: each planet exhausted to vote gives one vote more.
-                    let influence = influence_of(state, content, sources, &planet)
-                        + i64::from(crate::leaders::elder_qanoj(state, &self.order[index]));
+                    // Elder Qanoj: each planet exhausted to vote gives one vote more (counted in
+                    // the offer).
+                    let offer = self
+                        .planet_offers(state, content, sources, &self.order[index])
+                        .into_iter()
+                        .find(|(id, _, _)| *id == option.id);
+                    let Some((_, planet, cast)) = offer else {
+                        return Err(VoteError::Complete);
+                    };
                     state.exhaust_planet(planet);
                     self.stage = Stage::Planets {
                         index,
                         outcome,
-                        votes: votes + influence,
+                        votes: votes + cast,
                     };
                 }
             }
@@ -679,17 +781,16 @@ impl VoteWindow {
                     .strip_prefix("spend|")
                     .and_then(|n| n.parse::<i32>().ok())
                     .unwrap_or(0);
-                if spent > 0 {
-                    if let Some(seat) = state.player_mut(&self.order[index]) {
-                        seat.trade_goods -= spent;
-                    }
+                let rate = self.trade_goods_rate(state, &self.order[index], votes);
+                if spent > 0 && !crate::supply::spend_goods(state, &self.order[index], spent) {
+                    return Err(VoteError::Complete);
                 }
                 self.record(
                     state,
                     content,
                     index,
                     &outcome,
-                    votes + 2 * i64::from(spent),
+                    votes + rate * i64::from(spent),
                 );
                 self.stage = Stage::Outcome(index + 1);
             }

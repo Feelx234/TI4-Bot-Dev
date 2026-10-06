@@ -1812,7 +1812,7 @@ fn imperial_rider(context: &mut crate::timing::TimingContext<'_>, player: &Playe
 /// One is not a decision and none is not a question: asking either would put a line in the
 /// decision log that no player ever chose. `None` means the card fizzles (22.3) or the answer
 /// was refused.
-fn predicted_outcome(
+pub(crate) fn predicted_outcome(
     context: &mut crate::timing::TimingContext<'_>,
     player: &PlayerId,
     prompt: &str,
@@ -2240,6 +2240,20 @@ fn rider_payoff(
                     ));
             }
         }
+        // Keleres Rider: "If your prediction is correct, draw 1 action card and gain 2 trade
+        // goods." Drawn through the shared `draw` when a table is in hand (draw effects, hand
+        // limit), else popped from the deck like Politics Rider.
+        Some(crate::factions::keleres_units::RIDER_ALIAS) => {
+            if let Some((content, table)) = table {
+                let _ = draw(state, content, table, player, 1);
+            } else if !state.action_card_deck.is_empty() {
+                let top = state.action_card_deck.remove(0);
+                if let Some(seat) = state.player_mut(player) {
+                    seat.action_cards.push(top);
+                }
+            }
+            crate::supply::gain_trade_goods_staged(state, player, 2, "keleres_rider");
+        }
         // Recorded, not performed at this call site: the payoff needs a content store and a
         // table (research) or the ballot (token returns), and the vote-close carries only
         // the outcome. See the riders' doc comments.
@@ -2450,10 +2464,15 @@ fn distinguished_councilor(context: &mut crate::timing::TimingContext<'_>, playe
 /// voter's vote; playing it then either banks on the holder's still-pending vote or, once the
 /// holder's vote is already banked, counts for nothing.
 fn bribery(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let held = context
-        .state
-        .player(player)
-        .map_or(0, |seat| seat.trade_goods.max(0));
+    // Xander Alexin Victori III (Keleres): the agent may let commodities be spent as trade goods.
+    crate::supply::with_goods_window(context, player, 1, |context| {
+        bribery_spend(context, player);
+    });
+}
+
+fn bribery_spend(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    let held = i32::try_from(crate::supply::spendable_goods(context.state, player))
+        .unwrap_or(i32::MAX);
     if held == 0 {
         return; // "any number" includes zero, and zero buys nothing
     }
@@ -2473,8 +2492,8 @@ fn bribery(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     if spent == 0 {
         return;
     }
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.trade_goods -= spent;
+    if !crate::supply::spend_goods(context.state, player, spent) {
+        return;
     }
     crate::vote::add_votes(context.state, player, i64::from(spent));
 }
@@ -4320,11 +4339,14 @@ fn refuse_exchange(state: &mut GameState, player: &PlayerId, other: &PlayerId) {
 /// planet cards in hands, so an owned planet keeps its owner and the gap is recorded in the
 /// card's doc comment rather than invented state.
 fn mercenary_contract(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    if context
-        .state
-        .player(player)
-        .is_some_and(|seat| seat.trade_goods < 2)
-    {
+    // Xander Alexin Victori III (Keleres): the agent may let commodities pay the 2 trade goods.
+    crate::supply::with_goods_window(context, player, 2, |context| {
+        mercenary_contract_spend(context, player);
+    });
+}
+
+fn mercenary_contract_spend(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    if crate::supply::spendable_goods(context.state, player) < 2 {
         return;
     }
     let homes = ti4_content::galaxy::home_systems(context.content, context.sources);
@@ -4382,9 +4404,7 @@ fn mercenary_contract(context: &mut crate::timing::TimingContext<'_>, player: &P
         neutral.clone(),
     ));
     units.push(ti4_model::units::Unit::new(infantry, neutral));
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.trade_goods -= 2;
-    }
+    let _paid = crate::supply::spend_goods(context.state, player, 2);
 }
 
 /// Pirate Fleet: "Spend 3 resources to place 1 neutral carrier, 1 neutral cruiser, 1 neutral
@@ -5894,11 +5914,15 @@ const FOCUSED_RESEARCH_COST: i32 = 4;
 
 /// Focused Research: spend four trade goods to research one technology.
 fn focused_research(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let held = context
-        .state
-        .player(player)
-        .map_or(0, |seat| seat.trade_goods);
-    if held < FOCUSED_RESEARCH_COST {
+    // Xander Alexin Victori III (Keleres): the agent may let commodities pay the 4 trade goods.
+    crate::supply::with_goods_window(context, player, i64::from(FOCUSED_RESEARCH_COST), |context| {
+        focused_research_spend(context, player);
+    });
+}
+
+fn focused_research_spend(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    let held = crate::supply::spendable_goods(context.state, player);
+    if held < i64::from(FOCUSED_RESEARCH_COST) {
         return; // 22.3: it cannot resolve, so it does nothing
     }
     let available =
@@ -5916,8 +5940,8 @@ fn focused_research(context: &mut crate::timing::TimingContext<'_>, player: &Pla
     ) else {
         return; // nothing to research, and nothing is charged for it
     };
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.trade_goods -= FOCUSED_RESEARCH_COST;
+    if !crate::supply::spend_goods(context.state, player, FOCUSED_RESEARCH_COST) {
+        return;
     }
     let _ = crate::technology::research(
         context.state,

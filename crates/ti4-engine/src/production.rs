@@ -344,7 +344,8 @@ pub fn available(
     let from_triad = crate::relics::triad_value(state, player).unwrap_or(0);
     let goods = state.player(player).map_or(0, |seat| {
         i64::from(seat.trade_goods) * trade_good_worth(state, player)
-    });
+    }) + crate::factions::keleres::spendable_commodities(state, player)
+        * trade_good_worth(state, player);
     // War Machine's "reduce the combined cost of the produced units by 1" is spent from the
     // same budget as its "+4 to the total PRODUCTION value", so it joins the faces here as
     // well. Only resources: the card touches production, not influence bills such as the
@@ -467,9 +468,11 @@ fn payment_options(
         .player(player)
         .map_or(0, |seat| i64::from(seat.trade_goods));
     // Goods capacity under the guard uses the `mc`-multiplied worth (engine/production.py pay()).
+    // Xander Alexin Victori III (Keleres agent): commodities the player may spend as trade goods.
+    let commodities = crate::factions::keleres::spendable_commodities(state, player);
     let goods_capacity = state.player(player).map_or(0, |seat| {
         i64::from(seat.trade_goods) * trade_good_worth(state, player)
-    });
+    }) + commodities * trade_good_worth(state, player);
     let mut options: Vec<ChoiceOption> = Vec::new();
     for planet in &spendable {
         // What would remain after this face pays: the goods and every other planet's best face.
@@ -532,6 +535,20 @@ fn payment_options(
                 ])),
         );
     }
+    if commodities > 0 {
+        let worth = trade_good_worth(state, player);
+        options.push(
+            ChoiceOption::labelled("commodity", PAY_KIND, "spend a commodity as a trade good")
+                .with("worth", worth)
+                .with("owed", cost - paid)
+                .with("kind", spend_name(kind))
+                .previewed(Preview::certain(vec![Delta::new(
+                    spend_quantity(kind),
+                    pool_before,
+                    pool_before - worth,
+                )])),
+        );
+    }
     options
 }
 
@@ -558,6 +575,16 @@ fn apply_payment_option(
         let worth = trade_good_worth(state, player);
         let seat = state.player_mut(player)?;
         seat.trade_goods -= 1;
+        return Some(worth);
+    }
+    if answer.id == "commodity" {
+        // Keleres agent: a commodity spent as if it were a trade good.
+        if crate::factions::keleres::spendable_commodities(state, player) <= 0 {
+            return None;
+        }
+        let worth = trade_good_worth(state, player);
+        let seat = state.player_mut(player)?;
+        seat.commodities -= 1;
         return Some(worth);
     }
     let rest = answer.id.strip_prefix("exhaust|")?;
@@ -656,7 +683,7 @@ pub(crate) fn pay_seeing_with_credit(
     kind: Spend,
     credit: &mut i64,
 ) -> Result<bool, IllegalChoice> {
-    pay_with_observation_credit(
+    pay_offering_agent(
         state, content, sources, table, player, cost, kind, credit, galaxy,
     )
 }
@@ -676,7 +703,7 @@ fn pay_with_observation(
     galaxy: Option<&Galaxy>,
 ) -> Result<bool, IllegalChoice> {
     let mut credit = 0;
-    pay_with_observation_credit(
+    pay_offering_agent(
         state,
         content,
         sources,
@@ -687,6 +714,43 @@ fn pay_with_observation(
         &mut credit,
         galaxy,
     )
+}
+
+/// The shared payment window every `pay*` variant goes through.
+///
+/// Xander Alexin Victori III (Keleres agent) is offered once here, to the holder, when the payer's
+/// commodities would make the bill payable; its permission ends with the payment. A payment made
+/// inside a larger window the agent was already used for (Leadership's purchase loop) does not offer
+/// it again.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "payment needs the rules position, observation, and transaction-local credit"
+)]
+fn pay_offering_agent(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut Table,
+    player: &PlayerId,
+    cost: i64,
+    kind: Spend,
+    credit: &mut i64,
+    galaxy: Option<&Galaxy>,
+) -> Result<bool, IllegalChoice> {
+    let owed = cost - (*credit).min(cost.max(0));
+    let opened = owed > 0
+        && crate::factions::keleres::with_agent_granted(state, player, |granted| {
+            available(granted, content, sources, player, kind) >= owed
+        })
+        .unwrap_or(false)
+        && crate::factions::keleres::offer_agent(state, content, sources, galaxy, table, player)?;
+    let paid = pay_with_observation_credit(
+        state, content, sources, table, player, cost, kind, credit, galaxy,
+    );
+    if opened {
+        crate::factions::keleres::close_agent_window(state, player);
+    }
+    paid
 }
 
 #[allow(
@@ -1495,15 +1559,23 @@ fn module_planet_producers(
     player: &PlayerId,
     system: &SystemId,
 ) -> Vec<(PlanetId, i64)> {
-    state
-        .system_state(system)
+    // Planets holding units, and planets the module may value without any (Keleres, Custodian's
+    // Favour: Mecatol Rex gains PRODUCTION 3 while its controller holds Custodia Vigilia, units or
+    // not). Each hook decides for itself and answers zero for a planet that is not its own.
+    let here = state.system_state(system);
+    let planets: std::collections::BTreeSet<PlanetId> = here
         .planet_units
         .keys()
+        .chain(here.planet_control.keys())
+        .cloned()
+        .collect();
+    planets
+        .into_iter()
         .filter_map(|planet| {
             let value = crate::factions::hooks_economy::extra_production_planet(
-                state, content, sources, player, system, planet,
+                state, content, sources, player, system, &planet,
             );
-            (value > 0).then(|| (planet.clone(), value))
+            (value > 0).then_some((planet, value))
         })
         .collect()
 }
@@ -3058,6 +3130,10 @@ pub fn resolve_timed(
             window.refresh(state, content, sources);
         }
     }
+    // Xander Alexin Victori III (Keleres): the producer's commodities as trade goods for this
+    // production, offered once as it starts.
+    let agent_window = capacity(state, content, sources, player, system) > 0
+        && crate::factions::keleres::offer_agent(state, content, sources, galaxy, table, player)?;
     // Production rolls nothing, so these are never drawn from. Kept explicit rather than
     // hidden behind an Option: if a future rule does roll here, it must be handed the game's
     // generator instead of finding a convenient throwaway already in scope.
@@ -3071,6 +3147,9 @@ pub fn resolve_timed(
         table,
         timing,
     };
+    // Agency Supply Network: another unit's PRODUCTION, resolved beside this one (Warfare reaches
+    // here; the tactical action's production step does the same in `game.rs`).
+    agency_supply_network(state, &mut ctx, galaxy, player, system)?;
     while let Some(choice) = window.pending_choice(state, content, sources) {
         let answer = match ctx
             .table
@@ -3079,15 +3158,24 @@ pub fn resolve_timed(
             Ok(answer) => answer,
             Err(error) => {
                 crate::factions::argent::clear_agent_production_destinations(state, player, system);
+                if agent_window {
+                    crate::factions::keleres::close_agent_window(state, player);
+                }
                 return Err(error);
             }
         };
         if let Err(error) = window.resolve(state, &mut ctx, answer) {
             crate::factions::argent::clear_agent_production_destinations(state, player, system);
+            if agent_window {
+                crate::factions::keleres::close_agent_window(state, player);
+            }
             return Err(error);
         }
     }
     crate::factions::argent::clear_agent_production_destinations(state, player, system);
+    if agent_window {
+        crate::factions::keleres::close_agent_window(state, player);
+    }
     end_value_swap(state);
     Ok(window.into_report())
 }
@@ -3134,14 +3222,117 @@ pub fn produce_by_ability_capped(
     let (content, sources) = (ctx.content, ctx.sources);
     let mut window = ProductionWindow::for_ability(state, content, sources, player, system, limit)
         .with_max_unit_cost(max_unit_cost);
+    // Xander Alexin Victori III (Keleres): offered once as this production starts.
+    let agent_window =
+        crate::factions::keleres::offer_agent(state, content, sources, galaxy, ctx.table, player)?;
     while let Some(choice) = window.pending_choice(state, content, sources) {
-        let answer = ctx
+        let step = ctx
             .table
-            .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
-        window.resolve(state, ctx, answer)?;
+            .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
+            .and_then(|answer| window.resolve(state, ctx, answer));
+        if let Err(error) = step {
+            if agent_window {
+                crate::factions::keleres::close_agent_window(state, player);
+            }
+            return Err(error);
+        }
+    }
+    if agent_window {
+        crate::factions::keleres::close_agent_window(state, player);
     }
     end_value_swap(state);
     Ok(window.into_report())
+}
+
+/// Agency Supply Network (Keleres `asn`): "Once per action, when you resolve a unit's PRODUCTION
+/// ability, you may resolve another of your unit's PRODUCTION abilities in any system."
+///
+/// Called by the two entry points that resolve a unit's PRODUCTION (the tactical action's
+/// production step, `game.rs` `enter_production`, and [`resolve_timed`] for Warfare), once the use
+/// in `primary` is open and before its first choice. The Keleres picks one other system holding
+/// producers of theirs where they could build something, and that system's PRODUCTION is resolved
+/// in full there (payment, placement, limits and blockade as for any use). `primary` is excluded:
+/// its units have all been resolved together by the use that opened this window.
+///
+/// "Once per action" is a mark in `faction_marks` that the Keleres' `ACTION_COMPLETED` window
+/// clears, since the resolver's frequency bookkeeping is not saved with the game. Returns whether a
+/// second system was resolved; nothing is asked of, or changed for, a player without the technology.
+///
+/// The second use gets no Sarween/AI Development Algorithm discount: it opens a plain window, and
+/// those cards discount "this use" (the question is recorded in `plans/evidence/BF-keleres.md`).
+///
+/// # Errors
+/// [`IllegalChoice`] when a decider answers with something not offered.
+pub fn agency_supply_network(
+    state: &mut GameState,
+    ctx: &mut Resolving<'_>,
+    galaxy: Option<&Galaxy>,
+    player: &PlayerId,
+    primary: &SystemId,
+) -> Result<bool, IllegalChoice> {
+    let (content, sources) = (ctx.content, ctx.sources);
+    if !crate::factions::keleres::asn_ready(state, player)
+        || capacity(state, content, sources, player, primary) <= 0
+    {
+        return Ok(false);
+    }
+    let systems: Vec<SystemId> = state
+        .board
+        .keys()
+        .filter(|system| *system != primary)
+        .filter(|system| {
+            capacity(state, content, sources, player, system) > 0
+                && ProductionWindow::new(state, content, sources, player, system)
+                    .pending_choice(state, content, sources)
+                    .is_some()
+        })
+        .cloned()
+        .collect();
+    if systems.is_empty() {
+        return Ok(false);
+    }
+    let mut options: Vec<ChoiceOption> = systems
+        .iter()
+        .map(|system| {
+            ChoiceOption::labelled(
+                system.as_str(),
+                "asn_system",
+                format!("also resolve PRODUCTION in system {system}"),
+            )
+        })
+        .collect();
+    options.push(ChoiceOption::decline());
+    let choice = Choice::new(
+        player.clone(),
+        "Agency Supply Network: resolve another unit's PRODUCTION in which system",
+        options,
+    )
+    .contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::FactionAbility("asn".to_owned()),
+        "asn_system",
+        state.phase,
+        state.round,
+    ));
+    let answer = ctx
+        .table
+        .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
+    if answer.is_decline() {
+        return Ok(false);
+    }
+    let Some(system) = systems.iter().find(|system| system.as_str() == answer.id) else {
+        return Ok(false);
+    };
+    crate::factions::keleres::asn_mark(state, player);
+    let mut window = ProductionWindow::new(state, content, sources, player, system);
+    while let Some(next) = window.pending_choice(state, content, sources) {
+        let answer = ctx
+            .table
+            .ask_seeing(&next, &Observed::new(state, content, sources, galaxy))?;
+        window.resolve(state, ctx, answer)?;
+    }
+    end_value_swap(state);
+    Ok(true)
 }
 
 #[cfg(test)]

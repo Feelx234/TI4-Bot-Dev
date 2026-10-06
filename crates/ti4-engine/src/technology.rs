@@ -1226,11 +1226,11 @@ pub fn research(
         .next() else {
             return false;
         };
-        for planet in plan.planets {
-            state.exhaust_planet(planet);
+        // `payment::apply` also spends commodities the Keleres agent turned into trade goods.
+        if !crate::payment::apply(state, player, &plan) {
+            return false;
         }
         if let Some(seat) = state.player_mut(player) {
-            seat.trade_goods -= plan.trade_goods;
             seat.exhausted_technologies.insert(TechnologyId::new("is"));
         }
     }

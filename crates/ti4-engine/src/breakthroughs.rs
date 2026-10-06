@@ -203,7 +203,11 @@ pub fn for_faction(content: &ContentStore, faction: &str) -> Option<Breakthrough
     content
         .records(ti4_model::content_types::ContentType::Breakthroughs)
         .iter()
-        .find(|record| record.text("faction") == Some(faction))
+        .find(|record| {
+            record
+                .text("faction")
+                .is_some_and(|tag| crate::factions::keleres::tag_belongs_to(tag, faction, false))
+        })
         .and_then(|record| record.text("alias"))
         .map(BreakthroughId::new)
 }

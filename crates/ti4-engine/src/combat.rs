@@ -1181,8 +1181,30 @@ fn wrath_of_kenara(
         .units
         .iter()
         .any(|unit| &unit.owner == player && unit.type_id.as_str() == "hacan_flagship");
-    let goods = state.player(player).map_or(0, |seat| seat.trade_goods);
-    if !has_flagship || goods <= 0 {
+    if !has_flagship || crate::supply::potential_goods(state, player) <= 0 {
+        return;
+    }
+    // Xander Alexin Victori III (Keleres): the agent may let commodities be spent as trade goods,
+    // offered before the question so its options are generated against what can really be paid.
+    let Ok(opened) = crate::supply::open_goods_window(
+        state,
+        ctx.content,
+        ctx.sources,
+        None,
+        ctx.table,
+        player,
+        1,
+    ) else {
+        return;
+    };
+    wrath_of_kenara_buy(state, ctx, player);
+    crate::supply::close_goods_window(state, player, opened);
+}
+
+/// The purchase half of [`wrath_of_kenara`], inside its goods window.
+fn wrath_of_kenara_buy(state: &mut GameState, ctx: &mut Resolving<'_>, player: &PlayerId) {
+    let goods = i32::try_from(crate::supply::spendable_goods(state, player)).unwrap_or(i32::MAX);
+    if goods <= 0 {
         return;
     }
     let Some(set) = state.reroll_staging.get(player) else {
@@ -1242,13 +1264,13 @@ fn wrath_of_kenara(
     else {
         return;
     };
+    if !crate::supply::spend_goods(state, player, i32::try_from(count).unwrap_or(0)) {
+        return;
+    }
     if let Some(set) = state.reroll_staging.get_mut(player) {
         for (entry, die) in near.into_iter().take(count) {
             *set.rolls[entry].deltas.entry(die).or_insert(0) += 1;
         }
-    }
-    if let Some(seat) = state.player_mut(player) {
-        seat.trade_goods -= i32::try_from(count).unwrap_or(0);
     }
 }
 

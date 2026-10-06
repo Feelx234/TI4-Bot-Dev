@@ -15,24 +15,56 @@ use ti4_model::state::GameState;
 use crate::decision_context::{DecisionContext, DecisionSource};
 use crate::objectives::VICTORY_TARGET;
 
-/// Laws currently in play.
+/// `faction_marks` key holding the `turn_seq` of the action-phase turn for which every law reads as
+/// blank (Keleres, Law's Order).
+const BLANKED_TURN: &str = "keleres|laws_blank";
+
+/// Whether all laws are blank right now: Law's Order was used this turn and the turn has not ended.
+///
+/// "You may spend 1 trade good or 1 commodity to treat all laws as blank until the end of that
+/// turn." Scoped by `turn_seq` (it moves when the turn passes) and to the action phase, so the
+/// mark cannot leak into the status or agenda phase that follows the last turn.
+#[must_use]
+pub fn blanked(state: &GameState) -> bool {
+    state.phase == ti4_model::state::Phase::Action
+        && state
+            .faction_marks
+            .get(BLANKED_TURN)
+            .is_some_and(|turn| *turn == state.turn_seq.to_string())
+}
+
+/// Treat every law as blank until the end of the current turn (Law's Order).
+pub fn blank_for_turn(state: &mut GameState) {
+    state
+        .faction_marks
+        .insert(BLANKED_TURN.to_owned(), state.turn_seq.to_string());
+}
+
+/// Laws currently in play. Empty while [`blanked`].
 #[must_use]
 pub fn in_play(state: &GameState) -> Vec<String> {
+    if blanked(state) {
+        return Vec::new();
+    }
     state.laws.keys().cloned().collect()
 }
 
-/// Whether a law is in play.
+/// Whether a law is in play. Never while [`blanked`].
 #[must_use]
 pub fn active(state: &GameState, alias: &str) -> bool {
-    state.laws.contains_key(alias)
+    !blanked(state) && state.laws.contains_key(alias)
 }
 
 /// What this law was elected onto — a planet or a player (8.9 to 8.11).
 ///
 /// For a For/Against law the value is the outcome itself, which is why a caller meaning "the
-/// elected planet" must check it against the board rather than trusting it blindly.
+/// elected planet" must check it against the board rather than trusting it blindly. `None` while
+/// [`blanked`].
 #[must_use]
 pub fn elected<'a>(state: &'a GameState, alias: &str) -> Option<&'a String> {
+    if blanked(state) {
+        return None;
+    }
     state.laws.get(alias)
 }
 

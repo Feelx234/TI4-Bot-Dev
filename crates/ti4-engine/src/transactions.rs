@@ -190,6 +190,10 @@ pub fn are_neighbours(state: &GameState, galaxy: &Galaxy, a: &PlayerId, b: &Play
     if a == b {
         return false;
     }
+    // I.I.H.Q. Modernization (Keleres): neighbours with everyone in or next to Mecatol Rex.
+    if crate::factions::keleres::mecatol_neighbours(state, galaxy, a, b) {
+        return true;
+    }
     let (here, there) = (presence(state, a), presence(state, b));
     if here.intersection(&there).next().is_some() {
         return true;

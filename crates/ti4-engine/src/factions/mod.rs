@@ -57,6 +57,8 @@ pub mod hooks_economy;
 pub mod hooks_ground;
 pub mod hooks_movement;
 pub mod hooks_strategy;
+pub mod keleres;
+pub mod keleres_units;
 pub mod mentak;
 pub mod muaat;
 pub mod naalu;
@@ -72,12 +74,15 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 16] = [
+pub const MODULES: [&FactionModule; 19] = [
     &arborec::MODULE,
     &argent::MODULE,
     &cabal::MODULE,
     &empyrean::MODULE,
     &ghost::MODULE,
+    &keleres::MODULE_M,
+    &keleres::MODULE_X,
+    &keleres::MODULE_A,
     &mentak::MODULE,
     &muaat::MODULE,
     &naalu::MODULE,
@@ -742,7 +747,7 @@ pub fn assets(content: &ContentStore, sources: SourceSet, alias: &str) -> Vec<As
     for record in content.from_sources(ContentType::Technologies, sources) {
         if record
             .text("faction")
-            .is_some_and(|f| f.eq_ignore_ascii_case(alias))
+            .is_some_and(|f| keleres::tag_belongs_to(f, alias, false))
             && let Some(id) = record.text("alias")
         {
             add(AssetKind::Technology, id);
@@ -756,7 +761,7 @@ pub fn assets(content: &ContentStore, sources: SourceSet, alias: &str) -> Vec<As
         .filter(|record| {
             record
                 .text("faction")
-                .is_some_and(|f| f.eq_ignore_ascii_case(alias))
+                .is_some_and(|f| keleres::tag_belongs_to(f, alias, true))
         })
         .collect();
     let id_of = |record: &ti4_content::Record| {
@@ -811,7 +816,7 @@ pub fn assets(content: &ContentStore, sources: SourceSet, alias: &str) -> Vec<As
     for record in content.from_sources(ContentType::Breakthroughs, sources) {
         if record
             .text("faction")
-            .is_some_and(|f| f.eq_ignore_ascii_case(alias))
+            .is_some_and(|f| keleres::tag_belongs_to(f, alias, false))
             && let Some(id) = record.text("alias")
         {
             add(AssetKind::Breakthrough, id);
