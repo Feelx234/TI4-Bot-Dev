@@ -16,7 +16,8 @@ use ti4_model::id::{PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
-/// Fleets beside opponents' home systems and beside Mecatol Rex, with influence for the custodians.
+/// Fleets beside opponents' home systems, one raider already in Mecatol Rex and the others beside
+/// it, with influence for the custodians.
 pub const COMBAT: &str = "combat";
 
 /// Every preset name the server accepts.
@@ -30,7 +31,9 @@ const STRIKE_FLEET: &[(&str, usize)] = &[
     ("infantry", 2),
 ];
 
-/// Placed beside Mecatol Rex with ground forces, so the custodians can be lifted.
+/// Placed in or beside Mecatol Rex with ground forces, so the custodians can be lifted. Ground
+/// forces in a system's space area are landable (see `invasion::landable`), so the one already in
+/// Mecatol can lift the custodians the first time it activates the system.
 const RAIDING_PARTY: &[(&str, usize)] = &[("carrier", 1), ("cruiser", 1), ("infantry", 2)];
 
 /// Reinforcement pool sizes (LRR 76.1): a preset never puts more of a type on the board.
@@ -94,9 +97,11 @@ fn combat(
     let home_set: BTreeSet<&str> = homes.iter().map(SystemId::as_str).collect();
     let count = players.len();
 
-    // Half the seats (rounded up) raid Mecatol, chosen by a seeded ranking.
+    // Half the seats (rounded up) raid Mecatol, chosen by a seeded ranking; the first of them
+    // starts inside Mecatol, the rest beside it.
     let mut ranking: Vec<usize> = (0..count).collect();
     ranking.sort_by_key(|i| mix(seed, 100 + *i as u64));
+    let holder = ranking[0];
     let mut raiders = vec![false; count];
     for i in ranking.into_iter().take(count.div_ceil(2)) {
         raiders[i] = true;
@@ -121,16 +126,22 @@ fn combat(
             }
         }
         if raiders[i] {
-            if let Some(site) = pick_site(
-                content,
-                state,
-                galaxy,
-                MECATOL,
-                &home_set,
-                &used,
-                mix(seed, 400 + i as u64),
-                1,
-            ) {
+            let mecatol = SystemId::new(MECATOL);
+            let site = if i == holder && eligible_in_mecatol(state) {
+                Some(mecatol)
+            } else {
+                pick_site(
+                    content,
+                    state,
+                    galaxy,
+                    MECATOL,
+                    &home_set,
+                    &used,
+                    mix(seed, 400 + i as u64),
+                    1,
+                )
+            };
+            if let Some(site) = site {
                 place(content, state, player, &site, RAIDING_PARTY)?;
                 used.insert(site.as_str().to_owned());
             }
@@ -175,6 +186,16 @@ fn pick_site(
         layer = next;
     }
     None
+}
+
+/// Mecatol Rex's space area is free for the first raider.
+fn eligible_in_mecatol(state: &GameState) -> bool {
+    state
+        .board
+        .get(&SystemId::new(MECATOL))
+        .is_none_or(|board| {
+            board.units.is_empty() && board.planet_units.values().all(Vec::is_empty)
+        })
 }
 
 /// An empty ordinary system: not Mecatol, not a home, not an anomaly or hyperlane, not taken.
@@ -394,29 +415,46 @@ mod tests {
     }
 
     #[test]
-    fn raiders_sit_beside_mecatol_with_ground_forces_and_six_influence() {
+    fn raiders_start_in_or_beside_mecatol_and_one_can_lift_the_custodians_at_once() {
+        let mecatol = SystemId::new(MECATOL);
         for n in 3..=6 {
             for seed in 0..8 {
                 let list = players(n);
                 let (state, galaxy) =
                     create_game_with_preset(content(), &list, seed, None, Some(COMBAT)).unwrap();
-                let raiders: Vec<&PlayerId> =
-                    list.iter()
-                        .filter(|player| {
-                            state.board.iter().any(|(system, board)| {
-                                galaxy.are_adjacent(system.as_str(), MECATOL)
-                                    && board.units.iter().any(|u| {
-                                        &u.owner == *player && u.type_id.as_str() == "cruiser"
-                                    })
-                            })
+                let raiders: Vec<&PlayerId> = list
+                    .iter()
+                    .filter(|player| {
+                        state.board.iter().any(|(system, board)| {
+                            (system == &mecatol || galaxy.are_adjacent(system.as_str(), MECATOL))
+                                && board
+                                    .units
+                                    .iter()
+                                    .any(|u| &u.owner == *player && u.type_id.as_str() == "cruiser")
                         })
-                        .collect();
+                    })
+                    .collect();
                 assert_eq!(
                     raiders.len(),
                     n.div_ceil(2),
                     "{n}p seed {seed}: half the seats should raid Mecatol"
                 );
-                for player in raiders {
+                let in_mecatol: Vec<&PlayerId> = raiders
+                    .iter()
+                    .copied()
+                    .filter(|player| {
+                        state
+                            .board
+                            .get(&mecatol)
+                            .is_some_and(|b| b.units.iter().any(|u| &u.owner == *player))
+                    })
+                    .collect();
+                assert_eq!(
+                    in_mecatol.len(),
+                    1,
+                    "{n}p seed {seed}: one raider starts in Mecatol"
+                );
+                for player in &raiders {
                     assert!(
                         production::available(
                             &state,
@@ -428,12 +466,19 @@ mod tests {
                         "{n}p seed {seed}: {player} cannot pay the custodians"
                     );
                 }
+                // The engine's own gate: the raider inside Mecatol has landable ground forces and
+                // the influence, so the custodians can be lifted the first time it invades.
+                assert!(
+                    invasion::custodians_removable(&state, content(), POK, in_mecatol[0], &mecatol),
+                    "{n}p seed {seed}: the raider in Mecatol cannot lift the custodians"
+                );
+                // Nobody else is in Mecatol.
                 assert!(
                     state
                         .board
-                        .get(&SystemId::new(MECATOL))
-                        .is_none_or(|b| b.units.is_empty()),
-                    "Mecatol must stay empty while the custodians token sits there"
+                        .get(&mecatol)
+                        .is_none_or(|b| b.units.iter().all(|u| &u.owner == in_mecatol[0])),
+                    "{n}p seed {seed}: Mecatol is shared"
                 );
             }
         }
