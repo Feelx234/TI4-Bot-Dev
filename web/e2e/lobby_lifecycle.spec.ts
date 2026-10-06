@@ -195,6 +195,13 @@ test("the host picks a map, a guest sees it within seconds, and the started boar
   await guest.getByLabel("Nickname").fill("Guest");
   await guest.getByRole("button", { name: "Join game" }).click();
   await expect(guest.getByTestId("lobby-map-button")).toHaveText("View map");
+  // A third player fills the last seat over the API.
+  const gameIdForThird = new URL(gameUrl).pathname.split("/").pop()!;
+  const third = await (
+    await request.post(`${backend}/api/games/${gameIdForThird}/lobby/join`, {
+      data: { kind: "new", nickname: "Third" },
+    })
+  ).json();
 
   const gameId = new URL(gameUrl).pathname.split("/").pop()!;
 
@@ -241,6 +248,10 @@ test("the host picks a map, a guest sees it within seconds, and the started boar
   // Ready up and start: the real board has the previewed systems.
   await host.getByTestId("ready-button").click();
   await guest.getByTestId("ready-button").click();
+  await request.post(`${backend}/api/games/${gameIdForThird}/lobby/ready`, {
+    data: { ready: true },
+    headers: { "x-ti4-player-session": third.player_session },
+  });
   await expect(host.getByTestId("start-game-button")).toBeEnabled();
   await host.getByTestId("start-game-button").click();
   await expect(host.getByTestId("turn-status-bar")).toBeVisible();
