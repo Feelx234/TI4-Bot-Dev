@@ -14,3 +14,14 @@ import { galleryCases } from "../../../src/dev/decisionGalleryCases";
 
 /** The gallery's activation decision: about thirty systems the player may activate. */
 export const systemActivationOptions = galleryCases.find((c) => c.workflow === "system_activation")!.choice.options;
+
+import { fallbackCases } from "../../../src/dev/decisionGalleryCases";
+
+const galleryChoice = (title: string) =>
+  [...galleryCases, ...fallbackCases].find((c) => c.title === title)!.choice;
+
+/** Decisions from the dev gallery, as { prompt, context, options } ready for openMockedGame. */
+export const galleryDecision = (title: string) => {
+  const { prompt, context, options } = galleryChoice(title);
+  return { prompt, context: context as Record<string, unknown>, options };
+};

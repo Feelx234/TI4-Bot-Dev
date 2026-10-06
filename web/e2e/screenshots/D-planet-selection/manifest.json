@@ -1,0 +1,20 @@
+{
+  "title": "Planet Selection",
+  "description": "The ways a player picks a planet: for a card effect, for a structure, a planet or technology, a planet outcome in a vote, and planets to exhaust when paying.",
+  "tag": "web/e2e/screenshots/D-planet-selection",
+  "shots": [
+    { "file": "out/1a-card-pick-prompt.png", "heading": "A card asks for a planet", "caption": "Mining Initiative: candidate planets are ringed on the map and the bar names the card and what will happen. Planets that cannot be chosen are dimmed." },
+    { "file": "out/1b-card-pick-chosen.png", "heading": "After choosing on the map", "caption": "Clicking Lodor on the map selects it. The bar now reads \"Mining Initiative — mine Lodor (3R/1I)\" with Confirm and Cancel; the other candidates stay available as chips." },
+    { "file": "out/2-planet-then-structure.png", "heading": "Planet first, then the structure", "caption": "When several options share a planet, picking the planet turns the bar into one button per structure: place a PDS or a space dock on Jord." },
+    { "file": "out/3-planet-or-technology.png", "heading": "A planet or a technology", "caption": "Bio-Stims can ready a planet on the map or an exhausted technology. Technologies appear as chips in the same bar." },
+    { "file": "out/4-planet-outcome-vote.png", "heading": "Voting for a planet", "caption": "An Elect Planet agenda has planets as outcomes, so the vote is cast by choosing a planet on the map." },
+    { "file": "out/5a-payment-drawer.png", "heading": "Paying: exhausting planets", "caption": "The payment drawer lists the ready planets and what each is worth against what is owed (5 resources)." },
+    { "file": "out/5b-pick-on-map.png", "heading": "Paying: the drawer is minimised", "caption": "To pick on the map the drawer is minimised to the Resume decision pill. The payable planets are not highlighted here, unlike a card pick." },
+    { "file": "out/5c-picked-on-map.png", "heading": "Paying: a planet picked on the map", "caption": "Clicking the planet token for Jord on the map selects it. The map itself shows no sign of the selection." },
+    { "file": "out/5d-staged-in-drawer.png", "heading": "Paying: staged in the drawer", "caption": "Reopening the drawer shows Jord ticked and 4 of 5 resources staged, with the remainder still to pay." }
+  ],
+  "notes": [
+    { "title": "Map clicks", "text": "A click on a hex opens the system inspector as well as selecting; a click on the planet token itself is what selects a planet for payment." },
+    { "title": "Gap", "text": "Payment has no map highlighting or confirm bar, so picking planets on the map for payment is much less discoverable than for card picks." }
+  ]
+}
