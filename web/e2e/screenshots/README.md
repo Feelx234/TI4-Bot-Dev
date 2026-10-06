@@ -1,6 +1,6 @@
 # Screenshot artifacts
 
-Reproducible screenshots of UI states, one folder per artifact (`A-` to `I-`), one capture script per screenshot.
+Reproducible screenshots of UI states, one folder per artifact (`A-` to `J-`), one capture script per screenshot.
 
     cd web
     npm run screenshots -- all     # every folder
@@ -20,6 +20,9 @@ Shared parts in `_shared/`:
 | `tooltip.ts` | draws native `title` tooltips, which browsers do not render into screenshots |
 | `eventLog.ts` | opens and expands the event log |
 | `build-artifact.mjs`, `artifact.tpl.html` | manifest + PNGs to a self-contained page |
+| `mapLobby.ts`, `vite.shots.config.ts` | `openMapLobby()` renders the real lobby and MapPicker against routed HTTP; the watcher-free vite config |
 | `run.mjs` | the `npm run screenshots` runner |
+
+Vite runs without its file watcher (`_shared/vite.shots.config.ts`), so a low inotify limit (ENOSPC) does not break the runner.
 
 Fixtures are synthetic, not captured engine states. Playwright starts and stops vite itself (`playwright.config.ts`); set `TI4_SHOT_PORT` to pin the port.

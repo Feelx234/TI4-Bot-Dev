@@ -29,7 +29,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } }],
   webServer: {
     name: "frontend",
-    command: `exec npx vite --host 127.0.0.1 --port ${port} --strictPort`,
+    command: `exec npx vite --config e2e/screenshots/_shared/vite.shots.config.ts --host 127.0.0.1 --port ${port} --strictPort`,
     cwd: "../..",
     wait: { stdout: new RegExp(`Local:\\s+http://127\\.0\\.0\\.1:${port}/`) },
     timeout: 30_000,
