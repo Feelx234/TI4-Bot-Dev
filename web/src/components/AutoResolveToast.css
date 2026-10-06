@@ -25,9 +25,9 @@
   pointer-events: auto;
   cursor: default;
   user-select: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Wrap instead of cutting the selected value off with an ellipsis. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .toast-decision-type {

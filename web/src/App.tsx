@@ -33,6 +33,14 @@ const DevScenarioLauncher = import.meta.env.DEV
     )
   : null;
 
+const DevToastGallery = import.meta.env.DEV
+  ? React.lazy(() =>
+      import("./dev/ToastGallery.tsx").then(({ ToastGallery }) => ({
+        default: ToastGallery,
+      })),
+    )
+  : null;
+
 const storageKey = (gameId: string) => `ti4.player-session:${gameId}`;
 const pathGameId = () =>
   /^\/games\/([^/]+)$/.exec(window.location.pathname)?.[1]
@@ -66,6 +74,12 @@ export const App: React.FC = () => {
     return (
       <React.Suspense fallback={<main>Loading decision gallery…</main>}>
         <DevDecisionGallery />
+      </React.Suspense>
+    );
+  if (DevToastGallery && window.location.pathname === "/dev/toasts")
+    return (
+      <React.Suspense fallback={<main>Loading toasts…</main>}>
+        <DevToastGallery />
       </React.Suspense>
     );
   if (DevScenarioLauncher && window.location.pathname === "/dev/scenarios")
