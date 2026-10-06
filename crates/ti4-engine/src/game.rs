@@ -1215,15 +1215,32 @@ impl<'a> Game<'a> {
         let Some(choice) = self.legal_options() else {
             return self.step_phase();
         };
+        // The last strategy card is not a choice: the picker takes it and is told so. Never
+        // journaled, so a replay reaches the same pick by the same route.
+        let is_draft = choice
+            .context
+            .as_ref()
+            .is_some_and(|context| context.subtype == "draft_strategy_card");
+        let lone_card = if is_draft {
+            self.table
+                .auto_resolve(&choice, "only one strategy card left")
+        } else {
+            None
+        };
         // Field borrows, not `self`: the table answers while the position stays readable.
-        let answer = match self.table.ask_seeing(
-            &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
+        let answer = match lone_card.map_or_else(
+            || {
+                self.table.ask_seeing(
+                    &choice,
+                    &crate::choice::Observed::new(
+                        &self.state,
+                        self.content,
+                        self.sources,
+                        self.galaxy.as_ref(),
+                    ),
+                )
+            },
+            Ok,
         ) {
             Ok(answer) => answer,
             Err(error) => return self.result(false, Some(error.into())),
@@ -12147,5 +12164,86 @@ mod tests {
             vec![ti4_model::id::ActionCardId::new("reverse_engineer")],
             "a's card was never played; log {events:?}"
         );
+    }
+
+    /// Plays one strategy phase; returns (asked picks, notes left for auto-resolved picks).
+    fn draft_round(count: usize) -> (usize, Vec<crate::choice::AutoResolved>, GameState) {
+        let players: Vec<PlayerId> = ["a", "b", "c", "d", "e", "f"][..count]
+            .iter()
+            .map(|id| PlayerId::new(*id))
+            .collect();
+        let state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        let mut game = Game::new(state, ContentStore::embedded());
+        let mut picks = 0;
+        while game.state.phase == Phase::Strategy {
+            assert_eq!(game.step().error, None);
+            picks += 1;
+        }
+        let asked = game
+            .table
+            .log
+            .records
+            .iter()
+            .filter(|record| record.prompt == "choose a strategy card")
+            .count();
+        let notes = game.table.take_auto_resolved();
+        // Every pick happened, asked or not.
+        let dealt: usize = game.state.players.iter().map(|p| p.strategy_cards.len()).sum();
+        assert_eq!(asked + notes.len(), dealt, "{count} players, {picks} steps");
+        (asked, notes, game.state)
+    }
+
+    /// Only a four-player draft ends on a lone card (8 cards, 8 picks); 3, 5 and 6 players leave
+    /// several on the mat at the end, so every pick there is still a real choice.
+    #[test]
+    fn the_last_card_of_a_four_player_draft_is_taken_without_asking() {
+        let (asked, notes, state) = draft_round(4);
+        assert_eq!((asked, notes.len()), (7, 1));
+        assert_eq!(notes[0].reason, "only one strategy card left");
+        assert_eq!(notes[0].prompt, "choose a strategy card");
+        assert!(notes[0].label.contains(". "), "the card is named: {}", notes[0].label);
+        assert!(state.unclaimed_strategy_cards.is_empty());
+        let taker = state
+            .players
+            .iter()
+            .find(|p| p.strategy_cards.iter().any(|c| c.as_str() == notes[0].option_id))
+            .expect("someone holds the card");
+        assert_eq!(taker.id, notes[0].player);
+    }
+
+    #[test]
+    fn three_five_and_six_player_drafts_still_ask_for_every_pick() {
+        for (count, picks) in [(3, 6), (5, 5), (6, 6)] {
+            let (asked, notes, state) = draft_round(count);
+            assert_eq!((asked, notes.len()), (picks, 0), "{count} players");
+            assert!(state.unclaimed_strategy_cards.len() > 1);
+        }
+    }
+
+    /// The skipped ask is not journaled, so replaying the journal re-derives the same pick.
+    #[test]
+    fn a_replay_of_the_journal_re_derives_the_auto_resolved_pick() {
+        let play = |script: Vec<String>| {
+            let players: Vec<PlayerId> = ["a", "b", "c", "d"]
+                .iter()
+                .map(|id| PlayerId::new(*id))
+                .collect();
+            let state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+            let table = Table::with_default(Box::new(Scripted::new(script)));
+            let mut game = Game::with_table(state, ContentStore::embedded(), table);
+            while game.state.phase == Phase::Strategy {
+                assert_eq!(game.step().error, None);
+            }
+            let notes = game.table.take_auto_resolved();
+            (game.state, game.table.log, notes)
+        };
+        let (state, log, notes) = play(Vec::new());
+        assert_eq!(notes.len(), 1);
+        let journal: Vec<String> = log.records.iter().map(|r| r.chosen.clone()).collect();
+        assert_eq!(journal.len(), 7, "the lone pick is not journaled");
+        let (replayed, replayed_log, replayed_notes) = play(journal);
+        assert!(state.identical(&replayed));
+        assert_eq!(log, replayed_log);
+        assert_eq!(notes, replayed_notes);
     }
 }
