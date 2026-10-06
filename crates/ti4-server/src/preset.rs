@@ -8,11 +8,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ti4_content::ContentStore;
+use ti4_content::factions;
 use ti4_content::galaxy::{self, Galaxy};
+use ti4_content::units;
 use ti4_engine::seating::{self, MECATOL};
 use ti4_engine::{fleet, invasion, production};
 use ti4_model::content_types::POK;
-use ti4_model::id::{PlayerId, SystemId, UnitTypeId};
+use ti4_model::id::{FactionId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
@@ -23,10 +25,13 @@ pub const COMBAT: &str = "combat";
 /// Every preset name the server accepts.
 pub const KNOWN: &[&str] = &[COMBAT];
 
-/// Placed one jump from an opponent's home. Capacity 4: two fighters and two infantry fit.
+/// Placed one jump from an opponent's home. The dreadnought (with the faction's mech) makes sure
+/// sustain damage happens; capacity 5: two fighters, two infantry and the mech fit. Three
+/// non-fighter ships fill the opening fleet supply of three.
 const STRIKE_FLEET: &[(&str, usize)] = &[
     ("carrier", 1),
     ("destroyer", 1),
+    ("dreadnought", 1),
     ("fighter", 2),
     ("infantry", 2),
 ];
@@ -34,15 +39,22 @@ const STRIKE_FLEET: &[(&str, usize)] = &[
 /// Placed in or beside Mecatol Rex with ground forces, so the custodians can be lifted. Ground
 /// forces in a system's space area are landable (see `invasion::landable`), so the one already in
 /// Mecatol can lift the custodians the first time it activates the system.
-const RAIDING_PARTY: &[(&str, usize)] = &[("carrier", 1), ("cruiser", 1), ("infantry", 2)];
+const RAIDING_PARTY: &[(&str, usize)] = &[
+    ("carrier", 1),
+    ("cruiser", 1),
+    ("dreadnought", 1),
+    ("infantry", 2),
+];
 
 /// Reinforcement pool sizes (LRR 76.1): a preset never puts more of a type on the board.
 const POOL: &[(&str, usize)] = &[
     ("carrier", 4),
     ("cruiser", 8),
     ("destroyer", 8),
+    ("dreadnought", 5),
     ("fighter", 10),
     ("infantry", 12),
+    ("mech", 4),
 ];
 
 #[must_use]
@@ -121,7 +133,8 @@ fn combat(
                 mix(seed, 300 + i as u64),
                 2,
             ) {
-                place(content, state, player, &site, STRIKE_FLEET)?;
+                let fleet = fleet_for(content, &assignments[player], STRIKE_FLEET);
+                place(content, state, player, &site, &fleet)?;
                 used.insert(site.as_str().to_owned());
             }
         }
@@ -142,7 +155,8 @@ fn combat(
                 )
             };
             if let Some(site) = site {
-                place(content, state, player, &site, RAIDING_PARTY)?;
+                let fleet = fleet_for(content, &assignments[player], RAIDING_PARTY);
+                place(content, state, player, &site, &fleet)?;
                 used.insert(site.as_str().to_owned());
             }
             top_up_influence(content, state, player);
@@ -220,19 +234,51 @@ fn eligible(
     })
 }
 
+/// The unit types of a preset fleet for one faction: the dreadnought is the faction's own
+/// version (L1Z1X's super-dreadnought, for one), and a faction mech rides with the ground forces
+/// where the corpus has one. Both sustain damage.
+fn fleet_for(
+    content: &ContentStore,
+    faction: &FactionId,
+    spec: &[(&str, usize)],
+) -> Vec<(UnitTypeId, usize)> {
+    let resolve = |kind: &str| {
+        factions::resolve_unit(content, faction.as_str(), &UnitTypeId::new(kind), POK)
+    };
+    let mut fleet: Vec<(UnitTypeId, usize)> = spec
+        .iter()
+        .map(|(kind, count)| {
+            let id = if *kind == "dreadnought" {
+                resolve(kind)
+            } else {
+                UnitTypeId::new(*kind)
+            };
+            (id, *count)
+        })
+        .collect();
+    let mech = resolve("mech");
+    if units::unit_type(content, mech.as_str(), POK).is_some() {
+        fleet.push((mech, 1));
+    }
+    fleet
+}
+
+/// Whether a unit type id is `kind` or a faction's own version of it (`sol_mech` for `mech`).
+fn is_kind(id: &str, kind: &str) -> bool {
+    id == kind || id.ends_with(&format!("_{kind}"))
+}
+
 fn place(
     content: &ContentStore,
     state: &mut GameState,
     player: &PlayerId,
     site: &SystemId,
-    fleet_spec: &[(&str, usize)],
+    fleet_spec: &[(UnitTypeId, usize)],
 ) -> Result<(), String> {
     let board = state.system_mut(site);
     for (kind, count) in fleet_spec {
         for _ in 0..*count {
-            board
-                .units
-                .push(Unit::new(UnitTypeId::new(*kind), player.clone()));
+            board.units.push(Unit::new(kind.clone(), player.clone()));
         }
     }
     let over_supply = fleet::over_supply(state, content, POK, player, site);
@@ -252,7 +298,7 @@ fn place(
                     .iter()
                     .chain(system.planet_units.values().flatten())
             })
-            .filter(|unit| &unit.owner == player && unit.type_id.as_str() == *kind)
+            .filter(|unit| &unit.owner == player && is_kind(unit.type_id.as_str(), kind))
             .count();
         if on_board > *limit {
             return Err(format!(
@@ -364,6 +410,51 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn every_preset_fleet_can_sustain_damage_with_a_ship_and_a_mech() {
+        for n in 3..=6 {
+            for seed in 0..8 {
+                let list = players(n);
+                let (plain, _) = create_game_with_template(content(), &list, seed, None).unwrap();
+                let (state, _) =
+                    create_game_with_preset(content(), &list, seed, None, Some(COMBAT)).unwrap();
+                let mut fleets = 0;
+                for (system, board) in &state.board {
+                    let before = plain.board.get(system).map_or(0, |b| b.units.len());
+                    if board.units.len() <= before {
+                        continue;
+                    }
+                    fleets += 1;
+                    let kinds: Vec<_> = board
+                        .units
+                        .iter()
+                        .map(|u| units::unit_type(content(), u.type_id.as_str(), POK).unwrap())
+                        .collect();
+                    assert!(
+                        kinds.iter().any(|k| k.is_ship() && k.sustain_damage()),
+                        "{n}p seed {seed}: the fleet in {system} has no sustaining ship"
+                    );
+                    assert!(
+                        kinds.iter().any(|k| k.is_ground_force() && k.sustain_damage()),
+                        "{n}p seed {seed}: the fleet in {system} has no sustaining mech"
+                    );
+                }
+                assert!(fleets >= n, "{n}p seed {seed}: only {fleets} fleets placed");
+            }
+        }
+    }
+
+    #[test]
+    fn a_preset_dreadnought_is_the_factions_own_version() {
+        let fleet = fleet_for(content(), &FactionId::new("l1z1x"), STRIKE_FLEET);
+        let dreadnought = fleet
+            .iter()
+            .find(|(id, _)| id.as_str().contains("dread"))
+            .unwrap_or_else(|| panic!("no dreadnought in {fleet:?}"));
+        assert_ne!(dreadnought.0.as_str(), "dreadnought", "L1Z1X has a super-dreadnought");
+        assert!(fleet.iter().any(|(id, _)| id.as_str().ends_with("mech")));
     }
 
     #[test]
