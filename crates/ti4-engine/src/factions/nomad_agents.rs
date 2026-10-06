@@ -203,8 +203,9 @@ pub(crate) fn agent_readied(state: &mut GameState, player: &PlayerId, leader: &L
 /// Where one ground force stands: a system, and the planet (`None` in the space area).
 type Place = (SystemId, Option<PlanetId>);
 
-/// `player`'s ground forces on the game board, in board order. Structures are not moved (the Titans'
-/// PDS is a ground force that is also a structure).
+/// `player`'s ground forces on the game board, in board order. The card says "ground forces", so a
+/// unit that is a ground force is movable even when it is also a structure (the Titans' PDS, Hel-Titan);
+/// a structure that is not a ground force (a plain PDS, a space dock) is not.
 fn ground_forces(
     state: &GameState,
     content: &ContentStore,
@@ -216,7 +217,7 @@ fn ground_forces(
         &unit.owner == player
             && types
                 .get(unit.type_id.as_str())
-                .is_some_and(|kind| kind.is_ground_force() && !kind.is_structure())
+                .is_some_and(|kind| kind.is_ground_force())
     };
     let mut found = Vec::new();
     for (system, board) in &state.board {
@@ -447,6 +448,29 @@ fn mercer(owner_name: &str, seat: &PlayerId) -> Ability {
 
 // -- The Thundarian ------------------------------------------------------------------------------
 
+/// Whether a combat's "Roll Dice" step end has anyone to tell: some seat holds a readied The
+/// Thundarian, or a seat holding a readied Ssruu could borrow a seated Nomad's agent. Mirrors
+/// `nomad::watches_agent_exhaustion`: a game with no such seat emits nothing, so its event ids and
+/// logs are exactly what they were before the agent existed.
+#[must_use]
+pub fn watches_roll_step(state: &GameState) -> bool {
+    let holds = |seat: &ti4_model::state::Player, status: &[LeaderStatus]| {
+        seat.leaders
+            .get(&LeaderId::new(THUNDARIAN))
+            .is_some_and(|held| status.contains(held))
+    };
+    state
+        .players
+        .iter()
+        .any(|seat| holds(seat, &[LeaderStatus::Readied]))
+        || (state.players.iter().any(|seat| {
+            seat.leaders.get(&LeaderId::new("yssarilagent")) == Some(&LeaderStatus::Readied)
+        }) && state
+            .players
+            .iter()
+            .any(|seat| holds(seat, &[LeaderStatus::Readied, LeaderStatus::Exhausted])))
+}
+
 /// The Thundarian: exhausting it sends the round back to the start of its "Roll Dice" step
 /// (`combat::request_roll_replay`): the combat reads the request when the step's event closes,
 /// throws the dice away without producing or assigning a hit, and rolls the step again.
@@ -508,6 +532,10 @@ fn cavalry_ship_type(state: &GameState, player: &PlayerId, system: &SystemId) ->
 /// `"space"` for the hits of a combat and `"space_cannon"` for SPACE CANNON OFFENSE, which is not
 /// part of one.
 ///
+/// Owner gating is not done here: `combat::sustains_in_space` only asks about a unit the hit's
+/// player owns (`unit.owner == player`) and has already refused a damaged one, so `player` is the
+/// owner and this hook only decides whether the unit type or the Cavalry's chosen ship qualifies.
+///
 /// The Cavalry's ship has the ability while it is undamaged. Ships of one type are
 /// interchangeable, so the borrower is whichever of them has not used it: once one of the type is
 /// damaged (a type that cannot sustain otherwise can only have been damaged by this ability), no
@@ -540,8 +568,10 @@ fn grants_sustain(
 /// The Cavalry: the Nomad flagship's combat value and ANTI-FIGHTER BARRAGE for the chosen ship.
 ///
 /// The flagship is the Nomad's own, upgrade included (Memoria II once the Nomad owns it). Only the
-/// combat *value* is lent (the ship keeps its own number of dice); the barrage is lent whole,
-/// value and dice, since a ship with no barrage has no dice of its own to fire it with. The ship
+/// combat *value* is lent (the ship keeps its own number of dice). The card lends the ANTI-FIGHTER
+/// BARRAGE *value* only: a borrower that already has a barrage keeps its own number of dice (a
+/// destroyer still fires 2); a borrower with none has no dice of its own to fire the value with,
+/// so it fires the flagship's number of dice (documented choice). The ship
 /// that borrows is the damaged one of its type when the type cannot sustain by itself (it is the
 /// one that used the borrowed ability), else the first of its type in board order.
 fn borrowed_stats(
@@ -557,7 +587,13 @@ fn borrowed_stats(
         crate::action_cards::placed_unit_id(state, content, sources, &nomad, "flagship")?;
     let types = ti4_content::units::catalogue(content, sources);
     let flagship = types.get(flagship_id.as_str())?;
-    let own_sustain = types.get(kind.as_str())?.sustain_damage();
+    let own_type = types.get(kind.as_str())?;
+    let own_sustain = own_type.sustain_damage();
+    let barrage_dice = if own_type.afb_hits_on().is_some() {
+        own_type.afb_dice()
+    } else {
+        flagship.afb_dice()
+    };
     let ships: Vec<Unit> = crate::combat::ships_of(state, content, sources, player, system)
         .into_iter()
         .filter(|ship| ship.type_id.as_str() == kind)
@@ -570,9 +606,7 @@ fn borrowed_stats(
     Some(BorrowedStats {
         unit,
         hits_on: flagship.combat_hits_on(),
-        barrage: flagship
-            .afb_hits_on()
-            .map(|value| (value, flagship.afb_dice())),
+        barrage: flagship.afb_hits_on().map(|value| (value, barrage_dice)),
     })
 }
 
@@ -1113,6 +1147,25 @@ mod tests {
     }
 
     #[test]
+    fn mercer_moves_a_structure_that_is_also_a_ground_force() {
+        // The Titans' PDS is a ground force and a structure: "ground forces" includes it.
+        let mut state = game();
+        let home = state.player(&b()).unwrap().home_system.clone().unwrap();
+        let landing = landing_planets(&state, &b(), &home)[0].clone();
+        let (far, far_planet) = take_planet(&mut state, &b(), &home);
+        crate::fixtures::put_on_planet(&mut state, &far, &far_planet, "titans_pds", &b(), 1);
+        let take = take_id(
+            &(far.clone(), Some(far_planet.clone())),
+            &Unit::new(ti4_model::id::UnitTypeId::new("titans_pds"), b()),
+        );
+        let (mut table, _) = recording(&[MERCER_WINDOW, &take, "decline"]);
+        tactical_end(&mut state, &mut table, "b", &home);
+        assert_eq!(count_on(&state, &far, &far_planet, "titans_pds"), 0);
+        assert_eq!(count_on(&state, &home, &landing, "titans_pds"), 1);
+        assert_eq!(status(&state, &a(), MERCER), Some(LeaderStatus::Exhausted));
+    }
+
+    #[test]
     fn mercer_asks_where_each_unit_goes_when_there_are_several_planets() {
         let mut state = game();
         let (active, first, second) = two_planets();
@@ -1225,6 +1278,8 @@ mod tests {
         /// Every roll the dice recorded: reason, threshold, faces.
         rolls: Vec<(String, Option<u32>, Vec<u32>)>,
         asked: Asked,
+        /// The id the next typed event would take: how many the combat allocated, plus one.
+        next_event: u64,
     }
 
     impl Fought {
@@ -1283,6 +1338,7 @@ mod tests {
             rounds: outcome.rounds,
             rolls,
             asked,
+            next_event: sequence.next("PROBE", BTreeMap::new()).unwrap().id,
         }
     }
 
@@ -1397,6 +1453,75 @@ mod tests {
                     .iter()
                     .all(|id| !id.contains("nomadagentthundarian"))
         }));
+    }
+
+    #[test]
+    fn the_roll_step_event_is_emitted_only_when_a_thundarian_could_hear_it() {
+        // One round either way. With the card exhausted nothing listens and nothing is emitted;
+        // with it readied (and declined) the step's event is allocated once for the round.
+        let faces = [10, 1, 10, 1];
+        let (mut state, system) = quiet_cruisers();
+        let quiet = fight(&mut state, &system, &[], &faces);
+        let (mut state, system) = cruisers();
+        let listening = fight(&mut state, &system, &["decline"], &faces);
+        assert_eq!(quiet.rounds, 1);
+        assert_eq!(listening.next_event, quiet.next_event + 1);
+        // A game with no Nomad at all: no seat holds the agent.
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        state.active = Some(a());
+        let system = arena();
+        crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
+        assert!(!watches_roll_step(&state));
+        let none = fight(&mut state, &system, &[], &faces);
+        assert_eq!(none.next_event, quiet.next_event);
+    }
+
+    #[test]
+    fn an_illegal_thundarian_answer_is_refused_without_changing_the_board() {
+        use crate::choice::{Resolving, TimingHandle, Window};
+        let (mut state, system) = cruisers();
+        let content = ContentStore::embedded();
+        let mut resolver = crate::fixtures::armed_resolver(&mut state);
+        let mut sequence = EventSequence::new();
+        let (mut table, _) = recording(&["not-an-offered-answer"]);
+        let mut dice = crate::dice::Dice::from_faces([10, 10, 10, 10]);
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut window = crate::combat::CombatWindow::new(&state, content, DEFAULT, &system);
+        let before = (
+            state.board.clone(),
+            state.player(&a()).unwrap().leaders.clone(),
+        );
+        let mut ctx = Resolving {
+            content,
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        let refused = window.settle_open(&mut state, &mut ctx).is_err()
+            || window.drive(&mut state, &mut ctx).is_err();
+        assert!(
+            refused,
+            "an unoffered answer is an error, not a skipped step"
+        );
+        assert_eq!(
+            (
+                state.board.clone(),
+                state.player(&a()).unwrap().leaders.clone()
+            ),
+            before
+        );
+        assert!(
+            !state
+                .faction_marks
+                .contains_key(crate::combat::ROLL_REPLAY_MARK)
+        );
     }
 
     #[test]
@@ -1544,15 +1669,16 @@ mod tests {
 
     #[test]
     fn the_cavalry_lends_a_ship_the_flagships_combat_value_and_barrage_then_returns() {
-        // Round 1: b's barrage (3 dice if lent, else 2), c's barrage, then b's die (7), c's die.
-        let faces = [1, 1, 1, 1, 1, 7, 1];
+        // Round 1: b's barrage (2 dice: the lent value, the destroyer's own dice), c's barrage (2),
+        // then b's die (7), c's die.
+        let faces = [1, 1, 1, 1, 7, 1];
         let (mut state, system) = cavalry_game();
         let played = fight(&mut state, &system, &[CAVALRY_PLAY], &faces);
         let barrage = played.rolls_for("anti-fighter barrage");
         assert_eq!(
             barrage[0].2.len(),
-            3,
-            "the flagship's (x3), not the destroyer's (x2)"
+            2,
+            "only the value is lent: the destroyer keeps its own 2 dice"
         );
         assert_eq!(barrage[0].1, Some(8), "Memoria's ANTI-FIGHTER BARRAGE 8");
         let combat = played.rolls_for("space combat");
@@ -1584,6 +1710,28 @@ mod tests {
     }
 
     #[test]
+    fn a_borrower_with_no_barrage_fires_the_lent_value_with_the_flagships_dice() {
+        // A cruiser has no ANTI-FIGHTER BARRAGE of its own: it fires Memoria's value (8) with
+        // Memoria's 3 dice. (The documented choice: no own dice to keep.)
+        let mut state =
+            crate::fixtures::seated_game(&[("a", "nomad"), ("b", "sol"), ("c", "hacan")], DEFAULT);
+        state.active = Some(b());
+        set_status(&mut state, &a(), THUNDARIAN, LeaderStatus::Exhausted);
+        crate::promissory::take(&mut state, ContentStore::embedded(), &b(), &cavalry_note());
+        let system = arena();
+        crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
+        crate::fixtures::put(&mut state, &system, "destroyer", &PlayerId::new("c"), 1);
+        let fought = fight(
+            &mut state,
+            &system,
+            &[CAVALRY_PLAY],
+            &[1, 1, 1, 1, 1, 10, 1],
+        );
+        let barrage = fought.rolls_for("anti-fighter barrage");
+        assert_eq!((barrage[0].1, barrage[0].2.len()), (Some(8), 3));
+    }
+
+    #[test]
     fn the_cavalry_follows_the_nomads_flagship_upgrade() {
         let (mut state, system) = cavalry_game();
         state
@@ -1591,11 +1739,11 @@ mod tests {
             .unwrap()
             .technologies
             .insert(ti4_model::id::TechnologyId::new("m2"));
-        let fought = fight(&mut state, &system, &[CAVALRY_PLAY], &[1, 1, 1, 1, 1, 5, 1]);
+        let fought = fight(&mut state, &system, &[CAVALRY_PLAY], &[1, 1, 1, 1, 5, 1]);
         let barrage = fought.rolls_for("anti-fighter barrage");
         assert_eq!(
             (barrage[0].1, barrage[0].2.len()),
-            (Some(5), 3),
+            (Some(5), 2),
             "Memoria II"
         );
         assert_eq!(fought.rolls_for("space combat")[0].1, Some(5));

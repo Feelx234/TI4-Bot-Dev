@@ -117,3 +117,20 @@ From the failing registry test (`unreviewed decision sites`), part A:
   `nomad_flagship2`, `nomadcommander`, `nomadhero` (the last four are done and await the claim).
 * `rustfmt --edition 2024` clean on `nomad.rs`; hunks in `movement.rs`, `transit.rs`,
   `hooks_movement.rs` checked with `--check --config skip_children=true`.
+
+## Review fixes
+
+* **TCS error path** (`nomad.rs`, `temporal_command_suite`): the use now snapshots `GameState` after
+  the guard and restores it if the readying/transaction body returns `Err`, so the tech is not left
+  exhausted and the agent not left readied. Test:
+  `tcs_error_in_the_transaction_leaves_the_agent_and_the_card_untouched` (an unoffered deal answer).
+* **Agents exhausted outside `leaders::exhaust`**: Emissary Taivra (`ghost.rs`), Brother Milor
+  (`yin.rs` `exhaust_agent`) and Ssruu's copy (`borrowed_round_agents.rs`) now go through
+  `leaders::exhaust`, so a watching Nomad's TCS hears them. Tests:
+  `emissary_taivra_exhausting_is_heard_by_a_watching_nomad`,
+  `brother_milor_exhausting_is_heard_by_a_watching_nomad`, and an added assertion in the Ssruu
+  copy test (`resolver_selects_one_unit_and_invalid_selection_leaves_ssruu_ready`).
+* **Ambiguity noted:** the card says "you may perform a transaction with that player"; whether a TCS
+  transaction counts against the once-per-turn transaction limit is not settled by the text. The
+  implementation reads it as counting (see Rule decisions); the opposite reading (a free extra
+  transaction) is equally defensible and is not tested either way.

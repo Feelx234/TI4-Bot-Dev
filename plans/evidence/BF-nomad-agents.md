@@ -128,3 +128,44 @@ Env: `CARGO_PROFILE_TEST_DEBUG=0 CARGO_PROFILE_TEST_INCREMENTAL=false CARGO_PROF
 * rustfmt `--edition 2024`: `nomad_agents.rs`, `hooks_combat.rs`, `invasion.rs` formatted; `combat.rs`
   has pre-existing unformatted code, my hunks hand-formatted.
 
+
+## Review fixes
+
+1. **Thundarian replay bound.** The replay is still unlimited per text (each needs an exhaust), but
+   a depth guard `combat::MAX_ROLL_REPLAYS = 8` per combat round now ends a pathological
+   ready/exhaust loop (space: `CombatWindow::roll_replays`; ground: a local counter): past it the
+   dice stand as rolled. Rationale: a chain needs one agent exhaust per replay and one re-ready
+   (TCS, Ssruu) per further replay, so legal chains are at most a few; 8 is far above that and
+   bounds the recursion in the space round.
+2. **Swallowed errors.** `SPACE_COMBAT_ROLL_STEP_ENDED` is propagated with `?` (`CombatError::Timing`);
+   rollback is the driver's snapshot taken before the first die, as for every other `?` in
+   `roll_round`. `GROUND_COMBAT_ROLL_STEP_ENDED` goes through `strict_timing_error` (as
+   `GROUND_COMBAT_ROUND_STARTED` does), which `drive`/the isolated helper turn into an error.
+   Test: `an_illegal_thundarian_answer_is_refused_without_changing_the_board` (space). No ground
+   error-path test: the ground path shares the mechanism with Round Started, covered elsewhere.
+3. **Mercer and structures.** Ground forces that are also structures (Titans' PDS) are now movable;
+   structures that are not ground forces never were. Test `mercer_moves_a_structure_that_is_also_a_ground_force`.
+   The earlier "Not moved: structures" decision (Rule decisions 2) is superseded.
+4. **Event-id drift.** The two roll-step events are emitted only if `nomad_agents::watches_roll_step`:
+   some seat holds a readied The Thundarian, or a seat holding a readied Ssruu could borrow a seated
+   one. Test `the_roll_step_event_is_emitted_only_when_a_thundarian_could_hear_it`.
+5. **Cavalry barrage.** The card lends the ANTI-FIGHTER BARRAGE *value*; the borrower keeps its own
+   number of dice (a destroyer fires 2). A borrower with no barrage of its own fires the lent value
+   with the flagship's dice (documented choice: it has none of its own). Tests:
+   `the_cavalry_lends_..._then_returns` (destroyer keeps 2), `a_borrower_with_no_barrage_fires_the_lent_value_with_the_flagships_dice`.
+   Rule decision 5's "lent whole" is superseded.
+
+### Scope ledger
+
+| Deferred | Why |
+|---|---|
+| Mercer window: only the end of a tactical action is offered; the card says "at the end of a player's turn". | The corpus note supports a tactical-only window and the engine emits no end-of-turn event for it; kept, deliberately incomplete (a pure-component/strategic/pass turn never offers Mercer). |
+
+### Review-fix results
+
+Env as above, `-j1`. `cargo test -p ti4-engine --lib -j1 nomad`: 58 passed, 0 failed. Full
+`cargo test -p ti4-engine -j1 --no-fail-fast -- --test-threads=12`: lib 2294 passed / 0 failed / 1
+ignored; `content_ids_resolve` 1; doc-tests 5; `decision_delivery_inventory` 2 passed / 2 failed
+(the unregistered-site registry checks: Nomad `ask` sites and the in-progress Cabal sites, not
+caused by these fixes; no new `Choice`/ask site added). rustfmt applied to the files clean at base;
+`combat.rs` hunks hand-formatted.

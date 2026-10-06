@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, UnitTypeId};
-use ti4_model::state::{GameState, LeaderStatus};
+use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
 use crate::choice::{Choice, ChoiceOption};
@@ -407,10 +407,8 @@ fn resolve_copy(
         .faction_marks
         .retain(|existing, _| !existing.starts_with(&borrower_prefix));
     context.state.faction_marks.insert(key, value);
-    if let Some(seat) = context.state.player_mut(borrower) {
-        seat.leaders
-            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Exhausted);
-    }
+    // Through `leaders::exhaust` so a watching Nomad's Temporal Command Suite hears it.
+    crate::leaders::exhaust(context.state, borrower, &LeaderId::new("yssarilagent"));
     if borrower != &target.owner {
         crate::diplomacy::evaluate_event(
             context.state,
@@ -486,6 +484,7 @@ fn live_target(
 mod tests {
     use super::*;
     use ti4_model::content_types::POK;
+    use ti4_model::state::LeaderStatus;
 
     fn test_state() -> (GameState, SystemId, PlanetId) {
         let mut state = crate::fixtures::game(&["a", "b", "c"]);
@@ -662,6 +661,13 @@ mod tests {
             galvanized: false,
             index: 0,
         });
+        state.player_mut(&PlayerId::new("c")).unwrap().faction =
+            ti4_model::id::FactionId::new("nomad");
+        state
+            .player_mut(&PlayerId::new("c"))
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("tcs"));
         emit_copy(
             &mut state,
             LETNEV_AGENT,
@@ -673,6 +679,10 @@ mod tests {
         assert_eq!(
             state.player(&PlayerId::new("a")).unwrap().leaders[&LeaderId::new("yssarilagent")],
             LeaderStatus::Exhausted,
+        );
+        assert!(
+            crate::supply::staged_event_types(&state).contains(&"AGENT_EXHAUSTED".to_owned()),
+            "a watching Nomad hears Ssruu exhausting"
         );
         assert_eq!(
             read_bonus(&state, &system, None, &PlayerId::new("c"), "cruiser", 0, 4),

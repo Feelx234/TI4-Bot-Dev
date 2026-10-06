@@ -361,74 +361,85 @@ fn temporal_command_suite(owner_name: &str, seat: &PlayerId) -> Ability {
             {
                 return Ok(());
             }
-            if let Some(seat) = context.state.player_mut(&owner) {
-                seat.exhausted_technologies.insert(TechnologyId::new(TCS));
-            }
-            crate::leaders::ready(context.state, &agent_owner, &agent);
-            if agent_owner == owner {
-                return Ok(());
-            }
-            let (Some(galaxy), true) = (
-                context.galaxy,
-                crate::transactions::may_open_again(
-                    context.state,
-                    context.content,
-                    &owner,
-                    &agent_owner,
-                ),
-            ) else {
-                return Ok(());
-            };
-            let answer = ask(
-                context,
-                &owner,
-                format!("Temporal Command Suite: perform a transaction with {agent_owner}"),
-                TCS,
-                "tcs_transaction",
-                vec![ChoiceOption::labelled(
-                    "transact",
-                    "technology",
-                    format!("transact with {agent_owner}"),
-                )],
-            )?;
-            if answer.id != "transact" {
-                return Ok(());
-            }
-            let key = tcs_mark(&owner, &agent_owner);
-            context
-                .state
-                .faction_marks
-                .insert(key.clone(), "true".to_owned());
-            let outcome = (|| -> Result<(), TimingError> {
-                let mut window = crate::transactions::TradeWindow::open_with_content(
-                    context.state,
-                    context.content,
-                    &owner,
-                    &agent_owner,
-                );
-                while !window.is_complete() {
-                    let Some(choice) = window.pending_choice(context.state, context.content) else {
-                        break;
-                    };
-                    let answer = context
-                        .ask_seeing(&choice)
-                        .map_err(TimingError::IllegalChoice)?;
-                    let result = window.resolve(context.state, context.content, galaxy, &answer);
-                    if result == crate::transactions::Traded::Resolved {
-                        let payload = crate::transactions::resolved_payload(
-                            window.parties().0,
-                            window.parties().1,
-                        );
-                        let event = context
-                            .event_sequence
-                            .next("TRANSACTION_RESOLVED", payload)?;
-                        resolver.emit_with_context(context, event, |_, _| {})?;
-                    }
+            // The card's costs are paid before the optional transaction is asked; if the
+            // transaction (or its window) fails, nothing of this use may remain.
+            let snapshot = context.state.clone();
+            let result = (|| -> Result<(), TimingError> {
+                if let Some(seat) = context.state.player_mut(&owner) {
+                    seat.exhausted_technologies.insert(TechnologyId::new(TCS));
                 }
-                Ok(())
+                crate::leaders::ready(context.state, &agent_owner, &agent);
+                if agent_owner == owner {
+                    return Ok(());
+                }
+                let (Some(galaxy), true) = (
+                    context.galaxy,
+                    crate::transactions::may_open_again(
+                        context.state,
+                        context.content,
+                        &owner,
+                        &agent_owner,
+                    ),
+                ) else {
+                    return Ok(());
+                };
+                let answer = ask(
+                    context,
+                    &owner,
+                    format!("Temporal Command Suite: perform a transaction with {agent_owner}"),
+                    TCS,
+                    "tcs_transaction",
+                    vec![ChoiceOption::labelled(
+                        "transact",
+                        "technology",
+                        format!("transact with {agent_owner}"),
+                    )],
+                )?;
+                if answer.id != "transact" {
+                    return Ok(());
+                }
+                let key = tcs_mark(&owner, &agent_owner);
+                context
+                    .state
+                    .faction_marks
+                    .insert(key.clone(), "true".to_owned());
+                let outcome = (|| -> Result<(), TimingError> {
+                    let mut window = crate::transactions::TradeWindow::open_with_content(
+                        context.state,
+                        context.content,
+                        &owner,
+                        &agent_owner,
+                    );
+                    while !window.is_complete() {
+                        let Some(choice) = window.pending_choice(context.state, context.content)
+                        else {
+                            break;
+                        };
+                        let answer = context
+                            .ask_seeing(&choice)
+                            .map_err(TimingError::IllegalChoice)?;
+                        let result =
+                            window.resolve(context.state, context.content, galaxy, &answer);
+                        if result == crate::transactions::Traded::Resolved {
+                            let payload = crate::transactions::resolved_payload(
+                                window.parties().0,
+                                window.parties().1,
+                            );
+                            let event = context
+                                .event_sequence
+                                .next("TRANSACTION_RESOLVED", payload)?;
+                            resolver.emit_with_context(context, event, |_, _| {})?;
+                        }
+                    }
+                    Ok(())
+                })();
+                context.state.faction_marks.remove(&key);
+                outcome
             })();
-            context.state.faction_marks.remove(&key);
-            outcome
+            if result.is_err() {
+                *context.state = snapshot;
+            }
+            result
         }),
     )
     .with_optional(true)
@@ -1446,6 +1457,54 @@ mod tests {
             Some(LeaderStatus::Readied)
         );
         assert!(state.transacted_with(&a()).is_empty());
+    }
+
+    #[test]
+    fn tcs_error_in_the_transaction_leaves_the_agent_and_the_card_untouched() {
+        let hub = crate::fixtures::plain_hub();
+        let mut state = game();
+        with_tcs(&mut state);
+        set_status(&mut state, &b(), "solagent", LeaderStatus::Exhausted);
+        let before = state.clone();
+        let mut table = scripted(&[TCS_ABILITY, "transact", "not-an-offered-deal"]);
+        let mut resolver = crate::fixtures::armed_resolver(&mut state);
+        let result = crate::fixtures::with_context(
+            &mut state,
+            DEFAULT,
+            Some(&hub.galaxy),
+            &mut table,
+            |ctx| {
+                let payload = [
+                    ("player".to_owned(), serde_json::Value::from("b")),
+                    ("leader".to_owned(), serde_json::Value::from("solagent")),
+                ]
+                .into_iter()
+                .collect();
+                let event = ctx
+                    .event_sequence
+                    .next(AGENT_EXHAUSTED, payload)
+                    .expect("an event id");
+                resolver.emit_with_context(ctx, event, |_, _| {})
+            },
+        );
+        assert!(result.is_err(), "an unoffered deal answer is refused");
+        assert_eq!(
+            status(&state, &b(), "solagent"),
+            Some(LeaderStatus::Exhausted),
+            "the agent is not left readied"
+        );
+        assert!(
+            !state
+                .player(&a())
+                .unwrap()
+                .exhausted_technologies
+                .contains(&TechnologyId::new(TCS)),
+            "the card is not left exhausted"
+        );
+        assert_eq!(
+            state.faction_marks, before.faction_marks,
+            "no negotiating mark remains"
+        );
     }
 
     #[test]

@@ -2720,6 +2720,7 @@ impl InvasionWindow {
         // asked at the end of the step) plays it again exactly as the first time: the same round
         // number, fresh dice, and no hit produced or assigned for the discarded roll.
         let round_before = state.combat_round_seq;
+        let mut replays = 0u32;
         let (attacker_hits, defender_hits) = loop {
             state.combat_round_seq = round_before;
             // 42.2: hits are simultaneous, so both sides roll before either loses anything.
@@ -2773,9 +2774,22 @@ impl InvasionWindow {
             ended.insert("attacker".to_owned(), self.invader.to_string().into());
             ended.insert("defender".to_owned(), defender.to_string().into());
             state.faction_marks.remove(crate::combat::ROLL_REPLAY_MARK);
-            self.emit_ground_event(state, ctx, "GROUND_COMBAT_ROLL_STEP_ENDED", ended);
+            // Emitted only when someone is listening (a readied The Thundarian). An illegal answer
+            // in its window is an error, not a skipped step: `strict_timing_error` carries it out
+            // of the round (the caller turns it into an illegal choice, and the driver restores
+            // the snapshot it took before the first die), like Round Started's.
+            if crate::factions::nomad_agents::watches_roll_step(state) {
+                if let Err(error) = ctx.emit(state, "GROUND_COMBAT_ROLL_STEP_ENDED", ended) {
+                    self.strict_timing_error = Some(error);
+                    return;
+                }
+            }
             if crate::combat::take_roll_replay(state) {
-                continue;
+                // Bounded like the space round's: past the limit the dice stand as rolled.
+                replays += 1;
+                if replays <= crate::combat::MAX_ROLL_REPLAYS {
+                    continue;
+                }
             }
             break (attacker_hits, defender_hits);
         };

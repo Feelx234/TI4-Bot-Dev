@@ -1998,6 +1998,16 @@ pub(crate) fn spend_cancellations(
     spent
 }
 
+/// Most "Roll Dice" step replays one combat round may take.
+///
+/// Each replay needs an effect to exhaust a readied card (The Thundarian), and a card readies
+/// again only through another effect (the Nomad's Temporal Command Suite, once per exhaustion of
+/// its own, or a Ssruu copy), so the rules allow a handful at most and no real game reaches
+/// this. It exists so a pathological ready/exhaust loop ends: past the limit the dice stand as
+/// rolled and the step proceeds instead of recursing without end. Chosen as 8: far above any
+/// legal chain (one agent, one TCS, one Ssruu copy per round), small enough to bound the stack.
+pub(crate) const MAX_ROLL_REPLAYS: u32 = 8;
+
 /// `faction_marks` row an effect sets to send the combat round back to the start of its "Roll Dice"
 /// step. Invisible to every seat (`private:#`).
 pub(crate) const ROLL_REPLAY_MARK: &str = "private:#combat:replay_roll";
@@ -3486,6 +3496,9 @@ pub struct CombatWindow {
     /// Each side's ships already damaged when this round's hits were queued, by unit type: the
     /// ones Duranium Armor may repair, since they did not use SUSTAIN DAMAGE this round.
     damaged_before_round: std::collections::BTreeMap<PlayerId, Vec<String>>,
+    /// "Roll Dice" step replays taken in the current round (The Thundarian); see
+    /// [`MAX_ROLL_REPLAYS`].
+    roll_replays: u32,
     /// Which stretch of hits the queue at the front is (module-produced hits resolve in queues
     /// of their own, before round 1's dice and after a round's hits).
     hit_phase: HitPhase,
@@ -3555,6 +3568,7 @@ impl CombatWindow {
                 combat_occurrence: None,
                 pending_scoring_occurrence: None,
                 damaged_before_round: std::collections::BTreeMap::new(),
+                roll_replays: 0,
                 hit_phase: HitPhase::Round,
                 fleet_at_start: std::collections::BTreeMap::new(),
                 fled: Vec::new(),
@@ -3584,6 +3598,7 @@ impl CombatWindow {
             combat_occurrence: None,
             pending_scoring_occurrence: None,
             damaged_before_round: std::collections::BTreeMap::new(),
+            roll_replays: 0,
             hit_phase: HitPhase::Round,
             fleet_at_start,
             fled: Vec::new(),
@@ -4443,10 +4458,22 @@ impl CombatWindow {
             payload.insert("attacker".to_owned(), self.attacker.to_string().into());
             payload.insert("defender".to_owned(), self.defender.to_string().into());
             state.faction_marks.remove(ROLL_REPLAY_MARK);
-            let _ = ctx.emit(state, "SPACE_COMBAT_ROLL_STEP_ENDED", payload);
-            if take_roll_replay(state) {
-                return self.roll_round(state, ctx, round);
+            // Emitted only when someone is listening (a readied The Thundarian), so a game without
+            // one allocates no event id for it. An illegal answer in its window is an error, not a
+            // skipped step: the driver restores the snapshot it took before the first die, like
+            // every other `?` in this round.
+            if crate::factions::nomad_agents::watches_roll_step(state) {
+                ctx.emit(state, "SPACE_COMBAT_ROLL_STEP_ENDED", payload)?;
             }
+            if take_roll_replay(state) {
+                // Bounded: a replay re-enters this function, so a pathological loop of re-readied
+                // agents would recurse without end. See `MAX_ROLL_REPLAYS`.
+                self.roll_replays += 1;
+                if self.roll_replays <= MAX_ROLL_REPLAYS {
+                    return self.roll_round(state, ctx, round);
+                }
+            }
+            self.roll_replays = 0;
         }
         let split = |set: &Option<RerollSet>, rolled: usize, side: &PlayerId| {
             set.as_ref().map_or((rolled, 0), |set| {

@@ -822,10 +822,8 @@ fn agent_ready(state: &GameState, owner: &PlayerId) -> bool {
 }
 
 fn exhaust_agent(state: &mut GameState, owner: &PlayerId) {
-    if let Some(seat) = state.player_mut(owner) {
-        seat.leaders
-            .insert(LeaderId::new("yinagent"), LeaderStatus::Exhausted);
-    }
+    // Through `leaders::exhaust` so a watching Nomad's Temporal Command Suite hears it.
+    crate::leaders::exhaust(state, owner, &LeaderId::new("yinagent"));
 }
 
 /// Brother Milor, a ship: "After a player's unit is destroyed during combat: You may exhaust this
@@ -2557,6 +2555,27 @@ mod tests {
                 .filter(|unit| &unit.owner == owner && unit.type_id.as_str() == "fighter")
                 .count()
         })
+    }
+
+    #[test]
+    fn brother_milor_exhausting_is_heard_by_a_watching_nomad() {
+        let (mut state, system) = arena();
+        state.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("nomad");
+        state
+            .player_mut(&b())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("tcs"));
+        emit(
+            &mut state,
+            &["leader:yin:yinagent:SHIP_DESTROYED:after"],
+            "SHIP_DESTROYED",
+            &destroyed(&system, "b", "cruiser"),
+        );
+        assert_eq!(
+            crate::supply::staged_event_types(&state),
+            ["AGENT_EXHAUSTED"]
+        );
     }
 
     #[test]

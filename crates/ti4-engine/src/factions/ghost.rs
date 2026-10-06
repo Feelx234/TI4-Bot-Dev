@@ -653,10 +653,8 @@ fn emissary_taivra(owner_name: &str, seat: &PlayerId) -> Ability {
             if !agent_usable(context.state, context.galaxy, &owner, &system) {
                 return Ok(());
             }
-            if let Some(seat) = context.state.player_mut(&owner) {
-                seat.leaders
-                    .insert(LeaderId::new("ghostagent"), LeaderStatus::Exhausted);
-            }
+            // Through `leaders::exhaust` so a watching Nomad's Temporal Command Suite hears it.
+            crate::leaders::exhaust(context.state, &owner, &LeaderId::new("ghostagent"));
             let mark = format!("{}|{system}", context.state.activation_seq);
             context
                 .state
@@ -1957,6 +1955,26 @@ mod tests {
         state.activation_seq += 1;
         state.active = Some(player.clone());
         state.active_system = Some(sys(system));
+    }
+
+    #[test]
+    fn emissary_taivra_exhausting_is_heard_by_a_watching_nomad() {
+        let mut state = ghost_game();
+        state.player_mut(&b()).unwrap().faction = ti4_model::id::FactionId::new("nomad");
+        give_technology(&mut state, &b(), "tcs");
+        let galaxy = galaxy();
+        activate(&mut state, &b(), "39");
+        emit(
+            &mut state,
+            Some(&galaxy),
+            &mut scripted(&["leader:ghost:ghostagent:SYSTEM_ACTIVATED:after"]),
+            "SYSTEM_ACTIVATED",
+            &activated("b", "39"),
+        );
+        assert_eq!(
+            crate::supply::staged_event_types(&state),
+            ["AGENT_EXHAUSTED"]
+        );
     }
 
     #[test]
