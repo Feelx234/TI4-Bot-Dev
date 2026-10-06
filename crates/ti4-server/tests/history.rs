@@ -700,6 +700,270 @@ fn movement_batch_survives_a_declined_cargo_hold_for_ground_forces_in_the_active
     );
 }
 
+/// A two-seat game at the first movement step into system 22: the host has a destroyer in each of
+/// two neighbouring systems; the guest holds Rescue ("after a player moves ships into a system that
+/// contains your ships") with a ship waiting in 22, so each ship the host moves opens the guest's
+/// SHIP_MOVED window.
+fn game_with_a_reaction_holder(
+    game_id: &str,
+    store: Arc<FileGameStore>,
+    holds_card: bool,
+) -> (GameRegistry, Arc<GameSession>, String, [String; 2]) {
+    let registry = GameRegistry::new().with_store(store);
+    let host = PlayerId::new("p1");
+    let guest = PlayerId::new("p2");
+    let players = vec![host.clone(), guest.clone()];
+    let (mut state, galaxy) =
+        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+    let neighbours: Vec<String> = galaxy
+        .adjacent("22")
+        .into_iter()
+        .map(|id| id.to_string())
+        .take(2)
+        .collect();
+    for origin in &neighbours {
+        state
+            .system_mut(&SystemId::new(origin.clone()))
+            .units
+            .push(Unit::new(UnitTypeId::new("carrier"), host.clone()));
+    }
+    state
+        .system_mut(&SystemId::new("22"))
+        .units
+        .push(Unit::new(UnitTypeId::new("destroyer"), guest.clone()));
+    // Ground forces in the active system give every carrier a cargo hold (95.1). The engine
+    // announces an arrival only when a hold was opened, so that is what opens the window.
+    state
+        .system_mut(&SystemId::new("22"))
+        .planet_units
+        .entry(ti4_model::id::PlanetId::new("tarmann"))
+        .or_default()
+        .push(Unit::new(UnitTypeId::new("infantry"), host.clone()));
+    if holds_card {
+        state.player_mut(&guest).unwrap().action_cards =
+            vec![ti4_model::id::ActionCardId::new("rescue")];
+    }
+    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let config = SessionConfig::new(game_id, state)
+        .with_seed(42)
+        .with_player_ids(players)
+        .with_galaxy(galaxy, tiles)
+        .with_seat(host.clone(), SeatController::Human)
+        .with_seat(guest, SeatController::Human);
+    let session = registry.create_game(config).unwrap();
+    let token = session.seat_tokens()[&host].clone();
+    for _ in 0..4 {
+        let (seat, nonce, version, _) = pending(&session);
+        let choice = session
+            .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+                seat.clone(),
+            ))
+            .pending_choice
+            .unwrap()
+            .choice;
+        let option = choice
+            .options
+            .iter()
+            .find(|o| o.id == "tactical" || o.id == "22")
+            .unwrap_or(&choice.options[0]);
+        session
+            .submit_choice(&seat, &nonce, version, &option.id)
+            .unwrap();
+    }
+    (
+        registry,
+        session,
+        token,
+        [neighbours[0].clone(), neighbours[1].clone()],
+    )
+}
+
+fn move_carrier(origin: &str) -> MovementStep {
+    MovementStep::Move {
+        origin: origin.into(),
+        unit: "carrier".into(),
+        damaged: false,
+    }
+}
+
+#[test]
+fn movement_batch_stops_at_a_ship_moved_reaction_and_replays_after_a_restart() {
+    let path = std::env::temp_dir().join(format!("ti4_react_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&path).unwrap());
+    let (registry, session, token, [a, b]) =
+        game_with_a_reaction_holder("react_batch", store.clone(), true);
+    let (seat, nonce, version, _) = pending(&session);
+    assert_eq!(seat, PlayerId::new("p1"));
+    let before = session.decision_log().len();
+    let request = BatchRequest {
+        request_id: "two_ships".into(),
+        expected_version: version,
+        nonce,
+        plan: MovementPlan {
+            kind: BatchKind::TacticalMovement,
+            destination: "22".into(),
+            steps: vec![move_carrier(&a), move_carrier(&b), MovementStep::DoneMoving],
+        },
+    };
+    let result = registry
+        .submit_batch("react_batch", &token, request.clone())
+        .expect("a reaction window is a boundary, not a rejection");
+    let interrupted = result.interrupted.clone().expect("structured interruption");
+    assert_eq!(interrupted.applied_steps, 1);
+    assert_eq!(interrupted.remaining_steps.len(), 2);
+    assert!(
+        interrupted
+            .offered
+            .subtype
+            .as_deref()
+            .unwrap()
+            .starts_with("reaction_")
+    );
+    assert!(!interrupted.offered.own_seat);
+    assert!(
+        interrupted.offered.option_ids.is_empty(),
+        "another seat's options stay private"
+    );
+    let live = registry.get_game("react_batch").unwrap();
+    let recorded = live.decision_log();
+    assert_eq!(
+        recorded.len(),
+        before + 2,
+        "the first move and its declined cargo hold"
+    );
+    assert_eq!(recorded.last().unwrap().chosen, "done_loading");
+    let (waiting, _, _) = live.current_pending_decision().unwrap();
+    assert_eq!(
+        waiting,
+        PlayerId::new("p2"),
+        "the reaction stays pending for its holder"
+    );
+    // A repeated request answers the same way instead of re-running anything.
+    let again = registry
+        .submit_batch("react_batch", &token, request)
+        .unwrap();
+    assert_eq!(again.batch_id, result.batch_id);
+    assert_eq!(again.interrupted.unwrap().applied_steps, 1);
+    // Recovery from disk replays the partial batch into the same log and the same pending seat.
+    let recovered = store.recover_session("react_batch").unwrap();
+    recovered.wait_replayed().unwrap();
+    assert_eq!(recovered.decision_log(), live.decision_log());
+    assert_eq!(recovered.batches().len(), 1);
+    assert_eq!(recovered.current_pending_decision().unwrap().0, waiting);
+    assert_eq!(recovered.current_state(), live.current_state());
+    recovered.stop();
+    drop(registry);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn the_remaining_plan_is_revalidated_when_it_is_sent_again_after_the_reaction() {
+    let path =
+        std::env::temp_dir().join(format!("ti4_react_resume_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&path).unwrap());
+    let (registry, session, token, [a, b]) =
+        game_with_a_reaction_holder("react_resume", store, true);
+    let (_, nonce, version, _) = pending(&session);
+    let steps = vec![move_carrier(&a), move_carrier(&b), MovementStep::DoneMoving];
+    let plan = |steps: Vec<MovementStep>| MovementPlan {
+        kind: BatchKind::TacticalMovement,
+        destination: "22".into(),
+        steps,
+    };
+    let first = registry
+        .submit_batch(
+            "react_resume",
+            &token,
+            BatchRequest {
+                request_id: "first".into(),
+                expected_version: version,
+                nonce,
+                plan: plan(steps),
+            },
+        )
+        .unwrap();
+    let remaining = first.interrupted.unwrap().remaining_steps;
+    let guest = PlayerId::new("p2");
+    // Sending the remainder while the reaction is still pending is stale, and changes nothing.
+    let live = registry.get_game("react_resume").unwrap();
+    let before = live.decision_log();
+    let (_, stale_nonce, stale_version) = live.current_pending_decision().unwrap();
+    let early = registry.submit_batch(
+        "react_resume",
+        &token,
+        BatchRequest {
+            request_id: "too_early".into(),
+            expected_version: stale_version,
+            nonce: stale_nonce,
+            plan: plan(remaining.clone()),
+        },
+    );
+    assert!(early.is_err());
+    assert_eq!(live.decision_log(), before);
+    // The holder declines; then the remainder is accepted against the fresh offers.
+    let (seat, nonce, version) = live.current_pending_decision().unwrap();
+    assert_eq!(seat, guest);
+    live.submit_choice(&guest, &nonce, version, "decline")
+        .unwrap();
+    let (seat, nonce, version, _) = pending(&registry.get_game("react_resume").unwrap());
+    assert_eq!(seat, PlayerId::new("p1"));
+    let rest = registry
+        .submit_batch(
+            "react_resume",
+            &token,
+            BatchRequest {
+                request_id: "rest".into(),
+                expected_version: version,
+                nonce,
+                plan: plan(remaining),
+            },
+        )
+        .expect("the remaining plan is legal against the current offers");
+    // The second ship's arrival opens the reaction again; the plan is interrupted once more.
+    let again = rest.interrupted.expect("the holder still has the card");
+    assert_eq!(again.applied_steps, 1);
+    assert_eq!(again.remaining_steps.len(), 1);
+    drop(registry);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn movement_batch_with_an_illegal_second_step_is_rejected_without_a_reaction_in_play() {
+    let path = std::env::temp_dir().join(format!("ti4_react_bad_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&path).unwrap());
+    let (registry, session, token, [a, _]) = game_with_a_reaction_holder("react_bad", store, false);
+    let (_, nonce, version, _) = pending(&session);
+    let before = session.decision_log();
+    let request = BatchRequest {
+        request_id: "bad_plan".into(),
+        expected_version: version,
+        nonce,
+        plan: MovementPlan {
+            kind: BatchKind::TacticalMovement,
+            destination: "22".into(),
+            steps: vec![
+                move_carrier(&a),
+                MovementStep::Move {
+                    origin: "999".into(),
+                    unit: "carrier".into(),
+                    damaged: false,
+                },
+                MovementStep::DoneMoving,
+            ],
+        },
+    };
+    let error = registry
+        .submit_batch("react_bad", &token, request)
+        .unwrap_err();
+    assert_ne!(error.reason, "stale decision boundary");
+    assert_eq!(
+        registry.get_game("react_bad").unwrap().decision_log(),
+        before
+    );
+    drop(registry);
+    std::fs::remove_dir_all(path).unwrap();
+}
+
 #[test]
 fn undo_action_rewinds_the_whole_movement_pipeline_and_preserves_redo() {
     let registry = GameRegistry::new();

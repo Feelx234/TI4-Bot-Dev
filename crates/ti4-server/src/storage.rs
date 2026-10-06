@@ -321,6 +321,9 @@ pub struct BatchRecord {
     pub actor: PlayerId,
     pub start_cursor: usize,
     pub end_cursor: usize,
+    /// Set when the batch stopped at a reaction window; answers a repeated request the same way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted: Option<crate::session::batch::BatchInterruption>,
 }
 
 /// Initial configuration record saved atomically to `init.json`.

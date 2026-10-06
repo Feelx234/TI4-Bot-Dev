@@ -416,13 +416,13 @@ pub struct BatchFailure {
 
 /// What the engine asked at a failed step. Option ids and the prompt are only filled in when
 /// the decision belongs to the batch's own seat, so another seat's private choice never leaks.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfferedDecision {
     pub subtype: Option<String>,
     pub own_seat: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub option_ids: Vec<String>,
 }
 
@@ -447,7 +447,27 @@ impl BatchFailure {
     }
 }
 
+/// A batch that stopped early because the engine opened a reaction window the plan did not
+/// plan for. The steps before it are applied and recorded; the window stays pending for its
+/// seat, and `remaining_steps` is what the client may offer to re-send once it has resolved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchInterruption {
+    /// Plan steps consumed before the interruption.
+    pub applied_steps: usize,
+    pub remaining_steps: Vec<MovementStep>,
+    /// The decision that now waits (its option ids only when it belongs to the batch's seat).
+    pub offered: OfferedDecision,
+}
+
 const MAX_REPORTED_OPTIONS: usize = 16;
+
+/// Reaction windows are answered by the player holding the card, never by a plan.
+fn is_reaction_window(choice: &Choice) -> bool {
+    choice
+        .context
+        .as_ref()
+        .is_some_and(|c| c.subtype.starts_with("reaction_"))
+}
 
 struct Script {
     prefix: VecDeque<DecisionRecord>,
@@ -461,6 +481,8 @@ struct Script {
     selected: Vec<ChoiceOption>,
     failure: Option<BatchFailure>,
     finished: bool,
+    /// Set when the batch ended at a reaction window with planned steps left over.
+    interruption: Option<BatchInterruption>,
     /// Casualty plans: the most hits a later decision of the same assignment may still owe.
     casualty_owed: Option<i64>,
 }
@@ -468,6 +490,7 @@ struct Script {
 struct PrivateDecider(Arc<Mutex<Script>>);
 
 pub struct Simulation {
+    pub interruption: Option<BatchInterruption>,
     pub decisions: Vec<DecisionRecord>,
     pub selected: Vec<ChoiceOption>,
     pub transitions: Vec<(usize, Phase, u32)>,
@@ -544,6 +567,34 @@ impl Decider for PrivateDecider {
             return answer;
         }
         if script.next == script.steps.len() {
+            script.finished = true;
+            return Err(IllegalChoice::DeciderFailed {
+                player: choice.player.clone(),
+                prompt: choice.prompt.clone(),
+                reason: "batch boundary reached".into(),
+            });
+        }
+        // A reaction window belongs to the seat that holds the card: stop here, keep what the
+        // plan already answered, and leave the window pending. The reaction decision is never
+        // recorded by this batch, so replay reaches it as the first unrecorded choice.
+        if !script.selected.is_empty()
+            && matches!(
+                script.kind,
+                BatchKind::TacticalMovement
+                    | BatchKind::AgendaVotePlanets
+                    | BatchKind::Production
+                    | BatchKind::Tokens
+            )
+            && is_reaction_window(choice)
+        {
+            let own_seat = choice.player == script.actor;
+            let applied = script.next;
+            let remaining = script.steps[applied..].to_vec();
+            script.interruption = Some(BatchInterruption {
+                applied_steps: applied,
+                remaining_steps: remaining,
+                offered: offered_decision(choice, own_seat),
+            });
             script.finished = true;
             return Err(IllegalChoice::DeciderFailed {
                 player: choice.player.clone(),
@@ -748,12 +799,25 @@ fn step_rejection(
         expected,
         offered_summary: own_options(|o| o.kind.clone()),
         planned_steps,
-        offered: Some(Box::new(OfferedDecision {
-            subtype,
-            own_seat,
-            prompt: own_seat.then(|| choice.prompt.clone()),
-            option_ids: own_options(|o| o.id.clone()),
-        })),
+        offered: Some(Box::new(offered_decision(choice, own_seat))),
+    }
+}
+
+fn offered_decision(choice: &Choice, own_seat: bool) -> OfferedDecision {
+    OfferedDecision {
+        subtype: choice.context.as_ref().map(|c| c.subtype.clone()),
+        own_seat,
+        prompt: own_seat.then(|| choice.prompt.clone()),
+        option_ids: if own_seat {
+            choice
+                .options
+                .iter()
+                .take(MAX_REPORTED_OPTIONS)
+                .map(|o| o.id.clone())
+                .collect()
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -897,6 +961,7 @@ fn simulate_script(
         selected: Vec::new(),
         failure: None,
         finished: false,
+        interruption: None,
         casualty_owed: None,
     }));
     let table = Table::with_default(Box::new(PrivateDecider(script.clone())));
@@ -943,7 +1008,9 @@ fn simulate_script(
             ));
         }
         if guard.finished || result.finished {
-            if guard.next != guard.steps.len() || !guard.prefix.is_empty() {
+            if (guard.next != guard.steps.len() && guard.interruption.is_none())
+                || !guard.prefix.is_empty()
+            {
                 return Err(BatchFailure::new(
                     guard.next,
                     "game ended before plan completed",
@@ -962,6 +1029,7 @@ fn simulate_script(
                 .then(|| ti4_engine::objectives::leader(&game.state))
                 .flatten();
             return Ok(Simulation {
+                interruption: guard.interruption.clone(),
                 decisions: game.table.log.records[prefix.len()..].to_vec(),
                 selected: guard.selected.clone(),
                 transitions,
@@ -1053,6 +1121,7 @@ mod tests {
             selected: Vec::new(),
             failure: None,
             finished: false,
+            interruption: None,
             casualty_owed: None,
         })))
     }
@@ -1303,6 +1372,161 @@ mod tests {
         );
     }
 
+    fn reaction(subtype: &str, seat: &str) -> Choice {
+        let mut choice = offered(
+            subtype,
+            vec![
+                ChoiceOption::labelled("play_card", "ability", "Play a card"),
+                ChoiceOption::decline(),
+            ],
+        );
+        choice.player = PlayerId::new(seat);
+        choice
+    }
+
+    #[test]
+    fn movement_stops_at_a_ship_moved_reaction_and_keeps_the_applied_steps() {
+        let mv = |origin: &str| MovementStep::Move {
+            origin: origin.into(),
+            unit: "carrier".into(),
+            damaged: false,
+        };
+        for seat in ["p1", "p2"] {
+            let mut decider = decider(
+                BatchKind::TacticalMovement,
+                vec![mv("20"), mv("21"), MovementStep::DoneMoving],
+            );
+            let mut option = ChoiceOption::labelled("move|20|0", "move", "Carrier");
+            option.payload.insert("origin".into(), "20".into());
+            option.payload.insert("unit".into(), "carrier".into());
+            assert_eq!(
+                decider
+                    .choose(&offered("movement_step", vec![option]))
+                    .unwrap()
+                    .id,
+                "move|20|0"
+            );
+            let window = reaction("reaction_after_SHIP_MOVED", seat);
+            assert!(decider.choose(&window).is_err());
+            let script = decider.0.lock().unwrap();
+            assert!(
+                script.failure.is_none(),
+                "a reaction is a boundary, not a rejection"
+            );
+            assert!(script.finished);
+            let stop = script.interruption.as_ref().expect("interruption recorded");
+            assert_eq!(stop.applied_steps, 1);
+            assert_eq!(stop.remaining_steps.len(), 2);
+            assert_eq!(stop.offered.own_seat, seat == "p1");
+            assert_eq!(
+                stop.offered.option_ids.is_empty(),
+                seat != "p1",
+                "another seat's options stay private"
+            );
+            assert_eq!(script.selected.len(), 1);
+        }
+    }
+
+    #[test]
+    fn vote_stops_at_a_votes_cast_reaction() {
+        let planet = |id: &str| MovementStep::VotePlanet { planet: id.into() };
+        let mut decider = decider(
+            BatchKind::AgendaVotePlanets,
+            vec![
+                planet("jord"),
+                planet("arc_prime"),
+                MovementStep::DoneVoting,
+            ],
+        );
+        let ask = offered(
+            "vote_exhaust_planet",
+            vec![ChoiceOption::labelled("jord", "vote_planet", "Jord")],
+        );
+        assert_eq!(decider.choose(&ask).unwrap().id, "jord");
+        assert!(
+            decider
+                .choose(&reaction("reaction_after_VOTES_CAST", "p1"))
+                .is_err()
+        );
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        let stop = script.interruption.as_ref().unwrap();
+        assert_eq!(stop.applied_steps, 1);
+        assert_eq!(stop.remaining_steps.len(), 2);
+    }
+
+    #[test]
+    fn a_reaction_before_any_step_is_applied_still_rejects_the_plan() {
+        let mut decider = decider(
+            BatchKind::AgendaVotePlanets,
+            vec![MovementStep::VotePlanet {
+                planet: "jord".into(),
+            }],
+        );
+        assert!(
+            decider
+                .choose(&reaction("reaction_after_VOTES_CAST", "p1"))
+                .is_err()
+        );
+        let script = decider.0.lock().unwrap();
+        assert!(script.interruption.is_none());
+        assert_eq!(
+            script.failure.as_ref().unwrap().reason,
+            "workflow interrupted"
+        );
+    }
+
+    #[test]
+    fn a_spent_plan_meeting_a_reaction_is_a_plain_boundary() {
+        let mut decider = decider(
+            BatchKind::AgendaVotePlanets,
+            vec![MovementStep::VotePlanet {
+                planet: "jord".into(),
+            }],
+        );
+        let ask = offered(
+            "vote_exhaust_planet",
+            vec![ChoiceOption::labelled("jord", "vote_planet", "Jord")],
+        );
+        decider.choose(&ask).unwrap();
+        assert!(
+            decider
+                .choose(&reaction("reaction_after_VOTES_CAST", "p1"))
+                .is_err()
+        );
+        let script = decider.0.lock().unwrap();
+        assert!(script.interruption.is_none(), "nothing was left over");
+        assert!(script.finished);
+    }
+
+    #[test]
+    fn a_non_reaction_surprise_still_rejects_the_plan() {
+        let mut decider = decider(
+            BatchKind::AgendaVotePlanets,
+            vec![
+                MovementStep::VotePlanet {
+                    planet: "jord".into(),
+                },
+                MovementStep::VotePlanet {
+                    planet: "arc_prime".into(),
+                },
+            ],
+        );
+        let ask = offered(
+            "vote_exhaust_planet",
+            vec![ChoiceOption::labelled("jord", "vote_planet", "Jord")],
+        );
+        decider.choose(&ask).unwrap();
+        let other = offered(
+            "ready_planet",
+            vec![ChoiceOption::labelled("jord", "ready", "Jord")],
+        );
+        assert!(decider.choose(&other).is_err());
+        let script = decider.0.lock().unwrap();
+        assert!(script.interruption.is_none());
+        assert!(script.failure.is_some());
+    }
+
     fn hit_option(id: &str, kind: &str, unit: &str, damaged: bool) -> ChoiceOption {
         let mut option = ChoiceOption::labelled(id, kind, format!("{kind} {unit}"));
         option.payload.insert("unit".into(), unit.into());
@@ -1470,7 +1694,10 @@ mod tests {
         );
         assert!(decider.choose(&ask).is_err());
         let script = decider.0.lock().unwrap();
-        assert_eq!(script.failure.as_ref().unwrap().reason, "option unavailable");
+        assert_eq!(
+            script.failure.as_ref().unwrap().reason,
+            "option unavailable"
+        );
     }
 
     #[test]
@@ -1588,7 +1815,11 @@ mod tests {
     fn token_plan_places_each_token_into_the_planned_pool_in_order() {
         let mut decider = decider(
             BatchKind::Tokens,
-            vec![pool("fleet_tokens"), pool("fleet_tokens"), pool("tactic_tokens")],
+            vec![
+                pool("fleet_tokens"),
+                pool("fleet_tokens"),
+                pool("tactic_tokens"),
+            ],
         );
         assert_eq!(decider.choose(&gain_ask()).unwrap().id, "fleet_tokens");
         assert_eq!(decider.choose(&gain_ask()).unwrap().id, "fleet_tokens");
@@ -1596,16 +1827,25 @@ mod tests {
         // The plan is spent: the next question, whatever it is, ends the batch cleanly.
         assert!(decider.choose(&gain_ask()).is_err());
         let script = decider.0.lock().unwrap();
-        assert!(script.failure.is_none(), "an exhausted plan is a boundary, not a failure");
+        assert!(
+            script.failure.is_none(),
+            "an exhausted plan is a boundary, not a failure"
+        );
         assert!(script.finished);
         assert_eq!(script.selected.len(), 3);
     }
 
     #[test]
     fn token_plan_is_interrupted_when_the_engine_asks_something_else() {
-        let mut decider = decider(BatchKind::Tokens, vec![pool("tactic_tokens"), pool("fleet_tokens")]);
+        let mut decider = decider(
+            BatchKind::Tokens,
+            vec![pool("tactic_tokens"), pool("fleet_tokens")],
+        );
         assert_eq!(decider.choose(&gain_ask()).unwrap().id, "tactic_tokens");
-        let other = offered("ready_planet", vec![ChoiceOption::labelled("jord", "ready", "Jord")]);
+        let other = offered(
+            "ready_planet",
+            vec![ChoiceOption::labelled("jord", "ready", "Jord")],
+        );
         assert!(decider.choose(&other).is_err());
         assert!(
             decider.0.lock().unwrap().failure.is_some(),

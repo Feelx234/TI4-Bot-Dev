@@ -231,6 +231,10 @@ pub struct BatchResult {
     pub start_cursor: usize,
     pub end_cursor: usize,
     pub active: bool,
+    /// Present when the batch stopped early at a reaction window; the rest of the plan was not
+    /// applied and the window is pending for its seat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interrupted: Option<crate::session::batch::BatchInterruption>,
     pub snapshot: InitialSnapshotMsg,
 }
 
@@ -739,6 +743,7 @@ impl GameRegistry {
                 start_cursor: batch.start_cursor,
                 end_cursor: batch.end_cursor,
                 active: batch.end_cursor <= session.decision_log().len(),
+                interrupted: batch.interrupted.clone(),
                 snapshot: session.get_snapshot(&ViewerRole::Player(actor)),
             });
         }
@@ -930,6 +935,7 @@ impl GameRegistry {
             actor: actor.clone(),
             start_cursor,
             end_cursor,
+            interrupted: simulation.interruption.clone(),
         });
         let revision = request.expected_version.checked_add(1).ok_or_else(|| {
             BatchError::explained("version exhausted", "the game version counter is exhausted")
@@ -1011,6 +1017,7 @@ impl GameRegistry {
             start_cursor,
             end_cursor,
             active: true,
+            interrupted: simulation.interruption,
             snapshot: replacement.get_snapshot(&ViewerRole::Player(actor)),
         })
     }
