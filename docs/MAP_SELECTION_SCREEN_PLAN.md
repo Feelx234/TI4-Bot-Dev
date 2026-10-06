@@ -304,3 +304,18 @@ Phases 1 and 2 can ship behind no UI change; phases 3 and 4 make it visible. Pha
    final?
 8. **Host leaving:** is a host-transfer feature wanted soon? It is out of scope here but affects how
    stuck a lobby can get.
+
+## 13. Decisions (2026-10-06)
+
+The user accepted the plan's recommended defaults for all open questions in section 12. In
+practice that means:
+
+- The picker is a step that opens automatically for the host after creating the lobby and stays
+  editable until Start (section 1), not a hard blocking step.
+- The game seed is never shown to players (section 1, decision 1); the picker uses a server-held
+  map choice and preview tiles. The advanced Seed input is therefore not offered to players.
+- Previews come from the server and only templates that build for the player count are listed
+  (section 1, decisions 2 and 3); the server decides the list, the UI does not hard-code one.
+- Questions 2, 4, 6, 7 and 8 take the choice the plan marks as recommended or phase-gated;
+  where the plan gives no explicit default, keep the smaller option (no vote, host choice is
+  final, no host transfer yet, picture without balance numbers) and revisit after phase 1.
