@@ -17,6 +17,8 @@ import {
 } from "../presentation/planetSelection.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { StructureInfo } from "./SystemFactsView.tsx";
+import { UnitAbilityOptionNote } from "./UnitAbilityParts.tsx";
+import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts";
 import "./SystemFacts.css";
 
 export interface PlanetSelectionBarProps {
@@ -165,6 +167,14 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
     const planetId = optionPlanetId(option);
     if (!planetId) return capitalize(optionActionLabel(option, sourceLabel));
     const planet = getPlanetDetails(planetId, boardView);
+    const ability = describeUnitAbilityOption(choice, option, boardView);
+    if (ability) {
+      return (
+        <>
+          {ability.title} {option.id.startsWith("transit|") ? "to" : "on"} <strong>{planet.name}</strong>
+        </>
+      );
+    }
     if (isSpecificOptionLabel(option, sourceLabel, planet))
       return withPlanetEmphasis(optionActionLabel(option, sourceLabel), planet);
     return (
@@ -262,6 +272,8 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
             </div>
           </div>
         ) : null}
+
+        {activeOption && <UnitAbilityOptionNote choice={choice} option={activeOption} board={boardView} />}
 
         {choice.context?.subtype === "place_structure" && activePlanetId && (
           <StructureInfo planetId={activePlanetId} board={boardView} />

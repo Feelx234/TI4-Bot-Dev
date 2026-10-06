@@ -17,6 +17,8 @@ import { CommandTokenPanel } from "./CommandTokenPanel.tsx";
 import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
 import { SystemPickConfirmBar, SystemPickMapButton, SystemPickOptionFacts } from "./SystemPickParts.tsx";
 import { RemoveUnitPanel, RemoveUnitOptionNote } from "./RemoveUnitParts.tsx";
+import { UnitAbilityOptionNote } from "./UnitAbilityParts.tsx";
+import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts";
 import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
 
@@ -417,7 +419,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                       />
                       <div>
                         <div style={{ fontWeight: 600, color: isChecked ? "#38bdf8" : "#e2e8f0" }}>
-                          {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? opt.label)}
+                          {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? opt.label)}
                         </div>
                         {handCard?.badge && (
                           <div className="card-option__badge" data-testid="card-option-badge">
@@ -439,6 +441,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                             <p>{card.secondaryText || "No printed text available."}</p>
                           </div>
                         )}
+                        <UnitAbilityOptionNote choice={choice} option={opt} board={boardView} />
                         <RemoveUnitOptionNote choice={choice} option={opt} board={boardView} />
                         <PoliticsOptionNote choice={choice} option={opt} />
                         <SystemPickOptionFacts choice={choice} optionId={opt.id} board={boardView} />

@@ -253,4 +253,34 @@ describe("PlanetSelectionBar", () => {
     expect(onSelectOption).toHaveBeenCalledWith("");
     expect(screen.getByTestId("planet-option-pds|26|lodor")).toBeInTheDocument();
   });
+
+  it("names the mech, the planet and the cost for Orbital Drop and keeps confirm and pass", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const drop: PendingChoiceDto = {
+      nonce: "od1",
+      actor: "p1",
+      prompt: "Orbital Drop: deploy a mech on lodor",
+      context: { subtype: "orbital_drop_deploy_mech", optional: true },
+      options: [
+        {
+          id: "deploy|sol_mech|1",
+          kind: "produce",
+          label: "deploy 1 sol_mech for 3 resources",
+          payload: { unit: "sol_mech", count: 1, cost: 3, system: "26", planet: "lodor", orbital_drop_deploy: true },
+        },
+        { id: "decline", kind: "decline", label: "Pass" },
+      ],
+    };
+    render(
+      <PlanetSelectionBar choice={drop} viewerSeat="p1" boardView={board} onSubmit={onSubmit} />,
+    );
+    fireEvent.click(screen.getByTestId("planet-chip-lodor"));
+    const bar = screen.getByTestId("planet-selection-bar");
+    expect(bar).toHaveTextContent("Deploy Mech");
+    expect(bar).toHaveTextContent("Lodor");
+    expect(bar).not.toHaveTextContent("sol_mech");
+    expect(screen.getByTestId("unit-ability-note")).toHaveTextContent("Cost: 3 resources");
+    fireEvent.click(screen.getByTestId("confirm-planet-btn"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("deploy|sol_mech|1"));
+  });
 });
