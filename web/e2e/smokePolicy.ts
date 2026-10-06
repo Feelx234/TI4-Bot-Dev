@@ -13,8 +13,21 @@ export interface PolicyCandidate {
 export function preferPayment<T extends PolicyCandidate>(candidates: T[]): T[] {
   const confirm = candidates.find((c) => /^confirm-payment-btn\b/.test(c.desc));
   if (confirm) return [confirm];
-  const kept = candidates.filter((c) => !(c.checked && /^planet-card-/.test(c.desc)));
+  const kept = candidates.filter(
+    (c) => !(c.checked && /^planet-card-/.test(c.desc)),
+  );
   return kept.length ? kept : candidates;
+}
+
+/**
+ * Hit assignment: once every hit is staged ("Confirm hits" is enabled), confirm. Otherwise any
+ * staging control, so random play still spreads hits over different ships.
+ */
+export function preferHitConfirm<T extends PolicyCandidate>(
+  candidates: T[],
+): T[] {
+  const confirm = candidates.find((c) => /^hit-confirm\b/.test(c.desc));
+  return confirm ? [confirm] : candidates;
 }
 
 // Steering weights, first match wins; anything unmatched weighs 1. They push random play toward
@@ -67,7 +80,9 @@ const STRONG = 50;
  * option, so submitting before choosing takes it: the custodians dialog lists "no" first, and a
  * 35% chance of an early submit kept the custodians on Mecatol.
  */
-export function strongUnselected<T extends PolicyCandidate>(stages: T[]): T | undefined {
+export function strongUnselected<T extends PolicyCandidate>(
+  stages: T[],
+): T | undefined {
   return stages.find((c) => !c.checked && steerWeight(c.desc) >= STRONG);
 }
 

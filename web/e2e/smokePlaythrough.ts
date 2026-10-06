@@ -1,10 +1,20 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
-import { createStartedGame, gameSnapshot, openPlayerGame } from "./lobbyHelpers";
+import {
+  expect,
+  type APIRequestContext,
+  type Browser,
+  type Page,
+} from "@playwright/test";
+import {
+  createStartedGame,
+  gameSnapshot,
+  openPlayerGame,
+} from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
 import {
   activationWeight,
+  preferHitConfirm,
   preferPayment,
   steerWeight as policySteerWeight,
   strongUnselected,
@@ -79,6 +89,7 @@ const ERROR_BANNERS = [
   "planet-selection-error",
   "reaction-error-badge",
   "combat-error-banner",
+  "hit-assignment-error",
 ];
 
 // Controls that hide the decision or rewrite history; clicking them never advances the game.
@@ -124,7 +135,8 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
       const covered = (rect: DOMRect, el: Element) => {
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
-        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight)
+          return false;
         const hit = document.elementFromPoint(x, y);
         return hit !== null && !el.contains(hit);
       };
@@ -150,29 +162,37 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
         )
         .forEach((el) => found.add(el));
       for (const id of containers) {
-        document.querySelectorAll(`[data-testid="${id}"]`).forEach((container) => {
-          container
-            .querySelectorAll(
-              'button, [role="button"], input[type="checkbox"], input[type="radio"], [data-testid="choice-option"], [data-selectable="true"]',
-            )
-            .forEach((el) => {
-              // A choice option label already covers its inner radio or checkbox.
-              if (
-                el.closest('[data-testid="choice-option"]') !== el &&
-                el.closest('[data-testid="choice-option"]')
+        document
+          .querySelectorAll(`[data-testid="${id}"]`)
+          .forEach((container) => {
+            container
+              .querySelectorAll(
+                'button, [role="button"], input[type="checkbox"], input[type="radio"], [data-testid="choice-option"], [data-selectable="true"]',
               )
-                return;
-              found.add(el);
-            });
-        });
+              .forEach((el) => {
+                // A choice option label already covers its inner radio or checkbox.
+                if (
+                  el.closest('[data-testid="choice-option"]') !== el &&
+                  el.closest('[data-testid="choice-option"]')
+                )
+                  return;
+                found.add(el);
+              });
+          });
       }
-      const out: { idx: number; desc: string; full: string; resume: boolean; checked: boolean }[] =
-        [];
+      const out: {
+        idx: number;
+        desc: string;
+        full: string;
+        resume: boolean;
+        checked: boolean;
+      }[] = [];
       let idx = 0;
       for (const el of found) {
         if (!visible(el) || !enabled(el)) continue;
         // An unlabeled checkbox or radio is described by the label that wraps it.
-        const named = el instanceof HTMLInputElement ? (el.closest("label") ?? el) : el;
+        const named =
+          el instanceof HTMLInputElement ? (el.closest("label") ?? el) : el;
         const testId = named.getAttribute("data-testid") ?? "";
         const label = named.getAttribute("aria-label") ?? "";
         const fullText = (named.textContent ?? "").trim().replace(/\s+/g, " ");
@@ -217,13 +237,18 @@ function shipMove(unitType: string): number {
  * holding another player's units. The UI does not show reachability, so this reads the actor's
  * board view.
  */
-function activationWeights(board: BoardView, actor: string): Map<string, number> {
+function activationWeights(
+  board: BoardView,
+  actor: string,
+): Map<string, number> {
   const tiles = new Map((board.map_tiles ?? []).map((t) => [t.system_id, t]));
   const fleets = Object.values(board.systems).flatMap((sys) => {
     const tile = tiles.get(sys.system_id);
     const move = Math.max(
       0,
-      ...sys.units.filter((u) => u.owner === actor && !u.planet).map((u) => shipMove(u.unit_type)),
+      ...sys.units
+        .filter((u) => u.owner === actor && !u.planet)
+        .map((u) => shipMove(u.unit_type)),
     );
     return tile && move > 0 ? [{ tile, move }] : [];
   });
@@ -231,18 +256,24 @@ function activationWeights(board: BoardView, actor: string): Map<string, number>
   for (const [id, tile] of tiles) {
     const reachable = fleets.some(({ tile: f, move }) => {
       const distance =
-        (Math.abs(f.q - tile.q) + Math.abs(f.r - tile.r) + Math.abs(f.q + f.r - tile.q - tile.r)) /
+        (Math.abs(f.q - tile.q) +
+          Math.abs(f.r - tile.r) +
+          Math.abs(f.q + f.r - tile.q - tile.r)) /
         2;
       // Ships already in the active system cannot move, so distance 0 does not count.
       return distance > 0 && distance <= move;
     });
-    const enemies = board.systems[id]?.units.some((u) => u.owner !== actor) ?? false;
+    const enemies =
+      board.systems[id]?.units.some((u) => u.owner !== actor) ?? false;
     const inPlace =
       id === "18" &&
       (board.systems[id]?.units.some(
         // Still in space: once landed on the planet the custodians are gone and there is nothing
         // left to do in place.
-        (u) => u.owner === actor && !u.planet && /infantry|mech|spec_ops/i.test(u.unit_type),
+        (u) =>
+          u.owner === actor &&
+          !u.planet &&
+          /infantry|mech|spec_ops/i.test(u.unit_type),
       ) ??
         false);
     weights.set(id, activationWeight(id, reachable, enemies, inPlace));
@@ -256,7 +287,11 @@ function steerWeight(desc: string, hexWeights: Map<string, number>): number {
   return policySteerWeight(desc);
 }
 
-function weightedPick(pool: Candidate[], weight: (c: Candidate) => number, rng: () => number) {
+function weightedPick(
+  pool: Candidate[],
+  weight: (c: Candidate) => number,
+  rng: () => number,
+) {
   const weights = pool.map(weight);
   let roll = rng() * weights.reduce((a, b) => a + b, 0);
   for (const [i, w] of weights.entries()) {
@@ -273,7 +308,7 @@ function pick(
   policy: "random" | "steer",
   hexWeights: Map<string, number>,
 ): Candidate {
-  candidates = preferPayment(candidates);
+  candidates = preferHitConfirm(preferPayment(candidates));
   const resume = candidates.filter((c) => c.resume);
   if (resume.length) return resume[Math.floor(rng() * resume.length)];
   const unstage = candidates.filter((c) => c.unstage);
@@ -286,20 +321,34 @@ function pick(
   const blocked = !forward.some((c) => c.commit);
   if (
     unstage.length &&
-    (!forward.length || (blocked && rng() < 0.1) || (clicks >= 10 && rng() < 0.2))
+    (!forward.length ||
+      (blocked && rng() < 0.1) ||
+      (clicks >= 10 && rng() < 0.2))
   )
-    return weightedPick(unstage, (c) => (/cargo|decrement|remove/i.test(c.desc) ? 5 : 0.5), rng);
+    return weightedPick(
+      unstage,
+      (c) => (/cargo|decrement|remove/i.test(c.desc) ? 5 : 0.5),
+      rng,
+    );
   const commits = forward.filter((c) => c.commit);
   const stages = forward.filter((c) => !c.commit);
-  const strong = policy === "steer" ? strongUnselected(stages.map((c) => ({ ...c, desc: c.full }))) : undefined;
+  const strong =
+    policy === "steer"
+      ? strongUnselected(stages.map((c) => ({ ...c, desc: c.full })))
+      : undefined;
   if (strong) return stages.find((c) => c.idx === strong.idx) ?? strong;
   // Stage a few selections first, then lean toward submitting as the decision drags on. Steered
   // fleet and landing trays stage longer so ships and ground forces actually move.
-  const staging = policy === "steer" && stages.some((c) => /^rally-inc-| in space/i.test(c.full));
+  const staging =
+    policy === "steer" &&
+    stages.some((c) => /^rally-inc-| in space/i.test(c.full));
   const commitChance = staging
     ? Math.min(0.05 + 0.08 * clicks, 0.9)
     : Math.min(0.35 + 0.15 * clicks, 0.9);
-  const pool = commits.length && (!stages.length || rng() < commitChance) ? commits : stages;
+  const pool =
+    commits.length && (!stages.length || rng() < commitChance)
+      ? commits
+      : stages;
   if (policy === "random") return pool[Math.floor(rng() * pool.length)];
   return weightedPick(pool, (c) => steerWeight(c.full, hexWeights), rng);
 }
@@ -347,14 +396,18 @@ export async function randomUiPlaythrough(
   for (const [index, player] of players.entries()) {
     const context = await browser.newContext();
     const page = await context.newPage();
-    page.on("pageerror", (err) => browserErrors.push(`[seat ${index + 1}] ${err.message}`));
+    page.on("pageerror", (err) =>
+      browserErrors.push(`[seat ${index + 1}] ${err.message}`),
+    );
     const frames: string[] = (wsFrames[index] = []);
     page.on("websocket", (ws) => {
       ws.on("framesent", ({ payload }) => {
         try {
           const m = JSON.parse(String(payload));
           if (m.type === "ping") return;
-          frames.push(`SENT ${m.type} nonce=${String(m.nonce ?? "").slice(0, 6)} option=${m.option_id ?? ""} v${m.expected_version ?? "?"}`);
+          frames.push(
+            `SENT ${m.type} nonce=${String(m.nonce ?? "").slice(0, 6)} option=${m.option_id ?? ""} v${m.expected_version ?? "?"}`,
+          );
         } catch {
           frames.push("SENT unparsed frame");
         }
@@ -376,8 +429,8 @@ export async function randomUiPlaythrough(
     page.on("console", (msg) => {
       if (msg.type() !== "error") return;
       const url = msg.location().url ?? "";
-      // The optional battle advisor (/battle) is not started for e2e runs.
-      if (url.includes("favicon") || url.includes("/battle")) return;
+      // The optional battle advisor (/battle, /ground_odds) is not started for e2e runs.
+      if (url.includes("favicon") || url.includes("/battle") || url.includes("/ground_odds")) return;
       browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}`);
     });
     // The console only reports a status code; keep the server's reason for failed API calls.
@@ -408,7 +461,9 @@ export async function randomUiPlaythrough(
   const trace = (file: string, data: unknown, append = false) => {
     if (!options.traceDir) return;
     const path = join(options.traceDir, file);
-    const text = append ? `${JSON.stringify(data)}\n` : JSON.stringify(data, null, 2);
+    const text = append
+      ? `${JSON.stringify(data)}\n`
+      : JSON.stringify(data, null, 2);
     if (append) appendFileSync(path, text);
     else writeFileSync(path, text);
   };
@@ -421,18 +476,33 @@ export async function randomUiPlaythrough(
   const writeFinal = async () => {
     if (!options.traceDir) return;
     trace("report.json", report);
-    const snapshot = await gameSnapshot(request, gameId, players[0].session).catch(() => null);
+    const snapshot = await gameSnapshot(
+      request,
+      gameId,
+      players[0].session,
+    ).catch(() => null);
     if (snapshot) trace("final-snapshot.json", snapshot);
   };
 
-  const fail = async (page: Page | undefined, message: string): Promise<never> => {
-    const status = await gameSnapshot(request, gameId, players[0].session).catch(() => null);
+  const fail = async (
+    page: Page | undefined,
+    message: string,
+  ): Promise<never> => {
+    const status = await gameSnapshot(
+      request,
+      gameId,
+      players[0].session,
+    ).catch(() => null);
     const seatIndex = page ? pages.indexOf(page) : -1;
     const frames =
-      seatIndex >= 0 ? `\nws frames seat ${seatIndex + 1} (newest last):\n${wsFrames[seatIndex].join("\n")}` : "";
+      seatIndex >= 0
+        ? `\nws frames seat ${seatIndex + 1} (newest last):\n${wsFrames[seatIndex].join("\n")}`
+        : "";
     const detail = `${message}\nreport: ${JSON.stringify({ ...report, finalStatus: status?.turn_status })}${frames}`;
     if (page)
-      await page.screenshot({ path: `test-results/smoke-failure-${gameId}.png` }).catch(() => {});
+      await page
+        .screenshot({ path: `test-results/smoke-failure-${gameId}.png` })
+        .catch(() => {});
     trace("failure.txt", detail);
     await writeFinal();
     throw new Error(detail);
@@ -442,7 +512,10 @@ export async function randomUiPlaythrough(
   while (report.decisions < options.maxDecisions) {
     // Through `fail` so the trace (failure.txt, report.json) is written for browser errors too.
     if (browserErrors.length)
-      await fail(undefined, `browser errors during playthrough:\n${browserErrors.join("\n")}`);
+      await fail(
+        undefined,
+        `browser errors during playthrough:\n${browserErrors.join("\n")}`,
+      );
     const state = await gameSnapshot(request, gameId, players[0].session);
     const status = state.turn_status;
     report.finalStatus = status;
@@ -454,13 +527,22 @@ export async function randomUiPlaythrough(
       report.roundStarts[status.round] = report.decisions;
       log(`round ${status.round} reached after ${report.decisions} decisions`);
     }
-    if (options.stopAtRound !== undefined && status.round >= options.stopAtRound) break;
+    if (
+      options.stopAtRound !== undefined &&
+      status.round >= options.stopAtRound
+    )
+      break;
     if (status.kind !== "waiting_for_decision") {
       // Nothing to click; the server should move on by itself.
       const moved = await expect
-        .poll(async () => (await gameSnapshot(request, gameId, players[0].session)).game_version, {
-          timeout: 10_000,
-        })
+        .poll(
+          async () =>
+            (await gameSnapshot(request, gameId, players[0].session))
+              .game_version,
+          {
+            timeout: 10_000,
+          },
+        )
         .toBeGreaterThan(state.game_version)
         .then(() => true)
         .catch(() => false);
@@ -468,25 +550,38 @@ export async function randomUiPlaythrough(
         // The game may have ended (objective decks exhausted) after the snapshot above was taken.
         const latest = await gameSnapshot(request, gameId, players[0].session);
         if (latest.turn_status.kind === "game_over") continue;
-        await fail(undefined, `game idle without a decision: ${JSON.stringify(status)}`);
+        await fail(
+          undefined,
+          `game idle without a decision: ${JSON.stringify(status)}`,
+        );
       }
       continue;
     }
 
     const actorIndex = players.findIndex((p) => p.id === status.seat);
-    if (actorIndex < 0) await fail(undefined, `decision for unknown seat ${status.seat}`);
+    if (actorIndex < 0)
+      await fail(undefined, `decision for unknown seat ${status.seat}`);
     const page = pages[actorIndex];
-    const actorState = await gameSnapshot(request, gameId, players[actorIndex].session);
+    const actorState = await gameSnapshot(
+      request,
+      gameId,
+      players[actorIndex].session,
+    );
     const choice = actorState.pending_choice?.choice;
     // The status was read before the offer moved on (e.g. to the secondary of a strategy card); re-poll.
     if (!choice) {
       if (++noChoicePolls > 40)
-        await fail(undefined, `seat ${status.seat} is waiting but has no pending choice: ${JSON.stringify(status)}`);
+        await fail(
+          undefined,
+          `seat ${status.seat} is waiting but has no pending choice: ${JSON.stringify(status)}`,
+        );
       await new Promise((resolve) => setTimeout(resolve, 100));
       continue;
     }
     noChoicePolls = 0;
-    const subtype = choice?.context?.subtype ?? `prompt:${choice?.prompt.slice(0, 40) ?? "none"}`;
+    const subtype =
+      choice?.context?.subtype ??
+      `prompt:${choice?.prompt.slice(0, 40) ?? "none"}`;
     const before = actorState.game_version;
     const hexWeights =
       options.policy === "steer" && subtype === "activate_system"
@@ -502,11 +597,17 @@ export async function randomUiPlaythrough(
         phase: status.phase,
         seat: actorIndex + 1,
         player: players[actorIndex].id,
-        faction: actorState.view.players?.find((p) => p.id === players[actorIndex].id)?.faction,
+        faction: actorState.view.players?.find(
+          (p) => p.id === players[actorIndex].id,
+        )?.faction,
         subtype,
         source: choice?.context?.source ?? null,
         prompt: choice?.prompt,
-        options: choice?.options.map((o) => ({ id: o.id, kind: o.kind, label: o.label })),
+        options: choice?.options.map((o) => ({
+          id: o.id,
+          kind: o.kind,
+          label: o.label,
+        })),
       },
       true,
     );
@@ -515,7 +616,9 @@ export async function randomUiPlaythrough(
     await expect
       .poll(() => uiVersion(page), { timeout: 10_000 })
       .toBeGreaterThanOrEqual(before)
-      .catch(() => fail(page, `seat ${actorIndex + 1} UI never reached v${before}`));
+      .catch(() =>
+        fail(page, `seat ${actorIndex + 1} UI never reached v${before}`),
+      );
 
     let progressed = false;
     let emptyPolls = 0;
@@ -536,18 +639,31 @@ export async function randomUiPlaythrough(
           );
         }
         await page.waitForTimeout(100);
-        if ((await gameSnapshot(request, gameId, players[0].session)).game_version > before) {
+        if (
+          (await gameSnapshot(request, gameId, players[0].session))
+            .game_version > before
+        ) {
           progressed = true;
           break;
         }
         continue;
       }
-      const chosen = pick(candidates, clicks, rng, options.policy ?? "random", hexWeights);
-      log(`#${report.decisions} ${subtype} seat${actorIndex + 1} click ${chosen.desc}`);
+      const chosen = pick(
+        candidates,
+        clicks,
+        rng,
+        options.policy ?? "random",
+        hexWeights,
+      );
+      log(
+        `#${report.decisions} ${subtype} seat${actorIndex + 1} click ${chosen.desc}`,
+      );
       await page
         .locator(`[data-smoke-idx="${chosen.idx}"]`)
         .click({ timeout: 2_000 })
-        .catch((err: Error) => log(`  click failed: ${err.message.split("\n")[0]}`));
+        .catch((err: Error) =>
+          log(`  click failed: ${err.message.split("\n")[0]}`),
+        );
       clicks++;
       report.clicks++;
 
@@ -558,7 +674,11 @@ export async function randomUiPlaythrough(
           .poll(() => uiVersion(page), { timeout: 3_000, intervals: [50] })
           .toBeGreaterThan(before)
           .then(() => true)
-          .catch(async () => (await gameSnapshot(request, gameId, players[0].session)).game_version > before);
+          .catch(
+            async () =>
+              (await gameSnapshot(request, gameId, players[0].session))
+                .game_version > before,
+          );
       } else {
         // Staging clicks rarely advance the server: let React settle, then read the tab once.
         await page.waitForTimeout(40);
@@ -566,7 +686,9 @@ export async function randomUiPlaythrough(
       }
       if (progressed) break;
       // A rejected batch is rejected again if re-sent, so stop at the first one.
-      const batchRejection = browserErrors.find((e) => /\/batches \d{3}:/.test(e));
+      const batchRejection = browserErrors.find((e) =>
+        /\/batches \d{3}:/.test(e),
+      );
       if (batchRejection) await fail(page, `batch rejected: ${batchRejection}`);
       const errors = await visibleErrors(page);
       for (const error of errors) {
@@ -578,7 +700,9 @@ export async function randomUiPlaythrough(
       }
     }
     if (!progressed) {
-      progressed = (await gameSnapshot(request, gameId, players[0].session)).game_version > before;
+      progressed =
+        (await gameSnapshot(request, gameId, players[0].session)).game_version >
+        before;
     }
     if (!progressed) {
       await fail(
@@ -589,7 +713,9 @@ export async function randomUiPlaythrough(
     report.decisions++;
   }
 
-  report.finalStatus = (await gameSnapshot(request, gameId, players[0].session)).turn_status;
+  report.finalStatus = (
+    await gameSnapshot(request, gameId, players[0].session)
+  ).turn_status;
   trace("browser-errors.json", browserErrors);
   await writeFinal();
   expect(browserErrors, "browser errors during playthrough").toEqual([]);
