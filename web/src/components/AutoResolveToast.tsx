@@ -9,6 +9,8 @@ export interface AutoResolveNotification {
   kind?: "auto-resolve" | "action";
   decisionType: string;
   selectedValue: string;
+  /** Auto-resolve toasts: why there was only one choice (default "the only legal option"). */
+  reason?: string;
   /** Action toasts: the acting seat and what they did, without their name. */
   actor?: string;
   text?: string;
@@ -73,7 +75,10 @@ export const AutoResolveToast: React.FC<AutoResolveToastProps> = ({
         <>
           <span className="toast-decision-type">{notification.decisionType}</span> auto-selected:{" "}
           <span className="toast-value">{notification.selectedValue}</span>
-          <span className="toast-reason"> (the only legal option)</span>
+          <span className="toast-reason">
+            {" "}
+            ({notification.reason ?? "the only legal option"})
+          </span>
         </>
       )}
     </button>

@@ -12,14 +12,16 @@ export function useAutoResolveToasts() {
    * Show a new auto-resolve toast notification.
    * @param decisionType The type of decision (e.g., "Strategy Card", "System")
    * @param selectedValue The label/name of the selected option
+   * @param reason Why there was no choice; the toast says "the only legal option" when absent
    */
   const showToast = useCallback(
-    (decisionType: string, selectedValue: string) => {
+    (decisionType: string, selectedValue: string, reason?: string) => {
       const id = crypto.randomUUID();
       const notification: AutoResolveNotification = {
         id,
         decisionType,
         selectedValue,
+        ...(reason ? { reason } : {}),
       };
       setToasts((prev) => [...prev, notification]);
     },

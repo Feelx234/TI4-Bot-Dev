@@ -96,9 +96,41 @@ pub struct SessionShared {
     pub replay_complete: bool,
     pub history_generation: u64,
     pub batches: Vec<crate::storage::BatchRecord>,
+    /// Decisions auto-resolved since the last state update, with the seat they belong to.
+    /// Transient by design: not persisted, so a restart's replay never re-announces them.
+    pub pending_auto_resolved: Vec<(PlayerId, crate::protocol::server::AutoResolvedNote)>,
 }
 
 impl SessionShared {
+    /// Queue a note for the seat's next state update, merging a repeat of the same reason.
+    pub fn note_auto_resolved(&mut self, seat: &PlayerId, prompt: &str, selected: &str, reason: &str) {
+        if let Some((_, existing)) = self
+            .pending_auto_resolved
+            .iter_mut()
+            .find(|(who, note)| who == seat && note.reason == reason && note.selected == selected)
+        {
+            existing.count += 1;
+            existing.prompt = prompt.to_owned();
+            return;
+        }
+        let id = format!(
+            "auto-{}-{}-{}",
+            self.decision_log.len(),
+            self.pending_auto_resolved.len(),
+            self.game_version
+        );
+        self.pending_auto_resolved.push((
+            seat.clone(),
+            crate::protocol::server::AutoResolvedNote {
+                id,
+                prompt: prompt.to_owned(),
+                selected: selected.to_owned(),
+                reason: reason.to_owned(),
+                count: 1,
+            },
+        ));
+    }
+
     fn persist_history(&self) -> Result<(), String> {
         if self.history_active
             && let Some(store) = &self.store
@@ -157,6 +189,7 @@ impl SessionShared {
             replay_complete: false,
             history_generation: 0,
             batches: Vec::new(),
+            pending_auto_resolved: Vec::new(),
         }
     }
 
@@ -376,6 +409,7 @@ impl SessionShared {
             pending.as_ref().map(|(choice, _)| choice),
             &self.decision_log,
         );
+        let auto_resolved = std::mem::take(&mut self.pending_auto_resolved);
         self.publish(|viewer| {
             let mut update = crate::projection::project_state_update_with_map(
                 &game_id,
@@ -390,6 +424,12 @@ impl SessionShared {
             )
             .with_history(self_decision_count, self_redo_count, self_generation);
             update.current_path = path.clone();
+            // Only the seat the decision belonged to is told; it already saw those options.
+            update.auto_resolved = auto_resolved
+                .iter()
+                .filter(|(seat, _)| viewer.is_actor(seat))
+                .map(|(_, note)| note.clone())
+                .collect();
             ServerMessage::StateUpdate(update)
         });
     }
@@ -670,6 +710,20 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         let offer_shared = worker_shared.clone();
         let offer_selected = selected_options.clone();
         let offer_published = published_count.clone();
+        let note_shared = worker_shared.clone();
+        let note_prior = prior_queue.clone();
+        table.on_auto_resolved(move |note| {
+            // While earlier decisions are being replayed after a restart the player has already
+            // been told; stay quiet until the replay catches up.
+            if !note_prior.lock().expect("prior queue lock").is_empty() {
+                return;
+            }
+            let mut lock = note_shared.lock().expect("shared lock");
+            if lock.stopped || lock.history_active {
+                return;
+            }
+            lock.note_auto_resolved(&note.player, &note.prompt, &note.label, &note.reason);
+        });
         table.on_observed_offer(move |records, state| {
             let mut lock = offer_shared.lock().expect("shared lock");
             let mut published = offer_published.lock().expect("published count lock");
@@ -1141,4 +1195,67 @@ fn current_utc_time_string() -> String {
     let mins = (total_secs / 60) % 60;
     let secs = total_secs % 60;
     format!("{hours:02}:{mins:02}:{secs:02}")
+}
+
+#[cfg(test)]
+mod auto_resolved_tests {
+    use super::*;
+
+    fn shared() -> SessionShared {
+        let ids = [PlayerId::new("a"), PlayerId::new("b")];
+        SessionShared::new(
+            "g".to_owned(),
+            GameState::new(&ids, &[], BTreeMap::new(), None, 1),
+        )
+    }
+
+    fn subscribe(
+        shared: &mut SessionShared,
+        id: u64,
+        viewer: ViewerRole,
+    ) -> mpsc::Receiver<ServerMessage> {
+        let (tx, rx) = mpsc::sync_channel(8);
+        shared.subscribers.insert(id, Subscriber { viewer, tx });
+        rx
+    }
+
+    fn notes(rx: &mpsc::Receiver<ServerMessage>) -> Vec<crate::protocol::server::AutoResolvedNote> {
+        match rx.try_recv().expect("a state update") {
+            ServerMessage::StateUpdate(update) => update.auto_resolved,
+            other => panic!("expected a state update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_auto_resolved_note_reaches_only_its_seat_once_and_leaves_the_journal_alone() {
+        let mut shared = shared();
+        let a = subscribe(&mut shared, 1, ViewerRole::Player(PlayerId::new("a")));
+        let b = subscribe(&mut shared, 2, ViewerRole::Player(PlayerId::new("b")));
+        let spectator = subscribe(&mut shared, 3, ViewerRole::Spectator);
+        let before = shared.decision_log.len();
+
+        shared.note_auto_resolved(&PlayerId::new("a"), "pay 1 more resources", "trade goods", "only way");
+        shared.broadcast_state_update();
+
+        let mine = notes(&a);
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].selected, "trade goods");
+        assert_eq!(mine[0].reason, "only way");
+        assert!(notes(&b).is_empty());
+        assert!(notes(&spectator).is_empty());
+        assert_eq!(shared.decision_log.len(), before, "journal untouched");
+
+        shared.broadcast_state_update();
+        assert!(notes(&a).is_empty(), "a note is delivered once");
+    }
+
+    #[test]
+    fn repeats_of_one_reason_collapse_into_a_count() {
+        let mut shared = shared();
+        let seat = PlayerId::new("a");
+        shared.note_auto_resolved(&seat, "pay 2 more resources", "trade goods", "only way");
+        shared.note_auto_resolved(&seat, "pay 1 more resources", "trade goods", "only way");
+        assert_eq!(shared.pending_auto_resolved.len(), 1);
+        assert_eq!(shared.pending_auto_resolved[0].1.count, 2);
+    }
 }

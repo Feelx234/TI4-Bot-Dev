@@ -1425,6 +1425,36 @@ pub struct StateUpdateMsg {
     pub history: HistoryStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_path: Option<CurrentLogPath>,
+    /// Decisions the engine settled for the receiving seat since the previous update because
+    /// exactly one option was legal. Feedback only: never journaled, never sent to other seats.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auto_resolved: Vec<AutoResolvedNote>,
+}
+
+/// One decision made on a seat's behalf because it had a single legal option.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AutoResolvedNote {
+    /// Unique per note, so a client can drop a repeat.
+    pub id: String,
+    /// The question that was not asked.
+    pub prompt: String,
+    /// What was chosen, as the option was labelled.
+    pub selected: String,
+    /// Why there was no real choice.
+    pub reason: String,
+    /// How many identical notes this one stands for (a bill paid in several steps).
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub count: u32,
+}
+
+const fn one() -> u32 {
+    1
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref, reason = "serde skip_serializing_if signature")]
+const fn is_one(count: &u32) -> bool {
+    *count == 1
 }
 
 impl StateUpdateMsg {

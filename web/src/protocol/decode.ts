@@ -1,6 +1,7 @@
 import {
   JoinResponse,
   CreateGameResponse,
+  AutoResolvedNote,
   InitialSnapshotMsg,
   LobbyDto,
   PROTOCOL_VERSION,
@@ -123,6 +124,30 @@ export function decodeJoinResponse(value: unknown, expectedGameId: string): Join
   };
 }
 
+/** The well-formed auto-resolved notes in a state update; anything else is ignored. */
+export function decodeAutoResolved(raw: unknown): AutoResolvedNote[] {
+  if (!Array.isArray(raw)) return [];
+  const notes: AutoResolvedNote[] = [];
+  for (const item of raw) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "string" ||
+      typeof item.prompt !== "string" ||
+      typeof item.selected !== "string"
+    )
+      continue;
+    const count = typeof item.count === "number" && Number.isInteger(item.count) && item.count > 1 ? item.count : undefined;
+    notes.push({
+      id: item.id,
+      prompt: item.prompt,
+      selected: item.selected,
+      reason: typeof item.reason === "string" ? item.reason : "",
+      ...(count ? { count } : {}),
+    });
+  }
+  return notes;
+}
+
 /** Validates the protocol envelope before React consumes any network payload. */
 export function decodeServerMessage(value: unknown, expectedGameId: string): ServerMessage {
   if (!isRecord(value) || typeof value.type !== "string") fail("missing message type");
@@ -150,6 +175,12 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
             !isNonNegativeInteger(value.history.generation)))
       )
         fail("invalid history status");
+      if (value.auto_resolved !== undefined) {
+        // Feedback only, so a malformed or unknown shape is dropped rather than failing the update.
+        const notes = decodeAutoResolved(value.auto_resolved);
+        if (notes.length > 0) value.auto_resolved = notes;
+        else delete value.auto_resolved;
+      }
       return value as unknown as ServerMessage;
     case "pending_choice":
       if (

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import type { GameEvent } from "../protocol/types.ts";
+import type { AutoResolvedNote, GameEvent } from "../protocol/types.ts";
 import { useCornerToasts } from "./useCornerToasts.ts";
 import { TOAST_MUTE_KEY } from "./useToastMute.ts";
 
@@ -111,5 +111,24 @@ describe("useCornerToasts", () => {
     });
     rerender({ ...base, pendingChoice: { ...choice } });
     expect(result.current.notifications).toHaveLength(1);
+  });
+
+  it("toasts the server's auto-resolved notes once each, with the reason and a repeat count", () => {
+    const note: AutoResolvedNote = { id: "auto-1", prompt: "pay 1 more resources", selected: "trade goods", reason: "only way", count: 3 };
+    const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
+      initialProps: { ...base, autoResolved: [note] },
+    });
+    expect(result.current.notifications).toHaveLength(1);
+    expect(result.current.notifications[0]).toMatchObject({
+      decisionType: "pay 1 more resources",
+      selectedValue: "trade goods \u00d73",
+      reason: "only way",
+    });
+    // The same note on a later render, or a fresh array holding it, does not toast again.
+    rerender({ ...base, autoResolved: [{ ...note }] });
+    expect(result.current.notifications).toHaveLength(1);
+    rerender({ ...base, autoResolved: [{ ...note }, { id: "auto-2", prompt: "q", selected: "x", reason: "" }] });
+    expect(result.current.notifications).toHaveLength(2);
+    expect(result.current.notifications[1].reason).toBeUndefined();
   });
 });

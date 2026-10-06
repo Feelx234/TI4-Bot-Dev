@@ -428,6 +428,21 @@ export interface StateUpdateMsg {
   turn_status: PublicTurnStatus;
   history?: HistoryStatus;
   current_path?: CurrentLogPath;
+  /** Decisions the engine made for this seat since the last update because only one option was legal. */
+  auto_resolved?: AutoResolvedNote[];
+}
+
+/** One decision settled on the viewer's behalf (single legal option). Feedback only. */
+export interface AutoResolvedNote {
+  id: string;
+  /** The question that was not asked. */
+  prompt: string;
+  /** What was chosen, as labelled. */
+  selected: string;
+  /** Why there was no real choice. */
+  reason: string;
+  /** Identical notes this one stands for; absent means one. */
+  count?: number;
 }
 
 export interface PendingChoiceMsg {

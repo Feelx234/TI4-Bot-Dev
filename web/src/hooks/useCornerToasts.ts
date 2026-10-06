@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AutoResolveNotification } from "../components/AutoResolveToast.tsx";
-import type { GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import type { AutoResolvedNote, GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import {
   ActionToast,
   actionToastFromEvent,
@@ -19,6 +19,8 @@ export interface CornerToastsInput {
   /** The viewer's seat; absent for spectators, who get every player's actions. */
   viewerSeat?: string | null;
   pendingChoice?: PendingChoiceDto | null;
+  /** The server's notes for decisions it settled for this seat (state updates only). */
+  autoResolved?: readonly AutoResolvedNote[];
   /** False until the first snapshot arrived: what is already in the log is history, not news. */
   ready: boolean;
 }
@@ -35,6 +37,7 @@ export function useCornerToasts({
   players,
   viewerSeat,
   pendingChoice,
+  autoResolved,
   ready,
 }: CornerToastsInput) {
   const { muted } = useToastMute();
@@ -43,6 +46,7 @@ export function useCornerToasts({
   const seen = useRef<Set<string> | null>(null);
   const lastVp = useRef<Map<string, number> | null>(null);
   const lastAutoNonce = useRef<string | null>(null);
+  const shownNotes = useRef<Set<string>>(new Set());
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
 
@@ -94,6 +98,16 @@ export function useCornerToasts({
     lastAutoNonce.current = pendingChoice.nonce;
     showToast(auto1.decisionType, auto1.selectedValue);
   }, [pendingChoice, viewerSeat, showToast]);
+
+  useEffect(() => {
+    if (!autoResolved) return;
+    for (const note of autoResolved) {
+      if (shownNotes.current.has(note.id)) continue;
+      shownNotes.current.add(note.id);
+      const times = note.count && note.count > 1 ? ` \u00d7${note.count}` : "";
+      showToast(note.prompt, `${note.selected}${times}`, note.reason || undefined);
+    }
+  }, [autoResolved, showToast]);
 
   // Muting also clears what is on screen.
   useEffect(() => {

@@ -1912,6 +1912,24 @@ pub struct Table {
     default: Box<dyn Decider>,
     pub log: DecisionLog,
     observed_offer: Option<Box<dyn FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send>>,
+    auto_resolved_observer: Option<Box<dyn FnMut(&AutoResolved) + Send>>,
+    /// Decisions settled without asking, since the last drain. Never part of the decision log.
+    auto_resolved: Vec<AutoResolved>,
+}
+
+/// A decision the engine settled itself because exactly one option was legal.
+///
+/// Public feedback only. It is deliberately *not* a [`DecisionRecord`]: the skipped ask is
+/// never journaled, so a replay re-derives the same lone option and the log is unchanged.
+/// It carries only what the actor was already shown (the prompt and the option's label).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutoResolved {
+    pub player: PlayerId,
+    pub prompt: String,
+    pub option_id: String,
+    pub label: String,
+    /// Why there was nothing to decide, in a short sentence.
+    pub reason: String,
 }
 
 impl Default for Table {
@@ -1921,6 +1939,8 @@ impl Default for Table {
             default: Box::new(FirstOption),
             log: DecisionLog::default(),
             observed_offer: None,
+            auto_resolved_observer: None,
+            auto_resolved: Vec::new(),
         }
     }
 }
@@ -1950,6 +1970,45 @@ impl Table {
         callback: impl FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send + 'static,
     ) {
         self.observed_offer = Some(Box::new(callback));
+    }
+
+    /// Be told, as it happens, about each decision the engine settles without asking.
+    pub fn on_auto_resolved(&mut self, callback: impl FnMut(&AutoResolved) + Send + 'static) {
+        self.auto_resolved_observer = Some(Box::new(callback));
+    }
+
+    /// Settle a choice that has exactly one option without asking anyone.
+    ///
+    /// Returns the option (flagged `auto_resolved`) and leaves a note for the actor's client.
+    /// Nothing enters the decision log, matching how these skips always behaved. `None` when
+    /// the choice has any other number of options, so the caller asks as usual.
+    pub fn auto_resolve(&mut self, choice: &Choice, reason: &str) -> Option<ChoiceOption> {
+        let option = auto_resolve_single(&choice.options)?;
+        let note = AutoResolved {
+            player: choice.player.clone(),
+            prompt: choice.prompt.clone(),
+            option_id: option.id.clone(),
+            label: if option.label.is_empty() {
+                option.id.clone()
+            } else {
+                option.label.clone()
+            },
+            reason: reason.to_owned(),
+        };
+        if let Some(observer) = &mut self.auto_resolved_observer {
+            observer(&note);
+        }
+        // Bounded: simulations never drain it.
+        if self.auto_resolved.len() >= 64 {
+            self.auto_resolved.remove(0);
+        }
+        self.auto_resolved.push(note);
+        Some(option)
+    }
+
+    /// Take the notes left by [`Table::auto_resolve`] since the last call.
+    pub fn take_auto_resolved(&mut self) -> Vec<AutoResolved> {
+        std::mem::take(&mut self.auto_resolved)
     }
 
     /// Put a choice to its actor, validate the answer, and record it.
@@ -2283,6 +2342,36 @@ mod tests {
         let resolved = auto_resolve_single(&single).expect("single option");
         assert_eq!(resolved.id, "only");
         assert!(resolved.auto_resolved, "flag should be set");
+    }
+
+    #[test]
+    fn table_auto_resolve_notes_the_lone_option_without_journaling_it() {
+        let mut table = Table::new();
+        let one = Choice::new(
+            PlayerId::new("a"),
+            "pay 1 more resources",
+            vec![ChoiceOption::labelled("tg", "pay", "trade goods")],
+        );
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        table.on_auto_resolved(move |n| sink.lock().unwrap().push(n.clone()));
+        let option = table.auto_resolve(&one, "only way").expect("one option");
+        assert!(option.auto_resolved);
+        assert!(table.log.is_empty(), "journal must stay untouched");
+        let notes = table.take_auto_resolved();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].label, "trade goods");
+        assert_eq!(notes[0].reason, "only way");
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        assert!(table.take_auto_resolved().is_empty());
+
+        let two = Choice::new(
+            PlayerId::new("a"),
+            "p",
+            vec![ChoiceOption::labelled("x", "k", "X"), ChoiceOption::labelled("y", "k", "Y")],
+        );
+        assert!(table.auto_resolve(&two, "r").is_none());
+        assert!(table.take_auto_resolved().is_empty());
     }
 
     #[test]

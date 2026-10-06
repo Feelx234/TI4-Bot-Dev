@@ -666,9 +666,7 @@ fn pay_with_observation_credit(
         }
 
         // The oracle takes a lone option without asking; only real choices reach a decider.
-        let answer = if options.len() == 1 {
-            options[0].clone()
-        } else {
+        let answer = {
             // Oracle wording: each iteration names the remaining debt and its kind
             // (`pay {cost - paid} more {kind}` in engine/production.py).
             let choice = Choice::new(
@@ -683,7 +681,11 @@ fn pay_with_observation_credit(
                 cost,
                 used_credit + paid,
             ));
-            table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?
+            if let Some(only) = table.auto_resolve(&choice, "it was the only way left to pay") {
+                only
+            } else {
+                table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?
+            }
         };
 
         match apply_payment_option(state, content, sources, player, kind, &answer) {
@@ -2593,6 +2595,18 @@ mod tests {
             .unwrap()
         );
         assert_eq!(state.player(&player).unwrap().trade_goods, 0);
+    }
+
+    #[test]
+    fn a_lone_payment_option_is_noted_but_never_journaled() {
+        let (mut state, _, _) = seated();
+        state.player_mut(&player()).unwrap().trade_goods = 2;
+        let mut table = Table::new();
+        assert!(pay(&mut state, ContentStore::embedded(), POK, &mut table, &player(), 2, Spend::Resources).unwrap());
+        assert!(table.log.is_empty(), "a skipped ask must not enter the journal");
+        let notes = table.take_auto_resolved();
+        assert!(!notes.is_empty());
+        assert!(notes.iter().all(|n| n.player == player() && n.prompt.starts_with("pay ")));
     }
 
     #[test]

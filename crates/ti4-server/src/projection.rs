@@ -717,6 +717,7 @@ pub fn project_state_update_with_map(
         galaxy_layout: galaxy_layout.clone(),
         pending_choice: project_pending_choice(viewer, pending_choice),
         turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
+        auto_resolved: Vec::new(),
     }
 }
 

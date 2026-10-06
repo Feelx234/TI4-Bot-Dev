@@ -189,8 +189,10 @@ fn pay(
                     state.phase,
                     state.round,
                 ));
-                let chosen = if choice.options.len() == 1 {
-                    choice.options[0].clone()
+                let chosen = if let Some(only) =
+                    table.auto_resolve(&choice, "it was the only action card you held")
+                {
+                    only
                 } else {
                     ask_seeing(state, content, sources, galaxy, table, &choice)?
                 };
@@ -233,8 +235,10 @@ fn pay(
                 state.phase,
                 state.round,
             ));
-            let chosen = if choice.options.len() == 1 {
-                choice.options[0].clone()
+            let chosen = if let Some(only) =
+                table.auto_resolve(&choice, "it was the only secret objective you held")
+            {
+                only
             } else {
                 ask_seeing(state, content, sources, galaxy, table, &choice)?
             };
