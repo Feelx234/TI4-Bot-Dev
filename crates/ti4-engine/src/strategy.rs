@@ -58,13 +58,32 @@ pub enum StrategySecondaryError {
 fn secondary_choice(
     state: &GameState,
     content: &ContentStore,
+    sources: SourceSet,
     card: &StrategyCardId,
     primary: &PlayerId,
     player: &PlayerId,
     costs_token: bool,
 ) -> Choice {
     let tokens_left = state.player(player).map_or(0, |seat| seat.strategic_tokens);
-    secondary_question(content, card, player, costs_token)
+    let mut question = secondary_question(content, card, player, costs_token);
+    if crate::strategy_cards::card_name(content, card.as_str()).as_deref() == Some("Leadership") {
+        // The window's question is the purchase question itself: typed like the loop's later
+        // asks, and carrying what a client needs to plan every purchase at once.
+        question = question.contextualized(crate::decision_context::DecisionContext::new(
+            player.clone(),
+            crate::decision_context::DecisionSource::Rule("52.3".to_owned()),
+            "buy_token_with_influence",
+            state.phase,
+            state.round,
+        ));
+        if let Some(purchase) =
+            crate::strategy_cards::purchase_details(state, content, sources, player)
+        {
+            question = crate::tokens::with_pool_details(question, state, "buy", Some(0))
+                .detailed("purchase", purchase);
+        }
+    }
+    question
         .detailed("kind", "strategy_secondary")
         .detailed("card", card.as_str())
         .detailed("played_by", primary.as_str())
@@ -227,6 +246,7 @@ impl StrategySecondaryWindow {
                 secondary_choice(
                     state,
                     content,
+                    sources,
                     &self.card,
                     &self.primary_player,
                     player_id,
@@ -252,6 +272,7 @@ impl StrategySecondaryWindow {
                 return Some(secondary_choice(
                     state,
                     content,
+                    sources,
                     &self.card,
                     &self.primary_player,
                     &player_id,
@@ -1048,6 +1069,17 @@ mod tests {
         assert_eq!(choice.player, affordable);
         assert_eq!(choice.prompt, "spend 3 influence for a command token");
         assert_eq!(choice.ids(), vec!["no", "yes"]);
+        // The window's question is typed like the loop's asks and carries the purchase facts,
+        // so a client can plan every purchase and its pool from this one decision.
+        assert_eq!(
+            choice.context.as_ref().map(|c| c.subtype.as_str()),
+            Some("buy_token_with_influence")
+        );
+        assert_eq!(choice.details["kind"], "strategy_secondary");
+        assert_eq!(choice.details["mode"], "buy");
+        assert_eq!(choice.details["tokens_to_place"], 0);
+        assert_eq!(choice.details["purchase"]["influence_available"], 3);
+        assert_eq!(choice.details["purchase"]["max"], 1);
 
         let resolution = window
             .take_choice(

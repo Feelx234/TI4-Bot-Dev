@@ -203,7 +203,8 @@ impl TokenGain {
 /// Display-only facts for a command-token decision (see [`Choice::details`]): the pools as they
 /// stand now, the tokens still in reinforcements, and what the decision hands out or moves.
 ///
-/// `mode` is `"gain"` (with `tokens_to_place` tokens still to place, this one included) or
+/// `mode` is `"buy"` (nothing free to place; the decision is Leadership's influence purchase),
+/// `"gain"` (with `tokens_to_place` tokens still to place, this one included) or
 /// `"redistribute"` (with the total held).
 #[must_use]
 pub fn with_pool_details(
@@ -225,7 +226,7 @@ pub fn with_pool_details(
         )
         .detailed("reinforcements", reinforcements);
     match (mode, tokens_to_place) {
-        ("gain", Some(count)) => choice.detailed("tokens_to_place", count),
+        ("gain" | "buy", Some(count)) => choice.detailed("tokens_to_place", count),
         ("redistribute", _) => choice.detailed("total", tactic + fleet + strategic),
         _ => choice,
     }

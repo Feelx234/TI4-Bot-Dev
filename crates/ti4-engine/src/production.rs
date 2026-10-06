@@ -456,6 +456,27 @@ fn payment_options(
     options
 }
 
+/// The ready planets that pay `kind` in their own currency, each with the worth of that face,
+/// exactly as the payment loop would list them for an unbounded bill. Cross-source faces
+/// (Archon's Gift) are left out.
+pub(crate) fn native_payment_planets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    kind: Spend,
+) -> Vec<(PlanetId, i64)> {
+    spendable_planets(state, player)
+        .into_iter()
+        .filter_map(|planet| {
+            payment_faces(state, content, sources, player, &planet, kind)
+                .into_iter()
+                .find(|(source, _)| *source == kind)
+                .map(|(_, worth)| (planet, worth))
+        })
+        .collect()
+}
+
 /// Apply the chosen payment option; returns its value against the bill.
 ///
 /// `None` means the id was never offered (defensive — validated tables cannot produce it). As in

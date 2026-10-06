@@ -77,6 +77,25 @@ pub(crate) fn gain_tokens(
     player: &PlayerId,
     count: u32,
 ) -> Result<(), IllegalChoice> {
+    gain_tokens_offering(state, content, sources, galaxy, table, player, count, false)
+}
+
+/// [`gain_tokens`], optionally telling the client that a purchase loop follows (Leadership's
+/// primary), by attaching the display-only `purchase` details to each pool question.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the rules position plus the optional purchase announcement"
+)]
+fn gain_tokens_offering(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    count: u32,
+    announce_purchase: bool,
+) -> Result<(), IllegalChoice> {
     for placed in 0..count {
         // OBS-008d2: each pool option previews the exact count it would reach, read fresh every
         // iteration since an earlier pick in this same ask already changed it.
@@ -117,12 +136,17 @@ pub(crate) fn gain_tokens(
             state.phase,
             state.round,
         ));
-        let choice = crate::tokens::with_pool_details(
+        let mut choice = crate::tokens::with_pool_details(
             choice,
             state,
             "gain",
             Some(usize::try_from(count - placed).unwrap_or(0)),
         );
+        if announce_purchase
+            && let Some(purchase) = purchase_details(state, content, sources, player)
+        {
+            choice = choice.detailed("purchase", purchase);
+        }
         let answer = ask(state, content, sources, galaxy, table, &choice)?;
         let pool = match answer.id.as_str() {
             "tactic_tokens" => TokenPool::Tactic,
@@ -132,6 +156,43 @@ pub(crate) fn gain_tokens(
         state.gain_token(player, pool, 1);
     }
     Ok(())
+}
+
+/// What a client needs to plan Leadership's influence purchases as one screen (display only).
+///
+/// `max` is how many tokens the seat's influence can pay for in total (`floor(available / 3)`;
+/// the loop asks again exactly while `available >= 3 * (bought + 1)`). `planets` are the ready
+/// planets that pay in influence themselves, with their face worth, and `trade_goods` can be
+/// spent one at a time at `trade_good_worth` each; Archon's Gift faces and The Triad are not
+/// listed. The engine's payment loop asks which of them to spend; it has no automatic rule, so
+/// the plan a client sends names each exhaust or trade good explicitly. `None` when the seat
+/// cannot afford even one token.
+pub(crate) fn purchase_details(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Option<serde_json::Value> {
+    let available = crate::production::available(state, content, sources, player, Spend::Influence);
+    if available < INFLUENCE_PER_TOKEN {
+        return None;
+    }
+    let planets: Vec<serde_json::Value> =
+        crate::production::native_payment_planets(state, content, sources, player, Spend::Influence)
+            .into_iter()
+            .map(|(planet, worth)| serde_json::json!({ "id": planet.to_string(), "worth": worth }))
+            .collect();
+    let goods = state
+        .player(player)
+        .map_or(0, |seat| i64::from(seat.trade_goods));
+    Some(serde_json::json!({
+        "cost": INFLUENCE_PER_TOKEN,
+        "influence_available": available,
+        "max": available / INFLUENCE_PER_TOKEN,
+        "trade_goods": goods,
+        "trade_good_worth": crate::production::trade_good_worth(state, player),
+        "planets": planets,
+    }))
 }
 
 /// Whether a follower may buy command tokens with influence in the Leadership window.
@@ -172,7 +233,7 @@ fn buy_tokens_with_influence(
             sources,
             galaxy,
             table,
-            &influence_purchase_choice(state, player, credit),
+            &influence_purchase_choice(state, content, sources, player, credit),
         )?;
         if answer.id != "yes" {
             return Ok(());
@@ -208,7 +269,7 @@ fn buy_tokens_first_yes_assumed(
             sources,
             galaxy,
             table,
-            &influence_purchase_choice(state, player, credit),
+            &influence_purchase_choice(state, content, sources, player, credit),
         )?;
         if answer.id != "yes" {
             return Ok(());
@@ -232,7 +293,13 @@ fn leadership_influence_eligible_with_credit(
         >= INFLUENCE_PER_TOKEN
 }
 
-fn influence_purchase_choice(state: &GameState, player: &PlayerId, credit: i64) -> Choice {
+fn influence_purchase_choice(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    credit: i64,
+) -> Choice {
     let owed = (INFLUENCE_PER_TOKEN - credit).max(0);
     let prompt = if credit > 0 {
         format!("spend {owed} more influence for a command token")
@@ -245,7 +312,7 @@ fn influence_purchase_choice(state: &GameState, player: &PlayerId, credit: i64) 
         format!("spend {owed} influence")
     };
     // Oracle wording and ids (`_buy_tokens_with_influence`): both options kind `strategy`.
-    Choice::new(
+    let choice = Choice::new(
         player.clone(),
         prompt,
         vec![
@@ -263,7 +330,13 @@ fn influence_purchase_choice(state: &GameState, player: &PlayerId, credit: i64) 
         "buy_token_with_influence",
         state.phase,
         state.round,
-    ))
+    ));
+    // Only a fresh purchase (no carried credit) can be planned as a whole.
+    match purchase_details(state, content, sources, player).filter(|_| credit == 0) {
+        Some(purchase) => crate::tokens::with_pool_details(choice, state, "buy", Some(0))
+            .detailed("purchase", purchase),
+        None => choice,
+    }
 }
 
 /// Pay three influence through the ask-based payment loop and gain one command token.
@@ -1478,7 +1551,7 @@ pub fn primary(
     };
     match name.as_str() {
         "Leadership" => {
-            gain_tokens(
+            gain_tokens_offering(
                 state,
                 content,
                 sources,
@@ -1486,6 +1559,7 @@ pub fn primary(
                 table,
                 player,
                 LEADERSHIP_TOKENS,
+                true,
             )?;
             buy_tokens_with_influence(state, content, sources, galaxy, table, player)?;
         }
@@ -2817,6 +2891,101 @@ mod tests {
         assert_eq!(asks[3].0, "spend 3 influence for a command token");
         let seat = state.player(&actor).unwrap();
         assert_eq!(seat.trade_goods, before.player(&actor).unwrap().trade_goods);
+    }
+
+    /// Answers from a queue and keeps each question's `details` for inspection.
+    struct DetailRecording {
+        wanted: std::collections::VecDeque<String>,
+        seen: std::rc::Rc<std::cell::RefCell<Vec<(String, serde_json::Map<String, serde_json::Value>)>>>,
+    }
+
+    impl crate::choice::Decider for DetailRecording {
+        fn choose(
+            &mut self,
+            choice: &crate::choice::Choice,
+        ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            self.seen
+                .borrow_mut()
+                .push((choice.prompt.clone(), choice.details.clone()));
+            let wanted = self.wanted.pop_front().expect("scripted answer");
+            Ok(choice
+                .options
+                .iter()
+                .find(|option| option.id == wanted)
+                .expect("offered")
+                .clone())
+        }
+    }
+
+    #[test]
+    fn leadership_questions_state_what_a_purchase_plan_needs() {
+        // Display-only details so one screen can plan the free tokens, the purchases and the
+        // pool of each: influence available, the cost, how many tokens it pays for, and what
+        // can be spent. They ride on the primary's pool questions and on every fresh purchase
+        // question, and are absent when nothing can be bought.
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let actor = PlayerId::new("a");
+        state.player_mut(&actor).unwrap().trade_goods = 7;
+        state
+            .system_mut(&SystemId::new("53"))
+            .set_control(PlanetId::new("arcturus"), actor.clone());
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let answers = [
+            "tactic_tokens",
+            "tactic_tokens",
+            "tactic_tokens",
+            "no",
+        ];
+        let mut table = Table::with_default(Box::new(DetailRecording {
+            wanted: answers.iter().map(|id| (*id).to_owned()).collect(),
+            seen: seen.clone(),
+        }));
+
+        primary(&mut state, content, POK, None, &mut table, &actor, &card("Leadership")).unwrap();
+
+        let seen = seen.borrow();
+        assert_eq!(seen.len(), 4);
+        for (index, (prompt, details)) in seen.iter().enumerate() {
+            let purchase = &details["purchase"];
+            assert_eq!(purchase["cost"], 3, "{prompt}");
+            assert_eq!(purchase["influence_available"], 11, "4 from Arcturus + 7 goods");
+            assert_eq!(purchase["max"], 3);
+            assert_eq!(purchase["trade_goods"], 7);
+            assert_eq!(purchase["trade_good_worth"], 1);
+            assert_eq!(
+                purchase["planets"],
+                serde_json::json!([{ "id": "arcturus", "worth": 4 }])
+            );
+            assert_eq!(details["kind"], "command_tokens");
+            if index < 3 {
+                assert_eq!(details["mode"], "gain");
+                assert_eq!(details["tokens_to_place"], 3 - index);
+            } else {
+                assert_eq!(prompt, "spend 3 influence for a command token");
+                assert_eq!(details["mode"], "buy");
+                assert_eq!(details["tokens_to_place"], 0);
+            }
+        }
+    }
+
+    #[test]
+    fn leadership_details_are_absent_when_nothing_is_affordable_or_credit_is_carried() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let actor = PlayerId::new("a");
+        state.player_mut(&actor).unwrap().trade_goods = 2;
+        assert!(purchase_details(&state, content, POK, &actor).is_none());
+        state.player_mut(&actor).unwrap().trade_goods = 6;
+        assert!(purchase_details(&state, content, POK, &actor).is_some());
+        let fresh = influence_purchase_choice(&state, content, POK, &actor, 0);
+        assert!(fresh.details.contains_key("purchase"));
+        let carried = influence_purchase_choice(&state, content, POK, &actor, 1);
+        assert!(
+            !carried.details.contains_key("purchase"),
+            "a purchase that already carries credit cannot be planned as a whole"
+        );
+        assert_eq!(carried.prompt, "spend 2 more influence for a command token");
     }
 
     #[test]
