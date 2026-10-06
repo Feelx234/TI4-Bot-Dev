@@ -18,7 +18,7 @@ NOT_BEFORE="${NIGHTLY_NOT_BEFORE:-2026-10-07}"
 # Opus fix rounds. FIXERS lists the rounds that run ("1 2", "2", "" to disable). Round 1 starts
 # at FIX1_HHMM (same Berlin day as the window start) while the sweep keeps running; round 2 starts
 # once the sweep has ended. The morning summary waits for round 2.
-FIXERS="${NIGHTLY_FIXERS:-1 2}"
+FIXERS="${NIGHTLY_FIXERS-1 2}" # no colon: NIGHTLY_FIXERS="" really disables both rounds
 FIXER_MODEL="${NIGHTLY_FIXER_MODEL:-claude-opus-5-5}"
 FIX1_HHMM="${NIGHTLY_FIX1:-12:00}"
 FIX1_MAX_SECONDS="${NIGHTLY_FIX1_MAX_SECONDS:-14400}"
