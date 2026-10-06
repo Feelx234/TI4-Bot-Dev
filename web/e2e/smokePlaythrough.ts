@@ -22,6 +22,7 @@ import {
   classifyControl,
   isBarControl,
   turnBarPool,
+  pausedBatch,
 } from "./smokePolicy";
 
 /**
@@ -64,6 +65,8 @@ export interface PlaythroughReport {
   subtypes: Record<string, number>;
   /** Error banners the UI showed after a click, usually server rejections of offered controls. */
   rejections: string[];
+  /** Batches the server stopped at a reaction window (not failures). */
+  pausedBatches: number;
   /** Action-phase decisions (the turn menu and the end-turn question) seen in the run. */
   turnMenuDecisions: number;
   /** Of those, resolved with a click on the persistent turn bar. */
@@ -92,6 +95,7 @@ const DECISION_CONTAINERS = [
   "trade-desk-modal",
   "agenda-ballot-modal",
   "reaction-status-bar",
+  "paused-plan",
 ];
 
 const ERROR_BANNERS = [
@@ -107,7 +111,7 @@ const ERROR_BANNERS = [
 
 // Controls that hide the decision or rewrite history; clicking them never advances the game.
 const EXCLUDED =
-  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect/i;
+  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss/i;
 // Controls that take back staged selections. Only used to escape a staging dead end, such as
 // cargo over transport capacity, where every submit button is disabled.
 interface Candidate {
@@ -449,7 +453,20 @@ export async function randomUiPlaythrough(
     });
     // The console only reports a status code; keep the server's reason for failed API calls.
     page.on("response", async (response) => {
-      if (response.status() < 400 || !response.url().includes("/api/")) return;
+      if (!response.url().includes("/api/")) return;
+      if (response.status() < 400) {
+        // A batch the server paused at a reaction window is progress, not a rejection.
+        if (response.url().includes("/batches")) {
+          const paused = pausedBatch(await response.text().catch(() => ""));
+          if (paused) {
+            report.pausedBatches += 1;
+            log(
+              `  [seat ${index + 1}] batch paused after ${paused.applied} steps, ${paused.remaining} left, waiting on ${paused.waiting}`,
+            );
+          }
+        }
+        return;
+      }
       const body = await response.text().catch(() => "");
       const line = `[seat ${index + 1}] ${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}: ${body.slice(0, 500)}`;
       browserErrors.push(line);
@@ -470,6 +487,7 @@ export async function randomUiPlaythrough(
     finalStatus: null,
     subtypes: {},
     rejections: [],
+    pausedBatches: 0,
     turnMenuDecisions: 0,
     barDecisions: 0,
     barControls: {},

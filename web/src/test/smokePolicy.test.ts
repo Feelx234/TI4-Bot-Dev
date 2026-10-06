@@ -10,6 +10,7 @@ import {
   classifyControl,
   turnBarPool,
   isBarControl,
+  pausedBatch,
 } from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
@@ -265,5 +266,29 @@ describe("turn bar controls (smoke harness)", () => {
 
   it("gives every split strategic button the same weight so each card gets played", () => {
     expect(steerWeight(imperial.desc)).toBe(steerWeight(diplomacy.desc));
+  });
+});
+
+describe("pausedBatch (batch results the harness must not treat as failures)", () => {
+  it("reads a plan the server stopped at a reaction window", () => {
+    expect(
+      pausedBatch(
+        JSON.stringify({
+          batch_id: "b",
+          interrupted: {
+            applied_steps: 1,
+            remaining_steps: [{ kind: "done_moving" }],
+            offered: { subtype: "reaction_after_SHIP_MOVED" },
+          },
+        }),
+      ),
+    ).toEqual({ applied: 1, remaining: 1, waiting: "reaction_after_SHIP_MOVED" });
+  });
+  it("is null for a whole batch and for text that is not a batch result", () => {
+    expect(pausedBatch(JSON.stringify({ batch_id: "b", active: true }))).toBeNull();
+    expect(pausedBatch("not json")).toBeNull();
+  });
+  it("lets the continue button submit and leaves dismiss alone", () => {
+    expect(classifyControl("paused-plan-continue | Continue plan").commit).toBe(true);
   });
 });

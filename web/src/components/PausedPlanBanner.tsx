@@ -53,6 +53,7 @@ export const PausedPlanBanner: React.FC<PausedPlanBannerProps> = ({
         <button
           type="button"
           className="paused-plan__continue"
+          data-testid="paused-plan-continue"
           disabled={running}
           onClick={() => {
             setRunning(true);
@@ -65,7 +66,8 @@ export const PausedPlanBanner: React.FC<PausedPlanBannerProps> = ({
           Continue plan
         </button>
       )}
-      <button type="button" className="paused-plan__dismiss" onClick={onDismiss}>
+      <button type="button" className="paused-plan__dismiss"
+        data-testid="paused-plan-dismiss" onClick={onDismiss}>
         Dismiss
       </button>
     </div>

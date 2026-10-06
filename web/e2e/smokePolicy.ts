@@ -122,7 +122,7 @@ export function isUnstage(desc: string): boolean {
 
 // Controls that submit something to the server.
 const COMMIT =
-  /submit|confirm|commit|done|finish|pass|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn/i;
+  /submit|confirm|commit|done|finish|pass|paused-plan-continue|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn/i;
 
 /**
  * Whether a control takes back staging and whether it submits. A turn bar button submits in one
@@ -170,4 +170,32 @@ export function activationWeight(
   if (id === "18" && groundForcesInPlaceOnMecatol) return 2000;
   if (!reachable) return 0.2;
   return id === "18" ? 40 : hasEnemies ? 30 : 5;
+}
+
+/**
+ * What a successful batch response says about a plan the server paused at a reaction window, or
+ * `null` when the plan was applied whole (or the body is not a batch result). A pause is progress:
+ * the steps before it are committed and the reaction is the next decision, so the harness must
+ * neither count it as a rejection nor re-send anything itself.
+ */
+export function pausedBatch(
+  body: string,
+): { applied: number; remaining: number; waiting: string | null } | null {
+  try {
+    const stopped = (JSON.parse(body) as {
+      interrupted?: {
+        applied_steps?: number;
+        remaining_steps?: unknown[];
+        offered?: { subtype?: string | null };
+      };
+    }).interrupted;
+    if (!stopped) return null;
+    return {
+      applied: stopped.applied_steps ?? 0,
+      remaining: stopped.remaining_steps?.length ?? 0,
+      waiting: stopped.offered?.subtype ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
