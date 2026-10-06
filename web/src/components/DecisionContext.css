@@ -23,3 +23,16 @@
   font-size: 0.75rem;
   white-space: nowrap;
 }
+.card-option__badge {
+  margin-top: 2px;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+}
+.card-option__text {
+  margin: 4px 0 0;
+  max-width: 62ch;
+  color: #cbd5e1;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}

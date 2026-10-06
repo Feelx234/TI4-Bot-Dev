@@ -290,3 +290,55 @@ describe("PendingChoiceModal context header", () => {
     expect(screen.queryByTestId("decision-context-strip")).not.toBeInTheDocument();
   });
 });
+
+describe("PendingChoiceModal hand decisions", () => {
+  it("shows the name, text and phase of each card offered for discard", () => {
+    render(
+      <PendingChoiceModal
+        choice={{
+          actor: "seat_1",
+          nonce: "hand-1",
+          prompt: "over the hand limit — discard one of 8",
+          context: { subtype: "discard_over_hand_limit", source: { Rule: "2.4" } },
+          options: [
+            { id: "4", label: "Ancient Burial Sites", kind: "discard" },
+            { id: "3", label: "Direct Hit", kind: "discard" },
+          ],
+        }}
+        onSubmit={vi.fn()}
+      />,
+    );
+    const texts = screen.getAllByTestId("card-option-text");
+    expect(texts[0]).toHaveTextContent("Exhaust each cultural planet");
+    expect(screen.getAllByTestId("card-option-badge")[0]).toHaveTextContent("Agenda phase");
+    expect(screen.getByTestId("decision-eyebrow")).toHaveTextContent("Action card hand limit");
+    expect(screen.getByText(/You hold 8 action cards/)).toBeInTheDocument();
+    expect(screen.getByTestId("submit-choice-button")).toHaveTextContent("Discard card");
+  });
+
+  it("names secret objectives instead of showing their alias", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PendingChoiceModal
+        choice={{
+          actor: "seat_1",
+          nonce: "hand-2",
+          prompt: "return a secret objective to the deck",
+          context: { subtype: "return_over_secret_hand_limit", source: { Rule: "45.4" } },
+          options: [
+            { id: "baf", label: "return baf", kind: "return" },
+            { id: "ans", label: "return ans", kind: "return" },
+          ],
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+    expect(screen.getByText("Betray a Friend")).toBeInTheDocument();
+    expect(screen.queryByText("return baf")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("card-option-badge")[0]).toHaveTextContent("1 VP");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("submit-choice-button"));
+    });
+    expect(onSubmit).toHaveBeenCalledWith("baf");
+  });
+});

@@ -454,6 +454,51 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Discard over the hand limit",
+    fallback: "Card names, phase and printed text instead of bare labels",
+    note: "Each action card offered for discard shows its name, when it is played and its text, and the header says how many cards are held.",
+    choice: {
+      actor,
+      nonce: "gallery-hand-limit",
+      prompt: "over the hand limit — discard one of 8",
+      context: {
+        subtype: "discard_over_hand_limit",
+        source: { Rule: "2.4" },
+        phase: "Status",
+        round: 3,
+      },
+      options: [
+        option("4", "Ancient Burial Sites", "discard"),
+        option("3", "Direct Hit", "discard"),
+        option("2", "Bribery", "discard"),
+        option("6", "Sabotage", "discard"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Return a secret objective",
+    fallback: "Objective name, condition and points instead of an alias",
+    note: "Secret objectives show their name, their condition and what they are worth, so the player can decide which one to give up.",
+    choice: {
+      actor,
+      nonce: "gallery-secret-limit",
+      prompt: "return a secret objective to the deck",
+      context: {
+        subtype: "return_over_secret_hand_limit",
+        source: { Rule: "45.4" },
+        phase: "Status",
+        round: 3,
+      },
+      options: [
+        option("baf", "return baf", "return"),
+        option("ans", "return ans", "return"),
+        option("dp", "return dp", "return"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Unknown subtype",
     fallback: "Unknown subtype → generic modal",
     note: "Unknown engine subtypes fall back to the generic single-choice modal.",

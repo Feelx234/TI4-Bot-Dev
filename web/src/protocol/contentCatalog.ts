@@ -92,6 +92,21 @@ export function findActionCardMeta(id: string): CardMeta | undefined {
   return exactLookup(ACTION_CARDS, id);
 }
 
+let actionCardsByName: Map<string, CardMeta> | undefined;
+
+/** Looks an action card up by its printed name, for decisions that only carry the label. */
+export function findActionCardByName(name: string): CardMeta | undefined {
+  if (!actionCardsByName) {
+    actionCardsByName = new Map(
+      Object.values(ACTION_CARDS as Record<string, CardMeta>).map((card) => [
+        card.name.toLowerCase(),
+        card,
+      ]),
+    );
+  }
+  return actionCardsByName.get(name.trim().toLowerCase());
+}
+
 export function getActionCardMeta(id: string): CardMeta {
   return (
     findActionCardMeta(id) ?? {

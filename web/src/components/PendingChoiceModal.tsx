@@ -5,6 +5,11 @@ import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { findStrategyCardMeta } from "../protocol/contentCatalog.ts";
+import {
+  describeCardOption,
+  handDecisionConfirmLabel,
+  handDecisionNote,
+} from "../presentation/cardOptions.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 
 export interface PendingChoiceModalProps {
@@ -217,6 +222,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           <DecisionHeader
             actor={choice.actor}
             title={choice.prompt}
+            progress={handDecisionNote(choice) ?? undefined}
             choice={choice}
             onMinimize={() => setIsMinimized(true)}
             titleTestId="choice-prompt"
@@ -321,6 +327,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                   const isMaxReached =
                     isMultiSelect && selectedOptionIds.length >= maxSelection && !isChecked;
                   const card = strategyDraft ? findStrategyCardMeta(opt.id) : null;
+                  const handCard = describeCardOption(choice.context?.subtype, opt);
 
                   return (
                     <label
@@ -352,8 +359,18 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                       />
                       <div>
                         <div style={{ fontWeight: 600, color: isChecked ? "#38bdf8" : "#e2e8f0" }}>
-                          {card ? `${card.initiative}. ${card.name}` : opt.label}
+                          {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? opt.label)}
                         </div>
+                        {handCard?.badge && (
+                          <div className="card-option__badge" data-testid="card-option-badge">
+                            {handCard.badge}
+                          </div>
+                        )}
+                        {handCard?.text && (
+                          <p className="card-option__text" data-testid="card-option-text">
+                            {handCard.text}
+                          </p>
+                        )}
                         {card && (
                           <div className="strategy-draft-card__text">
                             <strong>Primary</strong>
@@ -400,7 +417,9 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                   ? "Submitting..."
                   : strategyDraft
                     ? "Choose card"
-                    : choice.context?.subtype === "activate_system"
+                    : handDecisionConfirmLabel(choice.context?.subtype)
+                      ? handDecisionConfirmLabel(choice.context?.subtype)
+                      : choice.context?.subtype === "activate_system"
                       ? "Activate system"
                       : choice.context?.subtype === "commit_ground_forces"
                         ? "Land forces"
