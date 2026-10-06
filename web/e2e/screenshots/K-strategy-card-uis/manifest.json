@@ -1,5 +1,5 @@
 {
-  "title": "Strategy card UIs: Construction, Trade, Imperial",
+  "title": "Strategy Card UIs",
   "description": "The new layouts for three strategy card primaries: Construction's step label on the planet bar, the Trade replenish table, and Imperial's objectives overview with the Mecatol or draw-a-secret outcome card. Synthetic gallery fixtures, not captured engine states.",
   "tag": "web/e2e/screenshots/K-strategy-card-uis",
   "shots": [
