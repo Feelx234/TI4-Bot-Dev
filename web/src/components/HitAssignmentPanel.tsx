@@ -148,6 +148,7 @@ export const HitAssignmentPanel: React.FC<HitAssignmentPanelProps> = ({
                   Sustain
                 </button>
               )}
+              {!row.canSustain && <span aria-hidden="true" />}
               <button
                 type="button"
                 className="button button--secondary button--sm"
