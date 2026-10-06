@@ -22,8 +22,8 @@ const galleryChoice = (title: string) =>
 
 /** Decisions from the dev gallery, as { prompt, context, options } ready for openMockedGame. */
 export const galleryDecision = (title: string) => {
-  const { prompt, context, options } = galleryChoice(title);
-  return { prompt, context: context as Record<string, unknown>, options };
+  const { prompt, context, options, details } = galleryChoice(title);
+  return { prompt, context: context as Record<string, unknown>, options, ...(details ? { details } : {}) };
 };
 
 import type { BoardView, CombatView, PlacedUnitView } from "../../../src/protocol/types";
