@@ -342,3 +342,71 @@ describe("PendingChoiceModal hand decisions", () => {
     expect(onSubmit).toHaveBeenCalledWith("baf");
   });
 });
+
+describe("PendingChoiceModal strategy secondary", () => {
+  const secondaryChoice = (overrides: Record<string, unknown> = {}): PendingChoiceDto => ({
+    actor: "seat_1",
+    nonce: "sec-1",
+    prompt: "spend a strategy token to draw two action cards",
+    options: [
+      { id: "no", label: "decline", kind: "strategy" },
+      { id: "yes", label: "draw", kind: "strategy" },
+    ],
+    details: {
+      kind: "strategy_secondary",
+      card: "pok3politics",
+      played_by: "seat_2",
+      tokens_left: 3,
+      costs_token: true,
+      ...overrides,
+    },
+  });
+
+  it("shows the card, its secondary text and the tokens left, with named buttons", () => {
+    render(<PendingChoiceModal choice={secondaryChoice()} onSubmit={vi.fn()} />);
+    expect(screen.getByTestId("strategy-secondary-panel")).toHaveTextContent("Politics");
+    expect(screen.getByTestId("secondary-played-by")).toHaveTextContent("Played by");
+    expect(screen.getByTestId("secondary-text").textContent?.length).toBeGreaterThan(10);
+    expect(screen.getByTestId("secondary-tokens")).toHaveTextContent("3 (2 after)");
+    expect(screen.getByTestId("secondary-yes-btn")).toHaveTextContent(
+      "Spend 1 strategy token to draw two action cards",
+    );
+    expect(screen.queryByTestId("choice-option")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("submit-choice-button")).not.toBeInTheDocument();
+  });
+
+  it("submits the spend or the skip with one click", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(<PendingChoiceModal choice={secondaryChoice()} onSubmit={onSubmit} />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("secondary-yes-btn"));
+    });
+    expect(onSubmit).toHaveBeenLastCalledWith("yes");
+    rerender(
+      <PendingChoiceModal choice={{ ...secondaryChoice(), nonce: "sec-2" }} onSubmit={onSubmit} />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("secondary-skip-btn"));
+    });
+    expect(onSubmit).toHaveBeenLastCalledWith("no");
+  });
+
+  it("cannot spend a token the seat does not have", () => {
+    render(
+      <PendingChoiceModal choice={secondaryChoice({ tokens_left: 0 })} onSubmit={vi.fn()} />,
+    );
+    expect(screen.getByTestId("secondary-yes-btn")).toBeDisabled();
+    expect(screen.getByTestId("secondary-skip-btn")).toBeEnabled();
+  });
+
+  it("keeps the plain list for a decision without the server's details", () => {
+    render(
+      <PendingChoiceModal
+        choice={{ ...secondaryChoice(), details: undefined }}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("strategy-secondary-panel")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("choice-option")).toHaveLength(2);
+  });
+});

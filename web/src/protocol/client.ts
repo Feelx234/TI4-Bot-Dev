@@ -144,6 +144,7 @@ function pendingChoice(
     prompt: envelope.choice.prompt,
     options: envelope.choice.options,
     context: envelope.choice.context,
+    ...(envelope.choice.details ? { details: envelope.choice.details } : {}),
   };
 }
 

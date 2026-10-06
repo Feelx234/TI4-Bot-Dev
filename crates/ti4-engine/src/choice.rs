@@ -172,6 +172,11 @@ pub struct Choice {
     /// Why this question exists and what remains outstanding in its transaction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<crate::decision_context::DecisionContext>,
+    /// Facts a client needs to present the question (current pools, who played a card, tokens
+    /// left). Display only: never read by the engine, never copied into a [`DecisionRecord`],
+    /// and skipped when empty, so records, replays and fingerprints are unaffected.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub details: serde_json::Map<String, Value>,
 }
 
 impl Choice {
@@ -182,7 +187,15 @@ impl Choice {
             prompt: prompt.into(),
             options,
             context: None,
+            details: serde_json::Map::new(),
         }
+    }
+
+    /// Attach one display-only fact for clients; see [`Choice::details`].
+    #[must_use]
+    pub fn detailed(mut self, key: &str, value: impl Into<Value>) -> Self {
+        self.details.insert(key.to_owned(), value.into());
+        self
     }
 
     /// Attach producer-authored typed semantics to this decision.

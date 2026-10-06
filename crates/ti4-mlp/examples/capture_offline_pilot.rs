@@ -678,6 +678,7 @@ impl BiasedBot {
             prompt: choice.prompt.clone(),
             options: preferred,
             context: choice.context.clone(),
+            details: choice.details.clone(),
         })
     }
 }

@@ -53,7 +53,26 @@ pub enum StrategySecondaryError {
     IllegalChoice(#[from] IllegalChoice),
 }
 
+/// The follower's secondary question with the facts a client needs to present it: which card
+/// was played, by whom, and how many strategy tokens the follower has left.
 fn secondary_choice(
+    state: &GameState,
+    content: &ContentStore,
+    card: &StrategyCardId,
+    primary: &PlayerId,
+    player: &PlayerId,
+    costs_token: bool,
+) -> Choice {
+    let tokens_left = state.player(player).map_or(0, |seat| seat.strategic_tokens);
+    secondary_question(content, card, player, costs_token)
+        .detailed("kind", "strategy_secondary")
+        .detailed("card", card.as_str())
+        .detailed("played_by", primary.as_str())
+        .detailed("tokens_left", tokens_left)
+        .detailed("costs_token", costs_token)
+}
+
+fn secondary_question(
     content: &ContentStore,
     card: &StrategyCardId,
     player: &PlayerId,
@@ -205,7 +224,14 @@ impl StrategySecondaryWindow {
             .map(|player_id| {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, player_id, &self.card);
-                secondary_choice(content, &self.card, player_id, costs_token)
+                secondary_choice(
+                    state,
+                    content,
+                    &self.card,
+                    &self.primary_player,
+                    player_id,
+                    costs_token,
+                )
             })
     }
 
@@ -224,8 +250,10 @@ impl StrategySecondaryWindow {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, &player_id, &self.card);
                 return Some(secondary_choice(
+                    state,
                     content,
                     &self.card,
+                    &self.primary_player,
                     &player_id,
                     costs_token,
                 ));
@@ -652,6 +680,53 @@ mod tests {
             })
             .cloned()
             .expect("the dealt deck carries this card")
+    }
+
+    #[test]
+    fn a_secondary_offer_says_which_card_was_played_by_whom_and_how_many_tokens_are_left() {
+        let (mut state, card) = drafted_with_first_pick("Politics");
+        if let Some(seat) = state.player_mut(&PlayerId::new("b")) {
+            seat.strategic_tokens = 3;
+        }
+        let window = StrategySecondaryWindow {
+            primary_player: PlayerId::new("a"),
+            card: card.clone(),
+            followers: vec![PlayerId::new("b"), PlayerId::new("c")],
+            next_follower: 0,
+            resolutions: Vec::new(),
+        };
+        let choice = window
+            .pending_choice(&state, ContentStore::embedded(), POK)
+            .expect("the first follower is offered the secondary");
+        assert_eq!(choice.player, PlayerId::new("b"));
+        assert_eq!(choice.details["kind"], "strategy_secondary");
+        assert_eq!(choice.details["card"], card.as_str());
+        assert_eq!(choice.details["played_by"], "a");
+        assert_eq!(choice.details["tokens_left"], 3);
+        assert_eq!(choice.details["costs_token"], true);
+    }
+
+    #[test]
+    fn display_details_never_change_which_decision_is_recorded() {
+        let (state, card) = drafted_with_first_pick("Politics");
+        let window = StrategySecondaryWindow {
+            primary_player: PlayerId::new("a"),
+            card,
+            followers: vec![PlayerId::new("b")],
+            next_follower: 0,
+            resolutions: Vec::new(),
+        };
+        let with = window
+            .pending_choice(&state, ContentStore::embedded(), POK)
+            .expect("offered");
+        let mut bare = with.clone();
+        bare.details.clear();
+        assert_eq!(with.options, bare.options);
+        assert_eq!(with.prompt, bare.prompt);
+        assert_eq!(with.context, bare.context);
+        // Empty details are not serialised, so an old reader sees exactly the old bytes.
+        assert!(!serde_json::to_string(&bare).unwrap().contains("details"));
+        assert!(serde_json::to_string(&with).unwrap().contains("details"));
     }
 
     #[test]

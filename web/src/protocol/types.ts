@@ -102,6 +102,8 @@ export interface PendingChoiceDto {
   nonce: string;
   options: ChoiceOptionDto[];
   context?: DecisionContextDto;
+  /** Display-only facts the server adds for some decisions (pools, who played a card, ...). */
+  details?: Record<string, unknown>;
 }
 
 /** Serde shape of `ti4_engine::choice::Choice` on the wire. */
@@ -110,6 +112,7 @@ export interface EngineChoice {
   prompt: string;
   options: ChoiceOptionDto[];
   context?: DecisionContextDto;
+  details?: Record<string, unknown>;
 }
 
 /** Opaque submission capability kept outside the engine choice contract. */

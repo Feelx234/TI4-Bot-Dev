@@ -837,6 +837,7 @@ mod tests {
                 .map(|index| ChoiceOption::new(format!("opt{index}"), "action"))
                 .collect(),
             context: None,
+            details: serde_json::Map::new(),
         }
     }
 

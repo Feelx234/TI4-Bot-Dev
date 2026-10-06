@@ -499,6 +499,28 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Strategy card secondary",
+    fallback: "Named action with the card, who played it and the tokens left",
+    note: "A follower's secondary: the card and its printed secondary text, who played it, how many strategy tokens remain, and one button that says what spending them does.",
+    choice: {
+      actor,
+      nonce: "gallery-strategy-secondary",
+      prompt: "spend a strategy token to draw two action cards",
+      options: [
+        option("no", "decline", "strategy"),
+        option("yes", "draw", "strategy"),
+      ],
+      details: {
+        kind: "strategy_secondary",
+        card: "pok3politics",
+        played_by: "other_seat",
+        tokens_left: 3,
+        costs_token: true,
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Unknown subtype",
     fallback: "Unknown subtype → generic modal",
     note: "Unknown engine subtypes fall back to the generic single-choice modal.",

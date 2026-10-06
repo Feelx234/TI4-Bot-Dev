@@ -92,6 +92,39 @@ describe("GameSessionClient reducer", () => {
     expect(next.turnStatus).toMatchObject({ seat: "seat_b" });
   });
 
+  it("carries the server's display details into the pending choice", () => {
+    const next = reduceServerMessage(state, {
+      type: "pending_choice",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      game_version: 7,
+      nonce: "n-1",
+      choice: {
+        player: "seat_a",
+        prompt: "spend a strategy token to draw two action cards",
+        options: [{ id: "no", label: "decline" }, { id: "yes", label: "draw" }],
+        details: { kind: "strategy_secondary", card: "pok3politics", tokens_left: 3 },
+      },
+    } as never);
+    expect(next.pendingChoice?.details).toEqual({
+      kind: "strategy_secondary",
+      card: "pok3politics",
+      tokens_left: 3,
+    });
+  });
+
+  it("leaves details out when the server sent none", () => {
+    const next = reduceServerMessage(state, {
+      type: "pending_choice",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      game_version: 7,
+      nonce: "n-2",
+      choice: { player: "seat_a", prompt: "p", options: [{ id: "a", label: "a" }] },
+    } as never);
+    expect(next.pendingChoice).not.toHaveProperty("details");
+  });
+
   it("keeps the entire history including early batches", () => {
     const events = Array.from({ length: 510 }, (_, index) => ({
       id: String(index),

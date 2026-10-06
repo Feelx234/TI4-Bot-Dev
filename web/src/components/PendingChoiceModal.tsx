@@ -10,7 +10,9 @@ import {
   handDecisionConfirmLabel,
   handDecisionNote,
 } from "../presentation/cardOptions.ts";
+import { describeStrategySecondary } from "../presentation/strategySecondary.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -165,6 +167,20 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     ? selectedOptionIds.length >= minSelection && selectedOptionIds.length <= maxSelection
     : choice.options.some((opt) => opt.id === selectedOptionId);
 
+  const secondary = describeStrategySecondary(choice);
+  const submitOption = async (optionId: string) => {
+    if (isSubmitting || isPipelineRunning) return;
+    setSubmissionError(null);
+    setIsSubmitting(true);
+    try {
+      await onSubmit(optionId);
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSelectionValid || isSubmitting || isPipelineRunning) return;
@@ -286,6 +302,14 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
             </div>
           )}
 
+          {secondary && (
+            <StrategySecondaryPanel
+              view={secondary}
+              disabled={isSubmitting || isPipelineRunning}
+              onChoose={(id) => void submitOption(id)}
+            />
+          )}
+          {!secondary && (
           <form
             onSubmit={handleSubmit}
             style={{ display: "flex", flexDirection: "column", gap: 12 }}
@@ -429,6 +453,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               </button>
             </div>
           </form>
+          )}
         </div>
       </Dialog.Content>
     </Dialog.Root>

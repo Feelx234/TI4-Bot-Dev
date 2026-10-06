@@ -131,6 +131,7 @@ pub fn create_sample_pending_choice() -> Choice {
         prompt: "Choose units to produce in Mecatol Rex".to_owned(),
         options,
         context: Some(context),
+        details: serde_json::Map::new(),
     }
 }
 
