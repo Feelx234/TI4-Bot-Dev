@@ -10,6 +10,7 @@ import { TechBenefitsOverlay } from "./TechBenefitsOverlay.tsx";
 import { StandardOverlay } from "./StandardOverlay.tsx";
 
 import { PlayerView } from "../../protocol/types.ts";
+import type { PaymentMark } from "../../presentation/paymentDraft.ts";
 
 export interface BoardTileProps {
   tile: TilePresentation;
@@ -20,6 +21,8 @@ export interface BoardTileProps {
   /** Defaults to "system" when `isActivationMode` is set. */
   targetMode?: MapTargetMode;
   players?: readonly PlayerView[];
+  /** While paying: what each payable planet is worth and whether it is staged. */
+  paymentMarks?: ReadonlyMap<string, PaymentMark>;
   onSelectTarget?: (systemId: string, planetId?: string) => void;
   onSelectOptionId?: (optionId: string) => void;
   onSelectSystem?: (systemId: string | null) => void;
@@ -35,6 +38,7 @@ export const BoardTile: React.FC<BoardTileProps> = ({
   isActivationMode,
   targetMode: targetModeProp,
   players,
+  paymentMarks,
   onSelectTarget,
   onSelectOptionId,
   onSelectSystem,
@@ -59,6 +63,11 @@ export const BoardTile: React.FC<BoardTileProps> = ({
   const targetMode = targetModeProp ?? (isActivationMode ? "system" : null);
 
   const handleTileClick = () => {
+    if (targetMode === "payment") {
+      // Planets are toggled on their own token; the hex only inspects.
+      onSelectSystem?.(tile.systemId);
+      return;
+    }
     if (targetMode === "planet") {
       // The hex is never an answer in planet mode: inspect it, and pick its planet only when it is
       // the system's single candidate (otherwise the choice would be ambiguous).
@@ -298,6 +307,7 @@ export const BoardTile: React.FC<BoardTileProps> = ({
         <StandardOverlay
           tile={tile}
           targetMode={targetMode}
+          paymentMarks={paymentMarks}
           onSelectTarget={onSelectTarget}
           onSelectSystem={onSelectSystem}
         />

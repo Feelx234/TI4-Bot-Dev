@@ -16,6 +16,12 @@ import {
 const c = (desc: string, checked = false) => ({ desc, checked });
 
 describe("preferPayment (smoke harness payment policy)", () => {
+  it("never clicks Pick on map, which only minimises the payment list", () => {
+    const pick = { desc: "pick-on-map-btn Pick on map" };
+    const planet = { desc: "planet-card-exhaust|jord" };
+    expect(preferPayment([pick, planet])).toEqual([planet]);
+  });
+
   it("presses the confirm button as soon as it is enabled", () => {
     const confirm = c("confirm-payment-btn | Confirm payment");
     const picked = preferPayment([

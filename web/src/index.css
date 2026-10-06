@@ -3786,3 +3786,24 @@ select:focus-visible,
 .combat-result-side__facts dt { color: #94a3b8; }
 .combat-result-side__facts dd { margin: 0; color: #e2e8f0; }
 @media (max-width: 700px) { .combat-result-summary__sides { grid-template-columns: 1fr; } }
+
+/* Payment on the map: the confirm bar shown while the payment list is minimised. */
+.payment-bar__tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: baseline;
+  justify-content: center;
+  font-size: 13px;
+  color: #f8fafc;
+}
+.payment-bar__problem,
+.payment-drawer__problem {
+  font-size: 12px;
+  margin: 0;
+  text-align: center;
+}
+.payment-bar__actions {
+  flex-wrap: wrap;
+  justify-content: center;
+}

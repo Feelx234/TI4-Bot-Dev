@@ -1,10 +1,22 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { PendingChoiceDto, PlayerView } from "../protocol/types.ts";
-import { getPaymentPayload, ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import {
+  buildPaymentSteps,
+  derivePaymentOffer,
+  paymentProblem,
+  summarizePayment,
+  suggestAutoPay,
+  togglePlanetInDraft,
+} from "../presentation/paymentDraft.ts";
+import {
+  usePaymentDraftState,
+  useSharedPaymentDraft,
+} from "../presentation/PaymentDraftContext.tsx";
 
 export interface PaymentDrawerProps {
   choice: PendingChoiceDto | null;
@@ -40,8 +52,11 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   selectedOptionId,
 }) => {
   const display = usePlayerIdentity();
-  const [selectedPlanetIds, setSelectedPlanetIds] = useState<string[]>([]);
-  const [tradeGoodsToSpend, setTradeGoodsToSpend] = useState<number>(0);
+  const shared = useSharedPaymentDraft();
+  const local = usePaymentDraftState(choice?.nonce);
+  const { draft, togglePlanet, setTradeGoods, setDraft, reset } = shared ?? local;
+  const selectedPlanetIds = draft.planetIds;
+  const tradeGoodsToSpend = draft.tradeGoods;
   const [batchError, setBatchError] = useState<string | null>(null);
   const [batchRunning, setBatchRunning] = useState(false);
 
@@ -51,106 +66,54 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
     lastError: pipelineError,
   } = usePipelineRunner(choice, onSubmit);
 
+  const offer = useMemo(
+    () => (choice ? derivePaymentOffer(choice, model) : null),
+    [choice, model],
+  );
   const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
-  const totalAmount =
-    model?.selectionMode.mode === "quantity"
-      ? model.selectionMode.target
-      : (constraints?.amount ?? 0);
-  const alreadyPaid =
-    model?.selectionMode.mode === "quantity" ? model.selectionMode.paid : (constraints?.paid ?? 0);
-  const owed = Math.max(0, totalAmount - alreadyPaid);
-  const currency =
-    model?.selectionMode.mode === "quantity"
-      ? model.selectionMode.unit === "influence"
-        ? "Influence"
-        : "Resources"
-      : choice?.context?.subtype === "pay_influence" ||
-          constraints?.kind?.toLowerCase() === "influence"
-        ? "Influence"
-        : "Resources";
+  const totalAmount = offer?.totalAmount ?? 0;
+  const alreadyPaid = offer?.alreadyPaid ?? 0;
+  const owed = offer?.owed ?? 0;
+  const currency = offer?.currency ?? "Resources";
+  const availablePlanets: DraftPlanet[] = offer?.planets ?? [];
+  const hasTradeGoodOption = offer?.hasTradeGoodOption ?? false;
+  const tradeGoodWorth = offer?.tradeGoodWorth ?? 1;
 
-  // Extract payment options from legal options
-  const { availablePlanets, hasTradeGoodOption, tradeGoodWorth } = useMemo(() => {
-    if (!choice) {
-      return {
-        availablePlanets: [] as DraftPlanet[],
-        hasTradeGoodOption: false,
-        tradeGoodWorth: 1,
-      };
-    }
-
-    const planets: DraftPlanet[] = [];
-    let hasTG = false;
-    let tgWorth = 1;
-
-    for (const opt of choice.options) {
-      if (opt.id === "decline" || opt.kind === "decline") {
-        continue;
-      }
-      if (opt.id === "trade_good") {
-        hasTG = true;
-        const p = getPaymentPayload(opt);
-        if (p.worth > 0) tgWorth = p.worth;
-        continue;
-      }
-      if (opt.id.startsWith("exhaust|") || opt.kind === "pay") {
-        const p = getPaymentPayload(opt);
-        planets.push({
-          id: opt.id,
-          planetName: p.planetName || opt.label || "Planet",
-          worth: p.worth > 0 ? p.worth : 0,
-          label: opt.label,
-          sourceKind: p.source,
-        });
-      }
-    }
-
-    return {
-      availablePlanets: planets,
-      hasTradeGoodOption: hasTG,
-      tradeGoodWorth: tgWorth,
-    };
-  }, [choice, model]);
-
-  // Reset draft state on new choice nonce
   useEffect(() => {
-    setSelectedPlanetIds([]);
-    setTradeGoodsToSpend(0);
     setBatchError(null);
   }, [choice?.nonce]);
 
+  // Without the shared draft (no map), a pick made elsewhere arrives as the selected option.
   useEffect(() => {
-    if (selectedOptionId && availablePlanets.some((planet) => planet.id === selectedOptionId)) {
-      setSelectedPlanetIds((ids) =>
-        ids.includes(selectedOptionId) ? ids : [...ids, selectedOptionId],
-      );
+    if (
+      !shared &&
+      selectedOptionId &&
+      availablePlanets.some((planet) => planet.id === selectedOptionId)
+    ) {
+      setDraft({
+        ...draft,
+        planetIds: draft.planetIds.includes(selectedOptionId)
+          ? draft.planetIds
+          : togglePlanetInDraft(draft.planetIds, selectedOptionId),
+      });
     }
-  }, [selectedOptionId, availablePlanets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedOptionId, offer]);
 
   const maxTradeGoodsAvailable = player?.trade_goods ?? (hasTradeGoodOption ? 1 : 0);
-
-  const committedFromPlanets = selectedPlanetIds.reduce((sum, id) => {
-    const planet = availablePlanets.find((p) => p.id === id);
-    return sum + (planet?.worth ?? 0);
-  }, 0);
-
-  const committedFromTG = tradeGoodsToSpend * tradeGoodWorth;
-  const totalCommitted = committedFromPlanets + committedFromTG;
-  const credit = Math.max(0, totalCommitted - owed);
-  // A partial payment would leave the engine asking again with a different offer, so only a
-  // fully staged bill can be confirmed.
-  const shortfall = Math.max(0, owed - totalCommitted);
-  const isSettled = owed > 0 && shortfall === 0;
-
-  // One planet can be offered as several options (e.g. `exhaust|x` and `exhaust|x|influence`);
-  // exhausting it twice is impossible, so only one variant may be staged at a time.
-  const planetKey = (id: string) => id.replace(/^exhaust\|/, "").split("|")[0];
-  const handleTogglePlanet = (id: string) => {
-    setSelectedPlanetIds((prev) =>
-      prev.includes(id)
-        ? prev.filter((p) => p !== id)
-        : [...prev.filter((p) => planetKey(p) !== planetKey(id)), id],
-    );
+  const summary = offer
+    ? summarizePayment(offer, draft)
+    : { committed: 0, shortfall: 0, surplus: 0, settled: false, fromPlanets: 0, fromTradeGoods: 0 };
+  const totalCommitted = summary.committed;
+  const credit = summary.surplus;
+  const shortfall = summary.shortfall;
+  const isSettled = summary.settled;
+  const problem = offer ? paymentProblem(offer, draft, maxTradeGoodsAvailable) : null;
+  const handleTogglePlanet = togglePlanet;
+  const handleAutoPay = () => {
+    if (!offer) return;
+    const suggestion = suggestAutoPay(offer, maxTradeGoodsAvailable);
+    setDraft({ planetIds: suggestion.planetIds, tradeGoods: suggestion.tradeGoods });
   };
 
   const handleConfirmPayment = async (
@@ -180,40 +143,9 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       setBatchRunning(true);
       setBatchError(null);
       try {
-        // When only two payment options remain and the first does not settle the
-        // bill, the engine spends the sole remaining option without offering a
-        // second choice. Do not include that automatic spend in the batch plan.
-        const autoSpendsLast =
-          choice.options.filter((option) => option.kind !== "decline").length === 2 &&
-          selectedPlanetIds.length === 2 &&
-          tradeGoodsToSpend === 0 &&
-          (availablePlanets.find((planet) => planet.id === selectedPlanetIds[0])?.worth ?? 0) <
-            owed;
-        let remaining = owed;
-        const planetsToSubmit = (
-          autoSpendsLast ? selectedPlanetIds.slice(0, 1) : selectedPlanetIds
-        ).filter((id) => {
-          if (remaining <= 0) return false;
-          remaining -= availablePlanets.find((planet) => planet.id === id)?.worth ?? 0;
-          return true;
-        });
         await onSubmitBatch({
           kind: "payment",
-          steps: [
-            ...planetsToSubmit.map((id) => ({
-              kind: "exhaust" as const,
-              planet: id.replace(/^exhaust\|/, ""),
-            })),
-            ...Array.from(
-              {
-                length: Math.min(
-                  tradeGoodsToSpend,
-                  Math.ceil(Math.max(0, remaining) / tradeGoodWorth),
-                ),
-              },
-              () => ({ kind: "trade_good" as const }),
-            ),
-          ],
+          steps: buildPaymentSteps(choice, offer!, draft),
         });
       } catch (error) {
         setBatchError(error instanceof Error ? error.message : String(error));
@@ -374,7 +306,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                         <button
                           type="button"
                           data-testid="tg-decrement-btn"
-                          onClick={() => setTradeGoodsToSpend((prev) => Math.max(0, prev - 1))}
+                          onClick={() => setTradeGoods((prev) => Math.max(0, prev - 1))}
                           disabled={
                             tradeGoodsToSpend <= 0 || isPipelineRunning || isDirectSubmitting
                           }
@@ -389,9 +321,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                           type="button"
                           data-testid="tg-increment-btn"
                           onClick={() =>
-                            setTradeGoodsToSpend((prev) =>
-                              Math.min(maxTradeGoodsAvailable, prev + 1),
-                            )
+                            setTradeGoods((prev) => Math.min(maxTradeGoodsAvailable, prev + 1))
                           }
                           disabled={
                             tradeGoodsToSpend >= maxTradeGoodsAvailable ||
@@ -425,15 +355,47 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                   </p>
                 )}
 
+                {problem && (
+                  <p
+                    role="status"
+                    data-testid="payment-problem"
+                    className="payment-drawer__problem text-warning"
+                  >
+                    {problem}
+                  </p>
+                )}
+
                 {/* Action Footer */}
                 <div className="payment-drawer__footer">
+                  <button
+                    type="button"
+                    data-testid="auto-pay-btn"
+                    className="button button--secondary"
+                    onClick={handleAutoPay}
+                    disabled={
+                      isPipelineRunning ||
+                      isDirectSubmitting ||
+                      (availablePlanets.length === 0 && !hasTradeGoodOption)
+                    }
+                    title="Stage the planets that cover the bill with the least waste; nothing is paid until you confirm"
+                  >
+                    Auto-pay
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="pick-on-map-btn"
+                    className="button button--secondary"
+                    onClick={onClose}
+                    title="Close this list to pick planets on the map"
+                  >
+                    Pick on map
+                  </button>
                   {(selectedPlanetIds.length > 0 || tradeGoodsToSpend > 0) && (
                     <button
                       type="button"
                       className="button button--secondary"
                       onClick={() => {
-                        setSelectedPlanetIds([]);
-                        setTradeGoodsToSpend(0);
+                        reset();
                       }}
                     >
                       Reset selection

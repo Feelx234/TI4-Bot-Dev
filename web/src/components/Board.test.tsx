@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Board, getPlayerColor } from "./Board.tsx";
 import { BoardView } from "../protocol/types.ts";
+import { PaymentDraftProvider } from "../presentation/PaymentDraftContext.tsx";
 
 const mockBoard: BoardView = {
   systems: {
@@ -736,5 +737,70 @@ describe("Board planet selection mode", () => {
     expect(screen.getByTestId("overlay-btn-economy")).toBeDisabled();
     fireEvent.click(screen.getByTestId("planet-abyz"));
     expect(onSelectTarget).toHaveBeenCalledWith("34", "abyz");
+  });
+});
+
+describe("Board payment mode", () => {
+  const payChoice = {
+    nonce: "nonce_pay",
+    actor: "p1",
+    prompt: "pay 5 resources",
+    context: {
+      subtype: "pay_resources",
+      outstanding: [{ kind: "resources", amount: 5, paid: 0 }],
+    },
+    options: [
+      { id: "exhaust|fria", kind: "pay", label: "Fria", payload: { worth: 4, kind: "resources", planet_name: "Fria" } },
+      { id: "decline", kind: "decline", label: "Cancel" },
+    ],
+  };
+  const board: BoardView = {
+    ...mockBoard,
+    systems: {
+      ...mockBoard.systems,
+      "34": {
+        ...mockBoard.systems["34"],
+        planets: {
+          ...mockBoard.systems["34"].planets,
+          fria: { planet_id: "fria", controlled_by: "p1", exhausted: false, attachments: [] },
+        },
+      },
+    },
+  };
+
+  it("marks payable planets with their worth, dims the rest, and routes a click to the target", () => {
+    const onSelectTarget = vi.fn();
+    render(
+      <Board
+        board={board}
+        seatingOrder={["p1", "p2"]}
+        pendingChoice={payChoice}
+        viewerSeat="p1"
+        onSelectTarget={onSelectTarget}
+      />,
+    );
+    expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("4R");
+    expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "false");
+    expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-target-dimmed", "true");
+    fireEvent.click(screen.getByTestId("planet-fria"));
+    expect(onSelectTarget).toHaveBeenCalledWith("34", "fria");
+  });
+
+  it("shows a staged planet as staged", () => {
+    render(
+      <PaymentDraftProvider
+        value={{
+          draft: { planetIds: ["exhaust|fria"], tradeGoods: 0 },
+          togglePlanet: vi.fn(),
+          setTradeGoods: vi.fn(),
+          setDraft: vi.fn(),
+          reset: vi.fn(),
+        }}
+      >
+        <Board board={board} seatingOrder={["p1", "p2"]} pendingChoice={payChoice} viewerSeat="p1" />
+      </PaymentDraftProvider>,
+    );
+    expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "true");
+    expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("✓ 4R");
   });
 });

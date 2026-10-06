@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useMemo, useState, useRef } from "react";
 import { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.ts";
 import {
   buildBoardPresentationModel,
@@ -14,6 +14,12 @@ import { MapOverlayToolbar } from "./MapOverlayToolbar.tsx";
 import { BoardTile } from "./board/BoardTile.tsx";
 import { BoardTooltip, HoveredTileInfo } from "./board/BoardTooltip.tsx";
 import { MovementVectorsOverlay } from "./board/MovementVectorsOverlay.tsx";
+import {
+  EMPTY_PAYMENT_DRAFT,
+  derivePaymentMarks,
+  derivePaymentOffer,
+} from "../presentation/paymentDraft.ts";
+import { useSharedPaymentDraft } from "../presentation/PaymentDraftContext.tsx";
 
 export { getPlayerColor, PLAYER_PALETTE };
 export type { MapOverlayMode };
@@ -89,8 +95,23 @@ export const Board: React.FC<BoardProps> = ({
 
   // Only the standard overlay draws clickable planets for every system, so a pending planet pick
   // shows it regardless of the chosen overlay; the preference returns afterwards.
-  const isPlanetTargeting = presentation.targets.targetMode === "planet";
+  const isPlanetTargeting =
+    presentation.targets.targetMode === "planet" || presentation.targets.targetMode === "payment";
   const effectiveOverlay: MapOverlayMode = isPlanetTargeting ? "none" : activeOverlay;
+
+  // While paying, each payable planet shows what it is worth and whether it is staged.
+  const sharedDraft = useSharedPaymentDraft();
+  const paymentMarks = useMemo(
+    () =>
+      presentation.targets.targetMode === "payment" && pendingChoice
+        ? derivePaymentMarks(
+            derivePaymentOffer(pendingChoice),
+            sharedDraft?.draft ?? EMPTY_PAYMENT_DRAFT,
+          )
+        : undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [presentation.targets.targetMode, pendingChoice, sharedDraft?.draft],
+  );
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button === 0) {
@@ -250,6 +271,7 @@ export const Board: React.FC<BoardProps> = ({
               viewerSeat={viewerSeat}
               isActivationMode={presentation.targets.isActivationMode}
               targetMode={presentation.targets.targetMode}
+              paymentMarks={paymentMarks}
               players={players}
               onSelectTarget={onSelectTarget}
               onSelectOptionId={onSelectOptionId}

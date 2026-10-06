@@ -14,6 +14,7 @@ import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { TechnologyModal } from "./TechnologyModal.tsx";
 import { ObjectivesModal } from "./ObjectivesModal.tsx";
 import { PaymentDrawer } from "./PaymentDrawer.tsx";
+import { PaymentBar } from "./PaymentBar.tsx";
 import {
   TacticalMovementOverlay,
   emptyMovementPlan,
@@ -756,6 +757,7 @@ export const ChoiceRendererDispatcher: React.FC<
           "strategy_card_draft",
           "system_activation",
           "planet_selection",
+          "payment",
           "combat_sustain",
           "combat_casualty",
           "combat_retreat",
@@ -787,6 +789,20 @@ export const ChoiceRendererDispatcher: React.FC<
             </button>
           </div>
         )}
+
+      {/* While the payment list is minimised the map is the control; this bar confirms. */}
+      {isMinimized && workflow === "payment" && (
+        <PaymentBar
+          choice={visibleChoice}
+          model={model}
+          viewerSeat={viewerSeat}
+          player={players?.[choice.actor] ?? null}
+          onSubmit={onSubmit}
+          onSubmitBatch={onSubmitBasketBatch}
+          onOpenList={() => onMinimizedChange(false)}
+          lastError={lastError ? present(lastError) : lastError}
+        />
+      )}
 
       {wrappedWorkflow ? (
         <Dialog.Root

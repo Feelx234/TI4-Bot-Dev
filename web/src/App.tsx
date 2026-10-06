@@ -16,6 +16,13 @@ import { TechnologyModal } from "./components/TechnologyModal.tsx";
 import { ObjectivesModal } from "./components/ObjectivesModal.tsx";
 import { resolveMapTargetSelection } from "./presentation/planetSelection.ts";
 import { isPlanetSelectionChoice } from "./presentation/choiceModel.ts";
+import {
+  derivePaymentOffer,
+  isPaymentChoice,
+  paymentOptionForPlanet,
+  paymentPlanetKey,
+} from "./presentation/paymentDraft.ts";
+import { PaymentDraftProvider, usePaymentDraftState } from "./presentation/PaymentDraftContext.tsx";
 
 const DevDecisionGallery = import.meta.env.DEV
   ? React.lazy(() =>
@@ -265,6 +272,7 @@ const GameViewContainer: React.FC<{
       .finally(() => setHistoryBusy(false));
   };
   const userSeat = viewer.role === "player" ? viewer.seat : undefined;
+  const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
   const [selectedOptionId, setSelectedOptionId] = useState<string>();
   const [selectedPlanetId, setSelectedPlanetId] = useState<string | null>(null);
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
@@ -308,6 +316,15 @@ const GameViewContainer: React.FC<{
             ));
   const handleSelectTarget = (systemId: string, planetId?: string) => {
     if (!pendingChoice || pendingChoice.actor !== userSeat) return;
+    // Paying: a click on a payable planet stages or unstages it (shared with the payment list).
+    if (isPaymentChoice(pendingChoice)) {
+      if (!planetId) return;
+      const option = paymentOptionForPlanet(derivePaymentOffer(pendingChoice), planetId);
+      if (!option) return;
+      const staged = paymentDraft.draft.planetIds.find((id) => paymentPlanetKey(id) === planetId);
+      paymentDraft.togglePlanet(staged ?? option.id);
+      return;
+    }
     const selection = resolveMapTargetSelection(
       pendingChoice,
       systemId,
@@ -320,6 +337,8 @@ const GameViewContainer: React.FC<{
   };
   return (
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
+      {/* The provider wraps the rest unindented to keep this diff small. */}
+      <PaymentDraftProvider value={paymentDraft}>
       {historyError && (
         <div className="session-error" role="alert">
           {historyError}
@@ -473,6 +492,7 @@ const GameViewContainer: React.FC<{
           setCardSubject(subject);
         }}
       />
+      </PaymentDraftProvider>
     </PlayerIdentityProvider>
   );
 };

@@ -7,9 +7,10 @@ import {
 } from "../protocol/types.ts";
 import { SEAT_COLORS } from "./playerDisplay.ts";
 import { isPlanetSelectionChoice } from "./choiceModel.ts";
+import { isPaymentChoice } from "./paymentDraft.ts";
 
 /** What a map click answers: a system hex (activation) or a planet (planet selection). */
-export type MapTargetMode = "system" | "planet" | null;
+export type MapTargetMode = "system" | "planet" | "payment" | null;
 
 /** The four closed tech-specialty colours in TI4. */
 export type TechSpecialty = "biotic" | "propulsion" | "cybernetic" | "warfare";
@@ -306,7 +307,15 @@ export function deriveActorTargetHighlights(
   // Invasion decisions keep their own overlay even when they carry planet payloads.
   const isPlanetMode =
     !isActivationMode && !board?.invasion && isPlanetSelectionChoice(pendingChoice);
-  const targetMode: MapTargetMode = isActivationMode ? "system" : isPlanetMode ? "planet" : null;
+  // Paying: payable planets are ringed with their worth and toggle in and out of the payment.
+  const isPaymentMode = !isActivationMode && !board?.invasion && isPaymentChoice(pendingChoice);
+  const targetMode: MapTargetMode = isActivationMode
+    ? "system"
+    : isPlanetMode
+      ? "planet"
+      : isPaymentMode
+        ? "payment"
+        : null;
 
   // 2. Structured ChoiceOption payloads (zero regexes)
   for (const opt of pendingChoice.options) {
@@ -315,6 +324,7 @@ export function deriveActorTargetHighlights(
     const isPaymentPlanet =
       subtype === "pay_resources" ||
       subtype === "pay_influence" ||
+      subtype === "leadership_spend_influence" ||
       subtype === "vote_exhaust_planet";
     const offeredPlanet =
       isPaymentPlanet && opt.id.startsWith("exhaust|")

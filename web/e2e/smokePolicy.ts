@@ -13,8 +13,11 @@ export interface PolicyCandidate {
 export function preferPayment<T extends PolicyCandidate>(candidates: T[]): T[] {
   const confirm = candidates.find((c) => /^confirm-payment-btn\b/.test(c.desc));
   if (confirm) return [confirm];
+  // "Pick on map" would only minimise the list; the harness pays from the list.
   const kept = candidates.filter(
-    (c) => !(c.checked && /^planet-card-/.test(c.desc)),
+    (c) =>
+      !(c.checked && /^planet-card-/.test(c.desc)) &&
+      !/^pick-on-map-btn\b/.test(c.desc),
   );
   return kept.length ? kept : candidates;
 }

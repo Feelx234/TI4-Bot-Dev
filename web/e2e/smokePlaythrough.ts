@@ -88,6 +88,7 @@ const DECISION_CONTAINERS = [
   "invasion-landing-tray",
   "invasion-overlay",
   "payment-drawer",
+  "payment-bar",
   "production-builder-drawer",
   "objectives-modal",
   "technology-modal",

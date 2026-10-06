@@ -908,4 +908,33 @@ describe("planet selection dispatch", () => {
     expect(screen.getByTestId("planet-option-pds|26|lodor")).toBeInTheDocument();
     expect(screen.getByTestId("planet-option-spacedock|26|lodor")).toBeInTheDocument();
   });
+
+  it("replaces the payment list with the payment bar once it is minimised for map picking", () => {
+    render(
+      <GameShell
+        header={<div>Header</div>}
+        board={<div>Board</div>}
+        playerSheet={<div>Player sheet</div>}
+        events={[]}
+        choice={{
+          actor: "p1",
+          nonce: "pay-1",
+          prompt: "pay 3 resources",
+          context: { subtype: "pay_resources", outstanding: [{ kind: "resources", amount: 3, paid: 0 }] },
+          options: [
+            { id: "exhaust|jord", label: "Jord", kind: "pay", payload: { worth: 4, planet_name: "Jord" } },
+          ],
+        }}
+        viewerSeat="p1"
+        onSubmitChoice={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    expect(screen.queryByTestId("payment-bar")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("pick-on-map-btn"));
+    expect(screen.getByTestId("payment-bar")).toBeInTheDocument();
+    expect(screen.queryByTestId("choice-minimized-pill")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("resume-decision-btn"));
+    expect(screen.queryByTestId("payment-bar")).not.toBeInTheDocument();
+    expect(screen.getByTestId("payment-drawer")).toBeInTheDocument();
+  });
 });

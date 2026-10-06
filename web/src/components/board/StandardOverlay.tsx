@@ -1,6 +1,7 @@
 import React from "react";
 import { MapTargetMode, TilePresentation } from "../../presentation/boardPresentation.ts";
 import { SvgButton } from "../../primitives/index.ts";
+import type { PaymentMark } from "../../presentation/paymentDraft.ts";
 import { usePlayerIdentity } from "../../presentation/PlayerIdentity.tsx";
 
 export interface StandardOverlayProps {
@@ -9,6 +10,8 @@ export interface StandardOverlayProps {
   onSelectSystem?: (systemId: string | null) => void;
   /** In planet mode candidates get a reticle and every other planet is dimmed. */
   targetMode?: MapTargetMode;
+  /** While paying: worth and staged state per payable planet id. */
+  paymentMarks?: ReadonlyMap<string, PaymentMark>;
 }
 
 export const StandardOverlay: React.FC<StandardOverlayProps> = ({
@@ -16,6 +19,7 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
   onSelectTarget,
   onSelectSystem,
   targetMode = null,
+  paymentMarks,
 }) => {
   const display = usePlayerIdentity();
   const pCount = tile.planets.length;
@@ -29,8 +33,9 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
         const planetRadius = 15;
         const isControlled = Boolean(p.controlledBy);
         const isCandidateTarget = Boolean(p.isCandidateTarget);
-        const isPlanetMode = targetMode === "planet";
+        const isPlanetMode = targetMode === "planet" || targetMode === "payment";
         const isDimmed = isPlanetMode && !isCandidateTarget;
+        const mark = targetMode === "payment" ? paymentMarks?.get(p.id) : undefined;
 
         return (
           <SvgButton
@@ -38,8 +43,13 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
             data-testid={`planet-${p.id}`}
             data-target-candidate={isCandidateTarget ? "true" : undefined}
             data-target-dimmed={isDimmed ? "true" : undefined}
+            data-payment-staged={mark ? String(mark.staged) : undefined}
             isInteractive={isCandidateTarget}
-            label={`Target planet ${p.label}`}
+            label={
+              mark
+                ? `${mark.staged ? "Stop exhausting" : "Exhaust"} planet ${p.label} for ${mark.worth} ${mark.unit === "I" ? "influence" : "resources"}`
+                : `Target planet ${p.label}`
+            }
             onActivate={() => {
               if (isCandidateTarget) {
                 // Inspect first: a system inspection may reset the selection, the target must win.
@@ -77,10 +87,10 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
                   cy={pY}
                   r={planetRadius + 6}
                   fill="none"
-                  stroke="#38bdf8"
-                  strokeWidth={2}
-                  strokeDasharray="4 2"
-                  className="target-pulse-ring"
+                  stroke={mark?.staged ? "#4ade80" : "#38bdf8"}
+                  strokeWidth={mark?.staged ? 3 : 2}
+                  strokeDasharray={mark?.staged ? undefined : "4 2"}
+                  className={mark?.staged ? undefined : "target-pulse-ring"}
                 />
                 {[0, 90, 180, 270].map((angle) => {
                   const rad = (angle * Math.PI) / 180;
@@ -93,7 +103,7 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
                       y1={pY + inner * Math.sin(rad)}
                       x2={pX + outer * Math.cos(rad)}
                       y2={pY + outer * Math.sin(rad)}
-                      stroke="#38bdf8"
+                      stroke={mark?.staged ? "#4ade80" : "#38bdf8"}
                       strokeWidth={2}
                     />
                   );
@@ -131,6 +141,33 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
               >
                 {display(p.controlledBy).symbol}
               </text>
+            )}
+
+            {mark && isCandidateTarget && (
+              <g data-testid={`payment-mark-${p.id}`} pointerEvents="none">
+                <rect
+                  x={pX - 19}
+                  y={pY - planetRadius - 22}
+                  width={38}
+                  height={14}
+                  rx={7}
+                  fill={mark.staged ? "#166534" : "#0c4a6e"}
+                  stroke={mark.staged ? "#4ade80" : "#38bdf8"}
+                  strokeWidth={1.5}
+                />
+                <text
+                  x={pX}
+                  y={pY - planetRadius - 12}
+                  textAnchor="middle"
+                  fill="#f8fafc"
+                  fontSize="9"
+                  fontWeight="bold"
+                >
+                  {mark.staged ? "✓ " : ""}
+                  {mark.worth}
+                  {mark.unit}
+                </text>
+              </g>
             )}
 
             {/* Planet Abbreviation */}
