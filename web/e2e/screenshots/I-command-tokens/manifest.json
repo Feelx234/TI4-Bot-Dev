@@ -11,7 +11,8 @@
     { "file": "out/6-gain-partial.png", "heading": "Gain: partly assigned", "caption": "Two tokens placed (tactic and strategy): their counts rise and new pips appear in the newly-assigned colour, Remaining drops to 1 and Confirm is still disabled with a note." },
     { "file": "out/7-gain-complete.png", "heading": "Gain: all assigned", "caption": "All three tokens assigned: Remaining is 0, the note is gone and Confirm tokens is enabled; the whole gain goes out as one batch." },
     { "file": "out/8-leadership-purchase-staged.png", "heading": "Leadership: purchase staged", "caption": "Leadership primary with three free tokens and nine influence: two tokens are bought with the stepper (6 influence spent; Jord plus four trade goods, chosen like Auto-pay), so five tokens are to assign; two are placed and three remain, Confirm is disabled." },
-    { "file": "out/9-leadership-ready.png", "heading": "Leadership: ready to confirm", "caption": "All five tokens (three free, two bought) are assigned: Remaining is 0 and Confirm tokens and purchase is enabled. One batch carries the pools, the two purchases and their payments, in the order the engine asks them." }
+    { "file": "out/9-leadership-ready.png", "heading": "Leadership: ready to confirm", "caption": "All five tokens (three free, two bought) are assigned: Remaining is 0 and Confirm tokens and purchase is enabled. One batch carries the pools, the two purchases and their payments, in the order the engine asks them." },
+    { "file": "out/10-leadership-change-payment.png", "heading": "Leadership: change payment", "caption": "One token bought, then Change payment: Jord (2) and one trade good replace Auto-pay's Lodor. The editor lists each ready planet with its influence and the trade-good stepper, the account reads paid 3, owed 3, remainder 0, waste 0, and Use Auto-pay resets the choice." }
   ],
   "notes": []
 }

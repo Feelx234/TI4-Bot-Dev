@@ -243,3 +243,101 @@ describe("command token panel (gain and buy)", () => {
     });
   });
 });
+
+describe("command token panel (change payment)", () => {
+  const rich = {
+    cost: 3,
+    influence_available: 14,
+    max: 4,
+    trade_goods: 2,
+    trade_good_worth: 1,
+    planets: [
+      { id: "jord", worth: 2 },
+      { id: "arcturus", worth: 4 },
+      { id: "lodor", worth: 3 },
+    ],
+  };
+  const richChoice = (): PendingChoiceDto => {
+    const choice = gainChoice(1);
+    return { ...choice, nonce: "gain-rich", details: { ...choice.details, purchase: rich } };
+  };
+  const stage = async () => {
+    await click("token-buy-plus");
+    for (const pool of ["tactic", "tactic"]) await click(`token-plus-${pool}`);
+  };
+
+  it("keeps Auto-pay as the default and offers Change payment only once something is bought", async () => {
+    render(<PendingChoiceModal choice={richChoice()} onSubmit={vi.fn()} onSubmitBatch={vi.fn()} />);
+    expect(screen.queryByTestId("token-payment-change")).not.toBeInTheDocument();
+    await click("token-buy-plus");
+    expect(screen.getByTestId("token-payment")).toHaveTextContent("Chosen like Auto-pay");
+    expect(screen.getByTestId("token-payment-change")).toBeInTheDocument();
+    expect(screen.queryByTestId("token-payment-editor")).not.toBeInTheDocument();
+  });
+
+  it("lets the player pick other planets, shows the account and sends their steps", async () => {
+    const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+    render(<PendingChoiceModal choice={richChoice()} onSubmit={vi.fn()} onSubmitBatch={onSubmitBatch} />);
+    await stage();
+    await click("token-payment-change");
+    const jord = screen.getByTestId("token-payment-planet-jord");
+    expect(jord).toHaveTextContent("jord · 2 influence · ready");
+    // Auto-pay picked lodor (3, no waste); switch to jord + one trade good.
+    expect(screen.getByTestId("token-payment-planet-lodor")).toHaveAttribute("aria-pressed", "true");
+    await click("token-payment-planet-lodor");
+    expect(screen.getByTestId("token-confirm")).toBeDisabled();
+    expect(screen.getByTestId("token-payment-problem")).toHaveTextContent("Short by 3");
+    await click("token-payment-planet-jord");
+    await click("token-payment-goods-plus");
+    expect(screen.getByTestId("token-payment-account")).toHaveTextContent(
+      "Paid 3 · owed 3 · remainder 0 · waste 0",
+    );
+    expect(screen.queryByTestId("token-payment-problem")).not.toBeInTheDocument();
+    expect(screen.getByTestId("token-payment")).toHaveTextContent("Your own choice");
+    await click("token-confirm");
+    const steps = onSubmitBatch.mock.calls[0][0].steps;
+    expect(steps).toEqual([
+      { kind: "pool", pool: "tactic_tokens" },
+      { kind: "purchase", buy: true },
+      { kind: "exhaust", planet: "jord" },
+      { kind: "trade_good" },
+      { kind: "pool", pool: "tactic_tokens" },
+      { kind: "purchase", buy: false },
+    ]);
+  });
+
+  it("blocks Confirm for a payment with an unneeded planet and explains it", async () => {
+    render(<PendingChoiceModal choice={richChoice()} onSubmit={vi.fn()} onSubmitBatch={vi.fn()} />);
+    await stage();
+    await click("token-payment-change");
+    expect(screen.getByTestId("token-confirm")).toBeEnabled();
+    await click("token-payment-planet-jord");
+    expect(screen.getByTestId("token-confirm")).toBeDisabled();
+    expect(screen.getByTestId("token-payment-problem")).toHaveTextContent("take out jord");
+  });
+
+  it("Use Auto-pay resets the choice", async () => {
+    render(<PendingChoiceModal choice={richChoice()} onSubmit={vi.fn()} onSubmitBatch={vi.fn()} />);
+    await stage();
+    await click("token-payment-change");
+    await click("token-payment-planet-lodor");
+    expect(screen.getByTestId("token-confirm")).toBeDisabled();
+    await click("token-payment-auto");
+    expect(screen.getByTestId("token-confirm")).toBeEnabled();
+    expect(screen.getByTestId("token-payment")).toHaveTextContent("Chosen like Auto-pay");
+    expect(screen.queryByTestId("token-payment-editor")).not.toBeInTheDocument();
+  });
+
+  it("falls back to Auto-pay with a visible note when the count makes the override illegal", async () => {
+    render(<PendingChoiceModal choice={richChoice()} onSubmit={vi.fn()} onSubmitBatch={vi.fn()} />);
+    await click("token-buy-plus");
+    await click("token-payment-change");
+    // Pay token 1 with arcturus (4, one carried over): at two tokens 4 is short, so it falls back.
+    await click("token-payment-planet-lodor");
+    await click("token-payment-planet-arcturus");
+    expect(screen.getByTestId("token-payment-account")).toHaveTextContent("waste 1");
+    await click("token-buy-plus");
+    expect(screen.getByTestId("token-payment-fallback")).toHaveTextContent("back to Auto-pay");
+    expect(screen.getByTestId("token-payment")).toHaveTextContent("Chosen like Auto-pay");
+  });
+});

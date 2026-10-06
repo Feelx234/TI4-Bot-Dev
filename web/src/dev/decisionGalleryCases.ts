@@ -712,6 +712,42 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Leadership: change which planets pay",
+    fallback: "Leadership gain and buy with Change payment: choose the planets to exhaust and the trade goods to spend",
+    note: "Leadership primary with three planets and trade goods to pay with. Auto-pay is the default; Change payment lists each ready planet (influence value) and a trade-good stepper, with the running account (paid, owed, remainder, waste) and a reason when the engine would not take the combination. Use Auto-pay resets it. Confirm stays disabled while the payment is short or pays more than the bill needs.",
+    choice: {
+      actor,
+      nonce: "gallery-leadership-change-payment",
+      prompt: "gain a command token into which pool",
+      context: { subtype: "gain_command_token" },
+      options: [
+        option("tactic_tokens", "tactic pool", "pool"),
+        option("fleet_tokens", "fleet pool", "pool"),
+        option("strategic_tokens", "strategy pool", "pool"),
+      ],
+      details: {
+        kind: "command_tokens",
+        mode: "gain",
+        pools: { tactic: 3, fleet: 4, strategic: 2 },
+        reinforcements: 12,
+        tokens_to_place: 3,
+        purchase: {
+          cost: 3,
+          influence_available: 12,
+          max: 4,
+          trade_goods: 2,
+          trade_good_worth: 1,
+          planets: [
+            { id: "jord", worth: 2 },
+            { id: "arcturus", worth: 4 },
+            { id: "lodor", worth: 3 },
+          ],
+        },
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Leadership secondary: buy command tokens",
     fallback: "Same panel for the follower: only the purchase and its pools",
     note: "Leadership secondary: the follower's yes/no question becomes the same panel with nothing free to place. Confirming with no purchase answers no.",

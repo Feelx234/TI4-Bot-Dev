@@ -45,12 +45,17 @@ export function preferTokenConfirm<T extends PolicyCandidate>(
   candidates: T[],
   rng?: () => number,
 ): T[] {
+  // The payment override is optional and its toggles can leave the bill unpaid: never click them,
+  // only "Use Auto-pay" (to recover) when nothing else can make progress.
+  const autoPay = candidates.find((c) => /^token-payment-auto\b/.test(c.desc));
+  candidates = candidates.filter((c) => !/^token-payment-/.test(c.desc));
   const buy = candidates.find((c) => /^token-buy-plus\b/.test(c.desc));
   if (buy && rng && rng() < TOKEN_BUY_CHANCE) return [buy];
   const confirm = candidates.find((c) => /^token-confirm\b/.test(c.desc));
   if (confirm) return [confirm];
   const plus = candidates.filter((c) => /^token-plus-/.test(c.desc));
-  return plus.length ? plus : candidates;
+  if (plus.length) return plus;
+  return autoPay && !candidates.length ? [autoPay] : candidates;
 }
 
 /** How often the harness buys one more Leadership token while the panel offers it. */

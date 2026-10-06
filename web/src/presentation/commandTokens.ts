@@ -236,10 +236,11 @@ export const canConfirmTokens = (
   view: CommandTokenView,
   staging: TokenStaging,
   bought = 0,
+  override: PaymentOverride | null = null,
 ): boolean =>
   (tokensToAssign(view, bought) > 0 || view.purchase !== null) &&
   confirmBlocker(view, staging, bought) === null &&
-  (bought === 0 || planPayment(view, bought) !== null);
+  (bought === 0 || paymentCheck(view, bought, override).problem === null);
 
 /** A step of a token batch plan, as the server's `tokens` batch kind takes it. */
 export type TokenStep =
@@ -324,6 +325,87 @@ export function planPayment(view: CommandTokenView, bought: number): PaymentPlan
   return { planets: chosen, tradeGoods: pick.tradeGoods, spent, bill, extra: spent - bill };
 }
 
+/** A payment the player chose instead of Auto-pay: which planets to exhaust, how many goods to spend. */
+export interface PaymentOverride {
+  planetIds: string[];
+  tradeGoods: number;
+}
+
+/** The running account of a payment against the bill of the staged purchases. */
+export interface PaymentCheck {
+  plan: PaymentPlan | null;
+  bill: number;
+  paid: number;
+  /** Still to pay (0 when covered). */
+  remainder: number;
+  /** Influence beyond the bill that the last item spent; carried to the next token or lost. */
+  waste: number;
+  /** Why the engine would not take this payment, or `null` when it would. */
+  problem: string | null;
+}
+
+/** The Auto-pay payment as an override, the starting point for editing it. */
+export function overrideFromPlan(plan: PaymentPlan): PaymentOverride {
+  return { planetIds: plan.planets.map((planet) => planet.id), tradeGoods: plan.tradeGoods };
+}
+
+/** The payment an override names, in the listed planets' order. */
+function overridePlan(view: CommandTokenView, bought: number, override: PaymentOverride): PaymentPlan | null {
+  const purchase = view.purchase;
+  if (!purchase) return null;
+  const planets = purchase.planets.filter((planet) => override.planetIds.includes(planet.id));
+  const tradeGoods = Math.max(0, Math.min(purchase.tradeGoods, Math.floor(override.tradeGoods)));
+  const spent =
+    planets.reduce((sum, planet) => sum + planet.worth, 0) + tradeGoods * purchase.tradeGoodWorth;
+  const bill = purchase.cost * bought;
+  return { planets, tradeGoods, spent, bill, extra: spent - bill };
+}
+
+/**
+ * Whether the engine takes a payment, and the account. Its payment loop asks for one planet or
+ * trade good at a time and stops the moment the bill is covered, so the last item may overshoot
+ * (the surplus is carried to the next bought token, or lost after the last) but an item the bill
+ * did not need is not offered: such a plan is illegal. Planets the engine would strand are not an
+ * issue while the listed planets and goods cover the bill. With no override this is Auto-pay.
+ */
+export function paymentCheck(
+  view: CommandTokenView,
+  bought: number,
+  override: PaymentOverride | null,
+): PaymentCheck {
+  const purchase = view.purchase;
+  const bill = purchase ? purchase.cost * bought : 0;
+  const plan = override ? overridePlan(view, bought, override) : planPayment(view, bought);
+  if (!purchase || !plan) {
+    return { plan: null, bill, paid: 0, remainder: bill, waste: 0, problem: "The bill cannot be covered." };
+  }
+  const paid = plan.spent;
+  const remainder = Math.max(0, bill - paid);
+  const waste = Math.max(0, paid - bill);
+  if (bought === 0) return { plan, bill, paid, remainder: 0, waste: paid, problem: paid > 0 ? "No tokens are bought, so nothing is paid." : null };
+  let problem: string | null = null;
+  if (paid < bill) {
+    problem = `Short by ${bill - paid} influence: exhaust another planet or spend more trade goods.`;
+  } else {
+    const items = [
+      ...plan.planets.map((planet) => ({ name: planet.id, worth: planet.worth })),
+      ...(plan.tradeGoods > 0 ? [{ name: "a trade good", worth: purchase.tradeGoodWorth }] : []),
+    ];
+    const smallest = items.reduce((a, b) => (b.worth < a.worth ? b : a));
+    if (paid - smallest.worth >= bill) {
+      problem = `More than needed: the bill is ${bill} and this pays ${paid}. The engine stops asking once the bill is covered, so take out ${smallest.name} (${smallest.worth}).`;
+    }
+  }
+  return { plan, bill, paid, remainder, waste, problem };
+}
+
+/** Whether an override is still a legal payment for `bought` tokens. */
+export const overrideIsValid = (
+  view: CommandTokenView,
+  bought: number,
+  override: PaymentOverride,
+): boolean => paymentCheck(view, bought, override).problem === null;
+
 /** The gain as one plan: a pool step per token, tactic first, then fleet, then strategy. */
 export function tokenPlan(staging: TokenStaging): TokenStep[] {
   return TOKEN_POOLS.flatMap((pool) =>
@@ -341,11 +423,13 @@ export function tokenPlanWithPurchase(
   view: CommandTokenView,
   staging: TokenStaging,
   bought: number,
+  override: PaymentOverride | null = null,
 ): TokenStep[] | null {
   const purchase = view.purchase;
   if (!purchase) return tokenPlan(staging);
-  const plan = planPayment(view, bought);
-  if (!plan) return null;
+  const check = paymentCheck(view, bought, override);
+  const plan = check.plan;
+  if (!plan || (bought > 0 && check.problem !== null)) return null;
   const pools = tokenPlan(staging);
   const steps: TokenStep[] = pools.slice(0, view.total);
   const items: { step: TokenStep; worth: number }[] = [
@@ -358,6 +442,8 @@ export function tokenPlanWithPurchase(
       worth: purchase.tradeGoodWorth,
     })),
   ];
+  // A chosen payment goes in by worth, smallest last, so the last item is the one that may overshoot.
+  if (override) items.sort((a, b) => b.worth - a.worth);
   let covered = 0;
   let next = 0;
   for (let token = 1; token <= bought; token += 1) {
@@ -383,10 +469,11 @@ export function tokenOutcome(
   view: CommandTokenView,
   staging: TokenStaging,
   bought = 0,
+  override: PaymentOverride | null = null,
 ): TokenOutcome | null {
-  if (!canConfirmTokens(view, staging, bought)) return null;
+  if (!canConfirmTokens(view, staging, bought, override)) return null;
   if (view.mode === "gain") {
-    const steps = tokenPlanWithPurchase(view, staging, bought);
+    const steps = tokenPlanWithPurchase(view, staging, bought, override);
     return steps ? { kind: "plan", steps } : null;
   }
   const optionId = arrangementId(view, staging);

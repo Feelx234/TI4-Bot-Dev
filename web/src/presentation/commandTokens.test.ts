@@ -5,9 +5,13 @@ import {
   canConfirmTokens,
   confirmBlocker,
   describeCommandTokens,
+  type CommandTokenView,
   fitStaging,
   initialStaging,
   maxPurchases,
+  overrideFromPlan,
+  overrideIsValid,
+  paymentCheck,
   planPayment,
   poolPips,
   removeToken,
@@ -313,5 +317,92 @@ describe("gain + buy model", () => {
         { kind: "purchase", buy: false },
       ],
     });
+  });
+});
+
+describe("payment override", () => {
+  const view = (): CommandTokenView => ({
+    mode: "gain",
+    current: { tactic: 3, fleet: 4, strategic: 2 },
+    reinforcements: 20,
+    total: 0,
+    arrangements: new Set(),
+    purchase: {
+      cost: 3,
+      influence: 14,
+      max: 4,
+      planets: [
+        { id: "jord", worth: 2 },
+        { id: "arcturus", worth: 4 },
+        { id: "lodor", worth: 3 },
+      ],
+      tradeGoods: 2,
+      tradeGoodWorth: 1,
+    },
+  });
+  const staged = { tactic: 1, fleet: 0, strategic: 0 };
+
+  it("Auto-pay stays the default and its plan is unchanged without an override", () => {
+    const v = view();
+    expect(paymentCheck(v, 1, null).plan).toEqual(planPayment(v, 1));
+    expect(paymentCheck(v, 1, null).problem).toBeNull();
+    expect(tokenPlanWithPurchase(v, staged, 1)).toEqual(tokenPlanWithPurchase(v, staged, 1, null));
+  });
+
+  it("accepts any affordable combination that the bill needs, with the account", () => {
+    const v = view();
+    const exact = paymentCheck(v, 1, { planetIds: ["lodor"], tradeGoods: 0 });
+    expect([exact.paid, exact.bill, exact.remainder, exact.waste, exact.problem]).toEqual([3, 3, 0, 0, null]);
+    // The last item may overshoot: the engine stops asking once the bill is covered.
+    const waste = paymentCheck(v, 1, { planetIds: ["arcturus"], tradeGoods: 0 });
+    expect([waste.paid, waste.waste, waste.problem]).toEqual([4, 1, null]);
+    const mixed = paymentCheck(v, 1, { planetIds: ["jord"], tradeGoods: 1 });
+    expect([mixed.paid, mixed.problem]).toEqual([3, null]);
+  });
+
+  it("rejects an insufficient payment and one with an item the bill did not need", () => {
+    const v = view();
+    const short = paymentCheck(v, 1, { planetIds: ["jord"], tradeGoods: 0 });
+    expect([short.remainder, short.problem]).toEqual([1, expect.stringContaining("Short by 1")]);
+    const extra = paymentCheck(v, 1, { planetIds: ["lodor", "jord"], tradeGoods: 0 });
+    expect(extra.problem).toContain("take out jord");
+    expect(canConfirmTokens(v, staged, 1, { planetIds: ["lodor", "jord"], tradeGoods: 0 })).toBe(false);
+    expect(tokenOutcome(v, staged, 1, { planetIds: ["jord"], tradeGoods: 0 })).toBeNull();
+  });
+
+  it("checks validity again for a different number of bought tokens", () => {
+    const v = view();
+    const override = { planetIds: ["lodor"], tradeGoods: 0 };
+    expect(overrideIsValid(v, 1, override)).toBe(true);
+    expect(overrideIsValid(v, 2, override)).toBe(false);
+    expect(overrideIsValid(v, 1, { planetIds: ["lodor", "arcturus"], tradeGoods: 0 })).toBe(false);
+    expect(overrideIsValid(v, 2, { planetIds: ["lodor", "arcturus"], tradeGoods: 0 })).toBe(true);
+  });
+
+  it("sends the chosen exhaust and trade good steps, smallest last, in the order the engine asks", () => {
+    const v = view();
+    const steps = tokenPlanWithPurchase(v, staged, 1, { planetIds: ["jord"], tradeGoods: 1 });
+    expect(steps).toEqual([
+      { kind: "purchase", buy: true },
+      { kind: "exhaust", planet: "jord" },
+      { kind: "trade_good" },
+      { kind: "pool", pool: "tactic_tokens" },
+      { kind: "purchase", buy: false },
+    ]);
+    const two = tokenPlanWithPurchase(v, { tactic: 1, fleet: 1, strategic: 0 }, 2, {
+      planetIds: ["jord", "arcturus"],
+      tradeGoods: 0,
+    });
+    // 4 covers the first token (1 carried), 2 more covers the second.
+    expect(two?.filter((s) => s.kind === "exhaust")).toEqual([
+      { kind: "exhaust", planet: "arcturus" },
+      { kind: "exhaust", planet: "jord" },
+    ]);
+    expect(two?.[0]).toEqual({ kind: "purchase", buy: true });
+  });
+
+  it("builds the starting override from the Auto-pay plan", () => {
+    const plan = planPayment(view(), 1)!;
+    expect(overrideIsValid(view(), 1, overrideFromPlan(plan))).toBe(true);
   });
 });

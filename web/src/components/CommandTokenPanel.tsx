@@ -11,6 +11,9 @@ import {
   fitStaging,
   initialStaging,
   maxPurchases,
+  overrideFromPlan,
+  overrideIsValid,
+  paymentCheck,
   planPayment,
   poolPips,
   removeToken,
@@ -19,6 +22,7 @@ import {
   tokensRemaining,
   tokensToAssign,
   type CommandTokenView,
+  type PaymentOverride,
   type TokenOutcome,
   type TokenStaging,
 } from "../presentation/commandTokens.ts";
@@ -61,25 +65,67 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
   const start = useMemo(() => initialStaging(view), [view]);
   const [staging, setStaging] = useState<TokenStaging>(start);
   const [bought, setBought] = useState(0);
+  // null: Auto-pay plans the payment. Set: the player's own choice of planets and trade goods.
+  const [override, setOverride] = useState<PaymentOverride | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const locked = disabled || submitting;
   const remaining = tokensRemaining(view, staging, bought);
   const blocker = confirmBlocker(view, staging, bought);
-  const changed = bought > 0 || TOKEN_POOLS.some((pool) => staging[pool] !== start[pool]);
+  const changed = bought > 0 || override !== null || TOKEN_POOLS.some((pool) => staging[pool] !== start[pool]);
   const gain = view.mode === "gain";
   const purchase = view.purchase;
   const buyLimit = maxPurchases(view);
-  const payment = purchase ? planPayment(view, bought) : null;
+  const check = paymentCheck(view, bought, override);
+  const payment = purchase ? check.plan : null;
   const total = tokensToAssign(view, bought);
+  const useAutoPay = () => {
+    setOverride(null);
+    setEditing(false);
+    setFallbackNote(null);
+  };
   const changeBought = (next: number) => {
     const clamped = Math.max(0, Math.min(buyLimit, next));
     setBought(clamped);
     setStaging((current) => fitStaging(view, current, clamped));
+    if (override) {
+      // Keep the player's payment while it still is a legal one for the new count.
+      if (clamped === 0) {
+        useAutoPay();
+      } else if (!overrideIsValid(view, clamped, override)) {
+        setOverride(null);
+        setEditing(false);
+        setFallbackNote(
+          `Your payment no longer fits ${clamped} token${clamped === 1 ? "" : "s"}; back to Auto-pay.`,
+        );
+      }
+    } else {
+      setFallbackNote(null);
+    }
   };
+  const startEditing = () => {
+    const auto = planPayment(view, bought);
+    if (!override && auto) setOverride(overrideFromPlan(auto));
+    setEditing(true);
+    setFallbackNote(null);
+  };
+  const togglePlanet = (id: string) =>
+    setOverride((current) => {
+      if (!current) return current;
+      const has = current.planetIds.includes(id);
+      return { ...current, planetIds: has ? current.planetIds.filter((x) => x !== id) : [...current.planetIds, id] };
+    });
+  const stepGoods = (delta: number) =>
+    setOverride((current) =>
+      current && purchase
+        ? { ...current, tradeGoods: Math.max(0, Math.min(purchase.tradeGoods, current.tradeGoods + delta)) }
+        : current,
+    );
 
   const confirm = async () => {
-    const outcome = tokenOutcome(view, staging, bought);
+    const outcome = tokenOutcome(view, staging, bought, override);
     if (!outcome) return;
     setSubmitting(true);
     setError(null);
@@ -90,6 +136,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
       setError(cause instanceof Error ? cause.message : String(cause));
       setStaging(start);
       setBought(0);
+      useAutoPay();
     } finally {
       setSubmitting(false);
     }
@@ -172,10 +219,101 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
                 ...(payment.tradeGoods > 0
                   ? [`${payment.tradeGoods} trade good${payment.tradeGoods === 1 ? "" : "s"}`]
                   : []),
-              ].join(" + ")}
-              . Chosen like Auto-pay: the planets covering the bill with the least waste, trade
-              goods only when planets fall short.
+              ].join(" + ") || "nothing yet"}
+              .{" "}
+              {override
+                ? "Your own choice."
+                : "Chosen like Auto-pay: the planets covering the bill with the least waste, trade goods only when planets fall short."}
             </p>
+          )}
+          {bought > 0 && fallbackNote && (
+            <p className="token-panel__note" data-testid="token-payment-fallback" role="status">
+              {fallbackNote}
+            </p>
+          )}
+          {bought > 0 && !editing && (
+            <button
+              type="button"
+              className="button button--secondary button--sm"
+              data-testid="token-payment-change"
+              disabled={locked}
+              onClick={startEditing}
+            >
+              Change payment
+            </button>
+          )}
+          {bought > 0 && override && (
+            <div className="token-panel__payment" data-testid="token-payment-editor">
+              {editing && purchase && (
+                <>
+                  <ul className="token-panel__planets">
+                    {purchase.planets.map((planet) => {
+                      const chosen = override.planetIds.includes(planet.id);
+                      return (
+                        <li key={planet.id}>
+                          <button
+                            type="button"
+                            className="button button--secondary button--sm"
+                            data-testid={`token-payment-planet-${planet.id}`}
+                            aria-pressed={chosen}
+                            disabled={locked}
+                            onClick={() => togglePlanet(planet.id)}
+                          >
+                            {planet.id} · {planet.worth} influence · ready{chosen ? " → exhaust" : ""}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {purchase.tradeGoods > 0 && (
+                    <span className="token-panel__stepper" data-testid="token-payment-goods">
+                      Trade goods ({purchase.tradeGoodWorth} influence each, {purchase.tradeGoods} held)
+                      <button
+                        type="button"
+                        className="button button--secondary button--sm"
+                        data-testid="token-payment-goods-minus"
+                        aria-label="Spend one trade good less"
+                        disabled={locked || override.tradeGoods === 0}
+                        onClick={() => stepGoods(-1)}
+                      >
+                        −
+                      </button>
+                      <span className="token-panel__count" data-testid="token-payment-goods-count">
+                        {override.tradeGoods}
+                      </span>
+                      <button
+                        type="button"
+                        className="button button--secondary button--sm"
+                        data-testid="token-payment-goods-plus"
+                        aria-label="Spend one trade good more"
+                        disabled={locked || override.tradeGoods >= purchase.tradeGoods}
+                        onClick={() => stepGoods(1)}
+                      >
+                        +
+                      </button>
+                    </span>
+                  )}
+                </>
+              )}
+              <p className="token-panel__note" data-testid="token-payment-account" data-ok={check.problem === null}>
+                Paid <strong>{check.paid}</strong> · owed <strong>{check.bill}</strong> · remainder{" "}
+                <strong>{check.remainder}</strong> · waste <strong>{check.waste}</strong>
+              </p>
+              {check.problem && (
+                <p className="token-panel__note" role="alert" data-testid="token-payment-problem">
+                  {check.problem}
+                </p>
+              )}
+              <button
+                type="button"
+                className="button button--secondary button--sm"
+                data-testid="token-payment-auto"
+                disabled={locked}
+                onClick={useAutoPay}
+              >
+                Use Auto-pay
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -258,6 +396,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
           onClick={() => {
             setStaging(start);
             setBought(0);
+            useAutoPay();
           }}
         >
           Reset
@@ -266,7 +405,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
           type="button"
           className="button button--primary"
           data-testid="token-confirm"
-          disabled={locked || !canConfirmTokens(view, staging, bought)}
+          disabled={locked || !canConfirmTokens(view, staging, bought, override)}
           onClick={() => void confirm()}
         >
           {submitting

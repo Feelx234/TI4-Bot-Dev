@@ -207,6 +207,28 @@ describe("preferTokenConfirm", () => {
     expect(preferTokenConfirm(stages)).toEqual(stages);
   });
 
+  describe("payment override controls", () => {
+    const change = c("token-payment-change | Change payment");
+    const planet = c("token-payment-planet-jord | jord · 2 influence · ready");
+    const goods = c("token-payment-goods-plus | Spend one trade good more | +");
+    const auto = c("token-payment-auto | Use Auto-pay");
+    const plus = c("token-plus-fleet | Add a token to Fleet | +");
+    const confirm = c("token-confirm | Confirm tokens and purchase");
+
+    it("never offers the override toggles, with or without a random roll", () => {
+      for (const rng of [undefined, () => 0, () => 0.99]) {
+        const picked = preferTokenConfirm([change, planet, goods, plus], rng);
+        expect(picked).toEqual([plus]);
+        expect(preferTokenConfirm([change, planet, goods, confirm], rng)).toEqual([confirm]);
+      }
+    });
+
+    it("recovers with Use Auto-pay only when nothing else can progress", () => {
+      expect(preferTokenConfirm([planet, goods, auto])).toEqual([auto]);
+      expect(preferTokenConfirm([planet, auto, plus])).toEqual([plus]);
+    });
+  });
+
   describe("Leadership purchase stepper", () => {
     const buyPlus = c("token-buy-plus | Buy one token more | +");
     const buyMinus = c("token-buy-minus | Buy one token less | −");
