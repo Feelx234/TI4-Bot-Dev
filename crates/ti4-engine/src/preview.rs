@@ -451,7 +451,7 @@ pub mod deterministic {
         let Some(plan) = plans.first() else {
             return Preview::unavailable("no plan pays this cost");
         };
-        let worth = plan.worth(state, content, sources, kind);
+        let worth = plan.worth_for(state, content, sources, player, kind);
         Preview::certain(vec![
             Delta::new(pool_of(kind), pool, pool - worth),
             Delta::new(

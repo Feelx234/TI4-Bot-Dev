@@ -260,6 +260,7 @@ fn clear_planet(
     planet: &str,
     doomed: impl Fn(&str) -> bool,
     limit: Option<usize>,
+    agenda: &str,
 ) -> usize {
     let Some(system) = system_of(state, content, sources, planet) else {
         return 0;
@@ -270,6 +271,7 @@ fn clear_planet(
         return 0;
     };
     let mut destroyed = 0;
+    let mut fallen: Vec<ti4_model::units::Unit> = Vec::new();
     units.retain(|unit| {
         if limit.is_some_and(|cap| destroyed >= cap) {
             return true;
@@ -279,9 +281,23 @@ fn clear_planet(
             .is_some_and(|kind| doomed(kind.base_type()));
         if hit {
             destroyed += 1;
+            if types
+                .get(unit.type_id.as_str())
+                .is_some_and(ti4_content::units::UnitType::is_ground_force)
+            {
+                fallen.push(unit.clone());
+            }
         }
         !hit
     });
+    // Staged for the coordinator's flush (`hooks_ground::announce_staged_events`): an agenda
+    // effect holds no resolver.
+    let cause = format!("agenda:{agenda}");
+    for unit in &fallen {
+        crate::factions::hooks_ground::stage_ground_force_destroyed(
+            state, &system, &planet, unit, &cause,
+        );
+    }
     destroyed
 }
 
@@ -515,7 +531,15 @@ pub fn resolve_with(
             // furthest behind. Several may be level, and the controller chooses between them.
             let controller = controller_of(state, outcome);
             let system = system_of(state, content, sources, outcome);
-            clear_planet(state, content, sources, outcome, |_| true, None);
+            clear_planet(
+                state,
+                content,
+                sources,
+                outcome,
+                |_| true,
+                None,
+                "redistribution",
+            );
             let (Some(controller), Some(system)) = (controller, system) else {
                 return Effect::Resolved {
                     agenda: agenda.to_owned(),
@@ -754,7 +778,18 @@ pub fn resolve_with(
                     })
                 });
                 if let Some(home) = home {
-                    state.system_mut(&home).command_tokens.insert(player);
+                    if state
+                        .system_mut(&home)
+                        .command_tokens
+                        .insert(player.clone())
+                    {
+                        crate::tokens::stage_command_token_placed(
+                            state,
+                            &player,
+                            &home,
+                            crate::factions::hooks_cards::TokenPool::Reinforcements,
+                        );
+                    }
                 }
             }
         }
@@ -785,12 +820,19 @@ pub fn resolve_with(
                 outcome,
                 |base| matches!(base, "infantry" | "mech"),
                 None,
+                "disarmament",
             );
             if let Some(controller) = controller
                 && destroyed > 0
                 && let Some(seat) = state.player_mut(&controller)
             {
                 seat.trade_goods += i32::try_from(destroyed).unwrap_or(i32::MAX);
+                crate::supply::note_trade_goods_gained(
+                    state,
+                    &controller,
+                    i32::try_from(destroyed).unwrap_or(i32::MAX),
+                    "agenda",
+                );
             }
         }
         "plowshares" => {
@@ -843,16 +885,33 @@ pub fn resolve_with(
                         })
                         .unwrap_or_default();
                     let losses = held.len().div_ceil(2);
+                    let mut fallen: Vec<ti4_model::units::Unit> = Vec::new();
                     if let Some(units) = state.system_mut(&system).planet_units.get_mut(&planet) {
                         for index in held.into_iter().take(losses).rev() {
-                            units.remove(index);
+                            fallen.push(units.remove(index));
                         }
+                    }
+                    // Staged in the order they fell (highest index first, as removed).
+                    for unit in &fallen {
+                        crate::factions::hooks_ground::stage_ground_force_destroyed(
+                            state,
+                            &system,
+                            &planet,
+                            unit,
+                            "agenda:plowshares",
+                        );
                     }
                     destroyed += losses;
                 }
                 if let Some(seat) = state.player_mut(&player) {
                     seat.trade_goods += i32::try_from(destroyed).unwrap_or(i32::MAX);
                 }
+                crate::supply::note_trade_goods_gained(
+                    state,
+                    &player,
+                    i32::try_from(destroyed).unwrap_or(i32::MAX),
+                    "agenda",
+                );
             }
         }
         "arms_reduction" => {
@@ -929,6 +988,7 @@ pub fn resolve_with(
                     if let Some(seat) = state.player_mut(&player) {
                         seat.trade_goods += 3;
                     }
+                    crate::supply::note_trade_goods_gained(state, &player, 3, "agenda");
                 }
             }
         }
@@ -938,7 +998,7 @@ pub fn resolve_with(
             if outcome == AGAINST {
                 state.wormhole_tokens.insert(
                     "GAMMA".to_owned(),
-                    ti4_model::id::SystemId::new(crate::seating::MECATOL),
+                    ti4_model::id::SystemId::new(crate::seating::mecatol_on(state)),
                 );
             }
         }
@@ -1020,23 +1080,53 @@ pub fn resolve_with(
                         .controlled_planets(&player)
                         .into_iter()
                         .find(|(system, _)| {
+                            // The seat's home first: Creuss's home (51) is not the tile its
+                            // faction record names (the Creuss Gate, 17).
                             state.player(&player).is_some_and(|seat| {
-                                ti4_content::factions::get(content, seat.faction.as_str())
-                                    .and_then(|faction| faction.home_system())
-                                    .is_some_and(|home| home == system.as_str())
+                                seat.home_system.as_ref().map_or_else(
+                                    || {
+                                        ti4_content::factions::get(content, seat.faction.as_str())
+                                            .and_then(|faction| faction.home_system())
+                                            .is_some_and(|home| home == system.as_str())
+                                    },
+                                    |home| home == *system,
+                                )
                             })
                         })
                         .map(|(system, planet)| (system.clone(), planet.clone()));
                     if let Some((system, planet)) = home {
+                        // Preserve existing seats' unit identity and agenda behavior. Naaz's
+                        // printed Maximum forbids new mechs and its fourth Eidolon opens Synergy.
+                        let naaz = state
+                            .player(&player)
+                            .is_some_and(|seat| seat.faction.as_str() == "naaz");
+                        let mech =
+                            ti4_model::id::UnitTypeId::new(if naaz { "naaz_mech" } else { "mech" });
+                        if crate::factions::hooks_economy::effect_placement_forbidden(
+                            state, content, sources, &player, &mech,
+                        ) || (naaz
+                            && crate::supply::allowed(state, content, sources, &player, &mech, 1)
+                                == 0)
+                        {
+                            continue;
+                        }
                         state
                             .system_mut(&system)
                             .planet_units
                             .entry(planet)
                             .or_default()
-                            .push(ti4_model::units::Unit::new(
-                                ti4_model::id::UnitTypeId::new("mech"),
-                                player.clone(),
-                            ));
+                            .push(ti4_model::units::Unit::new(mech, player.clone()));
+                        if naaz {
+                            crate::supply::stage_event(
+                                state,
+                                "NAAZ_MECH_PLACED",
+                                &[
+                                    ("player".to_owned(), player.to_string().into()),
+                                    ("system".to_owned(), system.to_string().into()),
+                                ]
+                                .into(),
+                            );
+                        }
                     }
                 }
             } else {
@@ -1070,11 +1160,20 @@ pub fn resolve_with(
                 outcome,
                 |base| base == "infantry",
                 Some(1),
+                "core_mining",
             );
         }
         "demilitarized_zone" => {
             // Everything on the planet dies; the standing ban is the law.
-            clear_planet(state, content, sources, outcome, |_| true, None);
+            clear_planet(
+                state,
+                content,
+                sources,
+                outcome,
+                |_| true,
+                None,
+                "demilitarized_zone",
+            );
         }
         "holy_planet_of_ixth" => {
             if let Some(controller) = controller_of(state, outcome) {
@@ -1098,7 +1197,14 @@ pub fn resolve_with(
                 }
                 for player in everyone(state) {
                     if !board.units_of(&player).is_empty() {
-                        state.system_mut(&id).command_tokens.insert(player);
+                        if state.system_mut(&id).command_tokens.insert(player.clone()) {
+                            crate::tokens::stage_command_token_placed(
+                                state,
+                                &player,
+                                &id,
+                                crate::factions::hooks_cards::TokenPool::Reinforcements,
+                            );
+                        }
                     }
                 }
             }
@@ -1128,6 +1234,7 @@ pub fn resolve_with(
                     if let Some(seat) = state.player_mut(&player) {
                         seat.trade_goods += 5;
                     }
+                    crate::supply::note_trade_goods_gained(state, &player, 5, "agenda");
                 }
             }
         }
@@ -1195,17 +1302,16 @@ pub fn resolve_with(
             // on who voted, not on what won.
             for player in ballot.voted_for(FOR) {
                 if outcome == FOR {
-                    // Two action cards. The hand limit is enforced by the caller that owns a
-                    // table; here the draw is unconditional and the limit applies later.
-                    for _ in 0..2 {
-                        if state.action_card_deck.is_empty() {
-                            break;
-                        }
-                        let top = state.action_card_deck.remove(0);
-                        if let Some(seat) = state.player_mut(&player) {
-                            seat.action_cards.push(top);
-                        }
-                    }
+                    // Two action cards, drawn through the shared draw so draw effects apply
+                    // (Yssaril Scheming) and the draw is announced; the same convention as
+                    // Archived Secret's draw above for a decider's illegal answer.
+                    let _ = crate::action_cards::draw_announced(
+                        state,
+                        ctx,
+                        &player,
+                        2,
+                        "unconventional_measures",
+                    );
                 } else if let Some(seat) = state.player_mut(&player) {
                     seat.action_cards.clear();
                 }
@@ -2673,5 +2779,86 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// BF-F1 package A: an agenda that destroys a garrison stages one event per ground force.
+    #[test]
+    fn disarmament_stages_ground_force_destroyed_with_the_agenda_as_cause() {
+        let (mut state, planet, _player) = garrison(2);
+        run(&mut state, "disarmament", planet.as_str(), &no_votes());
+
+        let events = crate::factions::hooks_ground::test_support::flush_recorded(&mut state);
+        assert_eq!(events.len(), 2);
+        for (name, payload) in &events {
+            assert_eq!(name, "GROUND_FORCE_DESTROYED");
+            assert_eq!(payload["player"], "a");
+            assert_eq!(payload["unit"], "infantry");
+            assert_eq!(payload["planet"], planet.to_string());
+            assert_eq!(payload["cause"], "agenda:disarmament");
+        }
+    }
+
+    #[test]
+    fn plowshares_stages_the_infantry_it_buys_out() {
+        let (mut state, _planet, _player) = garrison(3);
+        run(&mut state, "plowshares", FOR, &no_votes());
+        let events = crate::factions::hooks_ground::test_support::flush_recorded(&mut state);
+        assert_eq!(events.len(), 2, "three lose two");
+        assert!(
+            events
+                .iter()
+                .all(|(_, payload)| payload["cause"] == "agenda:plowshares")
+        );
+    }
+
+    #[test]
+    fn an_agenda_that_destroys_no_ground_force_stages_nothing() {
+        let (mut state, planet, _player) = garrison(0);
+        run(&mut state, "disarmament", planet.as_str(), &no_votes());
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
+    }
+    #[test]
+    fn rearmament_respects_maximum_and_preserves_original_seat_placement() {
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "sol")], sources);
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let home = state.player(&a).unwrap().home_system.clone().unwrap();
+        let planet = state
+            .controlled_planets(&a)
+            .into_iter()
+            .find(|(s, _)| **s == home)
+            .unwrap()
+            .1
+            .clone();
+        crate::fixtures::put_on_planet(&mut state, &home, &planet, "naaz_voltron", &a, 1);
+        let a_before = state.system_state(&home).clone();
+        let b_before = crate::supply::held(
+            &state,
+            ti4_content::ContentStore::embedded(),
+            sources,
+            &b,
+            "mech",
+        );
+        assert!(matches!(
+            run(&mut state, "rearmament", FOR, &no_votes()),
+            Effect::Resolved { .. }
+        ));
+        assert_eq!(state.system_state(&home), a_before);
+        assert_eq!(
+            crate::supply::held(
+                &state,
+                ti4_content::ContentStore::embedded(),
+                sources,
+                &b,
+                "mech"
+            ),
+            b_before + 1
+        );
+        assert!(
+            !crate::supply::staged_event_types(&state)
+                .iter()
+                .any(|kind| kind == "NAAZ_MECH_PLACED")
+        );
     }
 }

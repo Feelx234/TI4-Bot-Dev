@@ -93,6 +93,7 @@ pub fn take_strategy_card(
         && let Some(seat) = state.player_mut(&player)
     {
         seat.trade_goods += goods;
+        crate::supply::note_trade_goods_gained(state, &player, goods, "strategy_card");
     }
 
     // `player` was checked above, so the only mutation APIs used here cannot fail.

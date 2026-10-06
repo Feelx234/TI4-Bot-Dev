@@ -121,11 +121,11 @@ pub fn commander_unlocked(
             };
             let types = ti4_content::units::catalogue(content, sources);
             let mut nearby: std::collections::BTreeSet<String> = galaxy
-                .adjacent(crate::seating::MECATOL)
+                .adjacent(crate::seating::mecatol_in_galaxy(galaxy))
                 .into_iter()
                 .map(ToOwned::to_owned)
                 .collect();
-            nearby.insert(crate::seating::MECATOL.to_owned());
+            nearby.insert(crate::seating::mecatol_in_galaxy(galaxy).to_owned());
             nearby.iter().any(|system| {
                 let board = state.system_state(&ti4_model::id::SystemId::new(system));
                 board
@@ -140,7 +140,16 @@ pub fn commander_unlocked(
                     })
             })
         }
-        _ => return None,
+        other => {
+            return crate::factions::commander_unlocked(
+                state,
+                content,
+                sources,
+                galaxy,
+                player,
+                &LeaderId::new(other),
+            );
+        }
     };
     Some(met)
 }
@@ -176,12 +185,46 @@ pub fn for_faction(content: &ContentStore, sources: SourceSet, faction: &str) ->
         .iter()
         .filter_map(|record| record.text("homebrewReplacesID"))
         .collect();
+    // The faction sheet names its leaders. The corpus also carries alternates that sheet does not
+    // list -- unofficial variants filed under an official source (Creuss's `redcreuss*`) and
+    // superseded printings with no replacement link (Naalu's `naaluagent` beside the listed
+    // `naaluagent-te`) -- and dealing those gave a seat six leaders, or two agents. A record is
+    // kept if the sheet lists it, if it reprints one the sheet lists, or if it stands in for a
+    // listed leader of its type that `sources` does not reach.
+    let sheet: Vec<&str> = ti4_content::factions::get(content, faction)
+        .map(|record| record.leaders())
+        .unwrap_or_default();
+    let available: std::collections::BTreeSet<&str> = records
+        .iter()
+        .filter_map(|record| record_id(record))
+        .collect();
+    let missing_types: std::collections::BTreeSet<String> = sheet
+        .iter()
+        .filter(|listed| !available.contains(*listed))
+        .filter_map(|listed| kind_of(content, &LeaderId::new(*listed)))
+        .collect();
+    let on_sheet = |record: &&ti4_content::Record| {
+        sheet.is_empty()
+            || record_id(record).is_some_and(|id| sheet.contains(&id))
+            || record
+                .text("homebrewReplacesID")
+                .is_some_and(|original| sheet.contains(&original))
+            || record
+                .text("type")
+                .is_some_and(|kind| missing_types.contains(&kind.to_ascii_lowercase()))
+    };
     records
         .into_iter()
+        .filter(on_sheet)
         .filter_map(|record| record.text("id").or_else(|| record.text("alias")))
         .map(LeaderId::new)
         .filter(|leader| !replaced.contains(leader.as_str()))
         .collect()
+}
+
+/// A leader record's id.
+fn record_id(record: &ti4_content::Record) -> Option<&str> {
+    record.text("id").or_else(|| record.text("alias"))
 }
 
 /// 51.2a: a faction begins with its agents readied and everything else locked.
@@ -315,6 +358,9 @@ pub fn ready_all(state: &mut GameState, player: &PlayerId) -> Vec<LeaderId> {
     for leader in &exhausted {
         seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
     }
+    for leader in &exhausted {
+        crate::factions::nomad_agents::agent_readied(state, player, leader);
+    }
     exhausted
 }
 
@@ -330,6 +376,7 @@ pub fn ready(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> boo
         return false;
     }
     seat.leaders.insert(leader.clone(), LeaderStatus::Readied);
+    crate::factions::nomad_agents::agent_readied(state, player, leader);
     true
 }
 
@@ -342,6 +389,19 @@ pub fn exhaust(state: &mut GameState, player: &PlayerId, leader: &LeaderId) -> b
         return false;
     }
     seat.leaders.insert(leader.clone(), LeaderStatus::Exhausted);
+    // The Nomad's Temporal Command Suite hears every agent becoming exhausted.
+    if crate::factions::nomad::watches_agent_exhaustion(state)
+        && kind_of(ContentStore::embedded(), leader).as_deref() == Some(AGENT)
+    {
+        crate::supply::stage_event(
+            state,
+            crate::factions::nomad::AGENT_EXHAUSTED,
+            &std::collections::BTreeMap::from([
+                ("player".to_owned(), player.to_string().into()),
+                ("leader".to_owned(), leader.as_str().into()),
+            ]),
+        );
+    }
     true
 }
 
@@ -405,6 +465,8 @@ fn is_action_window(content: &ContentStore, leader: &LeaderId) -> bool {
 /// of Kings agents such as Carth of Golden Sands). Only the first ends the turn (OP-07).
 #[must_use]
 pub fn uses_the_action(content: &ContentStore, leader: &LeaderId) -> bool {
+    let leader = split_borrowed(leader).map_or_else(|| leader.clone(), |(_, source)| source);
+    let leader = &leader;
     content
         .get(ContentType::Leaders, leader.as_str())
         .and_then(|record| record.text("abilityWindow"))
@@ -518,7 +580,7 @@ fn can_resolve_action(
                 })
             })
         }
-        _ => true,
+        _ => crate::factions::leader_action(state, content, player, leader).unwrap_or(true),
     }
 }
 
@@ -544,7 +606,10 @@ pub fn component_actions(
         })
         .map(|(leader, _)| leader.clone())
         .filter(|leader| is_action_window(content, leader))
-        .filter(action_leader_delivered)
+        .filter(|leader| {
+            action_leader_delivered(leader)
+                || crate::factions::leader_action(state, content, player, leader).is_some()
+        })
         .filter(|leader| can_resolve_action(state, content, player, leader))
         .map(|leader| {
             let label = content
@@ -555,6 +620,38 @@ pub fn component_actions(
                 format!("component|leader|{}", leader.as_str()),
                 "component",
                 label.to_owned(),
+            )
+        })
+        .chain(borrowed_component_actions(state, content, player))
+        .collect()
+}
+
+/// Ssruu, Clever Genome: each other seat's agent whose printed window is the action phase, offered
+/// to the Ssruu holder as `component|leader|yssarilagent|<agent>` when its effect can resolve for
+/// the holder. Empty unless `player` holds a readied Ssruu.
+fn borrowed_component_actions(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+) -> Vec<crate::choice::ChoiceOption> {
+    crate::factions::hooks_cards::borrowable_agents(state, content, player)
+        .into_iter()
+        .map(|(_, agent)| agent)
+        .filter(|agent| is_action_window(content, agent))
+        .filter(|agent| {
+            action_leader_delivered(agent)
+                || crate::factions::leader_action(state, content, player, agent).is_some()
+        })
+        .filter(|agent| can_resolve_action(state, content, player, agent))
+        .map(|agent| {
+            let name = content
+                .get(ContentType::Leaders, agent.as_str())
+                .and_then(|record| record.text("name"))
+                .unwrap_or(agent.as_str());
+            crate::choice::ChoiceOption::labelled(
+                format!("component|leader|yssarilagent|{}", agent.as_str()),
+                "component",
+                format!("Ssruu: use {name}'s ability"),
             )
         })
         .collect()
@@ -659,7 +756,7 @@ pub fn modifiers() -> std::collections::BTreeMap<&'static str, &'static str> {
         ),
         (
             "jolnaragent",
-            "strategy_cards::doctor_sucaban, read by strategy_cards::paid_research",
+            "strategy_cards::doctor_sucaban, read by strategy_cards::paid_research; a Ssruu copy is offered by the same function through strategy_cards::sucaban_sources",
         ),
         (
             "l1z1xcommander",
@@ -676,40 +773,25 @@ pub fn modifiers() -> std::collections::BTreeMap<&'static str, &'static str> {
 /// in one voting path and forgotten in another.
 #[must_use]
 pub fn vote_bonus(state: &GameState, player: &PlayerId) -> i64 {
-    let Some(seat) = state.player(player) else {
+    // Hacan's Gila the Silvertongue is not a flat bonus: the vote window asks how many trade
+    // goods to spend, two votes each (`vote::Stage::TradeGoods`).
+    if state.player(player).is_none() {
         return 0;
-    };
-    seat.leaders
-        .iter()
-        .filter(|(_, status)| **status == LeaderStatus::Unlocked)
-        .map(|(leader, _)| match leader.as_str() {
-            // Hacan's Gila the Silvertongue. Not yet as printed (spend trade goods, two votes
-            // each); a flat three stands in until that choice exists.
-            "hacancommander" => 3,
-            _ => 0,
-        })
-        .sum()
+    }
+    crate::factions::vote_bonus(state, player)
 }
 
 /// Elder Qanoj, Xxcha's commander: "Each planet you exhaust to cast votes provides 1 additional
 /// vote. Game effects cannot prevent you from voting on an agenda."
 #[must_use]
 pub fn elder_qanoj(state: &GameState, player: &PlayerId) -> bool {
-    state.player(player).is_some_and(|seat| {
-        seat.leaders.iter().any(|(leader, status)| {
-            leader.as_str() == "xxchacommander" && *status == LeaderStatus::Unlocked
-        })
-    })
+    crate::promissory::has_commander_ability(state, player, "xxchacommander")
 }
 
 /// Whether this player's units ignore a planetary shield when bombarding.
 #[must_use]
 pub fn ignores_planetary_shield(state: &GameState, player: &PlayerId) -> bool {
-    state.player(player).is_some_and(|seat| {
-        seat.leaders.iter().any(|(leader, status)| {
-            leader.as_str() == "l1z1xcommander" && *status == LeaderStatus::Unlocked
-        })
-    })
+    crate::promissory::has_commander_ability(state, player, "l1z1xcommander")
 }
 
 /// Xxekir Grom: whether this player's exhausted planets pay their combined value.
@@ -734,11 +816,7 @@ pub fn combines_planet_values(state: &GameState, player: &PlayerId) -> bool {
 #[must_use]
 pub fn pays_on_sustain(state: &GameState, content: &ContentStore, player: &PlayerId) -> bool {
     let _ = content;
-    state.player(player).is_some_and(|seat| {
-        seat.leaders.iter().any(|(leader, status)| {
-            leader.as_str() == "letnevcommander" && *status == LeaderStatus::Unlocked
-        })
-    })
+    crate::promissory::has_commander_ability(state, player, "letnevcommander")
 }
 
 /// Leaders this engine can use, by id.
@@ -749,6 +827,8 @@ pub fn registered_abilities() -> Vec<&'static str> {
         "hacanhero",
         "jolnaragent",
         "xxchahero",
+        // The Thunder's Edge reprint `for_faction` deals at DEFAULT; delivered by `use_leader`.
+        "xxchahero-te",
         "jolnarhero",
         "l1z1xagent",
         "l1z1xhero",
@@ -761,6 +841,9 @@ pub fn registered_abilities() -> Vec<&'static str> {
         "solhero",
         "xxchaagent",
     ]
+    .into_iter()
+    .chain(crate::factions::registered_leaders())
+    .collect()
 }
 
 /// Leaders of these factions that still do nothing, by any of the three routes.
@@ -795,6 +878,10 @@ pub fn use_leader(
     player: &PlayerId,
     leader: &LeaderId,
 ) -> bool {
+    // An offer made through Ssruu names `yssarilagent|<agent>` (see `component_actions`).
+    if let Some((ssruu, source)) = split_borrowed(leader) {
+        return ssruu.as_str() == "yssarilagent" && use_leader_text(context, player, &source);
+    }
     // Agents are used readied; heroes and commanders unlocked. Commanders reach this point only
     // from their own delivery windows (combat, voting, sustain), never as a generic action —
     // which is why `usable` keeps them out of the offer while this gate admits them here.
@@ -808,7 +895,118 @@ pub fn use_leader(
     if !ready {
         return false;
     }
-    let done = match leader.as_str() {
+    let done = dispatch_leader(context, player, leader);
+    if done {
+        // An agent exhausts; a hero is purged once used (51.9, 51.10) — except Darktalon
+        // Treilla, whose card says she stays in play until the end of her game round.
+        // `end_of_round` purges her there and clears the flag she set.
+        if kind_of(context.content, leader).as_deref() == Some(HERO)
+            && leader.as_str() != "letnevhero"
+        {
+            purge(context.state, player, leader);
+        } else {
+            exhaust(context.state, player, leader);
+        }
+    }
+    done
+}
+
+/// Start a hero's strategy primary without purging it before its continuation finishes.
+pub(crate) fn use_leader_strategy_primary(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Result<
+    Option<(
+        ti4_model::id::StrategyCardId,
+        crate::strategy_cards::Ability,
+    )>,
+    crate::timing::TimingError,
+> {
+    if kind_of(context.content, leader).as_deref() != Some(HERO)
+        || status(context.state, player, leader) != Some(LeaderStatus::Unlocked)
+    {
+        return Ok(None);
+    }
+    let before = context.state.clone();
+    let before_dice = context.dice.clone();
+    let before_rng = context.rng.clone();
+    let outcome = crate::factions::use_leader_strategy_primary(context, player, leader);
+    if outcome.is_err()
+        || matches!(
+            &outcome,
+            Ok(Some((_, crate::strategy_cards::Ability::Unresolved)))
+        )
+    {
+        *context.state = before;
+        *context.dice = before_dice;
+        *context.rng = before_rng;
+    }
+    outcome
+}
+
+/// Use an action leader with access to the game's existing timing resolver.
+/// Modules without a timed effect keep the ordinary dispatch and status transitions.
+pub fn use_leader_timed(
+    context: &mut crate::timing::TimingContext<'_>,
+    resolver: &mut crate::timing::Resolver,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> Result<bool, crate::timing::TimingError> {
+    let kind = kind_of(context.content, leader);
+    let ready = match kind.as_deref() {
+        Some(AGENT) => status(context.state, player, leader) == Some(LeaderStatus::Readied),
+        Some(HERO | COMMANDER) => {
+            status(context.state, player, leader) == Some(LeaderStatus::Unlocked)
+        }
+        _ => false,
+    };
+    let response = if ready {
+        let before = context.state.clone();
+        let before_dice = context.dice.clone();
+        let before_rng = context.rng.clone();
+        let before_sequence = context.event_sequence.clone();
+        let before_resolver = resolver.checkpoint();
+        match crate::factions::use_leader_timed(context, resolver, player, leader) {
+            Ok(response) => response,
+            Err(error) => {
+                *context.event_sequence = before_sequence;
+                resolver.restore(before_resolver);
+                *context.state = before;
+                *context.dice = before_dice;
+                *context.rng = before_rng;
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(done) = response {
+        if done {
+            if kind.as_deref() == Some(HERO) && leader.as_str() != "letnevhero" {
+                purge(context.state, player, leader);
+            } else {
+                exhaust(context.state, player, leader);
+            }
+        }
+        return Ok(done);
+    }
+    Ok(use_leader(context, player, leader))
+}
+
+/// The per-leader effect dispatch shared by [`use_leader`] and [`use_leader_text`]: runs the leader's
+/// printed effect for `player` and reports whether it resolved. No status gate, no exhaust or purge:
+/// the callers own both.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one arm per leader: the list is the point, and splitting it hides the set"
+)]
+fn dispatch_leader(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    leader: &LeaderId,
+) -> bool {
+    match leader.as_str() {
         // Evelyn DeLouis and Viscount Unlenn: one unit in the active system rolls an extra die
         // this combat round. Held as the round number, so it expires with the round it was used
         // in rather than improving every later one.
@@ -1198,6 +1396,7 @@ pub fn use_leader(
                     .entry(planet.clone())
                     .or_default()
                     .push(ti4_model::units::Unit::new(unit.clone(), player.clone()));
+                crate::supply::stage_naaz_mech_placed(context.state, player, system, unit);
                 // "ready each planet that you place a unit on"
                 context.state.exhausted_planets.remove(planet);
             }
@@ -1448,6 +1647,9 @@ pub fn use_leader(
                     break;
                 }
             }
+            if swapped {
+                crate::supply::stage_naaz_mech_placed(context.state, &target, &system, &mech);
+            }
             // Agents are traded favours: a structured promise to use this one for the active
             // seat is kept when the swap happens.
             if swapped && &target != player {
@@ -1609,21 +1811,286 @@ pub fn use_leader(
             }
             true
         }
-        _ => false,
-    };
-    if done {
-        // An agent exhausts; a hero is purged once used (51.9, 51.10) — except Darktalon
-        // Treilla, whose card says she stays in play until the end of her game round.
-        // `end_of_round` purges her there and clears the flag she set.
-        if kind_of(context.content, leader).as_deref() == Some(HERO)
-            && leader.as_str() != "letnevhero"
-        {
-            purge(context.state, player, leader);
-        } else {
-            exhaust(context.state, player, leader);
-        }
+        _ => crate::factions::use_leader(context, player, leader).unwrap_or(false),
     }
-    done
+}
+
+/// Separator in a borrowed-agent id: `yssarilagent|<agent>` (see [`use_leader_text`]).
+pub const BORROWED_SEPARATOR: char = '|';
+
+/// Split a borrowed-agent leader id (`yssarilagent|solagent`) into Ssruu's id and the source agent.
+#[must_use]
+pub fn split_borrowed(leader: &LeaderId) -> Option<(LeaderId, LeaderId)> {
+    let (ssruu, source) = leader.as_str().split_once(BORROWED_SEPARATOR)?;
+    Some((LeaderId::new(ssruu), LeaderId::new(source)))
+}
+
+/// Use `source_agent`'s text ability as `as_player`, through Ssruu, Clever Genome (`yssarilagent`):
+/// "This card has the text ability of each other player's agent, even if that agent is exhausted."
+///
+/// Runs the same per-leader dispatch as [`use_leader`] (including `factions::use_leader`) but
+/// without the readied gate on `source_agent` and without exhausting it. Returns `false`, changing
+/// nothing, unless `source_agent` is in `hooks_cards::borrowable_agents` for `as_player` (the seat
+/// holds a readied Ssruu and the agent is another seat's, readied or exhausted).
+///
+/// On success Ssruu itself exhausts: the borrowed text says "exhaust this card", and the card
+/// carrying that text is Ssruu. Then every module's `borrowed_agent_used` hook runs.
+///
+/// Limit: the effect runs as `as_player`. A module agent whose `use_leader`/`leader_action` hook
+/// requires its own seat to hold the leader declines here (returns `false`, nothing happens), so
+/// it is simply not borrowable until that module accepts a borrower.
+pub fn use_leader_text(
+    context: &mut crate::timing::TimingContext<'_>,
+    as_player: &PlayerId,
+    source_agent: &LeaderId,
+) -> bool {
+    let borrowable =
+        crate::factions::hooks_cards::borrowable_agents(context.state, context.content, as_player);
+    if !borrowable.iter().any(|(_, agent)| agent == source_agent) {
+        return false;
+    }
+    if !dispatch_leader(context, as_player, source_agent) {
+        return false;
+    }
+    exhaust(context.state, as_player, &LeaderId::new("yssarilagent"));
+    crate::factions::hooks_cards::borrowed_agent_used(context, as_player, source_agent);
+    true
+}
+
+/// Standing AFTER SYSTEM_ACTIVATED slots for each seated L1Z1X source and Ssruu borrower.
+///
+/// The roster is fixed when the resolver is armed. Each slot rechecks the live, exact source
+/// pair through `hooks_cards::borrowable_agents`, so a source that is removed or locked after
+/// arming is not offered, while an Exhausted source remains copyable as printed.
+#[must_use]
+pub fn ssruu_l1z1x_activation_abilities(state: &GameState) -> Vec<crate::timing::Ability> {
+    use crate::timing::{Ability, Relation};
+    use std::sync::Arc;
+
+    let borrowers: Vec<_> = state
+        .players
+        .iter()
+        .filter(|seat| seat.faction.as_str() == "yssaril")
+        .map(|seat| seat.id.clone())
+        .collect();
+    let sources: Vec<_> = state
+        .players
+        .iter()
+        .filter(|seat| seat.faction.as_str() == "l1z1x")
+        .map(|seat| seat.id.clone())
+        .collect();
+
+    borrowers
+        .into_iter()
+        .flat_map(|borrower| {
+            let borrower_for_filter = borrower.clone();
+            sources
+                .iter()
+                .filter(move |source| *source != &borrower_for_filter)
+                .map(move |source_owner| {
+                    let borrower = borrower.clone();
+                    let source_owner = source_owner.clone();
+                    let condition_borrower = borrower.clone();
+                    let condition_source = source_owner.clone();
+                    let effect_borrower = borrower.clone();
+                    Ability::stateful(
+                        format!(
+                            "leader:ssruu-copy:{}:l1z1xagent:{}:SYSTEM_ACTIVATED:after",
+                            borrower.as_str(),
+                            source_owner.as_str()
+                        ),
+                        borrower,
+                        "SYSTEM_ACTIVATED",
+                        Relation::After,
+                        Arc::new(move |event, _, context| {
+                            let Some((beneficiary, system, mech, planets)) =
+                                l1z1x_copy_activation_plan(
+                                    context.state,
+                                    context.content,
+                                    context.sources,
+                                    event,
+                                    &source_owner,
+                                    &effect_borrower,
+                                )
+                            else {
+                                return Ok(());
+                            };
+                            let planet = if planets.len() == 1 {
+                                planets.into_iter().next().expect("one legal planet")
+                            } else {
+                                let choice = crate::choice::Choice::new(
+                                    beneficiary.clone(),
+                                    "I48S (Ssruu): replace which infantry in the active system?",
+                                    planets
+                                        .iter()
+                                        .map(|planet| {
+                                            crate::choice::ChoiceOption::labelled(
+                                                planet.to_string(),
+                                                "leader_l1z1xagent_copy_planet",
+                                                format!(
+                                                    "replace infantry on {} with a mech",
+                                                    ti4_content::galaxy::planet(
+                                                        context.content,
+                                                        planet.as_str(),
+                                                        context.sources
+                                                    )
+                                                    .and_then(|record| record.name())
+                                                    .unwrap_or(planet.as_str())
+                                                ),
+                                            )
+                                        })
+                                        .collect(),
+                                )
+                                .contextualized(
+                                    crate::decision_context::DecisionContext::new(
+                                        beneficiary.clone(),
+                                        crate::decision_context::DecisionSource::Content(
+                                            "l1z1xagent".to_owned(),
+                                        ),
+                                        "leader_l1z1xagent_copy_planet",
+                                        context.state.phase,
+                                        context.state.round,
+                                    ),
+                                );
+                                let answer = context
+                                    .ask_seeing(&choice)
+                                    .map_err(crate::timing::TimingError::IllegalChoice)?;
+                                let Some(planet) = planets
+                                    .into_iter()
+                                    .find(|planet| planet.as_str() == answer.id)
+                                else {
+                                    return Ok(());
+                                };
+                                planet
+                            };
+                            let types =
+                                ti4_content::units::catalogue(context.content, context.sources);
+                            let Some(units) = context
+                                .state
+                                .system_mut(&system)
+                                .planet_units
+                                .get_mut(&planet)
+                            else {
+                                return Ok(());
+                            };
+                            let Some(index) = units.iter().position(|unit| {
+                                unit.owner == beneficiary
+                                    && types
+                                        .get(unit.type_id.as_str())
+                                        .is_some_and(|kind| kind.base_type() == "infantry")
+                            }) else {
+                                return Ok(());
+                            };
+                            units[index] =
+                                ti4_model::units::Unit::new(mech.clone(), beneficiary.clone());
+                            crate::supply::stage_naaz_mech_placed(
+                                context.state,
+                                &beneficiary,
+                                &system,
+                                &mech,
+                            );
+                            if effect_borrower != beneficiary {
+                                crate::diplomacy::evaluate_event(
+                                    context.state,
+                                    &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
+                                        user: effect_borrower.clone(),
+                                        leader: "l1z1xagent".to_owned(),
+                                        beneficiary,
+                                    },
+                                )
+                                .expect("validated diplomacy promises settle deterministically");
+                            }
+                            let source_agent = LeaderId::new("l1z1xagent");
+                            // The selected active player's infantry changed; only the borrower
+                            // owns the Ssruu card that carried this copied text.
+                            exhaust(
+                                context.state,
+                                &effect_borrower,
+                                &LeaderId::new("yssarilagent"),
+                            );
+                            crate::factions::hooks_cards::borrowed_agent_used(
+                                context,
+                                &effect_borrower,
+                                &source_agent,
+                            );
+                            Ok(())
+                        }),
+                    )
+                    .with_optional(true)
+                    .with_stateful_condition(Arc::new(
+                        move |event, _, context| {
+                            l1z1x_copy_activation_plan(
+                                context.state,
+                                context.content,
+                                context.sources,
+                                event,
+                                &condition_source,
+                                &condition_borrower,
+                            )
+                            .is_some()
+                        },
+                    ))
+                })
+        })
+        .collect()
+}
+
+/// Recheck live Ssruu/source rights, exact activation actor/location and legal I48S supply.
+fn l1z1x_copy_activation_plan(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    event: &crate::event::Event,
+    source_owner: &PlayerId,
+    borrower: &PlayerId,
+) -> Option<(
+    PlayerId,
+    ti4_model::id::SystemId,
+    ti4_model::id::UnitTypeId,
+    Vec<ti4_model::id::PlanetId>,
+)> {
+    let Some(beneficiary) = event.text("player").map(PlayerId::new) else {
+        return None;
+    };
+    let Some(system) = event.text("system").map(ti4_model::id::SystemId::new) else {
+        return None;
+    };
+    if state.active.as_ref() != Some(&beneficiary)
+        || state.active_system.as_ref() != Some(&system)
+        || !crate::factions::hooks_cards::borrowable_agents(state, content, borrower)
+            .iter()
+            .any(|(owner, agent)| owner == source_owner && agent.as_str() == "l1z1xagent")
+    {
+        return None;
+    }
+    let Some(mech) = state
+        .player(&beneficiary)
+        .and_then(|seat| {
+            ti4_content::units::faction_unit(content, seat.faction.as_str(), "mech", sources)
+        })
+        .map(|kind| ti4_model::id::UnitTypeId::new(kind.id()))
+    else {
+        return None;
+    };
+    let types = ti4_content::units::catalogue(content, sources);
+    let planets: Vec<_> = state
+        .board
+        .get(&system)?
+        .planet_units
+        .iter()
+        .filter(|(_, units)| {
+            units.iter().any(|unit| {
+                unit.owner == beneficiary
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(|kind| kind.base_type() == "infantry")
+            })
+        })
+        .map(|(planet, _)| planet.clone())
+        .collect();
+    (!planets.is_empty()
+        && crate::supply::allowed(state, content, sources, &beneficiary, &mech, 1) > 0)
+        .then_some((beneficiary, system, mech, planets))
 }
 
 #[cfg(test)]
@@ -1656,6 +2123,341 @@ mod tests {
             galaxy: None,
         };
         use_leader(&mut context, &player(), leader)
+    }
+
+    fn two_planet_system() -> (
+        ti4_model::id::SystemId,
+        ti4_model::id::PlanetId,
+        ti4_model::id::PlanetId,
+    ) {
+        let content = ContentStore::embedded();
+        let (_, system) = ti4_content::galaxy::all_systems(content, POK)
+            .into_iter()
+            .find(|(_, system)| system.planets().len() >= 2)
+            .expect("content has a system with two printed planets");
+        let planets = system.planets();
+        (
+            ti4_model::id::SystemId::new(system.id()),
+            ti4_model::id::PlanetId::new(planets[0]),
+            ti4_model::id::PlanetId::new(planets[1]),
+        )
+    }
+
+    fn ssruu_l1z1x_activation_game(
+        source_status: LeaderStatus,
+        with_infantry: bool,
+    ) -> (GameState, ti4_model::id::SystemId, ti4_model::id::PlanetId) {
+        let mut state = game(&["a", "b", "c"]);
+        let borrower = PlayerId::new("a");
+        let source = PlayerId::new("b");
+        let beneficiary = PlayerId::new("c");
+        state.player_mut(&borrower).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        state.player_mut(&source).unwrap().faction = ti4_model::id::FactionId::new("l1z1x");
+        state.player_mut(&beneficiary).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        state
+            .player_mut(&borrower)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        state
+            .player_mut(&source)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("l1z1xagent"), source_status);
+        let (system, planet, _) = two_planet_system();
+        if with_infantry {
+            crate::fixtures::put_on_planet(
+                &mut state,
+                &system,
+                &planet,
+                "infantry",
+                &beneficiary,
+                1,
+            );
+        }
+        // These units must remain untouched: neither the borrower nor the source is the printed
+        // activation beneficiary.
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &borrower, 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &source, 1);
+        state.active = Some(beneficiary);
+        state.active_system = Some(system.clone());
+        (state, system, planet)
+    }
+
+    fn emit_ssruu_l1z1x_activation(
+        state: &mut GameState,
+        abilities: Vec<crate::timing::Ability>,
+        answers: &[String],
+    ) -> Result<crate::event::Event, crate::timing::TimingError> {
+        use std::collections::BTreeMap;
+
+        let borrower = PlayerId::new("a");
+        let source = PlayerId::new("b");
+        let beneficiary = PlayerId::new("c");
+        let system = state.active_system.as_ref().expect("test active system");
+        let mut payload = BTreeMap::new();
+        payload.insert("player".to_owned(), beneficiary.to_string().into());
+        payload.insert("system".to_owned(), system.to_string().into());
+        let event = crate::event::Event::new(1, "SYSTEM_ACTIVATED", payload);
+
+        let mut resolver = crate::timing::Resolver::new(
+            vec![borrower, source, beneficiary.clone()],
+            Some(beneficiary),
+            crate::choice::Table::new(),
+        );
+        resolver.register(abilities);
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(
+            answers.to_vec(),
+        )));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut context = crate::timing::TimingContext {
+            state,
+            content: ContentStore::embedded(),
+            sources: POK,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            event_sequence: &mut sequence,
+            galaxy: None,
+        };
+        resolver.emit_with_context(&mut context, event, |_, _| {})
+    }
+
+    #[test]
+    fn ssruu_copies_l1z1x_after_activation_for_the_event_actor_only() {
+        let content = ContentStore::embedded();
+        for source_status in [LeaderStatus::Readied, LeaderStatus::Exhausted] {
+            let (mut state, system, planet) = ssruu_l1z1x_activation_game(source_status, true);
+            let (_, _, other_planet) = two_planet_system();
+            crate::fixtures::put_on_planet(
+                &mut state,
+                &system,
+                &other_planet,
+                "infantry",
+                &PlayerId::new("c"),
+                1,
+            );
+            let abilities = ssruu_l1z1x_activation_abilities(&state);
+            assert_eq!(abilities.len(), 1, "one static borrower/source slot");
+            let choice_id = abilities[0].id.clone();
+            emit_ssruu_l1z1x_activation(
+                &mut state,
+                abilities,
+                &[choice_id, other_planet.to_string()],
+            )
+            .expect("resolver accepts the copied activation");
+
+            let board = state.system_state(&system);
+            let types = ti4_content::units::catalogue(content, POK);
+            let base = |location: &ti4_model::id::PlanetId, owner: &str, kind: &str| {
+                board.planet_units[location]
+                    .iter()
+                    .filter(|unit| {
+                        unit.owner.as_str() == owner
+                            && types
+                                .get(unit.type_id.as_str())
+                                .is_some_and(|unit_type| unit_type.base_type() == kind)
+                    })
+                    .count()
+            };
+            assert_eq!(base(&planet, "c", "infantry"), 1, "unchosen target stays");
+            assert_eq!(base(&planet, "c", "mech"), 0, "the choice is honored");
+            assert_eq!(
+                base(&other_planet, "c", "infantry"),
+                0,
+                "chosen infantry is replaced"
+            );
+            assert_eq!(
+                base(&other_planet, "c", "mech"),
+                1,
+                "the actor receives its mech"
+            );
+            assert_eq!(base(&planet, "a", "infantry"), 1, "borrower is untouched");
+            assert_eq!(base(&planet, "b", "infantry"), 1, "source is untouched");
+            assert_eq!(
+                status(&state, &PlayerId::new("a"), &LeaderId::new("yssarilagent")),
+                Some(LeaderStatus::Exhausted),
+                "only Ssruu exhausts"
+            );
+            assert_eq!(
+                status(&state, &PlayerId::new("b"), &LeaderId::new("l1z1xagent")),
+                Some(source_status),
+                "the source agent remains unchanged"
+            );
+        }
+    }
+
+    #[test]
+    fn game_tactical_activation_dispatches_the_registered_ssruu_l1z1x_copy() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b", "c"]);
+        let (borrower, source, beneficiary) =
+            (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        state.player_mut(&borrower).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        state.player_mut(&source).unwrap().faction = ti4_model::id::FactionId::new("l1z1x");
+        state.player_mut(&beneficiary).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        state
+            .player_mut(&borrower)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+        state
+            .player_mut(&source)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("l1z1xagent"), LeaderStatus::Exhausted);
+        state.phase = ti4_model::state::Phase::Action;
+        state.active = Some(beneficiary.clone());
+        let (system, planet, other_planet) = two_planet_system();
+        crate::fixtures::put(&mut state, &system, "destroyer", &beneficiary, 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &beneficiary, 1);
+        crate::fixtures::put_on_planet(
+            &mut state,
+            &system,
+            &other_planet,
+            "infantry",
+            &beneficiary,
+            1,
+        );
+        let copy_id = ssruu_l1z1x_activation_abilities(&state)
+            .into_iter()
+            .next()
+            .expect("a seated borrower/source pair has a static slot")
+            .id;
+        let galaxy = ti4_content::galaxy::Galaxy::placed(
+            content,
+            &[(system.as_str(), ti4_model::hex::Hex::new(0, 0))],
+            POK,
+        )
+        .expect("the target system is on the map");
+        let table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([
+            crate::game::TACTICAL_ACTION_ID.to_owned(),
+            system.to_string(),
+            copy_id,
+            other_planet.to_string(),
+        ])));
+        let mut game = crate::game::Game::with_table(state, content, table).with_galaxy(galaxy);
+
+        let mut activated = false;
+        for _ in 0..8 {
+            let step = game.step();
+            assert_eq!(
+                step.error, None,
+                "the integrated tactical path remains legal"
+            );
+            if game.events.iter().any(|event| event == "SYSTEM_ACTIVATED") {
+                activated = true;
+                break;
+            }
+        }
+        assert!(activated, "Game reached the typed activation window");
+        let units = &game.state.system_state(&system).planet_units;
+        let types = ti4_content::units::catalogue(content, POK);
+        assert!(
+            units[&planet].iter().any(|unit| {
+                unit.owner == beneficiary
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(|kind| kind.base_type() == "infantry")
+            }),
+            "the unchosen planet remains untouched"
+        );
+        assert!(
+            units[&other_planet].iter().any(|unit| {
+                unit.owner == beneficiary
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(|kind| kind.base_type() == "mech")
+            }),
+            "the activating player chose the planet that received the mech"
+        );
+        assert_eq!(
+            status(&game.state, &borrower, &LeaderId::new("yssarilagent")),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            status(&game.state, &source, &LeaderId::new("l1z1xagent")),
+            Some(LeaderStatus::Exhausted),
+            "an Exhausted source is read as text and remains unchanged"
+        );
+    }
+
+    #[test]
+    fn ssruu_activation_copy_rechecks_source_and_supply_at_resolution() {
+        let (mut state, _, _) = ssruu_l1z1x_activation_game(LeaderStatus::Readied, true);
+        let abilities = ssruu_l1z1x_activation_abilities(&state);
+        state
+            .player_mut(&PlayerId::new("b"))
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("l1z1xagent"), LeaderStatus::Locked);
+        let before = state.clone();
+        emit_ssruu_l1z1x_activation(&mut state, abilities, vec!["decline".to_owned()].as_slice())
+            .expect("missing live source makes the listener ineligible");
+        assert_eq!(state, before, "source rights are recomputed, not cached");
+
+        let (mut state, _, _) = ssruu_l1z1x_activation_game(LeaderStatus::Exhausted, false);
+        let abilities = ssruu_l1z1x_activation_abilities(&state);
+        let before = state.clone();
+        emit_ssruu_l1z1x_activation(&mut state, abilities, &["decline".to_owned()])
+            .expect("no infantry makes the listener ineligible");
+        assert_eq!(
+            state, before,
+            "missing target leaves all pieces and cards unchanged"
+        );
+
+        let (mut state, system, _) = ssruu_l1z1x_activation_game(LeaderStatus::Exhausted, true);
+        let beneficiary = PlayerId::new("c");
+        state.player_mut(&beneficiary).unwrap().faction = ti4_model::id::FactionId::new("naaz");
+        crate::fixtures::put(&mut state, &system, "naaz_voltron", &beneficiary, 1);
+        let abilities = ssruu_l1z1x_activation_abilities(&state);
+        let before = state.clone();
+        emit_ssruu_l1z1x_activation(&mut state, abilities, &["decline".to_owned()])
+            .expect("Maximum blocks game-effect mech placement before an offer");
+        assert_eq!(
+            state, before,
+            "a standing Maximum protects its mech placement ban"
+        );
+    }
+
+    #[test]
+    fn ssruu_activation_copy_decline_and_illegal_resolver_choice_do_not_spend_cards() {
+        for answer in ["decline", "not-an-offered-copy"] {
+            let (mut state, _, _) = ssruu_l1z1x_activation_game(LeaderStatus::Readied, true);
+            let abilities = ssruu_l1z1x_activation_abilities(&state);
+            let before = state.clone();
+            let result = emit_ssruu_l1z1x_activation(&mut state, abilities, &[answer.to_owned()]);
+            if answer == "decline" {
+                result.expect("decline is a valid resolver answer");
+            } else {
+                assert!(result.is_err(), "an invented id must be rejected");
+            }
+            assert_eq!(state, before, "no mutation occurs before valid acceptance");
+        }
+
+        let (mut state, system, _) = ssruu_l1z1x_activation_game(LeaderStatus::Readied, true);
+        let (_, _, other_planet) = two_planet_system();
+        crate::fixtures::put_on_planet(
+            &mut state,
+            &system,
+            &other_planet,
+            "infantry",
+            &PlayerId::new("c"),
+            1,
+        );
+        let abilities = ssruu_l1z1x_activation_abilities(&state);
+        let answers = vec![abilities[0].id.clone(), "not-an-offered-planet".to_owned()];
+        let before = state.clone();
+        assert!(
+            emit_ssruu_l1z1x_activation(&mut state, abilities, &answers).is_err(),
+            "an invalid beneficiary target propagates through the resolver"
+        );
+        assert_eq!(
+            state, before,
+            "invalid target selection spends no units or leader"
+        );
     }
 
     #[test]
@@ -2049,13 +2851,17 @@ mod tests {
         assert_eq!(vote_bonus(&state, &player()), 0, "locked is not unlocked");
 
         holding(&mut state, "hacancommander", LeaderStatus::Unlocked);
-        assert_eq!(vote_bonus(&state, &player()), 3);
+        assert_eq!(
+            vote_bonus(&state, &player()),
+            0,
+            "Gila spends trade goods in the vote window, not as a flat bonus"
+        );
 
         holding(&mut state, "xxchacommander", LeaderStatus::Unlocked);
         assert!(elder_qanoj(&state, &player()));
         assert_eq!(
             vote_bonus(&state, &player()),
-            3,
+            0,
             "Elder Qanoj counts per planet, in the vote, not as a flat bonus"
         );
     }
@@ -2696,6 +3502,363 @@ mod tests {
         );
     }
 
+    /// A game where `a` holds a readied Ssruu and `b` (Hacan) holds Carth, exhausted.
+    fn ssruu_game() -> GameState {
+        let mut state = game(&["a", "b"]);
+        holding(&mut state, "yssarilagent", LeaderStatus::Readied);
+        let other = PlayerId::new("b");
+        let seat = state.player_mut(&other).unwrap();
+        seat.faction = ti4_model::id::FactionId::new("hacan");
+        seat.commodities = 0;
+        seat.leaders
+            .insert(LeaderId::new("hacanagent"), LeaderStatus::Exhausted);
+        state
+    }
+
+    #[test]
+    fn ssruu_uses_an_exhausted_agent_without_exhausting_or_readying_it() {
+        let content = ContentStore::embedded();
+        let mut state = ssruu_game();
+        assert!(use_scripted(
+            &mut state,
+            "yssarilagent|hacanagent",
+            None,
+            vec!["b".to_owned()],
+        ));
+        let limit = ti4_content::factions::get(content, "hacan")
+            .expect("Hacan exists")
+            .commodities();
+        assert_eq!(
+            state.player(&PlayerId::new("b")).unwrap().commodities,
+            limit
+        );
+        assert_eq!(
+            status(&state, &PlayerId::new("b"), &LeaderId::new("hacanagent")),
+            Some(LeaderStatus::Exhausted),
+            "the source agent is untouched"
+        );
+        assert_eq!(
+            status(&state, &player(), &LeaderId::new("yssarilagent")),
+            Some(LeaderStatus::Exhausted),
+            "Ssruu carries the text, so Ssruu exhausts"
+        );
+        // Exhausted Ssruu has nothing left to borrow.
+        let before = state.clone();
+        assert!(!use_scripted(
+            &mut state,
+            "yssarilagent|hacanagent",
+            None,
+            vec!["b".to_owned()],
+        ));
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn ssruu_copies_arborec_text_as_user_and_routes_replacement_to_ship_owner() {
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let c = PlayerId::new("c");
+        let mut state = game(&["a", "b", "c"]);
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("arborec");
+        state.player_mut(&c).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        holding(&mut state, "yssarilagent", LeaderStatus::Readied);
+        state
+            .player_mut(&b)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("arborecagent"), LeaderStatus::Exhausted);
+
+        for board in state.board.values_mut() {
+            board.units.clear();
+            board.planet_units.clear();
+        }
+        let system = crate::fixtures::a_placed_planet().0;
+        crate::fixtures::put(&mut state, &system, "cruiser", &c, 1);
+
+        let borrowed = LeaderId::new("yssarilagent|arborecagent");
+        assert!(
+            component_actions(&state, ContentStore::embedded(), &a)
+                .iter()
+                .any(|option| option.id == format!("component|leader|{borrowed}"))
+        );
+
+        let before = state.clone();
+        assert!(
+            !use_scripted(
+                &mut state,
+                borrowed.as_str(),
+                None,
+                vec!["not-a-replacement".to_owned()],
+            ),
+            "an invalid ship-owner answer refuses the copy"
+        );
+        assert_eq!(state, before, "failed borrowed resolution is atomic");
+
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                "replace|carrier",
+            ])));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut sequence = crate::event::EventSequence::new();
+        let used = {
+            let mut context = crate::timing::TimingContext {
+                state: &mut state,
+                content: ContentStore::embedded(),
+                sources: POK,
+                table: &mut table,
+                dice: &mut dice,
+                rng: &mut rng,
+                event_sequence: &mut sequence,
+                galaxy: None,
+            };
+            use_leader(&mut context, &a, &borrowed)
+        };
+        assert!(used);
+        let asks = seen.borrow();
+        assert_eq!(asks.len(), 1);
+        assert_eq!(asks[0].player, c, "the ship owner chooses the replacement");
+        drop(asks);
+        let ships = &state.board[&system].units;
+        assert!(
+            ships
+                .iter()
+                .any(|ship| ship.owner == c && ship.type_id.as_str() == "carrier")
+        );
+        assert_eq!(
+            status(&state, &a, &LeaderId::new("yssarilagent")),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            status(&state, &b, &LeaderId::new("arborecagent")),
+            Some(LeaderStatus::Exhausted),
+            "copying leaves the source agent untouched"
+        );
+    }
+
+    #[test]
+    fn ssruu_copies_xxcha_to_ready_the_selected_exhausted_controlled_planet() {
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut state = game(&["a", "b"]);
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("xxcha");
+        holding(&mut state, "yssarilagent", LeaderStatus::Readied);
+        state
+            .player_mut(&b)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("xxchaagent"), LeaderStatus::Exhausted);
+
+        let system = crate::fixtures::a_placed_planet().0;
+        let mine = ti4_model::id::PlanetId::new("borrower-planet");
+        let theirs = ti4_model::id::PlanetId::new("source-owner-planet");
+        state
+            .system_mut(&system)
+            .planet_control
+            .insert(mine.clone(), a.clone());
+        state
+            .system_mut(&system)
+            .planet_control
+            .insert(theirs.clone(), b.clone());
+        state.exhausted_planets.insert(mine.clone());
+        state.exhausted_planets.insert(theirs.clone());
+
+        let borrowed = "yssarilagent|xxchaagent";
+        let before = state.clone();
+        assert!(
+            !use_scripted(
+                &mut state,
+                borrowed,
+                None,
+                vec!["unknown-planet".to_owned()]
+            ),
+            "an invalid target leaves the copy unused"
+        );
+        assert_eq!(state, before, "failed readying is atomic");
+
+        assert!(use_scripted(
+            &mut state,
+            borrowed,
+            None,
+            vec![theirs.to_string()],
+        ));
+        assert!(state.exhausted_planets.contains(&mine));
+        assert!(
+            !state.exhausted_planets.contains(&theirs),
+            "the borrower may ready the other player's controlled planet"
+        );
+        assert_eq!(
+            status(&state, &a, &LeaderId::new("yssarilagent")),
+            Some(LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            status(&state, &b, &LeaderId::new("xxchaagent")),
+            Some(LeaderStatus::Exhausted),
+            "copying leaves the source agent untouched"
+        );
+    }
+
+    #[test]
+    fn borrowing_another_ssruu_does_not_reenter_the_copy_dispatch() {
+        // Duplicate Yssaril seats are excluded by normal faction seating. This defensive case
+        // makes the boundary explicit: a copied Ssruu is handled as one source agent, never by
+        // recursively invoking `use_leader_text` for the source's own copy ability.
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut state = game(&["a", "b"]);
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        holding(&mut state, "yssarilagent", LeaderStatus::Readied);
+        state
+            .player_mut(&b)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("yssarilagent"), LeaderStatus::Readied);
+
+        assert!(
+            crate::factions::hooks_cards::borrowable_agents(&state, ContentStore::embedded(), &a,)
+                .iter()
+                .any(|(owner, agent)| owner == &b && agent.as_str() == "yssarilagent")
+        );
+        let before = state.clone();
+        assert!(
+            !component_actions(&state, ContentStore::embedded(), &a)
+                .iter()
+                .any(|option| option.id == "component|leader|yssarilagent|yssarilagent"),
+            "Ssruu's non-ACTION window is not recursively offered"
+        );
+        assert!(!use_scripted(
+            &mut state,
+            "yssarilagent|yssarilagent",
+            None,
+            Vec::new(),
+        ));
+        assert_eq!(
+            state, before,
+            "the nested copy has no dispatch and no mutation"
+        );
+    }
+
+    #[test]
+    fn use_leader_text_refuses_without_ssruu_or_for_a_non_agent_and_changes_nothing() {
+        let mut state = ssruu_game();
+        // b does not hold Ssruu, so b borrows nothing (not even a's agent).
+        let (decider, _seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new(Vec::<String>::new()),
+        ));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let before = state.clone();
+        let refused = crate::fixtures::with_context(&mut state, POK, None, &mut table, |ctx| {
+            (
+                use_leader_text(ctx, &PlayerId::new("b"), &LeaderId::new("yssarilagent")),
+                use_leader_text(ctx, &PlayerId::new("b"), &LeaderId::new("hacanagent")),
+                // a holds Ssruu, but a hero is not an agent.
+                use_leader_text(ctx, &player(), &LeaderId::new("hacanhero")),
+                // and a's own Ssruu is not another seat's agent.
+                use_leader_text(ctx, &player(), &LeaderId::new("yssarilagent")),
+            )
+        });
+        assert_eq!(refused, (false, false, false, false));
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn ssruu_offers_other_seats_action_agents_with_distinct_ids() {
+        let content = ContentStore::embedded();
+        let state = ssruu_game();
+        let ids = |who: &str| -> Vec<String> {
+            component_actions(&state, content, &PlayerId::new(who))
+                .into_iter()
+                .map(|option| option.id)
+                .collect()
+        };
+        let mine = ids("a");
+        assert!(
+            mine.iter()
+                .any(|id| id == "component|leader|yssarilagent|hacanagent"),
+            "{mine:?}"
+        );
+        assert!(
+            !mine.iter().any(|id| id == "component|leader|yssarilagent"),
+            "Ssruu's own window is not an action"
+        );
+        let mut distinct = mine.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(distinct.len(), mine.len(), "option ids are distinct");
+        assert!(
+            ids("b").iter().all(|id| !id.contains("yssarilagent")),
+            "only the Ssruu holder is offered borrowed agents"
+        );
+        // A borrowed ACTION agent takes the turn; a "During the action phase" one does not.
+        assert!(!uses_the_action(
+            content,
+            &LeaderId::new("yssarilagent|hacanagent")
+        ));
+        assert!(uses_the_action(
+            content,
+            &LeaderId::new("yssarilagent|xxchaagent")
+        ));
+        // Not offered when the borrowed effect could not resolve for the holder.
+        let mut full = state.clone();
+        for seat in &mut full.players {
+            seat.faction = ti4_model::id::FactionId::new("hacan");
+            seat.commodities = 99;
+        }
+        assert!(
+            ids_of(&full, "a")
+                .iter()
+                .all(|id| !id.contains("hacanagent")),
+            "a full table leaves Carth with nothing to do"
+        );
+    }
+
+    fn ids_of(state: &GameState, who: &str) -> Vec<String> {
+        component_actions(state, ContentStore::embedded(), &PlayerId::new(who))
+            .into_iter()
+            .map(|option| option.id)
+            .collect()
+    }
+
+    #[test]
+    fn the_borrowed_agent_hook_runs_after_a_successful_borrow_only() {
+        let hook = crate::factions::hooks_cards::CardHooks {
+            borrowed_agent_used: Some(|ctx, who, source| {
+                ctx.state
+                    .faction_marks
+                    .insert(format!("test:borrowed:{who}"), source.to_string());
+            }),
+            ..crate::factions::hooks_cards::CardHooks::NONE
+        };
+        crate::factions::hooks_cards::with_test_hooks(hook, || {
+            let mut state = ssruu_game();
+            assert!(use_scripted(
+                &mut state,
+                "yssarilagent|hacanagent",
+                None,
+                vec!["b".to_owned()],
+            ));
+            assert_eq!(
+                state
+                    .faction_marks
+                    .get("test:borrowed:a")
+                    .map(String::as_str),
+                Some("hacanagent")
+            );
+            let mut refused = game(&["a", "b"]);
+            assert!(!use_scripted(
+                &mut refused,
+                "yssarilagent|hacanagent",
+                None,
+                vec![]
+            ));
+            assert!(refused.faction_marks.is_empty(), "a refusal fires nothing");
+        });
+    }
+
     #[test]
     fn every_delivered_action_leader_prints_an_action_window() {
         // The delivered set and the corpus have to agree. Membership says the engine can resolve
@@ -3002,5 +4165,34 @@ mod tests {
             !ids.contains(&"component|leader|hacanhero".to_owned()),
             "Hacan's hero belongs to the production timing window"
         );
+    }
+
+    #[test]
+    fn exhausting_an_agent_stages_agent_exhausted_only_for_a_watching_nomad() {
+        let a = PlayerId::new("a");
+        let staged = |state: &GameState| crate::supply::staged_event_types(state);
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "nomad"), ("b", "sol")],
+            ti4_model::content_types::DEFAULT,
+        );
+        // Without Temporal Command Suite nothing is staged.
+        assert!(exhaust(&mut state, &a, &LeaderId::new("nomadagentartuno")));
+        assert!(staged(&state).is_empty());
+        state
+            .player_mut(&a)
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("tcs"));
+        assert!(exhaust(&mut state, &a, &LeaderId::new("nomadagentmercer")));
+        assert_eq!(staged(&state), ["AGENT_EXHAUSTED"]);
+        // A hero is not an agent.
+        let before = staged(&state).len();
+        state
+            .player_mut(&a)
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("nomadhero"), LeaderStatus::Readied);
+        assert!(exhaust(&mut state, &a, &LeaderId::new("nomadhero")));
+        assert_eq!(staged(&state).len(), before);
     }
 }

@@ -1,0 +1,7 @@
+# BF-NAAZ-ABILITY-PRODUCTION
+
+Objective: apply Eidolon Maximum's blanket mech-production ban to ability production as well as ordinary PRODUCTION. Dependencies: existing Naaz cannot_produce hook and shared ProductionWindow. Permission P1, writable production.rs, hooks_economy.rs documentation, Naaz inline fixture and this evidence. No external changes, folders, deletion or network. Compatibility: valid six-original-faction offers unchanged; Mitosis remains specific to space-dock production.
+
+The real production-option fixture first lacked a controlled ground destination. Adding that destination exposed a genuine red: ability production offered mechs while Maximum stood. Current ProductionWindow bypassed barred_capacity entirely for ability production, so its producer-independent ban never ran. The focused correction calls the existing cannot_produce hook with producer "ability" before offering ability-production units. Naaz's blanket ban ignores producer; Arborec's Mitosis explicitly matches "spacedock" and remains inapplicable to ability production. The hook contract documents the sentinel. All registered production-ban hooks were inspected.
+
+Red observed in full2030-test run: production_choices_hide_mechs_only_while_the_maximum_stands failed at the negative assertion. The paired positive assertion retains a legal controlled planet and verifies offers return once Maximum leaves. Focused and affected tests, independent review and scoped commit pending. No completion claim.

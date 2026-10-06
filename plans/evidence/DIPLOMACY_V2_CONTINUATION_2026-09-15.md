@@ -3,7 +3,7 @@
 ## Scope
 
 Continuation of the uncommitted R/T/S/L work described in
-`plans/DIPLOMACY_HANDOVER_2026-09-15.md`:
+`plans/archive/DIPLOMACY_HANDOVER_2026-09-15.md`:
 
 - make the contact option cap self-describing and remeasure it;
 - address contacts by seat rather than faction;

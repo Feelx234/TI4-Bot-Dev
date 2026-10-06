@@ -21,7 +21,7 @@ Autonomous agents must follow [`../AGENTS.md`](../AGENTS.md), obey
 | 12 | [M12 — Qualification](M12_QUALIFICATION.md) | Rules conformance, fuzzing, mutation, security, performance |
 | 13 | [M13 — Cutover](M13_CUTOVER.md) | Workload-ready release and incumbent rollback path |
 
-Milestones are sequential gates. Work packages inside a milestone may run in parallel only
+Milestone-specific exit gates remain binding. Dependency-ready packages may run in parallel only
 when their `Depends` entries are satisfied and their edit scopes do not overlap.
 
 ## Operator-authorized independent tooling
@@ -30,3 +30,16 @@ when their `Depends` entries are satisfied and their edit scopes do not overlap.
 |---|---|---|
 | [R01 — Offline game review viewer](R01_REVIEW_VIEWER.md) | Read-only offline game inspection from validated review artifacts | Optional; does not gate or depend on M10 training. |
 | [PPO training operator guide](PPO_TRAINING_HOWTO.md) | Copy-pasteable build, smoke-test, foreground/background launch, monitoring, migration, reward, and flag reference | Operational companion to M10; does not replace checkpoint evaluation or qualification. |
+
+## Active workstreams and archive
+
+Work follows authorized dependencies rather than an automatic M00-to-M13 sequence. The milestone table above remains a contract map; open qualification and release gates still apply.
+
+| Workstream | Entry points | Status |
+|---|---|---|
+| Base and later factions | [BF plan](BASE_FACTIONS_PLAN_2026-10-02.md), [Cabal queue](HANDOVER_2026-10-06_CABAL_PI.md), [current state](EXECUTION_STATE.md) | Current committed faction work is distinct from outstanding BF20–25 runtime/roster/schema/simulation/UI/exit qualification. |
+| Diplomacy and trade | [Unification](ENGINE_DIPLOMACY_UNIFICATION.md), [trade rework](TRADE_REWORK_2026-09-22.md), [bug plan](BUG_PLAN_2026-09-20.md) | Accepted decisions and unresolved follow-through remain active; historical handovers are archived. |
+| Policy and training | [Training guide](PPO_TRAINING_HOWTO.md), [decision contract](STAGE2_COMPLETE_DECISION_CONTRACT.md), [activation plan](ACTIVATION_REWORK_PLAN_2026-09-17.md) | Historical experiments are not promotion or qualification evidence. |
+| Bridge and release obligations | [M11](M11_TTS_BRIDGE.md), [M12](M12_QUALIFICATION.md), [M13](M13_CUTOVER.md) | Retained; not declared complete by implementation or archival. |
+
+See the [archive manifest and surviving obligations](ARCHIVE_MANIFEST_2026-10-06.md) for every move and successor. The [verbatim historical state](archive/EXECUTION_STATE_HISTORY_2026-10-06.txt) is a text record, not a live resume point. Its original relative references are retained literally; current navigation is in this index, the manifest, and task evidence.

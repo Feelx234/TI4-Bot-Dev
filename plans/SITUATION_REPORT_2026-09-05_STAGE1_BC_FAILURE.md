@@ -140,7 +140,7 @@ criterion is greedy, held-out faction-level clearance plus greedy waste incidenc
 
 ## Relevant artifacts
 
-- `plans/HANDOVER_2026-09-05_STAGE1_RETRAIN.md`
+- `plans/archive/HANDOVER_2026-09-05_STAGE1_RETRAIN.md`
 - `plans/STAGE1_TRAINING_TECHNIQUES.md`
 - `out/checkpoints/blank-waste-mine-p5/checkpoint-59540` — best pre-continuation asset
 - `out/checkpoints/blank-waste-mine-p5-continued/checkpoint-17636` — latest PPO asset

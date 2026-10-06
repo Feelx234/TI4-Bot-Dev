@@ -58,6 +58,7 @@ pub fn e_res_siphons(
         if let Some(holder) = state.player_mut(seat) {
             holder.trade_goods += 4;
         }
+        crate::supply::note_trade_goods_gained(state, seat, 4, "faction_technology");
     }
     gained
 }
@@ -115,6 +116,7 @@ pub fn offer_nullification_field(
             continue;
         }
         seat.exhausted_technologies.insert(TechnologyId::new("nf"));
+        crate::supply::note_strategy_token_spent(state, &holder, "nullification_field");
         return Some(holder);
     }
     None
@@ -327,6 +329,13 @@ pub fn offer_quantum_datahub(
     }
     seat.trade_goods -= QUANTUM_DATAHUB_GOODS;
     state.player_mut(&partner)?.trade_goods += QUANTUM_DATAHUB_GOODS;
+    crate::supply::note_strategy_token_spent(state, &holder, "quantum_datahub");
+    crate::supply::note_trade_goods_gained(
+        state,
+        &partner,
+        QUANTUM_DATAHUB_GOODS,
+        "quantum_datahub",
+    );
     state.swap_strategy_card(&holder, &given, taken.clone());
     state.swap_strategy_card(&partner, &taken, given);
     Some((holder, partner))
@@ -493,7 +502,9 @@ pub fn offer_scanlink(
                     .on_planet_of(planet, active)
                     .is_empty()
             })
-            .filter(|planet| crate::exploration::trait_of(content, sources, planet).is_some())
+            .filter(|planet| {
+                !crate::planets::traits_now(state, content, sources, planet).is_empty()
+            })
             .collect();
     if planets.is_empty() {
         return None;

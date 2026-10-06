@@ -11,6 +11,40 @@ use ti4_sim::behavior;
 
 fn main() {
     let batch = behavior::play_batch(ti4_content::ContentStore::embedded());
+    assert_eq!(
+        batch
+            .results
+            .iter()
+            .map(|result| result.seed)
+            .collect::<Vec<_>>(),
+        behavior::SEEDS,
+        "the diagnostic must include every recorded seed exactly once"
+    );
+    assert!(
+        batch.errors().is_empty(),
+        "failed games cannot be reported as a completed baseline"
+    );
+    assert!(
+        batch.results.iter().all(|result| result.finished),
+        "horizon cutoffs cannot be reported as completed games"
+    );
+    let replay = behavior::play_batch(ti4_content::ContentStore::embedded());
+    // Wall time is measurement metadata; every deterministic result field must agree.
+    let normalize = |mut results: Vec<ti4_sim::result::GameResult>| {
+        for result in &mut results {
+            result.seconds = 0.0;
+        }
+        results
+    };
+    assert_eq!(
+        normalize(batch.results.clone()),
+        normalize(replay.results),
+        "each recorded seed must reproduce its complete result summary"
+    );
+    println!(
+        "{} recorded seeds completed and reproduced their result summaries",
+        batch.results.len()
+    );
     let old = behavior::baseline_bounds();
     let metrics = behavior::batch_metrics(&batch);
 

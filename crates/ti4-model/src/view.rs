@@ -70,6 +70,36 @@ pub fn redact_player_with(player: &Player, secrets_revealed: bool) -> Player {
     redacted
 }
 
+/// Whether a `GameState::faction_marks` row may be shown to `viewer`.
+///
+/// Faction modules keep private bookkeeping there, so the map is not public by default:
+///
+/// * `cards:reveal:<scope>|<source>|<viewer>|<owner>|<kind>` names cards shown to one seat
+///   (Mageon Implants, Spy Net): visible to that viewer only.
+/// * `cards:staged:*` holds card ids waiting to be announced: visible to nobody.
+/// * `private:<player>:*` is one seat's own secret: visible to that player only.
+///
+/// Every other row is public (a "used this round" flag, a swapped planet value).
+#[must_use]
+pub fn mark_visible_to(key: &str, viewer: &PlayerId) -> bool {
+    if let Some(rest) = key.strip_prefix("cards:reveal:") {
+        return rest.split('|').nth(2) == Some(viewer.as_str());
+    }
+    if key.starts_with("cards:staged:") {
+        return false;
+    }
+    if let Some(rest) = key.strip_prefix("private:") {
+        return rest.split(':').next() == Some(viewer.as_str());
+    }
+    true
+}
+
+/// Drop every `faction_marks` row `viewer` may not see ([`mark_visible_to`]).
+pub fn redact_marks(view: &mut GameState, viewer: &PlayerId) {
+    view.faction_marks
+        .retain(|key, _| mark_visible_to(key, viewer));
+}
+
 /// The game as one player is entitled to see it.
 ///
 /// Their own state is untouched — you know your own hand — and the board is shared, so only
@@ -77,6 +107,7 @@ pub fn redact_player_with(player: &Player, secrets_revealed: bool) -> Player {
 #[must_use]
 pub fn view_for(state: &GameState, viewer: &PlayerId) -> GameState {
     let mut view = state.clone();
+    redact_marks(&mut view, viewer);
     for player in &mut view.players {
         if &player.id != viewer {
             // Search Warrant leaves its owner's secrets face up for everybody.
@@ -96,7 +127,12 @@ pub fn view_for(state: &GameState, viewer: &PlayerId) -> GameState {
 /// that nobody redacted shows up as a failing test instead of a quiet leak.
 #[must_use]
 pub fn leaks(state: &GameState, viewer: &PlayerId) -> Vec<String> {
-    let mut found = Vec::new();
+    let mut found: Vec<String> = state
+        .faction_marks
+        .keys()
+        .filter(|key| !mark_visible_to(key, viewer))
+        .map(|key| format!("faction_marks.{key}"))
+        .collect();
     for player in &state.players {
         if &player.id == viewer {
             continue;
@@ -119,6 +155,47 @@ pub fn leaks(state: &GameState, viewer: &PlayerId) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::id::{StrategyCardId, SystemId, UnitTypeId};
+
+    #[test]
+    fn private_faction_marks_reach_only_their_viewer() {
+        let mut g = game();
+        for (key, value) in [
+            ("cards:reveal:action|mi|a|b|action_cards", "b_card_0"),
+            ("cards:staged:00000001", "taken|b_card_1"),
+            ("private:b:yssaril:plan", "x"),
+            ("sardakk:tekklar:round", "3"),
+        ] {
+            g.faction_marks.insert(key.to_owned(), value.to_owned());
+        }
+        let for_a = view_for(&g, &pid("a"));
+        let for_c = view_for(&g, &pid("c"));
+        assert!(
+            for_a
+                .faction_marks
+                .contains_key("cards:reveal:action|mi|a|b|action_cards")
+        );
+        assert!(
+            !for_c
+                .faction_marks
+                .contains_key("cards:reveal:action|mi|a|b|action_cards")
+        );
+        for view in [&for_a, &for_c] {
+            assert!(!view.faction_marks.contains_key("cards:staged:00000001"));
+            assert!(!view.faction_marks.contains_key("private:b:yssaril:plan"));
+            assert!(view.faction_marks.contains_key("sardakk:tekklar:round"));
+        }
+        assert!(
+            view_for(&g, &pid("b"))
+                .faction_marks
+                .contains_key("private:b:yssaril:plan")
+        );
+        assert!(leaks(&for_c, &pid("c")).is_empty());
+        assert!(
+            leaks(&g, &pid("c"))
+                .iter()
+                .any(|leak| leak.contains("cards:reveal"))
+        );
+    }
     use crate::units::Unit;
     use std::collections::BTreeMap;
 

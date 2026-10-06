@@ -11,7 +11,7 @@
   the acting seat.
 - Normative sources: `plans/STAGE2_COMPLETE_DECISION_CONTRACT.md` §1 and its hidden-information
   counterfactual gate; LRR 73.4 (relics), 35.9 (fragments), Thunder's Edge (breakthroughs), the
-  Leader Sheet rule (leader lifecycle is not hidden information); `plans/HANDOVER_2026-09-04_OBS004.md`.
+  Leader Sheet rule (leader lifecycle is not hidden information); `plans/archive/HANDOVER_2026-09-04_OBS004.md`.
 - Acceptance references: focused `obs004a` tests in `crates/ti4-engine/src/choice.rs` and
   `crates/ti4-policy/src/features.rs`, plus the vocabulary registry migration tests in
   `crates/ti4-policy/src/vocabulary.rs`.

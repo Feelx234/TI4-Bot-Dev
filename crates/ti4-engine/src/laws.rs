@@ -78,7 +78,12 @@ pub fn action_card_limit(state: &GameState, base: usize) -> usize {
 /// Political Censure: its elected owner cannot play action cards.
 #[must_use]
 pub fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bool {
-    active(state, "censure") && elected(state, "censure").is_some_and(|who| who == player.as_str())
+    (active(state, "censure") && elected(state, "censure").is_some_and(|who| who == player.as_str()))
+        // Faction cards that stop a player playing action cards (Yssaril Transparasteel
+        // Plating: "During your turn of the action phase, players that have passed cannot play
+        // action cards"). The component-action gate reads this; the reaction-window gate
+        // (`reactions::playable_now`) must read the same hook, see BF-00b-economy evidence.
+        || crate::factions::hooks_economy::action_cards_forbidden(state, player)
 }
 
 /// Shared Research makes nebulae passable.
@@ -243,6 +248,7 @@ pub fn on_gain_control(state: &mut GameState, player: &PlayerId) -> i32 {
     if let Some(seat) = state.player_mut(player) {
         seat.trade_goods += 1;
     }
+    crate::supply::note_trade_goods_gained(state, player, 1, "minister_exploration");
     1
 }
 
@@ -643,6 +649,9 @@ pub fn apply_to_galaxy(state: &GameState, galaxy: &mut ti4_content::galaxy::Gala
             .or_default()
             .insert(face.clone());
     }
+    // Wormholes carried by faction pieces (the Creuss flagship's delta), after the token map is
+    // rebuilt so they are not cleared with it. Empty modules add nothing.
+    crate::factions::hooks_movement::apply_extra_wormholes(state, galaxy);
 }
 
 /// Laws this engine can enact but not enforce — the honest coverage gap.

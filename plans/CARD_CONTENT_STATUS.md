@@ -2,7 +2,7 @@
 
 Status: **continuing the engine-completion plan** on `wp/engine-completion` (merged back to
 `wp/r01-review-viewer-contract` too), updated 2026-08-30 after the handoff in
-`plans/HANDOFF_ENGINE_COMPLETION.md` expanded this work past the two owned files.
+`plans/archive/HANDOFF_ENGINE_COMPLETION.md` expanded this work past the two owned files.
 
 Mission per `plans/PI_BRIEF_CARD_CONTENT.md`: action-card effects (baseline 34/142) and agenda
 effects (baseline 51/63) in the two owned files only:

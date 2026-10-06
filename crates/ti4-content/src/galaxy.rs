@@ -399,6 +399,11 @@ pub struct Galaxy {
     /// movement. Its gamma wormhole is untouched, which is what makes this narrower than
     /// `wormholes_off`.
     pub nexus_wormholes_off: bool,
+    /// How many tile edits ([`Galaxy::swap_systems`], [`Galaxy::replace_system`]) this map has had.
+    ///
+    /// The game replays recorded edits onto a map it re-derives; this count says which of them the
+    /// map already carries, so replaying is idempotent.
+    edits_applied: usize,
 }
 
 impl Galaxy {
@@ -453,6 +458,7 @@ impl Galaxy {
             wormholes_all_linked: false,
             wormhole_star_links: false,
             extra_links: BTreeMap::new(),
+            edits_applied: 0,
         })
     }
 
@@ -517,6 +523,7 @@ impl Galaxy {
             wormholes_all_linked: false,
             wormhole_star_links: false,
             extra_links: BTreeMap::new(),
+            edits_applied: 0,
         })
     }
 
@@ -547,6 +554,93 @@ impl Galaxy {
         if system.is_hyperlane() {
             self.hyperlanes.insert(system_id.to_owned());
         }
+        Ok(())
+    }
+
+    /// Every system that holds a wormhole of any kind, printed or token, including systems placed
+    /// off the map (which `system_ids` does not list). Sorted.
+    #[must_use]
+    pub fn wormhole_systems(&self) -> Vec<&str> {
+        let holders: BTreeSet<&str> = self
+            .wormholes
+            .keys()
+            .chain(self.token_wormholes.keys())
+            .map(String::as_str)
+            .filter(|id| !self.wormhole_kinds(id).is_empty())
+            .collect();
+        holders.into_iter().collect()
+    }
+
+    /// How many tile edits this map carries; see [`Self::swap_systems`].
+    #[must_use]
+    pub const fn edits_applied(&self) -> usize {
+        self.edits_applied
+    }
+
+    /// Swap the positions of two systems that are on the hex grid (Creuss hero, "Swap the
+    /// positions of any 2 systems").
+    ///
+    /// Atomic: nothing changes on error. Adjacency, being derived, follows at once.
+    ///
+    /// # Errors
+    /// [`GalaxyError::UnknownSystem`] when either system is not on the grid, and
+    /// [`GalaxyError::DuplicateSystem`] when both are the same system.
+    pub fn swap_systems(&mut self, a: &str, b: &str) -> Result<(), GalaxyError> {
+        if a == b {
+            return Err(GalaxyError::DuplicateSystem(a.to_owned()));
+        }
+        let hex_a = self
+            .coord_of(a)
+            .ok_or_else(|| GalaxyError::UnknownSystem(a.to_owned()))?;
+        let hex_b = self
+            .coord_of(b)
+            .ok_or_else(|| GalaxyError::UnknownSystem(b.to_owned()))?;
+        self.placement.insert(hex_a, b.to_owned());
+        self.placement.insert(hex_b, a.to_owned());
+        self.coords.insert(a.to_owned(), hex_b);
+        self.coords.insert(b.to_owned(), hex_a);
+        self.edits_applied += 1;
+        Ok(())
+    }
+
+    /// Put another tile on the hex a system occupies (Muaat hero, "replace that system tile with
+    /// the Muaat supernova tile"). The old tile leaves the grid; tokens keyed to it are the
+    /// caller's to move, because they live in the game state.
+    ///
+    /// Atomic: nothing changes on error.
+    ///
+    /// # Errors
+    /// [`GalaxyError::UnknownSystem`] when `old` is not on the grid or `new` is not in the corpus
+    /// for these sources, [`GalaxyError::DuplicateSystem`] when `new` is already on the map.
+    pub fn replace_system(
+        &mut self,
+        store: &ContentStore,
+        old: &str,
+        new: &str,
+        sources: SourceSet,
+    ) -> Result<(), GalaxyError> {
+        let hex = self
+            .coord_of(old)
+            .ok_or_else(|| GalaxyError::UnknownSystem(old.to_owned()))?;
+        if self.coords.contains_key(new) || self.wormholes.contains_key(new) {
+            return Err(GalaxyError::DuplicateSystem(new.to_owned()));
+        }
+        let tile = system(store, new, sources)
+            .ok_or_else(|| GalaxyError::UnknownSystem(new.to_owned()))?;
+        self.coords.remove(old);
+        self.wormholes.remove(old);
+        self.hyperlanes.remove(old);
+        self.token_wormholes.remove(old);
+        self.placement.insert(hex, new.to_owned());
+        self.coords.insert(new.to_owned(), hex);
+        self.wormholes.insert(
+            new.to_owned(),
+            tile.wormholes().into_iter().map(str::to_owned).collect(),
+        );
+        if tile.is_hyperlane() {
+            self.hyperlanes.insert(new.to_owned());
+        }
+        self.edits_applied += 1;
         Ok(())
     }
 
@@ -1065,5 +1159,87 @@ mod tests {
     fn a_galaxy_is_deterministic() {
         assert_eq!(small(), small());
         assert_eq!(small().system_ids(), small().system_ids());
+    }
+
+    // -- tile edits and wormhole holders (BF-00e) ---------------------------------------------
+
+    #[test]
+    fn swapping_two_systems_exchanges_their_hexes_and_their_neighbours() {
+        let mut galaxy = small();
+        let before = galaxy.clone();
+        let (hex_21, hex_24) = (
+            galaxy.coord_of("21").unwrap(),
+            galaxy.coord_of("24").unwrap(),
+        );
+        galaxy.swap_systems("21", "24").unwrap();
+        assert_eq!(galaxy.coord_of("21"), Some(hex_24));
+        assert_eq!(galaxy.coord_of("24"), Some(hex_21));
+        assert_eq!(galaxy.system_at(hex_21), Some("24"));
+        assert_eq!(galaxy.edits_applied(), 1);
+        assert_ne!(galaxy.adjacent("21"), before.adjacent("21"));
+        galaxy.swap_systems("24", "21").unwrap();
+        assert_eq!(
+            galaxy.system_ids(),
+            before.system_ids(),
+            "swapping back restores the layout"
+        );
+    }
+
+    #[test]
+    fn a_refused_swap_or_replacement_leaves_the_map_alone() {
+        let mut galaxy = small();
+        let before = galaxy.clone();
+        assert_eq!(
+            galaxy.swap_systems("21", "21"),
+            Err(GalaxyError::DuplicateSystem("21".into()))
+        );
+        assert_eq!(
+            galaxy.swap_systems("21", "nowhere"),
+            Err(GalaxyError::UnknownSystem("nowhere".into()))
+        );
+        assert_eq!(
+            galaxy.replace_system(store(), "nowhere", "81", FULL),
+            Err(GalaxyError::UnknownSystem("nowhere".into()))
+        );
+        assert_eq!(
+            galaxy.replace_system(store(), "21", "22", FULL),
+            Err(GalaxyError::DuplicateSystem("22".into())),
+            "the replacement is already on the map"
+        );
+        assert_eq!(
+            galaxy.replace_system(store(), "21", "no such tile", FULL),
+            Err(GalaxyError::UnknownSystem("no such tile".into()))
+        );
+        assert_eq!(galaxy, before);
+    }
+
+    #[test]
+    fn replacing_a_system_puts_the_new_tile_on_the_same_hex() {
+        let mut galaxy = small();
+        let hex = galaxy.coord_of("21").unwrap();
+        let neighbours = galaxy.adjacent("19").len();
+        galaxy.replace_system(store(), "21", "81", FULL).unwrap();
+        assert_eq!(galaxy.system_at(hex), Some("81"));
+        assert!(galaxy.coord_of("21").is_none());
+        assert_eq!(
+            galaxy.adjacent("19").len(),
+            neighbours,
+            "the hex is still occupied"
+        );
+        assert!(system(store(), "81", FULL).unwrap().is_supernova());
+        assert_eq!(galaxy.edits_applied(), 1);
+    }
+
+    #[test]
+    fn wormhole_systems_lists_printed_token_and_off_map_holders() {
+        let mut galaxy = Galaxy::build(store(), &["18", "39", "25", "19"], FULL, 1).unwrap();
+        assert_eq!(galaxy.wormhole_systems(), vec!["25", "39"]);
+        galaxy
+            .token_wormholes
+            .entry("19".to_owned())
+            .or_default()
+            .insert("ALPHA".to_owned());
+        galaxy.place_off_map(store(), "51", FULL).unwrap();
+        assert_eq!(galaxy.wormhole_systems(), vec!["19", "25", "39", "51"]);
     }
 }

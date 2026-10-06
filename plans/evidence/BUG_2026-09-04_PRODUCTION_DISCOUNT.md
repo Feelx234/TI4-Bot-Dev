@@ -4,7 +4,7 @@
 
 - Branch: continuation of `wp/obs-008c2b-placement-consequence-surface` (no new branch cut; this is
   an engine-correctness prerequisite discovered while scoping `OBS-008c3`, not itself an OBS
-  package — see `plans/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md`).
+  package — see `plans/archive/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md`).
 - Base: `15158b0` (`OBS-008c2b` plus its stage-2 re-measurement).
 - Normative sources: Sarween Tools, AI Development Algorithm and Harrugh Gefhara card text (read
   from the embedded content store), LRR 68 generally, and the existing War Machine/Bio-Stims
@@ -20,14 +20,14 @@
 - `crates/ti4-engine/src/production.rs`
 - `crates/ti4-engine/src/game.rs`
 - `crates/ti4-engine/tests/decision_delivery_inventory.rs`
-- `plans/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md`
+- `plans/archive/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md`
 - `plans/BUG_2026-09-04_LEADER_USE_UNREACHABLE.md`
 - `plans/evidence/BUG_2026-09-04_PRODUCTION_DISCOUNT.md`
 - `plans/EXECUTION_STATE.md`
 
 ## Result
 
-See `plans/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md` for the full defect description and
+See `plans/archive/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md` for the full defect description and
 resolution. Summary: Sarween Tools and AI Development Algorithm now genuinely reduce a use of
 PRODUCTION's combined resource bill; `Player::free_production_use` (Harrugh Gefhara) is now read
 and correctly zeroes a use's cost when its marker names the current `production_seq`, though nothing

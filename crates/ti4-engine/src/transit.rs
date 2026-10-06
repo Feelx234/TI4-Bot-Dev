@@ -70,6 +70,20 @@ pub fn loadable(
     player: &PlayerId,
     origin: &SystemId,
 ) -> Vec<Cargo> {
+    loadable_by(state, content, sources, player, origin, false)
+}
+
+/// [`loadable`] for a ship that a module frees of 95.5 (`MovementHooks::ignores_command_tokens`,
+/// Nomad hero Ahk-Syl Siven): units standing in a system with the player's command token may be
+/// taken aboard.
+fn loadable_by(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    origin: &SystemId,
+    ignore_tokens: bool,
+) -> Vec<Cargo> {
     let types = catalogue(content, sources);
     let consumes = |unit: &Unit| {
         types
@@ -84,7 +98,10 @@ pub fn loadable(
     // Ordinarily unreachable, because 58.4c stops a ship leaving such a system at all -- but the
     // Dominus Orb suspends exactly that, and a ship freed to leave must still not take the
     // garrison with it.
-    if state.active_system.as_ref() != Some(origin) && system.command_tokens.contains(player) {
+    if !ignore_tokens
+        && state.active_system.as_ref() != Some(origin)
+        && system.command_tokens.contains(player)
+    {
         return Vec::new();
     }
 
@@ -151,6 +168,9 @@ pub struct CargoWindow {
     ground: Vec<bool>,
     fighters: Vec<bool>,
     loaded: Vec<usize>,
+    /// Per candidate: transporting it uses no capacity slot (`MovementHooks::free_cargo`). Empty
+    /// (every unit pays) for holds built by [`Self::new`].
+    free_cargo: Vec<bool>,
     capacity: i64,
     closed: bool,
     /// The phase and round this hold was opened in, for the typed context [`Self::pending_choice`]
@@ -175,6 +195,7 @@ impl CargoWindow {
             ground: Vec::new(),
             fighters: Vec::new(),
             loaded: Vec::new(),
+            free_cargo: Vec::new(),
             capacity,
             closed: capacity <= 0,
             phase: Phase::Action,
@@ -198,19 +219,27 @@ impl CargoWindow {
         // system, the system it started its movement in, and each system it moves through." The
         // path carries the systems between the two, and 95.5 is applied per system inside
         // `loadable`, so a system holding this player's command token contributes nothing.
-        let mut candidates = loadable(state, content, sources, player, origin);
+        let ignore_tokens = crate::factions::hooks_movement::ignores_command_tokens(
+            state,
+            content,
+            sources,
+            player,
+            ship.type_id.as_str(),
+        );
+        let mut candidates = loadable_by(state, content, sources, player, origin, ignore_tokens);
         let mut seen: std::collections::BTreeSet<String> =
             std::iter::once(origin.to_string()).collect();
         for step in path {
             if !seen.insert(step.clone()) {
                 continue; // a route may revisit a system; its units are offered once
             }
-            candidates.extend(loadable(
+            candidates.extend(loadable_by(
                 state,
                 content,
                 sources,
                 player,
                 &SystemId::new(step.clone()),
+                ignore_tokens,
             ));
         }
         let types = catalogue(content, sources);
@@ -230,6 +259,22 @@ impl CargoWindow {
                     .is_some_and(UnitType::is_fighter)
             })
             .collect();
+        let free_cargo = if crate::factions::hooks_movement::any(|table| table.free_cargo.is_some())
+        {
+            candidates
+                .iter()
+                .map(|cargo| {
+                    crate::factions::hooks_movement::free_cargo(
+                        state,
+                        content,
+                        sources,
+                        &cargo.unit,
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         Self {
             player: player.clone(),
             candidates,
@@ -238,6 +283,7 @@ impl CargoWindow {
             ground,
             fighters,
             loaded: Vec::new(),
+            free_cargo,
             capacity,
             closed: capacity <= 0,
             phase: state.phase,
@@ -245,11 +291,27 @@ impl CargoWindow {
         }
     }
 
+    /// Whether candidate `index` rides without using a slot.
+    fn rides_free(&self, index: usize) -> bool {
+        self.free_cargo.get(index).copied().unwrap_or(false)
+    }
+
+    /// Slots still unused: capacity minus the loaded units that are not free cargo.
+    fn slots_left(&self) -> i64 {
+        let used = self
+            .loaded
+            .iter()
+            .filter(|index| !self.rides_free(**index))
+            .count();
+        self.capacity - i64::try_from(used).unwrap_or(i64::MAX)
+    }
+
+    /// A full hold is still open to units that ride free (Argent Aerie Sentinel).
     #[must_use]
     pub fn is_complete(&self) -> bool {
         self.closed
             || self.loaded.len() >= self.candidates.len()
-            || i64::try_from(self.loaded.len()).unwrap_or(i64::MAX) >= self.capacity
+            || (self.slots_left() <= 0 && self.free().is_empty())
     }
 
     /// What has been loaded, in the order it was taken aboard.
@@ -261,10 +323,12 @@ impl CargoWindow {
             .collect()
     }
 
-    /// Indices still free, in candidate order.
+    /// Indices still loadable, in candidate order: not yet aboard, and either a slot is left or
+    /// the unit rides free.
     fn free(&self) -> Vec<usize> {
+        let room = self.slots_left() > 0;
         (0..self.candidates.len())
-            .filter(|index| !self.loaded.contains(index))
+            .filter(|index| !self.loaded.contains(index) && (room || self.rides_free(*index)))
             .collect()
     }
 
@@ -313,8 +377,8 @@ impl CargoWindow {
             // printed capacity cost (95.2's "capacity_remaining" bookkeeping counts loads, not
             // capacityUsed), so the preview states that same arithmetic rather than a corpus
             // lookup that could disagree with what accepting the option actually does.
-            let capacity_remaining =
-                self.capacity - i64::try_from(self.loaded.len()).unwrap_or(i64::MAX);
+            let capacity_remaining = self.slots_left();
+            let slot_cost = i64::from(!self.rides_free(*index));
             let mut option = ChoiceOption::labelled(
                 format!("load|{index}"),
                 LOAD_KIND,
@@ -328,7 +392,7 @@ impl CargoWindow {
             .previewed(Preview::certain(vec![Delta::new(
                 Quantity::CapacityFree,
                 capacity_remaining,
-                capacity_remaining - 1,
+                capacity_remaining - slot_cost,
             )]))
             .with(
                 "loaded_ground",
@@ -380,12 +444,7 @@ impl CargoWindow {
         options.push(decline);
         let prompt = self.ship_type.as_ref().map_or_else(
             || "load which unit".to_owned(),
-            |ship| {
-                format!(
-                    "load {ship} ({} free)",
-                    self.capacity - i64::try_from(self.loaded.len()).unwrap_or(i64::MAX)
-                )
-            },
+            |ship| format!("load {ship} ({} free)", self.slots_left()),
         );
         let mut context = DecisionContext::new(
             self.player.clone(),
@@ -434,7 +493,7 @@ pub fn rifts_exited(rules: &MovementRules<'_>, path: &[String]) -> Vec<String> {
     }
     path[..path.len() - 1]
         .iter()
-        .filter(|system| rules.is_rift(system))
+        .filter(|system| rules.is_rift(system) && !rules.rift_roll_exempt.contains(*system))
         .cloned()
         .collect()
 }
@@ -524,6 +583,356 @@ fn take_aboard(state: &mut GameState, origin: &SystemId, destination: &SystemId,
             state.system_mut(destination).units.push(unit);
         }
     }
+}
+
+// -- movement outside a tactical action ----------------------------------------------------------
+
+/// The typed event announcing ships moved by an effect rather than by a tactical action.
+///
+/// Payload: `player`, `from`, `to`, `count` (int), `ships` (array of unit type ids, one per ship
+/// moved) and `reason` (the effect's label, e.g. `"foresight"`). Emitted by
+/// [`announce_relocation`] **after** the move, so "after another player moves ships into a
+/// system" windows see the ships already there. Distinct from `SHIP_MOVED`, which only the
+/// tactical action emits and which carries `player` alone.
+pub const SHIPS_RELOCATED: &str = "SHIPS_RELOCATED";
+
+/// A set of one player's ships to move out of turn.
+#[derive(Debug, Clone, Copy)]
+pub struct Relocation<'a> {
+    /// Whose ships.
+    pub player: &'a PlayerId,
+    /// Where they are now (the space area).
+    pub from: &'a SystemId,
+    /// Where they go.
+    pub to: &'a SystemId,
+    /// The ships, as they stand (damage included). Interchangeable copies may repeat.
+    pub ships: &'a [Unit],
+    /// Require `to` to be adjacent to `from` for this player (`PlayerAdjacency`, so Quantum
+    /// Entanglement and the like count).
+    pub require_adjacent: bool,
+    /// Refuse when `to` holds another player's ships ("an adjacent system that does not contain
+    /// another player's ships").
+    pub forbid_foreign_ships_at_destination: bool,
+    /// Refuse when the arrival would leave the player over fleet supply (37) or over capacity
+    /// (16.3) in `to`. Without it the effect resolves and 37.3 removes the excess at the end of
+    /// the turn, as for any arrival.
+    pub refuse_fleet_overflow: bool,
+    /// The effect's label, carried into the event.
+    pub reason: &'a str,
+}
+
+/// What a relocation did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Relocated {
+    pub player: PlayerId,
+    pub from: SystemId,
+    pub to: SystemId,
+    /// Type ids of the ships moved, in the order given.
+    pub ships: Vec<String>,
+    /// Type ids of the ground forces and fighters carried along, in the order given (empty for a
+    /// plain relocation).
+    pub cargo: Vec<String>,
+    pub reason: String,
+    /// Fleet headroom in `to` after the move (negative: ships 37.3 will remove).
+    pub fleet_headroom: i64,
+    /// Capacity-consuming units that cannot legally stay in `to` (16.3).
+    pub capacity_excess: i64,
+}
+
+impl Relocated {
+    /// The payload of [`SHIPS_RELOCATED`].
+    #[must_use]
+    pub fn payload(&self) -> std::collections::BTreeMap<String, serde_json::Value> {
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert("player".to_owned(), self.player.to_string().into());
+        payload.insert("from".to_owned(), self.from.to_string().into());
+        payload.insert("to".to_owned(), self.to.to_string().into());
+        payload.insert(
+            "count".to_owned(),
+            i64::try_from(self.ships.len()).unwrap_or(i64::MAX).into(),
+        );
+        payload.insert(
+            "ships".to_owned(),
+            self.ships
+                .iter()
+                .map(|ship| serde_json::Value::String(ship.clone()))
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        payload.insert("reason".to_owned(), self.reason.clone().into());
+        if !self.cargo.is_empty() {
+            payload.insert(
+                "cargo".to_owned(),
+                self.cargo
+                    .iter()
+                    .map(|unit| serde_json::Value::String(unit.clone()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            );
+        }
+        payload
+    }
+}
+
+/// Why ships could not be relocated. Nothing has changed when one of these is returned (except
+/// [`RelocateError::Timing`], which arises after the move; see [`announce_relocation`]).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RelocateError {
+    #[error("no ships to move")]
+    NothingToMove,
+    #[error("the ships are already in {0}")]
+    SameSystem(SystemId),
+    #[error("{0} is not a ship")]
+    NotAShip(String),
+    #[error("player {player} does not have those ships in {system}")]
+    NotThere { player: PlayerId, system: SystemId },
+    #[error("system {0} is not on the map")]
+    NotOnTheMap(SystemId),
+    #[error("{to} is not adjacent to {from}")]
+    NotAdjacent { from: SystemId, to: SystemId },
+    #[error("{0} holds another player's ships")]
+    ForeignShips(SystemId),
+    #[error("ships cannot enter {0} (an anomaly or law bars it)")]
+    CannotEnter(SystemId),
+    #[error("the arrival would put the fleet over its supply or capacity in {0}")]
+    FleetOverflow(SystemId),
+    #[error("{0} cannot be carried (only the player's own ground forces and fighters can)")]
+    NotCargo(String),
+    #[error("the cargo is not where the ships are (or is not the player's)")]
+    CargoNotThere,
+    #[error("the cargo needs more capacity than the ships have")]
+    OverCapacity,
+    #[error("95.5: cargo cannot be picked up from {0}, which holds the player's command token")]
+    CargoUnderCommandToken(SystemId),
+    #[error(transparent)]
+    Timing(#[from] crate::timing::TimingError),
+}
+
+/// Move a set of one player's ships from one system to another **outside a tactical action**
+/// (Naalu Foresight: "move your ships from the active system into that system"). No route, move
+/// value, rift roll or cargo: the ships are lifted and set down. Ground forces and fighters aboard
+/// do not go unless they are in `ships`.
+///
+/// Everything is checked before anything changes, so a refusal leaves `state` untouched. Does not
+/// announce; see [`announce_relocation`], which a caller with a `Resolving` runs next. (A faction
+/// hook inside a timing window has no resolver to open a nested window with: it performs the move
+/// and reports the [`Relocated`] to its caller.)
+///
+/// # Errors
+/// [`RelocateError`] naming the first failed check.
+pub fn relocate_ships(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    relocation: &Relocation<'_>,
+) -> Result<Relocated, RelocateError> {
+    relocate_ships_with_cargo(state, content, sources, galaxy, relocation, &[])
+}
+
+/// [`relocate_ships`] that also carries ground forces and fighters, up to the ships' capacity
+/// (Argent Flock Migration: "This can transport ground forces and fighters up to capacity, but
+/// cannot land them").
+///
+/// `cargo` is read from [`loadable`] for `relocation.from` (each [`Cargo`] names the unit, whether
+/// it stands in space or on a planet, and `system == from`); the units are checked against what is
+/// actually there, copies counted, and against the capacity of the relocated ships: each unit
+/// uses one slot unless a module rides it free (`MovementHooks::free_cargo`). Cargo set down in
+/// the destination's space area, never on a planet. 95.5 applies: nothing is picked up from a
+/// system holding the player's command token other than the active system. Everything is checked
+/// before anything changes, so a refusal leaves `state` untouched. With no cargo this is exactly
+/// [`relocate_ships`].
+///
+/// # Errors
+/// [`RelocateError`] naming the first failed check.
+#[expect(clippy::too_many_lines, reason = "one pass of checks, then the move")]
+pub fn relocate_ships_with_cargo(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    relocation: &Relocation<'_>,
+    cargo: &[Cargo],
+) -> Result<Relocated, RelocateError> {
+    let Relocation {
+        player, from, to, ..
+    } = *relocation;
+    if relocation.ships.is_empty() {
+        return Err(RelocateError::NothingToMove);
+    }
+    if from == to {
+        return Err(RelocateError::SameSystem(from.clone()));
+    }
+    let types = catalogue(content, sources);
+    for ship in relocation.ships {
+        if !types
+            .get(ship.type_id.as_str())
+            .is_some_and(UnitType::is_ship)
+        {
+            return Err(RelocateError::NotAShip(ship.type_id.to_string()));
+        }
+        if &ship.owner != player {
+            return Err(RelocateError::NotThere {
+                player: player.clone(),
+                system: from.clone(),
+            });
+        }
+    }
+    // The ships must all be there, copies counted: take them from a scratch copy of the area.
+    let mut standing = state
+        .board
+        .get(from)
+        .map(|system| system.units.clone())
+        .unwrap_or_default();
+    for ship in relocation.ships {
+        let Some(index) = standing.iter().position(|held| held == ship) else {
+            return Err(RelocateError::NotThere {
+                player: player.clone(),
+                system: from.clone(),
+            });
+        };
+        standing.remove(index);
+    }
+    // The cargo must be the player's own capacity-using units, standing where the ships do, and
+    // must fit: copies counted against what remains after the ships themselves are lifted.
+    if !cargo.is_empty() {
+        let mut planets = state
+            .board
+            .get(from)
+            .map(|system| system.planet_units.clone())
+            .unwrap_or_default();
+        if state.active_system.as_ref() != Some(from)
+            && state
+                .board
+                .get(from)
+                .is_some_and(|system| system.command_tokens.contains(player))
+        {
+            return Err(RelocateError::CargoUnderCommandToken(from.clone()));
+        }
+        let mut paying = 0_i64;
+        for carried in cargo {
+            if !types
+                .get(carried.unit.type_id.as_str())
+                .is_some_and(UnitType::consumes_capacity)
+            {
+                return Err(RelocateError::NotCargo(carried.unit.type_id.to_string()));
+            }
+            let pool = match &carried.source {
+                CargoSource::Space => Some(&mut standing),
+                CargoSource::Planet(planet) => planets.get_mut(planet),
+            };
+            let found = pool.and_then(|units| {
+                units
+                    .iter()
+                    .position(|held| *held == carried.unit)
+                    .map(|index| units.remove(index))
+            });
+            if &carried.system != from || &carried.unit.owner != player || found.is_none() {
+                return Err(RelocateError::CargoNotThere);
+            }
+            if !crate::factions::hooks_movement::free_cargo(state, content, sources, &carried.unit)
+            {
+                paying += 1;
+            }
+        }
+        let room: i64 = relocation
+            .ships
+            .iter()
+            .map(|ship| capacity_of(content, sources, ship))
+            .sum();
+        if paying > room {
+            return Err(RelocateError::OverCapacity);
+        }
+    }
+    for system in [from, to] {
+        if galaxy.coord_of(system.as_str()).is_none()
+            && !galaxy.wormhole_systems().contains(&system.as_str())
+        {
+            return Err(RelocateError::NotOnTheMap(system.clone()));
+        }
+    }
+    if relocation.require_adjacent
+        && !crate::movement::PlayerAdjacency::new(state, content, sources, galaxy, player)
+            .are_adjacent(from.as_str(), to.as_str())
+    {
+        return Err(RelocateError::NotAdjacent {
+            from: from.clone(),
+            to: to.clone(),
+        });
+    }
+    // 86.1, 11.1, 59.1: the destination must be enterable under the same rules a tactical move
+    // uses for this player (laws, technologies, faction effects).
+    let mut rules = crate::movement::MovementRules::with_laws(
+        galaxy,
+        content,
+        sources,
+        to.as_str(),
+        crate::movement::Board::for_player(state, content, sources, player),
+        Some(state),
+    );
+    crate::action_cards::apply_movement_effects(&mut rules, state, player);
+    if !rules.can_enter(to.as_str()) {
+        return Err(RelocateError::CannotEnter(to.clone()));
+    }
+    if relocation.forbid_foreign_ships_at_destination
+        && state.board.get(to).is_some_and(|system| {
+            system.units.iter().any(|unit| {
+                &unit.owner != player
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(UnitType::is_ship)
+            })
+        })
+    {
+        return Err(RelocateError::ForeignShips(to.clone()));
+    }
+
+    let mut after = state.clone();
+    after.move_units(from, to, relocation.ships);
+    for carried in cargo {
+        take_aboard(&mut after, from, to, carried);
+    }
+    let standing = crate::fleet::standing_using(&types, &after, content, player, to, None);
+    if relocation.refuse_fleet_overflow
+        && (standing.fleet_headroom() < 0 || standing.capacity_excess > 0)
+    {
+        return Err(RelocateError::FleetOverflow(to.clone()));
+    }
+    *state = after;
+    Ok(Relocated {
+        player: player.clone(),
+        from: from.clone(),
+        to: to.clone(),
+        ships: relocation
+            .ships
+            .iter()
+            .map(|ship| ship.type_id.to_string())
+            .collect(),
+        cargo: cargo
+            .iter()
+            .map(|carried| carried.unit.type_id.to_string())
+            .collect(),
+        reason: relocation.reason.to_owned(),
+        fleet_headroom: standing.fleet_headroom(),
+        capacity_excess: standing.capacity_excess,
+    })
+}
+
+/// Announce a completed relocation as [`SHIPS_RELOCATED`] through the timing windows.
+///
+/// Returns whether the event stood (a WHEN cancel is reported, but the ships have already moved:
+/// like the other off-turn emitters, the move is not undone by a cancel). Without a resolver in
+/// `ctx` nothing can react and `Ok(true)` is returned.
+///
+/// # Errors
+/// [`RelocateError::Timing`] for an illegal decider answer or an exhausted event id space; the
+/// ships have still moved.
+pub fn announce_relocation(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    relocated: &Relocated,
+) -> Result<bool, RelocateError> {
+    Ok(ctx.emit(state, SHIPS_RELOCATED, relocated.payload())?)
 }
 
 #[cfg(test)]
@@ -850,6 +1259,49 @@ mod tests {
     }
 
     #[test]
+    fn a_unit_that_rides_free_still_boards_a_full_hold() {
+        let (mut state, origin, _) = state_with_two_systems();
+        for _ in 0..3 {
+            state.system_mut(&origin).units.push(unit("infantry"));
+        }
+        state.system_mut(&origin).units.push(unit("mech"));
+        let ship = unit("carrier");
+        state.system_mut(&origin).units.push(ship.clone());
+        let content = ContentStore::embedded();
+        let run = |state: &GameState| {
+            let mut window =
+                CargoWindow::for_ship(state, content, POK, &player(), &origin, &ship, &[]);
+            while let Some(choice) = window.pending_choice() {
+                let pick = choice
+                    .options
+                    .iter()
+                    .find(|option| option.id.starts_with("load|"))
+                    .cloned();
+                let Some(pick) = pick else { break };
+                window.resolve(pick).unwrap();
+            }
+            (
+                window.cargo().len(),
+                window.is_complete(),
+                window.slots_left(),
+            )
+        };
+        // Neutral: a carrier holds 4 and there are exactly 4 units.
+        assert_eq!(run(&state), (4, true, 0));
+        // With one more infantry the neutral hold stops at 4 of 5.
+        state.system_mut(&origin).units.push(unit("infantry"));
+        assert_eq!(run(&state), (4, true, 0));
+        let hooks = crate::factions::hooks_movement::MovementHooks {
+            free_cargo: Some(|_, _, _, unit| unit.type_id.as_str() == "mech"),
+            ..crate::factions::hooks_movement::MovementHooks::NONE
+        };
+        crate::factions::hooks_movement::with_test_hooks(hooks, || {
+            // The mech boards for free beside four infantry: 5 units on a hold of 4.
+            assert_eq!(run(&state), (5, true, 0));
+        });
+    }
+
+    #[test]
     fn a_hold_stops_at_capacity() {
         let (mut state, origin, _) = state_with_two_systems();
         for _ in 0..5 {
@@ -1170,5 +1622,578 @@ mod tests {
             &[ids[0].clone(), ids[2].clone()]
         ));
         assert_eq!(dice.count(), 0);
+    }
+}
+
+#[cfg(test)]
+mod relocation_tests {
+    use ti4_content::galaxy::Galaxy;
+    use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::UnitTypeId;
+
+    use super::*;
+
+    fn a() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    fn b() -> PlayerId {
+        PlayerId::new("b")
+    }
+
+    fn ship(kind: &str, owner: &PlayerId) -> Unit {
+        Unit::new(UnitTypeId::new(kind), owner.clone())
+    }
+
+    /// Centre 18 with a ring around it, two players, `a`'s two cruisers in the first ring tile.
+    struct Table {
+        state: GameState,
+        galaxy: Galaxy,
+        from: SystemId,
+        beside: SystemId,
+        far: SystemId,
+    }
+
+    fn table() -> Table {
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        let content = ContentStore::embedded();
+        let ids: Vec<String> = crate::fixtures::plain_systems(12)
+            .into_iter()
+            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .take(8)
+            .collect();
+        let mut tiles = vec!["18"];
+        tiles.extend(ids.iter().map(String::as_str));
+        let galaxy = Galaxy::build(content, &tiles, DEFAULT, 2).unwrap();
+        let from = SystemId::new(ids[0].as_str());
+        let beside = galaxy
+            .adjacent(from.as_str())
+            .into_iter()
+            .find(|id| *id != "18" && ids.iter().any(|plain| plain == id))
+            .map(SystemId::new)
+            .expect("a ring neighbour");
+        let far = ids
+            .iter()
+            .map(|id| SystemId::new(id.as_str()))
+            .find(|id| id != &from && !galaxy.are_adjacent(from.as_str(), id.as_str()))
+            .expect("a tile not beside the origin");
+        state
+            .system_mut(&from)
+            .add(&[ship("cruiser", &a()), ship("cruiser", &a())]);
+        Table {
+            state,
+            galaxy,
+            from,
+            beside,
+            far,
+        }
+    }
+
+    fn relocation<'x>(
+        from: &'x SystemId,
+        ships: &'x [Unit],
+        to: &'x SystemId,
+        a: &'x PlayerId,
+    ) -> Relocation<'x> {
+        Relocation {
+            player: a,
+            from,
+            to,
+            ships,
+            require_adjacent: true,
+            forbid_foreign_ships_at_destination: true,
+            refuse_fleet_overflow: false,
+            reason: "test",
+        }
+    }
+
+    #[test]
+    fn ships_move_between_adjacent_systems_and_are_reported() {
+        let mut t = table();
+        let from = t.from.clone();
+        let (player, to) = (a(), t.beside.clone());
+        let ships = [ship("cruiser", &player)];
+        let done = relocate_ships(
+            &mut t.state,
+            ContentStore::embedded(),
+            DEFAULT,
+            &t.galaxy,
+            &relocation(&from, &ships, &to, &player),
+        )
+        .unwrap();
+        assert_eq!(t.state.ships_of(&player, &t.from).len(), 1);
+        assert_eq!(t.state.ships_of(&player, &to).len(), 1);
+        assert_eq!(done.ships, vec!["cruiser".to_owned()]);
+        assert_eq!(done.payload()["count"], serde_json::json!(1));
+        assert_eq!(done.payload()["to"], serde_json::json!(to.to_string()));
+    }
+
+    #[test]
+    fn ships_cannot_be_relocated_into_a_supernova() {
+        // 86.1: an out-of-turn move (Foresight) obeys the same entry rules as a tactical move.
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        let supernova = crate::fixtures::a_system_where("supernova");
+        let plain: Vec<String> = crate::fixtures::plain_systems(12)
+            .into_iter()
+            .filter(|id| !state.board.contains_key(&SystemId::new(id.as_str())))
+            .take(5)
+            .collect();
+        let mut tiles = vec!["18", supernova.as_str()];
+        tiles.extend(plain.iter().map(String::as_str));
+        let galaxy = Galaxy::build(content, &tiles, DEFAULT, 2).unwrap();
+        let from = SystemId::new(plain[0].as_str());
+        let to = SystemId::new(supernova.as_str());
+        let player = a();
+        state.system_mut(&from).add(&[ship("cruiser", &player)]);
+        let before = state.clone();
+        let ships = [ship("cruiser", &player)];
+        let mut moving = relocation(&from, &ships, &to, &player);
+        moving.require_adjacent = false;
+        let refused = relocate_ships(&mut state, content, DEFAULT, &galaxy, &moving);
+        assert_eq!(refused.unwrap_err(), RelocateError::CannotEnter(to.clone()));
+        assert_eq!(
+            serde_json::to_value(&state).unwrap(),
+            serde_json::to_value(&before).unwrap(),
+            "nothing moved"
+        );
+    }
+
+    #[test]
+    fn every_refusal_leaves_the_state_untouched() {
+        let mut t = table();
+        let from = t.from.clone();
+        let (player, other) = (a(), b());
+        let content = ContentStore::embedded();
+        let beside = t.beside.clone();
+        t.state
+            .system_mut(&beside)
+            .add(&[ship("destroyer", &other)]);
+        let before = t.state.clone();
+        let one = [ship("cruiser", &player)];
+        let far = t.far.clone();
+        let cases: Vec<(Vec<Unit>, SystemId, RelocateError)> = vec![
+            (vec![], beside.clone(), RelocateError::NothingToMove),
+            (
+                one.to_vec(),
+                from.clone(),
+                RelocateError::SameSystem(from.clone()),
+            ),
+            (
+                vec![ship("infantry", &player)],
+                far.clone(),
+                RelocateError::NotAShip("infantry".to_owned()),
+            ),
+            (
+                vec![ship("dreadnought", &player)],
+                far.clone(),
+                RelocateError::NotThere {
+                    player: player.clone(),
+                    system: from.clone(),
+                },
+            ),
+            (
+                one.to_vec(),
+                far.clone(),
+                RelocateError::NotAdjacent {
+                    from: from.clone(),
+                    to: far.clone(),
+                },
+            ),
+            (
+                one.to_vec(),
+                beside.clone(),
+                RelocateError::ForeignShips(beside.clone()),
+            ),
+            (
+                one.to_vec(),
+                SystemId::new("nowhere"),
+                RelocateError::NotOnTheMap(SystemId::new("nowhere")),
+            ),
+        ];
+        for (ships, to, expected) in cases {
+            let got = relocate_ships(
+                &mut t.state,
+                content,
+                DEFAULT,
+                &t.galaxy,
+                &relocation(&from, &ships, &to, &player),
+            );
+            assert_eq!(got.unwrap_err(), expected);
+            assert!(t.state == before, "{expected:?} must change nothing");
+            assert_eq!(
+                t.state.system_state(&from).units,
+                before.system_state(&from).units
+            );
+        }
+        // More copies than stand there.
+        let three = vec![ship("cruiser", &player); 3];
+        let far = t.far.clone();
+        let mut free = relocation(&from, &three, &far, &player);
+        free.require_adjacent = false;
+        assert!(matches!(
+            relocate_ships(&mut t.state.clone(), content, DEFAULT, &t.galaxy, &free),
+            Err(RelocateError::NotThere { .. })
+        ));
+    }
+
+    #[test]
+    fn the_flags_relax_adjacency_and_the_foreign_ship_bar() {
+        let mut t = table();
+        let from = t.from.clone();
+        let player = a();
+        let ships = [ship("cruiser", &player)];
+        let far = t.far.clone();
+        let mut free = relocation(&from, &ships, &far, &player);
+        free.require_adjacent = false;
+        relocate_ships(
+            &mut t.state,
+            ContentStore::embedded(),
+            DEFAULT,
+            &t.galaxy,
+            &free,
+        )
+        .unwrap();
+        assert_eq!(t.state.ships_of(&player, &far).len(), 1);
+    }
+
+    #[test]
+    fn a_hook_adjacency_link_makes_a_far_system_legal_for_its_player_only() {
+        let mut t = table();
+        let from = t.from.clone();
+        let (player, other) = (a(), b());
+        let far = t.far.clone();
+        t.state
+            .faction_marks
+            .insert("link_from".into(), t.from.to_string());
+        t.state
+            .faction_marks
+            .insert("link_to".into(), far.to_string());
+        let linked = crate::factions::hooks_movement::MovementHooks {
+            linked_systems: Some(|state, _, _, _, who| {
+                match (
+                    who.as_str(),
+                    state.faction_marks.get("link_from"),
+                    state.faction_marks.get("link_to"),
+                ) {
+                    ("a", Some(x), Some(y)) => vec![(x.clone(), y.clone())],
+                    _ => Vec::new(),
+                }
+            }),
+            ..crate::factions::hooks_movement::MovementHooks::NONE
+        };
+        let content = ContentStore::embedded();
+        let mine = [ship("cruiser", &player)];
+        let theirs = [ship("cruiser", &other)];
+        t.state.system_mut(&t.from).add(&theirs);
+
+        // Without the hook neither is adjacent.
+        let mut state = t.state.clone();
+        assert!(matches!(
+            relocate_ships(
+                &mut state,
+                content,
+                DEFAULT,
+                &t.galaxy,
+                &relocation(&from, &mine, &far, &player)
+            ),
+            Err(RelocateError::NotAdjacent { .. })
+        ));
+        crate::factions::hooks_movement::with_test_hooks(linked, || {
+            let mut state = t.state.clone();
+            relocate_ships(
+                &mut state,
+                content,
+                DEFAULT,
+                &t.galaxy,
+                &relocation(&from, &mine, &far, &player),
+            )
+            .expect("player a is linked");
+            assert_eq!(state.ships_of(&player, &far).len(), 1);
+            let mut state = t.state.clone();
+            let request = Relocation {
+                player: &other,
+                ships: &theirs,
+                ..relocation(&from, &theirs, &far, &other)
+            };
+            assert!(
+                matches!(
+                    relocate_ships(&mut state, content, DEFAULT, &t.galaxy, &request),
+                    Err(RelocateError::NotAdjacent { .. })
+                ),
+                "player b has no link"
+            );
+        });
+    }
+
+    #[test]
+    fn fleet_overflow_is_refused_only_on_request() {
+        let mut t = table();
+        let from = t.from.clone();
+        let player = a();
+        let to = t.beside.clone();
+        // Fill the destination with the player's whole fleet pool first.
+        let limit = {
+            let types = catalogue(ContentStore::embedded(), DEFAULT);
+            let st = crate::fleet::standing_using(
+                &types,
+                &t.state,
+                ContentStore::embedded(),
+                &player,
+                &to,
+                None,
+            );
+            st.fleet_limit
+        };
+        let crowd: Vec<Unit> = (0..limit).map(|_| ship("cruiser", &player)).collect();
+        t.state.system_mut(&to).add(&crowd);
+        let ships = [ship("cruiser", &player)];
+        let mut request = relocation(&from, &ships, &to, &player);
+        request.refuse_fleet_overflow = true;
+        let before = t.state.clone();
+        assert_eq!(
+            relocate_ships(
+                &mut t.state,
+                ContentStore::embedded(),
+                DEFAULT,
+                &t.galaxy,
+                &request
+            ),
+            Err(RelocateError::FleetOverflow(to.clone()))
+        );
+        assert!(t.state == before);
+        request.refuse_fleet_overflow = false;
+        let done = relocate_ships(
+            &mut t.state,
+            ContentStore::embedded(),
+            DEFAULT,
+            &t.galaxy,
+            &request,
+        )
+        .unwrap();
+        assert!(done.fleet_headroom < 0, "the excess is reported: {done:?}");
+    }
+
+    #[test]
+    fn the_announcement_reaches_a_timing_ability_with_its_payload() {
+        let mut t = table();
+        let from = t.from.clone();
+        let player = a();
+        let to = t.beside.clone();
+        let ships = [ship("cruiser", &player)];
+        let done = relocate_ships(
+            &mut t.state,
+            ContentStore::embedded(),
+            DEFAULT,
+            &t.galaxy,
+            &relocation(&from, &ships, &to, &player),
+        )
+        .unwrap();
+
+        let mut resolver = crate::fixtures::armed_resolver(&t.state);
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(0);
+        let mut table_ = crate::choice::Table::default();
+        let mut sequence = crate::event::EventSequence::new();
+        let mut ctx = crate::choice::Resolving {
+            content: ContentStore::embedded(),
+            sources: DEFAULT,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table_,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: Some(&t.galaxy),
+            }),
+        };
+        assert_eq!(announce_relocation(&mut t.state, &mut ctx, &done), Ok(true));
+        assert!(
+            resolver_log_has(&resolver_log(&mut ctx), SHIPS_RELOCATED),
+            "the event went through the resolver"
+        );
+        // Without a resolver the call is a quiet yes.
+        let mut quiet = crate::choice::Resolving {
+            content: ContentStore::embedded(),
+            sources: DEFAULT,
+            dice: &mut Dice::new(),
+            rng: &mut GameRng::new(0),
+            table: &mut crate::choice::Table::default(),
+            timing: None,
+        };
+        assert_eq!(
+            announce_relocation(&mut t.state, &mut quiet, &done),
+            Ok(true)
+        );
+    }
+
+    fn resolver_log(ctx: &mut crate::choice::Resolving<'_>) -> Vec<String> {
+        ctx.timing
+            .as_ref()
+            .map(|handle| handle.resolver.log().to_vec())
+            .unwrap_or_default()
+    }
+
+    fn resolver_log_has(log: &[String], event: &str) -> bool {
+        log.iter().any(|line| line.contains(event))
+    }
+
+    // -- relocation with cargo (Argent Flock Migration) -------------------------------------------
+
+    fn cargo_of(state: &GameState, from: &SystemId, kinds: &[&str]) -> Vec<Cargo> {
+        let mut offered = loadable(state, ContentStore::embedded(), DEFAULT, &a(), from);
+        kinds
+            .iter()
+            .map(|kind| {
+                let at = offered
+                    .iter()
+                    .position(|cargo| cargo.unit.type_id.as_str() == *kind)
+                    .expect("that cargo is loadable");
+                offered.remove(at)
+            })
+            .collect()
+    }
+
+    fn with_carrier(t: &mut Table, extra: &[&str]) {
+        let from = t.from.clone();
+        let mut units = vec![ship("carrier", &a())];
+        units.extend(extra.iter().map(|kind| ship(kind, &a())));
+        t.state.system_mut(&from).add(&units);
+    }
+
+    #[test]
+    fn a_relocation_carries_cargo_up_to_capacity_and_reports_it() {
+        let mut t = table();
+        with_carrier(&mut t, &["infantry", "infantry", "fighter"]);
+        let (from, to, player) = (t.from.clone(), t.beside.clone(), a());
+        let cargo = cargo_of(&t.state, &from, &["infantry", "infantry", "fighter"]);
+        let ships = [ship("carrier", &player)];
+        let done = relocate_ships_with_cargo(
+            &mut t.state,
+            ContentStore::embedded(),
+            DEFAULT,
+            &t.galaxy,
+            &relocation(&from, &ships, &to, &player),
+            &cargo,
+        )
+        .unwrap();
+        let at = |system: &SystemId, kind: &str| {
+            t.state
+                .ships_of(&player, system)
+                .iter()
+                .filter(|unit| unit.type_id.as_str() == kind)
+                .count()
+        };
+        assert_eq!(at(&to, "carrier"), 1);
+        assert_eq!(at(&to, "infantry"), 2);
+        assert_eq!(at(&to, "fighter"), 1);
+        assert_eq!(
+            at(&from, "infantry") + at(&from, "fighter") + at(&from, "carrier"),
+            0
+        );
+        assert_eq!(at(&from, "cruiser"), 2, "the rest stays");
+        assert_eq!(
+            done.payload()["cargo"],
+            serde_json::json!(["infantry", "infantry", "fighter"])
+        );
+    }
+
+    #[test]
+    fn cargo_beyond_capacity_or_not_cargo_refuses_and_changes_nothing() {
+        let mut t = table();
+        with_carrier(&mut t, &["infantry"; 5]);
+        let (from, to, player) = (t.from.clone(), t.beside.clone(), a());
+        let ships = [ship("carrier", &player)];
+        let before = serde_json::to_value(&t.state).unwrap();
+        let content = ContentStore::embedded();
+        let five = cargo_of(&t.state, &from, &["infantry"; 5]);
+        let refused = relocate_ships_with_cargo(
+            &mut t.state,
+            content,
+            DEFAULT,
+            &t.galaxy,
+            &relocation(&from, &ships, &to, &player),
+            &five,
+        );
+        assert_eq!(refused.unwrap_err(), RelocateError::OverCapacity);
+        let cruiser = Cargo {
+            unit: ship("cruiser", &player),
+            source: CargoSource::Space,
+            system: from.clone(),
+        };
+        let refused = relocate_ships_with_cargo(
+            &mut t.state,
+            content,
+            DEFAULT,
+            &t.galaxy,
+            &relocation(&from, &ships, &to, &player),
+            &[cruiser],
+        );
+        assert_eq!(
+            refused.unwrap_err(),
+            RelocateError::NotCargo("cruiser".to_owned())
+        );
+        let phantom = Cargo {
+            unit: ship("infantry", &b()),
+            source: CargoSource::Space,
+            system: from.clone(),
+        };
+        let refused = relocate_ships_with_cargo(
+            &mut t.state,
+            content,
+            DEFAULT,
+            &t.galaxy,
+            &relocation(&from, &ships, &to, &player),
+            &[phantom],
+        );
+        assert_eq!(refused.unwrap_err(), RelocateError::CargoNotThere);
+        assert_eq!(serde_json::to_value(&t.state).unwrap(), before, "atomic");
+    }
+
+    #[test]
+    fn units_that_ride_free_do_not_use_capacity_when_relocated() {
+        let mut t = table();
+        with_carrier(
+            &mut t,
+            &["infantry", "infantry", "infantry", "infantry", "mech"],
+        );
+        let (from, to, player) = (t.from.clone(), t.beside.clone(), a());
+        let ships = [ship("carrier", &player)];
+        let content = ContentStore::embedded();
+        let all = cargo_of(
+            &t.state,
+            &from,
+            &["infantry", "infantry", "infantry", "infantry", "mech"],
+        );
+        let neutral = relocate_ships_with_cargo(
+            &mut t.state,
+            content,
+            DEFAULT,
+            &t.galaxy,
+            &relocation(&from, &ships, &to, &player),
+            &all,
+        );
+        assert_eq!(
+            neutral.unwrap_err(),
+            RelocateError::OverCapacity,
+            "5 units, 4 slots"
+        );
+        let hooks = crate::factions::hooks_movement::MovementHooks {
+            free_cargo: Some(|_, _, _, unit| unit.type_id.as_str() == "mech"),
+            ..crate::factions::hooks_movement::MovementHooks::NONE
+        };
+        crate::factions::hooks_movement::with_test_hooks(hooks, || {
+            let done = relocate_ships_with_cargo(
+                &mut t.state,
+                content,
+                DEFAULT,
+                &t.galaxy,
+                &relocation(&from, &ships, &to, &player),
+                &all,
+            )
+            .unwrap();
+            assert_eq!(done.cargo.len(), 5);
+        });
+        assert_eq!(t.state.ships_of(&player, &to).len(), 6);
     }
 }

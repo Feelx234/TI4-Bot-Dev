@@ -72,7 +72,7 @@ names the code to look at first.
 ### B1. Hacan: cannot exchange a promissory note in a transaction
 
 `Terms` has a `promissory: Option<String>` field and `why_illegal` (transactions.rs:310) reasons about it,
-and `plans/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md` is marked **FIXED 2026-08-31** — it made a
+and `plans/archive/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md` is marked **FIXED 2026-08-31** — it made a
 note the partner cannot afford get offered as a *gift* (`pn{note}:0`) rather than be withheld. So either the
 fix does not cover the operator's case, or the case is the *diplomacy* path rather than the transaction
 path — which is the second time in two days that two negotiation machines have produced "impossible" with

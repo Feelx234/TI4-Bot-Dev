@@ -492,10 +492,26 @@ fn resolve_pass(
             else {
                 return;
             };
+            let previous = context
+                .state
+                .system_state(&system)
+                .planet_control
+                .get(&target)
+                .cloned();
             context
                 .state
                 .system_mut(&system)
                 .set_control(target.clone(), player.clone());
+            // Staged for the coordinator's flush (`hooks_ground::announce_staged_events`).
+            if previous.as_ref() != Some(player) {
+                crate::factions::hooks_ground::stage_planet_control_gained(
+                    context.state,
+                    &system,
+                    &target,
+                    player,
+                    previous.as_ref(),
+                );
+            }
             let _ = crate::technology::control_gained(
                 context.state,
                 context.content,
@@ -509,7 +525,9 @@ fn resolve_pass(
             // No `control_gained` here: Maxis Central Control excludes legendary planets, so
             // Thunder's Edge can never arrive through this path.
             if let Some(deck) =
-                crate::exploration::trait_of(context.content, context.sources, &target)
+                crate::planets::traits_now(context.state, context.content, context.sources, &target)
+                    .into_iter()
+                    .next()
             {
                 let mut resolving = crate::choice::Resolving {
                     content: context.content,
@@ -766,6 +784,7 @@ fn place_on_own_planet(
     for _ in 0..placeable {
         held.push(ti4_model::units::Unit::new(type_id.clone(), player.clone()));
     }
+    crate::supply::stage_naaz_mech_placed(state, player, &ti4_model::id::SystemId::new(system), &type_id);
     Ok(())
 }
 
@@ -867,14 +886,18 @@ fn resolve(
                 ));
             let answer =
                 table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
+            let mut gained = 0;
             if let Some(seat) = state.player_mut(player) {
                 if answer.id == "convert" {
+                    gained = seat.commodities;
                     seat.trade_goods += seat.commodities;
                     seat.commodities = 0;
                 } else {
+                    gained = 2;
                     seat.trade_goods += 2;
                 }
             }
+            crate::supply::note_trade_goods_gained(state, player, gained, "legendary");
         }
         // "place up to 2 infantry from your reinforcements on any planet you control"
         "primor" => place_on_own_planet(
@@ -890,10 +913,15 @@ fn resolve(
         )?,
         // "place 1 mech from your reinforcements on any planet you control, or draw 1 action card"
         "hopesend" => {
-            let options = vec![
+            let mut options = vec![
                 ChoiceOption::labelled("mech", "legendary", "place 1 mech"),
                 ChoiceOption::labelled("card", "legendary", "draw 1 action card"),
             ];
+            if crate::factions::hooks_economy::effect_placement_forbidden(
+                state, content, sources, player, &ti4_model::id::UnitTypeId::new("mech"),
+            ) {
+                options.retain(|option| option.id != "mech");
+            }
             let choice = Choice::new(player.clone(), "Imperial Arms Vault", options)
                 .contextualized(DecisionContext::new(
                     player.clone(),
@@ -1702,4 +1730,56 @@ mod tests {
             "nothing was offered, so nothing was gained"
         );
     }
+
+    /// BF-F1 package B: Maxis Central Control stages `PLANET_CONTROL_GAINED` (no previous owner:
+    /// only unheld planets are offered).
+    #[test]
+    fn maxis_central_control_stages_the_control_gain() {
+        let (mut state, player) = holding("faunus", "97");
+        let elsewhere = ti4_model::id::SystemId::new("20");
+        state.board.entry(elsewhere.clone()).or_default();
+        let target = maxis_candidates(&state, content(), POK, &player, None)
+            .into_iter()
+            .find(|(system, _)| system == &elsewhere)
+            .map(|(_, planet)| planet)
+            .expect("an empty system on the board offers its planets");
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new([
+            "faunus".to_owned(),
+            format!("20|{target}"),
+            "decline".to_owned(),
+        ])));
+        assert!(!crate::factions::hooks_ground::has_staged_events(&state));
+        passing(&mut state, &mut table, &player);
+
+        let events = crate::factions::hooks_ground::test_support::flush_recorded(&mut state);
+        let gained: Vec<_> = events
+            .iter()
+            .filter(|(name, _)| name == "PLANET_CONTROL_GAINED")
+            .collect();
+        assert_eq!(gained.len(), 1);
+        let payload = &gained[0].1;
+        assert_eq!(payload["player"], "a");
+        assert_eq!(payload["planet"], target.to_string());
+        assert_eq!(payload["system"], "20");
+        assert_eq!(payload.get("previous_owner"), None, "nobody held it before");
+    }
+    #[test]
+    fn hopes_end_with_a_maximum_draws_without_offering_a_mech() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "sol")], sources);
+        let a = PlayerId::new("a");
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_voltron", &a, 1);
+        let board = state.board.clone();
+        let before = state.player(&a).unwrap().action_cards.len();
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        resolve(&mut state, content, sources, None, &mut table, &a, &PlanetId::new("hopesend")).unwrap();
+        assert_eq!(state.board, board);
+        assert_eq!(state.player(&a).unwrap().action_cards.len(), before + 1);
+        let seen = seen.borrow();
+        assert_eq!(seen[0].options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), vec!["card"]);
+    }
+
 }

@@ -5,7 +5,7 @@
 //! status phase quietly drop every token into the tactic pool "was an inconsistency, not a
 //! simplification". So the window lives here rather than inside either caller.
 
-use ti4_model::id::PlayerId;
+use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::{GameState, TokenPool};
 
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, validate};
@@ -383,6 +383,174 @@ impl TokenRedistribution {
         self.resolved = true;
         Ok((tactic, fleet, strategic))
     }
+}
+
+// -- placing a token on the board from a reinforcements pile (BF-00b-economy) ----------------------
+
+/// Whether a command token of `owner` may be put in `system` now: the owner has one in
+/// reinforcements (20.4: "if a player would gain a command token but has none available in their
+/// reinforcements, that player cannot gain that command token" extends to placing one) and does
+/// not already have a token there (a system holds one token per player).
+#[must_use]
+pub fn can_place_command_token(
+    state: &GameState,
+    owner: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) -> bool {
+    state.player(owner).is_some()
+        && state.tokens_in_reinforcements(owner) > 0
+        && !state
+            .board
+            .get(system)
+            .is_some_and(|here| here.command_tokens.contains(owner))
+}
+
+/// Stage the typed event for a command token that was just placed through a route without a
+/// resolver at hand. A game with no registered faction modules is a no-op, matching
+/// [`crate::supply::stage_event`]. The coordinator announces this with
+/// [`crate::supply::flush_staged_events`].
+pub fn stage_command_token_placed(
+    state: &mut GameState,
+    player: &PlayerId,
+    system: &SystemId,
+    pool: crate::factions::hooks_cards::TokenPool,
+) -> bool {
+    crate::supply::stage_event(
+        state,
+        crate::factions::hooks_cards::COMMAND_TOKEN_PLACED,
+        &crate::factions::hooks_cards::command_token_placed_payload(player, system, pool),
+    )
+}
+
+/// Place one of `owner`'s command tokens from `owner`'s **reinforcements** (not from a command
+/// sheet pool) in `system`.
+///
+/// For Arborec Stymie: "You may place 1 command token from that player's reinforcements in any
+/// non-home system" -- `owner` is *that player*, the one who moved, and the card's holder is only
+/// the one who decides. The caller picks the system and checks any restriction on it (Stymie's
+/// non-home rule: `ti4_content::galaxy::is_home_system`); this checks only what the component
+/// pile allows. Returns `false` and changes nothing when [`can_place_command_token`] says no.
+pub fn place_command_token_from_reinforcements(
+    state: &mut GameState,
+    owner: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) -> bool {
+    if !can_place_command_token(state, owner, system) {
+        return false;
+    }
+    state.system_mut(system).place_token(owner.clone());
+    stage_command_token_placed(
+        state,
+        owner,
+        system,
+        crate::factions::hooks_cards::TokenPool::Reinforcements,
+    );
+    true
+}
+
+// -- Creuss wormhole tokens ----------------------------------------------------------------------
+
+/// The two wormhole tokens a Creuss player owns, keyed as `GameState::wormhole_tokens` keys them.
+/// (The gamma tokens come from exploration and agenda effects and are keyed `GAMMA`.)
+pub const CREUSS_TOKENS: [&str; 2] = ["ALPHA", "BETA"];
+
+/// A wormhole token could not be placed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum WormholeTokenError {
+    #[error("{0:?} is not a Creuss wormhole token (alpha or beta)")]
+    NotACreussToken(String),
+    #[error("system {0} is not on the map")]
+    NotOnTheMap(SystemId),
+    #[error("the {0} token is already in that system")]
+    AlreadyThere(String),
+}
+
+/// Where a Creuss wormhole token is, if it is on the map. `kind` is `"ALPHA"` or `"BETA"`.
+#[must_use]
+pub fn creuss_token_at<'a>(state: &'a GameState, kind: &str) -> Option<&'a SystemId> {
+    state.wormhole_tokens.get(kind)
+}
+
+/// Place or move a Creuss wormhole token into a system, returning where it was (Wormhole
+/// Generator, and any effect that says "place or move a Creuss wormhole token").
+///
+/// The token then gives its system a wormhole of that kind for **everyone**: `laws::apply_to_galaxy`
+/// rebuilds `Galaxy::token_wormholes` from `GameState::wormhole_tokens` each step, and a wormhole
+/// there links to every other system holding the same kind (LRR 101, 102). The caller checks the
+/// card's own destination condition (see [`wormhole_generator_destinations`]); this checks only
+/// what cannot be true of any legal placement. Atomic.
+///
+/// # Errors
+/// [`WormholeTokenError`] for a kind that is not a Creuss token, a system not on the map, or a
+/// token that is already in that system.
+pub fn place_creuss_token(
+    state: &mut GameState,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    kind: &str,
+    system: &SystemId,
+) -> Result<Option<SystemId>, WormholeTokenError> {
+    if !CREUSS_TOKENS.contains(&kind) {
+        return Err(WormholeTokenError::NotACreussToken(kind.to_owned()));
+    }
+    if galaxy.coord_of(system.as_str()).is_none() {
+        return Err(WormholeTokenError::NotOnTheMap(system.clone()));
+    }
+    if state.wormhole_tokens.get(kind) == Some(system) {
+        return Err(WormholeTokenError::AlreadyThere(kind.to_owned()));
+    }
+    Ok(state
+        .wormhole_tokens
+        .insert(kind.to_owned(), system.clone()))
+}
+
+/// Take a Creuss wormhole token off the map, returning where it was.
+pub fn remove_creuss_token(state: &mut GameState, kind: &str) -> Option<SystemId> {
+    if CREUSS_TOKENS.contains(&kind) {
+        state.wormhole_tokens.remove(kind)
+    } else {
+        None
+    }
+}
+
+/// Every `(token kind, system)` Wormhole Generator may place or move a token into for `player`:
+/// "either a system that contains a planet you control or a non-home system that does not contain
+/// another player's ships". Both tokens, each into every such system it is not already in; map
+/// order within a kind. The Creuss Gate is not a home system and so qualifies when empty of others.
+#[must_use]
+pub fn wormhole_generator_destinations(
+    state: &GameState,
+    content: &ti4_content::ContentStore,
+    sources: ti4_model::content_types::SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+) -> Vec<(&'static str, SystemId)> {
+    let types = ti4_content::units::catalogue(content, sources);
+    let homes = ti4_content::galaxy::home_systems(content, sources);
+    let mut systems = Vec::new();
+    for id in galaxy.system_ids() {
+        let here = state.board.get(&SystemId::new(id));
+        let controls = here.is_some_and(|system| system.controls_a_planet(player));
+        let others_ships = here.is_some_and(|system| {
+            system.units.iter().any(|unit| {
+                &unit.owner != player
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(ti4_content::units::UnitType::is_ship)
+            })
+        });
+        if controls || (!homes.contains(id) && !others_ships) {
+            systems.push(SystemId::new(id));
+        }
+    }
+    let mut found = Vec::new();
+    for kind in CREUSS_TOKENS {
+        for system in &systems {
+            if state.wormhole_tokens.get(kind) != Some(system) {
+                found.push((kind, system.clone()));
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]
@@ -837,5 +1005,169 @@ mod tests {
             window.resolve(&mut state, option),
             Err(RedistributeError::Complete)
         );
+    }
+    #[test]
+    fn a_command_token_comes_from_the_owners_reinforcements() {
+        let (mut state, players) = game();
+        let system = ti4_model::id::SystemId::new("some_system");
+        // Fresh game: sixteen tokens in all, the sheet holds some, the rest are reinforcements.
+        let before = state.tokens_in_reinforcements(&players[1]);
+        assert!(before > 0, "the fixture leaves reinforcements");
+        let sheet = state.player(&players[1]).unwrap().total_tokens();
+
+        assert!(place_command_token_from_reinforcements(
+            &mut state,
+            &players[1],
+            &system
+        ));
+
+        assert!(state.board[&system].command_tokens.contains(&players[1]));
+        assert_eq!(state.tokens_in_reinforcements(&players[1]), before - 1);
+        assert_eq!(
+            state.player(&players[1]).unwrap().total_tokens(),
+            sheet,
+            "the command sheet is untouched"
+        );
+        assert!(
+            !place_command_token_from_reinforcements(&mut state, &players[1], &system),
+            "one token per player per system"
+        );
+        assert_eq!(state.tokens_in_reinforcements(&players[1]), before - 1);
+    }
+
+    #[test]
+    fn no_reinforcements_means_no_token_and_no_change() {
+        let (mut state, players) = game();
+        let system = ti4_model::id::SystemId::new("some_system");
+        let spare = state.tokens_in_reinforcements(&players[0]);
+        state.gain_token(&players[0], TokenPool::Fleet, spare);
+        assert_eq!(state.tokens_in_reinforcements(&players[0]), 0);
+
+        let snapshot = state.board.clone();
+        assert!(!place_command_token_from_reinforcements(
+            &mut state,
+            &players[0],
+            &system
+        ));
+        assert_eq!(state.board.len(), snapshot.len(), "no system was created");
+        assert!(
+            !state
+                .board
+                .get(&system)
+                .is_some_and(|here| here.command_tokens.contains(&players[0]))
+        );
+    }
+
+    #[test]
+    fn placed_token_events_are_not_staged_without_a_seated_faction_module() {
+        let (mut state, players) = game();
+        let system = ti4_model::id::SystemId::new("stage_probe");
+        assert!(!crate::supply::staging_enabled(&state));
+        assert!(!stage_command_token_placed(
+            &mut state,
+            &players[0],
+            &system,
+            crate::factions::hooks_cards::TokenPool::Reinforcements,
+        ));
+        assert_eq!(crate::supply::staged_events(&state), 0);
+    }
+
+    // -- Creuss wormhole tokens ---------------------------------------------------------------
+
+    fn ring() -> ti4_content::galaxy::Galaxy {
+        ti4_content::galaxy::Galaxy::build(
+            ContentStore::embedded(),
+            &["18", "19", "20", "21", "22", "23", "24", "39"],
+            POK,
+            2,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_creuss_token_links_its_system_to_every_wormhole_of_its_kind() {
+        let (mut state, _) = game();
+        let mut galaxy = ring();
+        // Tile 39 prints an alpha wormhole and sits on the second ring; 18 is the centre.
+        assert!(!galaxy.are_adjacent("18", "39"), "not beside each other");
+        let was = place_creuss_token(&mut state, &galaxy, "ALPHA", &SystemId::new("18")).unwrap();
+        assert_eq!(was, None);
+        crate::laws::apply_to_galaxy(&state, &mut galaxy);
+        assert!(
+            galaxy.are_adjacent("18", "39"),
+            "the token is an alpha wormhole for everyone"
+        );
+        // Moving it away unlinks the old system again.
+        let was = place_creuss_token(&mut state, &galaxy, "ALPHA", &SystemId::new("19")).unwrap();
+        assert_eq!(was, Some(SystemId::new("18")));
+        crate::laws::apply_to_galaxy(&state, &mut galaxy);
+        assert!(!galaxy.are_adjacent("18", "39"));
+        assert!(galaxy.are_adjacent("19", "39"));
+    }
+
+    #[test]
+    fn a_refused_placement_changes_nothing() {
+        let (mut state, _) = game();
+        let galaxy = ring();
+        assert_eq!(
+            place_creuss_token(&mut state, &galaxy, "GAMMA", &SystemId::new("19")),
+            Err(WormholeTokenError::NotACreussToken("GAMMA".to_owned()))
+        );
+        assert_eq!(
+            place_creuss_token(&mut state, &galaxy, "BETA", &SystemId::new("nowhere")),
+            Err(WormholeTokenError::NotOnTheMap(SystemId::new("nowhere")))
+        );
+        assert!(state.wormhole_tokens.is_empty());
+        place_creuss_token(&mut state, &galaxy, "BETA", &SystemId::new("19")).unwrap();
+        let placed = state.wormhole_tokens.clone();
+        assert_eq!(
+            place_creuss_token(&mut state, &galaxy, "BETA", &SystemId::new("19")),
+            Err(WormholeTokenError::AlreadyThere("BETA".to_owned()))
+        );
+        assert_eq!(state.wormhole_tokens, placed);
+        assert_eq!(
+            remove_creuss_token(&mut state, "BETA"),
+            Some(SystemId::new("19"))
+        );
+        assert!(state.wormhole_tokens.is_empty());
+        assert_eq!(remove_creuss_token(&mut state, "GAMMA"), None);
+    }
+
+    #[test]
+    fn wormhole_generator_offers_controlled_planets_and_ship_free_non_home_systems() {
+        let (mut state, [a, b]) = game();
+        let content = ContentStore::embedded();
+        let galaxy = ring();
+        let ship = |owner: &PlayerId| {
+            ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("cruiser"), owner.clone())
+        };
+        // 19 holds a rival's ship, 20 holds one of mine, 21 a rival's ship over a planet I hold.
+        state.system_mut(&SystemId::new("19")).units.push(ship(&b));
+        state.system_mut(&SystemId::new("20")).units.push(ship(&a));
+        state.system_mut(&SystemId::new("21")).units.push(ship(&b));
+        state
+            .system_mut(&SystemId::new("21"))
+            .set_control(ti4_model::id::PlanetId::new("anyplanet"), a.clone());
+        let offered: std::collections::BTreeSet<String> =
+            wormhole_generator_destinations(&state, content, POK, &galaxy, &a)
+                .into_iter()
+                .filter(|(kind, _)| *kind == "ALPHA")
+                .map(|(_, system)| system.to_string())
+                .collect();
+        assert!(
+            !offered.contains("19"),
+            "a rival's ships and no planet of mine"
+        );
+        assert!(offered.contains("20"), "my own ships do not bar it");
+        assert!(
+            offered.contains("21"),
+            "a planet I control, ships notwithstanding"
+        );
+        assert!(offered.contains("22"), "an empty non-home system");
+        // A token already in a system is not offered that system again.
+        place_creuss_token(&mut state, &galaxy, "ALPHA", &SystemId::new("22")).unwrap();
+        let again = wormhole_generator_destinations(&state, content, POK, &galaxy, &a);
+        assert!(!again.contains(&("ALPHA", SystemId::new("22"))));
+        assert!(again.contains(&("BETA", SystemId::new("22"))));
     }
 }

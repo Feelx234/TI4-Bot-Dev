@@ -20,14 +20,14 @@ use crate::objectives::{EventScoreLimit, ScoringError, ScoringWindow};
 use crate::phase::{PhaseOutcome, advance_phase, advance_turn, begin_next_round};
 use crate::rng::GameRng;
 use crate::status::{
-    StatusPhaseError, StatusPhaseReport, resolve_after_token_gain, resolve_before_token_gain,
+    StatusPhaseError, StatusPhaseReport, resolve_after_token_gain, resolve_before_token_gain_with,
 };
 use crate::strategy::{
     ACTION_KIND, SecondaryResolution, StrategyActionError, StrategySecondaryError,
     StrategySecondaryWindow, begin_strategic_action, strategic_action_options,
 };
 use crate::tactical::{
-    MoveSelection, TacticalError, activate, activation_options, movable, movement_options,
+    MoveSelection, TacticalError, activate, activation_options_with, movable, movement_options,
     read_move,
 };
 use crate::timing::{Resolver, TimingContext, TimingError};
@@ -87,6 +87,8 @@ pub enum GameError {
     Combat(#[from] crate::combat::CombatError),
     #[error(transparent)]
     Vote(#[from] VoteError),
+    #[error(transparent)]
+    MapEdit(#[from] crate::movement::MapEditError),
 }
 
 /// A bounded `run` stopped instead of silently looping forever.
@@ -126,6 +128,7 @@ pub const TACTICAL_ACTION_ID: &str = "tactical";
 /// Capacity enforcement and space cannon happen when it opens: neither is a player decision in
 /// this engine yet — capacity only asks when something must be removed, and space cannon is
 /// rolled, not chosen — and both must land before combat.
+#[derive(Clone)]
 enum Aftermath {
     Fighting(Box<crate::combat::CombatWindow>),
     /// OP-08: the active player may negotiate before the next step (invasion when `invade`,
@@ -139,6 +142,7 @@ enum Aftermath {
 }
 
 /// The post-movement sequence for one tactical action.
+#[derive(Clone)]
 struct AftermathWindow {
     player: PlayerId,
     system: SystemId,
@@ -251,8 +255,20 @@ impl AftermathWindow {
             let bound = crate::combat::use_graviton(
                 state, content, sources, &gunner, &victim, system, hits,
             );
+            // These hits come from units' SPACE CANNON values, so they are unit-ability hits:
+            // a unit immune to hits from unit abilities (Naaz Eidolon Maximum) is skipped here.
             crate::combat::absorb_hits_seeing_with(
-                state, content, sources, galaxy, ctx, &victim, system, &gunner, hits, bound,
+                state,
+                content,
+                sources,
+                galaxy,
+                ctx,
+                &victim,
+                system,
+                &gunner,
+                hits,
+                bound,
+                crate::combat::HitOrigin::UnitAbility,
             )?;
         }
         let mut pending_event_scoring = None;
@@ -320,6 +336,50 @@ impl AftermathWindow {
         })
     }
 
+    /// The aftermath of an action that skipped directly to "Commit Ground Forces" (Sardakk hero):
+    /// no space cannon offense, no space combat, no bombardment — the invasion opens at its commit
+    /// step. Capacity is still settled first, as movement may have stranded cargo.
+    fn at_commit_step(
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        player: &PlayerId,
+        system: &SystemId,
+        galaxy: Option<&Galaxy>,
+        notes_at_tactical_start: crate::combat::NoteHoldings,
+    ) -> Result<Self, GameError> {
+        crate::fleet::enforce_seeing(
+            state,
+            ctx.content,
+            ctx.sources,
+            galaxy,
+            ctx.table,
+            player,
+            system,
+        )
+        .map_err(GameError::IllegalChoice)?;
+        let before_combat = crate::combat::before_combat_with_notes(
+            state,
+            ctx.content,
+            ctx.sources,
+            system,
+            notes_at_tactical_start.clone(),
+        );
+        let mut invasion = crate::invasion::InvasionWindow::at_commit_step(state, player, system);
+        if let Some(galaxy) = galaxy {
+            invasion = invasion.with_galaxy(galaxy);
+        }
+        Ok(Self {
+            player: player.clone(),
+            system: system.clone(),
+            stage: Aftermath::Invading(Box::new(invasion)),
+            log: Vec::new(),
+            before_combat,
+            feats_noted: true,
+            pending_event_scoring: None,
+            notes_at_tactical_start,
+        })
+    }
+
     fn take_event_scoring(&mut self) -> Option<(FeatOccurrence, EventScoreLimit)> {
         self.pending_event_scoring.take()
     }
@@ -356,7 +416,7 @@ impl AftermathWindow {
                 serde_json::Value::String(self.system.to_string()),
             );
             let _ = ctx.emit(state, "INVASION_BEGAN", payload);
-            Aftermath::Invading(Box::new(crate::invasion::InvasionWindow::new_with_notes(
+            let mut invasion = crate::invasion::InvasionWindow::new_with_notes(
                 state,
                 ctx.content,
                 ctx.sources,
@@ -365,7 +425,12 @@ impl AftermathWindow {
                 &self.player,
                 &self.system,
                 self.notes_at_tactical_start.clone(),
-            )))
+            );
+            // The map, so commitment hooks can ask about adjacency (Sardakk commander).
+            if let Some(galaxy) = ctx.timing.as_ref().and_then(|timing| timing.galaxy) {
+                invasion = invasion.with_galaxy(galaxy);
+            }
+            Aftermath::Invading(Box::new(invasion))
         } else {
             // No invasion: straight to production, and the production window opens
             // before the step makes its first choice (see `enter_production`).
@@ -444,7 +509,12 @@ impl AftermathWindow {
             "system".to_owned(),
             serde_json::Value::String(self.system.to_string()),
         );
-        let _ = ctx.emit(state, "PRODUCTION_USED", payload);
+        ctx.emit(state, "PRODUCTION_USED", payload)
+            .map_err(|error| IllegalChoice::DeciderFailed {
+                player: self.player.clone(),
+                prompt: "production timing".to_owned(),
+                reason: error.to_string(),
+            })?;
         window.refresh(state, ctx.content, ctx.sources);
         Ok(window)
     }
@@ -490,6 +560,18 @@ impl AftermathWindow {
                         crate::combat::combatants(state, ctx.content, ctx.sources, &self.system)
                             .iter()
                             .any(|last| last == &self.player);
+                    // Coalescence (Titans of Ul): units the Awaken ability put beside rival ground
+                    // forces must fight in the Ground Combat step even with no ship left to
+                    // invade from, so the invasion step opens for them.
+                    let holds = holds
+                        || !crate::factions::hooks_ground::forced_combat_planets(
+                            state,
+                            ctx.content,
+                            ctx.sources,
+                            &self.player,
+                            &self.system,
+                        )
+                        .is_empty();
                     if let Some(outcome) = window.outcome()
                         && !self.feats_noted
                     {
@@ -620,6 +702,7 @@ impl AftermathWindow {
                         return Ok(());
                     }
                     window.settle(state, ctx);
+                    window.take_settle_error()?;
                     window.update_public_boundary(state);
                     if let Some((occurrence, combat)) = window.take_scoring_occurrence() {
                         self.pending_event_scoring = Some((
@@ -811,6 +894,9 @@ pub struct Game<'a> {
     secondary: Option<StrategySecondaryWindow>,
     /// TE Warfare resolves its follower window after the free tactical action, not before it.
     secondary_after_tactical: Option<StrategySecondaryWindow>,
+    /// Hero whose strategy primary and selected secondaries are still resolving.
+    leader_strategy: Option<(PlayerId, ti4_model::id::LeaderId, StrategyCardId)>,
+    leader_followers: Option<(Vec<Choice>, Vec<PlayerId>)>,
     /// The open 81.1 scoring window.
     scoring: Option<ScoringWindow>,
     /// The open window for an action- or agenda-timed secret.
@@ -899,10 +985,35 @@ impl<'a> Game<'a> {
 
     /// Create a game with explicit deciders for generated choices.
     #[must_use]
-    pub fn with_table(state: GameState, content: &'a ContentStore, table: Table) -> Self {
+    pub fn with_table(mut state: GameState, content: &'a ContentStore, table: Table) -> Self {
         // The dice follow the seed setup recorded. This used to be a literal zero, so every game
         // built here -- which is every training rollout and every evaluation -- shared one stream.
         let seed = state.rng_seed;
+        // Loaded cards are not newly gained. Preserve a saved baseline so gains pending in
+        // an in-progress state still receive their window after reconstruction.
+        if crate::supply::staging_enabled(&state) {
+            for seat in &state.players {
+                let breakthrough = seat
+                    .breakthrough
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_default();
+                let relics = seat
+                    .relics
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                state
+                    .faction_marks
+                    .entry(format!("private:#seen:breakthrough:{}", seat.id))
+                    .or_insert(breakthrough);
+                state
+                    .faction_marks
+                    .entry(format!("private:#seen:relics:{}", seat.id))
+                    .or_insert(relics);
+            }
+        }
         let mut timing =
             Resolver::new(state.initiative_order(), state.active.clone(), Table::new());
         // Standing reaction slots, registered once while the game is seated. The resolver has no
@@ -920,6 +1031,8 @@ impl<'a> Game<'a> {
             sources: POK,
             secondary: None,
             secondary_after_tactical: None,
+            leader_strategy: None,
+            leader_followers: None,
             scoring: None,
             event_scoring: None,
             tokens: None,
@@ -956,6 +1069,12 @@ impl<'a> Game<'a> {
     /// Give the game its map, which is what makes a tactical action possible.
     #[must_use]
     pub fn with_galaxy(mut self, galaxy: Galaxy) -> Self {
+        // The Thunder's Edge Mecatol Rex tile: registered on the board so state-only readers
+        // (`seating::mecatol_on`) find it without the map. The base tile needs no entry.
+        if crate::seating::mecatol_in_galaxy(&galaxy) == crate::seating::MECATOL_TE {
+            self.state
+                .system_mut(&SystemId::new(crate::seating::MECATOL_TE));
+        }
         // 35.5: a frontier token sits on every planetless system from the start. Placing them
         // here rather than in setup is what the galaxy makes possible -- setup has no board yet,
         // and until this existed `frontier_tokens` was written by nothing at all, which left the
@@ -1012,6 +1131,9 @@ impl<'a> Game<'a> {
     pub fn legal_options(&self) -> Option<Choice> {
         if self.state.finished || self.blocked.is_some() {
             return None;
+        }
+        if let Some((choices, _)) = &self.leader_followers {
+            return choices.first().cloned();
         }
         if let Some(window) = &self.event_scoring {
             return window.pending_choice(&self.state, self.content, self.sources);
@@ -1084,6 +1206,12 @@ impl<'a> Game<'a> {
         reason = "the driver keeps the ordered window/phase precedence visible in one place"
     )]
     pub fn step(&mut self) -> StepResult {
+        if let Err(error) = self.announce_staged_ground_events() {
+            return self.result(false, Some(error));
+        }
+        if let Err(error) = self.announce_gains() {
+            return self.result(false, Some(error));
+        }
         // Space station control is a function of occupancy, not an event (rules 2, 2a, 2b), so it
         // is recomputed once per step rather than at each of the dozen places a unit can move or
         // die. Doing it here means a movement path added later cannot forget to.
@@ -1105,6 +1233,13 @@ impl<'a> Game<'a> {
         crate::legendary::settle_control_points(&mut self.state);
         if let Some(galaxy) = self.galaxy.as_mut() {
             crate::laws::apply_to_galaxy(&self.state, galaxy);
+            // Tiles a faction effect changed (Nova Seed), replayed onto the owned map. A recorded
+            // edit that no longer applies is a broken game, not a step to skip.
+            if let Err(error) =
+                crate::movement::replay_map_edits(&self.state, galaxy, self.content, self.sources)
+            {
+                self.blocked = Some(error.into());
+            }
         }
         // Spec Ops II destroyed during the last step roll to survive now, where the dice are.
         for (owner, survived) in
@@ -1115,6 +1250,8 @@ impl<'a> Game<'a> {
         }
 
         if self.state.finished {
+            self.complete_leader_strategy();
+            self.secondary = None;
             if let Err(error) = crate::diplomacy::settle_game_end(&mut self.state) {
                 return self.result(false, Some(GameError::UnsupportedAction(error.to_string())));
             }
@@ -1124,6 +1261,9 @@ impl<'a> Game<'a> {
             return self.result(false, Some(error));
         }
 
+        if self.leader_followers.is_some() {
+            return self.step_leader_followers();
+        }
         if self.secondary.is_some() {
             return self.step_secondary();
         }
@@ -1173,9 +1313,10 @@ impl<'a> Game<'a> {
             // Military Support (Sol): "At the start of the Sol player's turn: ... you may place 2
             // infantry ... Then, return this card to the Sol player." The effect existed but
             // nothing called it, so a held Military Support never did anything.
-            if crate::promissory::turn_started(&mut self.state, self.content, self.sources, &active)
-            {
-                self.emit("MILITARY_SUPPORT_USED");
+            match self.resolve_military_support(&active) {
+                Ok(true) => self.emit("MILITARY_SUPPORT_USED"),
+                Ok(false) => {}
+                Err(error) => return self.result(false, Some(error.into())),
             }
             let returned = crate::faction_techs::return_spec_ops(&mut self.state, &active);
             if returned > 0 {
@@ -1545,6 +1686,17 @@ impl<'a> Game<'a> {
                 self.content,
                 active,
             ));
+        if let Some(galaxy) = self.galaxy.as_ref() {
+            choice
+                .options
+                .extend(crate::factions::mapped_component_actions(
+                    &self.state,
+                    self.content,
+                    self.sources,
+                    galaxy,
+                    active,
+                ));
+        }
         // Leaders whose printed window is the action phase: readied agents and unlocked heroes,
         // offered only when they can resolve (LEADER-FIX-001).
         choice.options.extend(crate::leaders::component_actions(
@@ -1583,7 +1735,7 @@ impl<'a> Game<'a> {
         let Some(galaxy) = self.galaxy.as_ref() else {
             return false;
         };
-        activation_options(&self.state, galaxy, player).is_some()
+        activation_options_with(&self.state, self.content, self.sources, galaxy, player).is_some()
     }
 
     #[allow(
@@ -1673,6 +1825,8 @@ impl<'a> Game<'a> {
                 // advances it whether or not the relic did anything worth having.
                 if answer.id.starts_with("faction|") {
                     let done = self.play_faction_action(&active, &answer);
+                    self.announce_staged_destructions()?;
+                    self.announce_staged_cards()?;
                     // Extreme Duress bites once the action is taken: the played card is
                     // already out of the hand, so only what is left gets discarded.
                     self.settle_extreme_duress(&active, false)?;
@@ -1695,7 +1849,9 @@ impl<'a> Game<'a> {
                     // so the seat is asked for its action again. Extreme Duress binds an action, so
                     // it is only settled for a use that is one.
                     let takes_turn = crate::leaders::uses_the_action(self.content, &leader);
-                    let done = self.perform_leader_action(&active, &leader);
+                    let done = self.perform_leader_action(&active, &leader)?;
+                    self.announce_staged_destructions()?;
+                    self.announce_staged_cards()?;
                     if takes_turn {
                         self.settle_extreme_duress(&active, false)?;
                     }
@@ -1706,6 +1862,9 @@ impl<'a> Game<'a> {
                     }
                     if !takes_turn {
                         self.emit("LEADER_ABILITY_RESOLVED");
+                        return Ok(());
+                    }
+                    if self.state.finished || self.leader_strategy.is_some() {
                         return Ok(());
                     }
                     self.emit("COMPONENT_ACTION_RESOLVED");
@@ -1854,8 +2013,9 @@ impl<'a> Game<'a> {
                 if let Some(partner) = crate::transactions::opens_with(&self.state, &answer) {
                     self.settle_extreme_duress(&active, false)?;
                     self.state.note_negotiation(&active);
-                    self.trade = Some(crate::transactions::TradeWindow::open(
+                    self.trade = Some(crate::transactions::TradeWindow::open_with_content(
                         &mut self.state,
+                        self.content,
                         &active,
                         &partner,
                     ));
@@ -1963,41 +2123,8 @@ impl<'a> Game<'a> {
                 self.resolve_faction_strategy(&active, &card);
                 match outcome {
                     crate::strategy_cards::Ability::FreeTactical(system) => {
-                        // TE Warfare explicitly waives the token and permits an already-tokened
-                        // system, but the rest is the ordinary movement/aftermath pipeline.
-                        //
-                        // It is still an activation, so Support for the Throne's "when you
-                        // activate a system that contains 1 or more of the <color> player's
-                        // units" applies exactly as on the ordinary tactical path. Only that path
-                        // used to check, so a holder activating through Warfare kept the note.
-                        for owner in crate::promissory::spend_support_on_activation(
-                            &mut self.state,
-                            &active,
-                            &system,
-                        ) {
-                            self.emit(&format!("SUPPORT_FOR_THE_THRONE_RETURNED:{owner}"));
-                        }
-                        // The same activation judges structured promises, as the ordinary tactical
-                        // path does: a promise not to activate this system breaks here too.
-                        crate::diplomacy::evaluate_event(
-                            &mut self.state,
-                            &crate::diplomacy::DiplomacyEventContext::SystemActivated {
-                                player: active.clone(),
-                                system: system.clone(),
-                            },
-                        )
-                        .expect("validated diplomacy predicates settle deterministically");
-                        self.state.active_system = Some(system);
-                        self.state.pending = Some("move".to_owned());
-                        self.state.activation_seq = self.state.activation_seq.saturating_add(1);
-                        self.tactical = Some(TacticalWindow {
-                            player: active,
-                            stage: TacticalStage::Moving,
-                            notes_at_start: crate::combat::note_holdings(&self.state),
-                        });
                         self.secondary_after_tactical = Some(window);
-                        self.emit("SYSTEM_ACTIVATED");
-                        self.emit("FREE_TACTICAL_ACTION");
+                        self.begin_free_tactical(active, system)?;
                     }
                     crate::strategy_cards::Ability::Resolved
                     | crate::strategy_cards::Ability::Unresolved => {
@@ -2055,6 +2182,7 @@ impl<'a> Game<'a> {
         if let Some(holder) = self.state.player_mut(&by) {
             holder.trade_goods += goods;
         }
+        crate::supply::note_trade_goods_gained(&mut self.state, &by, goods, "extreme_duress");
         self.emit(&format!("EXTREME_DURESS:{player}"));
         // The punishment discards every action card left in the hand, and every discarded
         // component action is a moment another player's Reverse Engineer may take.
@@ -2079,7 +2207,13 @@ impl<'a> Game<'a> {
     fn tactical_choice(&self, window: &TacticalWindow) -> Option<Choice> {
         let galaxy = self.galaxy.as_ref()?;
         match &window.stage {
-            TacticalStage::Activating => activation_options(&self.state, galaxy, &window.player),
+            TacticalStage::Activating => activation_options_with(
+                &self.state,
+                self.content,
+                self.sources,
+                galaxy,
+                &window.player,
+            ),
             TacticalStage::Moving => {
                 let choice = movement_options(
                     &window.player,
@@ -2134,6 +2268,28 @@ impl<'a> Game<'a> {
             // Nothing left to ask: the action is over.
             return self.finish_tactical();
         };
+        // An activation includes its reaction windows. A failed nested answer must restore
+        // the command token, active system and the same pending activation for retry.
+        let activation_checkpoint = self
+            .tactical
+            .as_ref()
+            .is_some_and(|window| matches!(window.stage, TacticalStage::Activating))
+            .then(|| {
+                (
+                    self.state.clone(),
+                    self.dice.clone(),
+                    self.rng.clone(),
+                    self.event_sequence.clone(),
+                    self.timing.checkpoint(),
+                    self.table.log.clone(),
+                    self.events.clone(),
+                    self.tactical.clone(),
+                    self.galaxy.clone(),
+                    self.turn_closing.clone(),
+                    self.failed_component_actions.clone(),
+                    self.actions_this_turn,
+                )
+            });
         // Field borrows, not `self`: the table answers while the position stays readable.
         let answer = match self.table.ask_seeing(
             &choice,
@@ -2152,7 +2308,37 @@ impl<'a> Game<'a> {
         };
         match self.apply_tactical(window, &choice, answer) {
             Ok(result) => result,
-            Err(error) => self.result(false, Some(error)),
+            Err(error) => {
+                if let Some((
+                    state,
+                    dice,
+                    rng,
+                    sequence,
+                    timing,
+                    log,
+                    events,
+                    tactical,
+                    galaxy,
+                    turn_closing,
+                    failed_actions,
+                    actions_this_turn,
+                )) = activation_checkpoint
+                {
+                    self.state = state;
+                    self.dice = dice;
+                    self.rng = rng;
+                    self.event_sequence = sequence;
+                    self.timing.restore(timing);
+                    self.table.log = log;
+                    self.events = events;
+                    self.tactical = tactical;
+                    self.galaxy = galaxy;
+                    self.turn_closing = turn_closing;
+                    self.failed_component_actions = failed_actions;
+                    self.actions_this_turn = actions_this_turn;
+                }
+                self.result(false, Some(error))
+            }
         }
     }
 
@@ -2213,7 +2399,218 @@ impl<'a> Game<'a> {
             timing.emit_with_context(&mut context, event, |_, _| {})?
         };
         self.mirror_timing_log(logged);
+        // A faction effect resolved in that window may have staged card moves (a Scheming discard,
+        // a card taken); announce them now rather than at the next component action.
+        self.announce_staged_cards()?;
         Ok(!emitted.cancelled)
+    }
+
+    /// Announce ship destructions an effect staged without a resolver (a leader or component
+    /// action calling `combat::destroy_units`), so `SHIP_DESTROYED` windows open at the effect rather
+    /// than at the next combat. A no-op when nothing is staged.
+    fn announce_staged_destructions(&mut self) -> Result<(), GameError> {
+        self.announce_staged_ground_events()?;
+        if self.state.pending_destructions.is_empty() {
+            return Ok(());
+        }
+        let galaxy = self.galaxy.clone();
+        let logged = self.timing.log().len();
+        let mut dice = std::mem::take(&mut self.dice);
+        let mut rng = self.rng.clone();
+        let outcome = {
+            let mut ctx = Resolving {
+                content: self.content,
+                sources: self.sources,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut self.table,
+                timing: Some(crate::choice::TimingHandle {
+                    resolver: &mut self.timing,
+                    sequence: &mut self.event_sequence,
+                    galaxy: galaxy.as_ref(),
+                }),
+            };
+            if crate::supply::staging_enabled(&self.state) {
+                crate::combat::try_announce_staged_destructions(&mut self.state, &mut ctx)
+            } else {
+                crate::combat::announce_staged_destructions(&mut self.state, &mut ctx);
+                Ok(())
+            }
+        };
+        self.dice = dice;
+        self.rng = rng;
+        self.mirror_timing_log(logged);
+        outcome.map_err(GameError::from)
+    }
+
+    /// Announce ground-force destructions and planet-control gains that action cards, agendas and
+    /// other resolver-less effects staged (`GROUND_FORCE_DESTROYED`, `PLANET_CONTROL_GAINED`). Run
+    /// at the start of every step and after component and leader actions; a no-op when nothing is
+    /// staged. Combat's own staged ship destructions are not touched here.
+    fn announce_staged_ground_events(&mut self) -> Result<(), GameError> {
+        if !crate::factions::hooks_ground::has_staged_events(&self.state)
+            && crate::supply::staged_events(&self.state) == 0
+        {
+            return Ok(());
+        }
+        let galaxy = self.galaxy.clone();
+        let logged = self.timing.log().len();
+        let mut dice = std::mem::take(&mut self.dice);
+        let mut rng = self.rng.clone();
+        let outcome = {
+            let mut ctx = Resolving {
+                content: self.content,
+                sources: self.sources,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut self.table,
+                timing: Some(crate::choice::TimingHandle {
+                    resolver: &mut self.timing,
+                    sequence: &mut self.event_sequence,
+                    galaxy: galaxy.as_ref(),
+                }),
+            };
+            let ground = crate::factions::hooks_ground::try_announce_staged_events(
+                &mut self.state,
+                &mut ctx,
+            );
+            // UNITS_PRODUCED, TRADE_GOODS_GAINED and STRATEGY_TOKEN_SPENT staged by resolver-less
+            // production, Trade, relics and leader effects.
+            ground.and_then(|()| crate::supply::try_flush_staged_events(&mut self.state, &mut ctx))
+        };
+        self.dice = dice;
+        self.rng = rng;
+        self.mirror_timing_log(logged);
+        outcome.map(|_| ()).map_err(Into::into)
+    }
+
+    /// Announce breakthroughs and relics gained since the last step as typed `BREAKTHROUGH_GAINED`
+    /// (`player`, `breakthrough`) and `RELIC_GAINED` (`player`, `relic`) — "when you gain this
+    /// card" effects (Mentak, Muaat, Naaz breakthroughs; Naalu's Iconoclast). Detected by comparing
+    /// each seat with what it held at the last step rather than at the dozen grant sites, so no
+    /// path can forget. Only while a faction module is seated (nothing else listens), so other
+    /// games' state is unchanged.
+    fn announce_gains(&mut self) -> Result<(), GameError> {
+        if !crate::supply::staging_enabled(&self.state) {
+            return Ok(());
+        }
+        let mut gained: Vec<(&'static str, &'static str, PlayerId, String)> = Vec::new();
+        // Written only after every gain is announced, so a failed emit is seen again next step.
+        let mut seen: Vec<(String, String)> = Vec::new();
+        let seats: Vec<PlayerId> = self
+            .state
+            .players
+            .iter()
+            .map(|seat| seat.id.clone())
+            .collect();
+        for player in seats {
+            let Some(seat) = self.state.player(&player) else {
+                continue;
+            };
+            let breakthrough = seat
+                .breakthrough
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            let relics: Vec<String> = seat.relics.iter().map(ToString::to_string).collect();
+            let bt_key = format!("private:#seen:breakthrough:{player}");
+            let relic_key = format!("private:#seen:relics:{player}");
+            let seen_bt = self
+                .state
+                .faction_marks
+                .get(&bt_key)
+                .cloned()
+                .unwrap_or_default();
+            let seen_relics: Vec<String> = self
+                .state
+                .faction_marks
+                .get(&relic_key)
+                .map(|list| {
+                    list.split(',')
+                        .filter(|id| !id.is_empty())
+                        .map(ToOwned::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !breakthrough.is_empty() && breakthrough != seen_bt {
+                gained.push((
+                    "BREAKTHROUGH_GAINED",
+                    "breakthrough",
+                    player.clone(),
+                    breakthrough.clone(),
+                ));
+            }
+            let mut remaining = seen_relics.clone();
+            for relic in &relics {
+                if let Some(index) = remaining.iter().position(|seen| seen == relic) {
+                    remaining.remove(index);
+                } else {
+                    gained.push(("RELIC_GAINED", "relic", player.clone(), relic.clone()));
+                }
+            }
+            // Technologies: every gain site (research, grants, exchanges, replacements) shows up
+            // as a new id. The first look records the starting set without announcing it.
+            let techs: Vec<String> = seat.technologies.iter().map(ToString::to_string).collect();
+            let tech_key = format!("private:#seen:technologies:{player}");
+            if let Some(seen_techs) = self.state.faction_marks.get(&tech_key) {
+                let known: std::collections::BTreeSet<&str> =
+                    seen_techs.split(',').filter(|id| !id.is_empty()).collect();
+                for tech in &techs {
+                    if !known.contains(tech.as_str()) {
+                        gained.push((
+                            "TECHNOLOGY_GAINED",
+                            "technology",
+                            player.clone(),
+                            tech.clone(),
+                        ));
+                    }
+                }
+            }
+            seen.push((tech_key, techs.join(",")));
+            seen.push((bt_key, breakthrough));
+            seen.push((relic_key, relics.join(",")));
+        }
+        for (event, key, player, id) in gained {
+            let mut payload = BTreeMap::new();
+            payload.insert(
+                "player".to_owned(),
+                serde_json::Value::String(player.to_string()),
+            );
+            payload.insert(key.to_owned(), serde_json::Value::String(id));
+            self.emit_typed(event, payload)?;
+        }
+        self.state.faction_marks.extend(seen);
+        Ok(())
+    }
+
+    /// Announce card moves a faction effect staged (discards, takes) through the resolver, so
+    /// their windows open (`reactions::announce_staged_card_events`). A no-op when nothing is
+    /// staged, which is every game without a faction module that stages.
+    ///
+    /// # Errors
+    /// [`GameError`] when a window cannot be resolved.
+    fn announce_staged_cards(&mut self) -> Result<(), GameError> {
+        if !crate::factions::hooks_cards::has_staged(&self.state) {
+            return Ok(());
+        }
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.clone();
+        let logged = self.timing.log().len();
+        {
+            let mut context = TimingContext {
+                state: &mut self.state,
+                content,
+                sources,
+                table: &mut self.table,
+                dice: &mut self.dice,
+                rng: &mut self.rng,
+                event_sequence: &mut self.event_sequence,
+                galaxy: galaxy.as_ref(),
+            };
+            crate::reactions::announce_staged_card_events(&mut context, &mut self.timing)?;
+        }
+        self.mirror_timing_log(logged);
+        Ok(())
     }
 
     /// Play an action card as a component action, through the game's own timing context.
@@ -2257,29 +2654,201 @@ impl<'a> Game<'a> {
 
     /// Perform a faction component action through the game's own timing context.
     /// Resolve a leader offered as an action-phase component (LEADER-FIX-001).
+    fn begin_free_tactical(&mut self, active: PlayerId, system: SystemId) -> Result<(), GameError> {
+        // TE Warfare explicitly waives the token and permits an already-tokened
+        // system, but the rest is the ordinary movement/aftermath pipeline.
+        //
+        // It is still an activation, so Support for the Throne's "when you
+        // activate a system that contains 1 or more of the <color> player's
+        // units" applies exactly as on the ordinary tactical path. Only that path
+        // used to check, so a holder activating through Warfare kept the note.
+        for owner in
+            crate::promissory::spend_support_on_activation(&mut self.state, &active, &system)
+        {
+            self.emit(&format!("SUPPORT_FOR_THE_THRONE_RETURNED:{owner}"));
+        }
+        // The same activation judges structured promises, as the ordinary tactical
+        // path does: a promise not to activate this system breaks here too.
+        crate::diplomacy::evaluate_event(
+            &mut self.state,
+            &crate::diplomacy::DiplomacyEventContext::SystemActivated {
+                player: active.clone(),
+                system: system.clone(),
+            },
+        )
+        .expect("validated diplomacy predicates settle deterministically");
+        self.state.active_system = Some(system);
+        self.state.pending = Some("move".to_owned());
+        self.state.activation_seq = self.state.activation_seq.saturating_add(1);
+        self.tactical = Some(TacticalWindow {
+            player: active,
+            stage: TacticalStage::Moving,
+            notes_at_start: crate::combat::note_holdings(&self.state),
+        });
+        self.emit("SYSTEM_ACTIVATED");
+        // Typed as the ordinary activation is, so "after you activate a system"
+        // windows open for a free tactical action too.
+        if let (Some(system), Some(player)) = (
+            self.state.active_system.clone(),
+            self.tactical
+                .as_ref()
+                .map(|tactical| tactical.player.clone()),
+        ) {
+            let mut payload = BTreeMap::new();
+            payload.insert(
+                "player".to_owned(),
+                serde_json::Value::String(player.to_string()),
+            );
+            payload.insert(
+                "system".to_owned(),
+                serde_json::Value::String(system.to_string()),
+            );
+            self.emit_typed("SYSTEM_ACTIVATED", payload)?;
+        }
+        self.emit("FREE_TACTICAL_ACTION");
+        Ok(())
+    }
+
     fn perform_leader_action(
         &mut self,
         player: &PlayerId,
         leader: &ti4_model::id::LeaderId,
-    ) -> bool {
-        let (content, sources) = (self.content, self.sources);
+    ) -> Result<bool, GameError> {
+        let before = (
+            self.state.clone(),
+            self.dice.clone(),
+            self.rng.clone(),
+            self.tactical.clone(),
+            self.secondary.clone(),
+            self.secondary_after_tactical.clone(),
+            self.leader_strategy.clone(),
+            self.events.len(),
+        );
+        let before_followers = self.leader_followers.clone();
+        let before_sequence = self.event_sequence.clone();
+        let before_timing = self.timing.checkpoint();
+        let result = self.perform_leader_action_inner(player, leader);
+        if result.is_err() {
+            self.leader_followers = before_followers;
+            self.event_sequence = before_sequence;
+            self.timing.restore(before_timing);
+            self.state = before.0;
+            self.dice = before.1;
+            self.rng = before.2;
+            self.tactical = before.3;
+            self.secondary = before.4;
+            self.secondary_after_tactical = before.5;
+            self.leader_strategy = before.6;
+            self.events.truncate(before.7);
+        }
+        result
+    }
+
+    fn perform_leader_action_inner(
+        &mut self,
+        player: &PlayerId,
+        leader: &ti4_model::id::LeaderId,
+    ) -> Result<bool, GameError> {
         let galaxy = self.galaxy.clone();
         let logged = self.timing.log().len();
-        let done = {
+        let (primary, done) = {
             let mut context = crate::timing::TimingContext {
                 state: &mut self.state,
-                content,
-                sources,
+                content: self.content,
+                sources: self.sources,
                 table: &mut self.table,
                 dice: &mut self.dice,
                 rng: &mut self.rng,
                 event_sequence: &mut self.event_sequence,
                 galaxy: galaxy.as_ref(),
             };
-            crate::leaders::use_leader(&mut context, player, leader)
+            let primary =
+                crate::leaders::use_leader_strategy_primary(&mut context, player, leader)?;
+            let done = if primary.is_none() {
+                crate::leaders::use_leader_timed(&mut context, &mut self.timing, player, leader)?
+            } else {
+                false
+            };
+            (primary, done)
         };
         self.mirror_timing_log(logged);
-        done
+        if let Some((card, outcome)) = primary {
+            if matches!(outcome, crate::strategy_cards::Ability::Unresolved) {
+                return Ok(false);
+            }
+            self.leader_strategy = Some((player.clone(), leader.clone(), card));
+            if self.state.finished {
+                self.complete_leader_strategy();
+                self.emit("GAME_FINISHED");
+                return Ok(true);
+            }
+            match outcome {
+                crate::strategy_cards::Ability::FreeTactical(system) => {
+                    self.begin_free_tactical(player.clone(), system)?
+                }
+                crate::strategy_cards::Ability::Resolved => {
+                    self.select_leader_strategy_followers()?
+                }
+                crate::strategy_cards::Ability::Unresolved => unreachable!(),
+            }
+            return Ok(true);
+        }
+        Ok(done)
+    }
+
+    fn select_leader_strategy_followers(&mut self) -> Result<(), GameError> {
+        let (player, leader, card) = self
+            .leader_strategy
+            .as_ref()
+            .expect("hero continuation")
+            .clone();
+        let choices =
+            crate::factions::leader_strategy_followers(&self.state, &player, &leader, &card);
+        if choices.is_empty() {
+            self.secondary = Some(StrategySecondaryWindow::foreign(player, card, Vec::new()));
+        } else {
+            self.leader_followers = Some((choices, Vec::new()));
+        }
+        Ok(())
+    }
+
+    fn step_leader_followers(&mut self) -> StepResult {
+        let choice = self.leader_followers.as_ref().expect("pending followers").0[0].clone();
+        let answer = match self.table.ask_seeing(
+            &choice,
+            &crate::choice::Observed::new(
+                &self.state,
+                self.content,
+                self.sources,
+                self.galaxy.as_ref(),
+            ),
+        ) {
+            Ok(answer) => answer,
+            Err(error) => return self.result(false, Some(error.into())),
+        };
+        let (choices, followers) = self.leader_followers.as_mut().expect("pending followers");
+        choices.remove(0);
+        if let Some(player) = answer.id.strip_prefix("yes|") {
+            followers.push(PlayerId::new(player));
+        }
+        if choices.is_empty() {
+            let (_, followers) = self.leader_followers.take().expect("finished selection");
+            let (player, _, card) = self
+                .leader_strategy
+                .as_ref()
+                .expect("hero continuation")
+                .clone();
+            self.secondary = Some(StrategySecondaryWindow::foreign(player, card, followers));
+        }
+        self.result(true, None)
+    }
+
+    fn complete_leader_strategy(&mut self) {
+        if let Some((player, leader, _)) = self.leader_strategy.take() {
+            self.leader_followers = None;
+            crate::leaders::purge(&mut self.state, &player, &leader);
+            self.emit("COMPONENT_ACTION_RESOLVED");
+        }
     }
 
     fn play_faction_action(&mut self, player: &PlayerId, answer: &ChoiceOption) -> bool {
@@ -2308,6 +2877,33 @@ impl<'a> Game<'a> {
         };
         self.mirror_timing_log(logged);
         done
+    }
+
+    /// Military Support (Sol): offer its holder the infantry at the start of `player`'s turn.
+    fn resolve_military_support(
+        &mut self,
+        player: &PlayerId,
+    ) -> Result<bool, crate::choice::IllegalChoice> {
+        let (content, sources) = (self.content, self.sources);
+        let galaxy = self.galaxy.clone();
+        let (state, table, dice, rng, event_sequence) = (
+            &mut self.state,
+            &mut self.table,
+            &mut self.dice,
+            &mut self.rng,
+            &mut self.event_sequence,
+        );
+        let mut context = TimingContext {
+            state,
+            content,
+            sources,
+            table,
+            dice,
+            rng,
+            event_sequence,
+            galaxy: galaxy.as_ref(),
+        };
+        crate::promissory::turn_started(&mut context, player)
     }
 
     /// Offer the legendary abilities that read "when you pass".
@@ -2373,7 +2969,21 @@ impl<'a> Game<'a> {
         match window.stage {
             TacticalStage::Activating => {
                 let system = SystemId::new(answer.id);
+                // Mahact's commander lets the seat activate a system already holding its token.
+                let mahact = self
+                    .state
+                    .systems_with_token(&window.player)
+                    .contains(&system);
                 activate(&mut self.state, &window.player, &system)?;
+                // The activation token is a command token placed in a system (Naalu agent Z'eu).
+                self.emit_typed(
+                    "COMMAND_TOKEN_PLACED",
+                    crate::factions::hooks_cards::command_token_placed_payload(
+                        &window.player,
+                        &system,
+                        crate::factions::hooks_cards::TokenPool::Tactic,
+                    ),
+                )?;
                 for owner in crate::promissory::spend_support_on_activation(
                     &mut self.state,
                     &window.player,
@@ -2403,6 +3013,21 @@ impl<'a> Game<'a> {
                     },
                 )
                 .expect("validated diplomacy predicates settle deterministically");
+                // Mahact commander: "If you do, return both command tokens to your reinforcements
+                // and end your turn." The board holds one token per seat per system, so removing
+                // it returns both: the activation's token was spent from the tactic pool.
+                if mahact {
+                    self.state
+                        .system_mut(&system)
+                        .command_tokens
+                        .remove(&window.player);
+                    self.tactical = None;
+                    self.state.active_system = None;
+                    self.state.pending = None;
+                    self.emit(&format!("TURN_ENDED_BY_MAHACT_COMMANDER:{}", window.player));
+                    self.advance_turn()?;
+                    return Ok(self.result(true, None));
+                }
                 // "Before you move units during a tactical action, you may purge this card." The
                 // activation has happened and the move has not, which is the window the card names.
                 // Minister of Peace: "After a player activates a system that contains 1 or more of
@@ -2433,13 +3058,19 @@ impl<'a> Game<'a> {
                 ) {
                     let mut dice = std::mem::take(&mut self.dice);
                     let mut rng = self.rng.clone();
+                    // With the game's timing handle, so "after you explore a planet" windows
+                    // (Titans Terragenesis) open for a Scanlink exploration as for a landing's.
                     let mut ctx = Resolving {
                         content: self.content,
                         sources: self.sources,
                         dice: &mut dice,
                         rng: &mut rng,
                         table: &mut self.table,
-                        timing: None,
+                        timing: Some(crate::choice::TimingHandle {
+                            resolver: &mut self.timing,
+                            sequence: &mut self.event_sequence,
+                            galaxy: self.galaxy.as_ref(),
+                        }),
                     };
                     let explored = crate::exploration::choose_deck(
                         &mut ctx,
@@ -2560,7 +3191,7 @@ impl<'a> Game<'a> {
                     if let Some(destination) = self.state.active_system.clone() {
                         crate::exploration::flip_ion_storm(&mut self.state, &origin, &destination);
                     }
-                    self.note_arrival(&window.player, &ship, &outcome);
+                    self.note_arrival(&window.player, &origin, &ship, &path, &outcome);
                     self.emit(match outcome {
                         MoveOutcome::Arrived { .. } => "SHIP_MOVED",
                         MoveOutcome::LostToGravityRift { .. } => "SHIP_LOST_TO_GRAVITY_RIFT",
@@ -2586,11 +3217,32 @@ impl<'a> Game<'a> {
     /// only for a player who owns the Dark Energy Tap technology or another game effect, and
     /// DET's own trigger fires when the tactical action ends (`close_tactical`), not on the
     /// move that landed the ship. The arrival here only emits the event other cards react to.
-    fn note_arrival(&mut self, player: &PlayerId, ship: &Unit, outcome: &MoveOutcome) {
+    fn note_arrival(
+        &mut self,
+        player: &PlayerId,
+        origin: &SystemId,
+        ship: &ti4_model::units::Unit,
+        path: &[String],
+        outcome: &MoveOutcome,
+    ) {
         let MoveOutcome::Arrived { cargo } = outcome else {
             return;
         };
-        // Three printed windows read "after a player moves ships into" a system.
+        // Counted for MOVEMENT_FINISHED's `ships_moved`: "after you move ships into the active
+        // system" needs to know that something did. A private mark, so it survives a restored
+        // or branched game and no seat sees it.
+        let key = format!("private:#moved:{}", self.state.activation_seq);
+        let moved = self
+            .state
+            .faction_marks
+            .get(&key)
+            .and_then(|count| count.parse::<u32>().ok())
+            .unwrap_or(0);
+        self.state
+            .faction_marks
+            .insert(key, (moved + 1).to_string());
+        // Three printed windows read "after a player moves ships into" a system; Naalu Foresight
+        // also needs which system (always the active one) and where the ship came from.
         let mut payload = BTreeMap::new();
         payload.insert(
             "player".to_owned(),
@@ -2620,6 +3272,29 @@ impl<'a> Game<'a> {
                     .collect(),
             ),
         );
+        payload.insert(
+            "origin".to_owned(),
+            serde_json::Value::String(origin.to_string()),
+        );
+        payload.insert(
+            "unit".to_owned(),
+            serde_json::Value::String(ship.type_id.to_string()),
+        );
+        payload.insert("path".to_owned(), serde_json::Value::String(path.join(",")));
+        // Hops of the route that went through a wormhole rather than across a hex edge (Creuss
+        // commander Sai Seravus: "ships that moved through 1 or more wormholes").
+        if let Some(galaxy) = self.galaxy.as_ref() {
+            payload.insert(
+                "wormholes".to_owned(),
+                serde_json::Value::from(wormhole_hops(
+                    &self.state,
+                    galaxy,
+                    player,
+                    origin.as_str(),
+                    path,
+                )),
+            );
+        }
         let _ = self.emit_typed("SHIP_MOVED", payload);
     }
 
@@ -2628,6 +3303,10 @@ impl<'a> Game<'a> {
     /// The route is computed once, here, and carried through loading. Cargo cannot change which
     /// systems the ship passes, and recomputing the route after the hold was filled would risk
     /// rolling rifts for a different path than the one that was legal when the move was offered.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one ship's move: route, boosts and Gravleash in one atomic step"
+    )]
     fn begin_one_move(
         &mut self,
         mut window: TacticalWindow,
@@ -2661,16 +3340,20 @@ impl<'a> Game<'a> {
         let path = ti4_content::units::catalogue(self.content, self.sources)
             .get(ship.type_id.as_str())
             .and_then(|kind| {
-                rules.path_from(
+                // The same per-ship value and route the offer used (`tactical::movable_into`), so a
+                // ship a faction module lets move further or pass ships is not refused here.
+                rules.path_from_ship(
                     origin.as_str(),
-                    crate::tactical::effective_move_value_with_boosts(
+                    crate::tactical::effective_move_value_for_ship(
                         &self.state,
                         kind,
                         &window.player,
                         origin,
+                        Some(index),
                         gravity_drive,
                         ionian,
                     ),
+                    Some(ship.type_id.as_str()),
                 )
             })
             .ok_or_else(|| TacticalError::UnknownSystem(origin.clone()))?;
@@ -2702,7 +3385,18 @@ impl<'a> Game<'a> {
         {
             let own_move =
                 ti4_content::units::unit_type(self.content, ship.type_id.as_str(), self.sources)
-                    .map_or(0, |kind| i32::try_from(kind.move_value()).unwrap_or(0))
+                    .map_or(0, |kind| {
+                        i32::try_from(kind.move_value()).unwrap_or(0)
+                            + crate::factions::hooks_movement::move_bonus(
+                                &self.state,
+                                &crate::factions::hooks_movement::MoveSite {
+                                    player: &window.player,
+                                    origin,
+                                    index: Some(index),
+                                    ship: &kind,
+                                },
+                            )
+                    })
                     + crate::action_cards::move_bonus(
                         &self.state,
                         &window.player,
@@ -2724,8 +3418,14 @@ impl<'a> Game<'a> {
             &path,
         );
         if hold.is_complete() {
-            // No capacity, or nothing to carry: sail immediately.
+            // No capacity, or nothing to carry: sail immediately. The same after-move steps as a
+            // ship that loaded cargo: the ion storm flips if crossed, and the arrival is announced
+            // as a typed SHIP_MOVED so "after a player moves ships into" windows open.
             let outcome = self.sail(origin, &ship, &path, Vec::new());
+            if let Some(destination) = self.state.active_system.clone() {
+                crate::exploration::flip_ion_storm(&mut self.state, origin, &destination);
+            }
+            self.note_arrival(&window.player, origin, &ship, &path, &outcome);
             self.emit(match outcome {
                 MoveOutcome::Arrived { .. } => "SHIP_MOVED",
                 MoveOutcome::LostToGravityRift { .. } => "SHIP_LOST_TO_GRAVITY_RIFT",
@@ -2780,7 +3480,37 @@ impl<'a> Game<'a> {
     /// all four here. Announcing the gap and moving on keeps a driven game playable while making
     /// it plain that moving into an enemy system currently has no consequence — the same choice
     /// made for unimplemented agenda effects.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the movement-step close, its hooks and the aftermath opening are one boundary"
+    )]
     fn finish_tactical(&mut self) -> StepResult {
+        let before_state = self.state.clone();
+        let before_dice = self.dice.clone();
+        let before_rng = self.rng.clone();
+        let before_tactical = self.tactical.clone();
+        let before_sequence = self.event_sequence.clone();
+        let before_timing = self.timing.checkpoint();
+        let before_events = self.events.len();
+        let result = self.finish_tactical_inner();
+        if result.error.is_some() {
+            self.state = before_state;
+            self.dice = before_dice;
+            self.rng = before_rng;
+            self.tactical = before_tactical;
+            self.event_sequence = before_sequence;
+            self.timing.restore(before_timing);
+            self.events.truncate(before_events);
+            self.aftermath = None;
+        }
+        result
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one movement-close and aftermath-opening boundary"
+    )]
+    fn finish_tactical_inner(&mut self) -> StepResult {
         let tactical = self
             .tactical
             .as_ref()
@@ -2791,6 +3521,51 @@ impl<'a> Game<'a> {
         let (Some((player, notes_at_start)), Some(system)) = (tactical, system) else {
             return self.close_tactical();
         };
+        // The movement step is over (LRR 89.2 → 89.3): one typed window for effects that read "after
+        // you move ships" as a whole rather than per ship (Naalu Foresight, Muaat Nova Seed).
+        let mut moved = BTreeMap::new();
+        moved.insert(
+            "player".to_owned(),
+            serde_json::Value::String(player.to_string()),
+        );
+        moved.insert(
+            "system".to_owned(),
+            serde_json::Value::String(system.to_string()),
+        );
+        let ships_moved = crate::factions::ships_moved_this_activation(&self.state);
+        moved.insert(
+            "ships_moved".to_owned(),
+            serde_json::Value::from(ships_moved),
+        );
+        if let Err(error) = self.emit_typed("MOVEMENT_FINISHED", moved) {
+            return self.result(false, Some(error));
+        }
+        // "After you move ships into the active system: you may skip directly to the Commit Ground
+        // Forces step" (Sardakk hero). Asked once movement is over, before anything shoots.
+        let skip_to_commit = {
+            let mut context = TimingContext {
+                state: &mut self.state,
+                content: self.content,
+                sources: self.sources,
+                table: &mut self.table,
+                dice: &mut self.dice,
+                rng: &mut self.rng,
+                event_sequence: &mut self.event_sequence,
+                galaxy: self.galaxy.as_ref(),
+            };
+            crate::factions::skip_to_commit(&mut context, &player, &system)
+        };
+        // The count has served the movement step's windows.
+        self.state
+            .faction_marks
+            .remove(&format!("private:#moved:{}", self.state.activation_seq));
+        // Floating Factories that end movement among another player's ships are destroyed.
+        let _ = crate::production::destroy_blockaded_mobile_docks(
+            &mut self.state,
+            self.content,
+            self.sources,
+            &system,
+        );
 
         let mut dice = std::mem::take(&mut self.dice);
         let mut rng = self.rng.clone();
@@ -2812,14 +3587,25 @@ impl<'a> Game<'a> {
                 galaxy: galaxy.as_ref(),
             }),
         };
-        let opened = AftermathWindow::new(
-            &mut self.state,
-            &mut ctx,
-            &player,
-            &system,
-            galaxy.as_ref(),
-            notes_at_start,
-        );
+        let opened = if skip_to_commit {
+            AftermathWindow::at_commit_step(
+                &mut self.state,
+                &mut ctx,
+                &player,
+                &system,
+                galaxy.as_ref(),
+                notes_at_start,
+            )
+        } else {
+            AftermathWindow::new(
+                &mut self.state,
+                &mut ctx,
+                &player,
+                &system,
+                galaxy.as_ref(),
+                notes_at_start,
+            )
+        };
         let mut window = match opened {
             Ok(window) => window,
             Err(error) => {
@@ -2862,6 +3648,56 @@ impl<'a> Game<'a> {
         reason = "one case per aftermath stage, read as a table"
     )]
     fn step_aftermath(&mut self) -> StepResult {
+        let checkpoint = crate::supply::staging_enabled(&self.state).then(|| {
+            (
+                self.state.clone(),
+                self.dice.clone(),
+                self.rng.clone(),
+                self.event_sequence.clone(),
+                self.timing.checkpoint(),
+                self.table.log.clone(),
+                self.events.clone(),
+                self.aftermath.clone(),
+                self.tactical.clone(),
+                self.turn_closing.clone(),
+                self.failed_component_actions.clone(),
+                self.actions_this_turn,
+            )
+        });
+        let result = self.step_aftermath_inner();
+        if result.error.is_some()
+            && let Some((
+                state,
+                dice,
+                rng,
+                sequence,
+                timing,
+                log,
+                events,
+                aftermath,
+                tactical,
+                turn_closing,
+                failed_actions,
+                actions_this_turn,
+            )) = checkpoint
+        {
+            self.state = state;
+            self.dice = dice;
+            self.rng = rng;
+            self.event_sequence = sequence;
+            self.timing.restore(timing);
+            self.table.log = log;
+            self.events = events;
+            self.aftermath = aftermath;
+            self.tactical = tactical;
+            self.turn_closing = turn_closing;
+            self.failed_component_actions = failed_actions;
+            self.actions_this_turn = actions_this_turn;
+        }
+        result
+    }
+
+    fn step_aftermath_inner(&mut self) -> StepResult {
         let Some(choice) = self.legal_options() else {
             // An event-scoped scoring pause can leave combat in an automatic intermediate
             // stage. Resume it here rather than mistaking its lack of a player choice for a
@@ -2913,6 +3749,7 @@ impl<'a> Game<'a> {
                 self.aftermath = Some(window);
                 return self.result(false, None);
             }
+            self.aftermath = Some(window);
             return self.close_tactical();
         };
         // Field borrows, not `self`: the table answers while the position stays readable.
@@ -2987,6 +3824,7 @@ impl<'a> Game<'a> {
             .pending_choice(&self.state, self.content, self.sources)
             .is_none()
         {
+            self.aftermath = Some(window);
             return self.close_tactical();
         }
         self.aftermath = Some(window);
@@ -2999,14 +3837,29 @@ impl<'a> Game<'a> {
         // explore 1 planet you control." Here rather than in `finish_tactical`, because a tactical
         // action can end down either path and only this one is common to both.
         if let Some(player) = self.state.active.clone() {
-            crate::relics::crown_of_emphidia_explore(
+            // With the game's timing handle, so "after you explore" windows (Terragenesis) open.
+            let mut dice = std::mem::take(&mut self.dice);
+            let mut rng = self.rng.clone();
+            let mut ctx = Resolving {
+                content: self.content,
+                sources: self.sources,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut self.table,
+                timing: Some(crate::choice::TimingHandle {
+                    resolver: &mut self.timing,
+                    sequence: &mut self.event_sequence,
+                    galaxy: self.galaxy.as_ref(),
+                }),
+            };
+            crate::relics::crown_of_emphidia_explore_with(
                 &mut self.state,
-                self.content,
-                self.sources,
-                &mut self.table,
+                &mut ctx,
                 self.galaxy.as_ref(),
                 &player,
             );
+            self.dice = dice;
+            self.rng = rng;
         }
         // Dark Energy Tap: "After you perform a tactical action in a system that contains a
         // frontier token, if you have 1 or more ships in that system, explore that token."
@@ -3045,10 +3898,56 @@ impl<'a> Game<'a> {
                 self.emit("FRONTIER_EXPLORED");
             }
         }
+        // T'ro reads the end of the tactical action, including a strategy-card free action.
+        // Keep the system in the event so native use cannot erase a copied listener's target.
+        let tro_window = self.state.players.iter().any(|seat| {
+            // Also Field Marshal Mercer (`nomadagentmercer`), which reads the same moment.
+            ["sardakkagent", "nomadagentmercer"].iter().any(|agent| {
+                seat.leaders.get(&ti4_model::id::LeaderId::new(*agent))
+                    == Some(&ti4_model::state::LeaderStatus::Readied)
+            })
+                || crate::factions::hooks_cards::borrowable_agents(
+                    &self.state,
+                    self.content,
+                    &seat.id,
+                )
+                .iter()
+                .any(|(_, agent)| agent.as_str() == "sardakkagent")
+        });
+        if tro_window
+            && let (Some(player), Some(system)) =
+                (self.state.active.clone(), self.state.active_system.clone())
+        {
+            let saved_state = self.state.clone();
+            let saved_dice = self.dice.clone();
+            let saved_rng = self.rng.clone();
+            let saved_sequence = self.event_sequence.clone();
+            let saved_timing = self.timing.checkpoint();
+            let saved_events = self.events.len();
+            let saved_table_log = self.table.log.clone();
+            let payload = BTreeMap::from([
+                ("player".to_owned(), player.to_string().into()),
+                ("system".to_owned(), system.to_string().into()),
+            ]);
+            if let Err(error) = self.emit_typed("TACTICAL_ACTION_ENDED", payload) {
+                self.state = saved_state;
+                self.dice = saved_dice;
+                self.rng = saved_rng;
+                self.event_sequence = saved_sequence;
+                self.timing.restore(saved_timing);
+                self.events.truncate(saved_events);
+                self.table.log = saved_table_log;
+                return self.result(false, Some(error));
+            }
+        }
         self.aftermath = None;
         self.state.active_system = None;
         self.state.pending = None;
         self.emit("TACTICAL_ACTION_COMPLETE");
+        if self.leader_strategy.is_some() {
+            let outcome = self.select_leader_strategy_followers();
+            return self.result(false, outcome.err());
+        }
         if let Some(window) = self.secondary_after_tactical.take() {
             self.secondary = Some(window);
             return self.result(false, None);
@@ -3084,7 +3983,7 @@ impl<'a> Game<'a> {
                 actor,
                 &partner,
             ))
-            && !self.state.transacted_with(actor).contains(&partner);
+            && crate::transactions::may_open_again(&self.state, self.content, actor, &partner);
         if trading {
             // Extreme Duress binds a player's next action; the agenda phase has none.
             if !agenda_phase {
@@ -3114,7 +4013,12 @@ impl<'a> Game<'a> {
         let scope = crate::diplomacy::candidates::contact_scope(&context, trading);
         let signals = crate::diplomacy::candidates::generate_signal_statements(&context);
         if trading {
-            self.state.record_transaction(actor, &partner);
+            crate::transactions::record_unless_exempt(
+                &mut self.state,
+                self.content,
+                actor,
+                &partner,
+            );
         }
         self.diplomacy = Some(Box::new(crate::diplomacy::window::DiplomacyWindow::open(
             &mut self.state,
@@ -3190,6 +4094,7 @@ impl<'a> Game<'a> {
                     ti4_model::DiplomacyEvent::ImmediateApplied { .. }
                 )
             });
+        let parties = (window.proposer.clone(), window.recipient.clone());
         if window
             .pending_choice(&self.state, self.content, self.sources)
             .is_some()
@@ -3205,7 +4110,8 @@ impl<'a> Game<'a> {
             return self.result(false, Some(error.into()));
         }
         if traded {
-            if let Err(error) = self.emit_typed("TRANSACTION_RESOLVED", BTreeMap::new()) {
+            let payload = crate::transactions::resolved_payload(&parties.0, &parties.1);
+            if let Err(error) = self.emit_typed("TRANSACTION_RESOLVED", payload) {
                 return self.result(false, Some(error));
             }
             self.emit("TRANSACTION");
@@ -3253,7 +4159,10 @@ impl<'a> Game<'a> {
         // A resolved deal opens Lie in Wait's window. Emitted only on Resolved: the card counts
         // transactions that happened, not offers that were made.
         if matches!(outcome, crate::transactions::Traded::Resolved) {
-            let payload = BTreeMap::new();
+            let payload = self.trade.as_ref().map_or_else(BTreeMap::new, |trade| {
+                let (proposer, partner) = trade.parties();
+                crate::transactions::resolved_payload(proposer, partner)
+            });
             if let Err(error) = self.emit_typed("TRANSACTION_RESOLVED", payload) {
                 return self.result(false, Some(error));
             }
@@ -3293,6 +4202,7 @@ impl<'a> Game<'a> {
         );
         let Some(choice) = choice else {
             self.secondary = None;
+            self.complete_leader_strategy();
             self.emit("STRATEGIC_ACTION_COMPLETE");
             if let Err(error) = self.finish_action() {
                 return self.result(false, Some(error));
@@ -3319,6 +4229,13 @@ impl<'a> Game<'a> {
             Ok(answer) => answer,
             Err(error) => return self.result(false, Some(error.into())),
         };
+        let before = self.leader_strategy.as_ref().map(|_| {
+            (
+                self.state.clone(),
+                self.secondary.clone(),
+                self.events.len(),
+            )
+        });
         let (resolution, complete) = match self
             .secondary
             .as_mut()
@@ -3369,12 +4286,18 @@ impl<'a> Game<'a> {
                 )
             };
             if let Err(error) = outcome {
+                if let Some((state, secondary, events)) = before {
+                    self.state = state;
+                    self.secondary = secondary;
+                    self.events.truncate(events);
+                }
                 return self.result(false, Some(error.into()));
             }
             self.resolve_faction_strategy(&follower, &card);
         }
         if complete {
             self.secondary = None;
+            self.complete_leader_strategy();
             self.emit("STRATEGIC_ACTION_COMPLETE");
             if let Err(error) = self.finish_action() {
                 return self.result(false, Some(error));
@@ -3546,7 +4469,8 @@ impl<'a> Game<'a> {
                 self.events.push(format!("LEADER_UNLOCKED:{leader}"));
             }
         }
-        match resolve_before_token_gain(&mut self.state) {
+        match resolve_before_token_gain_with(&mut self.state, Some((self.content, &mut self.table)))
+        {
             Ok(report) if report.game_ended => {
                 self.emit("GAME_FINISHED");
                 self.result(false, None)
@@ -3673,6 +4597,11 @@ impl<'a> Game<'a> {
             self.emit(&format!("GENESIS_INFANTRY:{owner}:{system}"));
         }
         self.emit("STATUS_PHASE_RESOLVED");
+        // "At the end of the status phase" (Bioplasmosis). A new typed name: no reaction card maps
+        // a status-phase window, so this opens nothing unless a faction module listens.
+        if let Err(error) = self.emit_typed("STATUS_PHASE_ENDED", BTreeMap::new()) {
+            return self.result(false, Some(error));
+        }
         self.result(false, None)
     }
 
@@ -3876,6 +4805,9 @@ impl<'a> Game<'a> {
             self.emit_typed("AGENDA_REVEALED", payload)?;
             // Political Favor replaces the agenda the same way Veto does, so it is offered only
             // when nothing has replaced it already.
+            if self.state.agenda_veto_replacement.is_none() && self.offer_quash()? {
+                self.emit("QUASH_USED");
+            }
             if self.state.agenda_veto_replacement.is_none() && self.offer_political_favor()? {
                 self.emit("POLITICAL_FAVOR_USED");
             }
@@ -3976,9 +4908,46 @@ impl<'a> Game<'a> {
             if let Some(seat) = self.state.player_mut(&owner) {
                 seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
             }
+            crate::supply::note_strategy_token_spent(&mut self.state, &owner, "political_favor");
             let replacement = self.state.agenda_deck.remove(0);
             self.state.agenda_veto_replacement = Some(replacement);
             crate::promissory::give_back(&mut self.state, &note);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// Quash (Xxcha): "When an agenda is revealed: You may spend 1 token from your strategy pool to
+    /// discard that agenda and reveal 1 agenda from the top of the deck. Players vote on this
+    /// agenda instead."
+    ///
+    /// Offered to each seat with the ability and a strategy token, in seat order, until one uses
+    /// it. The replacement is handed over exactly as Veto and Political Favor hand theirs, so the
+    /// reveal loop discards this agenda and continues (and offers Quash again on the new one).
+    fn offer_quash(&mut self) -> Result<bool, GameError> {
+        if self.state.agenda_deck.is_empty() {
+            return Ok(false);
+        }
+        let owners: Vec<PlayerId> = self
+            .state
+            .players
+            .iter()
+            .filter(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) > 0)
+            .map(|seat| seat.id.clone())
+            .filter(|id| crate::faction_abilities::has(&self.state, self.content, id, "quash"))
+            .collect();
+        for owner in owners {
+            let prompt = "Quash: spend 1 strategy token to discard this agenda and reveal the next"
+                .to_owned();
+            if !self.ask_to_use_note(&owner, "quash", prompt)? {
+                continue;
+            }
+            if let Some(seat) = self.state.player_mut(&owner) {
+                seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
+            }
+            crate::supply::note_strategy_token_spent(&mut self.state, &owner, "quash");
+            let replacement = self.state.agenda_deck.remove(0);
+            self.state.agenda_veto_replacement = Some(replacement);
             return Ok(true);
         }
         Ok(false)
@@ -4107,7 +5076,12 @@ impl<'a> Game<'a> {
         // Imperial Rider pays out before the agenda's own effect, and clears the
         // predictions. A prediction left behind would pay again on the next agenda,
         // for a card that was spent on this one.
-        for player in crate::action_cards::resolve_predictions(&mut self.state, outcome) {
+        for player in crate::action_cards::resolve_predictions_with(
+            &mut self.state,
+            self.content,
+            &mut self.table,
+            outcome,
+        ) {
             self.emit(&format!("AGENDA_PREDICTION_CORRECT:{player}"));
         }
 
@@ -4523,10 +5497,26 @@ impl<'a> Game<'a> {
         if self.state.phase == Phase::Action && !self.state.all_passed() {
             return self.result(false, Some(GameError::MissingActivePlayer));
         }
+        // "At the end of the strategy phase" (Naalu Telepathic, Gift of Prescience): typed before
+        // the phase advances, while initiative can still be overridden for the action phase.
+        if self.state.phase == Phase::Strategy
+            && let Err(error) = self.emit_typed("STRATEGY_PHASE_ENDED", BTreeMap::new())
+        {
+            return self.result(false, Some(error));
+        }
         let outcome = advance_phase(&mut self.state);
         match outcome {
             PhaseOutcome::ActionBegan(_) => self.emit("ACTION_PHASE_BEGAN"),
-            PhaseOutcome::StatusBegan => self.emit("STATUS_PHASE_BEGAN"),
+            PhaseOutcome::StatusBegan => {
+                self.emit("STATUS_PHASE_BEGAN");
+                // "At the start of the status phase" (Mitosis). Typed for faction modules; no
+                // reaction card maps a status-phase window. The resolver learns the new phase
+                // first, so per-phase limits count in the status phase.
+                self.sync_timing_context();
+                if let Err(error) = self.emit_typed("STATUS_PHASE_BEGAN", BTreeMap::new()) {
+                    return self.result(false, Some(error));
+                }
+            }
             PhaseOutcome::AgendaBegan => {
                 self.emit("AGENDA_PHASE_BEGAN");
                 // Two cards read "at the start of the agenda phase".
@@ -4570,7 +5560,19 @@ impl<'a> Game<'a> {
             "player".to_owned(),
             serde_json::Value::String(player.to_string()),
         );
+        // Every component-action path logs its resolution immediately before finishing the
+        // action, so this names the kind for "after you perform a component action" (Keleres).
+        let component = self
+            .events
+            .last()
+            .is_some_and(|event| event == "COMPONENT_ACTION_RESOLVED");
+        payload.insert("component".to_owned(), serde_json::Value::Bool(component));
         self.emit_typed("ACTION_COMPLETED", payload)?;
+        // Cards a faction effect showed "for this action" stop being visible with it.
+        crate::factions::hooks_cards::clear_reveals(
+            &mut self.state,
+            crate::factions::hooks_cards::RevealScope::Action,
+        );
         Ok(())
     }
 
@@ -4620,6 +5622,50 @@ impl<'a> Game<'a> {
         reason = "one block per end-of-turn window, in the order the rules run them"
     )]
     fn advance_turn(&mut self) -> Result<(), GameError> {
+        let checkpoint = crate::supply::staging_enabled(&self.state).then(|| {
+            (
+                self.state.clone(),
+                self.dice.clone(),
+                self.rng.clone(),
+                self.event_sequence.clone(),
+                self.timing.checkpoint(),
+                self.table.log.clone(),
+                self.events.clone(),
+                self.turn_closing.clone(),
+                self.failed_component_actions.clone(),
+                self.actions_this_turn,
+            )
+        });
+        let result = self.advance_turn_inner();
+        if result.is_err()
+            && let Some((
+                state,
+                dice,
+                rng,
+                sequence,
+                timing,
+                log,
+                events,
+                turn_closing,
+                failed_actions,
+                actions_this_turn,
+            )) = checkpoint
+        {
+            self.state = state;
+            self.dice = dice;
+            self.rng = rng;
+            self.event_sequence = sequence;
+            self.timing.restore(timing);
+            self.table.log = log;
+            self.events = events;
+            self.turn_closing = turn_closing;
+            self.failed_component_actions = failed_actions;
+            self.actions_this_turn = actions_this_turn;
+        }
+        result
+    }
+
+    fn advance_turn_inner(&mut self) -> Result<(), GameError> {
         self.turn_closing = None;
         // A new turn re-offers everything: the withholding below is scoped to the turn whose
         // action failed, not to the game.
@@ -4732,6 +5778,17 @@ impl<'a> Game<'a> {
                 .transient_flags
                 .has(TransientFlags::PUPPET_ACTION)
         {
+            // The last turn of the action phase still ends: its "when a player's turn ends"
+            // windows open (Naaz agent), there is just no next turn to pass to.
+            if let Some(ended) = ended {
+                self.emit("TURN_PASSED");
+                let mut payload = BTreeMap::new();
+                payload.insert(
+                    "player".to_owned(),
+                    serde_json::Value::String(ended.to_string()),
+                );
+                self.emit_typed("TURN_PASSED", payload)?;
+            }
             return Ok(());
         }
         let Some(ended) = ended else {
@@ -4867,6 +5924,56 @@ impl<'a> Game<'a> {
     }
 }
 
+/// Count route hops actually supplied by wormhole adjacency. `extra_links` can also describe
+/// technologies and faction abilities that are not wormholes, so classify against a map without
+/// those links; Quantum Entanglement is the Creuss exception that joins alpha to beta even when a
+/// law disables ordinary wormhole movement.
+fn wormhole_hops(
+    state: &GameState,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+    origin: &str,
+    path: &[String],
+) -> u32 {
+    let mut stripped = None;
+    if !galaxy.extra_links.is_empty() {
+        let mut copy = galaxy.clone();
+        copy.extra_links.clear();
+        stripped = Some(copy);
+    }
+    let wormhole_map = stripped.as_ref().unwrap_or(galaxy);
+    let quantum_entanglement = state
+        .player(player)
+        .is_some_and(|seat| seat.faction.as_str() == "ghost");
+    let mut unsuppressed_nexus = None;
+    if quantum_entanglement && wormhole_map.nexus_wormholes_off {
+        let mut copy = wormhole_map.clone();
+        copy.nexus_wormholes_off = false;
+        unsuppressed_nexus = Some(copy);
+    }
+    let quantum_map = unsuppressed_nexus.as_ref().unwrap_or(wormhole_map);
+    let has_alpha_or_beta = |system: &str| {
+        quantum_map
+            .wormhole_kinds(system)
+            .iter()
+            .any(|kind| *kind == "ALPHA" || *kind == "BETA")
+    };
+    let mut previous = origin;
+    let mut hops = 0_u32;
+    for step in path {
+        if step != previous && galaxy.distance(previous, step) != Some(1) {
+            let ordinary = wormhole_map.are_adjacent(previous, step)
+                && !wormhole_map.wormhole_kinds(previous).is_empty()
+                && !wormhole_map.wormhole_kinds(step).is_empty();
+            let quantum =
+                quantum_entanglement && has_alpha_or_beta(previous) && has_alpha_or_beta(step);
+            hops += u32::from(ordinary || quantum);
+        }
+        previous = step;
+    }
+    hops
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -4934,6 +6041,235 @@ mod tests {
     use crate::setup::start_game;
     use crate::timing::{Ability, Relation};
     use crate::tokens::STATUS_TOKENS;
+
+    #[test]
+    fn preexisting_cards_are_not_announced_as_gains_on_resume() {
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("b");
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "naalu"), ("b", "sol")],
+            ti4_model::content_types::DEFAULT,
+        );
+        state
+            .player_mut(&player)
+            .unwrap()
+            .relics
+            .push(ti4_model::id::RelicId::new("codex"));
+        state.player_mut(&player).unwrap().breakthrough =
+            Some(ti4_model::id::BreakthroughId::new("solbt"));
+        let mut game = Game::new(state, content);
+        game.announce_gains().unwrap();
+        assert!(
+            !game
+                .events
+                .iter()
+                .any(|event| event == "RELIC_GAINED" || event == "BREAKTHROUGH_GAINED")
+        );
+        game.state
+            .player_mut(&player)
+            .unwrap()
+            .relics
+            .push(ti4_model::id::RelicId::new("obsidian"));
+        game.announce_gains().unwrap();
+        game.announce_gains().unwrap();
+        assert_eq!(
+            game.events
+                .iter()
+                .filter(|event| event.as_str() == "RELIC_GAINED")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn saved_gain_baselines_keep_pending_gains_after_reconstruction() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "naalu"), ("b", "sol")],
+            ti4_model::content_types::DEFAULT,
+        );
+        state
+            .player_mut(&PlayerId::new("b"))
+            .unwrap()
+            .relics
+            .push(ti4_model::id::RelicId::new("codex"));
+        state
+            .faction_marks
+            .insert("private:#seen:relics:b".to_owned(), String::new());
+        let mut game = Game::new(state, content);
+        game.announce_gains().unwrap();
+        assert_eq!(
+            game.events
+                .iter()
+                .filter(|event| event.as_str() == "RELIC_GAINED")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn gain_baselines_do_not_change_original_faction_state() {
+        let state = crate::fixtures::seated_game(
+            &[("a", "sol"), ("b", "hacan")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let marks = state.faction_marks.clone();
+        let game = Game::new(state, ContentStore::embedded());
+        assert_eq!(game.state.faction_marks, marks);
+    }
+
+    #[test]
+    fn ship_moved_wormholes_count_ghost_cross_links_but_not_plain_ability_links() {
+        let content = ContentStore::embedded();
+        let mut galaxy = Galaxy::placed(
+            content,
+            &[
+                ("39", ti4_model::hex::Hex::new(0, 0)),
+                ("40", ti4_model::hex::Hex::new(3, 0)),
+                ("19", ti4_model::hex::Hex::new(6, 0)),
+            ],
+            ti4_model::content_types::DEFAULT,
+        )
+        .unwrap();
+        let state = crate::fixtures::seated_game(
+            &[("a", "ghost"), ("b", "sol")],
+            ti4_model::content_types::DEFAULT,
+        );
+        assert_eq!(
+            wormhole_hops(
+                &state,
+                &galaxy,
+                &PlayerId::new("a"),
+                "39",
+                &["40".to_owned()]
+            ),
+            1,
+            "Quantum Entanglement crosses alpha to beta",
+        );
+        assert_eq!(
+            wormhole_hops(
+                &state,
+                &galaxy,
+                &PlayerId::new("b"),
+                "39",
+                &["40".to_owned()]
+            ),
+            0,
+            "Sol has no alpha-beta wormhole link",
+        );
+        galaxy
+            .extra_links
+            .entry("39".to_owned())
+            .or_default()
+            .insert("19".to_owned());
+        assert_eq!(
+            wormhole_hops(
+                &state,
+                &galaxy,
+                &PlayerId::new("a"),
+                "39",
+                &["19".to_owned()]
+            ),
+            0,
+            "a non-wormhole ability link does not count",
+        );
+        galaxy
+            .token_wormholes
+            .entry("19".to_owned())
+            .or_default()
+            .insert("ALPHA".to_owned());
+        assert_eq!(
+            wormhole_hops(
+                &state,
+                &galaxy,
+                &PlayerId::new("a"),
+                "39",
+                &["19".to_owned()]
+            ),
+            1,
+            "a token creates a real wormhole link",
+        );
+        galaxy.wormholes_off = true;
+        assert_eq!(
+            wormhole_hops(
+                &state,
+                &galaxy,
+                &PlayerId::new("b"),
+                "39",
+                &["19".to_owned()]
+            ),
+            0,
+            "the travel ban closes an ordinary token wormhole for Sol",
+        );
+        assert_eq!(
+            wormhole_hops(
+                &state,
+                &galaxy,
+                &PlayerId::new("a"),
+                "39",
+                &["40".to_owned()]
+            ),
+            1,
+            "Quantum Entanglement remains usable through the ban",
+        );
+    }
+
+    #[test]
+    fn ship_moved_wormholes_include_flagship_delta_and_exclude_hex_travel() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(
+            &[("a", "ghost"), ("b", "sol")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let mut galaxy = Galaxy::placed(
+            content,
+            &[
+                ("17", ti4_model::hex::Hex::new(0, 0)),
+                ("19", ti4_model::hex::Hex::new(3, 0)),
+            ],
+            ti4_model::content_types::DEFAULT,
+        )
+        .unwrap();
+        crate::fixtures::put(
+            &mut state,
+            &SystemId::new("19"),
+            "ghost_flagship",
+            &PlayerId::new("a"),
+            1,
+        );
+        crate::laws::apply_to_galaxy(&state, &mut galaxy);
+        assert_eq!(
+            wormhole_hops(
+                &state,
+                &galaxy,
+                &PlayerId::new("a"),
+                "17",
+                &["19".to_owned()]
+            ),
+            1,
+            "Hil Colish carries a delta wormhole into its system",
+        );
+        let neighbouring = Galaxy::placed(
+            content,
+            &[
+                ("39", ti4_model::hex::Hex::new(0, 0)),
+                ("40", ti4_model::hex::Hex::new(1, 0)),
+            ],
+            ti4_model::content_types::DEFAULT,
+        )
+        .unwrap();
+        assert_eq!(
+            wormhole_hops(
+                &state,
+                &neighbouring,
+                &PlayerId::new("a"),
+                "39",
+                &["40".to_owned()]
+            ),
+            0,
+            "a hex hop is not counted as a wormhole hop",
+        );
+    }
 
     #[test]
     fn one_step_resolves_exactly_one_generated_strategy_choice() {
@@ -5969,6 +7305,368 @@ mod tests {
         );
     }
 
+    fn quash_game(tokens: i32, script: &[&str]) -> Game<'static> {
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("xxcha");
+        let seat = state.player_mut(&b).unwrap();
+        let held = seat.tokens(ti4_model::state::TokenPool::Strategic);
+        seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, tokens - held);
+        state.agenda_deck = vec!["committee".to_owned(), "conventions".to_owned()];
+        let table = Table::with_default(Box::new(Scripted::new(
+            script.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>(),
+        )));
+        Game::with_table(state, ContentStore::embedded(), table)
+    }
+
+    #[test]
+    fn quash_discards_the_agenda_and_costs_xxcha_a_strategy_token() {
+        let b = PlayerId::new("b");
+        // Quash on the first agenda, then declined on the replacement.
+        let mut game = quash_game(2, &["use", "decline"]);
+        let (alias, _) = game
+            .reveal_agenda("secret")
+            .expect("reveals")
+            .expect("an agenda to vote on");
+        assert_eq!(alias, "committee", "the replacement is voted on instead");
+        assert!(game.events.contains(&"AGENDA_DISCARDED:secret".to_owned()));
+        assert!(game.events.contains(&"QUASH_USED".to_owned()));
+        assert_eq!(
+            game.state
+                .player(&b)
+                .unwrap()
+                .tokens(ti4_model::state::TokenPool::Strategic),
+            1
+        );
+        assert_eq!(game.state.agenda_deck, vec!["conventions".to_owned()]);
+    }
+
+    #[test]
+    fn quash_declined_leaves_the_agenda_and_the_token() {
+        let b = PlayerId::new("b");
+        let mut game = quash_game(2, &["decline"]);
+        let (alias, _) = game
+            .reveal_agenda("secret")
+            .expect("reveals")
+            .expect("an agenda to vote on");
+        assert_eq!(alias, "secret");
+        assert!(!game.events.contains(&"QUASH_USED".to_owned()));
+        assert_eq!(
+            game.state
+                .player(&b)
+                .unwrap()
+                .tokens(ti4_model::state::TokenPool::Strategic),
+            2
+        );
+        assert_eq!(game.state.agenda_deck.len(), 2);
+    }
+
+    #[test]
+    fn quash_without_a_strategy_token_is_never_offered() {
+        // An empty script would fail the run if Quash asked anything.
+        let mut game = quash_game(0, &[]);
+        let (alias, _) = game
+            .reveal_agenda("secret")
+            .expect("reveals")
+            .expect("an agenda to vote on");
+        assert_eq!(alias, "secret");
+        assert_eq!(game.state.agenda_deck.len(), 2);
+    }
+
+    #[test]
+    fn winnu_winning_imperial_primary_purges_without_a_follower_window() {
+        let (mut state, galaxy, _) = tactical_fixture();
+        let owner = PlayerId::new("a");
+        let hero = ti4_model::id::LeaderId::new("winnuhero");
+        let content = ContentStore::embedded();
+        let imperial = state
+            .unclaimed_strategy_cards
+            .iter()
+            .find(|card| {
+                crate::strategy_cards::card_name(content, card.as_str()).as_deref()
+                    == Some("Imperial")
+            })
+            .expect("Imperial is in the fixture")
+            .clone();
+        state.player_mut(&owner).unwrap().faction = ti4_model::id::FactionId::new("winnu");
+        state
+            .player_mut(&owner)
+            .unwrap()
+            .leaders
+            .insert(hero.clone(), ti4_model::state::LeaderStatus::Unlocked);
+        state.player_mut(&owner).unwrap().victory_points = crate::objectives::VICTORY_TARGET - 1;
+        state.revealed_objectives.clear();
+        state
+            .system_mut(&SystemId::new(crate::seating::MECATOL))
+            .set_control(PlanetId::new("mr"), owner.clone());
+        let mut game = Game::with_table(
+            state,
+            content,
+            Table::with_default(Box::new(Scripted::new([imperial.to_string()]))),
+        )
+        .with_sources(ti4_model::content_types::DEFAULT)
+        .with_galaxy(galaxy);
+        assert_eq!(game.perform_leader_action(&owner, &hero), Ok(true));
+        assert!(game.state.finished);
+        assert_eq!(
+            crate::leaders::status(&game.state, &owner, &hero),
+            Some(ti4_model::state::LeaderStatus::Purged)
+        );
+        assert!(game.leader_strategy.is_none());
+        assert!(game.leader_followers.is_none());
+        assert!(game.secondary.is_none());
+        assert!(game.events.contains(&"GAME_FINISHED".to_owned()));
+    }
+
+    #[test]
+    fn winnu_free_activation_failure_restores_state_rng_sequence_and_resolver() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let owner = PlayerId::new("a");
+        let hero = ti4_model::id::LeaderId::new("winnuhero");
+        state.player_mut(&owner).unwrap().faction = ti4_model::id::FactionId::new("winnu");
+        state
+            .player_mut(&owner)
+            .unwrap()
+            .leaders
+            .insert(hero.clone(), ti4_model::state::LeaderStatus::Unlocked);
+        state.unclaimed_strategy_cards = vec![StrategyCardId::new("te6warfare")];
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(Scripted::new([
+                "te6warfare".to_owned(),
+                ids[0].to_string(),
+                "invalid-reaction".to_owned(),
+            ]))),
+        )
+        .with_sources(ti4_model::content_types::DEFAULT)
+        .with_galaxy(galaxy);
+        game.timing.register([crate::timing::Ability::stateful(
+            "test:winnu_activation_failure",
+            owner.clone(),
+            "SYSTEM_ACTIVATED",
+            crate::timing::Relation::After,
+            std::sync::Arc::new(|_, _, context| {
+                context
+                    .state
+                    .player_mut(&PlayerId::new("a"))
+                    .unwrap()
+                    .trade_goods += 7;
+                context.dice.roll(context.rng, 1, "hero rollback", None);
+                context
+                    .ask_seeing(&Choice::new(
+                        PlayerId::new("a"),
+                        "reaction",
+                        vec![ChoiceOption::labelled("valid", "test", "valid")],
+                    ))
+                    .map_err(crate::timing::TimingError::IllegalChoice)?;
+                Ok(())
+            }),
+        )]);
+        let before = game.state.clone();
+        let sequence = game.event_sequence.clone();
+        let events = game.events.clone();
+        let log = game.timing.log().to_vec();
+        let mut expected_rng = game.rng.clone();
+        assert!(game.perform_leader_action(&owner, &hero).is_err());
+        assert_eq!(game.state, before);
+        assert_eq!(game.event_sequence, sequence);
+        assert_eq!(game.events, events);
+        assert_eq!(game.timing.log(), log);
+        assert!(game.timing.applied_events().is_empty());
+        assert!(game.dice.rolled("hero rollback").is_empty());
+        assert_eq!(
+            game.rng.die("retry probe", 10),
+            expected_rng.die("retry probe", 10)
+        );
+        assert!(game.tactical.is_none());
+        assert!(game.leader_strategy.is_none());
+        assert!(game.leader_followers.is_none());
+    }
+
+    #[test]
+    fn winnu_hero_warfare_finishes_tactical_before_followers_and_purge() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let owner = PlayerId::new("a");
+        let hero = ti4_model::id::LeaderId::new("winnuhero");
+        state.player_mut(&owner).unwrap().faction = ti4_model::id::FactionId::new("winnu");
+        state
+            .player_mut(&owner)
+            .unwrap()
+            .leaders
+            .insert(hero.clone(), ti4_model::state::LeaderStatus::Unlocked);
+        state.unclaimed_strategy_cards = vec![StrategyCardId::new("te6warfare")];
+        for player in &mut state.players {
+            player.strategy_cards.clear();
+        }
+        state.system_mut(&ids[0]).units.clear();
+        state.system_mut(&ids[0]).planet_units.clear();
+        let tactic_tokens = state.player(&owner).unwrap().tactic_tokens;
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
+            "component|leader|winnuhero".to_owned(),
+            "te6warfare".to_owned(),
+            ids[0].to_string(),
+            "done_moving".to_owned(),
+            "no|b".to_owned(),
+        ])));
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(capturing)),
+        )
+        .with_sources(ti4_model::content_types::DEFAULT)
+        .with_galaxy(galaxy);
+        assert_eq!(game.step().error, None);
+        assert!(game.tactical.is_some());
+        assert_eq!(
+            crate::leaders::status(&game.state, &owner, &hero),
+            Some(ti4_model::state::LeaderStatus::Unlocked)
+        );
+        assert!(
+            !seen
+                .borrow()
+                .iter()
+                .any(|choice| choice.prompt.contains("may b follow"))
+        );
+        for _ in 0..20 {
+            if crate::leaders::status(&game.state, &owner, &hero)
+                == Some(ti4_model::state::LeaderStatus::Purged)
+            {
+                break;
+            }
+            assert_eq!(
+                game.step().error,
+                None,
+                "events={:?}; decisions={:?}",
+                game.events,
+                seen.borrow()
+            );
+        }
+        assert_eq!(
+            crate::leaders::status(&game.state, &owner, &hero),
+            Some(ti4_model::state::LeaderStatus::Purged)
+        );
+        assert!(game.events.contains(&"TACTICAL_ACTION_COMPLETE".to_owned()));
+        assert!(
+            seen.borrow()
+                .iter()
+                .any(|choice| choice.prompt.contains("may b follow"))
+        );
+        assert_eq!(
+            game.state.player(&owner).unwrap().tactic_tokens,
+            tactic_tokens
+        );
+        assert!(
+            !game
+                .state
+                .system_state(&ids[0])
+                .command_tokens
+                .contains(&owner)
+        );
+    }
+
+    #[test]
+    fn winnu_follower_invalid_answer_preserves_continuation_and_retries() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let owner = PlayerId::new("a");
+        let hero = ti4_model::id::LeaderId::new("winnuhero");
+        state.player_mut(&owner).unwrap().faction = ti4_model::id::FactionId::new("winnu");
+        state
+            .player_mut(&owner)
+            .unwrap()
+            .leaders
+            .insert(hero.clone(), ti4_model::state::LeaderStatus::Unlocked);
+        state.unclaimed_strategy_cards = vec![StrategyCardId::new("te6warfare")];
+        for player in &mut state.players {
+            player.strategy_cards.clear();
+        }
+        state.system_mut(&ids[0]).units.clear();
+        state.system_mut(&ids[0]).planet_units.clear();
+        let tactic_tokens = state.player(&owner).unwrap().tactic_tokens;
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
+            "component|leader|winnuhero".to_owned(),
+            "te6warfare".to_owned(),
+            ids[0].to_string(),
+            "done_moving".to_owned(),
+            "invalid-follower".to_owned(),
+            "no|b".to_owned(),
+        ])));
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(capturing)),
+        )
+        .with_sources(ti4_model::content_types::DEFAULT)
+        .with_galaxy(galaxy);
+        assert_eq!(game.step().error, None);
+        assert!(game.tactical.is_some());
+        assert_eq!(
+            crate::leaders::status(&game.state, &owner, &hero),
+            Some(ti4_model::state::LeaderStatus::Unlocked)
+        );
+        assert!(
+            !seen
+                .borrow()
+                .iter()
+                .any(|choice| choice.prompt.contains("may b follow"))
+        );
+        for _ in 0..20 {
+            if game.leader_followers.is_some() {
+                break;
+            }
+            assert_eq!(game.step().error, None);
+        }
+        assert!(game.leader_followers.is_some());
+        let before_state = game.state.clone();
+        let before_choice = game.legal_options().expect("pending follower choice");
+        let before_events = game.events.clone();
+        assert!(game.step().error.is_some(), "invalid answer is surfaced");
+        assert_eq!(game.state, before_state);
+        assert_eq!(game.events, before_events);
+        assert_eq!(game.legal_options().unwrap().options, before_choice.options);
+        assert_eq!(
+            crate::leaders::status(&game.state, &owner, &hero),
+            Some(ti4_model::state::LeaderStatus::Unlocked)
+        );
+        for _ in 0..20 {
+            if crate::leaders::status(&game.state, &owner, &hero)
+                == Some(ti4_model::state::LeaderStatus::Purged)
+            {
+                break;
+            }
+            assert_eq!(
+                game.step().error,
+                None,
+                "events={:?}; decisions={:?}",
+                game.events,
+                seen.borrow()
+            );
+        }
+        assert_eq!(
+            crate::leaders::status(&game.state, &owner, &hero),
+            Some(ti4_model::state::LeaderStatus::Purged)
+        );
+        assert!(game.events.contains(&"TACTICAL_ACTION_COMPLETE".to_owned()));
+        assert!(
+            seen.borrow()
+                .iter()
+                .any(|choice| choice.prompt.contains("may b follow"))
+        );
+        assert_eq!(
+            game.state.player(&owner).unwrap().tactic_tokens,
+            tactic_tokens
+        );
+        assert!(
+            !game
+                .state
+                .system_state(&ids[0])
+                .command_tokens
+                .contains(&owner)
+        );
+    }
+
     #[test]
     fn a_warfare_free_tactical_into_the_owners_system_returns_support() {
         // Thunder's Edge Warfare's free tactical action is an activation like any other, so the
@@ -6935,17 +8633,132 @@ mod tests {
     }
 
     #[test]
+    fn acquired_titans_commander_runs_in_the_actual_tactical_production_window() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let owner = PlayerId::new("a");
+        state.player_mut(&owner).unwrap().faction = ti4_model::id::FactionId::new("yin");
+        state.player_mut(&owner).unwrap().trade_goods = 10;
+        crate::fixtures::put(&mut state, &ids[1], "destroyer", &owner, 1);
+        crate::fixtures::put(&mut state, &ids[0], "saar_spacedock", &owner, 1);
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            ContentStore::embedded(),
+            &owner,
+            "titanscommander"
+        ));
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            format!("move|{}|0", ids[1]),
+            "done_moving".to_owned(),
+            "leader:yin:titanscommander:PRODUCTION_USED:when".to_owned(),
+            "done_producing".to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table)
+            .with_sources(ti4_model::content_types::DEFAULT)
+            .with_galaxy(galaxy);
+        for _ in 0..80 {
+            assert_eq!(game.step().error, None);
+            if game
+                .events
+                .iter()
+                .any(|event| event == "TACTICAL_ACTION_COMPLETE")
+            {
+                break;
+            }
+        }
+        assert!(game.events.iter().any(|event| event == "PRODUCTION_USED"));
+        assert_eq!(game.state.player(&owner).unwrap().trade_goods, 11);
+        assert!(
+            game.events
+                .iter()
+                .any(|event| event == "TACTICAL_ACTION_COMPLETE")
+        );
+    }
+
+    #[test]
+    fn invalid_production_reaction_restores_tactical_transition_for_retry() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let owner = PlayerId::new("a");
+        state.player_mut(&owner).unwrap().trade_goods = 10;
+        crate::fixtures::put(&mut state, &ids[1], "destroyer", &owner, 1);
+        crate::fixtures::put(&mut state, &ids[0], "saar_spacedock", &owner, 1);
+        state
+            .player_mut(&owner)
+            .unwrap()
+            .action_cards
+            .push(ti4_model::id::ActionCardId::new("war_machine1"));
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            format!("move|{}|0", ids[1]),
+            "done_moving".to_owned(),
+            "invalid-production-reaction".to_owned(),
+            "done_moving".to_owned(),
+            "reaction:generic:PRODUCTION_USED:after".to_owned(),
+            "done_producing".to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table)
+            .with_sources(ti4_model::content_types::DEFAULT)
+            .with_galaxy(galaxy);
+        let mut refused = false;
+        for _ in 0..80 {
+            let before_state = game.state.clone();
+            let before_sequence = game.event_sequence.clone();
+            let before_log = game.timing.log().to_vec();
+            let before_events = game.events.clone();
+            let result = game.step();
+            if result.error.is_some() {
+                assert!(!refused, "only the deliberate invalid reaction should fail");
+                refused = true;
+                assert_eq!(game.state, before_state);
+                assert_eq!(game.event_sequence, before_sequence);
+                assert_eq!(game.timing.log(), before_log);
+                assert_eq!(game.events, before_events);
+                assert!(game.tactical.is_some(), "moving window remains retryable");
+                assert!(game.aftermath.is_none());
+                assert_eq!(game.state.player(&owner).unwrap().trade_goods, 10);
+                continue;
+            }
+            if game
+                .events
+                .iter()
+                .any(|event| event == "TACTICAL_ACTION_COMPLETE")
+            {
+                break;
+            }
+        }
+        assert!(refused, "invalid PRODUCTION_USED answer must be surfaced");
+        assert!(game.events.iter().any(|event| event == "PRODUCTION_USED"));
+        assert_eq!(game.state.player(&owner).unwrap().trade_goods, 10);
+        assert!(
+            !game
+                .state
+                .player(&owner)
+                .unwrap()
+                .action_cards
+                .iter()
+                .any(|card| card.as_str() == "war_machine1")
+        );
+        assert!(
+            game.events
+                .iter()
+                .any(|event| event == "TACTICAL_ACTION_COMPLETE")
+        );
+    }
+
+    #[test]
     fn a_war_machine_played_in_the_production_window_grows_that_steps_budget() {
         // The window opens when the step is about to happen, not after it spent its budget, so
         // a War Machine played there buys into this step. The control game, running the same
         // action without the card, spends the unboosted budget.
         //
-        // The fixture producer is a Hel-Titan I (production 1, no planet involved) and trade
+        // The fixture producer is a Floating Factory (space-area PRODUCTION, no planet) and trade
         // goods pay for anything, so the only number the card can move is the step's budget.
         let (mut base, galaxy, ids) = tactical_fixture();
         let a = PlayerId::new("a");
         crate::fixtures::put(&mut base, &ids[1], "destroyer", &a, 1);
-        crate::fixtures::put(&mut base, &ids[0], "titans_pds", &a, 1);
+        crate::fixtures::put(&mut base, &ids[0], "saar_spacedock", &a, 1);
         base.player_mut(&a).unwrap().trade_goods = 10;
 
         let bare_state = base.clone();
@@ -7076,7 +8889,7 @@ mod tests {
         // The fixture producer is a Hel-Titan I (production 1, no planet involved), matching
         // `a_war_machine_played_in_the_production_window_grows_that_steps_budget`'s own fixture.
         crate::fixtures::put(&mut base, &ids[1], "destroyer", &a, 1);
-        crate::fixtures::put(&mut base, &ids[0], "titans_pds", &a, 1);
+        crate::fixtures::put(&mut base, &ids[0], "saar_spacedock", &a, 1);
         base.player_mut(&a).unwrap().trade_goods = 10;
 
         let bare_state = base.clone();
@@ -7733,6 +9546,23 @@ mod tests {
                 "the combat settled; log: {:?}",
                 game.events
             );
+            if with_card {
+                // The removal the card staged is announced with the combat's provenance: the only
+                // window Direct Hit can be played into is `SUSTAIN_DAMAGE_USED`, which the combat
+                // driver emits, so the ship it destroyed is a ship lost during that combat.
+                let loss = game
+                    .timing
+                    .applied_events()
+                    .iter()
+                    .find(|event| event.event_type == "SHIP_DESTROYED")
+                    .expect("the Direct Hit destroyed the ship that sustained the hit");
+                assert_eq!(
+                    loss.text("cause"),
+                    Some("action_card:direct_hit"),
+                    "a card played into a combat does not rename the loss"
+                );
+                assert_eq!(loss.boolean("during_space_combat"), Some(true));
+            }
             (game.state.clone(), game.events.clone())
         };
 
@@ -8335,6 +10165,146 @@ mod tests {
         assert!(
             !events.iter().any(|e| e == "ACTION_CARD_PLAYED"),
             "no card, no play; log: {events:?}"
+        );
+    }
+
+    struct NaazCannonRouteDecider {
+        system: String,
+        seen: std::rc::Rc<std::cell::RefCell<Vec<(String, Vec<String>)>>>,
+    }
+
+    impl Decider for NaazCannonRouteDecider {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            self.seen.borrow_mut().push((
+                choice.prompt.clone(),
+                choice
+                    .options
+                    .iter()
+                    .map(|option| format!("{} [{}]", option.label, option.kind))
+                    .collect(),
+            ));
+            let wanted = if choice.ids().contains(&TACTICAL_ACTION_ID) {
+                choice.option(TACTICAL_ACTION_ID)
+            } else if choice.ids().contains(&self.system.as_str()) {
+                choice.option(&self.system)
+            } else if choice.ids().contains(&"done_moving") {
+                choice.option("done_moving")
+            } else if choice.prompt.starts_with("cancel a hit at ") {
+                choice.options.iter().find(|option| option.is_decline())
+            } else {
+                choice.options.first()
+            };
+            wanted.cloned().ok_or_else(|| IllegalChoice::NoOptions {
+                player: choice.player.clone(),
+                prompt: choice.prompt.clone(),
+            })
+        }
+    }
+
+    #[test]
+    fn a_planetary_maximum_is_immune_to_the_actual_space_cannon_offense_route() {
+        let (mut state, galaxy, systems) = tactical_fixture();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let sources = ti4_model::content_types::DEFAULT;
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("naaz");
+        state.player_mut(&a).unwrap().fleet_tokens = 6;
+        state.player_mut(&b).unwrap().fleet_tokens = 6;
+
+        let content = ContentStore::embedded();
+        let planets = ti4_content::galaxy::all_planets(content, sources);
+        let (system, planet) = systems
+            .iter()
+            .find_map(|system| {
+                planets
+                    .iter()
+                    .find(|(_, planet)| planet.system_id() == Some(system.as_str()))
+                    .map(|(id, _)| (system.clone(), ti4_model::id::PlanetId::new(*id)))
+            })
+            .expect("the tactical fixture contains a system with a printed planet");
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), b.clone());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &b, 2);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_voltron", &a, 1);
+        crate::fixtures::put(&mut state, &system, "cruiser", &a, 1);
+        crate::fixtures::put(&mut state, &system, "destroyer", &b, 1);
+
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let table = Table::with_default(Box::new(NaazCannonRouteDecider {
+            system: system.to_string(),
+            seen: seen.clone(),
+        }));
+        let mut game = Game::with_table(state, content, table)
+            .with_galaxy(galaxy)
+            .with_sources(sources);
+        game.dice = Dice::from_faces([10u32, 10]);
+
+        for _ in 0..20 {
+            let result = game.step();
+            assert_eq!(result.error, None, "the tactical route stays legal");
+            if game.events.iter().any(|event| event == "SPACE_CANNON_HITS") {
+                break;
+            }
+        }
+
+        assert!(game.events.iter().any(|event| event == "SPACE_CANNON_HITS"));
+        let cannon_rolls: Vec<_> = game
+            .dice
+            .history()
+            .iter()
+            .filter(|roll| roll.reason.contains("space cannon"))
+            .collect();
+        assert_eq!(cannon_rolls.len(), 2, "both printed PDS rolled");
+        assert_eq!(
+            cannon_rolls.iter().map(|roll| roll.hits()).sum::<usize>(),
+            2,
+            "the routed cannon event carries two hits"
+        );
+        assert!(
+            game.dice
+                .history()
+                .iter()
+                .all(|roll| roll.reason.contains("space cannon")),
+            "stop after the cannon absorption, before ordinary combat rolls: {:?}",
+            game.dice.history()
+        );
+        assert!(
+            seen.borrow()
+                .iter()
+                .all(|(prompt, choices)| !prompt.starts_with("cancel a hit at ")
+                    && !choices.iter().any(|choice| choice.contains("naaz_voltron"))),
+            "the unit-ability route must never offer the Maximum's sustain or casualty: {:?}",
+            seen.borrow()
+        );
+        let here = game.state.system_state(&system);
+        let standing = here.on_planet(&planet);
+        assert_eq!(
+            standing.len(),
+            3,
+            "two PDS and the Maximum remain on the planet"
+        );
+        assert_eq!(
+            standing
+                .iter()
+                .filter(|unit| unit.owner == b && unit.type_id.as_str() == "pds")
+                .count(),
+            2
+        );
+        assert!(standing.iter().any(|unit| unit.owner == a
+            && unit.type_id.as_str() == "naaz_voltron"
+            && !unit.sustained_damage));
+        assert!(
+            !game
+                .state
+                .system_state(&system)
+                .units
+                .iter()
+                .any(|unit| { unit.owner == a && unit.type_id.as_str() == "cruiser" }),
+            "the only eligible ship takes the first hit"
+        );
+        assert!(
+            game.aftermath.is_some(),
+            "the game is paused in the tactical aftermath, before space combat resolves"
         );
     }
 
@@ -12245,5 +14215,391 @@ mod tests {
         assert!(state.identical(&replayed));
         assert_eq!(log, replayed_log);
         assert_eq!(notes, replayed_notes);
+    }
+
+    #[test]
+    fn invalid_copied_l1z_activation_restores_token_window_and_log_for_retry() {
+        let content = ContentStore::embedded();
+        let (mut state, _, _) = tactical_fixture();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("yssaril");
+        state.player_mut(&a).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new("yssarilagent"),
+            ti4_model::state::LeaderStatus::Readied,
+        );
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("l1z1x");
+        state.player_mut(&b).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new("l1z1xagent"),
+            ti4_model::state::LeaderStatus::Exhausted,
+        );
+        let systems = ti4_content::galaxy::all_systems(content, POK);
+        let (id, record) = systems
+            .iter()
+            .find(|(_, system)| system.planets().len() >= 2)
+            .unwrap();
+        let system = SystemId::new(*id);
+        let planets: Vec<_> = record
+            .planets()
+            .into_iter()
+            .map(ti4_model::id::PlanetId::new)
+            .collect();
+        let galaxy = ti4_content::galaxy::Galaxy::placed(
+            content,
+            &[(system.as_str(), ti4_model::hex::Hex::new(0, 0))],
+            POK,
+        )
+        .unwrap();
+        for planet in &planets[..2] {
+            crate::fixtures::put_on_planet(&mut state, &system, planet, "infantry", &a, 1);
+        }
+        let copy = format!("leader:ssruu-copy:a:l1z1xagent:b:SYSTEM_ACTIVATED:after");
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            system.to_string(),
+            copy.clone(),
+            "bogus-planet".to_owned(),
+            system.to_string(),
+            copy.clone(),
+            planets[1].to_string(),
+        ])));
+        let mut game = Game::with_table(state, content, table).with_galaxy(galaxy);
+        assert_eq!(game.step().error, None);
+        assert!(matches!(
+            game.tactical.as_ref().unwrap().stage,
+            TacticalStage::Activating
+        ));
+        let before_state = game.state.clone();
+        let before_sequence = game.event_sequence.clone();
+        let before_timing = game.timing.log().to_vec();
+        let before_log = game.table.log.clone();
+        let before_events = game.events.clone();
+        assert!(game.step().error.is_some());
+        assert!(game.state.identical(&before_state));
+        assert_eq!(game.event_sequence, before_sequence);
+        assert_eq!(game.timing.log(), before_timing);
+        assert_eq!(game.table.log, before_log);
+        assert_eq!(game.events, before_events);
+        assert!(matches!(
+            game.tactical.as_ref().unwrap().stage,
+            TacticalStage::Activating
+        ));
+        assert_eq!(game.step().error, None);
+        assert_eq!(game.state.active_system, Some(system.clone()));
+        assert!(
+            game.state
+                .system_state(&system)
+                .on_planet(&planets[1])
+                .iter()
+                .any(|unit| unit.owner == a && unit.type_id.as_str() == "yssaril_mech")
+        );
+        assert_eq!(
+            game.table
+                .log
+                .records
+                .iter()
+                .filter(|row| row.chosen == copy)
+                .count(),
+            1
+        );
+    }
+
+    struct FailOnceAtRoundAgentTarget(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+    impl Decider for FailOnceAtRoundAgentTarget {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            if choice.prompt.starts_with("after COMBAT_ROUND_STARTED")
+                || choice
+                    .prompt
+                    .starts_with("after GROUND_COMBAT_ROUND_STARTED")
+            {
+                if let Some(copy) = choice
+                    .options
+                    .iter()
+                    .find(|option| option.id.starts_with("leader:ssruu-copy:"))
+                {
+                    return Ok(copy.clone());
+                }
+            }
+            if choice.prompt.starts_with("Ssruu copying ") {
+                if self.0.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    return Err(IllegalChoice::ScriptDiverged {
+                        player: choice.player.clone(),
+                        wanted: "not-an-offered-unit".to_owned(),
+                        offered: choice.ids().into_iter().map(str::to_owned).collect(),
+                    });
+                }
+                return choice
+                    .options
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| IllegalChoice::NoOptions {
+                        player: choice.player.clone(),
+                        prompt: choice.prompt.clone(),
+                    });
+            }
+            if let Some(action) = choice
+                .options
+                .iter()
+                .find(|option| option.id.starts_with("commit|") || option.id == "fight")
+            {
+                return Ok(action.clone());
+            }
+            if let Some(decline) = choice.options.iter().find(|option| option.is_decline()) {
+                return Ok(decline.clone());
+            }
+            choice
+                .options
+                .first()
+                .cloned()
+                .ok_or_else(|| IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                })
+        }
+    }
+
+    fn ssruu_round_game(
+        source_faction: &str,
+    ) -> (GameState, PlayerId, PlayerId, SystemId, PlanetId) {
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut state =
+            crate::fixtures::seated_game(&[("a", "yssaril"), ("b", source_faction)], POK);
+        state.phase = Phase::Action;
+        state.active = Some(a.clone());
+        state.player_mut(&a).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new("yssarilagent"),
+            ti4_model::state::LeaderStatus::Readied,
+        );
+        state.player_mut(&b).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new(if source_faction == "sol" {
+                "solagent"
+            } else {
+                "letnevagent"
+            }),
+            ti4_model::state::LeaderStatus::Readied,
+        );
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        (state, a, b, system, planet)
+    }
+
+    fn round_copy_table(fail_once: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Table {
+        Table::with_default(Box::new(FailOnceAtRoundAgentTarget(fail_once)))
+    }
+
+    #[test]
+    fn invalid_ssruu_letnev_round_copy_in_automatic_space_settle_rolls_back_for_retry() {
+        use std::sync::{Arc, atomic::AtomicBool};
+
+        let content = ContentStore::embedded();
+        let (mut state, borrower, source, system, _) = ssruu_round_game("letnev");
+        crate::fixtures::put(&mut state, &system, "cruiser", &borrower, 1);
+        crate::fixtures::put(&mut state, &system, "cruiser", &source, 1);
+        let fail_once = Arc::new(AtomicBool::new(true));
+        let mut game = Game::with_table(state, content, round_copy_table(fail_once));
+        let combat = crate::combat::CombatWindow::new(&game.state, content, POK, &system);
+        let before_combat = crate::combat::before_combat(&game.state, content, POK, &system);
+        game.aftermath = Some(AftermathWindow {
+            player: borrower.clone(),
+            system: system.clone(),
+            stage: Aftermath::Fighting(Box::new(combat)),
+            log: Vec::new(),
+            before_combat,
+            feats_noted: false,
+            pending_event_scoring: None,
+            notes_at_tactical_start: crate::combat::note_holdings(&game.state),
+        });
+
+        assert!(game.legal_options().is_none(), "round opening is automatic");
+        let state_before = game.state.clone();
+        let sequence_before = game.event_sequence.clone();
+        let timing_log_before = game.timing.log().to_vec();
+        let applied_before = game.timing.applied_events().to_vec();
+        let table_log_before = game.table.log.clone();
+        let events_before = game.events.clone();
+        let dice_before = game.dice.history().to_vec();
+        assert!(
+            game.step().error.is_some(),
+            "the nested target answer is invalid"
+        );
+
+        assert!(game.state.identical(&state_before));
+        assert_eq!(game.event_sequence, sequence_before);
+        assert_eq!(game.timing.log(), timing_log_before);
+        assert_eq!(game.timing.applied_events(), applied_before);
+        assert_eq!(game.table.log, table_log_before);
+        assert_eq!(game.events, events_before);
+        assert_eq!(game.dice.history(), dice_before);
+        assert!(
+            game.aftermath.is_some(),
+            "the automatic continuation is retained"
+        );
+        assert_eq!(
+            game.state
+                .player(&borrower)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+            Some(&ti4_model::state::LeaderStatus::Readied)
+        );
+        assert_eq!(
+            game.state
+                .player(&source)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("letnevagent")),
+            Some(&ti4_model::state::LeaderStatus::Readied),
+            "a failed borrow never changes the source agent"
+        );
+
+        assert_eq!(
+            game.step().error,
+            None,
+            "the same automatic opening retries"
+        );
+        assert_eq!(
+            game.state
+                .player(&borrower)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+            Some(&ti4_model::state::LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            game.state
+                .player(&source)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("letnevagent")),
+            Some(&ti4_model::state::LeaderStatus::Readied)
+        );
+        assert!(
+            game.state
+                .faction_marks
+                .keys()
+                .any(|key| key.starts_with("yssaril:ssruu-round-agent:"))
+        );
+        assert!(
+            !game.timing.applied_events().is_empty(),
+            "the retry emits the round event"
+        );
+    }
+
+    #[test]
+    fn invalid_ssruu_sol_round_copy_from_fight_choice_rolls_back_for_retry() {
+        use std::sync::{Arc, atomic::AtomicBool};
+
+        let content = ContentStore::embedded();
+        let (mut state, borrower, source, system, planet) = ssruu_round_game("sol");
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), source.clone());
+        crate::fixtures::put(&mut state, &system, "carrier", &borrower, 1);
+        crate::fixtures::put(&mut state, &system, "infantry", &borrower, 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &source, 1);
+        let fail_once = Arc::new(AtomicBool::new(true));
+        let mut game = Game::with_table(state, content, round_copy_table(fail_once));
+        let invasion = crate::invasion::InvasionWindow::new(
+            &mut game.state,
+            content,
+            POK,
+            &mut game.dice,
+            &mut game.rng,
+            &borrower,
+            &system,
+        );
+        let before_combat = crate::combat::before_combat(&game.state, content, POK, &system);
+        game.aftermath = Some(AftermathWindow {
+            player: borrower.clone(),
+            system: system.clone(),
+            stage: Aftermath::Invading(Box::new(invasion)),
+            log: Vec::new(),
+            before_combat,
+            feats_noted: false,
+            pending_event_scoring: None,
+            notes_at_tactical_start: crate::combat::note_holdings(&game.state),
+        });
+
+        for _ in 0..8 {
+            if game
+                .legal_options()
+                .is_some_and(|choice| choice.options.iter().any(|option| option.id == "fight"))
+            {
+                break;
+            }
+            assert_eq!(
+                game.step().error,
+                None,
+                "commitment advances to the ground round"
+            );
+            assert!(
+                game.aftermath.is_some(),
+                "the invasion continuation remains open"
+            );
+        }
+        let offered = game.legal_options().expect("ground combat asks to fight");
+        assert_eq!(offered.options[0].id, "fight");
+        let state_before = game.state.clone();
+        let sequence_before = game.event_sequence.clone();
+        let timing_log_before = game.timing.log().to_vec();
+        let applied_before = game.timing.applied_events().to_vec();
+        let table_log_before = game.table.log.clone();
+        let events_before = game.events.clone();
+        let dice_before = game.dice.history().to_vec();
+        assert!(
+            game.step().error.is_some(),
+            "the nested target answer is invalid"
+        );
+
+        assert!(game.state.identical(&state_before));
+        assert_eq!(game.event_sequence, sequence_before);
+        assert_eq!(game.timing.log(), timing_log_before);
+        assert_eq!(game.timing.applied_events(), applied_before);
+        assert_eq!(game.table.log, table_log_before);
+        assert_eq!(game.events, events_before);
+        assert_eq!(game.dice.history(), dice_before);
+        assert!(game.aftermath.is_some(), "the fighting choice is retained");
+        assert_eq!(
+            game.state
+                .player(&borrower)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+            Some(&ti4_model::state::LeaderStatus::Readied)
+        );
+        assert_eq!(
+            game.state
+                .player(&source)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("solagent")),
+            Some(&ti4_model::state::LeaderStatus::Readied),
+            "a failed borrow never changes the source agent"
+        );
+
+        assert_eq!(game.step().error, None, "the same ground round retries");
+        assert_eq!(
+            game.state
+                .player(&borrower)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("yssarilagent")),
+            Some(&ti4_model::state::LeaderStatus::Exhausted)
+        );
+        assert_eq!(
+            game.state
+                .player(&source)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("solagent")),
+            Some(&ti4_model::state::LeaderStatus::Readied)
+        );
+        assert!(
+            game.state
+                .faction_marks
+                .keys()
+                .any(|key| key.starts_with("yssaril:ssruu-round-agent:"))
+        );
+        assert!(game.state.combat_round_seq > state_before.combat_round_seq);
     }
 }

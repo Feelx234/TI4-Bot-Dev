@@ -38,6 +38,8 @@ pub struct StatusPhaseReport {
 pub enum StatusPhaseError {
     #[error("cannot resolve status bookkeeping while in {0:?} phase")]
     WrongPhase(Phase),
+    #[error(transparent)]
+    IllegalChoice(#[from] crate::choice::IllegalChoice),
 }
 
 /// Resolve every choice-free part of LRR 81, in order.
@@ -70,9 +72,26 @@ pub fn resolve_status_phase(state: &mut GameState) -> Result<StatusPhaseReport, 
 pub fn resolve_before_token_gain(
     state: &mut GameState,
 ) -> Result<StatusPhaseReport, StatusPhaseError> {
+    resolve_before_token_gain_with(state, None)
+}
+
+/// [`resolve_before_token_gain`] with the content and decider a driver has, so the 81.3 action-card
+/// draw honours faction draw effects (Yssaril Scheming: one more card, then discard one). With
+/// `None`, or with no faction module acting, it draws exactly as before.
+///
+/// # Errors
+/// As [`resolve_before_token_gain`], or [`StatusPhaseError::IllegalChoice`] from a draw effect's
+/// question.
+pub fn resolve_before_token_gain_with(
+    state: &mut GameState,
+    mut draw_effects: Option<(&ti4_content::ContentStore, &mut crate::choice::Table)>,
+) -> Result<StatusPhaseReport, StatusPhaseError> {
     if state.phase != Phase::Status {
         return Err(StatusPhaseError::WrongPhase(state.phase));
     }
+    // The discard choice follows objective reveal and one or more deck-to-hand draws. If its
+    // answer is invalid, undo the whole status step, including earlier seats' draws.
+    let snapshot = draw_effects.as_ref().map(|_| state.clone());
 
     let mut report = StatusPhaseReport::default();
 
@@ -89,21 +108,54 @@ pub fn resolve_before_token_gain(
     let initiative = state.initiative_order();
     report.initiative_order.clone_from(&initiative);
     for player_id in initiative {
-        let requested_draws = 1 + usize::from(
+        let mut requested_draws = 1 + usize::from(
             state
                 .player(&player_id)
                 .is_some_and(|player| player.technologies.contains(&TechnologyId::new("nm"))),
         );
+        if let Some((content, table)) = draw_effects.as_mut() {
+            if let Err(error) = crate::factions::hooks_economy::action_card_draw_requested(
+                state,
+                content,
+                table,
+                &player_id,
+                requested_draws,
+            ) {
+                if let Some(before) = snapshot {
+                    *state = before;
+                }
+                return Err(error.into());
+            }
+            requested_draws += crate::factions::hooks_economy::action_card_draw_bonus(
+                state,
+                content,
+                &player_id,
+                requested_draws,
+            );
+        }
         let mut drawn_count = 0;
+        let mut drawn = Vec::new();
         for _ in 0..requested_draws {
             let Some(card) = state.action_card_deck.first().cloned() else {
                 break;
             };
             state.action_card_deck.remove(0);
             if let Some(player) = state.player_mut(&player_id) {
-                player.action_cards.push(card);
+                player.action_cards.push(card.clone());
+                drawn.push(card);
                 drawn_count += 1;
             }
+        }
+        if let Some((content, table)) = draw_effects.as_mut()
+            && !drawn.is_empty()
+            && let Err(error) = crate::factions::hooks_economy::action_cards_drawn(
+                state, content, table, &player_id, &drawn,
+            )
+        {
+            if let Some(before) = snapshot {
+                *state = before;
+            }
+            return Err(error.into());
         }
         report.action_cards_drawn.push((player_id, drawn_count));
     }
@@ -331,6 +383,28 @@ mod tests {
                 .command_tokens
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn an_illegal_scheming_discard_leaves_the_status_state_unchanged() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", "yssaril"), ("b", "sol")], POK);
+        state.phase = Phase::Status;
+        state.action_card_deck = ["bribery", "flank_speed", "skilled_retreat"]
+            .into_iter()
+            .map(ti4_model::id::ActionCardId::new)
+            .collect();
+        assert!(!state.objective_deck.is_empty());
+        let before = serde_json::to_value(&state).unwrap();
+        let mut table =
+            crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([
+                "not_offered",
+            ])));
+
+        let error = resolve_before_token_gain_with(&mut state, Some((content, &mut table)))
+            .expect_err("an answer outside the discard options is illegal");
+        assert!(matches!(error, StatusPhaseError::IllegalChoice(_)));
+        assert_eq!(serde_json::to_value(&state).unwrap(), before);
     }
 
     #[test]

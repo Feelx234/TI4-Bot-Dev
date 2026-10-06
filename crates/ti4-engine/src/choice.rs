@@ -1261,6 +1261,7 @@ impl<'a> Observed<'a> {
 
 /// Replace every seat's private holdings with markers except `keep`'s.
 fn redact_others(view: &mut GameState, keep: &PlayerId) {
+    ti4_model::view::redact_marks(view, keep);
     for seat in &mut view.players {
         if &seat.id != keep {
             seat.action_cards = seat
@@ -1363,6 +1364,120 @@ impl<'a> SeatObservation<'a> {
                 **holder == self.acting_seat && !self.observed.state.promissory_faceup.contains(*id)
             })
             .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// Hidden cards other players have shown or allowed the bound seat to inspect, by owner —
+    /// and only to this seat.
+    ///
+    /// Effects with a lasting reveal record it through `factions::hooks_cards::reveal`; ongoing
+    /// permissions such as M'aban are computed from the current position each time. This accessor
+    /// filters on the bound seat, so no argument can name another viewer. The public [`Observed`]
+    /// has no accessor for it. A card its owner no longer holds is not reported.
+    #[must_use]
+    pub fn revealed_cards(&self) -> Vec<crate::factions::hooks_cards::Revealed> {
+        let state = self.observed.state;
+        let mut revealed = crate::factions::hooks_cards::revealed_to(state, &self.acting_seat);
+        // Standing hand permissions are read from the current board and current leader state.
+        // They are deliberately not persisted in faction_marks, which would go stale on movement
+        // or a change to the owner's hand.
+        for owner in &state.seating_order {
+            if crate::factions::hooks_cards::may_view_hand(
+                state,
+                self.observed.content,
+                self.observed.sources,
+                self.observed.galaxy,
+                &self.acting_seat,
+                owner,
+                crate::factions::hooks_cards::RevealKind::PromissoryNotes,
+            ) {
+                let ids: Vec<String> = state
+                    .promissory_notes
+                    .iter()
+                    .filter(|(id, holder)| {
+                        *holder == owner && !state.promissory_faceup.contains(*id)
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                if !ids.is_empty() {
+                    if let Some(existing) = revealed.iter_mut().find(|row| {
+                        row.owner == *owner
+                            && row.kind == crate::factions::hooks_cards::RevealKind::PromissoryNotes
+                    }) {
+                        for id in ids {
+                            if !existing.ids.contains(&id) {
+                                existing.ids.push(id);
+                            }
+                        }
+                    } else {
+                        revealed.push(crate::factions::hooks_cards::Revealed {
+                            owner: owner.clone(),
+                            kind: crate::factions::hooks_cards::RevealKind::PromissoryNotes,
+                            ids,
+                        });
+                    }
+                }
+            }
+        }
+        revealed
+    }
+
+    /// The agenda deck's current top and bottom cards, when this bound seat has permission.
+    /// The order and cards are read live from the position; no reveal is stored.
+    #[must_use]
+    pub fn agenda_deck_ends(&self) -> Option<(String, String)> {
+        let state = self.observed.state;
+        if !crate::factions::naalu::commander_has_peek(state, &self.acting_seat) {
+            return None;
+        }
+        Some((
+            state.agenda_deck.first()?.clone(),
+            state.agenda_deck.last()?.clone(),
+        ))
+    }
+
+    /// The action cards other players have shown the bound seat: `(owner, cards)` in owner order.
+    /// See [`SeatObservation::revealed_cards`].
+    #[must_use]
+    pub fn revealed_action_cards(&self) -> Vec<(PlayerId, Vec<ti4_model::id::ActionCardId>)> {
+        self.revealed_of(crate::factions::hooks_cards::RevealKind::ActionCards)
+            .into_iter()
+            .map(|(owner, ids)| {
+                (
+                    owner,
+                    ids.into_iter()
+                        .map(ti4_model::id::ActionCardId::new)
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// The promissory notes (still in hand, so not public) other players have shown the bound seat.
+    /// See [`SeatObservation::revealed_cards`].
+    #[must_use]
+    pub fn revealed_promissory_notes(&self) -> Vec<(PlayerId, Vec<String>)> {
+        self.revealed_of(crate::factions::hooks_cards::RevealKind::PromissoryNotes)
+    }
+
+    /// The secret objectives other players have shown the bound seat. See
+    /// [`SeatObservation::revealed_cards`].
+    #[must_use]
+    pub fn revealed_secret_objectives(&self) -> Vec<(PlayerId, Vec<SecretObjectiveId>)> {
+        self.revealed_of(crate::factions::hooks_cards::RevealKind::SecretObjectives)
+            .into_iter()
+            .map(|(owner, ids)| (owner, ids.into_iter().map(SecretObjectiveId::new).collect()))
+            .collect()
+    }
+
+    fn revealed_of(
+        &self,
+        kind: crate::factions::hooks_cards::RevealKind,
+    ) -> Vec<(PlayerId, Vec<String>)> {
+        self.revealed_cards()
+            .into_iter()
+            .filter(|shown| shown.kind == kind)
+            .map(|shown| (shown.owner, shown.ids))
             .collect()
     }
 
@@ -1920,6 +2035,8 @@ pub struct Table {
     auto_resolved_observer: Option<Box<dyn FnMut(&AutoResolved) + Send>>,
     /// Decisions settled without asking, since the last drain. Never part of the decision log.
     auto_resolved: Vec<AutoResolved>,
+    choice_failures: u64,
+    last_choice_error: Option<IllegalChoice>,
 }
 
 /// A decision the engine settled itself because exactly one option was legal.
@@ -1946,6 +2063,8 @@ impl Default for Table {
             observed_offer: None,
             auto_resolved_observer: None,
             auto_resolved: Vec::new(),
+            choice_failures: 0,
+            last_choice_error: None,
         }
     }
 }
@@ -2026,8 +2145,10 @@ impl Table {
             .deciders
             .get_mut(&choice.player)
             .unwrap_or(&mut self.default);
-        let answer = decider.choose(choice)?;
-        self.settle(choice, answer)
+        let answer = decider.choose(choice);
+        let outcome = answer.and_then(|answer| self.settle(choice, answer));
+        self.remember_choice_error(&outcome);
+        outcome
     }
 
     /// Put a choice to its actor along with the public position.
@@ -2059,8 +2180,27 @@ impl Table {
         // up by `choice.player`, so the view it receives answers for exactly that seat. Policy-
         // side code never sees a constructor for this type.
         let seat_view = SeatObservation::bind(seen, choice.player.clone());
-        let answer = decider.choose_seeing(choice, &seat_view)?;
-        self.settle(choice, answer)
+        let answer = decider.choose_seeing(choice, &seat_view);
+        let outcome = answer.and_then(|answer| self.settle(choice, answer));
+        self.remember_choice_error(&outcome);
+        outcome
+    }
+
+    // Strict callers can detect errors swallowed by legacy Option-returning effect APIs.
+    pub(crate) fn choice_error_checkpoint(&self) -> u64 {
+        self.choice_failures
+    }
+
+    pub(crate) fn choice_error_since(&self, checkpoint: u64) -> Option<IllegalChoice> {
+        (self.choice_failures != checkpoint)
+            .then(|| self.last_choice_error.clone()).flatten()
+    }
+
+    fn remember_choice_error(&mut self, outcome: &Result<ChoiceOption, IllegalChoice>) {
+        if let Err(error) = outcome {
+            self.choice_failures = self.choice_failures.saturating_add(1);
+            self.last_choice_error = Some(error.clone());
+        }
     }
 
     /// Validate an answer and record it. Shared, so the two ask paths cannot drift.
@@ -3386,6 +3526,107 @@ mod obs004_actor_owned_inventory {
         );
     }
 
+    #[test]
+    fn naalu_commander_reads_neighbor_hands_and_agenda_ends_live() {
+        use crate::fixtures::{hub_with_centre, put};
+        use ti4_model::id::SystemId;
+
+        let content = ContentStore::embedded();
+        let hub = hub_with_centre(crate::seating::MECATOL);
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        state.player_mut(&pid("a")).unwrap().faction = ti4_model::id::FactionId::new("naalu");
+        state
+            .player_mut(&pid("a"))
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("naalucommander"), LeaderStatus::Unlocked);
+        put(
+            &mut state,
+            &SystemId::new(hub.outer[0].clone()),
+            "infantry",
+            &pid("a"),
+            1,
+        );
+        put(
+            &mut state,
+            &SystemId::new(crate::seating::MECATOL),
+            "cruiser",
+            &pid("b"),
+            1,
+        );
+        let far = hub.across(&hub.outer[0]);
+        put(&mut state, &SystemId::new(far), "cruiser", &pid("c"), 1);
+        state.promissory_notes.insert("b:note".to_owned(), pid("b"));
+        state.promissory_notes.insert("c:note".to_owned(), pid("c"));
+        state.agenda_deck = vec![
+            "agenda_top".to_owned(),
+            "middle".to_owned(),
+            "agenda_bottom".to_owned(),
+        ];
+
+        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        let a = SeatObservation::bind(&seen, pid("a"));
+        assert_eq!(
+            a.revealed_promissory_notes(),
+            vec![(pid("b"), vec!["b:note".to_owned()])]
+        );
+        assert!(a.revealed_action_cards().is_empty());
+        assert!(a.revealed_secret_objectives().is_empty());
+        assert!(
+            state
+                .faction_marks
+                .keys()
+                .all(|key| !key.starts_with("cards:reveal:")),
+            "M'aban's live permission creates no stored reveal"
+        );
+        assert_eq!(
+            a.agenda_deck_ends(),
+            Some(("agenda_top".to_owned(), "agenda_bottom".to_owned()))
+        );
+        assert!(
+            SeatObservation::bind(&seen, pid("b"))
+                .revealed_promissory_notes()
+                .is_empty()
+        );
+        assert!(
+            SeatObservation::bind(&seen, pid("c"))
+                .agenda_deck_ends()
+                .is_none()
+        );
+        let without_map = Observed::new(&state, content, POK, None);
+        let a_without_map = SeatObservation::bind(&without_map, pid("a"));
+        assert!(a_without_map.revealed_promissory_notes().is_empty());
+        assert_eq!(
+            a_without_map.agenda_deck_ends(),
+            Some(("agenda_top".to_owned(), "agenda_bottom".to_owned()))
+        );
+
+        // Hand changes, faceup play, and commander lock state are all observed immediately.
+        state.promissory_notes.insert("b:new".to_owned(), pid("b"));
+        state.promissory_faceup.insert("b:note".to_owned());
+        state.agenda_deck = vec!["new_top".to_owned(), "new_bottom".to_owned()];
+        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        let a = SeatObservation::bind(&seen, pid("a"));
+        assert_eq!(
+            a.revealed_promissory_notes(),
+            vec![(pid("b"), vec!["b:new".to_owned()])]
+        );
+        assert_eq!(
+            a.agenda_deck_ends(),
+            Some(("new_top".to_owned(), "new_bottom".to_owned()))
+        );
+
+        state
+            .player_mut(&pid("a"))
+            .unwrap()
+            .leaders
+            .insert(LeaderId::new("naalucommander"), LeaderStatus::Locked);
+        let seen = Observed::new(&state, content, POK, Some(&hub.galaxy));
+        let a = SeatObservation::bind(&seen, pid("a"));
+        assert!(a.revealed_promissory_notes().is_empty());
+        assert_eq!(a.agenda_deck_ends(), None);
+    }
+
     /// Laws are public: every seat reads the same standing effects.
     ///
     /// Fourteen decision producers read this state for legality or application and no feature
@@ -3414,5 +3655,69 @@ mod obs004_actor_owned_inventory {
                 "a standing law binds the table, so it reads the same from either seat"
             );
         }
+    }
+
+    #[test]
+    fn a_reveal_is_visible_to_its_viewer_alone_and_never_through_the_public_position() {
+        // BF-00h-cards: three seats, a shows nothing, b's hand is shown to a. Only a's bound view
+        // reports it, in each of the three kinds; b and c get nothing, and the public `Observed`
+        // carries a count for b, as it did before.
+        use crate::factions::hooks_cards::{RevealKind, RevealScope, reveal, reveal_hand};
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        state.player_mut(&pid("b")).unwrap().action_cards = vec![
+            ti4_model::id::ActionCardId::new("bribery"),
+            ti4_model::id::ActionCardId::new("dh1"),
+        ];
+        state.player_mut(&pid("b")).unwrap().secret_objectives =
+            vec![SecretObjectiveId::new("otf")];
+        let note = "spynet:yssaril".to_owned();
+        state.promissory_notes.insert(note.clone(), pid("b"));
+        let before = Observed::new(&state, content, POK, None);
+        for seat in ["a", "b", "c"] {
+            assert!(
+                SeatObservation::bind(&before, pid(seat))
+                    .revealed_cards()
+                    .is_empty()
+            );
+        }
+        reveal_hand(
+            &mut state,
+            &pid("a"),
+            &pid("b"),
+            RevealScope::Choice,
+            "yssarilcommander",
+        );
+        for (kind, ids) in [
+            (RevealKind::SecretObjectives, vec!["otf".to_owned()]),
+            (RevealKind::PromissoryNotes, vec![note.clone()]),
+        ] {
+            assert!(reveal(
+                &mut state,
+                &pid("a"),
+                &pid("b"),
+                kind,
+                &ids,
+                RevealScope::Choice,
+                "yssarilcommander"
+            ));
+        }
+        let seen = Observed::new(&state, content, POK, None);
+        let a = SeatObservation::bind(&seen, pid("a"));
+        assert_eq!(a.revealed_action_cards()[0].1.len(), 2);
+        assert_eq!(a.revealed_promissory_notes(), vec![(pid("b"), vec![note])]);
+        assert_eq!(
+            a.revealed_secret_objectives(),
+            vec![(pid("b"), vec![SecretObjectiveId::new("otf")])]
+        );
+        for seat in ["b", "c"] {
+            assert!(
+                SeatObservation::bind(&seen, pid(seat))
+                    .revealed_cards()
+                    .is_empty(),
+                "{seat} was shown nothing"
+            );
+        }
+        assert_eq!(seen.seat(&pid("b")).unwrap().action_cards_held, 2);
     }
 }

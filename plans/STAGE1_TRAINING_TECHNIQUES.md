@@ -121,7 +121,7 @@ Training was stopped at update 1600 (of a planned 2050) at the user's request, a
 boundary (`--report-every 100`, so the stop lands exactly on a saved, reload-verified checkpoint —
 `ppo_update` publishes at every report window specifically so a stop or crash costs at most one
 window). 450 updates remain against the original budget; the trend at the stop point was still
-positive on both axes (see `plans/HANDOVER_2026-09-05_STAGE1_RETRAIN.md` for the exact resume
+positive on both axes (see `plans/archive/HANDOVER_2026-09-05_STAGE1_RETRAIN.md` for the exact resume
 command and current artifact paths).
 
 ## Recipe, distilled

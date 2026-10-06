@@ -154,6 +154,8 @@ pub fn begin_next_round(state: &mut GameState, strategy_cards: Vec<ti4_model::id
     crate::diplomacy::decay_relationships(state);
     state.round += 1;
     state.active = None;
+    // The Naalu "0" token (and Gift of Prescience's transfer of it) lasts one game round.
+    crate::strategy::clear_initiative_overrides(state);
     // A card kept under Political Stability is not on the mat, so it is not drafted: putting every
     // card back let a second seat take the kept one (reported 2026-09-23: two factions holding
     // Leadership).
@@ -214,6 +216,9 @@ pub fn advance_phase(state: &mut GameState) -> PhaseOutcome {
                 player.stability = false;
             }
             // Imperial Arbiter and the technology hooks belong here, before the read.
+            // Faction modules place their initiative tokens (Naalu "0") at the same point: the
+            // overrides last the round and `begin_next_round` clears them.
+            crate::factions::hooks_strategy::strategy_phase_ended(state);
             let order = state.initiative_order();
             state.phase = Phase::Action;
             state.active = None;

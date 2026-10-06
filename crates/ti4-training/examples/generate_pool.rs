@@ -35,8 +35,9 @@ use ti4_model::content_types::FULL;
 /// The six axial neighbours of a hex.
 const NEIGHBOURS: [(i64, i64); 6] = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)];
 
-/// Mecatol Rex, pinned to the centre as the board's fixed point.
-const MECATOL: &str = "18";
+/// Mecatol Rex, pinned to the centre as the board's fixed point: the Thunder's Edge printing,
+/// whose planet is legendary (operator, 2026-10-05; Winnu needs a legendary Mecatol).
+const MECATOL: &str = ti4_engine::seating::MECATOL_TE;
 
 /// A small deterministic generator, so a pool can be reproduced from its seed alone.
 struct Random(u64);
@@ -183,8 +184,8 @@ fn main() {
         let Some(id) = record.get("id").and_then(serde_json::Value::as_str) else {
             continue;
         };
-        if id == MECATOL {
-            continue;
+        if ti4_engine::seating::is_mecatol(id) {
+            continue; // neither printing of Mecatol is filler
         }
         if record
             .get("isHyperlane")

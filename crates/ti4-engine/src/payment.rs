@@ -40,6 +40,27 @@ impl Plan {
             .sum();
         from_planets + i64::from(self.trade_goods)
     }
+
+    /// [`Self::worth`] for a payer whose trade goods may be worth more than one each (Mentak
+    /// Mirror Computing). Identical to `worth` when they are worth one.
+    #[must_use]
+    pub fn worth_for(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+        kind: Spend,
+    ) -> i64 {
+        let from_planets: i64 = self
+            .planets
+            .iter()
+            .map(|planet| planet_value_now(state, content, sources, planet, kind))
+            .sum();
+        from_planets
+            + i64::from(self.trade_goods)
+                * crate::factions::hooks_economy::trade_good_worth(state, player, 1)
+    }
 }
 
 /// How many planets a single plan will consider. A cost of ten from a dozen readied planets
@@ -65,9 +86,14 @@ pub fn plans(
     if cost <= 0 {
         return vec![Plan::default()];
     }
+    // What one held trade good pays *as modules change it*: one with no module acting. Not
+    // `production::trade_good_worth`, which also carries the hard-coded `mc` technology that
+    // this path has never honoured (kept neutral; the Mentak package moves `mc` onto the hook).
+    let per_good = crate::factions::hooks_economy::trade_good_worth(state, player, 1).max(1);
     let goods = state
         .player(player)
-        .map_or(0, |seat| i64::from(seat.trade_goods));
+        .map_or(0, |seat| i64::from(seat.trade_goods))
+        * per_good;
 
     // Planets worth nothing towards this cost cannot help, and including them would generate
     // plans that differ only by a planet that paid nothing.
@@ -100,7 +126,8 @@ pub fn plans(
         }
         found.push(Plan {
             planets: chosen.iter().map(|(planet, _)| planet.clone()).collect(),
-            trade_goods: i32::try_from(shortfall).unwrap_or(i32::MAX),
+            // Whole goods, rounded up: two goods worth two each pay a bill of three.
+            trade_goods: i32::try_from((shortfall + per_good - 1) / per_good).unwrap_or(i32::MAX),
         });
     }
 
@@ -364,5 +391,71 @@ mod tests {
         };
         assert!(!apply(&mut state, &player(), &plan));
         assert!(state.identical(&before));
+    }
+    /// Mentak Mirror Computing reaches votes and objective costs, which pay through `plans`: with
+    /// each good worth two, three influence costs two goods, and three goods can pay six.
+    #[test]
+    fn a_trade_good_worth_hook_changes_what_goods_cost_in_a_plan() {
+        use crate::factions::hooks_economy::{EconomyHooks, with_test_hooks};
+        let mut state = game(&["a"]);
+        state.player_mut(&player()).unwrap().trade_goods = 2;
+        let content = ContentStore::embedded();
+        let ask = |state: &GameState, cost: i64| {
+            plans(state, content, POK, &player(), cost, Spend::Influence)
+        };
+        assert!(
+            ask(&state, 3).is_empty(),
+            "two goods of one cannot pay three"
+        );
+        let doubled = EconomyHooks {
+            trade_good_worth: Some(|_, _, worth| worth * 2),
+            ..EconomyHooks::NONE
+        };
+        with_test_hooks(doubled, || {
+            let found = ask(&state, 3);
+            assert_eq!(found.len(), 1);
+            assert_eq!(found[0].trade_goods, 2, "rounded up to whole goods");
+            assert_eq!(
+                found[0].worth_for(&state, content, POK, &player(), Spend::Influence),
+                4
+            );
+            assert_eq!(ask(&state, 4)[0].trade_goods, 2);
+            assert_eq!(ask(&state, 2)[0].trade_goods, 1);
+            assert!(ask(&state, 5).is_empty());
+        });
+    }
+    /// `plans` behaves exactly as before while no module acts: the hard-coded `mc` technology is
+    /// honoured by production payment only, not here (the Mentak package moves it onto the hook).
+    #[test]
+    fn mirror_computing_doubles_trade_goods_in_every_payment() {
+        // Mirror Computing (Mentak): "When you spend trade goods, each trade good is worth 2
+        // resources or influence instead of 1." Implemented once, by the Mentak module through the
+        // `trade_good_worth` hook, so production and every other payment agree.
+        let mut state = game(&["a"]);
+        {
+            let seat = state.player_mut(&player()).unwrap();
+            seat.trade_goods = 2;
+            seat.technologies
+                .insert(ti4_model::id::TechnologyId::new("mc"));
+        }
+        let content = ContentStore::embedded();
+        let found = plans(&state, content, POK, &player(), 3, Spend::Influence);
+        assert!(!found.is_empty(), "two goods now pay up to four");
+        assert!(found.iter().all(|plan| plan.trade_goods <= 2));
+        let two = plans(&state, content, POK, &player(), 4, Spend::Influence);
+        assert!(
+            two.iter().any(|plan| plan.trade_goods == 2
+                && plan.worth_for(&state, content, POK, &player(), Spend::Influence) >= 4),
+            "two goods are worth four"
+        );
+        state
+            .player_mut(&player())
+            .unwrap()
+            .technologies
+            .remove(&ti4_model::id::TechnologyId::new("mc"));
+        assert!(
+            plans(&state, content, POK, &player(), 3, Spend::Influence).is_empty(),
+            "without the technology two goods pay two"
+        );
     }
 }
