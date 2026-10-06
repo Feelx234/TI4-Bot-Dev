@@ -136,3 +136,110 @@ describe("command token panel (redistribute)", () => {
     expect(screen.getByTestId("token-blocker")).toBeInTheDocument();
   });
 });
+
+const purchase = {
+  cost: 3,
+  influence_available: 9,
+  max: 3,
+  trade_goods: 7,
+  trade_good_worth: 1,
+  planets: [{ id: "jord", worth: 2 }],
+};
+const gainBuyChoice = (): PendingChoiceDto => {
+  const choice = gainChoice(3);
+  return { ...choice, nonce: "gain-buy-1", details: { ...choice.details, purchase } };
+};
+
+describe("command token panel (gain and buy)", () => {
+  it("plans the free tokens, the purchases and every pool on one screen", async () => {
+    const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+    render(<PendingChoiceModal choice={gainBuyChoice()} onSubmit={vi.fn()} onSubmitBatch={onSubmitBatch} />);
+    expect(screen.getByTestId("token-total")).toHaveTextContent("3");
+    expect(screen.getByTestId("token-buy")).toHaveTextContent("3 influence each");
+    expect(screen.getByTestId("token-influence")).toHaveTextContent("Influence available 9");
+    expect(screen.getByTestId("token-buy-minus")).toBeDisabled();
+
+    await click("token-buy-plus");
+    await click("token-buy-plus");
+    expect(screen.getByTestId("token-total")).toHaveTextContent("5");
+    expect(screen.getByTestId("token-split")).toHaveTextContent("3 free + 2 bought");
+    expect(screen.getByTestId("token-influence-spent")).toHaveTextContent("6");
+    expect(screen.getByTestId("token-payment")).toHaveTextContent("jord (2) + 4 trade goods");
+    expect(screen.getByTestId("token-remaining")).toHaveTextContent("5");
+    expect(screen.getByTestId("token-confirm")).toBeDisabled();
+
+    for (const pool of ["tactic", "tactic", "fleet", "fleet", "strategic"]) {
+      await click(`token-plus-${pool}`);
+    }
+    expect(screen.getByTestId("token-remaining")).toHaveTextContent("0");
+    await click("token-confirm");
+    const sent = onSubmitBatch.mock.calls[0][0];
+    expect(sent.kind).toBe("tokens");
+    expect(sent.steps.filter((step: { kind: string }) => step.kind === "purchase")).toEqual([
+      { kind: "purchase", buy: true },
+      { kind: "purchase", buy: true },
+      { kind: "purchase", buy: false },
+    ]);
+    expect(sent.steps).toHaveLength(3 + 2 * 2 + 5 + 1);
+  });
+
+  it("stops the stepper at what is affordable and drops staged tokens when buying fewer", async () => {
+    render(<PendingChoiceModal choice={gainBuyChoice()} onSubmit={vi.fn()} onSubmitBatch={vi.fn()} />);
+    for (let i = 0; i < 5; i += 1) await click("token-buy-plus");
+    expect(screen.getByTestId("token-buy-count")).toHaveTextContent("3");
+    expect(screen.getByTestId("token-buy-plus")).toBeDisabled();
+    expect(screen.getByTestId("token-influence-spent")).toHaveTextContent("9");
+    for (let i = 0; i < 6; i += 1) await click("token-plus-fleet");
+    await click("token-buy-minus");
+    expect(screen.getByTestId("token-remaining")).toHaveTextContent("0");
+    expect(screen.getByTestId("token-pips-fleet")).toHaveAttribute("data-added", "5");
+    await click("token-reset");
+    expect(screen.getByTestId("token-buy-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("token-total")).toHaveTextContent("3");
+  });
+
+  it("is a plain list again without a batch submitter", () => {
+    render(<PendingChoiceModal choice={gainBuyChoice()} onSubmit={vi.fn()} />);
+    expect(screen.queryByTestId("command-token-panel")).not.toBeInTheDocument();
+  });
+
+  it("shows the secondary window's purchase on the same panel and answers it as one plan", async () => {
+    const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+    const window: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "secondary-1",
+      prompt: "spend 3 influence for a command token",
+      options: [
+        { id: "no", kind: "strategy", label: "spend nothing further" },
+        { id: "yes", kind: "strategy", label: "spend 3 influence" },
+      ],
+      context: { subtype: "buy_token_with_influence" } as PendingChoiceDto["context"],
+      details: {
+        kind: "strategy_secondary",
+        card: "pok1leadership",
+        played_by: "seat_2",
+        mode: "buy",
+        pools: { tactic: 3, fleet: 4, strategic: 2 },
+        reinforcements: 7,
+        tokens_to_place: 0,
+        purchase,
+      },
+    };
+    render(<PendingChoiceModal choice={window} onSubmit={vi.fn()} onSubmitBatch={onSubmitBatch} />);
+    expect(screen.getByTestId("token-confirm")).toHaveTextContent("No purchase");
+    await click("token-buy-plus");
+    await click("token-plus-strategic");
+    expect(screen.getByTestId("token-confirm")).toHaveTextContent("Confirm tokens and purchase");
+    await click("token-confirm");
+    expect(onSubmitBatch).toHaveBeenCalledWith({
+      kind: "tokens",
+      steps: [
+        { kind: "purchase", buy: true },
+        { kind: "exhaust", planet: "jord" },
+        { kind: "trade_good" },
+        { kind: "pool", pool: "strategic_tokens" },
+        { kind: "purchase", buy: false },
+      ],
+    });
+  });
+});

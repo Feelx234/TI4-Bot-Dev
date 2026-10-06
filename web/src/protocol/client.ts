@@ -92,7 +92,7 @@ const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
   agenda_vote_planets: ["vote_exhaust_planet"],
   production: ["produce_unit"],
   casualties: ["sustain_damage", "assign_casualty", "assign_ground_casualty"],
-  tokens: ["gain_command_token"],
+  tokens: ["gain_command_token", "buy_token_with_influence", "pay_influence"],
 };
 
 /**

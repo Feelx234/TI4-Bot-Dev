@@ -172,8 +172,9 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     ? selectedOptionIds.length >= minSelection && selectedOptionIds.length <= maxSelection
     : choice.options.some((opt) => opt.id === selectedOptionId);
 
-  const secondary = describeStrategySecondary(choice);
-  const tokens = secondary ? null : describeCommandTokens(choice, Boolean(onSubmitBatch));
+  // Leadership's secondary window plans its purchase on the token panel instead.
+  const tokens = describeCommandTokens(choice, Boolean(onSubmitBatch));
+  const secondary = tokens ? null : describeStrategySecondary(choice);
   const confirmTokens = async (outcome: TokenOutcome) => {
     if (outcome.kind === "option") await onSubmit(outcome.optionId);
     else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });

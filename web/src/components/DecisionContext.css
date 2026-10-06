@@ -172,6 +172,27 @@
   border: 1.5px dashed #94a3b8;
   background: transparent;
 }
+.token-panel__buy {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px dashed var(--color-border, #4b5563);
+  border-radius: 8px;
+}
+
+.token-panel__buy > .token-panel__influence,
+.token-panel__buy > .token-panel__note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.token-panel__split {
+  font-weight: 400;
+  opacity: 0.8;
+}
+
 .token-panel__legend {
   display: flex;
   flex-wrap: wrap;

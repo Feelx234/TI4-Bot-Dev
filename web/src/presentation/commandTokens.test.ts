@@ -5,12 +5,16 @@ import {
   canConfirmTokens,
   confirmBlocker,
   describeCommandTokens,
+  fitStaging,
   initialStaging,
+  maxPurchases,
+  planPayment,
   poolPips,
   removeToken,
   resultingCount,
   tokenOutcome,
   tokenPlan,
+  tokenPlanWithPurchase,
   tokensRemaining,
 } from "./commandTokens.ts";
 
@@ -153,5 +157,161 @@ describe("redistribution staging", () => {
     expect(poolPips(view, staging, "tactic")).toEqual({ kept: 2, added: 0, removed: 1 });
     expect(poolPips(view, staging, "fleet")).toEqual({ kept: 4, added: 1, removed: 0 });
     expect(resultingCount(view, staging, "fleet")).toBe(5);
+  });
+});
+
+const purchaseDetails = (over: Record<string, unknown> = {}) => ({
+  cost: 3,
+  influence_available: 9,
+  max: 3,
+  trade_goods: 7,
+  trade_good_worth: 1,
+  planets: [{ id: "jord", worth: 2 }],
+  ...over,
+});
+const gainBuy = (toPlace = 3, purchase = purchaseDetails()) => ({
+  options: poolOptions,
+  details: { ...gain(toPlace).details, purchase },
+});
+const buyQuestion = (purchase = purchaseDetails()) => ({
+  options: [
+    { id: "no", kind: "strategy", label: "spend nothing further" },
+    { id: "yes", kind: "strategy", label: "spend 3 influence" },
+  ],
+  details: {
+    kind: "command_tokens",
+    mode: "buy",
+    pools: { tactic: 3, fleet: 4, strategic: 2 },
+    reinforcements: 7,
+    tokens_to_place: 0,
+    purchase,
+  },
+});
+const secondaryWindow = () => ({
+  ...buyQuestion(),
+  details: { ...buyQuestion().details, kind: "strategy_secondary", card: "pok1leadership" },
+});
+const staged = (tactic: number, fleet: number, strategic: number) => ({ tactic, fleet, strategic });
+
+describe("gain + buy model", () => {
+  it("reads the purchase from the free gain, the buy question and the secondary window", () => {
+    for (const choice of [gainBuy(), buyQuestion(), secondaryWindow()]) {
+      const view = describeCommandTokens(choice, true)!;
+      expect(view.purchase).toMatchObject({ cost: 3, influence: 9, max: 3, tradeGoods: 7 });
+    }
+    expect(describeCommandTokens(gainBuy(), true)!.total).toBe(3);
+    expect(describeCommandTokens(buyQuestion(), true)!.total).toBe(0);
+    expect(describeCommandTokens(gain(), true)!.purchase).toBeNull();
+  });
+
+  it("falls back to the per-decision flow without a batch submitter or a usable purchase", () => {
+    expect(describeCommandTokens(gainBuy(), false)).toBeNull();
+    expect(describeCommandTokens(buyQuestion(), false)).toBeNull();
+    const broken = { ...gainBuy(), details: { ...gainBuy().details, purchase: { cost: 3 } } };
+    expect(describeCommandTokens(broken, true)!.purchase).toBeNull();
+    expect(describeCommandTokens({ ...secondaryWindow(), details: { kind: "strategy_secondary" } }, true)).toBeNull();
+  });
+
+  it("bounds the purchases by influence, spendable sources and the reinforcements", () => {
+    expect(maxPurchases(describeCommandTokens(gainBuy(), true)!)).toBe(3);
+    const poor = describeCommandTokens(gainBuy(3, purchaseDetails({ trade_goods: 1, max: 3 })), true)!;
+    expect(maxPurchases(poor)).toBe(1); // jord 2 + one good
+    const crowded = describeCommandTokens(
+      { ...gainBuy(), details: { ...gainBuy().details, reinforcements: 4 } },
+      true,
+    )!;
+    expect(maxPurchases(crowded)).toBe(1); // 3 free + 1 bought fill the reinforcements
+  });
+
+  it("pays like Auto-pay: planets with the least waste, goods only when they fall short", () => {
+    const view = describeCommandTokens(gainBuy(), true)!;
+    expect(planPayment(view, 0)).toMatchObject({ spent: 0, extra: 0 });
+    expect(planPayment(view, 1)).toMatchObject({ planets: [{ id: "jord", worth: 2 }], tradeGoods: 1, spent: 3, extra: 0 });
+    expect(planPayment(view, 3)).toMatchObject({ tradeGoods: 7, spent: 9 });
+    expect(planPayment(view, 4)).toBeNull();
+    const big = describeCommandTokens(
+      gainBuy(3, purchaseDetails({ planets: [{ id: "a", worth: 4 }, { id: "b", worth: 1 }], influence_available: 12, max: 4 })),
+      true,
+    )!;
+    // 3 influence: planets a (4) over-pays by one; a+b is worse; so a alone, and one is carried.
+    expect(planPayment(big, 1)).toMatchObject({ planets: [{ id: "a", worth: 4 }], tradeGoods: 0, extra: 1 });
+  });
+
+  it("totals free plus bought tokens and gates Confirm on assigning all of them", () => {
+    const view = describeCommandTokens(gainBuy(), true)!;
+    expect(tokensRemaining(view, staged(0, 0, 0), 2)).toBe(5);
+    expect(canConfirmTokens(view, staged(1, 1, 1), 0)).toBe(true);
+    expect(canConfirmTokens(view, staged(1, 1, 1), 1)).toBe(false);
+    expect(confirmBlocker(view, staged(1, 1, 1), 1)).toBe("Assign 1 more token to confirm.");
+    expect(canConfirmTokens(view, staged(2, 2, 1), 2)).toBe(true);
+    expect(canConfirmTokens(view, staged(0, 0, 0), 4)).toBe(false);
+  });
+
+  it("drops staged tokens when fewer are bought", () => {
+    const view = describeCommandTokens(gainBuy(), true)!;
+    expect(fitStaging(view, staged(2, 2, 1), 1)).toEqual(staged(2, 2, 0));
+    expect(fitStaging(view, staged(2, 2, 1), 0)).toEqual(staged(2, 1, 0));
+  });
+
+  it("plans free pools, then per purchase: yes, payment, pool, and the closing no", () => {
+    const view = describeCommandTokens(gainBuy(), true)!;
+    const steps = tokenPlanWithPurchase(view, staged(1, 2, 2), 2)!;
+    expect(steps).toEqual([
+      { kind: "pool", pool: "tactic_tokens" },
+      { kind: "pool", pool: "fleet_tokens" },
+      { kind: "pool", pool: "fleet_tokens" },
+      { kind: "purchase", buy: true },
+      { kind: "exhaust", planet: "jord" },
+      { kind: "trade_good" },
+      { kind: "pool", pool: "strategic_tokens" },
+      { kind: "purchase", buy: true },
+      { kind: "trade_good" },
+      { kind: "trade_good" },
+      { kind: "trade_good" },
+      { kind: "pool", pool: "strategic_tokens" },
+      { kind: "purchase", buy: false },
+    ]);
+  });
+
+  it("asks no closing no when the purchases use up everything affordable", () => {
+    const view = describeCommandTokens(gainBuy(), true)!;
+    const steps = tokenPlanWithPurchase(view, staged(3, 3, 0), 3)!;
+    expect(steps.filter((step) => step.kind === "purchase")).toHaveLength(3);
+    expect(steps.at(-1)).toEqual({ kind: "pool", pool: "fleet_tokens" });
+  });
+
+  it("carries an overpayment into the next token instead of paying twice", () => {
+    const view = describeCommandTokens(
+      gainBuy(3, purchaseDetails({ planets: [{ id: "big", worth: 6 }], influence_available: 6, max: 2, trade_goods: 0 })),
+      true,
+    )!;
+    const steps = tokenPlanWithPurchase(view, staged(3, 2, 0), 2)!;
+    expect(steps.slice(3)).toEqual([
+      { kind: "purchase", buy: true },
+      { kind: "exhaust", planet: "big" },
+      { kind: "pool", pool: "fleet_tokens" },
+      { kind: "purchase", buy: true },
+      { kind: "pool", pool: "fleet_tokens" },
+    ]);
+  });
+
+  it("answers a bare purchase question: nothing bought is one no, a buy starts with yes", () => {
+    const view = describeCommandTokens(buyQuestion(), true)!;
+    expect(canConfirmTokens(view, staged(0, 0, 0), 0)).toBe(true);
+    expect(tokenOutcome(view, staged(0, 0, 0), 0)).toEqual({
+      kind: "plan",
+      steps: [{ kind: "purchase", buy: false }],
+    });
+    const bought = tokenOutcome(view, staged(0, 1, 0), 1);
+    expect(bought).toEqual({
+      kind: "plan",
+      steps: [
+        { kind: "purchase", buy: true },
+        { kind: "exhaust", planet: "jord" },
+        { kind: "trade_good" },
+        { kind: "pool", pool: "fleet_tokens" },
+        { kind: "purchase", buy: false },
+      ],
+    });
   });
 });

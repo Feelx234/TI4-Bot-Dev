@@ -8,12 +8,16 @@ import {
   canConfirmTokens,
   canRemoveToken,
   confirmBlocker,
+  fitStaging,
   initialStaging,
+  maxPurchases,
+  planPayment,
   poolPips,
   removeToken,
   resultingCount,
   tokenOutcome,
   tokensRemaining,
+  tokensToAssign,
   type CommandTokenView,
   type TokenOutcome,
   type TokenStaging,
@@ -56,16 +60,26 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
 }) => {
   const start = useMemo(() => initialStaging(view), [view]);
   const [staging, setStaging] = useState<TokenStaging>(start);
+  const [bought, setBought] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const locked = disabled || submitting;
-  const remaining = tokensRemaining(view, staging);
-  const blocker = confirmBlocker(view, staging);
-  const changed = TOKEN_POOLS.some((pool) => staging[pool] !== start[pool]);
+  const remaining = tokensRemaining(view, staging, bought);
+  const blocker = confirmBlocker(view, staging, bought);
+  const changed = bought > 0 || TOKEN_POOLS.some((pool) => staging[pool] !== start[pool]);
   const gain = view.mode === "gain";
+  const purchase = view.purchase;
+  const buyLimit = maxPurchases(view);
+  const payment = purchase ? planPayment(view, bought) : null;
+  const total = tokensToAssign(view, bought);
+  const changeBought = (next: number) => {
+    const clamped = Math.max(0, Math.min(buyLimit, next));
+    setBought(clamped);
+    setStaging((current) => fitStaging(view, current, clamped));
+  };
 
   const confirm = async () => {
-    const outcome = tokenOutcome(view, staging);
+    const outcome = tokenOutcome(view, staging, bought);
     if (!outcome) return;
     setSubmitting(true);
     setError(null);
@@ -75,6 +89,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
       // The engine moved on or rejected the plan: start again from what it offers now.
       setError(cause instanceof Error ? cause.message : String(cause));
       setStaging(start);
+      setBought(0);
     } finally {
       setSubmitting(false);
     }
@@ -84,7 +99,13 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
     <div className="token-panel" data-testid="command-token-panel" data-mode={view.mode}>
       <div className="token-panel__summary">
         <span data-testid="token-total">
-          {gain ? "Tokens to assign" : "Tokens to arrange"} <strong>{view.total}</strong>
+          {gain ? "Tokens to assign" : "Tokens to arrange"} <strong>{total}</strong>
+          {purchase && (
+            <span className="token-panel__split" data-testid="token-split">
+              {" "}
+              ({view.total} free + {bought} bought)
+            </span>
+          )}
         </span>
         <span
           className="token-panel__remaining"
@@ -99,6 +120,65 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
           </span>
         )}
       </div>
+      {purchase && (
+        <div className="token-panel__buy" data-testid="token-buy">
+          <span className="token-panel__name">
+            Buy tokens
+            <span className="token-panel__purpose">
+              {purchase.cost} influence each, up to {buyLimit}
+            </span>
+          </span>
+          <span className="token-panel__stepper">
+            <button
+              type="button"
+              className="button button--secondary button--sm"
+              data-testid="token-buy-minus"
+              aria-label="Buy one token less"
+              disabled={locked || bought === 0}
+              onClick={() => changeBought(bought - 1)}
+            >
+              −
+            </button>
+            <span className="token-panel__count" data-testid="token-buy-count" aria-label="Tokens bought">
+              {bought}
+            </span>
+            <button
+              type="button"
+              className="button button--secondary button--sm"
+              data-testid="token-buy-plus"
+              aria-label="Buy one token more"
+              disabled={locked || bought >= buyLimit}
+              onClick={() => changeBought(bought + 1)}
+            >
+              +
+            </button>
+          </span>
+          <div className="token-panel__influence" data-testid="token-influence">
+            Influence available <strong>{purchase.influence}</strong> · spent{" "}
+            <strong data-testid="token-influence-spent">{payment?.spent ?? 0}</strong>
+            {payment && payment.extra > 0 && (
+              <span data-testid="token-influence-extra">
+                {" "}
+                ({payment.extra} more than the bill
+                {bought < buyLimit ? ", carried to the next token" : ", lost"})
+              </span>
+            )}
+          </div>
+          {payment && bought > 0 && (
+            <p className="token-panel__note" data-testid="token-payment">
+              Pays with{" "}
+              {[
+                ...payment.planets.map((planet) => `${planet.id} (${planet.worth})`),
+                ...(payment.tradeGoods > 0
+                  ? [`${payment.tradeGoods} trade good${payment.tradeGoods === 1 ? "" : "s"}`]
+                  : []),
+              ].join(" + ")}
+              . Chosen like Auto-pay: the planets covering the bill with the least waste, trade
+              goods only when planets fall short.
+            </p>
+          )}
+        </div>
+      )}
       <div className="token-panel__pools">
         {TOKEN_POOLS.map((pool) => {
           const pips = poolPips(view, staging, pool);
@@ -137,8 +217,8 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
                   className="button button--secondary button--sm"
                   data-testid={`token-plus-${pool}`}
                   aria-label={`Add a token to ${label}`}
-                  disabled={locked || !canAddToken(view, staging)}
-                  onClick={() => setStaging((s) => addToken(view, s, pool))}
+                  disabled={locked || !canAddToken(view, staging, bought)}
+                  onClick={() => setStaging((s) => addToken(view, s, pool, bought))}
                 >
                   +
                 </button>
@@ -175,7 +255,10 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
           className="button button--secondary"
           data-testid="token-reset"
           disabled={locked || !changed}
-          onClick={() => setStaging(start)}
+          onClick={() => {
+            setStaging(start);
+            setBought(0);
+          }}
         >
           Reset
         </button>
@@ -183,10 +266,18 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
           type="button"
           className="button button--primary"
           data-testid="token-confirm"
-          disabled={locked || !canConfirmTokens(view, staging)}
+          disabled={locked || !canConfirmTokens(view, staging, bought)}
           onClick={() => void confirm()}
         >
-          {submitting ? "Submitting..." : gain ? "Confirm tokens" : "Confirm arrangement"}
+          {submitting
+            ? "Submitting..."
+            : !gain
+              ? "Confirm arrangement"
+              : total === 0
+                ? "No purchase"
+                : bought > 0
+                  ? "Confirm tokens and purchase"
+                  : "Confirm tokens"}
         </button>
       </div>
       {error && (
