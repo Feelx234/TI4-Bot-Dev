@@ -432,4 +432,76 @@ describe("ReactionStatusBar", () => {
       }
     });
   });
+
+  describe("per-card never offer", () => {
+    const sabotage: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "60",
+      prompt: "when ACTION_CARD_PLAYED",
+      context: {
+        subtype: "reaction_when_ACTION_CARD_PLAYED",
+        optional: true,
+        source: { Reaction: "ACTION_CARD_PLAYED" },
+      },
+      options: [
+        {
+          id: "reaction:Sol:ACTION_CARD_PLAYED:when",
+          kind: "ability",
+          label: "Play Sabotage",
+          payload: { card: "sabo1", card_name: "Sabotage" },
+        },
+        { id: "decline", kind: "decline", label: "Pass" },
+      ],
+    };
+
+    it("sets the mode on the server and passes this window when it is the only card", async () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      const onSetReactionMode = vi.fn();
+      render(
+        <ReactionStatusBar
+          isOpen
+          choice={sabotage}
+          viewerSeat="seat_1"
+          onSubmit={onSubmit}
+          onSetReactionMode={onSetReactionMode}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("reaction-inspect-never-Sabotage"));
+      });
+      expect(onSetReactionMode).toHaveBeenCalledWith("Sabotage", "never");
+      expect(onSubmit).toHaveBeenCalledWith("decline");
+    });
+
+    it("shows the server's state and offers the card again on untick, without passing", async () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      const onSetReactionMode = vi.fn();
+      render(
+        <ReactionStatusBar
+          isOpen
+          choice={sabotage}
+          viewerSeat="seat_1"
+          onSubmit={onSubmit}
+          reactionModes={{ Sabotage: "never" }}
+          onSetReactionMode={onSetReactionMode}
+        />,
+      );
+      const box = screen.getByTestId("reaction-inspect-never-Sabotage");
+      expect(box).toBeChecked();
+      await act(async () => {
+        fireEvent.click(box);
+      });
+      expect(onSetReactionMode).toHaveBeenCalledWith("Sabotage", "always");
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it("has no control for a viewer who cannot change modes, and keeps the play and pass ids", () => {
+      render(<ReactionStatusBar isOpen choice={sabotage} viewerSeat="seat_1" onSubmit={vi.fn()} />);
+      expect(screen.queryByTestId("reaction-inspect-never-Sabotage")).toBeNull();
+      expect(
+        screen.getByTestId("play-reaction-btn-reaction:Sol:ACTION_CARD_PLAYED:when"),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("pass-reaction-btn")).toBeInTheDocument();
+    });
+  });
 });

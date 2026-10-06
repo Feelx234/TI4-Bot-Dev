@@ -783,6 +783,51 @@ describe("GameSessionClient ingress lifecycle", () => {
     });
     client.stop();
   });
+  it("sends set_reaction_mode and takes the modes from the seat's next state update", async () => {
+    const { client, socket, send } = await connectedPlayer();
+    expect(client.getState().snapshot?.reaction_modes).toBeUndefined();
+    client.setReactionMode("Sabotage", "never");
+    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({
+      type: "set_reaction_mode",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      card: "Sabotage",
+      mode: "never",
+    });
+    // Nothing is assumed locally: the modes are what the server last said.
+    expect(client.getState().snapshot?.reaction_modes).toBeUndefined();
+    send({
+      ...snapshot,
+      type: "state_update",
+      game_version: 4,
+      viewer: { role: "player", seat: "player_a" },
+      reaction_modes: { Sabotage: "never", Junk: "sometimes" },
+    });
+    expect(client.getState().snapshot?.reaction_modes).toEqual({ Sabotage: "never" });
+    // A later update without the field is the seat having none.
+    send({
+      ...snapshot,
+      type: "state_update",
+      game_version: 5,
+      viewer: { role: "player", seat: "player_a" },
+    });
+    expect(client.getState().snapshot?.reaction_modes).toBeUndefined();
+    client.stop();
+  });
+
+  it("does not send a mode change for a spectator or without a connection", () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const spectator = new GameSessionClient({ gameId: "game_12345", viewer: { role: "spectator" } });
+    spectator.setReactionMode("Sabotage", "never");
+    expect(spectator.getState().lastError).toMatch(/seated player/);
+    const offline = new GameSessionClient({
+      gameId: "game_12345",
+      viewer: { role: "player", seat: "player_a", playerSession: "private" },
+    });
+    offline.setReactionMode("Sabotage", "never");
+    expect(offline.getState().lastError).toMatch(/not connected/);
+  });
+
   async function connectedPlayer() {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     vi.stubGlobal(

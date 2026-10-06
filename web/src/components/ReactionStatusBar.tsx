@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useMemo } from "react";
-import type { BoardView, GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import type {
+  BoardView,
+  GameEvent,
+  PendingChoiceDto,
+  PlayerView,
+  ReactionModes,
+  ReactionModeSetting,
+} from "../protocol/types.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { firstSentence, useCardTextPrefs, type CardTextPrefs } from "../presentation/cardTextPrefs.ts";
@@ -25,6 +32,10 @@ export interface ReactionStatusBarProps {
   players?: Record<string, PlayerView>;
   /** Highlights a system on the map (the "Show on map" link of the system involved). */
   onShowSystem?: (systemId: string) => void;
+  /** This seat's "never offer" cards by printed name (server state). */
+  reactionModes?: ReactionModes;
+  /** Sets one card's mode on the server; absent when the viewer cannot (a spectator). */
+  onSetReactionMode?: (card: string, mode: ReactionModeSetting) => void;
 }
 
 const CardBlock: React.FC<{
@@ -99,6 +110,8 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   activeSystemId,
   players,
   onShowSystem,
+  reactionModes,
+  onSetReactionMode,
 }) => {
   const display = usePlayerIdentity();
   const prefs = useCardTextPrefs();
@@ -302,6 +315,25 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
                 <li key={row.optionId} className="reaction-status-bar__row">
                   {!row.card && <div className="reaction-card__name">{row.name}</div>}
                   <CardBlock card={row.card} note={row.note} prefs={prefs} showWindow />
+                  {row.card && onSetReactionMode && (
+                    <label className="reaction-status-bar__never">
+                      <input
+                        type="checkbox"
+                        data-testid={`reaction-inspect-never-${row.card.name}`}
+                        checked={reactionModes?.[row.card.name] === "never"}
+                        disabled={isSubmitting}
+                        onChange={(e) => {
+                          const name = row.card!.name;
+                          onSetReactionMode(name, e.target.checked ? "never" : "always");
+                          // Nothing else to play here: the window is answered for the player.
+                          if (e.target.checked && reaction.reactions.length === 1 && declineOption) {
+                            void handleAction(declineOption.id);
+                          }
+                        }}
+                      />
+                      Never offer {row.card.name} again this game
+                    </label>
+                  )}
                 </li>
               ))}
             </ul>

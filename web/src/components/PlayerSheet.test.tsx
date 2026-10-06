@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { PlayerSheet, calculateVPBreakdown, VPBreakdownTooltip } from "./PlayerSheet.tsx";
 import { CardDetails } from "./CardDetails.tsx";
 import { PlayerView, TableView } from "../protocol/types.ts";
+import { getActionCardMeta } from "../protocol/contentCatalog.ts";
 
 const mockPlayers: PlayerView[] = [
   {
@@ -307,5 +308,44 @@ describe("PlayerSheet toast mute", () => {
     expect(button).toHaveAttribute("aria-pressed", "true");
     expect(localStorage.getItem(TOAST_MUTE_KEY)).toBe("true");
     localStorage.clear();
+  });
+});
+
+describe("PlayerSheet reaction mode toggle", () => {
+  const name = getActionCardMeta("direct_hit").name;
+
+  it("shows the server's mode for the card name and sends the opposite on click", () => {
+    const onSetReactionMode = vi.fn();
+    const { rerender } = render(
+      <PlayerSheet players={mockPlayers} userSeat="p1" onSetReactionMode={onSetReactionMode} />,
+    );
+    const toggle = screen.getByTestId("reaction-inspect-mode-direct_hit");
+    expect(toggle).toHaveAttribute("data-reaction-mode", "always");
+    fireEvent.click(toggle);
+    expect(onSetReactionMode).toHaveBeenLastCalledWith(name, "never");
+
+    // Nothing changes locally: the toggle follows what the server says.
+    expect(screen.getByTestId("reaction-inspect-mode-direct_hit")).toHaveAttribute(
+      "data-reaction-mode",
+      "always",
+    );
+    rerender(
+      <PlayerSheet
+        players={mockPlayers}
+        userSeat="p1"
+        reactionModes={{ [name]: "never" }}
+        onSetReactionMode={onSetReactionMode}
+      />,
+    );
+    const never = screen.getByTestId("reaction-inspect-mode-direct_hit");
+    expect(never).toHaveAttribute("data-reaction-mode", "never");
+    expect(never).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(never);
+    expect(onSetReactionMode).toHaveBeenLastCalledWith(name, "always");
+  });
+
+  it("has no toggle for a viewer who cannot change modes or for another seat's cards", () => {
+    render(<PlayerSheet players={mockPlayers} userSeat="p1" />);
+    expect(screen.queryByTestId("reaction-inspect-mode-direct_hit")).toBeNull();
   });
 });

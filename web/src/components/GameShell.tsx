@@ -65,6 +65,12 @@ export interface GameShellProps {
   historyBusy?: boolean;
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
+  /** The viewing seat's "never offer" cards (server state) and how to change them. */
+  reactionModes?: import("../protocol/types.ts").ReactionModes;
+  onSetReactionMode?: (
+    card: string,
+    mode: import("../protocol/types.ts").ReactionModeSetting,
+  ) => void;
   onSubmitMovementBatch?: (
     destination: string,
     steps: import("../protocol/client.ts").MovementStep[],
@@ -108,6 +114,8 @@ export interface ChoiceRendererDispatcherProps {
   model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
   onSubmit: (optionId: string) => Promise<void>;
+  reactionModes?: GameShellProps["reactionModes"];
+  onSetReactionMode?: GameShellProps["onSetReactionMode"];
   onSubmitMovementBatch?: GameShellProps["onSubmitMovementBatch"];
   onSubmitBasketBatch?: GameShellProps["onSubmitBasketBatch"];
   lastError?: string | null;
@@ -286,10 +294,14 @@ const workflowRenderers = new Map<
       turn,
       players,
       onShowSystem,
+      reactionModes,
+      onSetReactionMode,
     }) => (
       <ReactionStatusBar
         players={players}
         onShowSystem={onShowSystem}
+        reactionModes={reactionModes}
+        onSetReactionMode={onSetReactionMode}
         choice={choice}
         model={model}
         viewerSeat={viewerSeat}
@@ -592,6 +604,8 @@ export const ChoiceRendererDispatcher: React.FC<
   turn,
   events,
   onShowSystem,
+  reactionModes,
+  onSetReactionMode,
 }) => {
   const present = useParticipantText();
   const derivedModel = useMemo(() => {
@@ -768,6 +782,8 @@ export const ChoiceRendererDispatcher: React.FC<
     turn,
     events,
     onShowSystem,
+    reactionModes,
+    onSetReactionMode,
   });
 
   return (
@@ -876,6 +892,8 @@ export const GameShell: React.FC<GameShellProps> = ({
   selectedPlanetId,
   onSelectPlanet,
   onShowSystem,
+  reactionModes,
+  onSetReactionMode,
   viewerSeat,
   players,
   boardView,
@@ -1135,6 +1153,8 @@ export const GameShell: React.FC<GameShellProps> = ({
             selectedPlanetId={selectedPlanetId}
             onSelectPlanet={onSelectPlanet}
             onShowSystem={onShowSystem}
+            reactionModes={reactionModes}
+            onSetReactionMode={onSetReactionMode}
             isMinimized={isChoiceMinimized}
             onMinimizedChange={setIsChoiceMinimized}
             tacticalPlan={tacticalPlan}

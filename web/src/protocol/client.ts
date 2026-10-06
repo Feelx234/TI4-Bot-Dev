@@ -8,6 +8,7 @@ import {
   StateUpdateMsg,
   ViewerRole,
   HistoryStatus,
+  ReactionModeSetting,
 } from "./types.ts";
 import {
   decodeDecisionTrigger,
@@ -408,6 +409,37 @@ export class GameSessionClient {
         this.rejectSubmission("No response from the server; try again");
     }, SUBMISSION_TIMEOUT_MS);
     return promise;
+  }
+
+  /**
+   * Asks the server to stop (or resume) offering one action card to this seat for the rest of
+   * the game. The answer is the seat's next state update, which carries the modes; nothing is
+   * assumed locally. Rejected when not connected or when watching.
+   */
+  setReactionMode(card: string, mode: ReactionModeSetting): void {
+    if (this.options.viewer.role !== "player") {
+      this.setState({ ...this.state, lastError: "Only a seated player can change reaction modes" });
+      return;
+    }
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      this.setState({
+        ...this.state,
+        lastError: "Cannot change the setting: not connected to server",
+      });
+      return;
+    }
+    const message: ClientMessage = {
+      type: "set_reaction_mode",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: this.options.gameId,
+      card,
+      mode,
+    };
+    try {
+      this.socket.send(JSON.stringify(message));
+    } catch (error) {
+      this.setState({ ...this.state, lastError: `Could not send the setting: ${String(error)}` });
+    }
   }
 
   async submitMovementBatch(

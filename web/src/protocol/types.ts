@@ -472,7 +472,14 @@ export interface InitialSnapshotMsg {
   events?: GameEvent[];
   history?: HistoryStatus;
   current_path?: CurrentLogPath;
+  reaction_modes?: ReactionModes;
 }
+
+/** How a seat wants an action card handled in reaction windows. Absent means always offered. */
+export type ReactionModeSetting = "always" | "never";
+
+/** The viewing seat's own choices by printed card name; the server only lists "never". */
+export type ReactionModes = Record<string, ReactionModeSetting>;
 
 export interface StateUpdateMsg {
   type?: "state_update";
@@ -489,6 +496,7 @@ export interface StateUpdateMsg {
   current_path?: CurrentLogPath;
   /** Decisions the engine made for this seat since the last update because only one option was legal. */
   auto_resolved?: AutoResolvedNote[];
+  reaction_modes?: ReactionModes;
 }
 
 /** One decision settled on the viewer's behalf (single legal option). Feedback only. */
@@ -587,6 +595,14 @@ export type ClientMessage =
       nonce: string;
       expected_version: number;
       option_id: string;
+    }
+  | {
+      type: "set_reaction_mode";
+      protocol_version: number;
+      game_id: string;
+      /** The printed card name; every copy of it is covered. */
+      card: string;
+      mode: ReactionModeSetting;
     }
   | {
       type: "ping";

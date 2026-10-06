@@ -29,6 +29,8 @@ export interface UseGameSessionReturn {
   history: import("../protocol/types.ts").HistoryStatus;
   batchResume?: import("../protocol/client.ts").BatchResume | null;
   submitChoice: (optionId: string) => Promise<void>;
+  /** Never (or again) offer one action card, by printed name, to this seat. */
+  setReactionMode: (card: string, mode: import("../protocol/types.ts").ReactionModeSetting) => void;
   changeHistory: (action: import("../protocol/client.ts").HistoryChange) => Promise<void>;
   submitMovementBatch: (
     destination: string,
@@ -65,6 +67,7 @@ export function useGameSession({
   return {
     ...state,
     submitChoice,
+    setReactionMode: (card, mode) => client.setReactionMode(card, mode),
     changeHistory,
     submitMovementBatch: (destination, steps) => client.submitMovementBatch(destination, steps),
     submitBatch: (plan) => client.submitBatch(plan),

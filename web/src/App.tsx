@@ -248,6 +248,7 @@ const GameViewContainer: React.FC<{
     events,
     history: gameHistory,
     submitChoice,
+    setReactionMode,
     changeHistory,
     submitMovementBatch,
     submitBatch,
@@ -449,6 +450,8 @@ const GameViewContainer: React.FC<{
               revealedObjectives={snapshot.view.table.revealed_objectives}
               board={snapshot.view.board}
               table={snapshot.view.table}
+              reactionModes={snapshot.reaction_modes}
+              onSetReactionMode={userSeat ? setReactionMode : undefined}
               onInspectCard={(subject) => {
                 setSelectedSystemId(null);
                 setCardSubject(subject);
@@ -483,6 +486,8 @@ const GameViewContainer: React.FC<{
         scoredObjectives={snapshot?.view.table.scored_objectives}
         objectiveProgress={snapshot?.view.table.objective_progress}
         onSubmitChoice={submitChoice}
+        reactionModes={snapshot?.reaction_modes}
+        onSetReactionMode={userSeat ? setReactionMode : undefined}
         onSubmitMovementBatch={submitMovementBatch}
         onSubmitBasketBatch={submitBatch}
         batchResume={batchResume}

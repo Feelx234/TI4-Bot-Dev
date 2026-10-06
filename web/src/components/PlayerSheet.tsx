@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { BoardView, PlayerView, TableView } from "../protocol/types.ts";
+import { BoardView, PlayerView, ReactionModes, ReactionModeSetting, TableView } from "../protocol/types.ts";
 import {
   getStrategyCardMeta,
   getSecretObjectiveMeta,
@@ -14,8 +14,6 @@ import { Tooltip } from "../primitives/index.ts";
 import { useTurnSound } from "../hooks/useTurnSound.ts";
 import { useToastMute } from "../hooks/useToastMute.ts";
 
-type ReactionMode = "always" | "never";
-type ReactionModeMap = Record<string, Record<string, ReactionMode>>;  // playerId -> cardId -> mode
 
 export interface VPBreakdown {
   publicObjectives: number;
@@ -180,6 +178,10 @@ export interface PlayerSheetProps {
   board?: BoardView;
   table?: TableView;
   onInspectCard?: (subject: CardSubject) => void;
+  /** The viewing seat's "never offer" cards by printed name, as the server holds them. */
+  reactionModes?: ReactionModes;
+  /** Changes one card's mode on the server; without it (a spectator) the toggle is not shown. */
+  onSetReactionMode?: (card: string, mode: ReactionModeSetting) => void;
 }
 
 export const PlayerSheet: React.FC<PlayerSheetProps> = ({
@@ -190,9 +192,10 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   board,
   table,
   onInspectCard,
+  reactionModes,
+  onSetReactionMode,
 }) => {
   const display = usePlayerIdentity();
-  const [reactionModes, setReactionModes] = useState<ReactionModeMap>({});
   const { isMuted, toggleMute } = useTurnSound();
   const [isMutedState, setIsMutedState] = useState(isMuted);
   const { muted: toastsMuted, toggleMute: toggleToastMute } = useToastMute();
@@ -221,19 +224,9 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
     return currentPlayer ? [currentPlayer, ...sortedOthers] : sortedOthers;
   }, [players, userSeat, seatingOrder]);
 
-  const getReactionMode = (playerId: string, cardId: string): ReactionMode => {
-    return reactionModes[playerId]?.[cardId] ?? "always";
-  };
-
-  const toggleReactionMode = (playerId: string, cardId: string) => {
-    setReactionModes((prev) => ({
-      ...prev,
-      [playerId]: {
-        ...(prev[playerId] ?? {}),
-        [cardId]: getReactionMode(playerId, cardId) === "always" ? "never" : "always",
-      },
-    }));
-  };
+  // Per printed card name and per game, held by the server: every copy of a card shares it.
+  const getReactionMode = (cardName: string): ReactionModeSetting =>
+    reactionModes?.[cardName] === "never" ? "never" : "always";
 
   return (
     <aside
@@ -630,10 +623,13 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                       {player.held_action_cards.map((cardId) => {
                         const meta = getActionCardMeta(cardId);
                         const tooltipText = `${meta.name} (${meta.phase ?? "Action"})\n\n${meta.description}`;
-                        const mode = getReactionMode(player.id, cardId);
+                        const mode = getReactionMode(meta.name);
                         const modeLabel = mode === "always" ? "✓" : "✕";
                         const modeColor = mode === "always" ? "#4ade80" : "#ef4444";
-                        const modeTitle = mode === "always" ? "Always offer this card (click to toggle to Never)" : "Never offer this card (click to toggle to Always)";
+                        const modeTitle =
+                          mode === "always"
+                            ? `${meta.name} is offered when it fits a window (click to never offer it this game)`
+                            : `${meta.name} is never offered this game (click to offer it again)`;
 
                         return (
                           <li
@@ -699,13 +695,20 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                                 </div>
                               </div>
                             </button>
-                            {isSelf && (
+                            {isSelf && onSetReactionMode && (
                               <button
                                 type="button"
                                 title={modeTitle}
+                                aria-label={modeTitle}
+                                aria-pressed={mode === "never"}
+                                data-testid={`reaction-inspect-mode-${cardId}`}
+                                data-reaction-mode={mode}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  toggleReactionMode(player.id, cardId);
+                                  onSetReactionMode(
+                                    meta.name,
+                                    mode === "always" ? "never" : "always",
+                                  );
                                 }}
                                 style={{
                                   background: "transparent",

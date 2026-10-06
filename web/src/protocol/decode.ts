@@ -192,6 +192,16 @@ export function decodeAutoResolved(raw: unknown): AutoResolvedNote[] {
   return notes;
 }
 
+/** The seat's reaction modes; anything that is not a known mode is dropped (settings, not state). */
+export function decodeReactionModes(value: unknown): Record<string, "always" | "never"> {
+  const modes: Record<string, "always" | "never"> = {};
+  if (!isRecord(value)) return modes;
+  for (const [card, mode] of Object.entries(value)) {
+    if (mode === "always" || mode === "never") modes[card] = mode;
+  }
+  return modes;
+}
+
 /** Validates the protocol envelope before React consumes any network payload. */
 export function decodeServerMessage(value: unknown, expectedGameId: string): ServerMessage {
   if (!isRecord(value) || typeof value.type !== "string") fail("missing message type");
@@ -219,6 +229,11 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
             !isNonNegativeInteger(value.history.generation)))
       )
         fail("invalid history status");
+      if (value.reaction_modes !== undefined) {
+        const modes = decodeReactionModes(value.reaction_modes);
+        if (Object.keys(modes).length > 0) value.reaction_modes = modes;
+        else delete value.reaction_modes;
+      }
       if (value.auto_resolved !== undefined) {
         // Feedback only, so a malformed or unknown shape is dropped rather than failing the update.
         const notes = decodeAutoResolved(value.auto_resolved);
