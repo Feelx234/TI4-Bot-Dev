@@ -786,6 +786,22 @@ describe("Board payment mode", () => {
     expect(onSelectTarget).toHaveBeenCalledWith("34", "fria");
   });
 
+  it("does not open the system inspector when a payable planet is clicked", () => {
+    const onSelectSystem = vi.fn();
+    render(
+      <Board
+        board={board}
+        seatingOrder={["p1", "p2"]}
+        pendingChoice={payChoice}
+        viewerSeat="p1"
+        onSelectSystem={onSelectSystem}
+        onSelectTarget={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("planet-fria"));
+    expect(onSelectSystem).not.toHaveBeenCalled();
+  });
+
   it("shows a staged planet as staged", () => {
     render(
       <PaymentDraftProvider

@@ -148,10 +148,11 @@ export function paymentProblem(
   if (offer.owed <= 0) return "Nothing is owed.";
   const s = summarizePayment(offer, draft);
   if (s.settled) return null;
+  const unit = offer.currency.toLowerCase();
   const best = bestPayableTotal(offer, tradeGoodsAvailable);
   if (best < offer.owed)
-    return `Not enough: all offered planets and trade goods cover only ${best} of ${offer.owed} ${offer.currency}.`;
-  return `Short by ${s.shortfall} ${offer.currency}: stage more planets or trade goods, or use Auto-pay.`;
+    return `Not enough: all offered planets and trade goods cover only ${best} of ${offer.owed} ${unit}.`;
+  return `Short by ${s.shortfall} ${unit}: stage more planets or trade goods, or use Auto-pay.`;
 }
 
 function bestPayableTotal(offer: PaymentOffer, tradeGoodsAvailable: number): number {

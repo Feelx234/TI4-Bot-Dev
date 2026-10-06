@@ -107,7 +107,9 @@ export const PaymentBar: React.FC<PaymentBarProps> = ({
       <div className="system-activation-bar__body">
         <div className="system-activation-bar__prompt-row">
           <span className="badge badge--primary">Pay {offer.owed} {unit}</span>
-          <span className="system-activation-bar__prompt">{present(choice.prompt)}</span>
+          {!/\bpay\b/i.test(choice.prompt) && (
+            <span className="system-activation-bar__prompt">{present(choice.prompt)}</span>
+          )}
           <span className="system-activation-bar__hint text-muted">
             (Click highlighted planets on the map)
           </span>

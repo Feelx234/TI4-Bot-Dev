@@ -53,7 +53,8 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
             onActivate={() => {
               if (isCandidateTarget) {
                 // Inspect first: a system inspection may reset the selection, the target must win.
-                onSelectSystem?.(tile.systemId);
+                // Paying toggles planets one after another, so the inspector must not pop up.
+                if (targetMode !== "payment") onSelectSystem?.(tile.systemId);
                 onSelectTarget?.(tile.systemId, p.id);
               }
             }}
@@ -66,7 +67,8 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
               if (isCandidateTarget) {
                 e.stopPropagation();
                 // Inspect first: a system inspection may reset the selection, the target must win.
-                onSelectSystem?.(tile.systemId);
+                // Paying toggles planets one after another, so the inspector must not pop up.
+                if (targetMode !== "payment") onSelectSystem?.(tile.systemId);
                 onSelectTarget?.(tile.systemId, p.id);
               }
             }}
