@@ -235,7 +235,9 @@ function activationWeights(board: BoardView, actor: string): Map<string, number>
     const inPlace =
       id === "18" &&
       (board.systems[id]?.units.some(
-        (u) => u.owner === actor && /infantry|mech|spec_ops/i.test(u.unit_type),
+        // Still in space: once landed on the planet the custodians are gone and there is nothing
+        // left to do in place.
+        (u) => u.owner === actor && !u.planet && /infantry|mech|spec_ops/i.test(u.unit_type),
       ) ??
         false);
     weights.set(id, activationWeight(id, reachable, enemies, inPlace));

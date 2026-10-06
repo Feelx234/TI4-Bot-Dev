@@ -41,6 +41,11 @@ describe("steerWeight (smoke harness steering)", () => {
     );
   });
 
+  it("keeps a raider's ships in Mecatol", () => {
+    expect(steerWeight("rally-inc-18-carrier | +")).toBeLessThan(steerWeight("rally-inc-65-carrier | +"));
+    expect(steerWeight("rally-inc-cargo-18-infantry-space | +")).toBe(25);
+  });
+
   it("weighs unknown controls 1", () => {
     expect(steerWeight("choice-option | something else")).toBe(1);
   });
@@ -54,8 +59,9 @@ describe("activationWeight (smoke harness steering)", () => {
     expect(activationWeight("35", false, true, false)).toBe(0.2);
   });
 
-  it("lets a seat with ground forces already in Mecatol activate it in place", () => {
-    expect(activationWeight("18", false, false, true)).toBe(40);
+  it("makes a seat with ground forces waiting in Mecatol activate it in place", () => {
+    // Dominant over ~35 other activations, each weighing at most 30.
+    expect(activationWeight("18", false, false, true)).toBeGreaterThanOrEqual(35 * 30);
     // Only Mecatol, and only with ground forces there.
     expect(activationWeight("35", false, false, true)).toBe(0.2);
     expect(activationWeight("18", false, false, false)).toBe(0.2);

@@ -32,6 +32,8 @@ const STEER_WEIGHTS: [RegExp, number][] = [
   // declines an unplanned cargo hold, so the infantry stays behind (27.2a then forbids the
   // custodians and Mecatol stays unlanded).
   [/^rally-inc-cargo-/, 25],
+  // A raider in Mecatol leaving it gives up the custodians it was placed there to lift.
+  [/^rally-inc-18-/, 0.2],
   [/^rally-inc-/, 10],
   [/ in space/i, 10],
   // Finishing while moves are staged throws them away, so a populated commit wins.
@@ -46,9 +48,9 @@ export function steerWeight(desc: string): number {
 
 /**
  * Steering weight for activating one system. Unreachable systems are rarely worth it; Mecatol Rex
- * and systems holding other players' units are favoured. A seat whose ground forces already stand
- * in Mecatol (the combat start preset) can activate it in place and lift the custodians without
- * moving, so that counts as reachable even though no ship can "move" there.
+ * and systems holding other players' units are favoured. A seat whose ground forces wait in
+ * Mecatol's space area (the combat start preset) can activate it in place and lift the custodians
+ * without moving, so that is weighted far above everything else.
  */
 export function activationWeight(
   id: string,
@@ -56,7 +58,9 @@ export function activationWeight(
   hasEnemies: boolean,
   groundForcesInPlaceOnMecatol: boolean,
 ): number {
-  if (id === "18" && groundForcesInPlaceOnMecatol) return 40;
+  // Dominant: among ~35 other activations a weight of 40 was rarely picked, and the raider then
+  // moved its ships out of Mecatol instead.
+  if (id === "18" && groundForcesInPlaceOnMecatol) return 2000;
   if (!reachable) return 0.2;
   return id === "18" ? 40 : hasEnemies ? 30 : 5;
 }
