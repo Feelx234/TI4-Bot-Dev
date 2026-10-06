@@ -1863,7 +1863,12 @@ fn offer_sustain(
                     state.phase,
                     state.round,
                 )
-                .about(DecisionTarget::System(system.clone())),
+                .about(DecisionTarget::System(system.clone()))
+                .owing(OutstandingConstraint::new(
+                    ConstraintKind::UnitsToRemove,
+                    i64::try_from(hits).unwrap_or(0),
+                    0,
+                )),
             );
         // Neutral units rule 5: they use every ability they can, so they always sustain and are
         // never asked.
@@ -2008,7 +2013,7 @@ pub fn absorb_hits_seeing_with(
                 alive = bound;
             }
         }
-        let casualty = choose_casualty(
+        let casualty = choose_casualty_owing(
             state,
             content,
             sources,
@@ -2019,6 +2024,7 @@ pub fn absorb_hits_seeing_with(
             &DecisionSource::Rule("78.4".to_owned()),
             "assign_casualty",
             Some(system),
+            Some(remaining),
         )?;
         state
             .system_mut(system)
@@ -2225,6 +2231,26 @@ pub(crate) fn choose_casualty(
     subtype: &str,
     target: Option<&SystemId>,
 ) -> Result<Unit, CombatError> {
+    choose_casualty_owing(
+        state, content, sources, galaxy, table, player, units, source, subtype, target, None,
+    )
+}
+
+/// [`choose_casualty`], telling the decision how many hits are still owed (itself included), so
+/// a client can stage them together instead of guessing.
+pub(crate) fn choose_casualty_owing(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    units: &[Unit],
+    source: &DecisionSource,
+    subtype: &str,
+    target: Option<&SystemId>,
+    owed: Option<usize>,
+) -> Result<Unit, CombatError> {
     if let [only] = units {
         return Ok(only.clone());
     }
@@ -2275,6 +2301,13 @@ pub(crate) fn choose_casualty(
     );
     if let Some(system) = target {
         context = context.about(DecisionTarget::System(system.clone()));
+    }
+    if let Some(owed) = owed {
+        context = context.owing(OutstandingConstraint::new(
+            ConstraintKind::UnitsToRemove,
+            i64::try_from(owed).unwrap_or(0),
+            0,
+        ));
     }
     let choice = Choice::new(player.clone(), "assign a hit", options).contextualized(context);
     let answer = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
@@ -4432,6 +4465,72 @@ mod tests {
         assert_ne!(
             assigning.context.as_ref().unwrap().subtype,
             sustaining.context.as_ref().unwrap().subtype
+        );
+    }
+
+    /// Hits outside a combat window (space cannon, barrage) are absorbed one ask at a time. Each
+    /// ask must say how many hits are still owed, or a client cannot stage them together and
+    /// has to guess the amount.
+    #[test]
+    fn absorbing_hits_outside_a_window_states_the_hits_still_owed() {
+        let content = ContentStore::embedded();
+        let (mut state, system) = arena();
+        let player = defender();
+        put(&mut state, &system, "dreadnought", &player, 1);
+        put(&mut state, &system, "cruiser", &player, 2);
+        put(&mut state, &system, "fighter", &player, 2);
+
+        let (capturing, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = Table::with_default(Box::new(capturing));
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(1);
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        absorb_hits_seeing(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut ctx,
+            &player,
+            &system,
+            &attacker(),
+            3,
+        )
+        .expect("the hits resolve");
+
+        let owed: Vec<(String, i64)> = seen
+            .borrow()
+            .iter()
+            .filter_map(|choice| {
+                let context = choice.context.as_ref()?;
+                let amount = context.outstanding.first()?.amount;
+                Some((context.subtype.clone(), amount))
+            })
+            .collect();
+        assert_eq!(
+            owed.first(),
+            Some(&("sustain_damage".to_owned(), 3)),
+            "the sustain ask owes every hit: {owed:?}"
+        );
+        let casualties: Vec<_> = owed
+            .iter()
+            .filter(|(subtype, _)| subtype == "assign_casualty")
+            .collect();
+        assert!(!casualties.is_empty(), "a casualty ask followed: {owed:?}");
+        assert!(
+            seen.borrow().iter().all(|choice| choice
+                .context
+                .as_ref()
+                .is_some_and(|c| !c.outstanding.is_empty())),
+            "no ask leaves the amount unstated"
         );
     }
 
