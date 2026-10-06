@@ -8,6 +8,7 @@ import {
   preferPayment,
   steerWeight as policySteerWeight,
   strongUnselected,
+  isUnstage,
 } from "./smokePolicy";
 
 /**
@@ -85,7 +86,6 @@ const EXCLUDED =
   /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect/i;
 // Controls that take back staged selections. Only used to escape a staging dead end, such as
 // cargo over transport capacity, where every submit button is disabled.
-const UNSTAGE = /reset|remove|rally-dec|decrement/i;
 // Controls that submit something to the server.
 const COMMIT =
   /submit|confirm|commit|done|finish|pass|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn/i;
@@ -198,7 +198,7 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
     { containers: DECISION_CONTAINERS, excluded: EXCLUDED.source },
   );
   return raw.map((c) => {
-    const unstage = UNSTAGE.test(c.desc);
+    const unstage = isUnstage(c.desc);
     return { ...c, unstage, commit: !unstage && COMMIT.test(c.desc) };
   });
 }

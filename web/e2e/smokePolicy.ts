@@ -41,6 +41,17 @@ const STEER_WEIGHTS: [RegExp, number][] = [
   [/finish-movement-btn|done committing/i, 0.05],
 ];
 
+const UNSTAGE = /reset|remove|rally-dec|decrement/i;
+
+/**
+ * Controls that take back a staged selection. A choice-dialog option never does, even when its
+ * text says "remove": the custodians option "remove it for a victory point" was treated as one,
+ * so it was almost never clicked and the preselected "no" was submitted instead.
+ */
+export function isUnstage(desc: string): boolean {
+  return !/^choice-option\b/.test(desc) && UNSTAGE.test(desc);
+}
+
 /** Weight at which an option is worth choosing before anything is submitted. */
 const STRONG = 50;
 

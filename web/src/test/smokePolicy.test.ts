@@ -4,6 +4,7 @@ import {
   preferPayment,
   steerWeight,
   strongUnselected,
+  isUnstage,
 } from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
@@ -87,5 +88,17 @@ describe("strongUnselected (smoke harness steering)", () => {
 
   it("ignores ordinary options", () => {
     expect(strongUnselected([c("choice-option | end your turn"), c("rally-inc-cargo-1-infantry-space | +")])).toBeUndefined();
+  });
+});
+
+describe("isUnstage (smoke harness)", () => {
+  it("never treats a choice option as taking staging back", () => {
+    expect(isUnstage("choice-option | remove it for a victory point VP 0 → 1")).toBe(false);
+  });
+
+  it("still recognises real take-back controls", () => {
+    expect(isUnstage("rally-dec-18-carrier | −")).toBe(true);
+    expect(isUnstage("produce-dec | Remove Fighter (0.5 cost)")).toBe(true);
+    expect(isUnstage("reset-selection-btn | Reset selection")).toBe(true);
   });
 });
