@@ -242,4 +242,43 @@ describe("PaymentDrawer Component", () => {
     });
     expect(onSubmit).toHaveBeenCalledWith("decline");
   });
+
+  it("stages only one variant of a planet that is offered as several options", () => {
+    const variants: PendingChoiceDto = {
+      ...mockPaymentChoice,
+      prompt: "pay 3 more influence",
+      options: [
+        {
+          id: "exhaust|archonren",
+          label: "exhaust archonren for 2 resources",
+          kind: "pay",
+          payload: { worth: 2, owed: 3, kind: "resources", source: "planet", planet_name: "Archon Ren" },
+        },
+        {
+          id: "exhaust|archonren|influence",
+          label: "exhaust archonren for 3 influence",
+          kind: "pay",
+          payload: { worth: 3, owed: 3, kind: "influence", source: "planet", planet_name: "Archon Ren" },
+        },
+        { id: "decline", label: "Cancel Payment", kind: "decline" },
+      ],
+    };
+    render(
+      <PaymentDrawer
+        choice={variants}
+        player={mockPlayer}
+        viewerSeat="p1"
+        onSubmit={vi.fn()}
+        isOpen
+        onClose={vi.fn()}
+      />,
+    );
+    const resources = screen.getByTestId("planet-card-exhaust|archonren");
+    const influence = screen.getByTestId("planet-card-exhaust|archonren|influence");
+    fireEvent.click(resources.querySelector("input")!);
+    expect(resources).toHaveAttribute("data-selected", "true");
+    fireEvent.click(influence.querySelector("input")!);
+    expect(influence).toHaveAttribute("data-selected", "true");
+    expect(resources).toHaveAttribute("data-selected", "false");
+  });
 });

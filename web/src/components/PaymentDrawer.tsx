@@ -142,9 +142,14 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   const shortfall = Math.max(0, owed - totalCommitted);
   const isSettled = owed > 0 && shortfall === 0;
 
+  // One planet can be offered as several options (e.g. `exhaust|x` and `exhaust|x|influence`);
+  // exhausting it twice is impossible, so only one variant may be staged at a time.
+  const planetKey = (id: string) => id.replace(/^exhaust\|/, "").split("|")[0];
   const handleTogglePlanet = (id: string) => {
     setSelectedPlanetIds((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
+      prev.includes(id)
+        ? prev.filter((p) => p !== id)
+        : [...prev.filter((p) => planetKey(p) !== planetKey(id)), id],
     );
   };
 
