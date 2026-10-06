@@ -138,3 +138,8 @@ Clippy was not run (memory); `-D warnings` cleanliness of the new code is unchec
 * Hero: a failed exploration (`explore_frontier` returning `None`) restores state, dice and rng and
   returns `Some(false)`, so the card is not purged. Aetherpassage clears an `enemy_ships` entry only
   when it holds at least one foreign ship and all foreign ships belong to allowing players.
+
+## Operator answers, 2026-10-06
+
+- Void Tether has 2 tokens: `TETHER_TOKENS = 2` (was an assumed 3).
+- Simulator promissory deal fixed: `ti4-sim` run paths, profile setup and `base_faction_soak` now re-deal notes after factions are assigned (setup deals before factions are known, so note ids read a blank faction and no faction note was dealt). Training already re-dealt (G1). Not changed (other crates' setups and diagnostics): ti4-sim examples objectives/prompts, ti4-training examples curriculum_seeds/heads/seat_advantage, ti4-mlp examples mlp_decide/objective_signal_audit/tts_bot_game, ti4-bridge import, ti4-policy bot.rs/features.rs. Results: engine 2387 passed, sim 51 passed, 16-faction routine soak 400/400, 0 failures.

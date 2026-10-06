@@ -64,7 +64,7 @@ const BREAKTHROUGH: &str = "empyreanbt";
 
 /// How many Void Tether tokens exist. The printed text says "1 of your Void Tether tokens" without
 /// a count; this is the assumption recorded in the evidence file.
-pub const TETHER_TOKENS: usize = 3;
+pub const TETHER_TOKENS: usize = 2;
 
 /// `"<activation_seq>|<mover>|<empyrean>"`: the player allowed to pass the Empyrean's ships.
 const PASSAGE: &str = "empyrean|passage";

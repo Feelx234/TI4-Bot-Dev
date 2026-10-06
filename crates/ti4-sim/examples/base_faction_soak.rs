@@ -46,6 +46,8 @@ fn play(content: &ContentStore, faction: &str, seed: u64) -> Result<Replay, Stri
             .ok_or_else(|| format!("missing seat {player}"))?
             .faction = assigned.clone();
     }
+    // Setup dealt the notes before factions were known: re-deal so every seat holds its own notes.
+    ti4_engine::promissory::deal(&mut state, content, DEFAULT);
 
     let filler: Vec<String> = ti4_engine::seating::map_filler(content, 30, DEFAULT, seed)
         .into_iter()

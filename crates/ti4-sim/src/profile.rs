@@ -493,6 +493,10 @@ fn build_game<'c>(
         }
     }
 
+    // Setup dealt the notes before factions were known, so note ids read a blank faction and no
+    // faction note was dealt; re-deal now that every seat has its faction (as training does).
+    ti4_engine::promissory::deal(&mut state, content, sources);
+
     // Home systems in assignment order: the pool places them into its home slots.
     let mut homes: Vec<String> = Vec::with_capacity(table.factions.len());
     for faction in table.factions.values() {

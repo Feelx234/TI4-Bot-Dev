@@ -143,6 +143,10 @@ fn seat(content: &ContentStore, table: &Table, seed: u64) -> Result<(GameState, 
         }
     }
 
+    // Setup dealt the notes before factions were known, so note ids read a blank faction and no
+    // faction note was dealt; re-deal now that every seat has its faction (as training does).
+    ti4_engine::promissory::deal(&mut state, content, table.sources);
+
     // Enough neutral tiles to sit between the homes and Mecatol.
     let filler: Vec<String> = ti4_engine::seating::neutral_systems(content, 30, table.sources)
         .into_iter()
@@ -228,6 +232,10 @@ pub fn play_learned(
             seat.faction = faction.clone();
         }
     }
+
+    // Setup dealt the notes before factions were known, so note ids read a blank faction and no
+    // faction note was dealt; re-deal now that every seat has its faction (as training does).
+    ti4_engine::promissory::deal(&mut state, content, sources);
 
     // Home systems in assignment order: the pool places them into its home slots.
     let mut homes: Vec<String> = Vec::with_capacity(table.factions.len());
