@@ -84,3 +84,4 @@ fixtures/legacy_entropy/*
 # Nightly UI smoke sweep output (tools/nightly-smoke)
 /nightly-reports/
 /nightly-reports-test/
+node_modules/
