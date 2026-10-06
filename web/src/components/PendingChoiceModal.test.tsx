@@ -247,3 +247,46 @@ describe("PendingChoiceModal Component", () => {
     expect(screen.queryByText("Morale Boost")).toBeNull();
   });
 });
+
+describe("PendingChoiceModal context header", () => {
+  it("shows what the decision is about and when it was asked", () => {
+    render(
+      <PendingChoiceModal
+        choice={{
+          actor: "seat_1",
+          nonce: "ctx-1",
+          prompt: "gain a command token into which pool",
+          context: {
+            subtype: "gain_command_token",
+            source: { Rule: "52.4" },
+            phase: "Status",
+            round: 4,
+          },
+          options: [
+            { id: "tactic_tokens", label: "tactic pool", kind: "pool" },
+            { id: "fleet_tokens", label: "fleet pool", kind: "pool" },
+          ],
+        }}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("decision-eyebrow")).toHaveTextContent("Command tokens");
+    expect(screen.getByTestId("decision-context-strip")).toHaveTextContent("Status phase · Round 4");
+    expect(screen.getByTestId("decision-context-strip")).toHaveTextContent("Rule 52.4");
+  });
+
+  it("shows no context strip when the server sent no context", () => {
+    render(
+      <PendingChoiceModal
+        choice={{
+          actor: "seat_1",
+          nonce: "ctx-2",
+          prompt: "spend a strategy token to draw two action cards",
+          options: [{ id: "yes", label: "draw" }],
+        }}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("decision-context-strip")).not.toBeInTheDocument();
+  });
+});

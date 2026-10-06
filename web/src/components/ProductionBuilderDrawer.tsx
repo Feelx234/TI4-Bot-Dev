@@ -142,6 +142,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
           </Dialog.Title>
           <DecisionHeader
             actor={choice.actor}
+            choice={choice}
             title={isPlaceUnit ? "Choose a placement" : "Produce units"}
             instruction={choice.prompt}
             progress={systemId ? `System ${systemId}` : undefined}

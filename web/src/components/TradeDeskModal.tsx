@@ -265,6 +265,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
           </Dialog.Title>
           <DecisionHeader
             actor={choice.actor}
+            choice={choice}
             title={isAnswering ? "Answer the trade offer" : "Propose a trade"}
             instruction={choice.prompt}
             progress={

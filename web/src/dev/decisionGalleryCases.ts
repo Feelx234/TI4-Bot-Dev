@@ -433,6 +433,27 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Context header on a generic decision",
+    fallback: "Source card, topic, phase and rule above the question",
+    note: "The shared header shows who is asking (the Politics secondary), what it is about, and when it was asked, using only the context the server already sends.",
+    choice: {
+      actor,
+      nonce: "gallery-context-header",
+      prompt: "place the redistribution agenda where",
+      context: {
+        subtype: "politics_place_agenda",
+        source: { StrategyCard: { card: "pok3politics", secondary: true } },
+        phase: "Action",
+        round: 2,
+      },
+      options: [
+        option("top", "on top of the deck"),
+        option("bottom", "on the bottom"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Unknown subtype",
     fallback: "Unknown subtype → generic modal",
     note: "Unknown engine subtypes fall back to the generic single-choice modal.",

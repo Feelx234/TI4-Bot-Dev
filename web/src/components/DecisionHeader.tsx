@@ -1,5 +1,8 @@
 import React from "react";
+import type { PendingChoiceDto } from "../protocol/types.ts";
+import { describeDecisionHeader } from "../presentation/decisionSource.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import "./DecisionContext.css";
 
 /** Identical header/minimize semantics for both modal and board-side decisions. */
 export const DecisionHeader: React.FC<{
@@ -7,6 +10,8 @@ export const DecisionHeader: React.FC<{
   instruction?: string;
   actor?: string;
   progress?: string;
+  /** When given, the header also shows what this decision is about and when it was asked. */
+  choice?: Pick<PendingChoiceDto, "context"> | null;
   onMinimize: () => void;
   titleTestId?: string;
   minimizeTestId?: string;
@@ -17,6 +22,7 @@ export const DecisionHeader: React.FC<{
   instruction,
   actor,
   progress,
+  choice,
   onMinimize,
   titleTestId,
   minimizeTestId,
@@ -25,13 +31,28 @@ export const DecisionHeader: React.FC<{
 }) => {
   const display = usePlayerIdentity();
   const participant = display(actor);
+  const info = choice ? describeDecisionHeader(choice) : null;
   return (
     <header className="decision-frame__header">
       <div>
+        {info?.eyebrow && (
+          <small className="decision-context__eyebrow" data-testid="decision-eyebrow">
+            {info.eyebrow}
+          </small>
+        )}
         {actor && participant.position != null && <small>{participant.label}</small>}
         <h2 data-testid={titleTestId}>{title}</h2>
         {instruction && instruction !== title && <p className="text-muted">{instruction}</p>}
         {progress && <p className="text-muted">{progress}</p>}
+        {info && info.chips.length > 0 && (
+          <ul className="decision-context__chips" data-testid="decision-context-strip">
+            {info.chips.map((chip) => (
+              <li key={chip} className="decision-context__chip">
+                {chip}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <button
         type="button"

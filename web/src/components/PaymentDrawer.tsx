@@ -244,6 +244,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
         {/* Header */}
         <DecisionHeader
           actor={choice.actor}
+          choice={choice}
           title={`Pay ${owed} ${currency}`}
           instruction={choice.prompt}
           progress={

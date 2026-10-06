@@ -1,12 +1,10 @@
 import { BoardView, ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
 import {
-  findActionCardMeta,
   findPlanetMeta,
-  findStrategyCardMeta,
-  findTechnologyMeta,
   humanizeId,
 } from "../protocol/contentCatalog.ts";
 import { isDeclineOption, isPlanetSelectionChoice, optionPlanetId } from "./choiceModel.ts";
+import { formatDecisionSource } from "./decisionSource.ts";
 
 export interface PlanetDetails {
   id: string;
@@ -66,41 +64,7 @@ export function formatPlanetStats(details: PlanetDetails): string | null {
   return `${details.resources}R/${details.influence}I`;
 }
 
-function contentName(alias: string): string {
-  return (
-    findTechnologyMeta(alias)?.name ??
-    findActionCardMeta(alias)?.name ??
-    findStrategyCardMeta(alias)?.name ??
-    humanizeId(alias)
-  );
-}
-
-/** A readable name for the decision's structured `context.source`. */
-export function formatDecisionSource(source: Record<string, unknown> | undefined): string | null {
-  if (!source || typeof source !== "object") return null;
-  const [key, value] = Object.entries(source)[0] ?? [];
-  if (!key) return null;
-  if (key === "StrategyCard" && value && typeof value === "object") {
-    const card = (value as { card?: unknown; secondary?: unknown }).card;
-    const secondary = Boolean((value as { secondary?: unknown }).secondary);
-    if (typeof card !== "string") return null;
-    const name = findStrategyCardMeta(card)?.name ?? humanizeId(card);
-    return secondary ? `${name} (secondary)` : name;
-  }
-  if (typeof value !== "string" || !value) return null;
-  switch (key) {
-    case "ActionCard":
-      return findActionCardMeta(value)?.name ?? humanizeId(value);
-    case "Rule":
-      return `Rule ${value}`;
-    case "FactionAbility":
-    case "Agenda":
-    case "Reaction":
-      return humanizeId(value);
-    default:
-      return contentName(value);
-  }
-}
+export { formatDecisionSource } from "./decisionSource.ts";
 
 export interface DecisionDescription {
   /** Card, ability, relic, technology … that is asking, e.g. "Mining Initiative". */

@@ -217,6 +217,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           <DecisionHeader
             actor={choice.actor}
             title={choice.prompt}
+            choice={choice}
             onMinimize={() => setIsMinimized(true)}
             titleTestId="choice-prompt"
             minimizeTestId="minimize-choice-button"

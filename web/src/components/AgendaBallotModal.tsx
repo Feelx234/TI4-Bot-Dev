@@ -187,6 +187,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
           </Dialog.Title>
           <DecisionHeader
             actor={choice.actor}
+            choice={choice}
             title={
               isCastVote
                 ? "Choose a voting outcome"
