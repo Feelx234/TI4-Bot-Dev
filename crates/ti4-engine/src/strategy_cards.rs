@@ -967,6 +967,7 @@ fn politics_primary(
                 })
                 .collect(),
         )
+        .detailed("seats", seat_map(&named))
         .contextualized(DecisionContext::new(
             player.clone(),
             DecisionSource::StrategyCard {
@@ -1001,6 +1002,7 @@ fn politics_primary(
                 ChoiceOption::labelled("bottom", "agenda", "on the bottom"),
             ],
         )
+        .detailed("agenda", agenda_details(content, &agenda))
         .contextualized(DecisionContext::new(
             player.clone(),
             DecisionSource::StrategyCard {
@@ -1018,6 +1020,39 @@ fn politics_primary(
         }
     }
     Ok(())
+}
+
+/// Display only: which seat each named option stands for, so a client can show its standing.
+fn seat_map(named: &[(String, PlayerId)]) -> serde_json::Value {
+    serde_json::Value::Object(
+        named
+            .iter()
+            .map(|(name, seat)| (name.clone(), serde_json::Value::from(seat.as_str())))
+            .collect(),
+    )
+}
+
+/// Display only: the agenda card being placed, as printed.
+fn agenda_details(content: &ContentStore, alias: &str) -> serde_json::Value {
+    let record = content.get(ContentType::Agendas, alias);
+    let field = |key: &str| {
+        record
+            .as_ref()
+            .and_then(|record| record.text(key))
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let name = Some(field("name"))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| alias.to_owned());
+    serde_json::json!({
+        "id": alias,
+        "name": name,
+        "type": field("type"),
+        "target": field("target"),
+        "text1": field("text1"),
+        "text2": field("text2"),
+    })
 }
 
 pub(crate) fn structure_options(
@@ -1216,6 +1251,7 @@ fn trade_primary(
                 )))
                 .collect(),
         )
+        .detailed("seats", seat_map(&named))
         .contextualized(DecisionContext::new(
             player.clone(),
             DecisionSource::StrategyCard {
@@ -1970,6 +2006,21 @@ mod tests {
             .expect("typed context");
         assert_eq!(agenda.subtype, "politics_place_agenda");
         assert_ne!(speaker.subtype, agenda.subtype);
+
+        // Display-only details: the seat behind each speaker option and the agenda as printed.
+        let speaker_ask = asked
+            .iter()
+            .find(|choice| choice.prompt == "who becomes speaker")
+            .unwrap();
+        let seats = speaker_ask.details["seats"].as_object().expect("seat map");
+        assert_eq!(seats.len(), speaker_ask.options.len());
+        assert!(seats.values().all(|seat| seat == "b"));
+        let placement = asked
+            .iter()
+            .find(|choice| choice.prompt.starts_with("place "))
+            .unwrap();
+        assert!(placement.details["agenda"]["id"].is_string());
+        assert!(placement.details["agenda"]["name"].is_string());
     }
 
     fn card(name: &str) -> String {
