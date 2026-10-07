@@ -1320,7 +1320,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     (shared, handle)
 }
 
-fn current_utc_time_string() -> String {
+pub(crate) fn current_utc_time_string() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();

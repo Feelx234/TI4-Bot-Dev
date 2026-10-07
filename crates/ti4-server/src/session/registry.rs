@@ -199,6 +199,90 @@ mod committed_worker_tests {
         drop(registry);
         std::fs::remove_dir_all(path).unwrap();
     }
+
+    /// A two-seat game advanced to its first tactical movement boundary.
+    fn game_at_movement(
+        registry: &GameRegistry,
+        game_id: &str,
+    ) -> (Arc<GameSession>, String, BatchRequest) {
+        let host = PlayerId::new("p1");
+        let guest = PlayerId::new("p2");
+        let players = vec![host.clone(), guest.clone()];
+        let (state, galaxy) =
+            crate::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        let tiles = crate::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+        let config = SessionConfig::new(game_id, state)
+            .with_seed(42)
+            .with_player_ids(players)
+            .with_galaxy(galaxy, tiles)
+            .with_seat(host.clone(), SeatController::Human)
+            .with_seat(guest, SeatController::Human);
+        let session = registry.create_game(config).unwrap();
+        let token = session.seat_tokens()[&host].clone();
+        for _ in 0..4 {
+            let (seat, nonce, version, _) = pending(&session);
+            let choice = session
+                .get_snapshot(&ViewerRole::Player(seat.clone()))
+                .pending_choice
+                .unwrap()
+                .choice;
+            let option = choice
+                .options
+                .iter()
+                .find(|o| o.id == "tactical" || o.id == "22")
+                .unwrap_or(&choice.options[0]);
+            session
+                .submit_choice(&seat, &nonce, version, &option.id)
+                .unwrap();
+        }
+        let (_, nonce, version, _) = pending(&session);
+        let request = BatchRequest {
+            request_id: format!("{game_id}_batch"),
+            expected_version: version,
+            nonce,
+            plan: MovementPlan {
+                kind: BatchKind::TacticalMovement,
+                destination: session.current_state().active_system.unwrap().to_string(),
+                steps: vec![MovementStep::DoneMoving],
+            },
+        };
+        (session, token, request)
+    }
+
+    fn is_hh_mm_ss(value: &str) -> bool {
+        let b = value.as_bytes();
+        b.len() == 8
+            && b[2] == b':'
+            && b[5] == b':'
+            && [0, 1, 3, 4, 6, 7].iter().all(|&i| b[i].is_ascii_digit())
+    }
+
+    #[test]
+    fn batch_events_carry_wall_clock_timestamps() {
+        let path = std::env::temp_dir().join(format!("ti4_ts_{:032x}", rand::random::<u128>()));
+        let store = Arc::new(FileGameStore::new(&path).unwrap());
+        let registry = GameRegistry::new().with_store(store.clone());
+        let (_, token, request) = game_at_movement(&registry, "batch_ts");
+        let result = registry.submit_batch("batch_ts", &token, request).unwrap();
+        let history = store.load_history("batch_ts").unwrap().unwrap();
+        let batch_events: Vec<_> = history
+            .events
+            .iter()
+            .filter(|e| e.batch_id.as_deref() == Some(result.batch_id.as_str()))
+            .collect();
+        assert!(!batch_events.is_empty());
+        for event in &history.events {
+            assert!(
+                is_hh_mm_ss(&event.timestamp),
+                "event {} has timestamp {:?}",
+                event.id,
+                event.timestamp
+            );
+        }
+        registry.get_game("batch_ts").unwrap().stop();
+        drop(registry);
+        std::fs::remove_dir_all(path).unwrap();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -827,6 +911,8 @@ impl GameRegistry {
         let mut events = session.event_log();
         let (_, mut counter) = session.history_events();
         counter = counter.max(events.len() as u64);
+        // One wall-clock reading for the whole batch, in the worker's HH:MM:SS format.
+        let timestamp = crate::session::worker::current_utc_time_string();
         for (i, decision) in decisions.iter().enumerate() {
             let offered = &simulation.selected[i];
             let action_id = if decision
@@ -859,7 +945,7 @@ impl GameRegistry {
             counter += 1;
             events.push(crate::protocol::server::GameEvent {
                 id: format!("{game_id}-{counter}"),
-                timestamp: String::new(),
+                timestamp: timestamp.clone(),
                 version: Some(request.expected_version),
                 visibility: crate::protocol::server::EventVisibility::Public,
                 event: crate::protocol::server::GameEventKind::DecisionResolved,
@@ -888,7 +974,7 @@ impl GameRegistry {
                 counter += 1;
                 events.push(crate::protocol::server::GameEvent {
                     id: format!("{game_id}-{counter}"),
-                    timestamp: String::new(),
+                    timestamp: timestamp.clone(),
                     version: Some(request.expected_version),
                     visibility: crate::protocol::server::EventVisibility::Public,
                     event: crate::protocol::server::GameEventKind::PhaseTransition {
@@ -918,7 +1004,7 @@ impl GameRegistry {
             counter += 1;
             events.push(crate::protocol::server::GameEvent {
                 id: format!("{game_id}-{counter}"),
-                timestamp: String::new(),
+                timestamp: timestamp.clone(),
                 version: Some(request.expected_version),
                 visibility: crate::protocol::server::EventVisibility::Public,
                 event: crate::protocol::server::GameEventKind::GameFinished { winner },
