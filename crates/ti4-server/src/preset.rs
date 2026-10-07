@@ -25,9 +25,12 @@ pub const COMBAT: &str = "combat";
 /// Every seat holds a hand of action cards that random play has almost never produced.
 pub const CARDS: &str = "cards";
 
+/// The agenda phase from round one, with a hand-ordered deck and agenda-window action cards.
+pub const AGENDA: &str = "agenda";
+
 /// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
-pub const KNOWN: &[&str] = &[COMBAT, CARDS];
+pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA];
 
 /// Action cards no nightly game ever played, found by diffing 72 final states' discard piles
 /// against the corpus. The first ten are in the standard deck; the rest are Thunder's Edge cards,
@@ -39,6 +42,28 @@ const CARD_POOL: &[&str] = &[
     "extremeduress", "rescue", "strategize1", "piratecontract1", "blackmarketdealing", "overrule",
     "mercenarycontract", "crisis",
 ];
+
+/// The top of the agenda deck, two per round: round 1 an elect-player law and a for/against law
+/// (so a law is in play), round 2 an elect-law agenda (it is discarded when no law is in play,
+/// hence the laws first), an elect-planet-style directive, then more elections and laws. Aliases
+/// the corpus lacks are skipped.
+const AGENDA_ORDER: &[&str] = &[
+    "committee", "defense_act", "abolishment", "redistribution", "miscount", "classified",
+    "rep_govt", "crisis", "disarmament", "arbiter", "covert", "execution", "checks",
+];
+
+/// Action cards with agenda windows (two riders, a veto, hacking, bribery, confusing text), dealt
+/// so that every revealed agenda gives some seat something to play. Only two riders: a player who
+/// predicted an outcome may not vote (vote.rs), so a rider in every hand, played at the first
+/// reveal, leaves nobody to vote and the agenda phase never asks `cast_vote` (seen in the first
+/// smoke run of this preset).
+const AGENDA_CARD_POOL: &[&str] = &[
+    "lead_rider", "imp_rider", "bribery", "hack", "sanction", "insider", "veto", "assassin",
+    "distinguished", "confounding", "deadly_plot", "confusing", "abs", "dp1",
+];
+
+/// Trade goods each seat gets, enough to matter for votes and riders without a purchase spree.
+const AGENDA_TRADE_GOODS: i32 = 3;
 
 /// Cards per seat: well under the hand limit of 7, so nothing is discarded at the status phase.
 const HAND_SIZE: usize = 5;
@@ -98,6 +123,10 @@ pub fn apply(
             deal_cards(content, state, players, seed, CARD_POOL, HAND_SIZE);
             Ok(())
         }
+        AGENDA => {
+            agenda(content, state, players, seed);
+            Ok(())
+        }
         other => Err(format!("unknown start_preset {other:?}")),
     }
 }
@@ -110,6 +139,25 @@ fn mix(seed: u64, salt: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     z ^ (z >> 31)
+}
+
+/// Lifting the custodians is not needed: 27.4 makes every round's agenda phase happen once they
+/// are gone, so the flag is set and the deck's top is replaced by [`AGENDA_ORDER`].
+fn agenda(content: &ContentStore, state: &mut GameState, players: &[PlayerId], seed: u64) {
+    state.custodians_removed = true;
+    let top: Vec<String> = AGENDA_ORDER
+        .iter()
+        .filter(|alias| state.agenda_deck.iter().any(|a| a == *alias))
+        .map(|alias| (*alias).to_owned())
+        .collect();
+    state.agenda_deck.retain(|alias| !top.contains(alias));
+    state.agenda_deck.splice(0..0, top);
+    deal_cards(content, state, players, seed, AGENDA_CARD_POOL, 4);
+    for player in players {
+        if let Some(seat) = state.player_mut(player) {
+            seat.trade_goods += AGENDA_TRADE_GOODS;
+        }
+    }
 }
 
 /// Deals each seat a different seeded slice of `pool_ids` (at most `hand` cards each) and takes
@@ -653,6 +701,44 @@ mod tests {
                 assert!(CARD_POOL.contains(&card.as_str()));
                 assert!(!state.action_card_deck.contains(card), "{card} is still in the deck");
             }
+        }
+    }
+
+    #[test]
+    fn the_agenda_preset_puts_the_ordered_agendas_on_top_and_removes_the_custodians() {
+        for n in 3..=6 {
+            let list = players(n);
+            let (plain, _) = create_game_with_template(content(), &list, 5, None).unwrap();
+            assert!(!plain.custodians_removed);
+            let (state, _) =
+                create_game_with_preset(content(), &list, 5, None, Some(AGENDA)).unwrap();
+            assert!(state.custodians_removed);
+            assert_eq!(state.agenda_deck.len(), plain.agenda_deck.len(), "{n}p: deck size changed");
+            let mut a = state.agenda_deck.clone();
+            let mut b = plain.agenda_deck.clone();
+            a.sort();
+            b.sort();
+            assert_eq!(a, b, "{n}p: the deck must hold the same cards");
+            assert_eq!(&state.agenda_deck[..4], ["committee", "defense_act", "abolishment", "redistribution"]);
+            for player in &list {
+                let seat = state.player(player).unwrap();
+                assert!(seat.trade_goods >= AGENDA_TRADE_GOODS);
+                assert!(seat.action_cards.len() < 7);
+            }
+        }
+    }
+
+    #[test]
+    fn every_agenda_preset_alias_exists() {
+        let aliases: Vec<String> = create_game_with_template(content(), &players(3), 1, None)
+            .unwrap()
+            .0
+            .agenda_deck;
+        for alias in AGENDA_ORDER {
+            assert!(aliases.iter().any(|a| a == alias), "{alias} is not in the agenda deck");
+        }
+        for id in AGENDA_CARD_POOL {
+            assert!(content().get(ContentType::ActionCards, id).is_some(), "{id}");
         }
     }
 

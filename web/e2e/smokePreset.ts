@@ -1,5 +1,5 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda"] as const;
 
 /** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
 export function presetFromEnv(value: string | undefined): string | undefined {
@@ -36,6 +36,9 @@ export const PRESET_EXPECT: Record<string, string> = {
   // Thunder's Edge cards dealt to hands: their pick prompts, and the "action card played" window.
   cards:
     "overrule_pick_strategy card|strategize1_pick_strategy card|exchange_program_answer|exchangeprogram_pick_player|exchangeprogram_pick_planet>=2,reaction_when_ACTION_CARD_PLAYED",
+  // The agenda phase ran and somebody voted; a window or pick of the dealt agenda cards fired.
+  agenda:
+    "cast_vote,play_reaction_after_AGENDA_REVEALED|predict_agenda_outcome|bribery_pick_count|assassin_pick_player>=2",
 };
 
 export function parseExpect(value: string | undefined, preset?: string): Expectation[] {
