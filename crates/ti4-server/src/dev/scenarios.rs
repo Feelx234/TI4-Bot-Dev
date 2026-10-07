@@ -1156,6 +1156,7 @@ fn setup_base_3p_game(
         seed,
         map_template: None,
         start_preset: None,
+        strategy_card_set: None,
         map_revision: 0,
         lobby_version: 1,
     };

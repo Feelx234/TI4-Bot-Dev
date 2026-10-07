@@ -58,6 +58,28 @@ pub fn strategy_card_setup(
         .filter(|(source, _)| sources.contains(*source))
         .find_map(|(_, alias)| content.get(ContentType::StrategyCardSets, alias))
         .ok_or(SetupError::NoStrategyCardSet)?;
+    card_setup_from_record(content, chosen)
+}
+
+/// The eight strategy cards of the named set (`te`, `pok`, `base_game`, `base_game_codex1`),
+/// independent of the source scope. Server games choose their set explicitly at creation.
+///
+/// # Errors
+/// [`SetupError::NoStrategyCardSet`] if `alias` names no set.
+pub fn strategy_card_setup_for_set(
+    content: &ContentStore,
+    alias: &str,
+) -> Result<(Vec<StrategyCardId>, BTreeMap<StrategyCardId, i32>), SetupError> {
+    let chosen = content
+        .get(ContentType::StrategyCardSets, alias)
+        .ok_or(SetupError::NoStrategyCardSet)?;
+    card_setup_from_record(content, chosen)
+}
+
+fn card_setup_from_record(
+    content: &ContentStore,
+    chosen: &ti4_content::Record,
+) -> Result<(Vec<StrategyCardId>, BTreeMap<StrategyCardId, i32>), SetupError> {
 
     let mut ids = Vec::new();
     let mut initiative = BTreeMap::new();
@@ -105,10 +127,30 @@ pub fn start_game_seeded(
     speaker: Option<PlayerId>,
     deck_seed: u64,
 ) -> Result<GameState, SetupError> {
+    start_game_seeded_with_card_set(content, player_ids, sources, speaker, deck_seed, None)
+}
+
+/// As [`start_game_seeded`], but the strategy-card set is named (`Some("te")`, `Some("pok")`, ...)
+/// instead of derived from the source scope. `None` keeps the scope-derived set, so callers that
+/// do not pass a set (simulation, training, legacy replays) behave exactly as before.
+///
+/// # Errors
+/// [`SetupError::NoPlayers`], [`SetupError::NoStrategyCardSet`] for an unknown set name.
+pub fn start_game_seeded_with_card_set(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    sources: SourceSet,
+    speaker: Option<PlayerId>,
+    deck_seed: u64,
+    card_set: Option<&str>,
+) -> Result<GameState, SetupError> {
     if player_ids.is_empty() {
         return Err(SetupError::NoPlayers);
     }
-    let (cards, initiative) = strategy_card_setup(content, sources)?;
+    let (cards, initiative) = match card_set {
+        Some(alias) => strategy_card_setup_for_set(content, alias)?,
+        None => strategy_card_setup(content, sources)?,
+    };
     let mut state = GameState::new(
         player_ids,
         &cards,
@@ -197,6 +239,55 @@ mod tests {
         assert_ne!(pok, full, "Thunder's Edge replaces the PoK set");
         assert_eq!(base.len(), pok.len());
         assert_eq!(pok.len(), full.len());
+    }
+
+    #[test]
+    fn a_named_card_set_ignores_the_source_scope() {
+        let ids = |alias: &str| -> Vec<String> {
+            strategy_card_setup_for_set(content(), alias)
+                .unwrap()
+                .0
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        };
+        let te = ids("te");
+        assert!(te.contains(&"te4construction".to_owned()) && te.contains(&"te6warfare".to_owned()));
+        let pok = ids("pok");
+        assert!(
+            pok.contains(&"pok4construction".to_owned()) && pok.contains(&"pok6warfare".to_owned())
+        );
+        let codex = ids("base_game_codex1");
+        assert!(codex.contains(&"base4".to_owned()) && codex.contains(&"pok2diplomacy".to_owned()));
+        // The scope-derived `pok` set is the named `pok` set; FULL derives `te`.
+        let (scoped, _) = strategy_card_setup(content(), POK).unwrap();
+        assert_eq!(scoped.iter().map(ToString::to_string).collect::<Vec<_>>(), pok);
+        assert_eq!(
+            strategy_card_setup(content(), FULL)
+                .unwrap()
+                .0
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            te
+        );
+        assert_eq!(
+            strategy_card_setup_for_set(content(), "nope").unwrap_err(),
+            SetupError::NoStrategyCardSet
+        );
+    }
+
+    #[test]
+    fn a_game_started_with_a_card_set_holds_that_sets_cards_under_a_pok_scope() {
+        let g = start_game_seeded_with_card_set(content(), &players(4), POK, None, 3, Some("te"))
+            .unwrap();
+        assert_eq!(g.unclaimed_strategy_cards.len(), 8);
+        assert!(g.unclaimed_strategy_cards.iter().any(|c| c.as_str() == "te6warfare"));
+        let legacy = start_game_seeded(content(), &players(4), POK, None, 3).unwrap();
+        let none =
+            start_game_seeded_with_card_set(content(), &players(4), POK, None, 3, None).unwrap();
+        assert_eq!(legacy.unclaimed_strategy_cards, none.unclaimed_strategy_cards);
+        assert!(legacy.unclaimed_strategy_cards.iter().any(|c| c.as_str() == "pok6warfare"));
     }
 
     #[test]

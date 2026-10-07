@@ -5469,12 +5469,32 @@ fn manipulate_investments(context: &mut crate::timing::TimingContext<'_>, player
     const DISTINCT: usize = 3;
 
     // Strategy cards key on `id`, not `alias` -- the one content category that does.
-    let cards: Vec<String> = context
+    let mut cards: Vec<String> = context
         .content
         .from_sources(ContentType::StrategyCards, context.sources)
         .filter_map(|record| record.text("id"))
         .map(std::borrow::ToOwned::to_owned)
         .collect();
+    // A game whose card set is wider than its source scope (a Thunder's Edge set in a PoK-scoped
+    // server game) must offer the cards on its own table, not the scope's. Games whose cards are
+    // all in the scope-derived list keep that list unchanged, so recorded games replay as before.
+    let in_play: std::collections::BTreeSet<&str> = context
+        .state
+        .unclaimed_strategy_cards
+        .iter()
+        .chain(context.state.players.iter().flat_map(|p| p.strategy_cards.iter()))
+        .map(ti4_model::id::StrategyCardId::as_str)
+        .collect();
+    if in_play.iter().any(|id| !cards.iter().any(|card| card == id)) {
+        cards = context
+            .content
+            .records(ContentType::StrategyCards)
+            .iter()
+            .filter_map(|record| record.text("id"))
+            .filter(|id| in_play.contains(id))
+            .map(std::borrow::ToOwned::to_owned)
+            .collect();
+    }
     if cards.len() < DISTINCT {
         return; // 22.3: a card that cannot fully resolve is not played
     }
@@ -9059,6 +9079,41 @@ mod tests {
             "at least three different cards, saw {:?}",
             state.strategy_card_goods
         );
+    }
+
+    /// A game on the Thunder's Edge set offers its own eight cards even though the source scope
+    /// (PoK, as server games use) would list the PoK Construction and Warfare instead.
+    #[test]
+    fn manipulate_investments_offers_the_cards_on_this_games_table() {
+        let player = PlayerId::new("a");
+        let ids = [player.clone(), PlayerId::new("b")];
+        let offered = |set: &str| {
+            let mut state = crate::setup::start_game_seeded_with_card_set(
+                ContentStore::embedded(),
+                &ids,
+                ti4_model::content_types::POK,
+                None,
+                1,
+                Some(set),
+            )
+            .unwrap();
+            let seen = resolve_card_capturing(&mut state, "investments", &player, &[]);
+            let mut ids: Vec<String> = seen.borrow()[0]
+                .options
+                .iter()
+                .map(|option| option.id.clone())
+                .collect();
+            ids.sort();
+            ids
+        };
+        let te = offered("te");
+        assert_eq!(te.len(), 8, "{te:?}");
+        assert!(te.contains(&"te6warfare".to_owned()) && te.contains(&"te4construction".to_owned()));
+        assert!(!te.contains(&"pok6warfare".to_owned()));
+        // Recorded PoK games keep the scope-derived list they were recorded with.
+        let pok = offered("pok");
+        assert!(pok.contains(&"pok6warfare".to_owned()));
+        assert!(!pok.contains(&"te6warfare".to_owned()));
     }
 
     /// Each placement question says which of the five it is and how many different cards are

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_content::galaxy::{self, Galaxy};
 use ti4_engine::seating::{self, SeatingError};
-use ti4_engine::setup::start_game_seeded;
+use ti4_engine::setup::start_game_seeded_with_card_set;
 use ti4_model::content_types::{FULL, POK, SourceSet};
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::GameState;
@@ -236,7 +236,22 @@ pub fn create_game_with_map(
     player_ids: &[PlayerId],
     seed: u64,
 ) -> Result<(GameState, Galaxy), SeatingError> {
-    let mut state = start_game_seeded(content, player_ids, POK, None, seed)
+    create_game_with_map_and_card_set(content, player_ids, seed, None)
+}
+
+/// As [`create_game_with_map`], with the strategy-card set named (`None`: the PoK-scope set).
+///
+/// # Errors
+///
+/// Returns [`SeatingError`] if setup (including an unknown card set), seating, deployment, or
+/// galaxy board construction fails.
+pub fn create_game_with_map_and_card_set(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), SeatingError> {
+    let mut state = start_game_seeded_with_card_set(content, player_ids, POK, None, seed, card_set)
         .map_err(|e| SeatingError::UnknownPlayer(e.to_string()))?;
 
     let assignments = seating::seat_in_scope(player_ids);
@@ -276,16 +291,33 @@ pub fn create_game_with_template(
     seed: u64,
     template: Option<&str>,
 ) -> Result<(GameState, Galaxy), String> {
+    create_game_with_template_and_card_set(content, player_ids, seed, template, None)
+}
+
+/// As [`create_game_with_template`], with the strategy-card set named (`None`: the PoK-scope set).
+///
+/// # Errors
+///
+/// A message for an unknown template or card set, a seat-count mismatch, or any seating/galaxy
+/// failure.
+pub fn create_game_with_template_and_card_set(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), String> {
     let Some(alias) = template else {
-        return create_game_with_map(content, player_ids, seed).map_err(|e| e.to_string());
+        return create_game_with_map_and_card_set(content, player_ids, seed, card_set)
+            .map_err(|e| e.to_string());
     };
     let loader = crate::maps::TemplateLoader::load()?;
     let template = loader
         .get(alias)
         .ok_or_else(|| crate::maps::TemplateError::Unknown(alias.to_owned()).to_string())?;
 
-    let mut state =
-        start_game_seeded(content, player_ids, POK, None, seed).map_err(|e| e.to_string())?;
+    let mut state = start_game_seeded_with_card_set(content, player_ids, POK, None, seed, card_set)
+        .map_err(|e| e.to_string())?;
     let assignments = seating::seat_in_scope(player_ids);
     for (player, faction) in &assignments {
         seating::deploy(&mut state, content, player, faction, POK).map_err(|e| e.to_string())?;
@@ -316,7 +348,23 @@ pub fn create_game_with_preset(
     template: Option<&str>,
     preset: Option<&str>,
 ) -> Result<(GameState, Galaxy), String> {
-    let (mut state, galaxy) = create_game_with_template(content, player_ids, seed, template)?;
+    create_game_with_options(content, player_ids, seed, template, preset, None)
+}
+
+/// As [`create_game_with_preset`], with the strategy-card set named (`None`: the PoK-scope set).
+///
+/// # Errors
+/// Anything [`create_game_with_preset`] reports, or an unknown card set.
+pub fn create_game_with_options(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    preset: Option<&str>,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), String> {
+    let (mut state, galaxy) =
+        create_game_with_template_and_card_set(content, player_ids, seed, template, card_set)?;
     if let Some(preset) = preset {
         crate::preset::apply(content, &mut state, &galaxy, player_ids, seed, preset)?;
     }

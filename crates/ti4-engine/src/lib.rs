@@ -114,7 +114,10 @@ pub use phase::{
 };
 pub use rng::GameRng;
 pub use seating::{SeatingError, build_board, deploy, home_systems, neutral_systems};
-pub use setup::{SetupError, cards_per_player, start_game, start_game_seeded, strategy_card_setup};
+pub use setup::{
+    SetupError, cards_per_player, start_game, start_game_seeded, start_game_seeded_with_card_set,
+    strategy_card_setup, strategy_card_setup_for_set,
+};
 pub use status::{
     StatusPhaseError, StatusPhaseReport, resolve_after_token_gain, resolve_before_token_gain,
     resolve_status_phase,

@@ -3,6 +3,7 @@
 
 #![allow(clippy::missing_panics_doc, clippy::missing_errors_doc)]
 
+pub mod card_set;
 pub mod dev;
 pub mod fixtures;
 pub mod http;

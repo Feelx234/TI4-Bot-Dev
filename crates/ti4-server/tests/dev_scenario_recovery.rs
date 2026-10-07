@@ -382,6 +382,7 @@ fn launch_failure_cleanup_and_backwards_compatibility() {
         map_tiles: Vec::new(),
         seats: None, // Will not be serialized in JSON due to skip_serializing_if
         map_template: None,
+        strategy_card_set: None,
     };
     store.save_player_init(&old_init).unwrap();
 
