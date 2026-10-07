@@ -168,6 +168,29 @@ check "summary not started twice" "$(decide '2026-10-08 06:35')" ""
 reset_night $N; touch "$RR/$N/sweep.done"
 check "sweep ended without any run entry: round 2 is skipped" "$(decide '2026-10-08 06:00')" "skip-fix $N 2"
 
+# An empty fix-requested (written while the disk was full) is no request; a failed round is
+# retried after a delay, not at once.
+echo "== empty request marker and failed fixer rounds"
+reset_night $N; touch "$RR/$N/.loop.lock"; hold "$RR/$N/.loop.lock"
+entry $N; : > "$RR/$N/fix-requested"
+check "empty fix-requested does not make round 1 due (21:00)" "$(decide '2026-10-07 21:00')" ""
+check "empty fix-requested: round 1 is still due at 23:59" "$(decide '2026-10-07 23:59')" "fix $N 1"
+REQ_ENV=""
+out=$(request '2026-10-07 21:00' "a real reason"); rc=$?
+check "a real request replaces the empty marker (exit status)" "$rc" 0
+check_true "marker now holds the reason" grep -q '^reason: a real reason' "$RR/$N/fix-requested"
+check "and makes round 1 due" "$(decide '2026-10-07 21:00')" "fix $N 1"
+release
+reset_night $N; entry $N; touch "$RR/$N/.loop.lock"; hold "$RR/$N/.loop.lock"
+echo "1 $(epoch '2026-10-07 23:59')" > "$RR/$N/.fixer-1.failed"
+check "failed round 1 waits for the retry delay (00:10)" "$(decide '2026-10-08 00:10')" ""
+check "failed round 1 is due again after the delay (00:30)" "$(decide '2026-10-08 00:30')" "fix $N 1"
+release
+reset_night $N; entry $N; touch "$RR/$N/sweep.done"
+echo "1 $(epoch '2026-10-08 06:00')" > "$RR/$N/.fixer-2.failed"
+check "failed round 2 waits for the retry delay (06:10)" "$(decide '2026-10-08 06:10')" ""
+check "failed round 2 is due again after the delay (06:40)" "$(decide '2026-10-08 06:40')" "fix $N 2"
+
 # The 06:00-20:30 gap: round 2 and the summary of the old night come first, the next sweep waits.
 P=2026-10-07; C=2026-10-08
 reset_night $P; entry $P; touch "$RR/$P/sweep.done" "$RR/$P/.fixer-1-started" "$RR/$P/.fixer-1.done"
@@ -185,7 +208,7 @@ release
 echo "== dry run of a whole night with stub claude binaries"
 setup_env() { # setup_env <dir>: temp repo with the scripts under test, stubs, fake clock
   E="$1"; mkdir -p "$E"
-  export NIGHTLY_REPO="$E/repo" NIGHTLY_REPORT_ROOT="$E/reports" NIGHTLY_NOW_FILE="$E/clock" \
+  export NIGHTLY_MIN_FREE_GB=0 NIGHTLY_REPO="$E/repo" NIGHTLY_REPORT_ROOT="$E/reports" NIGHTLY_NOW_FILE="$E/clock" \
     NIGHTLY_CLAUDE="$E/claude" NIGHTLY_BUILD_CMD="${BUILD_CMD:-true}" NIGHTLY_NOT_BEFORE=2026-10-07 \
     STUB_LOG="$E/stub.log" STUB_DIR="$E" NIGHTLY_SH="$E/repo/tools/nightly-smoke/nightly.sh" \
     GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -342,6 +365,67 @@ check "early: no unreplaced placeholder in the prompt" "$(grep -c '{{' "$TMP/ear
 check_true "early: the report notes the early start with the reason" grep -q "^## Fixer round 1 started early on a proctor's request (run 01-2030): the game cannot start & every run dies" "$ND/report.md"
 check "early: round 1 merged as usual" "$([ -e "$ND/.fixer-1.merged" ] && echo yes || echo no)" yes
 unset STUB_REQUEST
+
+# No free disk: no run directory, no phantom run, a report line; fixer rounds fail visibly and are
+# retried once, then given up.
+echo "== low disk"
+BUILD_CMD=true setup_env "$TMP/lowdisk"
+cat > "$TMP/lowdisk/df" <<'DF'
+#!/usr/bin/env bash
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/x 104857600 99614720 $(cat "$(dirname "$0")/df.kb") 95% /"
+DF
+chmod +x "$TMP/lowdisk/df"
+echo 1048576 > "$TMP/lowdisk/df.kb" # 1 GB free, 10 GB needed
+export NIGHTLY_MIN_FREE_GB=10 NIGHTLY_DF_CMD="$TMP/lowdisk/df" NIGHTLY_DISK_WAIT_SECONDS=0 NIGHTLY_MAX_DISK_WAITS=3 NIGHTLY_FIXERS=
+echo "$(epoch '2026-10-07 20:30')" > "$NIGHTLY_NOW_FILE"
+NIGHT=2026-10-07; ND="$NIGHTLY_REPORT_ROOT/$NIGHT"
+timeout 120 bash "$NIGHTLY_SH" loop "$NIGHT" > "$TMP/lowdisk/loop.out" 2>&1
+check "low disk: no run directory was created" "$(find "$ND/runs" -mindepth 1 2>/dev/null | wc -l)" 0
+check "low disk: no proctor was launched" "$(grep -c '^proctor' "$STUB_LOG")" 0
+check_true "low disk: the report says the sweep waited for space" grep -q '^## Waiting for disk space: 1 GB free' "$ND/report.md"
+check_true "low disk: the report says the sweep gave up" grep -q '^## Sweep stopped: the disk stayed below 10 GB' "$ND/report.md"
+check "low disk: the sweep still finished (sweep.done)" "$([ -e "$ND/sweep.done" ] && echo yes || echo no)" yes
+echo 52428800 > "$TMP/lowdisk/df.kb" # 50 GB free: plenty
+export NIGHTLY_MAX_DISK_WAITS=30 STUB_RUN_SECONDS=34000 # ends the window: exactly one run
+rm -f "$ND/sweep.done"
+timeout 120 bash "$NIGHTLY_SH" loop "$NIGHT" > "$TMP/lowdisk/loop2.out" 2>&1
+check "enough disk: a run starts again" "$(grep -c '^proctor' "$STUB_LOG")" 1
+unset STUB_RUN_SECONDS
+
+# fixer round: low disk fails visibly, is retried once, then given up (summary not blocked)
+export NIGHTLY_FIXERS="1 2" NIGHTLY_FIX_RETRY_SECONDS=1800
+echo 1048576 > "$TMP/lowdisk/df.kb"
+echo "$(epoch '2026-10-08 00:00')" > "$NIGHTLY_NOW_FILE"
+bash "$NIGHTLY_SH" fix 1 "$NIGHT" > "$TMP/lowdisk/fix1.out" 2>&1
+check_true "fixer low disk: attempt 1 is in the report" grep -q '^## Fixer round 1 failed (attempt 1 of 2, retrying in 1800s): only 1 GB free' "$ND/report.md"
+check "fixer low disk: not marked done after the first failure" "$([ -e "$ND/.fixer-1.done" ] && echo yes || echo no)" no
+check "fixer low disk: started marker removed so the round can be offered again" "$([ -e "$ND/.fixer-1-started" ] && echo yes || echo no)" no
+check "fixer low disk: no worktree was created" "$([ -e "$ND/fixer-1" ] && echo yes || echo no)" no
+bash "$NIGHTLY_SH" fix 1 "$NIGHT" > "$TMP/lowdisk/fix1b.out" 2>&1
+check_true "fixer low disk: attempt 2 gives up in the report" grep -q '^## Fixer round 1 failed (attempt 2 of 2, giving up)' "$ND/report.md"
+check "fixer low disk: given up counts as done" "$([ -e "$ND/.fixer-1.done" ] && echo yes || echo no)" yes
+check "fixer low disk: no fixer was ever run" "$(grep -c '^fixer' "$STUB_LOG")" 0
+
+# a failed worktree add is reported and retried too, instead of silently ending the round
+echo 52428800 > "$TMP/lowdisk/df.kb"
+rm -f "$ND/.fixer-2-started" "$ND/.fixer-2.done" "$ND/.fixer-2.failed"
+echo "not a directory" > "$ND/fixer-2" # `git worktree add` refuses an existing path
+bash "$NIGHTLY_SH" fix 2 "$NIGHT" > "$TMP/lowdisk/fix2.out" 2>&1
+check_true "worktree failure: reported with the reason" grep -q '^## Fixer round 2 failed (attempt 1 of 2, retrying in 1800s): cannot create worktree' "$ND/report.md"
+check "worktree failure: retry is not blocked by a done marker" "$([ -e "$ND/.fixer-2.done" ] && echo yes || echo no)" no
+rm -f "$ND/fixer-2"
+echo "$(epoch '2026-10-08 06:00')" > "$NIGHTLY_NOW_FILE"
+echo "1 $(epoch '2026-10-08 06:00')" > "$ND/.fixer-2.failed"
+touch "$ND/sweep.done"
+check "worktree failure: not offered again before the delay" "$(ns tick-decide)" ""
+echo "$(epoch '2026-10-08 06:31')" > "$NIGHTLY_NOW_FILE"
+check "worktree failure: offered again after the delay" "$(ns tick-decide)" "fix $NIGHT 2"
+bash "$NIGHTLY_SH" fix 2 "$NIGHT" > "$TMP/lowdisk/fix2b.out" 2>&1
+check "worktree retry ran the fixer" "$(grep -c '^fixer2' "$STUB_LOG")" 1
+check "worktree retry finished: done marker" "$([ -e "$ND/.fixer-2.done" ] && echo yes || echo no)" yes
+unset NIGHTLY_MIN_FREE_GB NIGHTLY_DF_CMD NIGHTLY_DISK_WAIT_SECONDS NIGHTLY_MAX_DISK_WAITS NIGHTLY_FIXERS NIGHTLY_FIX_RETRY_SECONDS
+
 
 echo
 if [ "$failures" -eq 0 ]; then echo "all $checks checks passed"; else echo "$failures of $checks checks FAILED"; fi

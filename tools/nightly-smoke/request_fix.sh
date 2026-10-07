@@ -21,6 +21,8 @@ if [ -f "$NIGHT_DIR/.fixer-1-started" ]; then
   exit 1
 fi
 mkdir -p "$NIGHT_DIR"
+# A 0-byte marker (written while the disk was full) is no request; it must not block a real one.
+[ -e "$NIGHT_DIR/fix-requested" ] && [ ! -s "$NIGHT_DIR/fix-requested" ] && rm -f "$NIGHT_DIR/fix-requested"
 run=""
 [ -d "$NIGHT_DIR/runs" ] && run=$(ls -1 "$NIGHT_DIR/runs" 2>/dev/null | tail -n 1)
 if ( set -o noclobber

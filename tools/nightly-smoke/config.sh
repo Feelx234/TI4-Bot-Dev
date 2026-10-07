@@ -31,8 +31,10 @@ START_DEFER_SECONDS="${NIGHTLY_START_DEFER_SECONDS:-7200}"
 BUILD_CMD="${NIGHTLY_BUILD_CMD:-cargo build --quiet -p ti4-server --bin server}"
 
 # Each run plays until this round (or game over / first failure).
-# Games end in round 9: the public objectives run out, so round 10 is never reached.
-STOP_ROUND="${NIGHTLY_STOP_ROUND:-9}"
+# Games end by themselves in round 9 (the public objectives run out, rule 81.2). Stopping at round 9
+# cut every game off before that end-of-game path (final scoring, the VP tie-break), so the limit is
+# round 10, which only a runaway game reaches: runs normally stop on game over.
+STOP_ROUND="${NIGHTLY_STOP_ROUND:-10}"
 MAX_DECISIONS="${NIGHTLY_MAX_DECISIONS:-20000}"
 PLAYER_COUNTS="${NIGHTLY_PLAYER_COUNTS:-3 4}"
 POLICIES="${NIGHTLY_POLICIES:-steer random}"
@@ -40,6 +42,17 @@ POLICIES="${NIGHTLY_POLICIES:-steer random}"
 # Mecatol Rex, so combat, casualties and the agenda phase show up early (see ti4-server preset.rs).
 PRESET_PROBABILITY="${NIGHTLY_PRESET_PROBABILITY:-50}"
 PRESET_NAME="${NIGHTLY_PRESET:-combat}"
+# Free space (GB) needed on the report filesystem to start a run or a fixer round. Below it the loop
+# waits (DISK_WAIT_SECONDS between checks) and gives the night up after MAX_DISK_WAITS checks.
+# DF_CMD is a test hook (the tests put a stub `df` here).
+MIN_FREE_GB="${NIGHTLY_MIN_FREE_GB:-10}"
+DISK_WAIT_SECONDS="${NIGHTLY_DISK_WAIT_SECONDS:-120}"
+MAX_DISK_WAITS="${NIGHTLY_MAX_DISK_WAITS:-30}"
+DF_CMD="${NIGHTLY_DF_CMD:-df}"
+# A fixer round that fails to start (no disk, no worktree) is retried after this long, up to this
+# many attempts in total.
+FIX_RETRY_SECONDS="${NIGHTLY_FIX_RETRY_SECONDS:-1800}"
+FIX_MAX_ATTEMPTS="${NIGHTLY_FIX_MAX_ATTEMPTS:-2}"
 # Do not start a new run with less time than this left before END (seconds).
 MIN_RUN_SECONDS="${NIGHTLY_MIN_RUN_SECONDS:-1800}"
 # Kill a run when its seat UI makes no progress for this long (seconds); the proctor reports it.
@@ -93,6 +106,17 @@ current_window() {
     read -r start end < <(window_for_night "$night")
   fi
   echo "$night $start $end"
+}
+
+# Free space in whole GB on the filesystem holding the reports (the builds and games live there too).
+free_gb() {
+  mkdir -p "$REPORT_ROOT" 2>/dev/null || true
+  $DF_CMD -Pk "$REPORT_ROOT" 2>/dev/null | awk 'NR == 2 { print int($4 / 1048576) }'
+}
+disk_ok() {
+  local free
+  free=$(free_gb)
+  [ -n "$free" ] && [ "$free" -ge "$MIN_FREE_GB" ]
 }
 
 log() { echo "[$(TZ="$NIGHTLY_TZ" date -d "@$(now_epoch)" '+%F %T %Z')] $*"; }

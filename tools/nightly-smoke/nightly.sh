@@ -148,13 +148,32 @@ cmd_loop() {
   fi
   BASE_COMMIT=$(git -C "$REPO" rev-parse HEAD)
 
-  local n=0
+  local n=0 disk_waits=0
   while [ $(( END_EPOCH - $(now_epoch) )) -gt "$MIN_RUN_SECONDS" ]; do
+    # No run (and no run directory) without free disk: a full disk used to turn the rest of a night
+    # into phantom runs and a truncated report. Wait for space, and give up after MAX_DISK_WAITS.
+    if ! disk_ok; then
+      disk_waits=$((disk_waits + 1))
+      if [ "$disk_waits" -eq 1 ]; then
+        note_report "## Waiting for disk space: $(free_gb) GB free, runs need $MIN_FREE_GB GB (checked every ${DISK_WAIT_SECONDS}s)"
+      fi
+      log "low disk: $(free_gb) GB free, need $MIN_FREE_GB GB (check $disk_waits of $MAX_DISK_WAITS)"
+      if [ "$disk_waits" -ge "$MAX_DISK_WAITS" ]; then
+        note_report "## Sweep stopped: the disk stayed below $MIN_FREE_GB GB for $MAX_DISK_WAITS checks"
+        log "sweep stopped: no disk space"; break
+      fi
+      sleep "$DISK_WAIT_SECONDS"; continue
+    fi
+    disk_waits=0
     n=$((n + 1))
     local run_name
     run_name="$(printf '%02d' "$n")-$(TZ="$NIGHTLY_TZ" date -d "@$(now_epoch)" +%H%M)"
     local run_dir="$NIGHT_DIR/runs/$run_name"
-    mkdir -p "$run_dir"
+    if ! mkdir -p "$run_dir"; then
+      note_report "## Run $run_name not started: cannot create $run_dir"
+      log "run $run_name: cannot create the run directory"
+      n=$((n - 1)); sleep "$DISK_WAIT_SECONDS"; continue
+    fi
     # Fixer branches that are ready come in now, between games, never during one.
     MERGED_NOW=""
     merge_pending 0
@@ -228,8 +247,10 @@ cmd_fix() {
   exec 8>"$NIGHT_DIR/.fixer-$round.lock"
   flock -n 8 || { log "fixer round $round already running for $NIGHT"; exit 0; }
   touch "$NIGHT_DIR/.fixer-$round-started"
-  # Expanded now: `round` is local and gone when the trap runs at script exit.
-  trap "touch \"$NIGHT_DIR/.fixer-$round.done\"; log \"fixer round $round finished\"" EXIT
+  # The exit trap tells a finished round from one that never got going (no disk, no worktree): the
+  # second is reported and retried, see fixer_exit.
+  FIX_ROUND="$round" FIX_OK=0 FIX_FAIL_REASON=""
+  trap fixer_exit EXIT
 
   local max="$FIX1_MAX_SECONDS"
   [ "$round" -ge 2 ] && max="$FIX2_MAX_SECONDS"
@@ -244,9 +265,14 @@ cmd_fix() {
   else
     base=$(git -C "$REPO" rev-parse HEAD)
   fi
+  if ! disk_ok; then
+    FIX_FAIL_REASON="only $(free_gb) GB free, need $MIN_FREE_GB GB"
+    log "fixer round $round: $FIX_FAIL_REASON"; exit 1
+  fi
   if [ ! -d "$wt" ]; then
     git -C "$REPO" worktree add -q -B "$fixer_branch" "$wt" "$base" >> "$NIGHT_DIR/fixer-$round.err" 2>&1 \
-      || { log "fixer round $round: cannot create worktree"; exit 1; }
+      || { FIX_FAIL_REASON="cannot create worktree $wt ($(tail -n 1 "$NIGHT_DIR/fixer-$round.err" 2>/dev/null))"
+           log "fixer round $round: $FIX_FAIL_REASON"; exit 1; }
   fi
   git -C "$wt" rev-parse HEAD > "$NIGHT_DIR/fixer-$round.base"
   if [ -d "$REPO/web/node_modules" ] && [ ! -e "$wt/web/node_modules" ]; then
@@ -259,7 +285,7 @@ cmd_fix() {
   log "fixer round $round: working in $wt on $fixer_branch ($FIXER_MODEL, budget ${max}s)"
   # Round 1 started early because a proctor asked (request_fix.sh): say so in the prompt and report.
   local request="" req_reason req_run
-  if [ "$round" = 1 ] && [ -f "$NIGHT_DIR/fix-requested" ]; then
+  if [ "$round" = 1 ] && [ -s "$NIGHT_DIR/fix-requested" ]; then
     req_reason=$(sed -n '/^reason: /,$p' "$NIGHT_DIR/fix-requested" | sed '1s/^reason: //')
     req_run=$(sed -n 's/^run: //p' "$NIGHT_DIR/fix-requested" | head -1)
     request="A proctor (run ${req_run:-unknown}) asked for this round early because: $req_reason"
@@ -302,6 +328,36 @@ cmd_fix() {
   [ "$commits" -gt 0 ] && echo "$fixer_branch" > "$NIGHT_DIR/fixer-$round.ready"
   # Once the sweep has ended nobody else would merge it; while it runs, the loop does, between games.
   if [ -f "$NIGHT_DIR/sweep.done" ] && ! sweep_running; then merge_pending 1; fi
+  FIX_OK=1
+}
+
+# Exit trap of a fix round. A round that finished (FIX_OK) is done. One that never started working
+# says so in the report and is retried after FIX_RETRY_SECONDS (decide_night), at most
+# FIX_MAX_ATTEMPTS times; only then it counts as done so the morning summary is not held up.
+fixer_exit() {
+  local failed="$NIGHT_DIR/.fixer-$FIX_ROUND.failed" count=1 prev=""
+  if [ "$FIX_OK" = 1 ]; then
+    touch "$NIGHT_DIR/.fixer-$FIX_ROUND.done"
+    log "fixer round $FIX_ROUND finished"
+    return 0
+  fi
+  [ -s "$failed" ] && read -r prev _ < "$failed" && count=$((prev + 1))
+  echo "$count $(now_epoch)" > "$failed"
+  if [ "$count" -ge "$FIX_MAX_ATTEMPTS" ]; then
+    touch "$NIGHT_DIR/.fixer-$FIX_ROUND.done"
+    note_report "## Fixer round $FIX_ROUND failed (attempt $count of $FIX_MAX_ATTEMPTS, giving up): ${FIX_FAIL_REASON:-it stopped before doing any work}"
+  else
+    rm -f "$NIGHT_DIR/.fixer-$FIX_ROUND-started"
+    note_report "## Fixer round $FIX_ROUND failed (attempt $count of $FIX_MAX_ATTEMPTS, retrying in ${FIX_RETRY_SECONDS}s): ${FIX_FAIL_REASON:-it stopped before doing any work}"
+  fi
+  log "fixer round $FIX_ROUND failed (attempt $count): ${FIX_FAIL_REASON:-stopped early}"
+}
+# A failed round waits FIX_RETRY_SECONDS before it is offered again.
+fixer_retry_wait_over() { # fixer_retry_wait_over <round>
+  local failed="$NIGHT_DIR/.fixer-$1.failed" count at
+  [ -s "$failed" ] || return 0
+  read -r count at < "$failed"
+  [ "$(now_epoch)" -ge $(( ${at:-0} + FIX_RETRY_SECONDS )) ]
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -360,13 +416,15 @@ decide_night() { # decide_night <night> <current: 1|0>; prints "<action> <night>
   fi
 
   if [ "$current" = 1 ] && fixer_enabled 1 && [ ! -f "$NIGHT_DIR/.fixer-1-started" ] \
-    && { [ "$now" -ge "$(fix1_epoch)" ] || [ -f "$NIGHT_DIR/fix-requested" ]; } && [ "$now" -lt "$END_EPOCH" ] \
+    && { [ "$now" -ge "$(fix1_epoch)" ] || [ -s "$NIGHT_DIR/fix-requested" ]; } && [ "$now" -lt "$END_EPOCH" ] \
+    && fixer_retry_wait_over 1 \
     && [ ! -f "$NIGHT_DIR/sweep.done" ] && [ "$(report_entries)" -ge 1 ]; then
     echo "fix $NIGHT 1"
     return 0
   fi
 
   if fixer_enabled 2 && [ ! -f "$NIGHT_DIR/.fixer-2-started" ] && [ -f "$NIGHT_DIR/sweep.done" ] \
+    && fixer_retry_wait_over 2 \
     && ! sweep_running && ! lock_held "$NIGHT_DIR/.fixer-1.lock"; then
     if [ "$(report_entries)" -ge 1 ]; then echo "fix $NIGHT 2"; else echo "skip-fix $NIGHT 2"; fi
     return 0
