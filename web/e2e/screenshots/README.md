@@ -1,10 +1,15 @@
 # Screenshot artifacts
 
-Reproducible screenshots of UI states, one folder per artifact (`A-` to `J-`), one capture script per screenshot.
+Reproducible screenshots of UI states, one folder per artifact, one capture script per screenshot.
 
     cd web
     npm run screenshots -- all     # every folder
-    npm run screenshots -- D       # one folder (letter or full name)
+    npm run screenshots -- D       # one folder (id or full name)
+    npm run screenshots -- AB      # two-letter ids work the same way
+
+## Folder ids
+
+Folders are named `<ID>-<short-name>` and the ids are sequential: `A`, `B`, ... `Z`, then `AA`, `AB`, ... `AZ`, `BA`, and so on. A new folder takes the next free id, which is the one after the highest id that exists on any branch you are going to merge with. Check `git branch -a` (or `git ls-tree -r --name-only <branch> web/e2e/screenshots | grep -E '^web/e2e/screenshots/[A-Z]+-'`) before picking, so two branches do not take the same id. If two branches clash anyway, rename one folder when merging (the id only has to be unique; nothing else refers to it). The runner matches folders by `^[A-Z]{1,2}-`, so ids go up to `ZZ`; extend the pattern in `_shared/run.mjs` if that is ever not enough.
 
 Each folder holds `capture-*.ts` (Playwright specs), `manifest.json` (title, description, one caption per shot), `out/*.png` and a generated, self-contained `index.html` (ignored by git; rebuilt by the runner).
 
