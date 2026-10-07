@@ -9,6 +9,8 @@ export interface OfferFact {
   text: string | null;
   /** A unit type: shown with its icon. */
   unit: string | null;
+  /** A seat: shown by the player's name (resolved with the player identity). */
+  seat: string | null;
   /** A before/after number, e.g. commodities 1 → 2 of 3. */
   change: { from: number; to: number; of: number | null } | null;
 }
@@ -51,6 +53,7 @@ function readFact(raw: unknown): OfferFact | null {
   const unit = text(record.unit);
   const planetId = text(record.planet);
   const technologyId = text(record.technology);
+  const seat = text(record.seat);
   const system = text(record.system);
   const from = num(record.from);
   const to = num(record.to);
@@ -63,8 +66,8 @@ function readFact(raw: unknown): OfferFact | null {
   if (technologyId) value = getTechnologyMeta(technologyId).name;
   if (unit) value = null;
   const change = from !== null && to !== null ? { from, to, of: num(record.of) } : null;
-  if (!unit && !change && value === null) return null;
-  return { label, text: unit || change ? null : value, unit, change };
+  if (!unit && !seat && !change && value === null) return null;
+  return { label, text: unit || seat || change ? null : value, unit, seat, change };
 }
 
 /** "Sustain damage" for a unit: the display name, the way unit lists show it. */

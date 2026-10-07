@@ -45,6 +45,42 @@ export function offerCases(): GalleryCase[] {
     reduceCase(),
     {
       workflow: "generic_selection",
+      title: "Slumberstate Computing: coexist or fight",
+      fallback: "'fight for jord' / 'coexist on jord' -> the breakthrough as printed, the planet and its controller, what each answer does",
+      note: "Titans' Coalescence would start a ground combat on a planet another seat controls; with no other units committed the Titans may coexist instead.",
+      choice: {
+        actor,
+        nonce: "gallery-coexist",
+        prompt: "Slumberstate Computing: coexist on jord instead of fighting",
+        context: {
+          subtype: "coalescence_coexist",
+          source: { Content: "titansbt" },
+          target: { Planet: { system: "14", planet: "jord" } },
+        },
+        options: [
+          option("fight", "fight for jord", "coalescence"),
+          option("coexist", "coexist on jord", "coalescence"),
+        ],
+        details: {
+          kind: "offer",
+          card: {
+            title: "Slumberstate Computing",
+            tag: "breakthrough",
+            text: "When COALESCENCE results in a ground combat, if you commit no other units, you may choose for your units to coexist instead.",
+          },
+          facts: [
+            { label: "Planet", planet: "jord", system: "14" },
+            { label: "Controlled by", seat: "other_seat" },
+          ],
+          captions: {
+            fight: { label: "Fight for the planet", hint: "Ground combat decides who controls it" },
+            coexist: { label: "Coexist", hint: "No combat; the controller keeps the planet" },
+          },
+        },
+      },
+    },
+    {
+      workflow: "generic_selection",
       title: "Take a revealed action card",
       fallback: "Card names only -> each shown card with its printed text, the way a hand discard shows cards",
       note: "Mageon Implants or Spy Net shows you another seat's hand; you take one card into yours. One option per distinct card.",

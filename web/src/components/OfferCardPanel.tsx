@@ -1,5 +1,6 @@
 import React from "react";
 import { offerUnitName, type OfferCardView } from "../presentation/offerCard.ts";
+import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { UnitIcon } from "./UnitIcon.tsx";
 import "./DecisionContext.css";
 
@@ -11,7 +12,9 @@ export const OfferCardPanel: React.FC<{
   view: OfferCardView;
   disabled: boolean;
   onChoose: (optionId: string) => void;
-}> = ({ view, disabled, onChoose }) => (
+}> = ({ view, disabled, onChoose }) => {
+  const display = usePlayerIdentity();
+  return (
   <div className="secondary-panel offer-card" data-testid="offer-card-panel">
     <div className="secondary-panel__card">
       <div className="secondary-panel__title">
@@ -40,6 +43,7 @@ export const OfferCardPanel: React.FC<{
                   <UnitIcon type={fact.unit} size={16} /> {offerUnitName(fact.unit)}
                 </>
               )}
+              {fact.seat && display(fact.seat).label}
               {fact.change && (
                 <>
                   {fact.change.from} → <strong>{fact.change.to}</strong>
@@ -71,3 +75,4 @@ export const OfferCardPanel: React.FC<{
     </div>
   </div>
 );
+};

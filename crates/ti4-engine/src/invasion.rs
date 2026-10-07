@@ -2001,6 +2001,23 @@ pub fn ground_force_owners_for_test(
     ground_force_owners(state, content, sources, system, planet)
 }
 
+/// Display only: a breakthrough as an offer-card header: its name and the first sentence of its
+/// printed text (the ability that is being offered).
+fn breakthrough_card(content: &ContentStore, alias: &str) -> serde_json::Value {
+    let record = content.get(ti4_model::content_types::ContentType::Breakthroughs, alias);
+    let field = |key: &str| record.as_ref().and_then(|record| record.text(key));
+    let first_sentence = field("text").map(|text| match text.find(". ") {
+        Some(end) => &text[..=end],
+        None => text,
+    });
+    crate::choice::offer_card(
+        field("name").unwrap_or(alias),
+        "breakthrough",
+        None,
+        first_sentence,
+    )
+}
+
 /// LRR 49/42: who has ground forces on `planet`.
 ///
 /// Only ground forces make a planet contested and can be casualties of a ground combat.
@@ -2785,6 +2802,32 @@ impl InvasionWindow {
                     "coexist".to_owned(),
                     "coalescence",
                     format!("coexist on {planet}"),
+                ),
+            ],
+        )
+        .offered(
+            breakthrough_card(content, "titansbt"),
+            vec![
+                crate::choice::offer_fact_planet("Planet", planet.as_str(), self.system.as_str()),
+                crate::choice::offer_fact_seat(
+                    "Controlled by",
+                    holder.as_ref().map_or("", PlayerId::as_str),
+                ),
+            ],
+            &[
+                (
+                    "fight",
+                    crate::choice::offer_caption(
+                        "Fight for the planet",
+                        Some("Ground combat decides who controls it"),
+                    ),
+                ),
+                (
+                    "coexist",
+                    crate::choice::offer_caption(
+                        "Coexist",
+                        Some("No combat; the controller keeps the planet"),
+                    ),
                 ),
             ],
         )
@@ -4363,6 +4406,18 @@ pub fn resolve(
 
 #[cfg(test)]
 mod tests {
+    /// The coexist question's card header is the breakthrough's name and its first sentence.
+    #[test]
+    fn a_breakthrough_card_is_its_name_and_first_sentence() {
+        let card = breakthrough_card(ContentStore::embedded(), "titansbt");
+        assert_eq!(card["title"], "Slumberstate Computing");
+        assert_eq!(card["tag"], "breakthrough");
+        assert_eq!(
+            card["text"],
+            "When COALESCENCE results in a ground combat, if you commit no other units, you may choose for your units to coexist instead."
+        );
+    }
+
     fn apply_ground_hit(
         state: &mut GameState,
         content: &ContentStore,

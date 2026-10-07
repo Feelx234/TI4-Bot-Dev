@@ -75,6 +75,19 @@ describe("offer card", () => {
     expect(view.answers[0]).toMatchObject({ label: "Jord (system 14)", hint: "Place 2 infantry here" });
   });
 
+  it("shows the controlling seat of a coexist question by name", () => {
+    const view = describeOfferCard(galleryChoice("Slumberstate Computing: coexist or fight"))!;
+    expect(view.title).toBe("Slumberstate Computing");
+    expect(view.facts[1]).toMatchObject({ label: "Controlled by", seat: "other_seat", text: null });
+    expect(view.answers.map((a) => a.option.id)).toEqual(["fight", "coexist"]);
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PendingChoiceModal choice={galleryChoice("Slumberstate Computing: coexist or fight")} onSubmit={onSubmit} />,
+    );
+    fireEvent.click(screen.getByTestId("offer-card-answer-coexist"));
+    expect(onSubmit).toHaveBeenCalledWith("coexist");
+  });
+
   it("shows a number that changes as before → after", () => {
     const view = describeOfferCard(galleryChoice("Deepwrought commander: reduce research"))!;
     expect(view.facts[0].change).toEqual({ from: 4, to: 3, of: null });

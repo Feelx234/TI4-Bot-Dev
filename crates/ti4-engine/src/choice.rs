@@ -204,6 +204,12 @@ pub fn offer_fact_planet(label: &str, planet: &str, system: &str) -> Value {
     serde_json::json!({ "label": label, "planet": planet, "system": system })
 }
 
+/// Display only: a fact whose value is a seat (shown by the player's name).
+#[must_use]
+pub fn offer_fact_seat(label: &str, seat: &str) -> Value {
+    serde_json::json!({ "label": label, "seat": seat })
+}
+
 /// Display only: a fact whose value is a technology (shown by its name).
 #[must_use]
 pub fn offer_fact_technology(label: &str, technology: &str) -> Value {
