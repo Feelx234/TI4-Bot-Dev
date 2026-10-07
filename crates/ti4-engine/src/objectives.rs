@@ -2081,6 +2081,20 @@ impl ScoringWindow {
         let mut options: Vec<ChoiceOption> = available
             .into_iter()
             .map(|alias| {
+                // A plot (Plots Within Plots) scores with no victory point.
+                if let Some((secret, token)) = crate::factions::firmament::parse_option(alias.as_str())
+                {
+                    return ChoiceOption::labelled(
+                        alias.as_str(),
+                        SCORE_KIND,
+                        format!("{secret} as a plot with {token}'s control token"),
+                    )
+                    .previewed(Preview::certain(vec![Delta::new(
+                        Quantity::VictoryPoints,
+                        vp,
+                        vp,
+                    )]));
+                }
                 ChoiceOption::labelled(alias.as_str(), SCORE_KIND, alias.as_str()).previewed(
                     Preview::certain(vec![Delta::new(Quantity::VictoryPoints, vp, vp_after)]),
                 )
@@ -2176,6 +2190,24 @@ impl ScoringWindow {
                     .into_iter()
                     .map(|secret| ObjectiveId::new(secret.as_str())),
             );
+            // Plots Within Plots: secrets other players scored, which the Firmament may score too.
+            // Not subject to either per-window limit above ("does not count against ... the number
+            // you can score in a round"), so they are added after those filters.
+            available.extend(
+                crate::factions::firmament::plot_options(
+                    state,
+                    content,
+                    sources,
+                    player,
+                    self.timing,
+                    self.event_occurrence,
+                    self.galaxy.as_ref(),
+                )
+                .into_iter()
+                .map(|(secret, token)| {
+                    ObjectiveId::new(crate::factions::firmament::option_id(&secret, &token))
+                }),
+            );
             if !available.is_empty() {
                 return Some((offset, player.clone(), available));
             }
@@ -2209,6 +2241,28 @@ impl ScoringWindow {
             let keep = self.pending.len() - offset - 1;
             self.pending.truncate(keep);
             return Ok(None);
+        }
+        // Plots Within Plots: a secret another player scored, scored as a plot. No victory point,
+        // and neither per-window cap is used, so this player stays in the window while anything
+        // is still on offer to them.
+        if let Some((secret, token)) = crate::factions::firmament::parse_option(&option.id) {
+            if !crate::factions::firmament::score_as_plot(state, content, &player, &secret, &token)
+            {
+                self.pending.truncate(self.pending.len() - offset - 1);
+                return Err(ScoringError::SecretAwardFailed(secret));
+            }
+            let still_has_more = self.next_askable(state, content, sources).is_some_and(
+                |(next_offset, next_player, _)| next_offset == offset && next_player == player,
+            );
+            let keep = if still_has_more {
+                self.pending.len() - offset
+            } else {
+                self.pending.len() - offset - 1
+            };
+            self.pending.truncate(keep);
+            let scored = ObjectiveId::new(secret.as_str());
+            self.scored.push((player, scored.clone()));
+            return Ok(Some(scored));
         }
         let alias = ObjectiveId::new(option.id);
         // A secret leaves its owner's hand when scored (61.18), which a public award does not
@@ -2259,7 +2313,23 @@ impl ScoringWindow {
                 self.pending.len() - offset - 1
             }
         } else if self.event_score_limit == EventScoreLimit::OnePerPlayer {
-            self.pending.len() - offset - 1
+            // Plots Within Plots is not subject to the one-per-player cap: the Firmament stays in
+            // the window while a plot is still on offer.
+            let plots_left = !crate::factions::firmament::plot_options(
+                state,
+                content,
+                sources,
+                &player,
+                self.timing,
+                self.event_occurrence,
+                self.galaxy.as_ref(),
+            )
+            .is_empty();
+            if plots_left {
+                self.pending.len() - offset
+            } else {
+                self.pending.len() - offset - 1
+            }
         } else {
             self.pending.len() - offset
         };

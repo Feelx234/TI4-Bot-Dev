@@ -7,6 +7,7 @@ pub mod content_types;
 pub mod diplomacy;
 pub mod hex;
 pub mod id;
+pub mod plots;
 pub mod schema;
 pub mod state;
 pub mod units;

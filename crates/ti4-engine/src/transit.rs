@@ -245,6 +245,13 @@ impl CargoWindow {
                 ignore_tokens,
             ));
         }
+        // Myru Vos: a ship moving through other players' ships on that agent's say-so carries
+        // nothing ("if they are not transporting units").
+        if crate::factions::firmament::unladen_route_forbids_cargo(
+            state, content, sources, player, ship, path,
+        ) {
+            candidates.clear();
+        }
         let types = catalogue(content, sources);
         // A ship with no capacity (a destroyer) carries nothing that needs a slot, but its hold
         // stays open to cargo that never uses one (Ral Nel Miniaturization: structures).

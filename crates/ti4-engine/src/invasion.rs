@@ -2761,13 +2761,29 @@ impl InvasionWindow {
         planets: &[PlanetId],
     ) -> Result<(), IllegalChoice> {
         for planet in planets {
-            if !crate::factions::deepwrought::research_team_open(
+            // Research Team (Deepwrought) or a Viper EX-23 (Firmament mech) on the planet.
+            let ability = if crate::factions::deepwrought::research_team_open(
                 state,
                 ctx.content,
                 &self.invader,
                 &self.system,
                 planet,
-            ) || !ground_force_owners(state, ctx.content, ctx.sources, &self.system, planet)
+            ) {
+                Some(("researchteam", "Research Team"))
+            } else if crate::factions::firmament::viper_open(
+                state,
+                &self.invader,
+                &self.system,
+                planet,
+            ) {
+                Some((crate::factions::firmament::MECH, "Viper EX-23"))
+            } else {
+                None
+            };
+            let Some((source, name)) = ability else {
+                continue;
+            };
+            if !ground_force_owners(state, ctx.content, ctx.sources, &self.system, planet)
                 .iter()
                 .any(|owner| *owner != self.invader)
             {
@@ -2775,7 +2791,7 @@ impl InvasionWindow {
             }
             let choice = crate::choice::Choice::new(
                 self.invader.clone(),
-                format!("Research Team: coexist on {planet} instead of fighting"),
+                format!("{name}: coexist on {planet} instead of fighting"),
                 vec![
                     crate::choice::ChoiceOption::labelled(
                         "fight".to_owned(),
@@ -2792,7 +2808,7 @@ impl InvasionWindow {
             .contextualized(
                 DecisionContext::new(
                     self.invader.clone(),
-                    DecisionSource::FactionAbility("researchteam".to_owned()),
+                    DecisionSource::FactionAbility(source.to_owned()),
                     "research_team_coexist",
                     state.phase,
                     state.round,
@@ -2845,15 +2861,33 @@ impl InvasionWindow {
                         &self.invader,
                         &self.system,
                         planet,
+                    ) || crate::factions::firmament::viper_defender_open(
+                        state,
+                        seat,
+                        &self.invader,
+                        &self.system,
+                        planet,
                     )
                 })
                 .cloned()
                 .collect();
             for defender in defenders {
+                let (source, name) = if crate::factions::deepwrought::research_team_defender_open(
+                    state,
+                    ctx.content,
+                    &defender,
+                    &self.invader,
+                    &self.system,
+                    planet,
+                ) {
+                    ("researchteam", "Research Team")
+                } else {
+                    (crate::factions::firmament::MECH, "Viper EX-23")
+                };
                 let choice = crate::choice::Choice::new(
                     defender.clone(),
                     format!(
-                        "Research Team: coexist on {planet} with {}'s ground forces instead of fighting",
+                        "{name}: coexist on {planet} with {}'s ground forces instead of fighting",
                         self.invader
                     ),
                     vec![
@@ -2872,7 +2906,7 @@ impl InvasionWindow {
                 .contextualized(
                     DecisionContext::new(
                         defender.clone(),
-                        DecisionSource::FactionAbility("researchteam".to_owned()),
+                        DecisionSource::FactionAbility(source.to_owned()),
                         "research_team_defend_coexist",
                         state.phase,
                         state.round,

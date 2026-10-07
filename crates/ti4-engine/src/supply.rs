@@ -246,9 +246,12 @@ const STAGED_EVENT_PREFIX: &str = "private:#staged:event:";
 pub fn staging_enabled(state: &GameState) -> bool {
     state.seating_order.iter().any(|player| {
         state.player(player).is_some_and(|seat| {
-            crate::factions::MODULES
-                .iter()
-                .any(|module| module.alias == seat.faction.as_str())
+            // The Obsidian is the Firmament's other face: a seat that became it keeps the staging
+            // the Firmament had (part B gives it a module of its own).
+            seat.faction.as_str() == crate::factions::firmament::OBSIDIAN
+                || crate::factions::MODULES
+                    .iter()
+                    .any(|module| module.alias == seat.faction.as_str())
         })
     })
 }

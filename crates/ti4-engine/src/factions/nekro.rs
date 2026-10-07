@@ -54,6 +54,7 @@ pub const LENDABLE_FLAGSHIPS: &[&str] = &[
     "crimson_flagship",
     "deepwrought_flagship",
     "empyrean_flagship",
+    "firmament_flagship",
     "ghost_flagship",
     "hacan_flagship",
     "jolnar_flagship",

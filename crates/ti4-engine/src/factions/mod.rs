@@ -57,6 +57,8 @@ pub(crate) mod crimson_cards;
 pub mod deepwrought;
 mod deepwrought_cards;
 pub(crate) mod deepwrought_research;
+pub mod firmament;
+mod firmament_flip;
 pub mod ghost;
 pub mod hooks_cards;
 pub mod hooks_combat;
@@ -87,7 +89,7 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 25] = [
+pub const MODULES: [&FactionModule; 26] = [
     &arborec::MODULE,
     &argent::MODULE,
     &bastion::MODULE,
@@ -95,6 +97,7 @@ pub const MODULES: [&FactionModule; 25] = [
     &crimson::MODULE,
     &deepwrought::MODULE,
     &empyrean::MODULE,
+    &firmament::MODULE,
     &ghost::MODULE,
     &keleres::MODULE_M,
     &keleres::MODULE_X,

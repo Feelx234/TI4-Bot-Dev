@@ -964,6 +964,22 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The Fracture, rule 11: a game effect (Firmament Planesplitter) puts it into play and the
+        // player who caused it chooses one ingress system per technology colour (BF-firmament.md).
+        module: "fracture.rs",
+        function: "enter_play_by_effect",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // The Firmament: every question asked inside a timing window, component action or leader
+        // action (BF-firmament.md).
+        module: "firmament.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // The seat's action-phase turn: strategic, tactical, component, pass, contacts.
         module: "game.rs",
         function: "turn_options",
@@ -1614,6 +1630,8 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("relics.rs", "titan_prototype", 1),
     ("entropic_scars.rs", "resolve_status_start", 1),
     ("fracture.rs", "after_breakthrough_gained", 1),
+    ("fracture.rs", "enter_play_by_effect", 1),
+    ("firmament.rs", "ask", 1),
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard", 1),

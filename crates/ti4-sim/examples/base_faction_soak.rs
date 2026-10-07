@@ -17,8 +17,8 @@ use ti4_engine::setup::start_game_seeded;
 use ti4_model::content_types::DEFAULT;
 use ti4_model::id::{FactionId, PlayerId};
 
-const FACTIONS: [&str; 25] = [
-    "arborec", "argent", "bastion", "cabal", "crimson", "deepwrought", "empyrean", "ghost", "keleresa", "keleresm", "keleresx", "mahact",
+const FACTIONS: [&str; 26] = [
+    "arborec", "argent", "bastion", "cabal", "crimson", "deepwrought", "empyrean", "firmament", "ghost", "keleresa", "keleresm", "keleresx", "mahact",
     "mentak", "muaat", "naalu", "naaz", "nekro", "nomad", "saar", "sardakk", "titans", "winnu", "yin",
     "yssaril", "ralnel",
 ];

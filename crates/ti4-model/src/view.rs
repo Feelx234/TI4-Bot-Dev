@@ -67,6 +67,13 @@ pub fn redact_player_with(player: &Player, secrets_revealed: bool) -> Player {
             .map(|_| SecretObjectiveId::new(HIDDEN))
             .collect();
     }
+    // The Firmament's facedown plot cards: the count survives, the tokens on them do not. A
+    // flipped (faceup) card is public.
+    redacted.plots = player
+        .plots
+        .iter()
+        .map(|stored| crate::plots::Plot::shown_to_others(stored))
+        .collect();
     redacted
 }
 
@@ -145,6 +152,11 @@ pub fn leaks(state: &GameState, viewer: &PlayerId) -> Vec<String> {
         for objective in &player.secret_objectives {
             if !is_hidden(objective.as_str()) {
                 found.push(format!("{}.secret_objectives={objective}", player.id));
+            }
+        }
+        for stored in &player.plots {
+            if crate::plots::Plot::decode(stored).is_some_and(|plot| !plot.faceup) {
+                found.push(format!("{}.plots={stored}", player.id));
             }
         }
     }
@@ -312,6 +324,27 @@ mod tests {
         let view = view_for(&game(), &pid("a"));
         let leaked = leaks(&view, &pid("a"));
         assert!(leaked.is_empty(), "{leaked:?}");
+    }
+
+    #[test]
+    fn facedown_plot_cards_are_counted_but_never_read_by_other_players() {
+        let mut g = game();
+        g.player_mut(&pid("b")).unwrap().plots = vec!["d:a".to_owned(), "d:c".to_owned()];
+        let found = leaks(&g, &pid("a"));
+        assert!(found.iter().any(|l| l.starts_with("b.plots=")), "{found:?}");
+
+        let for_a = view_for(&g, &pid("a"));
+        assert_eq!(for_a.player(&pid("b")).unwrap().plots, ["?", "?"]);
+        assert!(leaks(&for_a, &pid("a")).is_empty());
+        // The owner sees their own cards.
+        let for_b = view_for(&g, &pid("b"));
+        assert_eq!(for_b.player(&pid("b")).unwrap().plots, ["d:a", "d:c"]);
+
+        // Once flipped the cards are public.
+        g.player_mut(&pid("b")).unwrap().plots = vec!["u:a".to_owned()];
+        let for_c = view_for(&g, &pid("c"));
+        assert_eq!(for_c.player(&pid("b")).unwrap().plots, ["u:a"]);
+        assert!(leaks(&for_c, &pid("c")).is_empty());
     }
 
     #[test]

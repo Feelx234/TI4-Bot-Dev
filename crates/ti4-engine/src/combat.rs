@@ -1963,9 +1963,11 @@ pub fn space_cannon_offense(
     // against the active player's ships. Every other player's gun fires at the active player, so
     // the card silences all of them; the active player's own guns are untouched. The marker is
     // activation-scoped, like the card's "this tactical action" wording.
+    // Myru Vos (Firmament agent) silences SPACE CANNON against the ships it was used on the same way.
     let solar_flare = state
         .player(active)
-        .is_some_and(|seat| seat.solar_flare.contains(&state.activation_seq));
+        .is_some_and(|seat| seat.solar_flare.contains(&state.activation_seq))
+        || crate::factions::firmament::space_cannon_silenced(state, active);
     let types = catalogue(content, sources);
     let board = state.system_state(system);
     // The active player's guns fire too (as ti4calc has it; user ruling 2026-09-17), at the ships

@@ -231,6 +231,15 @@ pub struct MovementHooks {
     ///
     /// Crimson Rebellion Sever: "wormholes in that system have no effect during movement."
     pub severed_systems: Option<fn(&GameState) -> Vec<String>>,
+    /// Whether `mover`'s ships that are not transporting units may also move through systems that
+    /// contain other players' ships (58.4b lifted, but only when no route avoids them: the search
+    /// tries the ordinary rules first). Any module's `true` allows. Read when the rules for a real
+    /// move are built; `transit::CargoWindow::for_ship` then loads nothing onto a ship whose route
+    /// goes through such a system (`firmament::unladen_route_forbids_cargo`).
+    ///
+    /// Firmament agent Myru Vos: "If they are not transporting units, they can also move through
+    /// other players' ships."
+    pub unladen_pass: Option<fn(&GameState, &PlayerId) -> bool>,
 }
 
 impl MovementHooks {
@@ -256,6 +265,7 @@ impl MovementHooks {
         own_unit_passage: None,
         usable_wormhole_kinds: None,
         severed_systems: None,
+        unladen_pass: None,
     };
 }
 
@@ -360,6 +370,13 @@ pub(crate) fn passable_owners(state: &GameState, mover: &PlayerId) -> BTreeSet<P
         .filter_map(|table| table.passable_owners)
         .flat_map(|hook| hook(state, mover))
         .collect()
+}
+
+/// Whether any module lets `mover`'s unladen ships move through other players' ships.
+pub(crate) fn unladen_pass(state: &GameState, mover: &PlayerId) -> bool {
+    tables()
+        .filter_map(|table| table.unladen_pass)
+        .any(|hook| hook(state, mover))
 }
 
 /// Borders `viewer` does not treat as adjacent, normalised `(low, high)`.
