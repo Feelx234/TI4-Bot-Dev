@@ -930,6 +930,26 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Divert Funding: which technology to return",
+    fallback: "Technology names only -> colour, prerequisites and printed text per technology, and what this half of the card does",
+    note: "Divert Funding (and the other cards that ask for a technology) shows each technology as printed; the header says whether it is returned or researched.",
+    choice: {
+      actor,
+      nonce: "gallery-divert-pick",
+      prompt: "Divert Funding: which technology to return",
+      context: {
+        subtype: "divert_funding_pick_technology",
+        source: { ActionCard: "divert" },
+      },
+      options: [
+        option("pa", "Psychoarchaeology", "technology"),
+        option("amd", "Antimass Deflectors", "technology"),
+        option("st", "Sarween Tools", "technology"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Scuttle: which ship to scuttle",
     fallback: "Raw ship ids -> named ships with their system and the trade goods each pays out",
     note: "Scuttle (and Refit Troops, for infantry) names each unit, says where it is and what the card does to it; the printed card is above the options.",
