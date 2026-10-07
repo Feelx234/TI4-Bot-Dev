@@ -1,6 +1,6 @@
 import { act } from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { ProductionBuilderDrawer } from "./ProductionBuilderDrawer.tsx";
 import { PendingChoiceDto } from "../protocol/types.ts";
 
@@ -155,8 +155,11 @@ describe("ProductionBuilderDrawer", () => {
     );
     const fighter = screen.getByTestId("produce-unit-btn-build|fighter|2");
     const carrier = screen.getByTestId("produce-unit-btn-build|carrier|1");
-    expect(screen.getByText("2x fighter for 1")).toBeInTheDocument();
-    expect(screen.queryByText("produce 2x fighter for 1")).not.toBeInTheDocument();
+    // The option shows the unit's name and its cost inline; the engine's "produce" prefix is dropped
+    // from the control labels.
+    expect(screen.getByRole("button", { name: "Add 2x fighter for 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add produce 2x fighter for 1" })).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("produce-option-build|fighter|2")).getByText("2 for 1")).toBeInTheDocument();
     fireEvent.click(fighter);
     fireEvent.click(fighter);
     expect(screen.getByTestId("production-capacity-counter")).toHaveTextContent(
