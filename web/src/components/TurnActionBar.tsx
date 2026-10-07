@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ValueText } from "./PlanetValueIcons.tsx";
 import { humanizeId } from "../protocol/contentCatalog.ts";
 import {
   type BarAction,
@@ -373,7 +374,7 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
             <div className="turn-bar__chips">
               {info.chips.map((chip) => (
                 <span key={chip.label} className={`turn-bar__chip turn-bar__chip--${chip.tone}`}>
-                  {chip.label}
+                  <ValueText text={chip.label} />
                 </span>
               ))}
             </div>

@@ -1,5 +1,5 @@
 import { act } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import type { PendingChoiceDto } from "../protocol/types.ts";
@@ -155,8 +155,10 @@ describe("command token panel (gain and buy)", () => {
     const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
     render(<PendingChoiceModal choice={gainBuyChoice()} onSubmit={vi.fn()} onSubmitBatch={onSubmitBatch} />);
     expect(screen.getByTestId("token-total")).toHaveTextContent("3");
-    expect(screen.getByTestId("token-buy")).toHaveTextContent("3 influence each");
-    expect(screen.getByTestId("token-influence")).toHaveTextContent("Influence available 9");
+    expect(screen.getByTestId("token-buy")).toHaveTextContent("3 each");
+    expect(within(screen.getByTestId("token-buy")).getByLabelText("3 influence")).toBeInTheDocument();
+    expect(screen.getByTestId("token-influence")).toHaveTextContent("available 9");
+    expect(within(screen.getByTestId("token-influence")).getByLabelText("influence")).toBeInTheDocument();
     expect(screen.getByTestId("token-buy-minus")).toBeDisabled();
 
     await click("token-buy-plus");
@@ -281,7 +283,8 @@ describe("command token panel (change payment)", () => {
     await stage();
     await click("token-payment-change");
     const jord = screen.getByTestId("token-payment-planet-jord");
-    expect(jord).toHaveTextContent("jord · 2 influence · ready");
+    expect(jord).toHaveTextContent("jord · 2 · ready");
+    expect(within(jord).getByLabelText("2 influence")).toBeInTheDocument();
     // Auto-pay picked lodor (3, no waste); switch to jord + one trade good.
     expect(screen.getByTestId("token-payment-planet-lodor")).toHaveAttribute("aria-pressed", "true");
     await click("token-payment-planet-lodor");

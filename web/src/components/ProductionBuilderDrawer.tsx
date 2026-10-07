@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { ValueUnit } from "./PlanetValueIcons.tsx";
 import { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
 import { Dialog } from "../primitives/index.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
@@ -199,11 +200,18 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                     )}
                     <div className="workflow-card production-drawer__meter">
                       <div className="workflow-card--row">
-                        <span className="text-muted">Resources:</span>
+                        <span className="text-muted">
+                          <ValueUnit kind="resources" size="bar" /> available
+                        </span>
                         <span data-testid="production-resources-counter" className="text-success">
                           {resourceLimit === null
                             ? "Unavailable"
-                            : `${stagedCost} / ${resourceLimit} Resources (${Math.max(0, resourceLimit - stagedCost)} Left)`}
+                            : (
+                              <>
+                                {stagedCost} / {resourceLimit} <ValueUnit kind="resources" /> (
+                                {Math.max(0, resourceLimit - stagedCost)} Left)
+                              </>
+                            )}
                         </span>
                       </div>
                       {resourceLimit !== null && (

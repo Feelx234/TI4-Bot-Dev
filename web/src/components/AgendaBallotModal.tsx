@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { PendingChoiceDto } from "../protocol/types.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
 import { Dialog } from "../primitives/index.ts";
@@ -326,7 +327,15 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                           >
                             <span className="workflow-inline">{planet.planetName}</span>
                             <span className="workflow-inline">
-                              {planet.votes === null ? "Votes unknown" : `${planet.votes} v`}
+                              {planet.votes === null ? (
+                                "Votes unknown"
+                              ) : (
+                                <PlanetValue
+                                  kind="influence"
+                                  value={planet.votes}
+                                  label={`${planet.votes} ${planet.votes === 1 ? "vote" : "votes"} (influence)`}
+                                />
+                              )}
                             </span>
                           </button>
                         );

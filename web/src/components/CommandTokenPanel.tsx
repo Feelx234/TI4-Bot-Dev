@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { PlanetValue, ValueText, ValueUnit } from "./PlanetValueIcons.tsx";
 import {
   POOL_LABEL,
   POOL_PURPOSE,
@@ -182,7 +183,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
           <span className="token-panel__name">
             Buy tokens
             <span className="token-panel__purpose">
-              {purchase.cost} influence each, up to {buyLimit}
+              <PlanetValue kind="influence" value={purchase.cost} /> each, up to {buyLimit}
             </span>
           </span>
           <span className="token-panel__stepper">
@@ -211,7 +212,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
             </button>
           </span>
           <div className="token-panel__influence" data-testid="token-influence">
-            Influence available <strong>{purchase.influence}</strong> · spent{" "}
+            <ValueUnit kind="influence" /> available <strong>{purchase.influence}</strong> · spent{" "}
             <strong data-testid="token-influence-spent">{payment?.spent ?? 0}</strong>
             {payment && payment.extra > 0 && (
               <span data-testid="token-influence-extra">
@@ -269,7 +270,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
                             disabled={locked}
                             onClick={() => togglePlanet(planet.id)}
                           >
-                            {planet.id} · {planet.worth} influence · ready{chosen ? " → exhaust" : ""}
+                            {planet.id} · <PlanetValue kind="influence" value={planet.worth} /> · ready{chosen ? " → exhaust" : ""}
                           </button>
                         </li>
                       );
@@ -277,7 +278,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
                   </ul>
                   {purchase.tradeGoods > 0 && (
                     <span className="token-panel__stepper" data-testid="token-payment-goods">
-                      Trade goods ({purchase.tradeGoodWorth} influence each, {purchase.tradeGoods} held)
+                      Trade goods (<PlanetValue kind="influence" value={purchase.tradeGoodWorth} /> each, {purchase.tradeGoods} held)
                       <button
                         type="button"
                         className="button button--secondary button--sm"
@@ -307,11 +308,11 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
               )}
               <p className="token-panel__note" data-testid="token-payment-account" data-ok={check.problem === null}>
                 Paid <strong>{check.paid}</strong> · owed <strong>{check.bill}</strong> · remainder{" "}
-                <strong>{check.remainder}</strong> · waste <strong>{check.waste}</strong>
+                <strong>{check.remainder}</strong> · waste <strong>{check.waste}</strong> <ValueUnit kind="influence" />
               </p>
               {check.problem && (
                 <p className="token-panel__note" role="alert" data-testid="token-payment-problem">
-                  {check.problem}
+                  <ValueText text={check.problem} />
                 </p>
               )}
               <button
