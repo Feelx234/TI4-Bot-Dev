@@ -20,7 +20,18 @@ SUSPICIOUS = re.compile(
     r"panicked|RUST_BACKTRACE|\bERROR\b|Error:|error\[|rejected:|click failed|pageerror|"
     r"console:|did not advance|no actionable control|never reached|game idle|timed out|✘",
 )
-COMBAT = {"sustain_damage", "assign_casualty", "announce_retreat", "retreat_to"}
+# Vite dev-server proxy chatter: the /advisor/battle odds proxy refuses connections because no
+# advisor runs in the smoke setup, and websocket reconnects reset sockets. Neither affects play.
+NOISE = re.compile(
+    r"\[frontend\].*(ECONNREFUSED|ECONNRESET|socket has been ended|ws proxy error|http proxy error)"
+    r"|\[vite\] (ws |http )?proxy error|/advisor",
+)
+COMBAT = {
+    "sustain_damage", "assign_casualty", "announce_retreat", "retreat_to",
+    "fight_ground_combat_round", "assign_ground_casualty", "commit_ground_forces",
+}
+# The two printings of Mecatol Rex: the base planet and Thunder's Edge's legendary one (tile 112).
+MECATOL_PLANETS = ("mr", "mrte")
 
 
 def content_names():
@@ -71,6 +82,32 @@ def unwrap(record):
     return record.get("payload", record) if isinstance(record, dict) else record
 
 
+def vp_ledger_line(state, name):
+    """One line per game: each seat's ledger rows (custodians, Imperial, objectives ...) and a flag
+    where the ledger sum differs from the seat's victory points. The engine's ledger does not yet
+    cover secrets, relics and Styx, so a gap is expected there and is not by itself a rules bug."""
+    ledger = state.get("vp_ledger") or []
+    if not ledger:
+        return None
+    rows = collections.defaultdict(collections.Counter)
+    totals = collections.Counter()
+    for entry in ledger:
+        try:
+            player, amount, source = entry[0], entry[1], entry[2]
+        except (IndexError, TypeError):
+            continue
+        rows[player][str(source)] += amount
+        totals[player] += amount
+    parts = []
+    for pl in state.get("players", []):
+        pid = pl.get("id")
+        vps = pl.get("victory_points", 0)
+        detail = ", ".join(f"{src} {amt:+d}" for src, amt in rows[pid].items()) or "no rows"
+        flag = "" if totals[pid] == vps else f" **ledger sum {totals[pid]} != {vps} VP**"
+        parts.append(f"{name(pid)}: {detail}{flag}")
+    return "- VP ledger: " + "; ".join(parts)
+
+
 def game_dir(run_dir, meta, game_id):
     for base in (os.path.join(run_dir, "server-data"), meta.get("server_data_dir", "")):
         if base and game_id:
@@ -100,7 +137,7 @@ def main():
     init = unwrap(load(os.path.join(gdir, "init.json"), {})) if gdir else {}
     # decisions.jsonl is truncated; read from history.json's full decision log instead.
     history = unwrap(load(os.path.join(gdir, "history.json"), {})) if gdir else {}
-    decisions = history.get("payload", {}).get("decisions", [])
+    decisions = history.get("decisions", [])
     initial_state = init.get("initial_state", {})
     state = snapshot.get("state", {})
 
@@ -133,7 +170,8 @@ def main():
     p("#### Outcome")
     rounds = report.get("roundStarts", {})
     p(f"- exit code: **{exit_code}**"
-      + (" (stall detector killed it)" if os.path.exists(os.path.join(run_dir, "stalled")) else ""))
+      + (" (stall detector killed it)" if os.path.exists(os.path.join(run_dir, "stalled")) else "")
+      + (" (the deadline was reached; not a stall)" if exit_code == "124" else ""))
     p(f"- decisions resolved: {report.get('decisions', len(trace))}, clicks: {report.get('clicks', '?')}, "
       f"rounds reached: {max(map(int, rounds), default='?') if rounds else (trace[-1]['round'] if trace else '?')}, "
       f"game finished: {report.get('finished', False)}")
@@ -162,7 +200,7 @@ def main():
     try:
         with open(os.path.join(run_dir, "run.log"), errors="replace") as handle:
             for line in handle:
-                if SUSPICIOUS.search(line):
+                if SUSPICIOUS.search(line) and not NOISE.search(line):
                     key = re.sub(r"\d+", "N", line.strip())[:200]
                     log_hits.setdefault(key, [line.strip()[:400], 0])[1] += 1
     except OSError:
@@ -209,10 +247,11 @@ def main():
     mecatol_owner = None
     for system_id, system in (state.get("board") or {}).items():
         control = system.get("planet_control") or {}
-        if "mecatolrex" in control:
-            mecatol_owner = control["mecatolrex"]
+        for planet in MECATOL_PLANETS:
+            if planet in control:
+                mecatol_owner = control[planet]
     activations_18 = sum(1 for d in decisions if d.get("prompt") == "activate a system"
-                         and str(d.get("chosen")).replace("activate|", "") == "18")
+                         and str(d.get("chosen")).replace("activate|", "") in ("18", "112"))
     custodians = [f"round {row['round']} by {name(row['player'])}" for row in trace
                   if row.get("subtype") == "remove_custodians"]
     p(f"- Mecatol Rex: custodians removed: {state.get('custodians_removed', '?')}"
@@ -243,6 +282,9 @@ def main():
     p(f"- objectives scored: {json.dumps(scored)[:400] if scored else 'none'}")
     p("- victory points: " + ", ".join(f"{pl.get('faction')} {pl.get('victory_points', 0)}"
                                         for pl in state.get("players", [])))
+    ledger = vp_ledger_line(state, name)
+    if ledger:
+        p(ledger)
     relics = [f"{pl.get('faction')}: {', '.join(named(r) for r in pl.get('relics', []))}" for pl in state.get("players", []) if pl.get("relics")]
     if relics:
         p(f"- relics: {'; '.join(relics)}")
@@ -254,7 +296,11 @@ def main():
     planet_picks = {k: v for k, v in subtypes.items() if k and (k.endswith("pick_planet") or "planet" in k)}
     if planet_picks:
         p(f"- planet-selection decisions: {dict(planet_picks)}")
-    p(f"- decision subtypes: {dict(subtypes.most_common(25))}")
+    common = [(k, v) for k, v in subtypes.most_common() if v > 3]
+    rare = [(k, v) for k, v in subtypes.most_common() if v <= 3]
+    p(f"- decision subtypes: {dict(common)}")
+    if rare:
+        p(f"- rare decision subtypes (3× or fewer): {dict(rare)}")
     print("\n".join(out))
 
 
