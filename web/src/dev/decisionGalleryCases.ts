@@ -930,6 +930,25 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Spy: rob which player",
+    fallback: "Plain list of seats -> the printed card, and each player's VP, trade goods, commodities and what the card takes",
+    note: "Player picks (Spy, Insubordination, Signal Jamming, Diplomatic Pressure, ...) show the card's printed text above and each candidate's standing under their name.",
+    choice: {
+      actor,
+      nonce: "gallery-spy-pick",
+      prompt: "Spy: rob which player",
+      context: {
+        subtype: "spy_pick_player",
+        source: { ActionCard: "spy" },
+      },
+      options: [
+        option("other_seat", "take a card from other_seat", "player"),
+        option("third_seat", "take a card from third_seat", "player"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Predictive Intelligence: restack tokens",
     fallback: "One move per question -> per-pool +/- panel; the fewest moves are answered in turn",
     note: "Predictive Intelligence redistributes at the end of the turn, one token per question. The panel plans the whole arrangement and sends the moves one after another, then finishes.",
