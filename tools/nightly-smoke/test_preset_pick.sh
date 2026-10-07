@@ -12,8 +12,10 @@ chmod +x "$tmp/tools/nightly-smoke/"*.sh
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 git -C "$tmp" init -q -b main && echo hi > "$tmp/README" && git -C "$tmp" add README && git -C "$tmp" commit -q -m init
 
+# The first checks pin one preset and no rotation; the list checks below set their own.
 start() { # start <probability> <run-dir>
-  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY="$1" "$tmp/tools/nightly-smoke/run_game.sh" start "$2" > /dev/null
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY="$1" NIGHTLY_PRESET=combat NIGHTLY_PRESET_ROTATE_PERCENT=0 \
+    "$tmp/tools/nightly-smoke/run_game.sh" start "$2" > /dev/null
 }
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -40,3 +42,25 @@ for i in $(seq 1 60); do
 done
 [ "$hits" -ge 15 ] && [ "$hits" -le 45 ] || fail "50% picked the preset $hits/60 times"
 echo "ok: preset pick (50% picked $hits/60)"
+
+# A list picks each member over many runs, and the rotation suffix goes on about as often as asked.
+declare -A picked
+rot=0
+for i in $(seq 1 80); do
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET="cards agenda relics" NIGHTLY_PRESET_ROTATE_PERCENT=50 \
+    "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/list$i" > /dev/null
+  name=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['preset'])" "$tmp/list$i/meta.json")
+  base=${name%+rot}
+  picked[$base]=1
+  case "$name" in *+rot) rot=$((rot + 1)) ;; esac
+  grep -q "TI4_SMOKE_PRESET=$name " "$tmp/list$i/meta.json" || fail "repro should carry $name"
+done
+[ "${#picked[@]}" -eq 3 ] || fail "the list should reach all three presets, reached ${!picked[*]}"
+[ "$rot" -ge 20 ] && [ "$rot" -le 60 ] || fail "50% rotation was added $rot/80 times"
+# leaders always rotates inside the preset, so it never gets the suffix.
+for i in $(seq 1 10); do
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET=leaders NIGHTLY_PRESET_ROTATE_PERCENT=100 \
+    "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/lead$i" > /dev/null
+  grep -q '"preset": "leaders"' "$tmp/lead$i/meta.json" || fail "leaders must not get +rot"
+done
+echo "ok: preset list and rotation (+rot $rot/80)"

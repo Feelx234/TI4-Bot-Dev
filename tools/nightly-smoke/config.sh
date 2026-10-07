@@ -40,8 +40,15 @@ PLAYER_COUNTS="${NIGHTLY_PLAYER_COUNTS:-3 4}"
 POLICIES="${NIGHTLY_POLICIES:-steer random}"
 # Share of runs (percent) that start from a prepared state with fleets beside home systems and
 # Mecatol Rex, so combat, casualties and the agenda phase show up early (see ti4-server preset.rs).
-PRESET_PROBABILITY="${NIGHTLY_PRESET_PROBABILITY:-50}"
-PRESET_NAME="${NIGHTLY_PRESET:-combat}"
+PRESET_PROBABILITY="${NIGHTLY_PRESET_PROBABILITY:-70}"
+# One name, or a space-separated list to pick from per run (a name twice counts twice). `combat`
+# is listed twice: it is the one that reaches the custodians and the agenda phase early. `endgame`
+# is left out of the default mix because it ends the game within a round; run it on purpose
+# (NIGHTLY_PRESET=endgame). The other presets: cards, agenda, relics, invasion, techs, leaders.
+PRESET_NAME="${NIGHTLY_PRESET:-combat combat cards agenda relics invasion techs leaders}"
+# Share of preset runs (percent) that also rotate the factions ("<preset>+rot": Jol-Nar and L1Z1X
+# at three and four seats); `leaders` always rotates.
+PRESET_ROTATE_PERCENT="${NIGHTLY_PRESET_ROTATE_PERCENT:-20}"
 # Free space (GB) needed on the report filesystem to start a run or a fixer round. Below it the loop
 # waits (DISK_WAIT_SECONDS between checks) and gives the night up after MAX_DISK_WAITS checks.
 # DF_CMD is a test hook (the tests put a stub `df` here).

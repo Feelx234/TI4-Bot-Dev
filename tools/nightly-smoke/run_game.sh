@@ -29,7 +29,12 @@ start)
   players=$(shuf -e $PLAYER_COUNTS -n 1)
   policy=$(shuf -e $POLICIES -n 1)
   preset=""
-  if [ "$(shuf -i 1-100 -n 1)" -le "$PRESET_PROBABILITY" ]; then preset="$PRESET_NAME"; fi
+  if [ "$(shuf -i 1-100 -n 1)" -le "$PRESET_PROBABILITY" ]; then
+    preset=$(shuf -e $PRESET_NAME -n 1)
+    if [ "$preset" != leaders ] && [ "$(shuf -i 1-100 -n 1)" -le "$PRESET_ROTATE_PERCENT" ]; then
+      preset="$preset+rot"
+    fi
+  fi
   preset_env=""
   [ -z "$preset" ] || preset_env="TI4_SMOKE_PRESET=$preset "
   port=$(shuf -i 20000-49000 -n 1)
