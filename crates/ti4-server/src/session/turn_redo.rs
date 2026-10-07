@@ -56,7 +56,9 @@ pub enum TurnRedoError {
     NotEnoughTurns(String, usize),
     #[error("you can go back over at most {MAX_TURNS_BACK} of a seat's turns")]
     TooManyTurns,
-    #[error("the saved history no longer replays under the strict matcher, so a redo cannot be checked: {0}")]
+    #[error(
+        "the saved history no longer replays under the strict matcher, so a redo cannot be checked: {0}"
+    )]
     BaselineDiverged(String),
     #[error("the new turn has not started or is not finished yet")]
     NewTurnNotComplete,
@@ -741,8 +743,12 @@ fn describe(kind: ConflictKind) -> String {
         ConflictKind::Prompt => "the game now asks a different question than the recorded decision",
         ConflictKind::Context => "the recorded decision belongs to a different situation now",
         ConflictKind::ChosenNotOffered => "the recorded answer is not available any more",
-        ConflictKind::OptionsChanged => "the options on offer are different from when it was recorded",
-        ConflictKind::QuantityChanged => "the amounts owed or available differ from when it was recorded",
+        ConflictKind::OptionsChanged => {
+            "the options on offer are different from when it was recorded"
+        }
+        ConflictKind::QuantityChanged => {
+            "the amounts owed or available differ from when it was recorded"
+        }
         ConflictKind::EngineEnded => "the game ended before the recorded decisions did",
         ConflictKind::EngineError => "the game could not continue with the recorded decisions",
         ConflictKind::DeckCursor => "the decks drew a different number of cards than the original",
@@ -763,13 +769,19 @@ fn remap_tail_events(source: &TailSource, kept: usize, prefix_len: usize) -> Vec
             e.batch_id = None;
             e.batch_start_cursor = None;
             e.batch_end_cursor = None;
+            // An action id is `action_<n>`: the 1-based number of its first decision.
+            let moved_id = event
+                .action_id
+                .as_deref()
+                .and_then(|id| id.strip_prefix("action_"))
+                .and_then(|n| n.parse::<usize>().ok())
+                .filter(|n| *n > end)
+                .map(|n| format!("action_{}", n - end + prefix_len));
             e.action_start_cursor = event
                 .action_start_cursor
-                .filter(|c| *c >= end)
+                .filter(|c| *c >= end && moved_id.is_some())
                 .map(|c| c - end + prefix_len);
-            if e.action_start_cursor.is_none() {
-                e.action_id = None;
-            }
+            e.action_id = moved_id;
             e
         })
         .collect()
@@ -871,7 +883,10 @@ mod tests {
         ];
         let spans = find_turns(&log);
         assert_eq!(spans.len(), 1);
-        assert_eq!((spans[0].start, spans[0].end, spans[0].complete), (0, 3, false));
+        assert_eq!(
+            (spans[0].start, spans[0].end, spans[0].complete),
+            (0, 3, false)
+        );
     }
 
     #[test]
@@ -890,10 +905,7 @@ mod tests {
         assert_eq!((one.start, one.end), (4, 6));
         let two = redo_window(&log, &a, 2).unwrap();
         assert_eq!((two.start, two.end), (0, 2));
-        assert_eq!(
-            redo_window(&log, &a, 3),
-            Err(TurnRedoError::TooManyTurns)
-        );
+        assert_eq!(redo_window(&log, &a, 3), Err(TurnRedoError::TooManyTurns));
         assert!(matches!(
             redo_window(&log, &PlayerId::new("z"), 1),
             Err(TurnRedoError::NoTurn(_))

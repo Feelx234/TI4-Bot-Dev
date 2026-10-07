@@ -221,8 +221,8 @@ impl GameRegistry {
                 "{target} is not a seat of this game"
             )));
         }
-        let window = redo_window(&snap.decisions, &target, turns.unwrap_or(1))
-            .map_err(|e| invalid(&e))?;
+        let window =
+            redo_window(&snap.decisions, &target, turns.unwrap_or(1)).map_err(|e| invalid(&e))?;
         let all_events: Vec<_> = snap
             .events
             .iter()
@@ -427,9 +427,9 @@ impl GameRegistry {
         let (actor, is_host) = Self::require_actor(&state, game_id, credential)?;
         let snap = self.snapshot(&state, game_id, Some(expected_version))?;
         drop(state);
-        let record = self
-            .read_record(game_id, &snap.config)
-            .ok_or_else(|| HistoryError::InvalidTarget("there is no original timeline to restore".to_owned()))?;
+        let record = self.read_record(game_id, &snap.config).ok_or_else(|| {
+            HistoryError::InvalidTarget("there is no original timeline to restore".to_owned())
+        })?;
         if actor != record.seat && !is_host {
             return Err(HistoryError::Forbidden(
                 "only the host or the redoing seat may restore the original timeline".to_owned(),

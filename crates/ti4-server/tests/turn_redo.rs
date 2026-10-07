@@ -17,7 +17,9 @@ use ti4_server::session::turn_redo::{
     AutoplayResult, RedoWindow, TailBaseline, TailSource, TurnRedoError, autoplay, find_turns,
     redo_window,
 };
-use ti4_server::session::{RngForce, RngMarks, replay_session_forced};
+use ti4_server::session::{
+    GameSession, RngForce, RngMarks, SeatController, SessionConfig, replay_session_forced,
+};
 
 /// A tiny LCG picks options, so histories are varied but reproducible. The aggressive flavour
 /// marches fleets at each other, which is what makes dice.
@@ -100,7 +102,11 @@ pub fn play(
 }
 
 /// The history of a seeded game (`aggressive` marches fleets at each other).
-pub fn history(seed: u64, aggressive: bool, max: usize) -> (GameState, Galaxy, Vec<DecisionRecord>) {
+pub fn history(
+    seed: u64,
+    aggressive: bool,
+    max: usize,
+) -> (GameState, Galaxy, Vec<DecisionRecord>) {
     let (state, galaxy) = setup(seed);
     let h = play(&state, &galaxy, Box::new(Lcg(1, aggressive)), max);
     (state, galaxy, h)
@@ -380,14 +386,18 @@ pub fn kind(stop: &TurnRedoStop) -> String {
     }
 }
 
-
 // ---- tests ---------------------------------------------------------------------------------
 
 fn ids(records: &[DecisionRecord]) -> Vec<String> {
     records.iter().map(|r| r.chosen.clone()).collect()
 }
 
-fn final_state_json(state: &GameState, galaxy: &Galaxy, decisions: &[DecisionRecord], marks: &RngMarks) -> String {
+fn final_state_json(
+    state: &GameState,
+    galaxy: &Galaxy,
+    decisions: &[DecisionRecord],
+    marks: &RngMarks,
+) -> String {
     let report = replay_session_forced(state, Some(galaxy), decisions, marks).expect("replays");
     assert!(report.hashes_match, "the log replays to the same records");
     assert_eq!(report.decision_count, decisions.len());
@@ -399,7 +409,11 @@ fn turn_spans_open_with_the_menu_and_do_not_overlap() {
     let (_, _, all) = scenarios();
     let h = &all.iter().max_by_key(|s| s.cut).unwrap().hh;
     let spans = find_turns(h);
-    assert!(spans.len() > 20, "a 300-decision game has many turns: {}", spans.len());
+    assert!(
+        spans.len() > 20,
+        "a 300-decision game has many turns: {}",
+        spans.len()
+    );
     let mut at = 0;
     for span in &spans {
         assert!(span.start >= at, "turns do not overlap");
@@ -414,19 +428,29 @@ fn turn_spans_open_with_the_menu_and_do_not_overlap() {
 #[test]
 fn every_redo_keeps_the_new_turn_then_others_recorded_decisions_unchanged() {
     let (state, galaxy, all) = scenarios();
-    assert!(all.len() >= 30, "the grid should produce many redos, got {}", all.len());
+    assert!(
+        all.len() >= 30,
+        "the grid should produce many redos, got {}",
+        all.len()
+    );
     let mut kept_any = 0;
     for s in all {
         let r = &s.redo;
         let result = &r.result;
         let tail_start = r.window.end;
         // The new turn is exactly what was played; the kept tail is exactly the recorded one.
-        assert_eq!(result.decisions[..result.prefix_len], r.current[..result.prefix_len]);
+        assert_eq!(
+            result.decisions[..result.prefix_len],
+            r.current[..result.prefix_len]
+        );
         assert_eq!(
             result.decisions[result.prefix_len..],
             s.hh[tail_start..tail_start + result.kept],
             "{} cut {} turns {} seed {}",
-            s.seat, s.cut, s.turns, s.seed
+            s.seat,
+            s.cut,
+            s.turns,
+            s.seed
         );
         assert_eq!(result.decisions.len(), result.prefix_len + result.kept);
         assert!(result.kept <= result.tail_total);
@@ -435,11 +459,22 @@ fn every_redo_keeps_the_new_turn_then_others_recorded_decisions_unchanged() {
         let report =
             replay_session_forced(state, Some(galaxy), &result.decisions, &result.marks).unwrap();
         assert!(report.hashes_match);
-        assert_eq!(report.final_state.rng_seed, state.rng_seed, "the seed is never changed");
+        assert_eq!(
+            report.final_state.rng_seed, state.rng_seed,
+            "the seed is never changed"
+        );
         // Marks only exist for the join and the kept tail.
-        assert!(result.marks.keys().all(|i| *i + 1 >= result.prefix_len && *i < result.decisions.len()));
+        assert!(
+            result
+                .marks
+                .keys()
+                .all(|i| *i + 1 >= result.prefix_len && *i < result.decisions.len())
+        );
     }
-    assert!(kept_any >= 15, "others' decisions survive often enough to be useful: {kept_any}");
+    assert!(
+        kept_any >= 15,
+        "others' decisions survive often enough to be useful: {kept_any}"
+    );
 }
 
 #[test]
@@ -467,7 +502,12 @@ fn an_unchanged_turn_reproduces_the_original_history_and_stops_at_the_seats_next
         // Same history, same dice: the state equals the original's at that length.
         if r.result.decisions.len() <= h.len() {
             let again = final_state_json(&state, &galaxy, &r.result.decisions, &r.result.marks);
-            let orig = final_state_json(&state, &galaxy, &h[..r.result.decisions.len()], &RngMarks::new());
+            let orig = final_state_json(
+                &state,
+                &galaxy,
+                &h[..r.result.decisions.len()],
+                &RngMarks::new(),
+            );
             assert_eq!(again, orig);
         }
     }
@@ -502,7 +542,10 @@ fn a_conflict_hands_control_to_the_seat_the_engine_asks() {
             }
         }
     }
-    assert!(checked.iter().all(|n| *n > 0), "all three stops occur in the grid: {checked:?}");
+    assert!(
+        checked.iter().all(|n| *n > 0),
+        "all three stops occur in the grid: {checked:?}"
+    );
 }
 
 impl Scenario {
@@ -521,7 +564,12 @@ fn two_turns_back_rewinds_to_the_second_last_turn_and_hands_back_at_the_next_dec
             .find(|s| s.turns == 1 && s.seat == two.seat && s.cut == two.cut && s.seed == two.seed)
             .expect("the matching one-turn redo");
         assert_eq!(two.redo.window.turns, 2);
-        assert!(two.redo.window.start < one.redo.window.start, "{} cut {}", two.seat, two.cut);
+        assert!(
+            two.redo.window.start < one.redo.window.start,
+            "{} cut {}",
+            two.seat,
+            two.cut
+        );
         assert!(two.redo.window.end <= one.redo.window.start);
         let spans = find_turns(&two.hh);
         let mine: Vec<_> = spans.iter().filter(|t| t.seat == two.seat).collect();
@@ -625,16 +673,30 @@ fn a_draw_count_that_differs_from_the_original_is_reported_as_a_deck_cursor_conf
             *decks.entry("action_card".to_owned()).or_insert(0) += 1;
         }
     }
-    let result = autoplay(state, Some(galaxy), &r.current, &RngMarks::new(), r.window.start, &s.seat, &source).unwrap();
+    let result = autoplay(
+        state,
+        Some(galaxy),
+        &r.current,
+        &RngMarks::new(),
+        r.window.start,
+        &s.seat,
+        &source,
+    )
+    .unwrap();
     let TurnRedoStop::Conflict { conflict } = &result.stop else {
         panic!("expected a deck conflict, got {:?}", result.stop);
     };
     assert_eq!(conflict.kind, ConflictKind::DeckCursor);
     assert!(conflict.deck_deltas.iter().any(|d| d.deck == "action_card"));
-    assert!(result.kept < r.result.kept, "the auto-play stops before the shifted draw");
+    assert!(
+        result.kept < r.result.kept,
+        "the auto-play stops before the shifted draw"
+    );
     assert_eq!(result.decisions.len(), result.prefix_len + result.kept);
     // The seat that is asked live is the seat of the decision at the cut.
-    let asked = next_asker(state, galaxy, &result.decisions, &result.marks).unwrap().0;
+    let asked = next_asker(state, galaxy, &result.decisions, &result.marks)
+        .unwrap()
+        .0;
     assert_eq!(asked.to_string(), conflict.seat);
 }
 
@@ -647,11 +709,26 @@ fn a_constant_deck_offset_is_reported_but_does_not_stop_the_auto_play() {
     for (_, decks) in &mut source.decks {
         *decks.entry("action_card".to_owned()).or_insert(0) += 1;
     }
-    let result = autoplay(state, Some(galaxy), &r.current, &RngMarks::new(), r.window.start, &s.seat, &source).unwrap();
-    assert_eq!(result.kept, r.result.kept, "nothing drew from the shifted deck");
+    let result = autoplay(
+        state,
+        Some(galaxy),
+        &r.current,
+        &RngMarks::new(),
+        r.window.start,
+        &s.seat,
+        &source,
+    )
+    .unwrap();
+    assert_eq!(
+        result.kept, r.result.kept,
+        "nothing drew from the shifted deck"
+    );
     assert_eq!(
         result.deck_offsets,
-        vec![DeckDelta { deck: "action_card".to_owned(), delta: -1 }]
+        vec![DeckDelta {
+            deck: "action_card".to_owned(),
+            delta: -1
+        }]
     );
 }
 
@@ -680,27 +757,94 @@ fn forced_dice_reproduce_the_others_rolls_when_the_new_turn_rolls_fewer_dice_and
     let orig_total = replay_rolls(state, galaxy, h, &RngMarks::new(), 0);
     let orig_tail = replay_rolls(state, galaxy, h, &RngMarks::new(), window.end);
     let old_turn_dice = orig_total.len() - orig_tail.len();
-    assert!(old_turn_dice > 0 && !orig_tail.is_empty(), "the old turn and the tail both roll");
+    assert!(
+        old_turn_dice > 0 && !orig_tail.is_empty(),
+        "the old turn and the tail both roll"
+    );
 
     // A quiet new turn: no combat, so it draws none of the old turn's dice.
-    let quiet = redo(state, galaxy, &base, h, &RngMarks::new(), &seat, 1, Box::new(Lcg(9, false)))
-        .expect("redo");
+    let quiet = redo(
+        state,
+        galaxy,
+        &base,
+        h,
+        &RngMarks::new(),
+        &seat,
+        1,
+        Box::new(Lcg(9, false)),
+    )
+    .expect("redo");
     let result = &quiet.result;
     assert!(result.kept >= 1, "stop {:?}", result.stop);
-    let new_prefix_dice = replay_rolls(state, galaxy, &result.decisions[..result.prefix_len], &RngMarks::new(), 0).len();
-    assert!(new_prefix_dice < old_turn_dice, "the new turn rolled fewer dice ({new_prefix_dice} < {old_turn_dice})");
+    let new_prefix_dice = replay_rolls(
+        state,
+        galaxy,
+        &result.decisions[..result.prefix_len],
+        &RngMarks::new(),
+        0,
+    )
+    .len();
+    assert!(
+        new_prefix_dice < old_turn_dice,
+        "the new turn rolled fewer dice ({new_prefix_dice} < {old_turn_dice})"
+    );
 
-    let forced = replay_rolls(state, galaxy, &result.decisions, &result.marks, result.prefix_len);
+    let forced = replay_rolls(
+        state,
+        galaxy,
+        &result.decisions,
+        &result.marks,
+        result.prefix_len,
+    );
     assert!(!forced.is_empty(), "the kept tail rolls dice");
     assert!(orig_tail.len() >= forced.len());
-    assert_eq!(forced, orig_tail[..forced.len()], "the others' dice are exactly the original ones");
+    assert_eq!(
+        forced,
+        orig_tail[..forced.len()],
+        "the others' dice are exactly the original ones"
+    );
     // Without the forcing the same decisions meet different dice.
-    let plain = replay_rolls(state, galaxy, &result.decisions, &RngMarks::new(), result.prefix_len);
+    let plain = replay_rolls(
+        state,
+        galaxy,
+        &result.decisions,
+        &RngMarks::new(),
+        result.prefix_len,
+    );
     assert_ne!(plain, forced, "a plain replay shifts the dice");
     // The marks make the history recoverable: it replays to the same state a second time.
     let a = final_state_json(state, galaxy, &result.decisions, &result.marks);
     let b = final_state_json(state, galaxy, &result.decisions, &result.marks);
     assert_eq!(a, b);
+    // A live session (the recovery path) given the decisions and their marks reaches that state.
+    let session_state = |marks: &RngMarks| {
+        let players = vec![
+            PlayerId::new("p1"),
+            PlayerId::new("p2"),
+            PlayerId::new("p3"),
+        ];
+        let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), galaxy);
+        let mut config = SessionConfig::new("redo_dice_worker", state.clone())
+            .with_seed(7)
+            .with_player_ids(players.clone())
+            .with_galaxy(galaxy.clone(), tiles)
+            .with_prior_history(result.decisions.clone(), Vec::new());
+        for p in players {
+            config = config.with_seat(p, SeatController::Human);
+        }
+        config.rng_marks = marks.clone();
+        let session = GameSession::start(config);
+        let replayed = session.wait_replayed();
+        let state = serde_json::to_string(&session.current_state()).unwrap();
+        session.stop();
+        (replayed, state)
+    };
+    let (ok, with_marks) = session_state(&result.marks);
+    ok.expect("the worker replays a redone history with its marks");
+    assert_eq!(
+        with_marks, a,
+        "the worker reaches the same state as the direct replay"
+    );
 
     // Chained: redo the quiet turn again with the original, dice-rolling turn (more dice than
     // the quiet turn consumed). The baseline now carries the first redo's marks.
@@ -708,15 +852,36 @@ fn forced_dice_reproduce_the_others_rolls_when_the_new_turn_rolls_fewer_dice_and
     let marks2 = result.marks.clone();
     let tail2_orig = replay_rolls(state, galaxy, &history2, &marks2, result.prefix_len);
     let base2 = TailBaseline::new(state, Some(galaxy), &history2, &marks2, &[]);
-    assert_eq!(base2.replayed(), history2.len(), "a history with marks replays strictly");
+    assert_eq!(
+        base2.replayed(),
+        history2.len(),
+        "a history with marks replays strictly"
+    );
     let window2 = redo_window(&history2, &seat, 1).unwrap();
     assert_eq!(window2.start, 840);
-    let loud = redo(state, galaxy, &base2, &history2, &marks2, &seat, 1, Box::new(Ids(ids(&h[840..850]), 0)))
-        .expect("second redo");
+    let loud = redo(
+        state,
+        galaxy,
+        &base2,
+        &history2,
+        &marks2,
+        &seat,
+        1,
+        Box::new(Ids(ids(&h[840..850]), 0)),
+    )
+    .expect("second redo");
     let r2 = &loud.result;
     assert!(r2.kept >= 1, "stop {:?}", r2.stop);
     let forced2 = replay_rolls(state, galaxy, &r2.decisions, &r2.marks, r2.prefix_len);
     assert!(!forced2.is_empty());
-    assert_eq!(forced2, tail2_orig[..forced2.len()], "still the same dice after a second redo");
-    assert_eq!(forced2, orig_tail[..forced2.len()], "and the very first ones");
+    assert_eq!(
+        forced2,
+        tail2_orig[..forced2.len()],
+        "still the same dice after a second redo"
+    );
+    assert_eq!(
+        forced2,
+        orig_tail[..forced2.len()],
+        "and the very first ones"
+    );
 }
