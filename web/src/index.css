@@ -1176,11 +1176,19 @@ html,
   pointer-events: auto;
 }
 
-.board-controls {
-  position: absolute;
-  top: 14px;
-  left: 14px;
+.board-chrome {
+  position: relative;
   z-index: var(--layer-board-chrome);
+  flex: none;
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 10px 14px 6px;
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.board-controls {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1460,10 +1468,10 @@ html,
 .seat-badge {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 5px;
+  gap: 4px;
+  padding: 2px 6px 2px 3px;
   border: 2px solid;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #172236;
   color: #fff;
   font-weight: 700;
@@ -1474,25 +1482,27 @@ html,
   flex: none;
 }
 .board-seat-legend {
-  position: absolute;
-  z-index: 2;
-  top: 52px;
-  left: 14px;
-  max-width: min(270px, 50%);
-  max-height: 35%;
-  overflow: auto;
+  max-width: 100%;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   pointer-events: none;
 }
 .board-seat-legend > span {
-  padding: 2px 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 4px;
   background: #172236;
-  border-left: 3px solid;
+  border-left: 4px solid;
   border-radius: 4px;
   color: #fff;
-  font-size: 11px;
+  font-size: 15px;
+}
+@media (max-width: 600px) {
+  .board-seat-legend > span {
+    font-size: 14px;
+  }
 }
 .session-error {
   position: fixed;
@@ -1599,6 +1609,10 @@ html,
 }
 
 @media (max-width: 720px) {
+  /* Stacked layout: the prompt banner sits below the map, so no bottom inset is needed. */
+  .board-stage {
+    padding-bottom: 0 !important;
+  }
   .detail-panel {
     top: 55px !important;
     right: 8px !important;
