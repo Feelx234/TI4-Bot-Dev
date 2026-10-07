@@ -153,7 +153,7 @@ it("renders player and spectator surfaces with current names, seat shapes and no
       <PlayerSheet players={players} />
     </PlayerIdentityProvider>,
   );
-  expect(screen.getByText(/Waiting for Robin/)).toBeInTheDocument();
+  expect(screen.getByText(/Waiting for Robin \(Choice\)/)).toBeInTheDocument();
   expect(spectator.container.querySelector("[data-private-card]")).toBeNull();
   expect(spectator.container.outerHTML).not.toContain("player_a");
   // The black eighth position has a bright outline and white glyph even on a dark canvas.
