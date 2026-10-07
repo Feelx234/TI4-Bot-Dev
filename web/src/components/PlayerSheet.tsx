@@ -373,14 +373,43 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
               }}
             >
               <div>
-                TG: <strong>{player.trade_goods}</strong> | Comm:{" "}
-                <strong>{player.commodities}</strong>
+                <Tooltip content="Trade goods" as="span" position="bottom">
+                  <span
+                    data-testid="player-trade-goods"
+                    aria-label={`Trade goods: ${player.trade_goods}`}
+                    tabIndex={0}
+                    style={{ cursor: "help" }}
+                  >
+                    TG: <strong>{player.trade_goods}</strong>
+                  </span>
+                </Tooltip>{" "}
+                |{" "}
+                <Tooltip content="Commodities" as="span" position="bottom">
+                  <span
+                    data-testid="player-commodities"
+                    aria-label={`Commodities: ${player.commodities}`}
+                    tabIndex={0}
+                    style={{ cursor: "help" }}
+                  >
+                    Comm: <strong>{player.commodities}</strong>
+                  </span>
+                </Tooltip>
               </div>
               <div>
-                Tokens:{" "}
-                <strong>
-                  {player.tactic_tokens}/{player.fleet_tokens}/{player.strategic_tokens}
-                </strong>
+                <Tooltip
+                  content={`Tactic ${player.tactic_tokens} · Fleet ${player.fleet_tokens} · Strategy ${player.strategic_tokens}`}
+                  as="span"
+                  position="bottom"
+                >
+                  <strong
+                    data-testid="player-command-tokens"
+                    aria-label={`Command tokens: tactic ${player.tactic_tokens}, fleet ${player.fleet_tokens}, strategy ${player.strategic_tokens}`}
+                    tabIndex={0}
+                    style={{ cursor: "help" }}
+                  >
+                    {player.tactic_tokens} ◆ {player.fleet_tokens} ◆ {player.strategic_tokens}
+                  </strong>
+                </Tooltip>
               </div>
             </div>
 
