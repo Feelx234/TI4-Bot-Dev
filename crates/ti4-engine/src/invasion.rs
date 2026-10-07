@@ -161,6 +161,11 @@ pub fn bombardable(
         {
             return false;
         }
+        // Quietus: a unit in an active breach beside another player's Quietus has lost every unit
+        // ability, PLANETARY SHIELD among them.
+        if crate::factions::crimson::abilities_lost(state, &unit.owner, system) {
+            return false;
+        }
         !disabled_holders.iter().any(|holder| holder != &unit.owner)
     })
 }
@@ -452,7 +457,9 @@ fn roll_bombard_plan(
     // Entropic scars rules 2 and 4: bombardment is a unit ability, so it cannot be used by
     // ships in a scar, nor against ground forces in one. Both directions collapse to the same
     // system here, since bombardment fires from the active system onto planets in it.
-    if !crate::entropic_scars::abilities_usable(content, sources, system, Some(system)) {
+    if !crate::entropic_scars::abilities_usable(content, sources, system, Some(system))
+        || crate::factions::crimson::abilities_lost(state, invader, system)
+    {
         return Vec::new();
     }
     let types = catalogue(content, sources);
@@ -795,7 +802,7 @@ pub fn landable(
 ///
 /// 27.1 keeps Mecatol Rex off the table while the custodians token sits there; everything else
 /// in the system is landable.
-fn landable_planets(
+pub(crate) fn landable_planets(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2580,11 +2587,21 @@ impl InvasionWindow {
             &self.system,
             &self.extra_commits,
         );
-        if troops.is_empty() {
+        let planets = landable_planets(state, content, sources, &self.system);
+        // The Crimson Revenant's DEPLOY: a mech from reinforcements may be committed with no units
+        // of the invader in the system at all, so it is a landing in its own right.
+        let deploy = crate::factions::crimson::deploy_planets(
+            state,
+            content,
+            sources,
+            &self.invader,
+            &self.system,
+            &planets,
+        );
+        if troops.is_empty() && deploy.is_empty() {
             return Vec::new();
         }
-        let planets = landable_planets(state, content, sources, &self.system);
-        commit_options(
+        let mut options = commit_options(
             state,
             content,
             sources,
@@ -2593,7 +2610,78 @@ impl InvasionWindow {
             &troops,
             &origins,
             &planets,
-        )
+        );
+        let terminator = options.pop();
+        for planet in deploy {
+            let own_ground = i64::try_from(
+                state
+                    .system_state(&self.system)
+                    .on_planet_of(&planet, &self.invader)
+                    .len(),
+            )
+            .unwrap_or(i64::MAX);
+            options.push(
+                ChoiceOption::labelled(
+                    format!("deploy_commit|{planet}"),
+                    COMMIT_KIND,
+                    format!("deploy a {} on {planet}", crate::factions::crimson::MECH),
+                )
+                .with("planet", planet.to_string())
+                .with("unit", crate::factions::crimson::MECH)
+                .previewed(Preview::certain(vec![Delta::new(
+                    Quantity::GroundForcesOnPlanet,
+                    own_ground,
+                    own_ground + 1,
+                )])),
+            );
+        }
+        options.extend(terminator);
+        options
+    }
+
+    /// The tail of one landing: announce `UNITS_COMMITTED` and record the planet as committed.
+    fn announce_landing(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planet: PlanetId,
+        origin: Option<crate::factions::hooks_ground::CommitOrigin>,
+    ) {
+        // "After another player commits units to land on a planet you control." Emitted per
+        // landing, carrying the controller so `actor_is_not` can pick out the player whose planet
+        // it is.
+        let controller = state
+            .system_state(&self.system)
+            .planet_control
+            .get(&planet)
+            .cloned();
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert("system".to_owned(), self.system.to_string().into());
+        payload.insert("planet".to_owned(), planet.to_string().into());
+        payload.insert("player".to_owned(), self.invader.to_string().into());
+        if let Some((from_system, from_planet)) = &origin {
+            payload.insert("from_system".to_owned(), from_system.to_string().into());
+            payload.insert("from_planet".to_owned(), from_planet.to_string().into());
+        }
+        if let Some(holder) = controller {
+            payload.insert("controller".to_owned(), holder.to_string().into());
+            if holder != self.invader {
+                crate::diplomacy::evaluate_event(
+                    state,
+                    &crate::diplomacy::DiplomacyEventContext::HostileEngagement {
+                        attacker: self.invader.clone(),
+                        victim: holder,
+                        activation_seq: state.activation_seq,
+                    },
+                )
+                .expect("validated attack promises settle deterministically");
+            }
+        }
+        let _ = ctx.emit(state, "UNITS_COMMITTED", payload);
+
+        if !self.report.committed.contains(&planet) {
+            self.report.committed.push(planet);
+        }
     }
 
     /// The commit-ground-forces ask, or `None` when there is nothing left to land.
@@ -4108,44 +4196,59 @@ impl Window for InvasionWindow {
                         if let Some(origin) = origin.clone() {
                             self.extra_commits.push(origin);
                         }
-                        // "After another player commits units to land on a planet you control."
-                        // Emitted per landing, carrying the controller so `actor_is_not` can pick
-                        // out the player whose planet it is.
-                        let controller = state
-                            .system_state(&self.system)
-                            .planet_control
-                            .get(&planet)
-                            .cloned();
-                        let mut payload = std::collections::BTreeMap::new();
-                        payload.insert("system".to_owned(), self.system.to_string().into());
-                        payload.insert("planet".to_owned(), planet.to_string().into());
-                        payload.insert("player".to_owned(), self.invader.to_string().into());
-                        if let Some((from_system, from_planet)) = &origin {
-                            payload
-                                .insert("from_system".to_owned(), from_system.to_string().into());
-                            payload
-                                .insert("from_planet".to_owned(), from_planet.to_string().into());
-                        }
-                        if let Some(holder) = controller {
-                            payload.insert("controller".to_owned(), holder.to_string().into());
-                            if holder != self.invader {
-                                crate::diplomacy::evaluate_event(
-                                    state,
-                                    &crate::diplomacy::DiplomacyEventContext::HostileEngagement {
-                                        attacker: self.invader.clone(),
-                                        victim: holder,
-                                        activation_seq: state.activation_seq,
-                                    },
-                                )
-                                .expect("validated attack promises settle deterministically");
-                            }
-                        }
-                        let _ = ctx.emit(state, "UNITS_COMMITTED", payload);
-
-                        if !self.report.committed.contains(&planet) {
-                            self.report.committed.push(planet);
-                        }
+                        self.announce_landing(state, ctx, planet, origin);
                     }
+                } else if let Some(planet) = option.id.strip_prefix("deploy_commit|") {
+                    // The Crimson Revenant's DEPLOY: "you may commit 1 mech, even if you have no
+                    // units in the system". The mech comes from reinforcements and lands as a
+                    // committed ground force.
+                    let planet = PlanetId::new(planet);
+                    let landable = landable_planets(state, content, sources, &self.system);
+                    if !crate::factions::crimson::deploy_planets(
+                        state,
+                        content,
+                        sources,
+                        &self.invader,
+                        &self.system,
+                        &landable,
+                    )
+                    .contains(&planet)
+                    {
+                        return Ok(());
+                    }
+                    if !crate::factions::keleres_units::pay_commit_toll(
+                        state,
+                        content,
+                        sources,
+                        self.galaxy.as_deref(),
+                        ctx.table,
+                        &self.invader,
+                        &self.system,
+                        &planet,
+                    )? {
+                        return Ok(());
+                    }
+                    let unit = Unit::new(
+                        ti4_model::id::UnitTypeId::new(crate::factions::crimson::MECH),
+                        self.invader.clone(),
+                    );
+                    state.last_committed_unit = Some((
+                        self.invader.clone(),
+                        self.system.clone(),
+                        planet.clone(),
+                        unit.clone(),
+                    ));
+                    land_unit(
+                        state,
+                        content,
+                        sources,
+                        &self.invader,
+                        &self.system,
+                        &planet,
+                        unit,
+                    );
+                    crate::factions::crimson::note_deployed(state, &self.invader);
+                    self.announce_landing(state, ctx, planet, None);
                 }
             }
             Stage::Fighting {
@@ -4311,6 +4414,8 @@ fn space_cannon_defense(
         .on_planet(planet)
         .iter()
         .filter(|unit| &unit.owner != invader)
+        // Quietus: a gun in an active breach beside another player's Quietus has lost SPACE CANNON.
+        .filter(|unit| !crate::factions::crimson::abilities_lost(state, &unit.owner, system))
         .cloned()
         .collect();
     let mut hits = 0;

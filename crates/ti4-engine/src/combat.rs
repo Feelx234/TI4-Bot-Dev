@@ -1520,10 +1520,16 @@ pub fn roll_barrage_side(
         crate::factions::hooks_combat::borrowed_stats(state, content, sources, player, system)
             .and_then(|borrowed| borrowed.barrage.map(|barrage| (borrowed.unit, barrage)));
     let mut borrower_used = false;
+    // Quietus: units in an active breach beside another player's Quietus have lost every unit
+    // ability, ANTI-FIGHTER BARRAGE among them.
+    let abilities_lost = crate::factions::crimson::abilities_lost(state, player, system);
     for unit in ships_of(state, content, sources, player, system) {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
         };
+        if abilities_lost {
+            continue;
+        }
         let lent = borrower
             .as_ref()
             .filter(|(ship, _)| !borrower_used && *ship == unit)
@@ -1900,9 +1906,12 @@ fn reaching_guns_by(
             .values()
             .flat_map(|units| units.iter())
             .chain(board.units.iter());
+        let here = SystemId::new(neighbour);
         found.extend(
             standing
                 .filter(|unit| fires(&unit.owner))
+                // Quietus: a gun in an active breach beside another player's Quietus has lost it.
+                .filter(|unit| !crate::factions::crimson::abilities_lost(state, &unit.owner, &here))
                 .filter(|unit| {
                     types
                         .get(unit.type_id.as_str())
@@ -1980,10 +1989,14 @@ pub fn space_cannon_offense(
         }
     };
 
+    // Quietus: a unit in an active breach beside another player's Quietus has lost SPACE CANNON.
+    let may_fire_here = |owner: &PlayerId| {
+        may_fire(owner) && !crate::factions::crimson::abilities_lost(state, owner, system)
+    };
     let mut guns: Vec<Unit> = board
         .units
         .iter()
-        .filter(|unit| may_fire(&unit.owner))
+        .filter(|unit| may_fire_here(&unit.owner))
         .cloned()
         .collect();
     for planet in board.planet_units.keys() {
@@ -1991,7 +2004,7 @@ pub fn space_cannon_offense(
             board
                 .on_planet(planet)
                 .iter()
-                .filter(|unit| may_fire(&unit.owner))
+                .filter(|unit| may_fire_here(&unit.owner))
                 .cloned(),
         );
     }
@@ -3391,6 +3404,8 @@ pub fn eligible_retreats(
     system: &SystemId,
 ) -> Vec<SystemId> {
     let types = catalogue(content, sources);
+    // A retreat is a move: Sundered and the sever token close the wormholes it may not use.
+    let galaxy = crate::factions::hooks_movement::galaxy_for_mover(state, player, galaxy);
     galaxy
         .adjacent(system.as_str())
         .into_iter()

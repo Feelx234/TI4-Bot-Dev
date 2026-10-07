@@ -576,6 +576,20 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Crimson Rebellion: every question asked inside a timing window or component action
+        // (BF-crimson.md). Ahk Ravin's transport questions are the shared cargo hold's own.
+        module: "crimson.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "crimson.rs",
+        function: "ask_about",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Doctor Carrina, in the one window every research route opens: the holder's exhaust
         // offer, then the infantry placement (BF-deepwrought.md).
         module: "deepwrought_research.rs",
@@ -1500,6 +1514,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("deepwrought_research.rs", "put", 1),
     ("deepwrought.rs", "ask", 1),
     ("deepwrought.rs", "ask_about", 1),
+    ("crimson.rs", "ask", 1),
+    ("crimson.rs", "ask_about", 1),
+    ("crimson_cards.rs", "fill_hold", 1),
     ("titans_leaders.rs", "sleeper_allowance", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),

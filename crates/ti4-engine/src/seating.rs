@@ -72,6 +72,16 @@ pub const CREUSS_GATE: &str = "17";
 /// seat's home system -- where its units start and its planet lies -- is this tile.
 pub const CREUSS_HOME: &str = "51";
 
+/// The Sorrow (tile 94): where the Crimson Rebellion home position sits **on the map**. It prints an
+/// epsilon wormhole and no planet, and "is not a home system" (Sorrow ability).
+pub const SORROW: &str = "94";
+
+/// The Crimson Rebellion home system (tile 118, Ahk Creuxx): in the seat's play area, off the map,
+/// connected to the Sorrow (and every other epsilon wormhole) by the epsilon wormholes both print.
+/// The corpus's `homeSystem` for `crimson` names the Sorrow; the seat's home system -- where its
+/// units start and its planet lies -- is this tile.
+pub const CRIMSON_HOME: &str = "118";
+
 /// Something went wrong seating a game.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SeatingError {
@@ -310,8 +320,13 @@ pub fn deploy(
     // Creuss: "place the Creuss Gate (tile 17) where your home system would normally be placed ...
     // Then, place your home system (tile 51) in your play area." The faction record names the
     // gate; the seat's home system, with its planet and starting fleet, is tile 51.
+    // The Crimson Rebellion: "place the Sorrow (tile 94) where your home system would normally be
+    // placed, then place an inactive breach there ... Then, place your home system (tile 118) in your
+    // play area." The faction record names the Sorrow; the seat's home system is tile 118.
     let system_id = SystemId::new(if home == CREUSS_GATE {
         CREUSS_HOME
+    } else if home == SORROW {
+        CRIMSON_HOME
     } else {
         home
     });
@@ -374,6 +389,10 @@ pub fn deploy(
     if alias.as_str() == crate::factions::nekro::FACTION {
         seat.technologies.insert(TechnologyId::new("vax"));
         seat.technologies.insert(TechnologyId::new("vay"));
+    }
+    // Sorrow: "place an inactive breach there" (the Sorrow, where the home position is).
+    if home == SORROW {
+        crate::factions::crimson::place_sorrow_breach(state);
     }
     // Commodities are deliberately not set. LRR 21: the faction record's `commodities` is
     // the *capacity* a player refreshes to, not an opening balance, and a player starts
@@ -504,6 +523,7 @@ pub fn place_wormhole_nexus(
     sources: SourceSet,
 ) -> Result<(), ti4_content::galaxy::GalaxyError> {
     place_creuss_home(galaxy, content, sources)?;
+    place_crimson_home(galaxy, content, sources)?;
     if !sources.contains(ti4_model::content_types::Source::Pok) {
         return Ok(());
     }
@@ -535,6 +555,26 @@ pub fn place_creuss_home(
         return Ok(());
     }
     galaxy.place_off_map(content, CREUSS_HOME, sources)
+}
+
+/// Put the Crimson Rebellion home system beside the board when the Sorrow is on it.
+///
+/// The Sorrow occupies the Crimson seat's home position (see [`SORROW`]); the home system (tile
+/// 118) is off the hex grid and reached only through epsilon wormholes, which `Galaxy::adjacent`
+/// pairs by kind like any other wormhole. Called from [`place_wormhole_nexus`], so a board with no
+/// Sorrow -- every board without a Crimson seat -- is untouched. Idempotent.
+///
+/// # Errors
+/// Any [`GalaxyError`] from registering the tile.
+pub fn place_crimson_home(
+    galaxy: &mut Galaxy,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Result<(), ti4_content::galaxy::GalaxyError> {
+    if galaxy.coord_of(SORROW).is_none() || !galaxy.wormhole_kinds(CRIMSON_HOME).is_empty() {
+        return Ok(());
+    }
+    galaxy.place_off_map(content, CRIMSON_HOME, sources)
 }
 
 /// Whether anything has happened that opens the Wormhole Nexus.

@@ -292,6 +292,19 @@ impl<'a> MovementRules<'a> {
                 self.galaxy = Cow::Owned(owned);
             }
         }
+        // Wormholes a move may not use: a severed system's (Sever) and, for a restricted mover, every
+        // kind it may not use (Sundered). On a copy of the map, so adjacency queries outside movement
+        // still see them.
+        if hooks::any(|table| {
+            table.severed_systems.is_some() || table.usable_wormhole_kinds.is_some()
+        }) {
+            let limits = hooks::wormhole_limits(state, self.board.mover.as_ref());
+            if !limits.is_empty() {
+                let mut owned = (*self.galaxy).clone();
+                limits.apply(&mut owned);
+                self.galaxy = Cow::Owned(owned);
+            }
+        }
         let Some(mover) = self.board.mover.clone() else {
             return;
         };

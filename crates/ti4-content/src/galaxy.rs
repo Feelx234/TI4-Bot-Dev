@@ -571,6 +571,30 @@ impl Galaxy {
         holders.into_iter().collect()
     }
 
+    /// Keep only the wormhole kinds in `keep`, printed and token alike: every other kind is gone, so
+    /// no system pairs through it any more. A copy of the map for one mover (The Crimson
+    /// Rebellion, Sundered: "You cannot use wormholes other than epsilon wormholes").
+    pub fn retain_wormhole_kinds(&mut self, keep: &[&str]) {
+        for kinds in self
+            .wormholes
+            .values_mut()
+            .chain(self.token_wormholes.values_mut())
+        {
+            kinds.retain(|kind| keep.contains(&kind.as_str()));
+        }
+    }
+
+    /// Remove every wormhole from `system_id`, printed and token (the sever token: "wormholes in
+    /// that system have no effect"). A copy of the map for one movement query.
+    pub fn suppress_wormholes_at(&mut self, system_id: &str) {
+        if let Some(kinds) = self.wormholes.get_mut(system_id) {
+            kinds.clear();
+        }
+        if let Some(kinds) = self.token_wormholes.get_mut(system_id) {
+            kinds.clear();
+        }
+    }
+
     /// How many tile edits this map carries; see [`Self::swap_systems`].
     #[must_use]
     pub const fn edits_applied(&self) -> usize {
@@ -1218,6 +1242,22 @@ mod tests {
         );
         assert!(system(store(), "81", FULL).unwrap().is_supernova());
         assert_eq!(galaxy.edits_applied(), 1);
+    }
+
+    #[test]
+    fn a_copy_can_keep_one_wormhole_kind_or_lose_one_systems_wormholes() {
+        let galaxy = Galaxy::build(store(), &["18", "39", "25", "19"], FULL, 1).unwrap();
+        let mut epsilon_only = galaxy.clone();
+        epsilon_only.retain_wormhole_kinds(&["EPSILON"]);
+        assert!(epsilon_only.wormhole_kinds("39").is_empty());
+        assert!(
+            !galaxy.wormhole_kinds("39").is_empty(),
+            "the original is untouched"
+        );
+        let mut severed = galaxy.clone();
+        severed.suppress_wormholes_at("39");
+        assert!(severed.wormhole_kinds("39").is_empty());
+        assert!(!severed.wormhole_kinds("25").is_empty(), "only that system");
     }
 
     #[test]

@@ -100,6 +100,9 @@ pub fn held(
             }
         }
     }
+    // Ships on the Crimson hero card are off the board and still out of the box.
+    total +=
+        crate::factions::crimson_cards::held_on_card(state, content, sources, player, base_type);
     total
 }
 
