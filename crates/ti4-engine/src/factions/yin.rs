@@ -806,9 +806,10 @@ fn van_hauge(owner_name: &str, seat: &PlayerId) -> Ability {
             Ok(())
         }),
     )
-    .with_stateful_condition(Arc::new(move |event, _, _| {
-        event.text("unit") == Some("yin_flagship")
-            && event.text("player") == Some(condition_owner.as_str())
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        event.text("unit").is_some_and(|unit| {
+            super::flagship_has_text(context.state, &condition_owner, unit, "yin_flagship")
+        }) && event.text("player") == Some(condition_owner.as_str())
     }))
 }
 
@@ -3504,5 +3505,23 @@ mod tests {
         assert_eq!(state.board, before.board);
         assert_eq!(state.players, before.players);
         assert_eq!(state.faction_marks, before.faction_marks);
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_yin_z_token_destroys_every_ship_in_its_system() {
+        let run = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let system = SystemId::new("18");
+            put(&mut state, &system, "cruiser", &b(), 2);
+            emit(
+                &mut state,
+                &[],
+                "SHIP_DESTROYED",
+                &destroyed(&system, "a", "nekro_flagship"),
+            );
+            count(&state, &system, "cruiser")
+        };
+        assert_eq!(run(&[]), 2, "off by default");
+        assert_eq!(run(&["yin"]), 0);
     }
 }

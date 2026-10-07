@@ -168,3 +168,30 @@ Coordinator-integration pass (single agent).
 * **`nekrobt` stays unclaimed**: its flagship lending needs every faction's flagship hooks to accept the Nekro flagship; `LENDABLE_FLAGSHIPS` is empty and the Z option is never offered.
 
 Results: `cargo test -p ti4-engine -j1 --no-fail-fast -- --test-threads=12`: lib 2516 passed, 1 ignored; content_ids_resolve 1; decision_delivery_inventory 4; doctests 5; all green. `cargo test -p ti4-policy -p ti4-sim`: 273 + 51 passed, 0 failed. Ledger: `nekro 13/14 implemented`, missing only `nekrobt`. Soak `base_faction_soak -- nekro 0 25 10`: 25 games, 0 failures.
+
+
+## Valefar Assimilator Z (`nekrobt`) - 2026-10-07
+
+Operator rulings: 7 Z tokens; the Nekro flagship has every flagship's text, off by default; a placed Z token switches that faction's flagship text on, permanently; at most one Z per faction (Keleres variants share one flagship, so one token covers all three); text only, never stats (combat value/dice, move, capacity, sustain damage, printed bombard/space cannon). Also: `nekroc4y` / `nekroc4r` belong to an obscure variant, not the game.
+
+* Storage: `faction_marks["nekro:token:<player>:Z"]` = comma list of faction aliases (max 7). `nekro::place_z`, `z_assimilated_factions`, `z_lends`. Offer `z|<source>|<faction>` alongside gain/X/Y at Technological Singularity and Galactic Threat while tokens remain and the flagship is not already lent.
+* Predicate: `factions::flagship_has_text(state, owner, unit_type, flagship_id)` (unit is that flagship, or a `nekro_flagship` of a Nekro holding Z on that faction) and `factions::has_flagship_text_in(state, owner, system, id)`. "This unit" = the Nekro flagship; "your" = the Nekro's.
+* Timing abilities for Arborec and Cabal flagships were only armed for those factions' seats; they are now also armed for Nekro seats (conditions decide).
+
+### Per-flagship result (24 flagships; 22 lent and tested, 1 inert, 1 no text)
+
+| flagship | result |
+|---|---|
+| arborec, argent, cabal, empyrean, ghost, hacan, jolnar, keleres, l1z1x, letnev (repair and shield strip), mahact, mentak, muaat, naalu, naaz, nomad, sardakk, sol, titans, winnu, yin, yssaril | lent, one real-route test each (`a_nekro_flagship_with_the_<faction>_z_token_...`) |
+| xxcha | lent-but-inert: its text uses the unit's SPACE CANNON, the Nekro flagship has none (stats not lent). Z still offered. |
+| saar | not lendable: the flagship has no text (stats only: anti-fighter barrage). Z not offered. |
+
+Notes: Titans DEPLOY places the Nekro flagship in place of a PDS. Naaz gives the Nekro's mechs the die. Winnu: the Nekro flagship rolls dice equal to the opponent's non-fighter ships, replacing its printed dice; its hit value stays its own printed 9. Mahact bonus applies (the Nekro never holds other players' command tokens in its fleet pool). Sardakk excludes the Nekro flagship itself ("other ships"). Keleres and Argent no longer need the owner to be that faction. Genesis places the Nekro's infantry.
+
+Coverage: per-flagship lending is the predicate sweep plus one test each (no combinations of Z abilities tested). Also tests: toggle off by default / on / not for non-Nekro or other units / not without breakthrough; 7-token cap; no double Z (Keleres families); offer and placement through the Singularity route.
+
+### Ledger rule
+`factions::assets` technologies now = faction-sheet `factionTech` (which holds the unit upgrades) plus Thunder's Edge-source reprints. Compared every faction's technology set before/after by script over the content: only Nekro changes (`nekroc4y`, `nekroc4r` removed; code kept, unclaimed). Keleres `executiveorder` (TE) stays. Nekro ledger: 12/12 (was 13/14 with `nekrobt` missing); all 27 rows full.
+
+### Results
+`cargo test -p ti4-engine -j1 --no-fail-fast -- --test-threads=12`: lib 2541 passed, 1 ignored; content_ids_resolve 1; decision_delivery_inventory 4; doctests 5. `-p ti4-policy -p ti4-sim`: 273 + 51 passed. Soak `base_faction_soak -- nekro 0 25 10`: 25 games, 0 failures. No new ask sites (the Z option reuses `take_from`).

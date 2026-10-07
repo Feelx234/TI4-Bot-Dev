@@ -771,11 +771,7 @@ fn warrior_returns(owner_name: &str, seat: &PlayerId) -> Ability {
 
 /// Whether the player has their flagship in the system.
 fn flagship_in(state: &GameState, player: &PlayerId, system: &SystemId) -> bool {
-    state
-        .system_state(system)
-        .units_of(player)
-        .iter()
-        .any(|unit| unit.type_id.as_str() == "arborec_flagship")
+    super::has_flagship_text_in(state, player, system, "arborec_flagship")
 }
 
 /// Duha Menaimon: "After you activate this system, you may produce up to 5 units in this system."
@@ -1500,6 +1496,13 @@ fn psychospore_readies(owner_name: &str, seat: &PlayerId) -> Ability {
 
 fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec<Ability> {
     let mut abilities = vec![commander(owner_name, seat), stymie(owner_name, seat)];
+    // A Nekro flagship may carry the flagship's text (Valefar Assimilator Z); the condition decides.
+    if state
+        .player(seat)
+        .is_some_and(|player| player.faction.as_str() == super::nekro::FACTION)
+    {
+        abilities.push(flagship(owner_name, seat));
+    }
     if state
         .player(seat)
         .is_some_and(|player| player.faction.as_str() == "arborec")
@@ -2954,5 +2957,45 @@ mod tests {
                 .any(|row| row.contains("UNITS_PRODUCED")),
             "staged for the game to flush after the leader action"
         );
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_arborec_z_token_produces_up_to_five_units() {
+        let mut state =
+            crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "arborec")], &["arborec"]);
+        let home = home_of(&state, &a());
+        crate::fixtures::put(&mut state, &home, "nekro_flagship", &a(), 1);
+        give_goods(&mut state, &a(), 20);
+        let before = count(&state, &home, &a(), "cruiser");
+        let (mut table, asked) = steered(&[
+            "unit:nekro:arborec_flagship:SYSTEM_ACTIVATED:after",
+            "build|cruiser|1",
+        ]);
+        emit(
+            &mut state,
+            &mut table,
+            "SYSTEM_ACTIVATED",
+            &[("player", "a"), ("system", home.as_str())],
+        );
+        assert_eq!(count(&state, &home, &a(), "cruiser"), before + 1);
+        assert!(
+            asked
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|prompt| prompt.contains("(5 left)"))
+        );
+        // Without the token the Nekro flagship offers nothing.
+        let mut bare = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "arborec")], &[]);
+        crate::fixtures::put(&mut bare, &home, "nekro_flagship", &a(), 1);
+        give_goods(&mut bare, &a(), 20);
+        let before = bare.clone();
+        emit(
+            &mut bare,
+            &mut silent(),
+            "SYSTEM_ACTIVATED",
+            &[("player", "a"), ("system", home.as_str())],
+        );
+        assert_eq!(bare, before);
     }
 }

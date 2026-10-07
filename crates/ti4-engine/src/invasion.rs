@@ -126,7 +126,14 @@ pub fn bombardable(
     let arc_secundus = board
         .units_of(invader)
         .into_iter()
-        .any(|unit| unit.type_id.as_str() == "letnev_flagship");
+        .any(|unit| {
+            crate::factions::flagship_has_text(
+                state,
+                invader,
+                unit.type_id.as_str(),
+                "letnev_flagship",
+            )
+        });
     if arc_secundus {
         return true;
     }
@@ -7774,6 +7781,23 @@ mod tests {
         assert_eq!(left.len(), 2, "a declined reroll changes nothing");
         assert!(dice.rolled("jolnar commander").is_empty());
         assert_eq!(dice.count(), 1);
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_letnev_z_token_strips_the_defenders_planetary_shield() {
+        let content = ContentStore::embedded();
+        let run = |lent: &[&str]| {
+            let (_, system, planet) = arena_off_mecatol();
+            let mut state =
+                crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            on_planet(&mut state, &system, &planet, "pds", &holder(), 1);
+            on_planet(&mut state, &system, &planet, "infantry", &holder(), 1);
+            in_space(&mut state, &system, "dreadnought", &invader(), 1);
+            in_space(&mut state, &system, "nekro_flagship", &invader(), 1);
+            bombardable(&state, content, POK, &system, &planet, &invader())
+        };
+        assert!(!run(&[]), "off by default");
+        assert!(run(&["letnev"]));
     }
 }
 

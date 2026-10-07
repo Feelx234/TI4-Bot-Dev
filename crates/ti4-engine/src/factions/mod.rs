@@ -140,6 +140,38 @@ impl FactionModule {
     }
 }
 
+/// Whether a unit of `owner` with type `unit_type` has the printed text of flagship
+/// `flagship_id`: it is that flagship, or it is a Nekro flagship whose owner has placed the Z
+/// token (Valefar Assimilator Z) on that faction. Only text abilities follow; stats never do.
+#[must_use]
+pub fn flagship_has_text(
+    state: &GameState,
+    owner: &PlayerId,
+    unit_type: &str,
+    flagship_id: &str,
+) -> bool {
+    unit_type == flagship_id
+        || (unit_type == nekro::NEKRO_FLAGSHIP && nekro::z_lends(state, owner, flagship_id))
+}
+
+/// Whether `owner` has, in `system`'s space area, a unit with the text of flagship `flagship_id`.
+#[must_use]
+pub fn has_flagship_text_in(
+    state: &GameState,
+    owner: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    flagship_id: &str,
+) -> bool {
+    state
+        .system_state(system)
+        .units
+        .iter()
+        .any(|unit| {
+            &unit.owner == owner
+                && flagship_has_text(state, owner, unit.type_id.as_str(), flagship_id)
+        })
+}
+
 /// Engine entry points. Each mirrors the shared hook of the same name and is optional; a module
 /// sets only the ones it needs (`..Hooks::NONE`). New hook points are added here by the
 /// coordinator, never by a faction package.
@@ -750,11 +782,18 @@ pub fn assets(content: &ContentStore, sources: SourceSet, alias: &str) -> Vec<As
     for id in faction.abilities() {
         add(AssetKind::Ability, id);
     }
+    // Operator ruling 2026-10-07: only the technologies the faction sheet lists (`factionTech`,
+    // which includes the unit upgrades) count, plus official Thunder's Edge reprints. Cards that
+    // merely carry the faction's tag from an obscure variant (Nekro's `nekroc4y`, `nekroc4r`) are
+    // not part of the game and are not ledger assets.
+    let sheet_technologies: std::collections::BTreeSet<&str> =
+        faction.record().strings("factionTech").into_iter().collect();
     for record in content.from_sources(ContentType::Technologies, sources) {
         if record
             .text("faction")
             .is_some_and(|f| keleres::tag_belongs_to(f, alias, false))
             && let Some(id) = record.text("alias")
+            && (sheet_technologies.contains(id) || record.text("source") == Some("thunders_edge"))
         {
             add(AssetKind::Technology, id);
         }

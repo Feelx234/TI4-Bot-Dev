@@ -282,10 +282,14 @@ fn extra_wormholes(state: &GameState) -> Vec<(String, String)> {
         .board
         .iter()
         .filter(|(_, board)| {
-            board
-                .units
-                .iter()
-                .any(|unit| unit.type_id.as_str() == "ghost_flagship")
+            board.units.iter().any(|unit| {
+                super::flagship_has_text(
+                    state,
+                    &unit.owner,
+                    unit.type_id.as_str(),
+                    "ghost_flagship",
+                )
+            })
         })
         .map(|(system, _)| (system.to_string(), "DELTA".to_owned()))
         .collect()
@@ -2758,5 +2762,18 @@ mod tests {
             &turn_began("b"),
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_ghost_z_token_gives_its_system_a_delta_wormhole() {
+        let mut bare = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], &[]);
+        put(&mut bare, &sys("19"), "nekro_flagship", &a(), 1);
+        assert!(extra_wormholes(&bare).is_empty(), "off by default");
+        let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], &["ghost"]);
+        put(&mut state, &sys("19"), "nekro_flagship", &a(), 1);
+        assert_eq!(
+            extra_wormholes(&state),
+            vec![("19".to_owned(), "DELTA".to_owned())]
+        );
     }
 }

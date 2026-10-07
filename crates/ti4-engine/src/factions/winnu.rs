@@ -698,10 +698,10 @@ fn unit_dice(
     unit: &CombatUnit<'_>,
     dice: i64,
 ) -> i64 {
-    if unit.unit_type != "winnu_flagship"
-        || unit.context != "space"
-        || !is_winnu(state, unit.player)
-    {
+    let own = unit.unit_type == "winnu_flagship" && is_winnu(state, unit.player);
+    let lent = unit.unit_type != "winnu_flagship"
+        && super::flagship_has_text(state, unit.player, unit.unit_type, "winnu_flagship");
+    if !(own || lent) || unit.context != "space" {
         return dice;
     }
     let Some(system) = unit.system else {
@@ -719,7 +719,14 @@ fn unit_dice(
                 .is_some_and(|kind| kind.is_ship() && !kind.is_fighter())
         })
         .count();
-    dice + i64::try_from(theirs).unwrap_or(0)
+    let theirs = i64::try_from(theirs).unwrap_or(0);
+    if unit.unit_type == "winnu_flagship" {
+        dice + theirs
+    } else {
+        // The Nekro flagship with the text: "rolls a number of dice equal to ..." replaces its
+        // printed dice; the hit value stays its own printed stat.
+        theirs
+    }
 }
 
 // -- Acquiescence --------------------------------------------------------------------------------
@@ -2769,5 +2776,33 @@ mod tests {
     fn the_claims_are_the_sheet() {
         assert_eq!(MODULE.leaders.len(), 3);
         assert_eq!(MODULE.units.len(), 2);
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_winnu_z_token_rolls_a_die_per_opposing_non_fighter_ship() {
+        let content = ContentStore::embedded();
+        let system = SystemId::new("19");
+        let dice = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            state.system_mut(&system).units.clear();
+            crate::fixtures::put(&mut state, &system, "nekro_flagship", &a(), 1);
+            crate::fixtures::put(&mut state, &system, "cruiser", &b(), 3);
+            crate::fixtures::put(&mut state, &system, "fighter", &b(), 4);
+            crate::factions::unit_dice(
+                &state,
+                content,
+                DEFAULT,
+                &CombatUnit {
+                    player: &a(),
+                    system: Some(&system),
+                    planet: None,
+                    unit_type: "nekro_flagship",
+                    context: "space",
+                },
+                2,
+            )
+        };
+        assert_eq!(dice(&[]), 2, "off by default: its own printed dice");
+        assert_eq!(dice(&["winnu"]), 3, "three opposing non-fighter ships");
     }
 }

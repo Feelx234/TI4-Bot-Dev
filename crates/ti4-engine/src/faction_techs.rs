@@ -134,7 +134,14 @@ pub fn genesis(
         .flat_map(|(system, here)| {
             here.units
                 .iter()
-                .filter(|unit| unit.type_id.as_str() == "sol_flagship")
+                .filter(|unit| {
+                    crate::factions::flagship_has_text(
+                        state,
+                        &unit.owner,
+                        unit.type_id.as_str(),
+                        "sol_flagship",
+                    )
+                })
                 .map(|unit| (unit.owner.clone(), system.clone()))
                 .collect::<Vec<_>>()
         })
@@ -844,5 +851,24 @@ mod tests {
         } else {
             assert_eq!(chosen, None, "a planet with no trait cannot be explored");
         }
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_sol_z_token_places_an_infantry_in_its_system() {
+        let system = SystemId::new("19");
+        let run = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            put(
+                &mut state,
+                &system,
+                "nekro_flagship",
+                &PlayerId::new("a"),
+                1,
+            );
+            let placed = genesis(&mut state, ContentStore::embedded(), POK);
+            (placed.len(), state.system_state(&system).units.len())
+        };
+        assert_eq!(run(&[]), (0, 1), "off by default");
+        assert_eq!(run(&["sol"]), (1, 2));
     }
 }

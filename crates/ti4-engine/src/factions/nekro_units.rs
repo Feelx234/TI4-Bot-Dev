@@ -77,7 +77,10 @@ pub const LEADERS: &[&str] = &[AGENT, COMMANDER, HERO];
 /// Units claimed here (flagship, mech).
 pub const UNITS: &[&str] = &[FLAGSHIP, MECH];
 /// Technologies claimed here: the two Valefar Assimilators (a Nekro begins with both) and the Thunder's Edge cards.
-pub const TECHNOLOGIES: &[&str] = &["vax", "vay", NULL_REFERENCE, ERROR_ERROR];
+///
+/// `nekroc4y` / `nekroc4r` are implemented below but unclaimed: operator ruling 2026-10-07, they
+/// belong to an obscure variant and are not part of the game.
+pub const TECHNOLOGIES: &[&str] = &["vax", "vay"];
 /// Combat hooks. None: the Alastor works through `combat::planet_combatants` and Mordred through a
 /// roll bonus read in `combat.rs` and `invasion.rs`.
 pub const COMBAT_HOOKS: CombatHooks = CombatHooks::NONE;
@@ -2267,6 +2270,6 @@ mod tests {
     fn nekro_claims_name_what_is_implemented() {
         assert_eq!(UNITS, [FLAGSHIP, MECH]);
         assert_eq!(LEADERS, [AGENT, COMMANDER, HERO]);
-        assert_eq!(TECHNOLOGIES, ["vax", "vay", NULL_REFERENCE, ERROR_ERROR]);
+        assert_eq!(TECHNOLOGIES, ["vax", "vay"]);
     }
 }

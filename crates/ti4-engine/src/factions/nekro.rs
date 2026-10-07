@@ -11,7 +11,7 @@
 //! | key | value |
 //! |---|---|
 //! | (model) `Player::assimilated_technologies` | `vax` / `vay` to the faction technology its token sits on |
-//! | `nekro:token:<player>:Z` | the faction alias whose sheet the Z token sits on |
+//! | `nekro:token:<player>:Z` | comma-separated faction aliases whose sheets carry a Z token (at most 7, one per flagship) |
 //! | `nekro:propagation:<player>` | researches replaced by Propagation, tokens still to be placed |
 //! | `nekro:ts:<system>[\|<planet>]` | `<opponent>\|open` or `<opponent>\|used`, for the combat there |
 //! | `nekro:threat:<player>` | `<agenda_seq>\|<outcome>` predicted by Galactic Threat |
@@ -42,11 +42,40 @@ pub const Z_BREAKTHROUGH: &str = "nekrobt";
 ///   cannot vote (Galactic Threat), so the text is unusable by design.
 pub const TEXT_NOT_LENDABLE: &[&str] = &["executiveorder"];
 
-/// The flagships whose text this engine can lend to the Nekro flagship through a Z token. Empty:
-/// every other faction's flagship text is delivered by hooks that compare the unit type with
-/// their own flagship id, and no shared hook lets the Nekro flagship stand in for it. While this
-/// is empty the Z option is never generated and `nekrobt` is not claimed.
-pub const LENDABLE_FLAGSHIPS: &[&str] = &[];
+/// The flagships whose text the Nekro flagship can gain through a Z token: every base and
+/// Prophecy of Kings flagship but its own (per-flagship status in the evidence file: some are
+/// lent but inert for the Nekro). The Keleres variants share one flagship id.
+pub const LENDABLE_FLAGSHIPS: &[&str] = &[
+    "arborec_flagship",
+    "argent_flagship",
+    "cabal_flagship",
+    "empyrean_flagship",
+    "ghost_flagship",
+    "hacan_flagship",
+    "jolnar_flagship",
+    "keleres_flagship",
+    "l1z1x_flagship",
+    "letnev_flagship",
+    "mahact_flagship",
+    "mentak_flagship",
+    "muaat_flagship",
+    "naalu_flagship",
+    "naaz_flagship",
+    "nomad_flagship",
+    "sardakk_flagship",
+    "sol_flagship",
+    "titans_flagship",
+    "winnu_flagship",
+    "xxcha_flagship",
+    "yin_flagship",
+    "yssaril_flagship",
+];
+
+/// How many Z tokens the Nekro has (operator ruling 2026-10-07).
+pub const Z_TOKEN_COUNT: usize = 7;
+
+/// The Nekro's own flagship unit id.
+pub const NEKRO_FLAGSHIP: &str = "nekro_flagship";
 
 /// The assimilator tokens and the technology card each belongs to.
 const TOKENS: [(char, &str); 2] = [('X', "vax"), ('Y', "vay")];
@@ -66,7 +95,7 @@ pub const MODULE: FactionModule = FactionModule {
     units: super::nekro_units::UNITS,
     promissory: &["antivirus"],
     leaders: super::nekro_units::LEADERS,
-    breakthroughs: &[],
+    breakthroughs: &[Z_BREAKTHROUGH],
     hooks: Hooks {
         timing_abilities: Some(timing_abilities),
         combat: super::nekro_units::COMBAT_HOOKS,
@@ -140,28 +169,58 @@ pub fn assimilators_with_tokens(state: &GameState, player: &PlayerId) -> usize {
         .count()
 }
 
-/// The faction whose sheet carries the Z token, while the breakthrough is held and that faction
-/// is seated.
+/// The factions whose sheets carry a Z token (in placement order), while the breakthrough is
+/// held. Placements are permanent.
 #[must_use]
-pub fn z_assimilated_faction(state: &GameState, player: &PlayerId) -> Option<String> {
+pub fn z_assimilated_factions(state: &GameState, player: &PlayerId) -> Vec<String> {
     if !is_nekro(state, player) || !crate::breakthroughs::holds(state, player, Z_BREAKTHROUGH) {
-        return None;
+        return Vec::new();
     }
-    let faction = state.faction_marks.get(&z_mark(player))?;
     state
-        .players
-        .iter()
-        .any(|seat| seat.id != *player && seat.faction.as_str() == faction)
-        .then(|| faction.clone())
+        .faction_marks
+        .get(&z_mark(player))
+        .map(|marks| {
+            marks
+                .split(',')
+                .filter(|faction| !faction.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
-/// The unit id of the flagship whose text the Nekro flagship gains through the Z token (for part
-/// B and the combat hooks). Only factions in [`LENDABLE_FLAGSHIPS`] can ever be assimilated.
+/// The flagship unit ids whose text the Nekro flagship has switched on (one per Z token).
 #[must_use]
-pub fn z_assimilated_flagship(state: &GameState, player: &PlayerId) -> Option<String> {
-    let faction = z_assimilated_faction(state, player)?;
-    let unit = flagship_of(&faction);
-    LENDABLE_FLAGSHIPS.contains(&unit.as_str()).then_some(unit)
+pub fn z_assimilated_flagships(state: &GameState, player: &PlayerId) -> Vec<String> {
+    z_assimilated_factions(state, player)
+        .iter()
+        .map(|faction| flagship_of(faction))
+        .collect()
+}
+
+/// Whether the Z token on `flagship_id`'s faction has switched that flagship's text on for a
+/// Nekro flagship owned by `owner`.
+#[must_use]
+pub fn z_lends(state: &GameState, owner: &PlayerId, flagship_id: &str) -> bool {
+    z_assimilated_factions(state, owner)
+        .iter()
+        .any(|faction| flagship_of(faction) == flagship_id)
+}
+
+/// Place a Z token on `faction`'s sheet. Permanent; refused (`false`) when all seven tokens are
+/// placed or that faction's flagship already carries one (the Keleres variants share a flagship).
+pub fn place_z(state: &mut GameState, nekro: &PlayerId, faction: &str) -> bool {
+    let mut placed = z_assimilated_factions(state, nekro);
+    if placed.len() >= Z_TOKEN_COUNT
+        || placed
+            .iter()
+            .any(|held| flagship_of(held) == flagship_of(faction))
+    {
+        return false;
+    }
+    placed.push(faction.to_owned());
+    state.faction_marks.insert(z_mark(nekro), placed.join(","));
+    true
 }
 
 fn flagship_of(faction: &str) -> String {
@@ -324,8 +383,12 @@ fn assimilation_options(
             }
         }
     }
+    let placed = z_assimilated_factions(state, nekro);
     if crate::breakthroughs::holds(state, nekro, Z_BREAKTHROUGH)
-        && !state.faction_marks.contains_key(&z_mark(nekro))
+        && placed.len() < Z_TOKEN_COUNT
+        && !placed
+            .iter()
+            .any(|faction| flagship_of(faction) == flagship_of(them.faction.as_str()))
         && LENDABLE_FLAGSHIPS.contains(&flagship_of(them.faction.as_str()).as_str())
     {
         options.push(ChoiceOption::labelled(
@@ -404,10 +467,7 @@ fn take_from(
             }
         }
         "z" => {
-            context
-                .state
-                .faction_marks
-                .insert(z_mark(nekro), what.to_owned());
+            place_z(context.state, nekro, what);
         }
         _ => {}
     }
@@ -1238,18 +1298,98 @@ mod tests {
         assert!(!ids.iter().any(|id| id.ends_with("|ac2")), "{ids:?}");
     }
 
-    #[test]
-    fn the_z_token_is_not_offered_while_no_flagship_text_can_be_lent() {
-        let content = ti4_content::ContentStore::embedded();
-        let mut state = game();
+    fn with_z_breakthrough(state: &mut GameState) {
         state.player_mut(&a()).unwrap().breakthrough =
             Some(ti4_model::id::BreakthroughId::new(Z_BREAKTHROUGH));
+    }
+
+    #[test]
+    fn the_z_token_is_offered_and_placed_through_the_ability_route() {
+        let content = ti4_content::ContentStore::embedded();
+        let mut state = game();
+        with_z_breakthrough(&mut state);
         assert!(
-            !assimilation_options(&state, content, &a(), &b())
+            assimilation_options(&state, content, &a(), &b())
+                .iter()
+                .any(|option| option.id == "z|b|yssaril")
+        );
+        // Without the breakthrough no Z option is offered.
+        let bare = game();
+        assert!(
+            !assimilation_options(&bare, content, &a(), &b())
                 .iter()
                 .any(|option| option.id.starts_with("z|"))
         );
-        assert_eq!(z_assimilated_flagship(&state, &a()), None);
+        let system = home(&state, &a());
+        start_combat(&mut state, &system);
+        destroyed(
+            &mut state,
+            &mut scripted(&[SINGULARITY, "z|b|yssaril"]),
+            &system,
+            "b",
+        );
+        assert_eq!(z_assimilated_factions(&state, &a()), vec!["yssaril"]);
+        assert!(
+            !assimilation_options(&state, content, &a(), &b())
+                .iter()
+                .any(|option| option.id.starts_with("z|")),
+            "no second Z on one faction"
+        );
+        assert!(
+            assimilation_options(&state, content, &a(), &b())
+                .iter()
+                .any(|option| option.id.starts_with("gain|") || option.id.starts_with("x|")),
+            "the other choices remain"
+        );
+    }
+
+    #[test]
+    fn the_flagship_text_toggle_is_off_by_default_and_follows_the_tokens() {
+        let mut state = game();
+        with_z_breakthrough(&mut state);
+        let text = |state: &GameState, owner: &PlayerId, unit: &str, id: &str| {
+            crate::factions::flagship_has_text(state, owner, unit, id)
+        };
+        // Off by default; a flagship always has its own text.
+        assert!(!text(&state, &a(), NEKRO_FLAGSHIP, "yssaril_flagship"));
+        assert!(text(&state, &b(), "yssaril_flagship", "yssaril_flagship"));
+        assert!(place_z(&mut state, &a(), "yssaril"));
+        assert!(text(&state, &a(), NEKRO_FLAGSHIP, "yssaril_flagship"));
+        // Only that faction's text, only for the Nekro flagship, only for the Nekro.
+        assert!(!text(&state, &a(), NEKRO_FLAGSHIP, "sol_flagship"));
+        assert!(!text(&state, &a(), "cruiser", "yssaril_flagship"));
+        assert!(!text(&state, &b(), NEKRO_FLAGSHIP, "yssaril_flagship"));
+        // Without the breakthrough the token switches nothing on.
+        state.player_mut(&a()).unwrap().breakthrough = None;
+        assert!(!text(&state, &a(), NEKRO_FLAGSHIP, "yssaril_flagship"));
+    }
+
+    #[test]
+    fn at_most_seven_z_tokens_and_none_twice_on_a_faction() {
+        let mut state = game();
+        with_z_breakthrough(&mut state);
+        let seven = [
+            "arborec", "argent", "cabal", "empyrean", "ghost", "hacan", "jolnar",
+        ];
+        for faction in seven {
+            assert!(place_z(&mut state, &a(), faction), "{faction}");
+        }
+        assert_eq!(z_assimilated_factions(&state, &a()).len(), Z_TOKEN_COUNT);
+        assert!(!place_z(&mut state, &a(), "sol"), "the eighth token");
+        assert!(!place_z(&mut state, &a(), "hacan"), "a faction twice");
+        let content = ti4_content::ContentStore::embedded();
+        assert!(
+            !assimilation_options(&state, content, &a(), &b())
+                .iter()
+                .any(|option| option.id.starts_with("z|")),
+            "no token left to offer"
+        );
+        assert_eq!(z_assimilated_factions(&state, &a()).len(), Z_TOKEN_COUNT);
+        // The Keleres variants share one flagship, so one token covers all three.
+        let mut keleres = game();
+        with_z_breakthrough(&mut keleres);
+        assert!(place_z(&mut keleres, &a(), "keleresm"));
+        assert!(!place_z(&mut keleres, &a(), "keleresx"));
         assert_eq!(flagship_of("keleresx"), "keleres_flagship");
     }
 }

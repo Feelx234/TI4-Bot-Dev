@@ -999,7 +999,9 @@ fn forces_non_fighters(
 ) -> bool {
     ships_of(state, content, sources, player, system)
         .iter()
-        .any(|unit| unit.type_id.as_str() == L1Z1X_FLAGSHIP)
+        .any(|unit| {
+            crate::factions::flagship_has_text(state, player, unit.type_id.as_str(), L1Z1X_FLAGSHIP)
+        })
 }
 
 /// Whether a ship's hits are ones 0.0.1 forces onto non-fighters.
@@ -1010,8 +1012,8 @@ fn forced_hull(kind: UnitType<'_>) -> bool {
 /// A ship's roll group beyond its combat value. A ship whose hits follow a rule the others' do not
 /// rolls on its own, so the staged entry says whose dice they were: 1 for J.N.S. Hylarim, 2 for
 /// the hulls 0.0.1 binds.
-fn roll_tag(kind: UnitType<'_>, id: &str, forced: bool) -> u8 {
-    if id == JOLNAR_FLAGSHIP {
+fn roll_tag(kind: UnitType<'_>, jolnar_text: bool, forced: bool) -> u8 {
+    if jolnar_text {
         1
     } else if forced && forced_hull(kind) {
         2
@@ -1038,7 +1040,7 @@ fn fleet_hits(
             !entry.unit_types.is_empty() && entry.unit_types.keys().all(|id| test(id))
         };
         let mut hits = entry.hits();
-        if only(&|id| id == JOLNAR_FLAGSHIP) {
+        if only(&|id| crate::factions::flagship_has_text(state, player, id, JOLNAR_FLAGSHIP)) {
             hits += 2 * entry.faces.iter().filter(|face| **face >= 9).count();
         }
         if binding && only(&|id| types.get(id).is_some_and(|kind| forced_hull(*kind))) {
@@ -1092,7 +1094,12 @@ fn repair_self_repairing(state: &mut GameState, system: &SystemId, player: &Play
         .iter()
         .filter(|unit| {
             &unit.owner == player
-                && unit.type_id.as_str() == LETNEV_FLAGSHIP
+                && crate::factions::flagship_has_text(
+                    state,
+                    player,
+                    unit.type_id.as_str(),
+                    LETNEV_FLAGSHIP,
+                )
                 && unit.sustained_damage
         })
         .cloned()
@@ -1201,7 +1208,13 @@ fn fleet_groups(
             unit_index,
             state.combat_round_seq,
         );
-        let tag = roll_tag(*kind, unit.type_id.as_str(), forced);
+        let jolnar_text = crate::factions::flagship_has_text(
+            state,
+            player,
+            unit.type_id.as_str(),
+            JOLNAR_FLAGSHIP,
+        );
+        let tag = roll_tag(*kind, jolnar_text, forced);
         let group = groups.entry((value, tag)).or_insert(FleetGroup {
             dice: 0,
             types: std::collections::BTreeMap::new(),
@@ -1319,11 +1332,8 @@ fn wrath_of_kenara(
     player: &PlayerId,
     system: &SystemId,
 ) {
-    let has_flagship = state
-        .system_state(system)
-        .units
-        .iter()
-        .any(|unit| &unit.owner == player && unit.type_id.as_str() == "hacan_flagship");
+    let has_flagship =
+        crate::factions::has_flagship_text_in(state, player, system, "hacan_flagship");
     if !has_flagship || crate::supply::potential_goods(state, player) <= 0 {
         return;
     }
@@ -8871,6 +8881,113 @@ mod tests {
             !state.did_at_occurrence(&b, Feat::WonAgainstANoteHolder, occurrence),
             "the snapshot predates the receipt"
         );
+    }
+
+    fn nekro_arena(lent: &[&str]) -> (GameState, SystemId) {
+        let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+        let system = SystemId::new("18");
+        put(&mut state, &system, "nekro_flagship", &attacker(), 1);
+        (state, system)
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_hacan_z_token_may_buy_hits_with_trade_goods() {
+        let roll = |lent: &[&str], answers: Vec<String>| {
+            let (mut state, system) = nekro_arena(lent);
+            state.player_mut(&attacker()).unwrap().trade_goods = 5;
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(answers)));
+            // Two dice just short of the Nekro flagship's 9: every 8 is a near miss.
+            let mut dice = Dice::from_faces([8, 8, 8, 8]);
+            let mut rng = GameRng::new(7);
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            let hits = roll_fleet_and_open(&mut state, &mut ctx, &attacker(), &system);
+            (hits, state.player(&attacker()).unwrap().trade_goods)
+        };
+        assert_eq!(roll(&[], vec![]), (0, 5), "off by default: nothing offered");
+        let (hits, goods) = roll(&["hacan"], vec!["kenara|1".to_owned()]);
+        assert_eq!((hits, goods), (1, 4));
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_jolnar_z_token_makes_two_extra_hits_on_nines() {
+        let set = |system: &SystemId| RerollSet {
+            kind: "fleet".into(),
+            system: system.clone(),
+            rolls: vec![RerollEntry {
+                unit: "nekro_flagship".into(),
+                planet: None,
+                hits_on: Some(9),
+                faces: vec![9, 3],
+                rerolled: std::collections::BTreeSet::new(),
+                deltas: std::collections::BTreeMap::new(),
+                unit_types: std::iter::once(("nekro_flagship".to_owned(), 1)).collect(),
+            }],
+        };
+        let hits = |lent: &[&str]| {
+            let (state, system) = nekro_arena(lent);
+            fleet_hits(
+                &state,
+                ContentStore::embedded(),
+                POK,
+                &attacker(),
+                &system,
+                &set(&system),
+            )
+        };
+        assert_eq!(hits(&[]), (1, 0));
+        assert_eq!(hits(&["jolnar"]), (3, 0));
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_l1z1x_z_token_forces_its_hits_onto_non_fighters() {
+        let hits = |lent: &[&str]| {
+            let (state, system) = nekro_arena(lent);
+            let set = RerollSet {
+                kind: "fleet".into(),
+                system: system.clone(),
+                rolls: vec![RerollEntry {
+                    unit: "nekro_flagship".into(),
+                    planet: None,
+                    hits_on: Some(9),
+                    faces: vec![10],
+                    rerolled: std::collections::BTreeSet::new(),
+                    deltas: std::collections::BTreeMap::new(),
+                    unit_types: std::iter::once(("nekro_flagship".to_owned(), 1)).collect(),
+                }],
+            };
+            fleet_hits(
+                &state,
+                ContentStore::embedded(),
+                POK,
+                &attacker(),
+                &system,
+                &set,
+            )
+        };
+        assert_eq!(hits(&[]), (1, 0));
+        assert_eq!(hits(&["l1z1x"]), (0, 1));
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_letnev_z_token_repairs_itself_each_round() {
+        let damaged_after = |lent: &[&str]| {
+            let (mut state, system) = nekro_arena(lent);
+            let unit = state.system_state(&system).units[0].clone();
+            let mut hurt = unit.clone();
+            hurt.sustained_damage = true;
+            state.system_mut(&system).replace_unit(&unit, hurt);
+            repair_self_repairing(&mut state, &system, &attacker());
+            state.system_state(&system).units[0].sustained_damage
+        };
+        assert!(damaged_after(&[]));
+        assert!(!damaged_after(&["letnev"]));
     }
 }
 

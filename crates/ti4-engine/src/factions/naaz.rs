@@ -563,12 +563,8 @@ fn unit_dice(
     let is_mech = catalogue(content, sources)
         .get(unit.unit_type)
         .is_some_and(|kind| kind.base_type() == "mech")
-        && unit.unit_type.starts_with("naaz_");
-    let flagship = state
-        .system_state(system)
-        .units
-        .iter()
-        .any(|ship| &ship.owner == unit.player && ship.type_id.as_str() == "naaz_flagship");
+        && (unit.unit_type.starts_with("naaz_") || super::nekro::is_nekro(state, unit.player));
+    let flagship = super::has_flagship_text_in(state, unit.player, system, "naaz_flagship");
     if is_mech && flagship { dice + 1 } else { dice }
 }
 
@@ -3601,5 +3597,31 @@ mod tests {
                 .iter()
                 .any(|unit| is_voltron(unit, &a()))
         );
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_naaz_z_token_gives_its_mechs_a_die() {
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        let dice = |lent: &[&str], kind: &str| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            crate::fixtures::put(&mut state, &system, "nekro_flagship", &a(), 1);
+            unit_dice(
+                &state,
+                content,
+                DEFAULT,
+                &CombatUnit {
+                    player: &a(),
+                    system: Some(&system),
+                    planet: None,
+                    unit_type: kind,
+                    context: "space",
+                },
+                2,
+            )
+        };
+        assert_eq!(dice(&[], "nekro_mech"), 2, "off by default");
+        assert_eq!(dice(&["naaz"], "nekro_mech"), 3);
+        assert_eq!(dice(&["naaz"], "nekro_flagship"), 2, "not a mech");
     }
 }

@@ -139,11 +139,10 @@ fn foreign_ship_in(
     unit_type: &str,
     except: &PlayerId,
 ) -> bool {
-    state
-        .system_state(system)
-        .units
-        .iter()
-        .any(|unit| unit.type_id.as_str() == unit_type && &unit.owner != except)
+    state.system_state(system).units.iter().any(|unit| {
+        &unit.owner != except
+            && super::flagship_has_text(state, &unit.owner, unit.type_id.as_str(), unit_type)
+    })
 }
 
 // -- Mirror Computing ----------------------------------------------------------------------------
@@ -2470,5 +2469,23 @@ mod tests {
             DEFAULT,
             &space_unit(&b(), &system)
         ));
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_mentak_z_token_stops_other_players_ships_sustaining() {
+        let content = ContentStore::embedded();
+        let (_, system) = arena();
+        let barred = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            put(&mut state, &system, "nekro_flagship", &a(), 1);
+            !super::super::hooks_combat::may_sustain(
+                &state,
+                content,
+                DEFAULT,
+                &space_unit(&b(), &system),
+            )
+        };
+        assert!(!barred(&[]), "off by default");
+        assert!(barred(&["mentak"]));
     }
 }

@@ -157,7 +157,10 @@ fn activation_toll(state: &GameState, player: &PlayerId, system: &SystemId) -> i
     let owners: std::collections::BTreeSet<&PlayerId> = board
         .units
         .iter()
-        .filter(|unit| unit.type_id.as_str() == FLAGSHIP && unit.owner != *player)
+        .filter(|unit| {
+            unit.owner != *player
+                && super::flagship_has_text(state, &unit.owner, unit.type_id.as_str(), FLAGSHIP)
+        })
         .map(|unit| &unit.owner)
         .collect();
     i64::try_from(owners.len()).unwrap_or(i64::MAX) * ARTEMIRIS_COST
@@ -189,10 +192,10 @@ fn artemiris_payer(
         return None;
     }
     let holds = context.state.board.get(&system).is_some_and(|board| {
-        board
-            .units
-            .iter()
-            .any(|unit| unit.type_id.as_str() == FLAGSHIP && &unit.owner == owner)
+        board.units.iter().any(|unit| {
+            &unit.owner == owner
+                && super::flagship_has_text(context.state, owner, unit.type_id.as_str(), FLAGSHIP)
+        })
     });
     (holds
         && crate::payment::affordable(
@@ -1810,5 +1813,27 @@ mod tests {
             &[("agenda", "x".into())],
         );
         assert_eq!(kept, state);
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_keleres_z_token_charges_two_influence_to_activate() {
+        let hub = crate::fixtures::plain_hub();
+        let ring = SystemId::new(&hub.outer[0]);
+        let paid = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            crate::fixtures::put(&mut state, &ring, "nekro_flagship", &a(), 1);
+            let before = influence(&state, &b());
+            crate::tactical::activate(&mut state, &b(), &ring).unwrap();
+            emit(
+                &mut state,
+                Some(&hub.galaxy),
+                &mut scripted(&[]),
+                "SYSTEM_ACTIVATED",
+                &[("player", "b".into()), ("system", ring.to_string().into())],
+            );
+            before - influence(&state, &b())
+        };
+        assert_eq!(paid(&[]), 0, "off by default");
+        assert!(paid(&["keleresm"]) >= ARTEMIRIS_COST);
     }
 }

@@ -324,12 +324,12 @@ fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bool {
 
 /// Y'sia Y'ssrila: "This ship can move through systems that contain other player's ships."
 fn may_move_through_ships(
-    _state: &GameState,
+    state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
     site: &PassSite<'_>,
 ) -> bool {
-    site.ship_type == "yssaril_flagship"
+    super::flagship_has_text(state, site.player, site.ship_type, "yssaril_flagship")
 }
 
 // -- component actions: Stall Tactics and Mageon Implants ----------------------------------------
@@ -2201,5 +2201,24 @@ mod tests {
             0
         );
         assert!(state.faction_marks.is_empty(), "no bookkeeping written");
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_yssaril_z_token_passes_through_other_players_ships() {
+        let content = ContentStore::embedded();
+        let passes = |lent: &[&str], ship: &str| {
+            let state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let active = home_of(&state, &a());
+            let player = a();
+            let site = PassSite {
+                player: &player,
+                active: &active,
+                ship_type: ship,
+            };
+            crate::factions::hooks_movement::may_move_through_ships(&state, content, DEFAULT, &site)
+        };
+        assert!(!passes(&[], "nekro_flagship"), "off by default");
+        assert!(passes(&["yssaril"], "nekro_flagship"));
+        assert!(!passes(&["yssaril"], "cruiser"), "only the flagship");
     }
 }

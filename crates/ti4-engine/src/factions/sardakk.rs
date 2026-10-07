@@ -160,14 +160,20 @@ fn unit_roll_modifier(
     match unit.context {
         "space" => {
             let Some(system) = unit.system else { return 0 };
-            if unit.unit_type == "sardakk_flagship" {
+            if super::flagship_has_text(state, unit.player, unit.unit_type, "sardakk_flagship") {
                 return 0; // "your other ship's combat rolls"
             }
             let flagship_here =
                 ships_in(state, content, sources, system)
                     .iter()
                     .any(|(owner, ship)| {
-                        owner == unit.player && ship.type_id.as_str() == "sardakk_flagship"
+                        owner == unit.player
+                            && super::flagship_has_text(
+                                state,
+                                owner,
+                                ship.type_id.as_str(),
+                                "sardakk_flagship",
+                            )
                     });
             i64::from(flagship_here)
         }
@@ -2786,6 +2792,26 @@ mod tests {
             ask(&state, Some(&hub.galaxy)).len(),
             1,
             "a command token closes it"
+        );
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_sardakk_z_token_helps_its_other_ships() {
+        let content = ContentStore::embedded();
+        let hits = |lent: &[&str], kind: &str| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let home = home_of(&state, &a());
+            state.active_system = Some(home.clone());
+            state.system_mut(&home).units.clear();
+            crate::fixtures::put(&mut state, &home, "nekro_flagship", &a(), 1);
+            crate::combat::effective_hits_on(&state, content, DEFAULT, &a(), &unit(kind, &a()))
+                .expect("it fights")
+        };
+        assert_eq!(hits(&[], "cruiser"), hits(&["sardakk"], "cruiser") + 1);
+        assert_eq!(
+            hits(&[], "nekro_flagship"),
+            hits(&["sardakk"], "nekro_flagship"),
+            "not its own roll"
         );
     }
 }

@@ -113,7 +113,7 @@ pub(crate) fn flagship_roll_bonus(
     player: &PlayerId,
     unit_type: &str,
 ) -> i64 {
-    if unit_type != FLAGSHIP {
+    if !super::flagship_has_text(state, player, unit_type, FLAGSHIP) {
         return 0;
     }
     let Some(system) = state.active_system.as_ref() else {
@@ -1204,5 +1204,25 @@ mod tests {
         let before = locked.clone();
         assert_eq!(use_hero(&mut locked, &hub, &[], &[]), Ok(Some(false)));
         assert_eq!(locked, before);
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_mahact_z_token_rolls_two_better() {
+        let content = ContentStore::embedded();
+        let nekro_flagship =
+            ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("nekro_flagship"), a());
+        let rolled = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let system = SystemId::new("18");
+            state.system_mut(&system).units.clear();
+            state.active = Some(a());
+            state.active_system = Some(system.clone());
+            crate::fixtures::put(&mut state, &system, "nekro_flagship", &a(), 1);
+            crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
+            crate::combat::effective_hits_on(&state, content, DEFAULT, &a(), &nekro_flagship)
+        };
+        let printed = crate::combat::hits_on(content, DEFAULT, &nekro_flagship).unwrap();
+        assert_eq!(rolled(&[]), Some(printed), "off by default");
+        assert_eq!(rolled(&["mahact"]), Some(printed - 2));
     }
 }

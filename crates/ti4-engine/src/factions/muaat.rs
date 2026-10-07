@@ -278,17 +278,16 @@ fn inferno_system(
     sources: SourceSet,
     player: &PlayerId,
 ) -> Option<SystemId> {
-    if !is_muaat(state, player)
-        || tokens(state, player, TokenPool::Strategic) <= 0
+    if tokens(state, player, TokenPool::Strategic) <= 0
         || !box_has(state, content, sources, player, "cruiser")
     {
         return None;
     }
     let (system, _) = state.board.iter().find(|(_, board)| {
-        board
-            .units
-            .iter()
-            .any(|unit| &unit.owner == player && unit.type_id.as_str() == "muaat_flagship")
+        board.units.iter().any(|unit| {
+            &unit.owner == player
+                && super::flagship_has_text(state, player, unit.type_id.as_str(), "muaat_flagship")
+        })
     })?;
     (crate::action_cards::max_fit(state, content, sources, player, system, None, "cruiser", 1) > 0)
         .then(|| system.clone())
@@ -3046,5 +3045,37 @@ mod tests {
             1
         );
         assert!(game.events.iter().any(|event| event.contains("SHIP_MOVED")));
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_muaat_z_token_places_a_cruiser_for_a_strategy_token() {
+        let setup = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let home = home_of(&state, &a());
+            put(&mut state, &home, "nekro_flagship", &a(), 1);
+            state.player_mut(&a()).unwrap().strategic_tokens = 2;
+            state.player_mut(&a()).unwrap().fleet_tokens = 8;
+            (state, home)
+        };
+        let (bare, _) = setup(&[]);
+        assert!(
+            !component_actions(&bare, content(), &a())
+                .iter()
+                .any(|o| o.id == INFERNO),
+            "off by default"
+        );
+        let (mut state, home) = setup(&["muaat"]);
+        let (cruisers, token) = (
+            count(&state, &home, "cruiser", &a()),
+            tokens(&state, &a(), TokenPool::Strategic),
+        );
+        assert!(
+            component_actions(&state, content(), &a())
+                .iter()
+                .any(|o| o.id == INFERNO)
+        );
+        assert!(perform(&mut state, None, &mut never(), INFERNO));
+        assert_eq!(count(&state, &home, "cruiser", &a()), cruisers + 1);
+        assert_eq!(tokens(&state, &a(), TokenPool::Strategic), token - 1);
     }
 }
