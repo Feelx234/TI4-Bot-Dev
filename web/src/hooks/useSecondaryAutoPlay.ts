@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { HistoryStatus, PendingChoiceDto } from "../protocol/types.ts";
 import type { TokenStep } from "../presentation/commandTokens.ts";
 import type { StepResolution } from "../presentation/secondaryPlan.ts";
@@ -6,6 +6,10 @@ import { readSecondaryPrepMode } from "./useSecondaryPrepMode.ts";
 
 /** How long the toast is visible (and cancellable) before a prepared answer is sent. */
 export const AUTO_PLAY_DELAY_MS = 2500;
+/** After sending, how long the real decision UI stays held back before it opens anyway. */
+export const AUTO_PLAY_HOLD_LIMIT_MS = 8000;
+/** How long the "auto-played" notice stays after the answer went out. */
+export const AUTO_PLAY_PLAYED_MS = 5000;
 const CLAIM_KEY = "ti4_secondary_autoplay_claim";
 
 export interface SecondaryAutoPlayInput {
@@ -66,6 +70,12 @@ export function useSecondaryAutoPlay({
   const evaluated = useRef<string | null>(null);
   const timer = useRef<number | null>(null);
   const [pending, setPending] = useState<AutoPlayNotice | null>(null);
+  /** Nonce whose decision UI is held back while the answer is scheduled or in flight. */
+  const [held, setHeld] = useState<string | null>(null);
+  const holdTimer = useRef<number | null>(null);
+  /** The last answer sent for the viewer, announced after the fact. */
+  const [played, setPlayed] = useState<string | null>(null);
+  const playedTimer = useRef<number | null>(null);
   const submitRef = useRef(submitOption);
   submitRef.current = submitOption;
   const tokensRef = useRef(submitTokens);
@@ -75,8 +85,9 @@ export function useSecondaryAutoPlay({
   const resolutionRef = useRef(resolution);
   resolutionRef.current = resolution;
 
+  // Layout effects: the hold is decided before the browser paints, so the decision UI never flashes.
   // Track history: forward progress arms, anything else disarms.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!history) return;
     const before = prev.current;
     prev.current = history;
@@ -91,7 +102,7 @@ export function useSecondaryAutoPlay({
   const actionable = resolution.kind === "option" || resolution.kind === "tokens";
   const text = actionable ? resolution.text : null;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!nonce || evaluated.current === nonce) return;
     evaluated.current = nonce;
     const wasArmed = armed.current;
@@ -99,31 +110,59 @@ export function useSecondaryAutoPlay({
     if (!wasArmed || !actionable || text === null) return;
     if (readSecondaryPrepMode() !== "auto") return;
     setPending({ nonce, text });
+    setHeld(nonce);
     timer.current = window.setTimeout(() => {
       timer.current = null;
       setPending(null);
       const current = resolutionRef.current;
-      if (busyRef.current || readSecondaryPrepMode() !== "auto" || !claim(nonce)) return;
+      if (busyRef.current || readSecondaryPrepMode() !== "auto" || !claim(nonce)) {
+        setHeld(null);
+        return;
+      }
       let sent: Promise<void> | undefined;
       if (current.kind === "option") sent = submitRef.current(current.optionId);
       else if (current.kind === "tokens") sent = tokensRef.current?.(current.steps);
-      sent?.catch(() => {
-        // The session client already records the error; the decision stays open for a click.
-      });
+      if (!sent) {
+        setHeld(null);
+        return;
+      }
+      // Safety net: whatever happens, the decision UI opens if nothing moved on.
+      holdTimer.current = window.setTimeout(() => setHeld(null), AUTO_PLAY_HOLD_LIMIT_MS);
+      // A rejected or failed answer opens the decision at once; the session client records the error.
+      const sentText = text;
+      sent.then(
+        () => {
+          setPlayed(sentText);
+          if (playedTimer.current !== null) window.clearTimeout(playedTimer.current);
+          playedTimer.current = window.setTimeout(() => setPlayed(null), AUTO_PLAY_PLAYED_MS);
+        },
+        () => setHeld(null),
+      );
     }, AUTO_PLAY_DELAY_MS);
     return () => {
       if (timer.current !== null) window.clearTimeout(timer.current);
       timer.current = null;
+      if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
+      holdTimer.current = null;
       setPending(null);
+      setHeld(null);
     };
   }, [nonce, actionable, text]);
+
+  useEffect(
+    () => () => {
+      if (playedTimer.current !== null) window.clearTimeout(playedTimer.current);
+    },
+    [],
+  );
 
   /** Stops the scheduled answer; the decision then stays open for a click. */
   const cancel = useCallback(() => {
     if (timer.current !== null) window.clearTimeout(timer.current);
     timer.current = null;
     setPending(null);
+    setHeld(null);
   }, []);
 
-  return { pending, cancel };
+  return { pending, played, cancel, holding: held !== null && held === nonce };
 }

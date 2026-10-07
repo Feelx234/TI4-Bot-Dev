@@ -70,6 +70,19 @@ describe("useSecondaryAutoPlay", () => {
     expect(submitOption).toHaveBeenCalledTimes(1);
   });
 
+  it("holds the decision UI back from the first render of the decision until cancelled or replaced", () => {
+    const { hook, wait } = setup({ choice: null, history: hist(5) });
+    expect(hook.result.current.holding).toBe(false);
+    hook.rerender({ choice: windowChoice(), history: hist(6) });
+    expect(hook.result.current.holding).toBe(true);
+    act(() => hook.result.current.cancel());
+    expect(hook.result.current.holding).toBe(false);
+    // An unarmed decision (no forward progress) is never held.
+    hook.rerender({ choice: windowChoice("w2"), history: hist(6) });
+    wait();
+    expect(hook.result.current.holding).toBe(false);
+  });
+
   it("answers the follow-up steps of the same window one by one", () => {
     const { submitOption, hook, wait } = setup({ choice: null, history: hist(5) });
     hook.rerender({ choice: windowChoice(), history: hist(6) });
@@ -115,7 +128,7 @@ describe("useSecondaryAutoPlay", () => {
   });
 
   it("sends a Leadership plan as one token batch", () => {
-    const leadership: SecondaryPlan = { card: "pok1leadership", follow: true, leadership: { tokens: 1, pool: "tactic" } };
+    const leadership: SecondaryPlan = { card: "pok1leadership", follow: true, leadership: { pools: { tactic: 1, fleet: 0, strategic: 0 } } };
     const choice = secondaryChoice("pok1leadership", {
       nonce: "l1",
       details: {
