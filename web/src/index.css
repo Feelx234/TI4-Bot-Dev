@@ -3987,10 +3987,17 @@ select:focus-visible,
   .trade-desk__columns {
     grid-template-columns: 1fr;
   }
+  /* The primary action takes its own row; the secondary ones share the row under it. */
   .trade-desk__actions {
-    flex-direction: column-reverse;
+    justify-content: stretch;
+    /* keeps the buttons clear of the floating Players / Events buttons at the screen corner */
+    padding-bottom: 56px;
   }
   .trade-desk__actions .button {
-    width: 100%;
+    flex: 1 1 40%;
+  }
+  .trade-desk__actions .button--primary {
+    order: -1;
+    flex-basis: 100%;
   }
 }
