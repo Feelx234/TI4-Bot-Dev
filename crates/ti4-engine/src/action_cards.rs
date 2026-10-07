@@ -11227,11 +11227,20 @@ mod tests {
         crate::fixtures::put(&mut state, &system, "cruiser", &owner, 1);
         let points_with_support = state.player(&me).unwrap().victory_points;
 
+        // Thunder's Edge Warfare first offers a redistribution of command tokens; keep them.
+        let keep = {
+            let seat = state.player(&me).unwrap();
+            format!(
+                "{}|{}|{}",
+                seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens
+            )
+        };
         {
             let effect = effect_for(&ActionCardId::new("overrule")).expect("a registered effect");
             let mut table =
                 crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([
                     "te6warfare".to_owned(),
+                    keep,
                     hub.centre.clone(),
                 ])));
             let mut dice = crate::dice::Dice::new();

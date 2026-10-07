@@ -2479,6 +2479,16 @@ mod tests {
 
     // -- Mathis Mathinus -------------------------------------------------------------------------
 
+    /// The answer that keeps a player's command tokens where they are (Thunder's Edge Warfare
+    /// offers a redistribution before its free tactical action).
+    fn keep_tokens(state: &GameState, player: &PlayerId) -> String {
+        let seat = state.player(player).unwrap();
+        format!(
+            "{}|{}|{}",
+            seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens
+        )
+    }
+
     #[test]
     fn hero_primary_offers_warfare_and_returns_the_free_tactical_result() {
         let content = ContentStore::embedded();
@@ -2494,7 +2504,8 @@ mod tests {
             leader_action(&state, content, &a(), &LeaderId::new("winnuhero")),
             Some(true)
         );
-        let mut table = scripted(&["te6warfare", system.as_str()]);
+        let keep = keep_tokens(&state, &a());
+        let mut table = scripted(&["te6warfare", keep.as_str(), system.as_str()]);
         let result = crate::fixtures::with_context(
             &mut state,
             DEFAULT,
@@ -2519,7 +2530,8 @@ mod tests {
             .push(StrategyCardId::new("te6warfare"));
         let hub = crate::fixtures::hub_with_centre("18");
         let system = SystemId::new(hub.galaxy.system_ids().into_iter().next().unwrap());
-        let mut table = scripted(&["te6warfare", system.as_str(), "yes|b", "no|c"]);
+        let keep = keep_tokens(&state, &a());
+        let mut table = scripted(&["te6warfare", keep.as_str(), system.as_str(), "yes|b", "no|c"]);
         let result = crate::fixtures::with_context(
             &mut state,
             DEFAULT,

@@ -2066,6 +2066,39 @@ fn warfare_primary(
     Ok(())
 }
 
+/// Thunder's Edge Warfare: "You may redistribute your command tokens before and after this
+/// action." The `before` half is asked from the card's primary ability, the other when the free
+/// tactical action ends. Both reuse the PoK Warfare redistribution decision, so a policy that
+/// knows that choice scores these too.
+pub(crate) fn redistribute_around_te_warfare(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    before: bool,
+) -> Result<Ability, IllegalChoice> {
+    redistribute_tokens(
+        state,
+        content,
+        sources,
+        galaxy,
+        table,
+        player,
+        &DecisionSource::StrategyCard {
+            card: "Warfare".to_owned(),
+            secondary: false,
+        },
+        "warfare_redistribute_tokens",
+        if before {
+            "Warfare: redistribute your command tokens before the tactical action"
+        } else {
+            "Warfare: redistribute your command tokens after the tactical action"
+        },
+    )
+}
+
 /// Move command tokens between a player's own pools under the caller's named rule/effect.
 ///
 /// Offered as one choice over every legal final distribution, so the policy scores the complete
@@ -2212,6 +2245,8 @@ pub fn primary(
         if systems.is_empty() {
             return Ok(Ability::Resolved);
         }
+        // "You may redistribute your command tokens before and after this action."
+        redistribute_around_te_warfare(state, content, sources, Some(galaxy), table, player, true)?;
         let choice = Choice::new(
             player.clone(),
             "Warfare: a tactical action without a command token",
@@ -4451,7 +4486,91 @@ mod tests {
         let hub = plain_hub();
         state.phase = ti4_model::state::Phase::Action;
         let tokens = state.player(&player).unwrap().tactic_tokens;
+        let system = hub.galaxy.system_ids()[0].to_owned();
+        let keep = held_distribution(&state, &player);
 
+        let result = primary(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            Some(&hub.galaxy),
+            &mut Table::with_default(Box::new(crate::choice::Scripted::new(vec![
+                keep,
+                system.clone(),
+            ]))),
+            &player,
+            "te6warfare",
+        )
+        .unwrap();
+
+        assert_eq!(result, Ability::FreeTactical(SystemId::new(system)));
+        assert_eq!(state.player(&player).unwrap().tactic_tokens, tokens);
+    }
+
+    /// The tactic/fleet/strategy distribution the player holds, as a redistribution answer id.
+    fn held_distribution(state: &GameState, player: &PlayerId) -> String {
+        let seat = state.player(player).unwrap();
+        format!(
+            "{}|{}|{}",
+            seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens
+        )
+    }
+
+    /// "You may redistribute your command tokens before and after this action": the first half is
+    /// offered by the card's primary ability, ahead of the choice of system, and applies.
+    #[test]
+    fn thunders_edge_warfare_offers_redistribution_before_the_system_is_chosen() {
+        let mut state = game(&["a"]);
+        let player = PlayerId::new("a");
+        let hub = plain_hub();
+        state.phase = ti4_model::state::Phase::Action;
+        let (tactic, fleet, strategic) = {
+            let seat = state.player(&player).unwrap();
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens)
+        };
+        let system = hub.galaxy.system_ids()[0].to_owned();
+        let moved = format!("0|{fleet}|{}", strategic + tactic);
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(
+            vec![moved, system],
+        )));
+
+        let result = primary(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            Some(&hub.galaxy),
+            &mut Table::with_default(Box::new(capturing)),
+            &player,
+            "te6warfare",
+        )
+        .unwrap();
+
+        assert!(matches!(result, Ability::FreeTactical(_)));
+        let seat = state.player(&player).unwrap();
+        assert_eq!(
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens),
+            (0, fleet, strategic + tactic),
+            "every token moved, none minted"
+        );
+        let asked = seen.borrow();
+        assert_eq!(asked.len(), 2, "redistribute, then the system");
+        let first = asked[0].context.as_ref().expect("typed context");
+        assert_eq!(first.subtype, "warfare_redistribute_tokens");
+        assert!(asked[0].prompt.contains("before"), "{}", asked[0].prompt);
+        assert_eq!(
+            asked[1].context.as_ref().unwrap().subtype,
+            "warfare_free_tactical"
+        );
+    }
+
+    /// The PoK card is unchanged: it still recalls a token and redistributes once, and never asks
+    /// for a free tactical action.
+    #[test]
+    fn pok_warfare_does_not_return_a_free_tactical_directive() {
+        let mut state = game(&["a"]);
+        let player = PlayerId::new("a");
+        state.phase = ti4_model::state::Phase::Action;
+        let hub = plain_hub();
         let result = primary(
             &mut state,
             ContentStore::embedded(),
@@ -4459,12 +4578,9 @@ mod tests {
             Some(&hub.galaxy),
             &mut Table::new(),
             &player,
-            "te6warfare",
-        )
-        .unwrap();
-
-        assert!(matches!(result, Ability::FreeTactical(_)));
-        assert_eq!(state.player(&player).unwrap().tactic_tokens, tokens);
+            "pok6warfare",
+        );
+        assert!(!matches!(result, Ok(Ability::FreeTactical(_))));
     }
 
     /// Two distinct placed planets, in the order `controlled_planets` yields them.
