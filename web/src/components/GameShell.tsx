@@ -504,9 +504,11 @@ function renderTrade({
   isMinimized,
   onMinimizedChange,
   lastError,
+  players,
 }: Parameters<WorkflowRenderer>[0]) {
   return (
     <TradeDeskModal
+      players={players}
       choice={choice}
       model={model}
       viewerSeat={viewerSeat}
