@@ -340,6 +340,31 @@ export function destroyableFromOptions(
   return pairs.length ? new Set(pairs) : null;
 }
 
+/**
+ * What a sustain decision lets the seat lose afterwards, or null when it does not say. The engine
+ * marks "take the hit" `non_fighters_first` when the hits must go to non-fighter ships while any
+ * are left (Graviton Laser System), so a planned loss never names a fighter it will not offer.
+ */
+export function sustainDestroyableFromOptions(
+  options: ChoiceOptionDto[],
+  units: PlacedUnitView[],
+): Set<string> | null {
+  const bound = options.some(
+    (o) => o.kind === "decline" && o.payload?.non_fighters_first === true,
+  );
+  const ships = units.filter(
+    (u) => getUnitBaseType(u.unit_type) !== "fighter",
+  );
+  if (!bound || ships.length === 0) return null;
+  // Both damage states: a ship that sustains first is then lost as a damaged ship.
+  return new Set(
+    ships.flatMap((u) => [
+      destroyKey(u.unit_type, false),
+      destroyKey(u.unit_type, true),
+    ]),
+  );
+}
+
 /** Unit types a sustain decision offers. */
 export function sustainTypesFromOptions(
   options: ChoiceOptionDto[],

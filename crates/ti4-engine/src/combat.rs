@@ -1791,7 +1791,31 @@ fn offer_sustain(
     player: &PlayerId,
     system: &SystemId,
     producer: &PlayerId,
+    hits: usize,
+) -> Result<usize, CombatError> {
+    offer_sustain_bound(
+        state, content, sources, galaxy, ctx, player, system, producer, hits, false,
+    )
+}
+
+/// [`offer_sustain`], with "take the hit" marked `non_fighters_first` when the hits it would
+/// lose a ship to are bound to non-fighter ships (Graviton Laser System). Display only: a client
+/// planning the loss ahead must not pick a fighter the next question will not offer.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "offer_sustain's inputs plus the one binding"
+)]
+fn offer_sustain_bound(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    ctx: &mut Resolving<'_>,
+    player: &PlayerId,
+    system: &SystemId,
+    producer: &PlayerId,
     mut hits: usize,
+    non_fighters_first: bool,
 ) -> Result<usize, CombatError> {
     let types = catalogue(content, sources);
     while hits > 0 {
@@ -1841,18 +1865,22 @@ fn offer_sustain(
                 )])),
             );
         }
-        options.push(
-            ChoiceOption::labelled(
-                crate::choice::DECLINE_ID,
-                crate::choice::DECLINE_KIND,
-                "take the hit",
-            )
-            .previewed(Preview::certain(vec![Delta::new(
-                Quantity::ShipsInSystem,
-                own_ships,
-                own_ships - 1,
-            )])),
-        );
+        let mut take = ChoiceOption::labelled(
+            crate::choice::DECLINE_ID,
+            crate::choice::DECLINE_KIND,
+            "take the hit",
+        )
+        .previewed(Preview::certain(vec![Delta::new(
+            Quantity::ShipsInSystem,
+            own_ships,
+            own_ships - 1,
+        )]));
+        if non_fighters_first
+            && !non_fighter_ships(state, content, sources, player, system).is_empty()
+        {
+            take = take.with("non_fighters_first", true);
+        }
+        options.push(take);
 
         let choice = Choice::new(player.clone(), format!("cancel a hit at {system}"), options)
             .contextualized(
@@ -1998,8 +2026,17 @@ pub fn absorb_hits_seeing_with(
     // round-scoped pool they grant into is spent here, the way the combat window's queue
     // spends it, so a cancelled cannon or barrage hit is one nobody has to absorb.
     let hits = hits.saturating_sub(spend_cancellations(state, player, hits));
-    let mut remaining = offer_sustain(
-        state, content, sources, galaxy, ctx, player, system, producer, hits,
+    let mut remaining = offer_sustain_bound(
+        state,
+        content,
+        sources,
+        galaxy,
+        ctx,
+        player,
+        system,
+        producer,
+        hits,
+        non_fighters_first,
     )?;
 
     while remaining > 0 {
@@ -5310,6 +5347,58 @@ mod tests {
             ships_of(&state, content, POK, &defender(), &system).len(),
             2
         );
+    }
+
+    #[test]
+    fn graviton_bound_sustain_question_says_the_hit_goes_to_a_non_fighter() {
+        // Nightly runs 07-2221 and 37-0225: the sustain question did not say the hits were
+        // bound, so the client planned "take the hit, lose a fighter" and the follow-up
+        // casualty question (non-fighters only) rejected it.
+        for bound in [true, false] {
+            let (mut state, system) = arena();
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            put(&mut state, &system, "destroyer", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 1);
+            let content = ContentStore::embedded();
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(1);
+            let (decider, seen) = crate::choice::Capturing::new(Box::new(FirstOption));
+            let mut table = Table::with_default(Box::new(decider));
+            let mut ctx = Resolving {
+                content,
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            absorb_hits_seeing_with(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut ctx,
+                &defender(),
+                &system,
+                &attacker(),
+                1,
+                bound,
+            )
+            .unwrap();
+            let asked = seen.borrow();
+            let take = asked[0]
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .expect("the sustain question offers taking the hit");
+            assert_eq!(
+                take.payload
+                    .get("non_fighters_first")
+                    .and_then(serde_json::Value::as_bool),
+                bound.then_some(true),
+                "bound = {bound}"
+            );
+        }
     }
 
     #[test]

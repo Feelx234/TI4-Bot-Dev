@@ -14,6 +14,7 @@ import {
   removeHit,
   spaceHitUnits,
   stagedHits,
+  sustainDestroyableFromOptions,
   strandedCargo,
   type HitContext,
 } from "./hitAssignment.ts";
@@ -243,6 +244,54 @@ describe("hit staging", () => {
         { id: "decline", kind: "decline", label: "" },
       ]),
     ).toEqual(new Set(["carrier|intact", "mech|damaged"]));
+  });
+});
+
+describe("hits bound to non-fighter ships (Graviton Laser System)", () => {
+  // Nightly runs 07-2221 and 37-0225: on the sustain question the panel let the seat lose a
+  // fighter, and the engine's next question (non-fighters only) rejected the plan.
+  const sustainOptions = (bound: boolean) => [
+    {
+      id: "sustain|5",
+      kind: "sustain",
+      label: "",
+      payload: { unit: "dreadnought" },
+    },
+    {
+      id: "decline",
+      kind: "decline",
+      label: "",
+      payload: bound ? { non_fighters_first: true } : {},
+    },
+  ];
+  const units = [unit("destroyer"), unit("dreadnought"), unit("fighter")];
+
+  it("does not let the seat lose a fighter while a non-fighter ship can take the hit", () => {
+    const c = ctx({
+      units,
+      destroyable: sustainDestroyableFromOptions(sustainOptions(true), units),
+    });
+    const rows = buildHitRows(c);
+    const fighter = rows.find((r) => r.unitType === "fighter")!;
+    expect(canAddDestroy(fighter, {}, 1, c)).toBe(false);
+    const destroyer = rows.find((r) => r.unitType === "destroyer")!;
+    expect(canAddDestroy(destroyer, {}, 1, c)).toBe(true);
+    const dread = rows.find((r) => r.unitType === "dreadnought")!;
+    expect(canAddDestroy(dread, {}, 2, c)).toBe(true);
+    expect(casualtyPlan(rows, autoFill(rows, {}, 2, c))).toEqual([
+      { kind: "sustain", unit: "dreadnought" },
+      { kind: "destroy", unit: "destroyer", damaged: false },
+    ]);
+  });
+
+  it("leaves every ship destroyable when the hits are not bound", () => {
+    expect(
+      sustainDestroyableFromOptions(sustainOptions(false), units),
+    ).toBeNull();
+    const fightersOnly = [unit("fighter")];
+    expect(
+      sustainDestroyableFromOptions(sustainOptions(true), fightersOnly),
+    ).toBeNull();
   });
 });
 
