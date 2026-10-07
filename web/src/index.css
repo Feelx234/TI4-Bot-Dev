@@ -2034,6 +2034,15 @@ select:focus-visible,
   border: 2px solid #a855f7;
   font-weight: 600;
 }
+.undo-confirm {
+  width: min(440px, calc(100vw - 32px));
+}
+.undo-confirm__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .agenda-dialog .agenda-dialog__actions {
   display: flex;
   flex-direction: row;
