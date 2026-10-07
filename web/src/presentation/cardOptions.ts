@@ -15,11 +15,16 @@ export interface CardOptionInfo {
 }
 
 const DISCARD_SUBTYPES = new Set(["discard_over_hand_limit", "expedition_discard_action_card"]);
+/** Cards another player has shown you (Mageon Implants, Spy Net): choose one to take. */
+const TAKE_SUBTYPES = new Set(["take_revealed_action_card"]);
 const SECRET_SUBTYPES = new Set(["return_over_secret_hand_limit", "expedition_discard_secret"]);
 
 /** True for decisions whose options are cards from the player's own hand. */
 export function isHandCardDecision(subtype: string | undefined): boolean {
-  return subtype !== undefined && (DISCARD_SUBTYPES.has(subtype) || SECRET_SUBTYPES.has(subtype));
+  return (
+    subtype !== undefined &&
+    (DISCARD_SUBTYPES.has(subtype) || TAKE_SUBTYPES.has(subtype) || SECRET_SUBTYPES.has(subtype))
+  );
 }
 
 /**
@@ -31,7 +36,7 @@ export function describeCardOption(
   option: Pick<ChoiceOptionDto, "id" | "label">,
 ): CardOptionInfo | null {
   if (!subtype) return null;
-  if (DISCARD_SUBTYPES.has(subtype)) {
+  if (DISCARD_SUBTYPES.has(subtype) || TAKE_SUBTYPES.has(subtype)) {
     const meta = findActionCardByName(option.label) ?? findActionCardMeta(option.id);
     return {
       title: meta?.name ?? option.label,
@@ -67,6 +72,9 @@ export function handDecisionNote(choice: Pick<PendingChoiceDto, "prompt" | "opti
       ? `You hold ${held} action cards. Choose one to discard; it goes to the discard pile.`
       : "Choose an action card to discard.";
   }
+  if (TAKE_SUBTYPES.has(subtype)) {
+    return "Another player has shown you these action cards. Choose one to add to your hand; the rest stay with them.";
+  }
   if (SECRET_SUBTYPES.has(subtype)) {
     return `You hold ${choice.options.length} secret objectives. Choose one to return to the deck; the others stay secret.`;
   }
@@ -77,6 +85,7 @@ export function handDecisionNote(choice: Pick<PendingChoiceDto, "prompt" | "opti
 export function handDecisionConfirmLabel(subtype: string | undefined): string | null {
   if (!subtype) return null;
   if (DISCARD_SUBTYPES.has(subtype)) return "Discard card";
+  if (TAKE_SUBTYPES.has(subtype)) return "Take card";
   if (SECRET_SUBTYPES.has(subtype)) return "Return objective";
   return null;
 }

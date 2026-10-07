@@ -33,6 +33,19 @@ describe("describeCardOption", () => {
   });
 });
 
+describe("take a revealed action card", () => {
+  it("shows each shown card's name and printed text like a discard does", () => {
+    const info = describeCardOption("take_revealed_action_card", { id: "4", label: "Ancient Burial Sites" });
+    expect(info?.title).toBe("Ancient Burial Sites");
+    expect(info?.text).toContain("Exhaust each cultural planet");
+    expect(isHandCardDecision("take_revealed_action_card")).toBe(true);
+    expect(handDecisionConfirmLabel("take_revealed_action_card")).toBe("Take card");
+    expect(
+      handDecisionNote({ prompt: "take 1 of x's action cards", options: [], context: { subtype: "take_revealed_action_card" } }),
+    ).toContain("Another player has shown you these action cards");
+  });
+});
+
 describe("handDecisionNote", () => {
   it("reads the hand size from the discard prompt", () => {
     const note = handDecisionNote({

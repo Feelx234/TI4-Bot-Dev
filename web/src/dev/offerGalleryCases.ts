@@ -45,6 +45,24 @@ export function offerCases(): GalleryCase[] {
     reduceCase(),
     {
       workflow: "generic_selection",
+      title: "Take a revealed action card",
+      fallback: "Card names only -> each shown card with its printed text, the way a hand discard shows cards",
+      note: "Mageon Implants or Spy Net shows you another seat's hand; you take one card into yours. One option per distinct card.",
+      choice: {
+        actor,
+        nonce: "gallery-take-revealed",
+        prompt: "take 1 of other_seat's action cards",
+        context: { subtype: "take_revealed_action_card", source: { FactionAbility: "mageon" } },
+        options: [
+          option("abs1", "Ancient Burial Sites", "take_revealed_card"),
+          option("sab1", "Sabotage", "take_revealed_card"),
+          option("rea1", "Reparations", "take_revealed_card"),
+          decline(),
+        ],
+      },
+    },
+    {
+      workflow: "generic_selection",
       title: "Reinforcements: choose where to place",
       fallback: "'place 2x infantry on jord in 14' labels -> the unit, how many, and each spot by its planet and system",
       note: "An ability places units from your reinforcements on a planet you control (or in a ship space): the spots are named, and each says how many go there.",
