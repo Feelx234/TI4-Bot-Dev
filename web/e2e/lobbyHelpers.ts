@@ -4,14 +4,23 @@ import type { InitialSnapshotMsg } from "../src/protocol/types";
 
 const backend = `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? "8080"}`;
 
+/**
+ * The seat's snapshot. A batch commit makes the server replay the whole game, which can take a few
+ * seconds late in a debug-build game (and longer when the disk is busy), so the request waits up to
+ * `timeoutMs` and is tried once more before the error reaches the caller.
+ */
 export async function gameSnapshot(
   request: APIRequestContext,
   gameId: string,
   session: string,
+  timeoutMs = 15_000,
 ): Promise<InitialSnapshotMsg> {
-  const response = await request.get(`${backend}/api/games/${gameId}/snapshot`, {
-    headers: { "x-ti4-player-session": session },
-  });
+  const get = () =>
+    request.get(`${backend}/api/games/${gameId}/snapshot`, {
+      headers: { "x-ti4-player-session": session },
+      timeout: timeoutMs,
+    });
+  const response = await get().catch(() => get());
   expect(response.ok(), `snapshot for game ${gameId}: ${response.status()}`).toBe(true);
   return response.json();
 }

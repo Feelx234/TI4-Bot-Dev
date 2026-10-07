@@ -532,10 +532,12 @@ export async function randomUiPlaythrough(
     if (snapshot) trace("final-snapshot.json", snapshot);
   };
 
+  let traceWritten = false;
   const fail = async (
     page: Page | undefined,
     message: string,
   ): Promise<never> => {
+    traceWritten = true;
     const status = await gameSnapshot(
       request,
       gameId,
@@ -556,246 +558,270 @@ export async function randomUiPlaythrough(
     throw new Error(detail);
   };
 
-  let noChoicePolls = 0;
-  while (report.decisions < options.maxDecisions) {
-    // Through `fail` so the trace (failure.txt, report.json) is written for browser errors too.
-    if (browserErrors.length)
-      await fail(
-        undefined,
-        `browser errors during playthrough:\n${browserErrors.join("\n")}`,
-      );
-    const state = await gameSnapshot(request, gameId, players[0].session);
-    const status = state.turn_status;
-    report.finalStatus = status;
-    if (status.kind === "game_over") {
-      report.finished = true;
-      break;
-    }
-    if (!(status.round in report.roundStarts)) {
-      report.roundStarts[status.round] = report.decisions;
-      log(`round ${status.round} reached after ${report.decisions} decisions`);
-    }
-    if (
-      options.stopAtRound !== undefined &&
-      status.round >= options.stopAtRound
-    )
-      break;
-    if (status.kind !== "waiting_for_decision") {
-      // Nothing to click; the server should move on by itself.
-      const moved = await expect
-        .poll(
-          async () =>
-            (await gameSnapshot(request, gameId, players[0].session))
-              .game_version,
-          {
-            timeout: 10_000,
-          },
-        )
-        .toBeGreaterThan(state.game_version)
-        .then(() => true)
-        .catch(() => false);
-      if (!moved) {
-        // The game may have ended (objective decks exhausted) after the snapshot above was taken.
-        const latest = await gameSnapshot(request, gameId, players[0].session);
-        if (latest.turn_status.kind === "game_over") continue;
+  try {
+    let noChoicePolls = 0;
+    while (report.decisions < options.maxDecisions) {
+      // Through `fail` so the trace (failure.txt, report.json) is written for browser errors too.
+      if (browserErrors.length)
         await fail(
           undefined,
-          `game idle without a decision: ${JSON.stringify(status)}`,
+          `browser errors during playthrough:\n${browserErrors.join("\n")}`,
         );
-      }
-      continue;
-    }
-
-    const actorIndex = players.findIndex((p) => p.id === status.seat);
-    if (actorIndex < 0)
-      await fail(undefined, `decision for unknown seat ${status.seat}`);
-    const page = pages[actorIndex];
-    const actorState = await gameSnapshot(
-      request,
-      gameId,
-      players[actorIndex].session,
-    );
-    const choice = actorState.pending_choice?.choice;
-    // The status was read before the offer moved on (e.g. to the secondary of a strategy card); re-poll.
-    if (!choice) {
-      if (++noChoicePolls > 40)
-        await fail(
-          undefined,
-          `seat ${status.seat} is waiting but has no pending choice: ${JSON.stringify(status)}`,
-        );
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      continue;
-    }
-    noChoicePolls = 0;
-    const subtype =
-      choice?.context?.subtype ??
-      `prompt:${choice?.prompt.slice(0, 40) ?? "none"}`;
-    const before = actorState.game_version;
-    const hexWeights =
-      options.policy === "steer" && subtype === "activate_system"
-        ? activationWeights(actorState.view.board, players[actorIndex].id)
-        : new Map<string, number>();
-    report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
-    trace(
-      "trace.jsonl",
-      {
-        decision: report.decisions,
-        version: before,
-        round: status.round,
-        phase: status.phase,
-        seat: actorIndex + 1,
-        player: players[actorIndex].id,
-        faction: actorState.view.players?.find(
-          (p) => p.id === players[actorIndex].id,
-        )?.faction,
-        subtype,
-        source: choice?.context?.source ?? null,
-        prompt: choice?.prompt,
-        options: choice?.options.map((o) => ({
-          id: o.id,
-          kind: o.kind,
-          label: o.label,
-        })),
-      },
-      true,
-    );
-
-    // Let the actor's tab catch up with the server before reading its controls.
-    await expect
-      .poll(() => uiVersion(page), { timeout: 10_000 })
-      .toBeGreaterThanOrEqual(before)
-      .catch(() =>
-        fail(page, `seat ${actorIndex + 1} UI never reached v${before}`),
-      );
-
-    const isTurnMenu =
-      choice.prompt === "action phase" || subtype === "end_turn";
-    if (isTurnMenu) report.turnMenuDecisions++;
-    let barControl: string | null = null;
-    let progressed = false;
-    let emptyPolls = 0;
-    const isReaction = isReactionSubtype(subtype);
-    if (isReaction) report.reactionDecisions++;
-    let reactionChecked = !isReaction;
-    for (let clicks = 0; clicks < options.maxClicksPerDecision;) {
-      // Progress is read from the actor's tab (free) rather than the API; it follows the server
-      // over the websocket. A late-landing commit is caught here before another click.
-      if (clicks > 0 && (await uiVersion(page)) > before) {
-        progressed = true;
+      const state = await gameSnapshot(request, gameId, players[0].session);
+      const status = state.turn_status;
+      report.finalStatus = status;
+      if (status.kind === "game_over") {
+        report.finished = true;
         break;
       }
-      if (!reactionChecked) {
-        const shown = await page
-          .getByTestId("reaction-status-bar")
-          .first()
-          .textContent({ timeout: 500 })
-          .catch(() => null);
-        if (shown !== null) {
-          reactionChecked = true;
-          const problem = reactionTextProblem(shown);
-          if (problem) report.reactionTextProblems.push(`${subtype}: ${problem}`);
-        }
+      if (!(status.round in report.roundStarts)) {
+        report.roundStarts[status.round] = report.decisions;
+        log(`round ${status.round} reached after ${report.decisions} decisions`);
       }
-      const candidates = await collectCandidates(page);
-      if (!candidates.length) {
-        // The UI can take a moment to mount the workflow for a fresh offer.
-        if (++emptyPolls > 30) {
+      if (
+        options.stopAtRound !== undefined &&
+        status.round >= options.stopAtRound
+      )
+        break;
+      if (status.kind !== "waiting_for_decision") {
+        // Nothing to click; the server should move on by itself.
+        const moved = await expect
+          .poll(
+            async () =>
+              (await gameSnapshot(request, gameId, players[0].session))
+                .game_version,
+            {
+              timeout: 10_000,
+            },
+          )
+          .toBeGreaterThan(state.game_version)
+          .then(() => true)
+          .catch(() => false);
+        if (!moved) {
+          // The game may have ended (objective decks exhausted) after the snapshot above was taken.
+          const latest = await gameSnapshot(request, gameId, players[0].session);
+          if (latest.turn_status.kind === "game_over") continue;
           await fail(
-            page,
-            `no actionable control for ${subtype} (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
+            undefined,
+            `game idle without a decision: ${JSON.stringify(status)}`,
           );
-        }
-        await page.waitForTimeout(100);
-        if (
-          (await gameSnapshot(request, gameId, players[0].session))
-            .game_version > before
-        ) {
-          progressed = true;
-          break;
         }
         continue;
       }
-      const chosen = pick(
-        candidates,
-        clicks,
-        rng,
-        options.policy ?? "random",
-        hexWeights,
-      );
-      log(
-        `#${report.decisions} ${subtype} seat${actorIndex + 1} click ${chosen.desc}`,
-      );
-      await page
-        .locator(`[data-smoke-idx="${chosen.idx}"]`)
-        .click({ timeout: 2_000 })
-        .catch((err: Error) =>
-          log(`  click failed: ${err.message.split("\n")[0]}`),
-        );
-      clicks++;
-      report.clicks++;
-      if (isTurnMenu && isBarControl(chosen.desc) && chosen.commit)
-        barControl = chosen.desc
-          .split(" | ")[0]
-          .replace(/^(turn-bar-open)-.*/, "$1")
-          .replace(/^(turn-bar-item)-.*/, "$1");
 
-      if (chosen.commit) {
-        // Wait for the tab to show the new version; fall back to one server check in case the
-        // tab's websocket lagged.
-        progressed = await expect
-          .poll(() => uiVersion(page), { timeout: 3_000, intervals: [50] })
-          .toBeGreaterThan(before)
-          .then(() => true)
-          .catch(
-            async () =>
-              (await gameSnapshot(request, gameId, players[0].session))
-                .game_version > before,
-          );
-      } else {
-        // Staging clicks rarely advance the server: let React settle, then read the tab once.
-        await page.waitForTimeout(40);
-        progressed = (await uiVersion(page)) > before;
-      }
-      if (progressed) break;
-      // A rejected batch is rejected again if re-sent, so stop at the first one.
-      const batchRejection = browserErrors.find((e) =>
-        /\/batches \d{3}:/.test(e),
+      const actorIndex = players.findIndex((p) => p.id === status.seat);
+      if (actorIndex < 0)
+        await fail(undefined, `decision for unknown seat ${status.seat}`);
+      const page = pages[actorIndex];
+      const actorState = await gameSnapshot(
+        request,
+        gameId,
+        players[actorIndex].session,
       );
-      if (batchRejection) await fail(page, `batch rejected: ${batchRejection}`);
-      const errors = await visibleErrors(page);
-      for (const error of errors) {
-        const entry = `${subtype}: ${error}`;
-        if (!report.rejections.includes(entry)) {
-          report.rejections.push(entry);
-          log(`  rejected: ${error}`);
+      const choice = actorState.pending_choice?.choice;
+      // The status was read before the offer moved on (e.g. to the secondary of a strategy card); re-poll.
+      if (!choice) {
+        if (++noChoicePolls > 40)
+          await fail(
+            undefined,
+            `seat ${status.seat} is waiting but has no pending choice: ${JSON.stringify(status)}`,
+          );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
+      noChoicePolls = 0;
+      const subtype =
+        choice?.context?.subtype ??
+        `prompt:${choice?.prompt.slice(0, 40) ?? "none"}`;
+      const before = actorState.game_version;
+      const hexWeights =
+        options.policy === "steer" && subtype === "activate_system"
+          ? activationWeights(actorState.view.board, players[actorIndex].id)
+          : new Map<string, number>();
+      report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
+      trace(
+        "trace.jsonl",
+        {
+          decision: report.decisions,
+          version: before,
+          round: status.round,
+          phase: status.phase,
+          seat: actorIndex + 1,
+          player: players[actorIndex].id,
+          faction: actorState.view.players?.find(
+            (p) => p.id === players[actorIndex].id,
+          )?.faction,
+          subtype,
+          source: choice?.context?.source ?? null,
+          prompt: choice?.prompt,
+          options: choice?.options.map((o) => ({
+            id: o.id,
+            kind: o.kind,
+            label: o.label,
+          })),
+        },
+        true,
+      );
+
+      // Let the actor's tab catch up with the server before reading its controls.
+      await expect
+        .poll(() => uiVersion(page), { timeout: 10_000 })
+        .toBeGreaterThanOrEqual(before)
+        .catch(() =>
+          fail(page, `seat ${actorIndex + 1} UI never reached v${before}`),
+        );
+
+      const isTurnMenu =
+        choice.prompt === "action phase" || subtype === "end_turn";
+      if (isTurnMenu) report.turnMenuDecisions++;
+      let barControl: string | null = null;
+      let progressed = false;
+      let emptyPolls = 0;
+      const isReaction = isReactionSubtype(subtype);
+      if (isReaction) report.reactionDecisions++;
+      let reactionChecked = !isReaction;
+      for (let clicks = 0; clicks < options.maxClicksPerDecision;) {
+        // Progress is read from the actor's tab (free) rather than the API; it follows the server
+        // over the websocket. A late-landing commit is caught here before another click.
+        if (clicks > 0 && (await uiVersion(page)) > before) {
+          progressed = true;
+          break;
+        }
+        if (!reactionChecked) {
+          const shown = await page
+            .getByTestId("reaction-status-bar")
+            .first()
+            .textContent({ timeout: 500 })
+            .catch(() => null);
+          if (shown !== null) {
+            reactionChecked = true;
+            const problem = reactionTextProblem(shown);
+            if (problem) report.reactionTextProblems.push(`${subtype}: ${problem}`);
+          }
+        }
+        const candidates = await collectCandidates(page);
+        if (!candidates.length) {
+          // The UI can take a moment to mount the workflow for a fresh offer.
+          if (++emptyPolls > 30) {
+            await fail(
+              page,
+              `no actionable control for ${subtype} (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
+            );
+          }
+          await page.waitForTimeout(100);
+          if (
+            (await gameSnapshot(request, gameId, players[0].session))
+              .game_version > before
+          ) {
+            progressed = true;
+            break;
+          }
+          continue;
+        }
+        const chosen = pick(
+          candidates,
+          clicks,
+          rng,
+          options.policy ?? "random",
+          hexWeights,
+        );
+        log(
+          `#${report.decisions} ${subtype} seat${actorIndex + 1} click ${chosen.desc}`,
+        );
+        await page
+          .locator(`[data-smoke-idx="${chosen.idx}"]`)
+          .click({ timeout: 2_000 })
+          .catch((err: Error) =>
+            log(`  click failed: ${err.message.split("\n")[0]}`),
+          );
+        clicks++;
+        report.clicks++;
+        if (isTurnMenu && isBarControl(chosen.desc) && chosen.commit)
+          barControl = chosen.desc
+            .split(" | ")[0]
+            .replace(/^(turn-bar-open)-.*/, "$1")
+            .replace(/^(turn-bar-item)-.*/, "$1");
+
+        if (chosen.commit) {
+          // Wait for the tab to show the new version; fall back to one server check in case the
+          // tab's websocket lagged.
+          progressed = await expect
+            .poll(() => uiVersion(page), { timeout: 3_000, intervals: [50] })
+            .toBeGreaterThan(before)
+            .then(() => true)
+            .catch(async () =>
+              // gameSnapshot retries once with a longer timeout; if that fails too the run ends with
+              // failure.txt, report.json and a best-effort final snapshot (not a bare timeout).
+              gameSnapshot(request, gameId, players[0].session).then(
+                (latest) => latest.game_version > before,
+                (err: Error) =>
+                  fail(
+                    page,
+                    `snapshot request failed after ${subtype} (decision #${report.decisions}): ${err.message.split("\n")[0]}`,
+                  ),
+              ),
+            );
+        } else {
+          // Staging clicks rarely advance the server: let React settle, then read the tab once.
+          await page.waitForTimeout(40);
+          progressed = (await uiVersion(page)) > before;
+        }
+        if (progressed) break;
+        // A rejected batch is rejected again if re-sent, so stop at the first one.
+        const batchRejection = browserErrors.find((e) =>
+          /\/batches \d{3}:/.test(e),
+        );
+        if (batchRejection) {
+          report.rejections.push(`${subtype}: ${batchRejection}`);
+          await fail(page, `batch rejected: ${batchRejection}`);
+        }
+        const errors = await visibleErrors(page);
+        for (const error of errors) {
+          const entry = `${subtype}: ${error}`;
+          if (!report.rejections.includes(entry)) {
+            report.rejections.push(entry);
+            log(`  rejected: ${error}`);
+          }
         }
       }
-    }
-    if (!progressed) {
-      progressed =
-        (await gameSnapshot(request, gameId, players[0].session)).game_version >
-        before;
-    }
-    if (!progressed) {
-      await fail(
-        page,
-        `${subtype} did not advance after ${options.maxClicksPerDecision} clicks (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
-      );
-    }
-    if (isTurnMenu) {
-      if (barControl) {
-        report.barDecisions++;
-        report.barControls[barControl] =
-          (report.barControls[barControl] ?? 0) + 1;
-      } else {
-        report.turnMenuFallbacks.push(
-          `${subtype}: ${JSON.stringify(choice.options.map((o) => o.id))}`,
+      if (!progressed) {
+        progressed =
+          (await gameSnapshot(request, gameId, players[0].session)).game_version >
+          before;
+      }
+      if (!progressed) {
+        await fail(
+          page,
+          `${subtype} did not advance after ${options.maxClicksPerDecision} clicks (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
         );
       }
+      if (isTurnMenu) {
+        if (barControl) {
+          report.barDecisions++;
+          report.barControls[barControl] =
+            (report.barControls[barControl] ?? 0) + 1;
+        } else {
+          report.turnMenuFallbacks.push(
+            `${subtype}: ${JSON.stringify(choice.options.map((o) => o.id))}`,
+          );
+        }
+      }
+      report.decisions++;
     }
-    report.decisions++;
-  }
 
+  } catch (err) {
+    // Anything not raised through `fail` (a snapshot or click error) still leaves the evidence.
+    if (!traceWritten) {
+      traceWritten = true;
+      const message = err instanceof Error ? err.message : String(err);
+      trace(
+        "failure.txt",
+        `unexpected error: ${message.split("\n")[0]}\nreport: ${JSON.stringify(report)}`,
+      );
+      await writeFinal();
+    }
+    throw err;
+  }
   report.finalStatus = (
     await gameSnapshot(request, gameId, players[0].session)
   ).turn_status;
