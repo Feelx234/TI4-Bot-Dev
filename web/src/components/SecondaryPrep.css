@@ -1,7 +1,8 @@
 /* Preparing a strategy-card secondary while another player resolves the card. */
 .secondary-prep {
   position: absolute;
-  top: 56px;
+  /* Below the board's toolbar row (zoom, Standard, overlays, seat legend), whose height wraps. */
+  top: calc(var(--board-chrome-bottom, 56px) + 8px);
   left: calc((100% - 330px) / 2);
   transform: translateX(-50%);
   z-index: calc(var(--layer-dialog, 50) + 1);

@@ -12,6 +12,7 @@ import { seatStyle } from "../presentation/playerDisplay.ts";
 import { boardStageStyle } from "./board/boardLayout.ts";
 import { MapOverlayMode } from "../presentation/mapOverlays.ts";
 import { MapOverlayToolbar } from "./MapOverlayToolbar.tsx";
+import { useBoardChromeOffset } from "../hooks/useBoardChromeOffset.ts";
 import { BoardTile } from "./board/BoardTile.tsx";
 import { BoardTooltip, HoveredTileInfo } from "./board/BoardTooltip.tsx";
 import { MovementVectorsOverlay } from "./board/MovementVectorsOverlay.tsx";
@@ -84,6 +85,8 @@ export const Board: React.FC<BoardProps> = ({
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const startPanRef = useRef({ x: 0, y: 0 });
+  const chromeRef = useRef<HTMLDivElement | null>(null);
+  useBoardChromeOffset(chromeRef);
   const helpId = useId();
 
   // Leadership's purchase: while tokens are bought the planets that can pay are the map's targets.
@@ -171,7 +174,7 @@ export const Board: React.FC<BoardProps> = ({
       onPointerCancel={handlePointerUp}
     >
       {/* The toolbar and seat legend take their own row, so the map is fitted below them. */}
-      <div className="board-chrome" data-testid="board-chrome">
+      <div ref={chromeRef} className="board-chrome" data-testid="board-chrome">
       {/* Pan / Zoom Control Overlay & Map Overlay Selector */}
       <div
         className="board-controls"
