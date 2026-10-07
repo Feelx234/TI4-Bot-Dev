@@ -12,6 +12,7 @@ import {
   openPlayerGame,
 } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
+import { missingExpected, type Expectation } from "./smokePreset";
 import {
   activationWeight,
   preferHitConfirm,
@@ -39,6 +40,8 @@ export interface PlaythroughOptions {
   clickSeed: number;
   /** Start preset for the game (e.g. "combat": fleets beside homes and Mecatol). */
   startPreset?: string;
+  /** Decision subtypes the run must have offered (see `parseExpect`); a miss fails the run. */
+  expect?: Expectation[];
   /** Stop successfully after this many resolved decisions. */
   maxDecisions: number;
   /** Fail when a single decision does not advance after this many clicks. */
@@ -82,6 +85,8 @@ export interface PlaythroughReport {
   reactionDecisions: number;
   /** Reaction dialogs whose text showed a raw engine id or a doubled verb ("Play play"). */
   reactionTextProblems: string[];
+  /** Expectations (`TI4_SMOKE_EXPECT`) the run did not meet; empty when all were met. */
+  expectMissing: string[];
 }
 
 // Containers that render a decision for the acting seat.
@@ -504,6 +509,7 @@ export async function randomUiPlaythrough(
     turnMenuFallbacks: [],
     reactionDecisions: 0,
     reactionTextProblems: [],
+    expectMissing: [],
   };
 
   const trace = (file: string, data: unknown, append = false) => {
@@ -834,7 +840,13 @@ export async function randomUiPlaythrough(
     await gameSnapshot(request, gameId, players[0].session)
   ).turn_status;
   trace("browser-errors.json", browserErrors);
+  report.expectMissing = missingExpected(report.subtypes, options.expect ?? []);
   await writeFinal();
   expect(browserErrors, "browser errors during playthrough").toEqual([]);
+  if (report.expectMissing.length)
+    await fail(
+      undefined,
+      `expected decisions never offered: ${report.expectMissing.join("; ")}`,
+    );
   return report;
 }

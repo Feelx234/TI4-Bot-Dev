@@ -20,3 +20,43 @@ export function createGameBody(playerCount: number, seed: number, preset?: strin
     ...(preset ? { start_preset: preset } : {}),
   };
 }
+
+/**
+ * What a run must have offered. `TI4_SMOKE_EXPECT` is a comma list; each item is a decision
+ * subtype, `a|b|c` (at least one of them) or `a|b|c>=N` (at least N distinct of them), and the
+ * word `preset` stands for the start preset's own list (`PRESET_EXPECT`). Unset means no check.
+ */
+export interface Expectation {
+  subtypes: string[];
+  atLeast: number;
+}
+
+/** The subtypes each preset exists to reach; asserted when `TI4_SMOKE_EXPECT=preset`. */
+export const PRESET_EXPECT: Record<string, string> = {};
+
+export function parseExpect(value: string | undefined, preset?: string): Expectation[] {
+  const text = value?.trim();
+  if (!text) return [];
+  return text
+    .split(",")
+    .flatMap((item) =>
+      item.trim() === "preset" ? (PRESET_EXPECT[preset ?? ""] ?? "").split(",") : [item],
+    )
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const match = /^(.*?)(?:>=(\d+))?$/.exec(item);
+      return {
+        subtypes: (match?.[1] ?? item).split("|").map((s) => s.trim()),
+        atLeast: Number(match?.[2] ?? 1),
+      };
+    });
+}
+
+/** The expectations that `seen` (report.subtypes) does not meet, as readable text. */
+export function missingExpected(seen: Record<string, number>, expected: Expectation[]): string[] {
+  return expected.flatMap(({ subtypes, atLeast }) => {
+    const got = subtypes.filter((s) => (seen[s] ?? 0) > 0).length;
+    return got >= atLeast ? [] : [`${subtypes.join("|")} (need ${atLeast}, saw ${got})`];
+  });
+}
