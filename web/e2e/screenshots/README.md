@@ -1,6 +1,6 @@
 # Screenshot artifacts
 
-Reproducible screenshots of UI states, one folder per artifact (`A-` to `J-`), one capture script per screenshot.
+Reproducible screenshots of UI states, one folder per artifact (`A-` to `Z-`, then two-letter ids such as `AI-`), one capture script per screenshot.
 
     cd web
     npm run screenshots -- all     # every folder
