@@ -1874,20 +1874,49 @@ pub fn award(
     }
 
     state.record_score(player, alias.clone());
-    {
-        let seat = state
-            .player_mut(player)
-            .ok_or_else(|| ScoreError::PlayerMissing(player.clone()))?;
-        // 98.4a: a player cannot hold more than the target.
-        seat.victory_points = (seat.victory_points + points).min(VICTORY_TARGET);
+    if state.player(player).is_none() {
+        return Err(ScoreError::PlayerMissing(player.clone()));
     }
-    state.note_vp(player, points, "objective");
+    // 98.4a: a player cannot hold more than the target.
+    adjust_victory_points(state, player, points, "objective");
     // 51.7: leaders unlock the moment their condition is met, not at end of phase. A hero
     // unlocked by a third objective must not wait for a status phase the game may never reach.
     // No galaxy here: only Naalu's commander asks about the map, and awarding an objective is
     // not where that condition changes. The status phase checks again with one.
     crate::leaders::check_unlocks(state, content, sources, None, player);
     Ok(points)
+}
+
+/// Move a seat's victory points and record the move in [`GameState::vp_ledger`].
+///
+/// A gain stops at the target (98.4a) and a loss at zero, exactly as each source wrote it by
+/// hand. The ledger row is the change that actually happened, not the nominal one, so a seat's
+/// points always equal the sum of its rows. Returns that change; 0 for a seat that does not exist.
+pub fn adjust_victory_points(
+    state: &mut GameState,
+    player: &PlayerId,
+    delta: i32,
+    reason: &str,
+) -> i32 {
+    let Some(seat) = state.player_mut(player) else {
+        return 0;
+    };
+    let before = seat.victory_points;
+    seat.victory_points = if delta >= 0 {
+        (before + delta).min(VICTORY_TARGET)
+    } else {
+        (before + delta).max(0)
+    };
+    let applied = seat.victory_points - before;
+    state.note_vp(player, applied, reason);
+    applied
+}
+
+/// Ledger the change in a seat's points since `before`, for a source that moves them itself.
+pub fn note_vp_since(state: &mut GameState, player: &PlayerId, before: i32, reason: &str) {
+    if let Some(after) = state.player(player).map(|seat| seat.victory_points) {
+        state.note_vp(player, after - before, reason);
+    }
 }
 
 /// 98.8, 61.15a: most victory points, ties broken by initiative order.

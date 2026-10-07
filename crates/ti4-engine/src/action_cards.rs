@@ -1960,11 +1960,7 @@ fn rider_payoff(state: &mut GameState, player: &PlayerId, card: Option<&str>) {
         // The bare imperial encoding, and anything unknown a correct prediction is worth the
         // rider that stores a bare outcome: 1 victory point.
         _ => {
-            if let Some(seat) = state.player_mut(player) {
-                seat.victory_points =
-                    (seat.victory_points + 1).min(crate::objectives::VICTORY_TARGET);
-            }
-            state.note_vp(player, 1, "imperial_rider");
+            crate::objectives::adjust_victory_points(state, player, 1, "imperial_rider");
         }
     }
 }

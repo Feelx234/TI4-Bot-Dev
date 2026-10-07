@@ -121,10 +121,13 @@ pub fn unimplemented(content: &ContentStore, sources: SourceSet) -> Vec<String> 
 
 /// 98.4a caps a player at the target; a loss cannot take them below zero.
 fn adjust_victory_points(state: &mut GameState, player: &PlayerId, delta: i32) {
+    let Some(before) = state.player(player).map(|seat| seat.victory_points) else {
+        return;
+    };
     if let Some(seat) = state.player_mut(player) {
         seat.victory_points = (seat.victory_points + delta).clamp(0, VICTORY_TARGET);
     }
-    state.note_vp(player, delta, "agenda");
+    crate::objectives::note_vp_since(state, player, before, "agenda");
 }
 
 fn everyone(state: &GameState) -> Vec<PlayerId> {

@@ -1522,10 +1522,7 @@ fn imperial_primary(
         }
     }
     if controls_mecatol {
-        if let Some(seat) = state.player_mut(player) {
-            seat.victory_points = (seat.victory_points + 1).min(crate::objectives::VICTORY_TARGET);
-        }
-        state.note_vp(player, 1, "imperial_primary");
+        crate::objectives::adjust_victory_points(state, player, 1, "imperial_primary");
     } else {
         crate::secrets::draw(state, content, table, player)?;
     }

@@ -47,10 +47,12 @@ pub fn repeal(state: &mut GameState, alias: &str) -> bool {
     state.laws.remove(alias);
     if alias == "censure" {
         let holder = PlayerId::new(owner);
-        if let Some(seat) = state.player_mut(&holder) {
-            seat.victory_points = (seat.victory_points - 1).clamp(0, VICTORY_TARGET);
+        if let Some(before) = state.player(&holder).map(|seat| seat.victory_points) {
+            if let Some(seat) = state.player_mut(&holder) {
+                seat.victory_points = (seat.victory_points - 1).clamp(0, VICTORY_TARGET);
+            }
+            crate::objectives::note_vp_since(state, &holder, before, "censure_repealed");
         }
-        state.note_vp(&holder, -1, "censure_repealed");
     }
     true
 }
@@ -497,10 +499,7 @@ pub fn steal_throne_card(state: &mut GameState, alias: &str, taker: &PlayerId) -
         seat.victory_points = seat.victory_points.saturating_sub(1);
     }
     state.note_vp(&owner, -1, "throne_card_taken_from");
-    if let Some(seat) = state.player_mut(taker) {
-        seat.victory_points = (seat.victory_points + 1).min(crate::objectives::VICTORY_TARGET);
-    }
-    state.note_vp(taker, 1, "throne_card_taken");
+    crate::objectives::adjust_victory_points(state, taker, 1, "throne_card_taken");
     state.laws.insert(alias.to_owned(), taker.to_string());
     true
 }
