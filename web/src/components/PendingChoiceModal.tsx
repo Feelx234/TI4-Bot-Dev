@@ -25,6 +25,8 @@ import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
 import { LegendaryContextPanel, LegendaryOptionNote } from "./LegendaryParts.tsx";
 import { InvestmentsContextPanel, StrategyGoodsNote } from "./StrategyGoodsParts.tsx";
+import { describeAbilityOffer } from "../presentation/abilityOffer.ts";
+import { AbilityOfferPanel } from "./AbilityOfferPanel.tsx";
 import { investmentsProgress, isStrategyCardGrid } from "../presentation/strategyGoods.ts";
 
 export interface PendingChoiceModalProps {
@@ -197,6 +199,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const tokens = describeCommandTokens(choice, Boolean(onSubmitBatch));
   const secondary = tokens ? null : describeStrategySecondary(choice);
   const replenish = tokens || secondary ? null : describeTradeReplenish(choice);
+  const abilityOffer = tokens || secondary || replenish ? null : describeAbilityOffer(choice);
   const confirmTokens = async (outcome: TokenOutcome) => {
     if (outcome.kind === "option") await onSubmit(outcome.optionId);
     else if (outcome.kind === "moves") {
@@ -356,6 +359,13 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               onChoose={(id) => void submitOption(id)}
             />
           )}
+          {abilityOffer && (
+            <AbilityOfferPanel
+              view={abilityOffer}
+              disabled={isSubmitting || isPipelineRunning}
+              onChoose={(id) => void submitOption(id)}
+            />
+          )}
           {tokens && (
             <CommandTokenPanel
               key={choice.nonce}
@@ -368,7 +378,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           {!secondary && !tokens && !replenish && <PoliticsContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <LegendaryContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <InvestmentsContextPanel choice={choice} />}
-          {!secondary && !tokens && !replenish && (
+          {!secondary && !tokens && !replenish && !abilityOffer && (
           <form
             onSubmit={handleSubmit}
             style={{ display: "flex", flexDirection: "column", gap: 12 }}

@@ -930,6 +930,34 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Munitions Reserves: reroll misses",
+    fallback: "Yes/no with the cost in the label -> the printed ability, the price against the trade goods held, and Skip",
+    note: "Letnev's Munitions Reserves is offered at the start of every space combat round, before any dice are rolled, and costs 2 trade goods each time.",
+    choice: {
+      actor,
+      nonce: "gallery-munitions",
+      prompt: "spend 2 trade goods for Munitions Reserves",
+      context: {
+        subtype: "munitions_reserves_reroll",
+        source: { FactionAbility: "munitions" },
+      },
+      options: [
+        option("munitions", "reroll this round's misses", "ability"),
+        option("decline", "decline", "decline"),
+      ],
+      details: {
+        kind: "ability_offer",
+        ability: {
+          name: "Munitions Reserves",
+          window: "At the start of each round of space combat",
+          effect: "You may spend 2 trade goods to re-roll any number of your dice during that combat round.",
+        },
+        cost: { trade_goods: 2, have: 5 },
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Manipulate Investments: place a trade good",
     fallback: "Plain list of card names -> the strategy card grid with the trade goods already on each card and the progress",
     note: "Five placements, one question each: the card grid shows each card's printed text and the trade goods lying on it, and the header says which good this is and how many different cards are still owed.",
