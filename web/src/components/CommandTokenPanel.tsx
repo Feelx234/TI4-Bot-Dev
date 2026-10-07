@@ -1,6 +1,10 @@
 import React, { useMemo, useState } from "react";
 import { PlanetValue, ValueText, ValueUnit } from "./PlanetValueIcons.tsx";
 import {
+  useSharedTokenDraft,
+  useTokenDraftState,
+} from "../presentation/CommandTokenDraftContext.tsx";
+import {
   POOL_LABEL,
   POOL_PURPOSE,
   TOKEN_POOLS,
@@ -35,6 +39,8 @@ export interface CommandTokenPanelProps {
   disabled?: boolean;
   /** Send the staged result: a batch plan for a gain, an option id for a redistribution. */
   onConfirm: (outcome: TokenOutcome) => Promise<void>;
+  /** Minimises the panel so planets can be clicked on the map to pay. */
+  onPayOnMap?: () => void;
 }
 
 const Pips: React.FC<{ kept: number; added: number; removed: number }> = ({
@@ -63,12 +69,27 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
   view,
   disabled,
   onConfirm,
+  onPayOnMap,
 }) => {
   const start = useMemo(() => initialStaging(view), [view]);
-  const [staging, setStaging] = useState<TokenStaging>(start);
-  const [bought, setBought] = useState(0);
+  // The staged state lives in the shared draft when there is one, so it survives the panel being
+  // minimised (to pay on the map) and the map's planet clicks change the same payment.
+  const shared = useSharedTokenDraft();
+  const local = useTokenDraftState(null);
+  const { draft, update } = shared ?? local;
+  const staging: TokenStaging = draft.staging ?? start;
+  const bought = draft.bought;
   // null: Auto-pay plans the payment. Set: the player's own choice of planets and trade goods.
-  const [override, setOverride] = useState<PaymentOverride | null>(null);
+  const override = draft.override;
+  const setStaging = (next: TokenStaging | ((current: TokenStaging) => TokenStaging)) =>
+    update((d) => {
+      const current = d.staging ?? start;
+      return { ...d, staging: typeof next === "function" ? next(current) : next };
+    });
+  const setBought = (next: number) => update((d) => ({ ...d, bought: next }));
+  const setOverride = (
+    next: PaymentOverride | null | ((current: PaymentOverride | null) => PaymentOverride | null),
+  ) => update((d) => ({ ...d, override: typeof next === "function" ? next(d.override) : next }));
   const [editing, setEditing] = useState(false);
   const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -115,6 +136,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
     setEditing(true);
     setFallbackNote(null);
   };
+  const showList = editing || override !== null;
   const togglePlanet = (id: string) =>
     setOverride((current) => {
       if (!current) return current;
@@ -242,7 +264,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
               {fallbackNote}
             </p>
           )}
-          {bought > 0 && !editing && (
+          {bought > 0 && !showList && (
             <button
               type="button"
               className="button button--secondary button--sm"
@@ -253,9 +275,20 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
               Change payment
             </button>
           )}
+          {bought > 0 && onPayOnMap && (
+            <button
+              type="button"
+              className="button button--secondary button--sm"
+              data-testid="token-pay-on-map"
+              disabled={locked}
+              onClick={onPayOnMap}
+            >
+              Pay on the map
+            </button>
+          )}
           {bought > 0 && override && (
             <div className="token-panel__payment" data-testid="token-payment-editor">
-              {editing && purchase && (
+              {showList && purchase && (
                 <>
                   <ul className="token-panel__planets">
                     {purchase.planets.map((planet) => {

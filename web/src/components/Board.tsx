@@ -20,6 +20,7 @@ import {
   derivePaymentOffer,
 } from "../presentation/paymentDraft.ts";
 import { useSharedPaymentDraft } from "../presentation/PaymentDraftContext.tsx";
+import { useSharedTokenDraft } from "../presentation/CommandTokenDraftContext.tsx";
 
 export { getPlayerColor, PLAYER_PALETTE };
 export type { MapOverlayMode };
@@ -84,6 +85,13 @@ export const Board: React.FC<BoardProps> = ({
   const startPanRef = useRef({ x: 0, y: 0 });
   const helpId = useId();
 
+  // Leadership's purchase: while tokens are bought the planets that can pay are the map's targets.
+  const tokenPayment = useSharedTokenDraft()?.mapPayment ?? null;
+  const tokenPaymentPlanets = useMemo(
+    () => tokenPayment?.offer.planets.map((planet) => planet.planetId),
+    [tokenPayment?.offer],
+  );
+
   // Pure presentation derivation
   const presentation = buildBoardPresentationModel(
     board,
@@ -92,6 +100,7 @@ export const Board: React.FC<BoardProps> = ({
     pendingChoice,
     viewerSeat,
     selectedSystemId,
+    tokenPaymentPlanets,
   );
 
   // Only the standard overlay draws clickable planets for every system, so a pending planet pick
@@ -104,14 +113,16 @@ export const Board: React.FC<BoardProps> = ({
   const sharedDraft = useSharedPaymentDraft();
   const paymentMarks = useMemo(
     () =>
-      presentation.targets.targetMode === "payment" && pendingChoice
-        ? derivePaymentMarks(
-            derivePaymentOffer(pendingChoice),
-            sharedDraft?.draft ?? EMPTY_PAYMENT_DRAFT,
-          )
-        : undefined,
+      presentation.targets.targetMode === "payment" && tokenPayment
+        ? derivePaymentMarks(tokenPayment.offer, tokenPayment.draft)
+        : presentation.targets.targetMode === "payment" && pendingChoice
+          ? derivePaymentMarks(
+              derivePaymentOffer(pendingChoice),
+              sharedDraft?.draft ?? EMPTY_PAYMENT_DRAFT,
+            )
+          : undefined,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [presentation.targets.targetMode, pendingChoice, sharedDraft?.draft],
+    [presentation.targets.targetMode, pendingChoice, sharedDraft?.draft, tokenPayment],
   );
 
   const handlePointerDown = (e: React.PointerEvent) => {
