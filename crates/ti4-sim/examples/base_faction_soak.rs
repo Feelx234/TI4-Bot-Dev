@@ -17,9 +17,10 @@ use ti4_engine::setup::start_game_seeded;
 use ti4_model::content_types::DEFAULT;
 use ti4_model::id::{FactionId, PlayerId};
 
-const FACTIONS: [&str; 16] = [
-    "arborec", "argent", "cabal", "empyrean", "ghost", "mentak", "muaat", "naalu", "naaz", "nomad",
-    "saar", "sardakk", "titans", "winnu", "yin", "yssaril",
+const FACTIONS: [&str; 20] = [
+    "arborec", "argent", "cabal", "empyrean", "ghost", "keleresa", "keleresm", "keleresx", "mahact",
+    "mentak", "muaat", "naalu", "naaz", "nomad", "saar", "sardakk", "titans", "winnu", "yin",
+    "yssaril",
 ];
 const SEATS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
 const MAX_ROUNDS: u32 = 50;
@@ -35,8 +36,15 @@ struct Replay {
 fn play(content: &ContentStore, faction: &str, seed: u64) -> Result<Replay, String> {
     let players: Vec<PlayerId> = SEATS.iter().map(|name| PlayerId::new(*name)).collect();
     let mut assignments = ti4_engine::seating::seat_in_scope(&players);
-    let target = &players[usize::try_from(seed % 6).map_err(|error| error.to_string())?];
-    assignments.insert(target.clone(), FactionId::new(faction));
+    let mut target = players[usize::try_from(seed % 6).map_err(|error| error.to_string())?].clone();
+    // The Tribuni: a Keleres variant takes the seat of the faction it replaces, when that faction
+    // is already at the table, so its base faction is not played twice.
+    if let Some(base) = ti4_engine::seating::tribuni_base(faction)
+        && let Some((seat, _)) = assignments.iter().find(|(_, held)| held.as_str() == base)
+    {
+        target = seat.clone();
+    }
+    assignments.insert(target, FactionId::new(faction));
 
     let mut state = start_game_seeded(content, &players, DEFAULT, None, seed)
         .map_err(|error| format!("setup: {error}"))?;

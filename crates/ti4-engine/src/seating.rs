@@ -83,6 +83,15 @@ pub enum SeatingError {
     UnknownPlayer(String),
     #[error("the board needs {wanted} filler tiles to space the homes, but was given {given}")]
     NotEnoughFiller { wanted: usize, given: usize },
+    /// The Tribuni: a Keleres variant must be an unplayed faction among Mentak, Xxcha and Argent.
+    #[error("Keleres variant {variant:?} needs {faction:?}, which another seat plays")]
+    TribuniFactionPlayed {
+        variant: String,
+        faction: &'static str,
+    },
+    /// Only one seat can be the Council Keleres.
+    #[error("the Council Keleres is seated more than once")]
+    KeleresSeatedTwice,
     #[error(transparent)]
     Fleet(#[from] FleetError),
     #[error(transparent)]
@@ -207,7 +216,76 @@ pub fn home_systems(
         .collect()
 }
 
+/// The faction whose home system, command tokens and control markers a Keleres variant takes
+/// (The Tribuni), or `None` for any other faction.
+///
+/// "Take that faction's home system, command tokens and control markers" is, in this engine, the
+/// variant's own faction record: `keleresm` / `keleresx` / `keleresa` carry that faction's home
+/// system, home planets and starting fleet already (`factions.json`). Command tokens are pool
+/// counts (not coloured pieces) and control is recorded per seat, so there is nothing further to
+/// take: the substantive rule is that the base faction must not also be played.
+#[must_use]
+pub fn tribuni_base(variant: &str) -> Option<&'static str> {
+    match variant {
+        "keleresm" => Some("mentak"),
+        "keleresx" => Some("xxcha"),
+        "keleresa" => Some("argent"),
+        _ => None,
+    }
+}
+
+/// The Keleres variants The Tribuni still allows, given the factions the other seats play: those
+/// whose base faction is unplayed, in Tribuni order.
+#[must_use]
+pub fn tribuni_variants_available<'a>(
+    others: impl IntoIterator<Item = &'a str> + Clone,
+) -> Vec<&'static str> {
+    crate::factions::keleres::VARIANTS
+        .into_iter()
+        .filter(|variant| {
+            let base = tribuni_base(variant);
+            !others.clone().into_iter().any(|played| Some(played) == base)
+        })
+        .collect()
+}
+
+/// The Tribuni (and the one-faction-per-seat rule): a Keleres variant's base faction is unplayed,
+/// and only one seat is the Council Keleres.
+///
+/// `factions` is every seat's faction. Order-independent, so a table is legal or not however its
+/// seats were listed.
+///
+/// # Errors
+/// [`SeatingError::TribuniFactionPlayed`] or [`SeatingError::KeleresSeatedTwice`].
+pub fn validate_tribuni<'a>(
+    factions: impl IntoIterator<Item = &'a str> + Clone,
+) -> Result<(), SeatingError> {
+    let mut keleres = factions
+        .clone()
+        .into_iter()
+        .filter(|faction| crate::factions::keleres::is_keleres_faction(faction));
+    let Some(variant) = keleres.next() else {
+        return Ok(());
+    };
+    if keleres.next().is_some() {
+        return Err(SeatingError::KeleresSeatedTwice);
+    }
+    match tribuni_base(variant) {
+        Some(base) if factions.into_iter().any(|played| played == base) => {
+            Err(SeatingError::TribuniFactionPlayed {
+                variant: variant.to_owned(),
+                faction: base,
+            })
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Seat one player as a faction and place their opening position.
+///
+/// The Tribuni is enforced here as well as in [`build_board`]: a Keleres variant is refused while
+/// another seat holds its base faction, and a base faction is refused while a Keleres seat holds
+/// the variant that took it.
 ///
 /// Sets control of every home planet, deploys the starting fleet with `mech` and `flagship`
 /// resolved to the faction's own versions, and grants the faction's starting technology.
@@ -237,6 +315,21 @@ pub fn deploy(
     } else {
         home
     });
+    // The Tribuni, against the seats as they stand with this one assigned (checked first, so a
+    // refused seat leaves the state untouched).
+    validate_tribuni(
+        state
+            .players
+            .iter()
+            .map(|seat| {
+                if &seat.id == player {
+                    alias.as_str()
+                } else {
+                    seat.faction.as_str()
+                }
+            })
+            .collect::<Vec<_>>(),
+    )?;
     let home_planets = faction.home_planets();
     let deployments = faction.deployments(content)?;
 
@@ -328,6 +421,7 @@ pub fn build_board(
     filler: &[&str],
     sources: SourceSet,
 ) -> Result<Galaxy, SeatingError> {
+    validate_tribuni(assignments.values().map(FactionId::as_str).collect::<Vec<_>>())?;
     let homes = home_systems(content, assignments)?;
     let outer = RING_SIZES[3];
     // Evenly spaced: with six homes on an eighteen-tile ring that is every third slot. With

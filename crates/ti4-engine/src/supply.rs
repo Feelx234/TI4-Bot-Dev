@@ -469,6 +469,139 @@ pub fn gain_trade_goods_staged(
     gained
 }
 
+// -- fixed trade-good spends (Keleres agent) -----------------------------------------------------
+//
+// "Spend N trade goods" costs with no payment window go through here, so Xander Alexin Victori III
+// ("allow any player to spend commodities as if they were trade goods") reaches them all. The shape
+// is: gate on [`potential_goods`] (what the agent could add), [`open_goods_window`] before the
+// decision, re-gate on [`spendable_goods`] (what the window actually allows), decide, [`spend_goods`]
+// (atomic, commodities first), then [`close_goods_window`]. Spent goods return to the supply, so the
+// count simply decreases. Without a seated Keleres every one of these is the plain trade-good count.
+
+/// Trade goods plus the commodities an open agent window lets `payer` spend as trade goods.
+#[must_use]
+pub(crate) fn spendable_goods(state: &GameState, payer: &PlayerId) -> i64 {
+    let goods = state
+        .player(payer)
+        .map_or(0, |seat| i64::from(seat.trade_goods.max(0)));
+    goods + crate::factions::keleres::spendable_commodities(state, payer)
+}
+
+/// [`spendable_goods`] plus what a readied Keleres agent could still grant (offered at
+/// [`open_goods_window`]). The up-front legality gate of an option that costs trade goods.
+#[must_use]
+pub(crate) fn potential_goods(state: &GameState, payer: &PlayerId) -> i64 {
+    let granted = if crate::factions::keleres::agent_could_grant(state, payer) {
+        state
+            .player(payer)
+            .map_or(0, |seat| i64::from(seat.commodities.max(0)))
+    } else {
+        0
+    };
+    spendable_goods(state, payer) + granted
+}
+
+/// Offer the Keleres agent for a spend of at least `needed` trade goods by `payer`, once per window.
+/// Returns `true` if it opened a window, which the caller must close with [`close_goods_window`].
+/// Nothing is offered (and `false` returned) when the agent could not make `needed` reachable.
+///
+/// # Errors
+/// [`IllegalChoice`] when a decider answers something not offered.
+pub(crate) fn open_goods_window(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    payer: &PlayerId,
+    needed: i64,
+) -> Result<bool, crate::choice::IllegalChoice> {
+    if potential_goods(state, payer) < needed {
+        return Ok(false);
+    }
+    crate::factions::keleres::offer_agent(state, content, sources, galaxy, table, payer)
+}
+
+/// End a window [`open_goods_window`] opened.
+pub(crate) fn close_goods_window(state: &mut GameState, payer: &PlayerId, opened: bool) {
+    if opened {
+        crate::factions::keleres::close_agent_window(state, payer);
+    }
+}
+
+/// Spend `amount` trade goods, commodities an open agent window allows first. All of it or none:
+/// `false`, state untouched, when [`spendable_goods`] falls short.
+pub(crate) fn spend_goods(state: &mut GameState, payer: &PlayerId, amount: i32) -> bool {
+    if amount <= 0 {
+        return true;
+    }
+    if spendable_goods(state, payer) < i64::from(amount) {
+        return false;
+    }
+    let commodities = i32::try_from(crate::factions::keleres::spendable_commodities(
+        state, payer,
+    ))
+    .unwrap_or(0);
+    let Some(seat) = state.player_mut(payer) else {
+        return false;
+    };
+    let from_commodities = amount.min(commodities);
+    seat.commodities -= from_commodities;
+    seat.trade_goods -= amount - from_commodities;
+    true
+}
+
+/// Run `body` inside a goods window for `payer` ([`open_goods_window`] before, close after, also
+/// when `body` returns early). `None` when the offer itself was answered illegally.
+pub(crate) fn with_goods_window<T>(
+    context: &mut crate::timing::TimingContext<'_>,
+    payer: &PlayerId,
+    needed: i64,
+    body: impl FnOnce(&mut crate::timing::TimingContext<'_>) -> T,
+) -> Option<T> {
+    let opened = open_goods_window(
+        context.state,
+        context.content,
+        context.sources,
+        context.galaxy,
+        context.table,
+        payer,
+        needed,
+    )
+    .ok()?;
+    let result = body(context);
+    close_goods_window(context.state, payer, opened);
+    Some(result)
+}
+
+/// A whole fixed spend with nothing to decide between the offer and the payment: offer the agent,
+/// then spend `amount`. `Ok(false)`, nothing spent, when it cannot be afforded.
+///
+/// # Errors
+/// [`IllegalChoice`] when a decider answers the agent offer with something not offered.
+pub(crate) fn pay_goods_seeing(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut crate::choice::Table,
+    payer: &PlayerId,
+    amount: i32,
+) -> Result<bool, crate::choice::IllegalChoice> {
+    let opened = open_goods_window(
+        state,
+        content,
+        sources,
+        galaxy,
+        table,
+        payer,
+        i64::from(amount),
+    )?;
+    let paid = spend_goods(state, payer, amount);
+    close_goods_window(state, payer, opened);
+    Ok(paid)
+}
+
 fn token_spent_payload(
     player: &PlayerId,
     reason: &str,

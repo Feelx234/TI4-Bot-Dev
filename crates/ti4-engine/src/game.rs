@@ -515,6 +515,19 @@ impl AftermathWindow {
                 prompt: "production timing".to_owned(),
                 reason: error.to_string(),
             })?;
+        // Agency Supply Network (Keleres): "when you resolve a unit's PRODUCTION ability, you may
+        // resolve another of your unit's PRODUCTION abilities in any system."
+        crate::production::agency_supply_network(state, ctx, galaxy, &self.player, &self.system)?;
+        // Xander Alexin Victori III (Keleres): the producer's commodities as trade goods for this
+        // production, offered once as it starts and closed with `PRODUCTION_RESOLVED`.
+        crate::factions::keleres::offer_agent(
+            state,
+            ctx.content,
+            ctx.sources,
+            galaxy,
+            ctx.table,
+            &self.player,
+        )?;
         window.refresh(state, ctx.content, ctx.sources);
         Ok(window)
     }
@@ -755,6 +768,7 @@ impl AftermathWindow {
                     // when the step began, before its first choice was built; nothing else is
                     // owed once the step ends.
                     self.log.push("PRODUCTION_RESOLVED".to_owned());
+                    crate::factions::keleres::close_agent_window(state, &self.player);
                     self.stage = Aftermath::Done;
                     return Ok(());
                 }
@@ -909,6 +923,9 @@ pub struct Game<'a> {
     tokens: Option<(TokenGain, Box<StatusPhaseReport>)>,
     /// The open agenda vote, and the agendas still to be put after it.
     voting: Option<(Box<VoteWindow>, Vec<String>)>,
+    /// Executive Order (Keleres) in progress: the owner, who is the speaker for the vote, and the
+    /// real speaker to restore once the vote is done.
+    executive_order: Option<(PlayerId, PlayerId)>,
     /// Agendas retained while the just-resolved agenda's scoring occurrence is open.
     agenda_queue_after_event_scoring: Option<Vec<String>>,
     /// The map, when one has been built. Without it no tactical action is offered.
@@ -1037,6 +1054,7 @@ impl<'a> Game<'a> {
             event_scoring: None,
             tokens: None,
             voting: None,
+            executive_order: None,
             agenda_queue_after_event_scoring: None,
             galaxy: None,
             tactical: None,
@@ -1231,6 +1249,10 @@ impl<'a> Game<'a> {
         // above: control is handed over in dozens of places, and a VP swing that misses one is
         // silently wrong.
         crate::legendary::settle_control_points(&mut self.state);
+        // I.I.H.Q. Modernization: "Gain the Custodia Vigilia planet card ... You cannot lose these
+        // cards." The technology and the breakthrough reach a seat from many places, none of which
+        // announces it, so the planet card is reconciled here, as station control is.
+        crate::factions::keleres::reconcile(&mut self.state);
         if let Some(galaxy) = self.galaxy.as_mut() {
             crate::laws::apply_to_galaxy(&self.state, galaxy);
             // Tiles a faction effect changed (Nova Seed), replayed onto the owned map. A recorded
@@ -1830,14 +1852,26 @@ impl<'a> Game<'a> {
                     // Extreme Duress bites once the action is taken: the played card is
                     // already out of the hand, so only what is left gets discarded.
                     self.settle_extreme_duress(&active, false)?;
-                    self.emit(if done {
-                        "COMPONENT_ACTION_RESOLVED"
+                    // Executive Order drew an agenda: it is voted on before the action resolves
+                    // (`finish_executive_order` emits the resolution and ends the action).
+                    let executive_order = if done {
+                        crate::factions::keleres::take_executive_order(&mut self.state)
                     } else {
-                        "COMPONENT_ACTION_FAILED"
-                    });
+                        None
+                    };
+                    if executive_order.is_none() {
+                        self.emit(if done {
+                            "COMPONENT_ACTION_RESOLVED"
+                        } else {
+                            "COMPONENT_ACTION_FAILED"
+                        });
+                    }
                     if !done {
                         self.failed_component_actions.insert(answer.id.clone());
                         return Ok(());
+                    }
+                    if let Some((owner, alias)) = executive_order {
+                        return self.begin_executive_order(owner, alias);
                     }
                     self.finish_action()?;
                     return Ok(());
@@ -3115,6 +3149,22 @@ impl<'a> Game<'a> {
                     self.state.active_system = None;
                     self.state.pending = None;
                     self.emit(&format!("TURN_ENDED_BY_NULLIFICATION_FIELD:{holder}"));
+                    self.advance_turn()?;
+                    return Ok(self.result(true, None));
+                }
+                if let Some(holder) = crate::factions::mahact_units::offer_starlancer(
+                    &mut self.state,
+                    self.content,
+                    self.sources,
+                    &mut self.table,
+                    self.galaxy.as_ref(),
+                    &system,
+                    &window.player,
+                ) {
+                    self.tactical = None;
+                    self.state.active_system = None;
+                    self.state.pending = None;
+                    self.emit(&format!("TURN_ENDED_BY_STARLANCER:{holder}"));
                     self.advance_turn()?;
                     return Ok(self.result(true, None));
                 }
@@ -4679,6 +4729,9 @@ impl<'a> Game<'a> {
             }
         }
         self.voting = None;
+        if self.executive_order.is_some() {
+            return self.finish_executive_order();
+        }
         // 8.4: both agendas are resolved, so every planet exhausted to vote readies now.
         crate::agenda::ready_after_agenda_phase(&mut self.state);
         self.emit("AGENDA_PHASE_RESOLVED");
@@ -4697,9 +4750,48 @@ impl<'a> Game<'a> {
         queue: Vec<String>,
     ) -> StepResult {
         let mut window = VoteWindow::new(&self.state, &alias, choices);
+        if let Some((owner, _)) = &self.executive_order {
+            window = window.with_spender(owner.clone());
+        }
         window.open(&self.state, self.content, self.sources);
         self.voting = Some((Box::new(window), queue));
         self.result(false, None)
+    }
+
+    /// Executive Order (Keleres): "Players immediately vote on this agenda as if you were the
+    /// speaker; you can spend trade goods and resources on this agenda as if they were votes."
+    ///
+    /// The card is exhausted and the agenda drawn (`keleres::perform_component`). It is revealed
+    /// and voted on through the agenda machinery (`open_next_vote`) with `owner` seated as the
+    /// speaker, who votes last and breaks a tie, until [`Self::finish_executive_order`] gives the
+    /// speakership back and ends the action.
+    fn begin_executive_order(&mut self, owner: PlayerId, alias: String) -> Result<(), GameError> {
+        let prior = std::mem::replace(&mut self.state.speaker, owner.clone());
+        self.executive_order = Some((owner, prior));
+        self.sync_timing_context();
+        match self.open_next_vote(vec![alias]).error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
+    /// The Executive Order vote is over: restore the speaker, then resolve and end the action. No
+    /// planet readies (that is the agenda phase's step 8.4), so planets exhausted for votes stay
+    /// exhausted until the status phase.
+    fn finish_executive_order(&mut self) -> StepResult {
+        // The speaker returns only if the vote left the Executive Order speakership in place: an
+        // agenda or rider that made someone speaker during this vote keeps its effect.
+        if let Some((owner, speaker)) = self.executive_order.take()
+            && self.state.speaker == owner
+        {
+            self.state.speaker = speaker;
+        }
+        self.sync_timing_context();
+        self.emit("COMPONENT_ACTION_RESOLVED");
+        match self.finish_action() {
+            Ok(()) => self.result(false, None),
+            Err(error) => self.result(false, Some(error)),
+        }
     }
 
     /// The first seat, in voting order, still negotiating and with a contact left to open.
@@ -4980,27 +5072,75 @@ impl<'a> Game<'a> {
 
     /// Resolve one vote decision, applying the outcome when the vote closes.
     fn step_vote(&mut self) -> StepResult {
-        let Some(choice) = self.legal_options() else {
+        let Some(mut choice) = self.legal_options() else {
             return self.close_vote();
         };
-        // Field borrows, not `self`: the table answers while the position stays readable.
-        let answer = match self.table.ask_seeing(
-            &choice,
-            &crate::choice::Observed::new(
-                &self.state,
+        // Xander Alexin Victori III (Keleres): a seat about to spend trade goods on votes may be
+        // allowed to spend commodities as trade goods. The agent is offered before the question, so
+        // its options are generated against what the seat can really pay.
+        let mut goods_window = None;
+        let spender = self
+            .voting
+            .as_ref()
+            .and_then(|(window, _)| window.trade_goods_payer())
+            .filter(|payer| **payer == choice.player)
+            .cloned();
+        if let Some(spender) = spender {
+            // An illegal answer later in this step must leave the position as it was found, the
+            // agent exhaustion included, so the snapshot is kept for the one case that opens it.
+            let snapshot = crate::factions::keleres::agent_could_grant(&self.state, &spender)
+                .then(|| self.state.clone());
+            match crate::supply::open_goods_window(
+                &mut self.state,
                 self.content,
                 self.sources,
                 self.galaxy.as_ref(),
-            ),
-        ) {
-            Ok(answer) => answer,
-            Err(error) => return self.result(false, Some(error.into())),
+                &mut self.table,
+                &spender,
+                1,
+            ) {
+                Ok(true) => {
+                    goods_window = Some((spender, snapshot));
+                    let Some(regenerated) = self.legal_options() else {
+                        return self.close_vote();
+                    };
+                    choice = regenerated;
+                }
+                Ok(false) => {}
+                Err(error) => return self.result(false, Some(error.into())),
+            }
+        }
+        // A declined agent can leave nothing to spend: only "decline" remains, which is no question.
+        let answer = if goods_window.is_some() && choice.options.iter().all(|o| o.is_decline()) {
+            ChoiceOption::decline()
+        } else {
+            // Field borrows, not `self`: the table answers while the position stays readable.
+            match self.table.ask_seeing(
+                &choice,
+                &crate::choice::Observed::new(
+                    &self.state,
+                    self.content,
+                    self.sources,
+                    self.galaxy.as_ref(),
+                ),
+            ) {
+                Ok(answer) => answer,
+                Err(error) => {
+                    if let Some((_, Some(snapshot))) = goods_window {
+                        self.state = snapshot;
+                    }
+                    return self.result(false, Some(error.into()));
+                }
+            }
         };
         let Some((mut window, queue)) = self.voting.take() else {
             unreachable!("a vote is open");
         };
         let voter = choice.player.clone();
         let outcome = window.resolve(&mut self.state, self.content, self.sources, answer);
+        if let Some((spender, _)) = &goods_window {
+            crate::supply::close_goods_window(&mut self.state, spender, true);
+        }
         let complete = window.is_complete();
         self.voting = Some((window, queue));
         // "After you cast votes on an outcome of an agenda", and "after the speaker votes".
@@ -5213,10 +5353,8 @@ impl<'a> Game<'a> {
     /// Returns nothing -- the additional action is signalled through `ADDITIONAL_ACTION`, the same
     /// flag the action cards use, so one mechanism grants extra turns rather than two.
     fn minister_of_war(&mut self) {
-        let placed: Vec<SystemId> = self
-            .state
-            .laws
-            .get("minister_war")
+        // `laws::elected`, not the raw map: Law's Order (Keleres) blanks every law for a turn.
+        let placed: Vec<SystemId> = crate::laws::elected(&self.state, "minister_war")
             .map(|owner| PlayerId::new(owner.clone()))
             .map(|owner| {
                 self.state
@@ -5287,10 +5425,7 @@ impl<'a> Game<'a> {
         reason = "two seat-bound asks, each spelling out the position it shows"
     )]
     fn imperial_arbiter(&mut self) {
-        let Some(owner) = self
-            .state
-            .laws
-            .get("arbiter")
+        let Some(owner) = crate::laws::elected(&self.state, "arbiter")
             .map(|held| PlayerId::new(held.clone()))
         else {
             return;
@@ -7139,6 +7274,99 @@ mod tests {
             Some(&b),
             "the note went home"
         );
+    }
+
+    #[test]
+    fn a_starlancer_ends_the_activators_turn_in_the_driven_game() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("mahact");
+        crate::fixtures::put(&mut state, &ids[0], "mahact_mech", &b, 1);
+        state
+            .faction_marks
+            .insert(crate::factions::mahact::fleet_mark(&b), "a".to_owned());
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            "use".to_owned(),
+            "tactic_tokens".to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        for _ in 0..4 {
+            let result = game.step();
+            assert_eq!(result.error, None);
+            if game.events.iter().any(|e| e.starts_with("TURN_ENDED_BY")) {
+                break;
+            }
+        }
+        assert!(
+            game.events.iter().any(|e| e == "TURN_ENDED_BY_STARLANCER:b"),
+            "{:?}",
+            game.events
+        );
+        assert!(
+            !game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE"),
+            "the action never reached movement"
+        );
+        assert_eq!(game.state.active_system, None);
+        assert_ne!(game.state.active, Some(a.clone()), "the turn passed on");
+        assert!(crate::factions::mahact::fleet_pool_owners(&game.state, &b).is_empty());
+    }
+
+    #[test]
+    fn the_mahact_hero_is_offered_and_resolves_in_the_driven_game() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let (owner, other) = (PlayerId::new("a"), PlayerId::new("b"));
+        let hero = ti4_model::id::LeaderId::new("mahacthero");
+        state.player_mut(&owner).unwrap().faction = ti4_model::id::FactionId::new("mahact");
+        state
+            .player_mut(&owner)
+            .unwrap()
+            .leaders
+            .insert(hero.clone(), ti4_model::state::LeaderStatus::Unlocked);
+        let origin = ids[0].clone();
+        let destination = SystemId::new(
+            galaxy
+                .adjacent(origin.as_str())
+                .into_iter()
+                .next()
+                .expect("the origin has a neighbour"),
+        );
+        for system in [&origin, &destination] {
+            state.system_mut(system).units.clear();
+            state.system_mut(system).planet_units.clear();
+        }
+        crate::fixtures::put(&mut state, &origin, "cruiser", &owner, 4);
+        crate::fixtures::put(&mut state, &destination, "cruiser", &other, 1);
+        let offered = crate::leaders::component_actions(&state, ContentStore::embedded(), &owner);
+        assert!(
+            offered
+                .iter()
+                .any(|option| option.id == "component|leader|mahacthero"),
+            "the hero is a component action"
+        );
+        let table = Table::with_default(Box::new(Scripted::new([
+            "component|leader|mahacthero".to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table)
+            .with_sources(ti4_model::content_types::DEFAULT)
+            .with_galaxy(galaxy);
+        assert_eq!(game.step().error, None);
+        assert_eq!(
+            crate::leaders::status(&game.state, &owner, &hero),
+            Some(ti4_model::state::LeaderStatus::Purged)
+        );
+        assert!(
+            game.state
+                .system_state(&origin)
+                .units
+                .iter()
+                .all(|unit| unit.owner != owner),
+            "the fleet left the origin"
+        );
+        assert!(!crate::factions::mahact_units::ship_movement_barred(
+            &game.state
+        ));
     }
 
     #[test]

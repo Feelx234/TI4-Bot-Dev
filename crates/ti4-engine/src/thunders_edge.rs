@@ -56,7 +56,7 @@ fn can_pay(
         "influence" => {
             crate::production::available(state, content, sources, player, Spend::Influence) >= 5
         }
-        "trade_goods" => seat.trade_goods >= 3,
+        "trade_goods" => crate::supply::potential_goods(state, player) >= 3,
         "action_cards" => seat.action_cards.len() >= 2,
         "secret" => !seat.secret_objectives.is_empty(),
         "tech_planet" => !specialty_planets(state, content, sources, player).is_empty(),
@@ -148,9 +148,9 @@ fn pay(
             5,
             Spend::Influence,
         ),
+        // Xander Alexin Victori III (Keleres): the agent may let commodities pay the 3 trade goods.
         "trade_goods" => {
-            state.player_mut(player).expect("player exists").trade_goods -= 3;
-            Ok(true)
+            crate::supply::pay_goods_seeing(state, content, sources, galaxy, table, player, 3)
         }
         "action_cards" => {
             for _ in 0..2 {
@@ -276,7 +276,11 @@ pub(crate) fn breakthrough_for(
     content
         .records(ContentType::Breakthroughs)
         .iter()
-        .find(|record| record.text("faction") == Some(faction))
+        .find(|record| {
+            record
+                .text("faction")
+                .is_some_and(|tag| crate::factions::keleres::tag_belongs_to(tag, faction, false))
+        })
         .and_then(|record| record.text("alias"))
         .map(BreakthroughId::new)
 }

@@ -2048,7 +2048,23 @@ impl GameState {
                 .count(),
         )
         .unwrap_or(i32::MAX);
-        (TOKENS_PER_FACTION - on_sheet - on_board).max(0)
+        (TOKENS_PER_FACTION - on_sheet - on_board - self.tokens_held_by_mahact(player)).max(0)
+    }
+
+    /// How many of `player`'s command tokens sit in a Mahact fleet pool (Edict). Those tokens are
+    /// neither on `player`'s sheet nor on the board, yet they are not in `player`'s reinforcements
+    /// either. The pools are the faction marks `mahact:fleet:<mahact player>` = comma-separated
+    /// owner ids, one entry per token.
+    #[must_use]
+    pub fn tokens_held_by_mahact(&self, player: &PlayerId) -> i32 {
+        const PREFIX: &str = "mahact:fleet:";
+        let count: usize = self
+            .faction_marks
+            .range(PREFIX.to_owned()..)
+            .take_while(|(key, _)| key.starts_with(PREFIX))
+            .map(|(_, list)| list.split(',').filter(|id| *id == player.as_str()).count())
+            .sum();
+        i32::try_from(count).unwrap_or(i32::MAX)
     }
 
     /// Gain command tokens into a pool, capped by what is left in reinforcements (LRR 20.4/20.4a).

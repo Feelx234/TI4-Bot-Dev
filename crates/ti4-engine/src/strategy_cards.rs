@@ -214,6 +214,33 @@ pub fn leadership_influence_eligible(
 ) -> bool {
     crate::production::available(state, content, sources, player, Spend::Influence)
         >= INFLUENCE_PER_TOKEN
+        // Xander Alexin Victori III: commodities as trade goods, offered when the purchase opens.
+        || crate::factions::keleres::with_agent_granted(state, player, |granted| {
+            crate::production::available(granted, content, sources, player, Spend::Influence)
+                >= INFLUENCE_PER_TOKEN
+        })
+        .unwrap_or(false)
+}
+
+/// Offer the Keleres agent for a Leadership purchase when the commodities make a token payable.
+/// `true` if it was used; the caller closes the window ([`crate::factions::keleres::close_agent_window`]).
+fn offer_agent_for_tokens(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<bool, IllegalChoice> {
+    let matters = crate::factions::keleres::with_agent_granted(state, player, |granted| {
+        crate::production::available(granted, content, sources, player, Spend::Influence)
+            >= INFLUENCE_PER_TOKEN
+    })
+    .unwrap_or(false);
+    if !matters {
+        return Ok(false);
+    }
+    crate::factions::keleres::offer_agent(state, content, sources, galaxy, table, player)
 }
 
 /// The 52.3 purchase loop: one token per three influence, for as long as the seat wants and
@@ -223,6 +250,23 @@ pub fn leadership_influence_eligible(
 /// further") and `yes` ("spend 3 influence"), both kind `strategy`; any non-`yes` answer stops
 /// this seat entirely; each accepted token is paid through the ordinary ask-based payment loop.
 fn buy_tokens_with_influence(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    // One purchase is one payment window: the agent is offered once, for all its tokens.
+    let opened = offer_agent_for_tokens(state, content, sources, galaxy, table, player)?;
+    let result = buy_tokens_loop(state, content, sources, galaxy, table, player);
+    if opened {
+        crate::factions::keleres::close_agent_window(state, player);
+    }
+    result
+}
+
+fn buy_tokens_loop(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -256,6 +300,22 @@ fn buy_tokens_with_influence(
 /// The window's question carries the oracle identity, so this variant pays for the accepted
 /// first token and then re-asks while the seat is still affordable — never asking twice in a row.
 fn buy_tokens_first_yes_assumed(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<(), IllegalChoice> {
+    let opened = offer_agent_for_tokens(state, content, sources, galaxy, table, player)?;
+    let result = buy_tokens_first_yes_loop(state, content, sources, galaxy, table, player);
+    if opened {
+        crate::factions::keleres::close_agent_window(state, player);
+    }
+    result
+}
+
+fn buy_tokens_first_yes_loop(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1169,7 +1229,28 @@ fn paid_research(
     }
     adjustment.cost -= reduced;
     let cost = adjustment.cost;
+    let mut agent_window = false;
     let outcome = (|| -> Result<bool, IllegalChoice> {
+        // Xander Alexin Victori III (Keleres): this research is one payment window; the agent is
+        // offered before the affordability gate, which is what its commodities can open.
+        if cost > 0
+            && !crate::payment::affordable(state, content, sources, player, cost, Spend::Resources)
+            && crate::factions::keleres::with_agent_granted(state, player, |granted| {
+                crate::payment::affordable(
+                    granted,
+                    content,
+                    sources,
+                    player,
+                    cost,
+                    Spend::Resources,
+                )
+            })
+            .unwrap_or(false)
+        {
+            agent_window = crate::factions::keleres::offer_agent(
+                state, content, sources, galaxy, table, player,
+            )?;
+        }
         if !crate::payment::affordable(state, content, sources, player, cost, Spend::Resources) {
             return Ok(false);
         }
@@ -1236,6 +1317,9 @@ fn paid_research(
             }
         }
     })();
+    if agent_window {
+        crate::factions::keleres::close_agent_window(state, player);
+    }
     match outcome {
         Ok(true) => {
             if let Some(source) = adjustment.borrowed_source {
@@ -1800,7 +1884,7 @@ pub(crate) fn commander_payment_offer(
     )
 }
 
-fn replenish(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
+pub(crate) fn replenish(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
     let limit = commodity_limit(state, content, player);
     if let Some(seat) = state.player_mut(player) {
         seat.commodities = limit;
@@ -2084,6 +2168,11 @@ fn imperial_primary(
     }
     if controls_mecatol {
         crate::objectives::adjust_victory_points(state, player, 1, "imperial_primary");
+        // Custodian's Favour (Custodia Vigilia): "Gain 2 command tokens when another player scores a
+        // victory point with the second clause of the 'Imperial' strategy card."
+        crate::factions::keleres::custodians_favour_tokens(
+            state, content, sources, galaxy, table, player,
+        )?;
     } else {
         crate::secrets::draw(state, content, table, player)?;
     }

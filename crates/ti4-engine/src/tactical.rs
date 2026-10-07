@@ -93,6 +93,13 @@ pub fn activatable_with(
         ) {
             continue; // a faction effect bars it (Chaos Mapping); never offered
         }
+        // Artemiris: "Other players must spend 2 influence to activate the system that contains
+        // this ship." Not offered to a player who cannot pay; the payment is taken on activation.
+        if crate::factions::keleres_units::activation_unpayable(
+            state, content, sources, player, &system,
+        ) {
+            continue;
+        }
         found.push(system);
     }
     found

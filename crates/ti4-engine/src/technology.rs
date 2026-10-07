@@ -1102,6 +1102,56 @@ pub fn grant(state: &mut GameState, player: &PlayerId, alias: &TechnologyId) {
     }
 }
 
+/// Purge one of a player's technologies: the card leaves the game.
+///
+/// Returns `false`, changing nothing, when the player does not own it. A unit upgrade that is
+/// purged takes its unit form with it: the player's units of the upgraded type on the board go back
+/// to the form the card replaced, as [`apply_unit_upgrades`] put them there.
+pub fn purge(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) -> bool {
+    if !state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(alias))
+    {
+        return false;
+    }
+    let downgrades: std::collections::BTreeMap<String, String> =
+        ti4_content::units::catalogue(content, sources)
+            .values()
+            .filter(|kind| kind.required_technology() == Some(alias.as_str()))
+            .filter_map(|kind| {
+                kind.upgrades_from()
+                    .map(|before| (kind.id().to_owned(), before.to_owned()))
+            })
+            .collect();
+    if let Some(seat) = state.player_mut(player) {
+        seat.technologies.remove(alias);
+        seat.exhausted_technologies.remove(alias);
+    }
+    if downgrades.is_empty() {
+        return true;
+    }
+    for board in state.board.values_mut() {
+        let standing = board
+            .units
+            .iter_mut()
+            .chain(board.planet_units.values_mut().flatten());
+        for unit in standing {
+            if unit.owner == *player
+                && let Some(before) = downgrades.get(unit.type_id.as_str())
+            {
+                unit.type_id = ti4_model::id::UnitTypeId::new(before);
+            }
+        }
+    }
+    true
+}
+
 /// Replace this player's units on the board with the versions their upgrades unlock (90.8).
 ///
 /// The physical card is placed *over* the unit on the faction sheet, so every one of that player's
@@ -1305,11 +1355,11 @@ pub fn research(
         .next() else {
             return false;
         };
-        for planet in plan.planets {
-            state.exhaust_planet(planet);
+        // `payment::apply` also spends commodities the Keleres agent turned into trade goods.
+        if !crate::payment::apply(state, player, &plan) {
+            return false;
         }
         if let Some(seat) = state.player_mut(player) {
-            seat.trade_goods -= plan.trade_goods;
             seat.exhausted_technologies.insert(TechnologyId::new("is"));
         }
     } else {

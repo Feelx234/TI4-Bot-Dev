@@ -796,6 +796,8 @@ fn landable_planets(
                 .filter(|(_, went)| *went == system)
                 .map(|(planet, _)| planet.to_string()),
         )
+        // I.I.H.Q. Modernization: the Keleres "cannot lose" Custodia Vigilia, so no one lands on it.
+        .filter(|name| name != "custodiavigilia")
         .filter_map(|name| {
             let name = name.as_str();
             // Scope filter mirrors planets_in: a planet outside the active source set is not on
@@ -929,9 +931,19 @@ fn commit_options(
     let types = catalogue(content, sources);
     let mut seen = std::collections::BTreeSet::new();
     let mut options = Vec::new();
+    // Omniopiares: "Other players must spend 1 influence to commit ground forces to the planet that
+    // contains this unit." A planet whose toll the invader cannot pay is not offered.
+    let planets: Vec<&PlanetId> = planets
+        .iter()
+        .filter(|planet| {
+            !crate::factions::keleres_units::commit_blocked(
+                state, content, sources, invader, system, planet,
+            )
+        })
+        .collect();
     for (index, unit) in troops.iter().enumerate() {
         let origin = origins.get(index).and_then(Option::as_ref);
-        for planet in planets {
+        for planet in planets.iter().copied() {
             // Moving a unit onto the planet it already stands on is no landing.
             if origin.is_some_and(|(from_system, from_planet)| {
                 from_system == system && from_planet == planet
@@ -1055,6 +1067,13 @@ pub fn commit_ground_forces(
         let Some(unit) = troops.get(index).cloned() else {
             break;
         };
+        // Omniopiares: the first landing on the planet pays its toll (options were filtered, so
+        // it can be paid).
+        if !crate::factions::keleres_units::pay_commit_toll(
+            state, content, sources, None, table, invader, system, &planet,
+        )? {
+            break;
+        }
         state.system_mut(system).remove(std::slice::from_ref(&unit));
         land_unit(state, content, sources, invader, system, &planet, unit);
         committed.insert(planet);
@@ -4009,6 +4028,21 @@ impl Window for InvasionWindow {
                         &self.extra_commits,
                     );
                     if let Some(unit) = troops.get(index).cloned() {
+                        // Omniopiares: the first landing on the planet pays its toll, chosen by the
+                        // invader like any influence spend. Unpayable landings were never offered;
+                        // should one arrive anyway nothing changes.
+                        if !crate::factions::keleres_units::pay_commit_toll(
+                            state,
+                            content,
+                            sources,
+                            self.galaxy.as_deref(),
+                            ctx.table,
+                            &self.invader,
+                            &self.system,
+                            &planet,
+                        )? {
+                            return Ok(());
+                        }
                         let origin = origins.get(index).cloned().flatten();
                         let temporary = temporary.get(index).copied().unwrap_or(false);
                         // Parley reads the landing back through this marker: the emission's

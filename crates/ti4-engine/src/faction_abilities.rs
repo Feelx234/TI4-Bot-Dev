@@ -830,9 +830,37 @@ pub fn space_combat_round_started(
     if !has(state, content, player, "munitions") {
         return;
     }
-    let held = state.player(player).map_or(0, |seat| seat.trade_goods);
-    if held < MUNITIONS_COST {
+    if crate::supply::potential_goods(state, player) < i64::from(MUNITIONS_COST) {
         return; // it cannot resolve, so it is not offered
+    }
+    // Xander Alexin Victori III (Keleres): the agent may let commodities pay the 2 trade goods,
+    // offered before the question so its option is generated against what can really be paid.
+    let Ok(opened) = crate::supply::open_goods_window(
+        state,
+        content,
+        sources,
+        None,
+        table,
+        player,
+        i64::from(MUNITIONS_COST),
+    ) else {
+        return;
+    };
+    munitions_offer(state, content, sources, table, player);
+    crate::supply::close_goods_window(state, player, opened);
+}
+
+/// The Munitions Reserves question and payment, inside its goods window.
+fn munitions_offer(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    player: &PlayerId,
+) {
+    let held = i32::try_from(crate::supply::spendable_goods(state, player)).unwrap_or(i32::MAX);
+    if held < MUNITIONS_COST {
+        return; // the agent was declined and the trade goods alone fall short
     }
     let choice = crate::choice::Choice::new(
         player.clone(),
@@ -874,8 +902,10 @@ pub fn space_combat_round_started(
         return;
     }
     let round = state.combat_round_seq;
+    if !crate::supply::spend_goods(state, player, MUNITIONS_COST) {
+        return;
+    }
     if let Some(seat) = state.player_mut(player) {
-        seat.trade_goods -= MUNITIONS_COST;
         seat.munitions_round = Some(round);
     }
 }

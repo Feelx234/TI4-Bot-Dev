@@ -312,6 +312,8 @@ pub fn item_options(
             if let Some(support) = crate::promissory::available_support(state, giver) {
                 notes.push(support);
             }
+            // Hubris: nobody may give the Mahact their Alliance.
+            notes.retain(|note| crate::promissory::may_receive(state, receiver, note));
             notes.sort();
             notes.dedup();
             for note in notes {

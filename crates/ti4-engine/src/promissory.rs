@@ -126,6 +126,10 @@ pub fn deal(state: &mut GameState, content: &ContentStore, sources: SourceSet) {
     let mut hands = std::collections::BTreeMap::new();
     for seat in &state.players {
         let mut aliases: Vec<String> = GENERIC.iter().map(|alias| (*alias).to_owned()).collect();
+        // Mahact, Hubris: "During setup, purge your Alliance promissory note."
+        if crate::factions::mahact::purges_alliance(seat.faction.as_str()) {
+            aliases.retain(|alias| alias != "an");
+        }
         // A faction's own note, read from the corpus rather than a hard-coded table: a faction
         // whose note this engine does not know simply deals four instead of five.
         aliases.extend(
@@ -312,6 +316,13 @@ pub fn available_notes(
         notes.push(note);
     }
     notes
+}
+
+/// Whether `receiver` may be given `note`: Mahact's Hubris says "Other players cannot give you
+/// their 'Alliance' promissory note." Every transfer between players asks this of the receiver.
+#[must_use]
+pub fn may_receive(state: &GameState, receiver: &PlayerId, note: &str) -> bool {
+    !(alias_of(note) == "an" && crate::factions::mahact::is_mahact(state, receiver))
 }
 
 /// This player's Support for the Throne, if they still hold it.
@@ -606,6 +617,11 @@ pub fn has_commander_ability(state: &GameState, player: &PlayerId, commander: &s
                 == Some(&ti4_model::state::LeaderStatus::Unlocked)
         })
     {
+        return true;
+    }
+
+    // Mahact, Imperia: another player's commander while their token is in the fleet pool.
+    if crate::factions::mahact::imperia_grants(state, player, commander) {
         return true;
     }
 

@@ -90,9 +90,11 @@ pub fn plans(
     // `production::trade_good_worth`, which also carries the hard-coded `mc` technology that
     // this path has never honoured (kept neutral; the Mentak package moves `mc` onto the hook).
     let per_good = crate::factions::hooks_economy::trade_good_worth(state, player, 1).max(1);
-    let goods = state
+    // Commodities count as trade goods inside a payment window the Keleres agent was used for.
+    let goods = (state
         .player(player)
         .map_or(0, |seat| i64::from(seat.trade_goods))
+        + crate::factions::keleres::spendable_commodities(state, player))
         * per_good;
 
     // Planets worth nothing towards this cost cannot help, and including them would generate
@@ -160,8 +162,14 @@ pub fn affordable(
 /// Returns `false` without changing anything when the plan is no longer payable — a plan built
 /// against an older state must not half-apply.
 pub fn apply(state: &mut GameState, player: &PlayerId, plan: &Plan) -> bool {
+    // Commodities the Keleres agent let this payment spend as trade goods go first: the agent was
+    // used to spend them, and a trade good is the dearer of the two to keep.
+    let commodities = i32::try_from(crate::factions::keleres::spendable_commodities(
+        state, player,
+    ))
+    .unwrap_or(0);
     let payable = state.player(player).is_some_and(|seat| {
-        seat.trade_goods >= plan.trade_goods
+        seat.trade_goods + commodities >= plan.trade_goods
             && plan
                 .planets
                 .iter()
@@ -171,7 +179,9 @@ pub fn apply(state: &mut GameState, player: &PlayerId, plan: &Plan) -> bool {
         return false;
     }
     if let Some(seat) = state.player_mut(player) {
-        seat.trade_goods -= plan.trade_goods;
+        let from_commodities = plan.trade_goods.min(commodities);
+        seat.commodities -= from_commodities;
+        seat.trade_goods -= plan.trade_goods - from_commodities;
     }
     for planet in &plan.planets {
         state.exhaust_planet(planet.clone());

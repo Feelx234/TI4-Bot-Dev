@@ -35,6 +35,11 @@ pub const VOTE_PLANET_KIND: &str = "vote_planet";
 pub const TIEBREAK_KIND: &str = "tiebreak";
 /// Gila the Silvertongue: trade goods spent for two votes each, as `"spend|<n>"`.
 pub const VOTE_TRADE_GOODS_KIND: &str = "vote_trade_goods";
+/// Genetic Recombination (Mahact): the holder names the outcome a voter must back, as
+/// `"recombine|<outcome>"`.
+pub const RECOMBINE_KIND: &str = "recombine";
+/// Genetic Recombination: the voter's answer, `"tribute|vote"` or `"tribute|token"`.
+pub const TRIBUTE_KIND: &str = "tribute";
 
 /// What may be voted for on one agenda (8.8 to 8.11).
 ///
@@ -269,6 +274,12 @@ pub fn tiebreak_candidates(ballot: &Ballot, choices: &[String]) -> Vec<String> {
 enum Stage {
     /// Asking `order[index]` which outcome to back.
     Outcome(usize),
+    /// Mahact's Genetic Recombination: asking its holder whether to exhaust it before
+    /// `order[index]` casts votes, and for which outcome.
+    Recombine(usize),
+    /// Genetic Recombination was used on `order[index]`, who can either cast a vote for the named
+    /// outcome or remove a token from their fleet pool: asking which.
+    Tribute(usize),
     /// Asking `order[index]` which planet to exhaust for the outcome they picked.
     Planets {
         index: usize,
@@ -305,7 +316,24 @@ pub struct VoteWindow {
     order: Vec<PlayerId>,
     stage: Stage,
     ballot: Ballot,
+    /// Executive Order (Keleres): the seat that "can spend trade goods and resources on this agenda
+    /// as if they were votes". Besides influence, its planets may be exhausted for resources, and
+    /// its trade goods are a vote each.
+    spender: Option<PlayerId>,
+    /// Seats whose turn to vote has already been offered to Genetic Recombination's holder.
+    recombination_offered: std::collections::BTreeSet<usize>,
+    /// Genetic Recombination in force: the voter's index and the outcome they must back. Set when
+    /// the voter must cast at least 1 vote for it (they chose to, or have no token to remove).
+    obligation: Option<(usize, String)>,
+    /// The outcome the holder chose for the voter now answering the [`Stage::Tribute`] question.
+    demanded: Option<(usize, String)>,
 }
+
+/// One way for a voter to exhaust a planet: the option id, the planet and the votes it casts.
+type PlanetOffer = (String, PlanetId, i64);
+
+/// The suffix of the option id that exhausts a planet for its resources instead of its influence.
+const RESOURCES_SUFFIX: &str = "|resources";
 
 impl VoteWindow {
     /// Open a vote on `alias`.
@@ -362,6 +390,69 @@ impl VoteWindow {
             order: final_order,
             stage: opening,
             ballot: Ballot::default(),
+            spender: None,
+            recombination_offered: std::collections::BTreeSet::new(),
+            obligation: None,
+            demanded: None,
+        }
+    }
+
+    /// Let `player` spend trade goods and resources on this agenda as if they were votes
+    /// (Executive Order). Set before [`Self::open`].
+    #[must_use]
+    pub fn with_spender(mut self, player: PlayerId) -> Self {
+        self.spender = Some(player);
+        self
+    }
+
+    /// The planets `player` may exhaust now, with the option id and votes each casts. Everyone
+    /// exhausts a planet for its influence (option id: the planet). The spender may also exhaust it
+    /// for its resources (`"<planet>|resources"`). Elder Qanoj adds a vote per planet.
+    fn planet_offers(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        player: &PlayerId,
+    ) -> Vec<PlanetOffer> {
+        let qanoj = i64::from(crate::leaders::elder_qanoj(state, player));
+        let spends = self.spender.as_ref() == Some(player);
+        let mut offers = Vec::new();
+        for (_, planet) in state.controlled_planets(player) {
+            if state.exhausted_planets.contains(planet) {
+                continue;
+            }
+            let influence = influence_of(state, content, sources, planet);
+            if influence > 0 {
+                offers.push((planet.to_string(), planet.clone(), influence + qanoj));
+            }
+            if spends {
+                let resources = crate::production::planet_value_now(
+                    state,
+                    content,
+                    sources,
+                    planet,
+                    crate::production::Spend::Resources,
+                );
+                if resources > 0 {
+                    offers.push((
+                        format!("{planet}{RESOURCES_SUFFIX}"),
+                        planet.clone(),
+                        resources + qanoj,
+                    ));
+                }
+            }
+        }
+        offers
+    }
+
+    /// Votes one trade good casts for `player`, `0` if none may be spent. Gila the Silvertongue's
+    /// holder gets two for each once a vote is cast; the Executive Order spender one for each.
+    fn trade_goods_rate(&self, state: &GameState, player: &PlayerId, votes: i64) -> i64 {
+        if votes > 0 && crate::promissory::has_commander_ability(state, player, "hacancommander") {
+            2
+        } else {
+            i64::from(self.spender.as_ref() == Some(player))
         }
     }
 
@@ -396,6 +487,17 @@ impl VoteWindow {
         &self.order
     }
 
+    /// The seat now deciding how many trade goods to spend on votes, if that is the stage. The game
+    /// driver offers the Keleres agent to this seat before asking
+    /// ([`crate::supply::open_goods_window`]).
+    #[must_use]
+    pub fn trade_goods_payer(&self) -> Option<&PlayerId> {
+        match &self.stage {
+            Stage::TradeGoods { index, .. } => self.order.get(*index),
+            _ => None,
+        }
+    }
+
     /// The decision currently owed, or `None` once the vote is finished.
     #[must_use]
     pub fn pending_choice(
@@ -424,7 +526,18 @@ impl VoteWindow {
                         locate_outcome(option, planet_outcomes, state, content, sources)
                     })
                     .collect();
-                options.push(ChoiceOption::decline());
+                // Genetic Recombination: a voter who must cast a vote for an outcome may back
+                // nothing else and may not abstain.
+                let bound = self
+                    .obligation
+                    .as_ref()
+                    .filter(|(at, _)| at == index)
+                    .map(|(_, outcome)| outcome);
+                if let Some(outcome) = bound {
+                    options.retain(|option| option.id == *outcome);
+                } else {
+                    options.push(ChoiceOption::decline());
+                }
                 Some(
                     Choice::new(player.clone(), "vote for which outcome", options).contextualized(
                         DecisionContext::new(
@@ -443,30 +556,42 @@ impl VoteWindow {
                 votes,
             } => {
                 let player = self.order.get(*index)?;
-                let remaining = votable_planets(state, content, sources, player);
+                let remaining = self.planet_offers(state, content, sources, player);
                 if remaining.is_empty() {
                     return None;
                 }
                 let votes_so_far = *votes;
-                let qanoj = i64::from(crate::leaders::elder_qanoj(state, player));
                 let mut options: Vec<ChoiceOption> = remaining
                     .iter()
-                    .map(|planet| {
-                        let influence = influence_of(state, content, sources, planet) + qanoj;
-                        ChoiceOption::labelled(
-                            planet.as_str(),
-                            VOTE_PLANET_KIND,
-                            format!("exhaust {planet} for {influence} votes"),
-                        )
-                        .with_planet_located(state, content, sources, planet.as_str())
-                        .previewed(Preview::certain(vec![Delta::new(
-                            Quantity::Votes,
-                            votes_so_far,
-                            votes_so_far + influence,
-                        )]))
+                    .map(|(id, planet, cast)| {
+                        let face = if id.ends_with(RESOURCES_SUFFIX) {
+                            "resources"
+                        } else {
+                            "influence"
+                        };
+                        let label = if self.spender.is_some() {
+                            format!("exhaust {planet} for {cast} votes ({face})")
+                        } else {
+                            format!("exhaust {planet} for {cast} votes")
+                        };
+                        ChoiceOption::labelled(id, VOTE_PLANET_KIND, label)
+                            .with_planet_located(state, content, sources, planet.as_str())
+                            .previewed(Preview::certain(vec![Delta::new(
+                                Quantity::Votes,
+                                votes_so_far,
+                                votes_so_far + cast,
+                            )]))
                     })
                     .collect();
-                options.push(ChoiceOption::decline());
+                // Genetic Recombination: the first planet is not optional.
+                let must_cast = *votes == 0
+                    && self
+                        .obligation
+                        .as_ref()
+                        .is_some_and(|(at, backed)| at == index && backed == outcome);
+                if !must_cast {
+                    options.push(ChoiceOption::decline());
+                }
                 Some(
                     Choice::new(
                         player.clone(),
@@ -488,20 +613,22 @@ impl VoteWindow {
                 votes,
             } => {
                 let player = self.order.get(*index)?;
-                let goods = state.player(player).map_or(0, |seat| seat.trade_goods);
+                // Trade goods, plus the commodities an open Keleres agent window lets this seat
+                // spend as trade goods (the game driver offers the agent before asking).
+                let goods = crate::supply::spendable_goods(state, player);
+                let rate = self.trade_goods_rate(state, player, *votes);
                 let mut options: Vec<ChoiceOption> = (1..=goods)
                     .map(|spent| {
-                        let spent = i64::from(spent);
                         ChoiceOption::labelled(
                             format!("spend|{spent}"),
                             VOTE_TRADE_GOODS_KIND,
-                            format!("spend {spent} trade goods for {} votes", 2 * spent),
+                            format!("spend {spent} trade goods for {} votes", rate * spent),
                         )
                         .with("trade_goods", spent)
                         .previewed(Preview::certain(vec![Delta::new(
                             Quantity::Votes,
                             *votes,
-                            *votes + 2 * spent,
+                            *votes + rate * spent,
                         )]))
                     })
                     .collect();
@@ -523,8 +650,84 @@ impl VoteWindow {
                     .detailed("votes_per_good", 2)
                     .contextualized(DecisionContext::new(
                         player.clone(),
-                        DecisionSource::Content("hacancommander".to_owned()),
+                        DecisionSource::Content(
+                            if rate == 2 {
+                                "hacancommander"
+                            } else {
+                                "executiveorder"
+                            }
+                            .to_owned(),
+                        ),
                         "vote_spend_trade_goods",
+                        state.phase,
+                        state.round,
+                    )),
+                )
+            }
+            Stage::Recombine(index) => {
+                let voter = self.order.get(*index)?;
+                let holder = crate::factions::mahact::recombination_holder(state, voter)?;
+                let mut options: Vec<ChoiceOption> = self
+                    .choices
+                    .iter()
+                    .map(|outcome| {
+                        ChoiceOption::labelled(
+                            format!("recombine|{outcome}"),
+                            RECOMBINE_KIND,
+                            format!("{voter} must vote {outcome} or return a fleet token"),
+                        )
+                    })
+                    .collect();
+                options.push(ChoiceOption::decline());
+                Some(
+                    Choice::new(
+                        holder.clone(),
+                        format!("Genetic Recombination before {voter} votes"),
+                        options,
+                    )
+                    .contextualized(DecisionContext::new(
+                        holder,
+                        DecisionSource::Content(crate::factions::mahact::RECOMBINATION.to_owned()),
+                        "recombination_outcome",
+                        state.phase,
+                        state.round,
+                    )),
+                )
+            }
+            Stage::Tribute(index) => {
+                let voter = self.order.get(*index)?;
+                let (_, outcome) = self.demanded.as_ref().filter(|(at, _)| at == index)?;
+                let mut options = Vec::new();
+                if !self
+                    .planet_offers(state, content, sources, voter)
+                    .is_empty()
+                {
+                    options.push(ChoiceOption::labelled(
+                        "tribute|vote",
+                        TRIBUTE_KIND,
+                        format!("cast at least 1 vote for {outcome}"),
+                    ));
+                }
+                if crate::factions::mahact::can_pay_tribute(state, voter) {
+                    options.push(ChoiceOption::labelled(
+                        "tribute|token",
+                        TRIBUTE_KIND,
+                        "remove 1 token from your fleet pool and return it to reinforcements",
+                    ));
+                }
+                if options.is_empty() {
+                    return None;
+                }
+                Some(
+                    Choice::new(
+                        voter.clone(),
+                        format!("Genetic Recombination: vote {outcome} or return a fleet token"),
+                        options,
+                    )
+                    .contextualized(DecisionContext::new(
+                        voter.clone(),
+                        DecisionSource::Content(crate::factions::mahact::RECOMBINATION.to_owned()),
+                        "recombination_tribute",
                         state.phase,
                         state.round,
                     )),
@@ -565,6 +768,17 @@ impl VoteWindow {
     /// Advance past any stage that has no decision left to make.
     fn settle(&mut self, state: &GameState, content: &ContentStore, sources: SourceSet) {
         loop {
+            // Genetic Recombination: "before a player casts votes", once per voter, the holder
+            // is asked.
+            if let Stage::Outcome(index) = self.stage
+                && index < self.order.len()
+                && self.recombination_offered.insert(index)
+                && crate::factions::mahact::recombination_holder(state, &self.order[index])
+                    .is_some()
+            {
+                self.stage = Stage::Recombine(index);
+                return;
+            }
             match &self.stage {
                 Stage::Outcome(index) if *index >= self.order.len() => {
                     self.stage = self.close();
@@ -575,7 +789,10 @@ impl VoteWindow {
                     votes,
                 } => {
                     let player = &self.order[*index];
-                    if votable_planets(state, content, sources, player).is_empty() {
+                    if self
+                        .planet_offers(state, content, sources, player)
+                        .is_empty()
+                    {
                         let (index, outcome, votes) = (*index, outcome.clone(), *votes);
                         self.finish_planets(state, content, index, outcome, votes);
                         continue;
@@ -587,8 +804,9 @@ impl VoteWindow {
         }
     }
 
-    /// A player is done exhausting planets: offer Gila the Silvertongue's trade-goods votes when
-    /// they hold the ability, have trade goods, and are casting votes at all; else bank the votes.
+    /// A player is done exhausting planets: offer trade goods for votes when they may spend them
+    /// (Gila the Silvertongue's holder once casting votes, or the Executive Order spender) and have
+    /// some; else bank the votes.
     fn finish_planets(
         &mut self,
         state: &GameState,
@@ -598,12 +816,9 @@ impl VoteWindow {
         votes: i64,
     ) {
         let player = &self.order[index];
-        let gila = votes > 0
-            && crate::promissory::has_commander_ability(state, player, "hacancommander")
-            && state
-                .player(player)
-                .is_some_and(|seat| seat.trade_goods > 0);
-        if gila {
+        let may_spend = self.trade_goods_rate(state, player, votes) > 0
+            && crate::supply::potential_goods(state, player) > 0;
+        if may_spend {
             self.stage = Stage::TradeGoods {
                 index,
                 outcome,
@@ -685,6 +900,47 @@ impl VoteWindow {
 
         match self.stage.clone() {
             Stage::Done(_) => return Err(VoteError::Complete),
+            Stage::Recombine(index) => {
+                if option.is_decline() {
+                    self.stage = Stage::Outcome(index);
+                } else {
+                    let holder =
+                        crate::factions::mahact::recombination_holder(state, &self.order[index])
+                            .ok_or(VoteError::Complete)?;
+                    let outcome = option
+                        .id
+                        .strip_prefix("recombine|")
+                        .unwrap_or_default()
+                        .to_owned();
+                    crate::factions::mahact::exhaust_recombination(state, &holder);
+                    let voter = self.order[index].clone();
+                    let can_vote = !self
+                        .planet_offers(state, content, sources, &voter)
+                        .is_empty();
+                    let can_pay = crate::factions::mahact::can_pay_tribute(state, &voter);
+                    self.stage = Stage::Outcome(index);
+                    match (can_vote, can_pay) {
+                        (true, true) => {
+                            self.demanded = Some((index, outcome));
+                            self.stage = Stage::Tribute(index);
+                        }
+                        (true, false) => self.obligation = Some((index, outcome)),
+                        (false, true) => {
+                            crate::factions::mahact::pay_tribute(state, &voter);
+                        }
+                        (false, false) => {}
+                    }
+                }
+            }
+            Stage::Tribute(index) => {
+                let demanded = self.demanded.take();
+                if option.id == "tribute|vote" {
+                    self.obligation = demanded;
+                } else {
+                    crate::factions::mahact::pay_tribute(state, &self.order[index].clone());
+                }
+                self.stage = Stage::Outcome(index);
+            }
             Stage::Outcome(index) => {
                 if option.is_decline() {
                     // 8.14: an abstention casts nothing and is not recorded as a vote.
@@ -705,15 +961,20 @@ impl VoteWindow {
                 if option.is_decline() {
                     self.finish_planets(state, content, index, outcome, votes);
                 } else {
-                    let planet = PlanetId::new(option.id);
-                    // Elder Qanoj: each planet exhausted to vote gives one vote more.
-                    let influence = influence_of(state, content, sources, &planet)
-                        + i64::from(crate::leaders::elder_qanoj(state, &self.order[index]));
+                    // Elder Qanoj: each planet exhausted to vote gives one vote more (counted in
+                    // the offer).
+                    let offer = self
+                        .planet_offers(state, content, sources, &self.order[index])
+                        .into_iter()
+                        .find(|(id, _, _)| *id == option.id);
+                    let Some((_, planet, cast)) = offer else {
+                        return Err(VoteError::Complete);
+                    };
                     state.exhaust_planet(planet);
                     self.stage = Stage::Planets {
                         index,
                         outcome,
-                        votes: votes + influence,
+                        votes: votes + cast,
                     };
                 }
             }
@@ -727,17 +988,16 @@ impl VoteWindow {
                     .strip_prefix("spend|")
                     .and_then(|n| n.parse::<i32>().ok())
                     .unwrap_or(0);
-                if spent > 0 {
-                    if let Some(seat) = state.player_mut(&self.order[index]) {
-                        seat.trade_goods -= spent;
-                    }
+                let rate = self.trade_goods_rate(state, &self.order[index], votes);
+                if spent > 0 && !crate::supply::spend_goods(state, &self.order[index], spent) {
+                    return Err(VoteError::Complete);
                 }
                 self.record(
                     state,
                     content,
                     index,
                     &outcome,
-                    votes + 2 * i64::from(spent),
+                    votes + rate * i64::from(spent),
                 );
                 self.stage = Stage::Outcome(index + 1);
             }
