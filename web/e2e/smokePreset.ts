@@ -1,5 +1,5 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion"] as const;
 
 /** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
 export function presetFromEnv(value: string | undefined): string | undefined {
@@ -42,6 +42,11 @@ export const PRESET_EXPECT: Record<string, string> = {
   // Relic prompts: purge to move, explore with the Crown, Neuraloop, JR-XS455-O, Heart of Ixth.
   relics:
     "crown_of_emphidia_choose_planet|dominus_orb_purge_to_move|neuraloop_choose_relic_to_purge|titan_prototype_choose_builder|stellar_converter_choose_target|heart_ixth_die_adjust>=3",
+  // An invasion of a defended colony: landing and ground combat rounds. The two PDS's space cannon
+  // usually costs the invader a sustain or a ship, but that is dice, so it is not asserted.
+  // (assign_ground_casualty is never asked: the server's timing path assigns ground hits itself,
+  // and bombardment_target is coexistence-only.)
+  invasion: "commit_ground_forces,fight_ground_combat_round",
 };
 
 export function parseExpect(value: string | undefined, preset?: string): Expectation[] {

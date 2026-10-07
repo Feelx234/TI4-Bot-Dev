@@ -14,7 +14,9 @@ use ti4_content::units;
 use ti4_engine::seating::{self, MECATOL};
 use ti4_engine::{fleet, invasion, production};
 use ti4_model::content_types::{ContentType, POK};
-use ti4_model::id::{ActionCardId, FactionId, PlayerId, RelicId, SystemId, UnitTypeId};
+use ti4_model::id::{
+    ActionCardId, FactionId, PlanetId, PlayerId, RelicId, SystemId, UnitTypeId,
+};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
@@ -31,9 +33,14 @@ pub const AGENDA: &str = "agenda";
 /// Every seat holds relics, one of them with a cultural fragment set for crossing.
 pub const RELICS: &str = "relics";
 
+/// Each seat holds a defended colony (infantry, mech, PDS on a planet near its home) and the
+/// previous seat's invasion force, with a dreadnought, waits in its space area: space cannon,
+/// bombardment and ground combat with casualties are the first thing a tactical action reaches.
+pub const INVASION: &str = "invasion";
+
 /// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
-pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS];
+pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS, INVASION];
 
 /// Action cards no nightly game ever played, found by diffing 72 final states' discard piles
 /// against the corpus. The first ten are in the standard deck; the rest are Thunder's Edge cards,
@@ -105,6 +112,19 @@ const RAIDING_PARTY: &[(&str, usize)] = &[
     ("infantry", 2),
 ];
 
+/// Placed in a defended colony's space area. The carrier and the dreadnought's own slot carry four
+/// infantry and the faction's mech (capacity 5); the dreadnought bombards, and with the mech and
+/// the defenders' casualties there is a choice of unit to assign hits to on both sides.
+const INVASION_FLEET: &[(&str, usize)] = &[
+    ("carrier", 1),
+    ("dreadnought", 1),
+    ("cruiser", 1),
+    ("infantry", 4),
+];
+
+/// What a colony's planet holds: ground forces to fight and a PDS (space cannon) to shoot first.
+const COLONY_DEFENDERS: &[(&str, usize)] = &[("infantry", 3), ("pds", 2)];
+
 /// Reinforcement pool sizes (LRR 76.1): a preset never puts more of a type on the board.
 const POOL: &[(&str, usize)] = &[
     ("carrier", 4),
@@ -114,6 +134,7 @@ const POOL: &[(&str, usize)] = &[
     ("fighter", 10),
     ("infantry", 12),
     ("mech", 4),
+    ("pds", 6),
 ];
 
 #[must_use]
@@ -147,6 +168,7 @@ pub fn apply(
             deal_relics(content, state, players, seed);
             Ok(())
         }
+        INVASION => invasion_preset(content, state, galaxy, players, seed),
         other => Err(format!("unknown start_preset {other:?}")),
     }
 }
@@ -178,6 +200,77 @@ fn agenda(content: &ContentStore, state: &mut GameState, players: &[PlayerId], s
             seat.trade_goods += AGENDA_TRADE_GOODS;
         }
     }
+}
+
+/// One defended colony per seat, and the previous seat's invasion force waiting above it.
+fn invasion_preset(
+    content: &ContentStore,
+    state: &mut GameState,
+    galaxy: &Galaxy,
+    players: &[PlayerId],
+    seed: u64,
+) -> Result<(), String> {
+    let assignments = seating::seat_in_scope(players);
+    let homes: Vec<SystemId> = players
+        .iter()
+        .map(|player| {
+            let one = BTreeMap::from([(player.clone(), assignments[player].clone())]);
+            seating::home_systems(content, &one).map(|mut homes| homes.remove(0))
+        })
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    let home_set: BTreeSet<&str> = homes.iter().map(SystemId::as_str).collect();
+    let count = players.len();
+    let mut used: BTreeSet<String> = BTreeSet::new();
+
+    // Colonies first, so every fleet can be put beside one.
+    let mut colonies: Vec<Option<(SystemId, PlanetId)>> = Vec::new();
+    for (j, player) in players.iter().enumerate() {
+        let colony = pick_site_of(
+            content,
+            state,
+            galaxy,
+            homes[j].as_str(),
+            &home_set,
+            &used,
+            mix(seed, 600 + j as u64),
+            2,
+            Site::Colony,
+        )
+        .and_then(|site| colony_planet(content, site.as_str()).map(|planet| (site, planet)));
+        if let Some((site, planet)) = &colony {
+            used.insert(site.as_str().to_owned());
+            let mut defenders = fleet_for(content, &assignments[player], COLONY_DEFENDERS);
+            // fleet_for adds a dreadnought-less mech; keep it, the planet is a ground area.
+            let board = state.system_mut(site);
+            board.set_control(planet.clone(), player.clone());
+            for (kind, number) in defenders.drain(..) {
+                for _ in 0..number {
+                    board
+                        .planet_units
+                        .entry(planet.clone())
+                        .or_default()
+                        .push(Unit::new(kind.clone(), player.clone()));
+                }
+            }
+            check_pools(state, player)?;
+        }
+        colonies.push(colony);
+    }
+
+    // The attacker is the previous seat. Its fleet waits in the colony's own space area: ground
+    // forces there are landable without moving (see `RAIDING_PARTY`), so the first tactical action
+    // that activates the colony meets the PDS's space cannon, the dreadnought's bombardment and a
+    // ground combat, instead of a random move that strands the infantry (a carrier that leaves
+    // without them drops them over capacity).
+    for (i, player) in players.iter().enumerate() {
+        let Some((colony, _)) = &colonies[(i + 1) % count] else {
+            continue;
+        };
+        let fleet = fleet_for(content, &assignments[player], INVASION_FLEET);
+        place(content, state, player, colony, &fleet)?;
+    }
+    Ok(())
 }
 
 /// Hands the relics of [`RELIC_POOL`] out round-robin from a seeded first seat and takes them out
@@ -304,6 +397,15 @@ fn combat(
     Ok(())
 }
 
+/// What kind of system a preset wants to put something in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Site {
+    /// Any empty ordinary system.
+    Empty,
+    /// An empty ordinary system with a planet that is not legendary, to hold a colony.
+    Colony,
+}
+
 /// The nearest eligible system to `from`: one jump away if any qualifies, else up to `max_jumps`.
 #[allow(clippy::too_many_arguments)]
 fn pick_site(
@@ -315,6 +417,21 @@ fn pick_site(
     used: &BTreeSet<String>,
     choice: u64,
     max_jumps: usize,
+) -> Option<SystemId> {
+    pick_site_of(content, state, galaxy, from, home_set, used, choice, max_jumps, Site::Empty)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pick_site_of(
+    content: &ContentStore,
+    state: &GameState,
+    galaxy: &Galaxy,
+    from: &str,
+    home_set: &BTreeSet<&str>,
+    used: &BTreeSet<String>,
+    choice: u64,
+    max_jumps: usize,
+    kind: Site,
 ) -> Option<SystemId> {
     let mut seen: BTreeSet<&str> = BTreeSet::from([from]);
     let mut layer: BTreeSet<&str> = BTreeSet::from([from]);
@@ -331,6 +448,7 @@ fn pick_site(
             .iter()
             .copied()
             .filter(|id| eligible(content, state, id, home_set, used))
+            .filter(|id| kind == Site::Empty || colony_planet(content, id).is_some())
             .collect();
         if !eligible.is_empty() {
             let index = usize::try_from(choice % eligible.len() as u64).unwrap_or(0);
@@ -339,6 +457,17 @@ fn pick_site(
         layer = next;
     }
     None
+}
+
+/// The planet a colony would sit on: the first non-legendary planet printed on the tile.
+fn colony_planet(content: &ContentStore, system: &str) -> Option<PlanetId> {
+    let mut planets: Vec<_> = galaxy::planets_in(content, system, POK)
+        .into_iter()
+        .filter(|planet| !planet.is_legendary() && !planet.is_space_station())
+        .map(|planet| planet.id().to_owned())
+        .collect();
+    planets.sort();
+    planets.into_iter().next().map(PlanetId::new)
 }
 
 /// Mecatol Rex's space area is free for the first raider.
@@ -427,6 +556,12 @@ fn place(
             "preset fleet for {player} in {site} is over supply ({over_supply}) or capacity ({over_capacity})"
         ));
     }
+    check_pools(state, player)?;
+    Ok(())
+}
+
+/// No preset puts more of a unit type on the board than its reinforcement pool holds.
+fn check_pools(state: &GameState, player: &PlayerId) -> Result<(), String> {
     for (kind, limit) in POOL {
         let on_board = state
             .board
@@ -813,6 +948,64 @@ mod tests {
                 assert!(list.iter().any(
                     |p| state.player(p).unwrap().relic_fragments.get("CULTURAL") == Some(&3)
                 ));
+            }
+        }
+    }
+
+    #[test]
+    fn the_invasion_preset_defends_a_colony_per_seat_with_an_attacker_above_it() {
+        for n in 3..=6 {
+            for seed in 0..8 {
+                let list = players(n);
+                let (state, _) =
+                    create_game_with_preset(content(), &list, seed, None, Some(INVASION))
+                        .unwrap_or_else(|e| panic!("{n}p seed {seed}: {e}"));
+                let pds_systems: BTreeSet<(&SystemId, &PlayerId)> = state
+                    .board
+                    .iter()
+                    .flat_map(|(system, board)| {
+                        board
+                            .planet_units
+                            .values()
+                            .flatten()
+                            .filter(|u| u.type_id.as_str() == "pds")
+                            .map(move |u| (system, &u.owner))
+                    })
+                    .collect();
+                // Home systems start with PDS or not depending on faction; the colony ones are
+                // the ones with a planet whose controller matches and that are not homes.
+                let homes = homes_of(&list);
+                let colonies: Vec<_> = pds_systems
+                    .iter()
+                    .filter(|(system, _)| !homes.contains(system))
+                    .collect();
+                assert_eq!(colonies.len(), n, "{n}p seed {seed}: one colony per seat");
+                for (i, player) in list.iter().enumerate() {
+                    let (colony, owner) = colonies
+                        .iter()
+                        .map(|c| **c)
+                        .find(|(_, owner)| *owner == &list[(i + 1) % n])
+                        .expect("the next seat's colony");
+                    assert_eq!(owner, &list[(i + 1) % n]);
+                    let board = &state.board[colony];
+                    assert!(board.planet_control.values().any(|c| c == owner));
+                    assert!(board.planet_units.values().flatten().any(|u| {
+                        u.type_id.as_str() == "infantry" && &u.owner == owner
+                    }));
+                    // The attacker waits in the colony's space area with a dreadnought and four
+                    // infantry, and nobody else is there.
+                    assert!(
+                        board.units.iter().all(|u| &u.owner == player),
+                        "{n}p seed {seed}: the colony's space is shared"
+                    );
+                    assert!(board.units.iter().any(|u| u.type_id.as_str().contains("dread")));
+                    let infantry = board
+                        .units
+                        .iter()
+                        .filter(|u| &u.owner == player && u.type_id.as_str() == "infantry")
+                        .count();
+                    assert_eq!(infantry, 4);
+                }
             }
         }
     }

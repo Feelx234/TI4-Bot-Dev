@@ -92,6 +92,12 @@ describe("activationWeight (smoke harness steering)", () => {
     expect(activationWeight("18", true, false, false)).toBe(40);
     expect(activationWeight("35", true, true, false)).toBe(30);
     expect(activationWeight("35", true, false, false)).toBe(5);
+    // A defended planet outranks a bare enemy fleet, but an unreachable one is still skipped.
+    expect(activationWeight("35", true, true, false, true)).toBe(60);
+    expect(activationWeight("35", false, true, false, true)).toBe(0.2);
+    // Own ground forces waiting beside a defended planet: activate in place, ahead of everything.
+    expect(activationWeight("35", false, true, true, true)).toBe(2000);
+    expect(activationWeight("35", true, true, true, false)).toBe(30);
     expect(activationWeight("35", false, true, false)).toBe(0.2);
   });
 

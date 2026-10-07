@@ -206,12 +206,18 @@ export function activationWeight(
   id: string,
   reachable: boolean,
   hasEnemies: boolean,
-  groundForcesInPlaceOnMecatol: boolean,
+  groundForcesInPlaceOnMecatol: boolean, // ground forces in the system's own space area
+  defendedPlanet = false,
 ): number {
   // Dominant: among ~35 other activations a weight of 40 was rarely picked, and the raider then
   // moved its ships out of Mecatol instead.
-  if (id === "18" && groundForcesInPlaceOnMecatol) return 2000;
+  // The same holds for a defended colony (the invasion preset) with the invader's ground forces
+  // waiting in its space area.
+  if (groundForcesInPlaceOnMecatol && (id === "18" || defendedPlanet)) return 2000;
   if (!reachable) return 0.2;
+  // Another player's ground forces on a planet: the way to an invasion with space cannon,
+  // bombardment and ground casualties, which fleet-versus-fleet space fights never reach.
+  if (defendedPlanet && id !== "18") return 60;
   return id === "18" ? 40 : hasEnemies ? 30 : 5;
 }
 

@@ -289,18 +289,23 @@ function activationWeights(
     });
     const enemies =
       board.systems[id]?.units.some((u) => u.owner !== actor) ?? false;
+    const defended =
+      board.systems[id]?.units.some((u) => u.owner !== actor && !!u.planet) ??
+      false;
     const inPlace =
-      id === "18" &&
+      (id === "18" || defended) &&
       (board.systems[id]?.units.some(
-        // Still in space: once landed on the planet the custodians are gone and there is nothing
-        // left to do in place.
+        // Still in space: once landed on the planet there is nothing left to do in place.
         (u) =>
           u.owner === actor &&
           !u.planet &&
           /infantry|mech|spec_ops/i.test(u.unit_type),
       ) ??
         false);
-    weights.set(id, activationWeight(id, reachable, enemies, inPlace));
+    weights.set(
+      id,
+      activationWeight(id, reachable, enemies, inPlace, defended),
+    );
   }
   return weights;
 }
