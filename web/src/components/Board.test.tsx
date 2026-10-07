@@ -53,6 +53,9 @@ describe("Board Component", () => {
     render(<Board board={mockBoard} seatingOrder={["p1", "p2"]} />);
 
     expect(screen.getByTestId("ti4-board-svg")).toBeInTheDocument();
+    const map = screen.getByRole("group", { name: "Galaxy map" });
+    expect(map).toBe(screen.getByTestId("ti4-board-svg"));
+    expect(map).toHaveAccessibleDescription(/Drag the map to pan/);
     expect(screen.getByTestId("system-hex-18")).toBeInTheDocument();
     expect(screen.getByTestId("system-hex-34")).toBeInTheDocument();
 

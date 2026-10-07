@@ -39,6 +39,8 @@ export interface MockGameOptions {
   /** Pending decision; omit for a game that is just waiting. */
   choice?: MockChoice | null;
   events?: GameEvent[];
+  /** Undo/redo position; with log entries that carry decision_count it enables the log Undo buttons. */
+  history?: { cursor: number; redo_count: number; generation?: number };
   turnStatus?: PublicTurnStatus;
   view?: Partial<GameView>;
   version?: number;
@@ -109,6 +111,7 @@ export function buildSnapshot(options: MockGameOptions = {}) {
         }
       : null,
     events: options.events ?? [],
+    ...(options.history ? { history: options.history } : {}),
   };
   return snapshot;
 }

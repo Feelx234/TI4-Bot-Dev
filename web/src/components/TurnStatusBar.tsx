@@ -11,6 +11,21 @@ export interface TurnStatusBarProps {
   userSeat?: string;
 }
 
+/** Engine stage ids ("activate_system", "vote_exhaust_planet") as human text; never show the raw id. */
+export function stageLabel(stage: string): string {
+  const words = stage
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_\-\s]+/g, " ")
+    .trim()
+    .toLowerCase();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "";
+}
+
+const withStage = (text: string, stage: string) => {
+  const label = stageLabel(stage);
+  return label ? `${text} (${label})` : text;
+};
+
 export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
   status,
   view,
@@ -28,8 +43,8 @@ export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
       case "waiting_for_decision": {
         const isYou = userSeat && status.seat === userSeat;
         return isYou
-          ? `YOUR TURN: Awaiting your choice (${status.stage})`
-          : `Waiting for ${display(status.seat).label} (${status.stage})`;
+          ? withStage("YOUR TURN: Awaiting your choice", status.stage)
+          : withStage(`Waiting for ${display(status.seat).label}`, status.stage);
       }
       case "phase_transition":
         return `Phase Transition: ${status.phase} (Round ${status.round})`;
@@ -65,7 +80,7 @@ export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
         fontSize: 14,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px 16px", flexWrap: "wrap" }}>
         {/* Connection status indicator */}
         <div
           data-testid="connection-indicator"

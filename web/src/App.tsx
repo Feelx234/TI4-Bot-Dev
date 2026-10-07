@@ -23,6 +23,7 @@ import {
   paymentOptionForPlanet,
   paymentPlanetKey,
 } from "./presentation/paymentDraft.ts";
+import { UndoConfirmDialog } from "./components/UndoConfirmDialog.tsx";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
 import { PaymentDraftProvider, usePaymentDraftState } from "./presentation/PaymentDraftContext.tsx";
 
@@ -268,14 +269,20 @@ const GameViewContainer: React.FC<{
     logHistoryKey.current = snapshot.events;
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [undoRequest, setUndoRequest] = useState<{
+    action: import("./protocol/client.ts").HistoryChange;
+    steps: number;
+  } | null>(null);
   const onChangeHistory = (action: import("./protocol/client.ts").HistoryChange, steps = 1) => {
-    if (
-      historyBusy ||
-      (action === "undo_pipeline" &&
-        !window.confirm("Undo the latest action and its follow-up decisions for everyone?")) ||
-      (steps > 1 && !window.confirm(`Undo ${steps} decisions for everyone in this game?`))
-    )
+    if (historyBusy) return;
+    // Undo rewinds shared history, so ask once in a styled dialog before running it.
+    if (action === "undo_pipeline" || steps > 1) {
+      setUndoRequest({ action, steps });
       return;
+    }
+    runHistoryChange(action);
+  };
+  const runHistoryChange = (action: import("./protocol/client.ts").HistoryChange) => {
     setHistoryBusy(true);
     setHistoryError(null);
     void changeHistory(action)
@@ -359,6 +366,17 @@ const GameViewContainer: React.FC<{
     <DecisionTableProvider table={snapshot?.view ?? null}>
       {/* The provider wraps the rest unindented to keep this diff small. */}
       <PaymentDraftProvider value={paymentDraft}>
+      {undoRequest && (
+        <UndoConfirmDialog
+          steps={undoRequest.steps}
+          onCancel={() => setUndoRequest(null)}
+          onConfirm={() => {
+            const { action } = undoRequest;
+            setUndoRequest(null);
+            runHistoryChange(action);
+          }}
+        />
+      )}
       {historyError && (
         <div className="session-error" role="alert">
           {historyError}
@@ -382,7 +400,7 @@ const GameViewContainer: React.FC<{
               connectionStatus={status}
               userSeat={userSeat}
             />
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <div className="game-header__actions">
               <button
                 type="button"
                 data-testid="technology-modal-button"

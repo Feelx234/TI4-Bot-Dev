@@ -153,7 +153,7 @@ it("renders player and spectator surfaces with current names, seat shapes and no
       <PlayerSheet players={players} />
     </PlayerIdentityProvider>,
   );
-  expect(screen.getByText(/Waiting for Robin/)).toBeInTheDocument();
+  expect(screen.getByText(/Waiting for Robin \(Choice\)/)).toBeInTheDocument();
   expect(spectator.container.querySelector("[data-private-card]")).toBeNull();
   expect(spectator.container.outerHTML).not.toContain("player_a");
   // The black eighth position has a bright outline and white glyph even on a dark canvas.
@@ -211,4 +211,24 @@ it("keeps trade target and submitted choice IDs internal while displaying the cu
     fireEvent.click(screen.getByTestId("propose-trade-btn"));
   });
   expect(onSubmit).toHaveBeenCalledWith("offer-1");
+});
+
+it("marks the viewer's own card with (You) only when the label is not already You", () => {
+  const named = render(
+    <PlayerIdentityProvider lobby={lobby} seatingOrder={["player_b", "player_a"]}>
+      <PlayerSheet players={players} userSeat="player_b" />
+    </PlayerIdentityProvider>,
+  );
+  expect(named.container.textContent).toContain("(You)");
+  named.unmount();
+  const youLobby: LobbyDto = {
+    ...lobby,
+    slots: slots.map((slot) => (slot.occupant === "player_b" ? { ...slot, nickname: "You" } : slot)),
+  };
+  const you = render(
+    <PlayerIdentityProvider lobby={youLobby} seatingOrder={["player_b", "player_a"]}>
+      <PlayerSheet players={players} userSeat="player_b" />
+    </PlayerIdentityProvider>,
+  );
+  expect(you.container.textContent).not.toContain("(You)");
 });
