@@ -13,8 +13,8 @@ use ti4_content::galaxy::{self, Galaxy};
 use ti4_content::units;
 use ti4_engine::seating::{self, MECATOL};
 use ti4_engine::{fleet, invasion, production};
-use ti4_model::content_types::POK;
-use ti4_model::id::{FactionId, PlayerId, SystemId, UnitTypeId};
+use ti4_model::content_types::{ContentType, POK};
+use ti4_model::id::{ActionCardId, FactionId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
@@ -22,8 +22,26 @@ use ti4_model::units::Unit;
 /// it, with influence for the custodians.
 pub const COMBAT: &str = "combat";
 
-/// Every preset name the server accepts.
-pub const KNOWN: &[&str] = &[COMBAT];
+/// Every seat holds a hand of action cards that random play has almost never produced.
+pub const CARDS: &str = "cards";
+
+/// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
+/// `web/e2e/smokePreset.ts` (a test below compares the two).
+pub const KNOWN: &[&str] = &[COMBAT, CARDS];
+
+/// Action cards no nightly game ever played, found by diffing 72 final states' discard piles
+/// against the corpus. The first ten are in the standard deck; the rest are Thunder's Edge cards,
+/// which a standard game never deals, so a hand is the only way their windows and prompts get
+/// exercised at all. Cards the corpus lacks are skipped.
+const CARD_POOL: &[&str] = &[
+    "confusing", "dh2", "mjets1", "parley", "upgrade", "ghost_squad", "rally", "war_machine2",
+    "decoy", "reparations", "crashlanding", "exchangeprogram", "lieinwait", "puppetsonastring",
+    "extremeduress", "rescue", "strategize1", "piratecontract1", "blackmarketdealing", "overrule",
+    "mercenarycontract", "crisis",
+];
+
+/// Cards per seat: well under the hand limit of 7, so nothing is discarded at the status phase.
+const HAND_SIZE: usize = 5;
 
 /// Placed one jump from an opponent's home. The dreadnought (with the faction's mech) makes sure
 /// sustain damage happens; capacity 5: two fighters, two infantry and the mech fit. Three
@@ -76,6 +94,10 @@ pub fn apply(
 ) -> Result<(), String> {
     match preset {
         COMBAT => combat(content, state, galaxy, players, seed),
+        CARDS => {
+            deal_cards(content, state, players, seed, CARD_POOL, HAND_SIZE);
+            Ok(())
+        }
         other => Err(format!("unknown start_preset {other:?}")),
     }
 }
@@ -88,6 +110,33 @@ fn mix(seed: u64, salt: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     z ^ (z >> 31)
+}
+
+/// Deals each seat a different seeded slice of `pool_ids` (at most `hand` cards each) and takes
+/// those cards out of the deck.
+fn deal_cards(
+    content: &ContentStore,
+    state: &mut GameState,
+    players: &[PlayerId],
+    seed: u64,
+    pool_ids: &[&str],
+    hand: usize,
+) {
+    let mut pool: Vec<&str> = pool_ids
+        .iter()
+        .copied()
+        .filter(|id| content.get(ContentType::ActionCards, id).is_some())
+        .collect();
+    pool.sort_by_key(|id| mix(seed, id.bytes().fold(7_u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)))));
+    let per_seat = hand.min(pool.len() / players.len().max(1));
+    for (player, hand) in players.iter().zip(pool.chunks(per_seat.max(1))) {
+        for id in hand {
+            state.action_card_deck.retain(|card| card.as_str() != *id);
+            if let Some(seat) = state.player_mut(player) {
+                seat.action_cards.push(ActionCardId::new(*id));
+            }
+        }
+    }
 }
 
 fn combat(
@@ -580,5 +629,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_cards_preset_deals_distinct_never_played_cards_and_leaves_them_out_of_the_deck() {
+        for n in 3..=6 {
+            let list = players(n);
+            let (plain, _) = create_game_with_template(content(), &list, 3, None).unwrap();
+            let (state, _) =
+                create_game_with_preset(content(), &list, 3, None, Some(CARDS)).unwrap();
+            let mut dealt: Vec<&ActionCardId> = Vec::new();
+            for player in &list {
+                let hand = &state.player(player).unwrap().action_cards;
+                let before = plain.player(player).unwrap().action_cards.len();
+                assert!(hand.len() > before, "{n}p: {player} got no cards");
+                assert!(hand.len() <= before + HAND_SIZE, "{n}p: hand over {HAND_SIZE} dealt");
+                assert!(hand.len() < 7, "{n}p: the hand limit would trigger at once");
+                dealt.extend(hand.iter().skip(before));
+            }
+            let unique: BTreeSet<_> = dealt.iter().collect();
+            assert_eq!(unique.len(), dealt.len(), "{n}p: a card was dealt twice");
+            for card in &dealt {
+                assert!(CARD_POOL.contains(&card.as_str()));
+                assert!(!state.action_card_deck.contains(card), "{card} is still in the deck");
+            }
+        }
+    }
+
+    #[test]
+    fn every_pool_card_exists_in_the_corpus() {
+        for id in CARD_POOL {
+            assert!(content().get(ContentType::ActionCards, id).is_some(), "{id}");
+        }
+    }
+
+    #[test]
+    fn the_known_presets_match_the_harness_list() {
+        let ts = include_str!("../../../web/e2e/smokePreset.ts");
+        let line = ts
+            .lines()
+            .find(|l| l.contains("KNOWN_PRESETS ="))
+            .expect("KNOWN_PRESETS in smokePreset.ts");
+        let listed: Vec<&str> = line.split('"').skip(1).step_by(2).collect();
+        assert_eq!(listed, KNOWN);
     }
 }

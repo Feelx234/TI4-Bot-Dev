@@ -1,5 +1,5 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat"] as const;
+export const KNOWN_PRESETS = ["combat", "cards"] as const;
 
 /** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
 export function presetFromEnv(value: string | undefined): string | undefined {
@@ -32,7 +32,11 @@ export interface Expectation {
 }
 
 /** The subtypes each preset exists to reach; asserted when `TI4_SMOKE_EXPECT=preset`. */
-export const PRESET_EXPECT: Record<string, string> = {};
+export const PRESET_EXPECT: Record<string, string> = {
+  // Thunder's Edge cards dealt to hands: their pick prompts, and the "action card played" window.
+  cards:
+    "overrule_pick_strategy card|strategize1_pick_strategy card|exchange_program_answer|exchangeprogram_pick_player|exchangeprogram_pick_planet>=2,reaction_when_ACTION_CARD_PLAYED",
+};
 
 export function parseExpect(value: string | undefined, preset?: string): Expectation[] {
   const text = value?.trim();

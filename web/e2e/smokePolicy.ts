@@ -95,10 +95,15 @@ const STEER_WEIGHTS: [RegExp, number][] = [
   [/^turn-bar-strategic-/, 3],
   [/^turn-bar-trade\b/, 0.1],
   [/^turn-bar-open-/, 1],
+  // The action card and component menus: their rows are where action cards, relics, leaders and
+  // technologies get played, which random play rarely reached at weight 1 among ~10 buttons.
+  [/^turn-bar-(cards|components)\b/, 6],
   [/^turn-bar-pass\b/, 0.3],
   // Ending the turn is the closing question; when it is enabled it should usually be taken.
   [/^turn-bar-end\b/, 20],
   [/^turn-bar-/, 1],
+  // A reaction window offers "play" and "pass"; at equal weight most of the cards stay in hand.
+  [/^play-reaction-btn/, 4],
   [/take a tactical action/i, 30],
   [/strategic action/i, 3],
   [/open a transaction|propose-trade-btn|trade-opt-/i, 0.1],

@@ -317,7 +317,14 @@ describe("turn bar controls (smoke harness)", () => {
     expect(steerWeight("turn-bar-pass | Pass")).toBeLessThan(1);
     expect(steerWeight(end.desc)).toBeGreaterThan(steerWeight(components.desc));
     // The test id decides, not the words in a card's text.
-    expect(steerWeight("turn-bar-components | Components take a tactical action")).toBe(1);
+    expect(steerWeight("turn-bar-components | Components take a tactical action")).toBe(6);
+    expect(steerWeight("turn-bar-cards | Action cards 2 A")).toBeGreaterThan(steerWeight(trade.desc));
+  });
+
+  it("prefers playing a reaction over passing it", () => {
+    expect(steerWeight("play-reaction-btn-reaction:sol:SHIP_MOVED:after | Play Rescue")).toBeGreaterThan(
+      steerWeight("pass-reaction-btn | Pass (Spacebar)"),
+    );
   });
 
   it("gives every split strategic button the same weight so each card gets played", () => {
