@@ -5189,9 +5189,44 @@ pub fn place_units_choosing(
                 .with("count", i64::try_from(wanted).unwrap_or(i64::MAX))
             })
             .collect();
+        // Display only: each spot by its planet's name and system, with how many go there.
+        let mut captions: Vec<(String, serde_json::Value)> = options
+            .iter()
+            .zip(spots.iter().zip(&fits))
+            .map(|(option, ((system, planet), &wanted))| {
+                let place = planet.as_ref().map_or_else(
+                    || format!("In the space of system {system}"),
+                    |planet| {
+                        let name = ti4_content::galaxy::planet(
+                            context.content,
+                            planet.as_str(),
+                            context.sources,
+                        )
+                        .and_then(|record| record.name())
+                        .unwrap_or(planet.as_str());
+                        format!("{name} (system {system})")
+                    },
+                );
+                (
+                    option.id.clone(),
+                    crate::choice::offer_caption(
+                        &place,
+                        Some(&format!("Place {wanted} {base_type} here")),
+                    ),
+                )
+            })
+            .collect();
         if optional {
             options.push(ChoiceOption::decline());
+            captions.push((
+                crate::choice::DECLINE_ID.to_owned(),
+                crate::choice::offer_caption("Place none", Some("Nothing is placed")),
+            ));
         }
+        let caption_refs: Vec<(&str, serde_json::Value)> = captions
+            .iter()
+            .map(|(id, caption)| (id.as_str(), caption.clone()))
+            .collect();
         let choice = Choice::new(
             player.clone(),
             format!(
@@ -5199,6 +5234,19 @@ pub fn place_units_choosing(
                 fits.iter().max().copied().unwrap_or(0)
             ),
             options,
+        )
+        .offered(
+            crate::choice::offer_card(
+                "Place units from your reinforcements",
+                "placement",
+                None,
+                Some("Choose where they go."),
+            ),
+            vec![
+                crate::choice::offer_fact_unit("Unit", base_type),
+                crate::choice::offer_fact("Up to", fits.iter().max().copied().unwrap_or(0) as u64),
+            ],
+            &caption_refs,
         )
         .contextualized(DecisionContext::new(
             player.clone(),
@@ -11583,6 +11631,49 @@ mod economy_hooks {
             1,
             "the space area still holds only the destroyer"
         );
+    }
+
+    /// The placement question is an offer card: the unit, how many at most, and each spot by its
+    /// planet's name and system with how many go there (display only; option ids unchanged).
+    #[test]
+    fn the_placement_question_is_an_offer_card_with_a_caption_per_spot() {
+        let (mut state, system, planet) = planet_and_ship();
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
+            format!("{system}|{planet}"),
+        ])));
+        let mut table = Table::with_default(Box::new(decider));
+        with_context(&mut state, POK, None, &mut table, |context| {
+            place_units_choosing(
+                context,
+                &me(),
+                "infantry",
+                2,
+                PlacementTarget::ControlledPlanetOrShipSpace,
+                None,
+                true,
+                "yso",
+                PlacementLimits::Respect,
+            )
+            .unwrap();
+        });
+        let asked = seen.borrow();
+        let offer = &asked[0];
+        assert_eq!(offer.details["kind"], "offer");
+        assert_eq!(offer.details["facts"][0]["unit"], "infantry");
+        assert_eq!(offer.details["facts"][1]["value"], 2);
+        let planet_caption = &offer.details["captions"][format!("{system}|{planet}").as_str()];
+        assert!(
+            planet_caption["label"]
+                .as_str()
+                .is_some_and(|label| label.ends_with(&format!("(system {system})")))
+        );
+        assert_eq!(planet_caption["hint"], "Place 2 infantry here");
+        // Infantry cannot be placed in space, so the ship space is not a spot: the planet and the
+        // optional decline are the only captions.
+        assert!(offer.details["captions"]
+            .as_object()
+            .is_some_and(|captions| captions.len() == 2));
+        assert_eq!(offer.details["captions"]["decline"]["label"], "Place none");
     }
 
     #[test]

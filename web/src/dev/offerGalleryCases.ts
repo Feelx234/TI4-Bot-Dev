@@ -45,6 +45,42 @@ export function offerCases(): GalleryCase[] {
     reduceCase(),
     {
       workflow: "generic_selection",
+      title: "Reinforcements: choose where to place",
+      fallback: "'place 2x infantry on jord in 14' labels -> the unit, how many, and each spot by its planet and system",
+      note: "An ability places units from your reinforcements on a planet you control (or in a ship space): the spots are named, and each says how many go there.",
+      choice: {
+        actor,
+        nonce: "gallery-reinforce-place",
+        prompt: "place up to 2 infantry",
+        context: { subtype: "place_units_from_reinforcements", source: { FactionAbility: "yso" } },
+        options: [
+          option("14|jord", "place 2x infantry on jord in 14", "place_unit", { system: "14", count: 2 }),
+          option("26|lodor", "place 2x infantry on lodor in 26", "place_unit", { system: "26", count: 2 }),
+          option("18|mr", "place 1x infantry on mr in 18", "place_unit", { system: "18", count: 1 }),
+          decline(),
+        ],
+        details: {
+          kind: "offer",
+          card: {
+            title: "Place units from your reinforcements",
+            tag: "placement",
+            text: "Choose where they go.",
+          },
+          facts: [
+            { label: "Unit", unit: "infantry" },
+            { label: "Up to", value: 2 },
+          ],
+          captions: {
+            "14|jord": { label: "Jord (system 14)", hint: "Place 2 infantry here" },
+            "26|lodor": { label: "Lodor (system 26)", hint: "Place 2 infantry here" },
+            "18|mr": { label: "Mecatol Rex (system 18)", hint: "Place 1 infantry here" },
+            decline: { label: "Place none", hint: "Nothing is placed" },
+          },
+        },
+      },
+    },
+    {
+      workflow: "generic_selection",
       title: "Construction: PDS or an alternative",
       fallback: "'place pds on jord' / 'place 1 mech and 1 infantry ... instead' -> the planet and what each answer does",
       note: "After picking a PDS spot, a faction ability (Titans' Hecatoncheires) may replace the PDS. The question names the planet; the alternative keeps the engine's own wording.",

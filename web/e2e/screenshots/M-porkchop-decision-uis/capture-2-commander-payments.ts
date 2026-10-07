@@ -12,6 +12,7 @@ for (const [name, title] of [
   ["5-research-waiver", "Research waiver: ignore prerequisites"],
   ["6-waiver-pay", "Research waiver: choose the payment"],
   ["8-pds-alternative", "Construction: PDS or an alternative"],
+  ["9-reinforce-place", "Reinforcements: choose where to place"],
 ] as const) {
   test(`porkchop decisions: ${name}`, async ({ page }, testInfo) => {
     await openMockedGame(page, {

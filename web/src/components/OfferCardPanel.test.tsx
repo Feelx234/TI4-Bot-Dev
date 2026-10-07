@@ -67,6 +67,14 @@ describe("offer card", () => {
     ]);
   });
 
+  it("captions every spot of a placement question and keeps the option ids", () => {
+    const view = describeOfferCard(galleryChoice("Reinforcements: choose where to place"))!;
+    expect(view.facts[0].unit).toBe("infantry");
+    expect(view.facts[1].text).toBe("2");
+    expect(view.answers.map((a) => a.option.id)).toEqual(["14|jord", "26|lodor", "18|mr", "decline"]);
+    expect(view.answers[0]).toMatchObject({ label: "Jord (system 14)", hint: "Place 2 infantry here" });
+  });
+
   it("shows a number that changes as before → after", () => {
     const view = describeOfferCard(galleryChoice("Deepwrought commander: reduce research"))!;
     expect(view.facts[0].change).toEqual({ from: 4, to: 3, of: null });
