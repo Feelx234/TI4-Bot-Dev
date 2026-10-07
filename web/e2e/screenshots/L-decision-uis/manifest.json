@@ -3,7 +3,8 @@
   "description": "Dedicated layouts for decisions that used to be a plain list of options. Synthetic gallery fixtures, not captured engine states.",
   "tag": "web/e2e/screenshots/L-decision-uis",
   "shots": [
-    { "file": "out/1-unexpected-recall.png", "heading": "Unexpected Action: recall your token", "caption": "Each system holding one of your command tokens is shown with its planets, ships and tokens instead of a bare system number, and can be picked on the map." }
+    { "file": "out/1-unexpected-recall.png", "heading": "Unexpected Action: recall your token", "caption": "Each system holding one of your command tokens is shown with its planets, ships and tokens instead of a bare system number, and can be picked on the map." },
+    { "file": "out/2-predictive-restack.png", "heading": "Predictive Intelligence: restack tokens", "caption": "The end-of-turn redistribution as pools to arrange, with tokens moved out and in marked. Confirm says how many moves it will send (here 2); the engine takes them one per question, then the plan finishes with 'done'. 647 of these questions were answered as plain lists in the nightly runs." }
   ],
   "notes": []
 }

@@ -930,6 +930,34 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Predictive Intelligence: restack tokens",
+    fallback: "One move per question -> per-pool +/- panel; the fewest moves are answered in turn",
+    note: "Predictive Intelligence redistributes at the end of the turn, one token per question. The panel plans the whole arrangement and sends the moves one after another, then finishes.",
+    choice: {
+      actor,
+      nonce: "gallery-pi-restack",
+      prompt: "Predictive Intelligence: redistribute command tokens",
+      context: {
+        subtype: "predictive_intelligence_redistribute",
+        source: { Content: "pi" },
+      },
+      options: [
+        ...["tactic|fleet", "tactic|strategy", "fleet|tactic", "fleet|strategy", "strategy|tactic", "strategy|fleet"].map(
+          (id) => option(id, `move 1 token from ${id.replace("|", " to ")}`, "redistribute"),
+        ),
+        option("done", "finish redistribution", "decline"),
+      ],
+      details: {
+        kind: "command_tokens",
+        mode: "restack",
+        pools: { tactic: 3, fleet: 4, strategic: 2 },
+        reinforcements: 7,
+        total: 9,
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Unknown subtype",
     fallback: "Unknown subtype → generic modal",
     note: "Unknown engine subtypes fall back to the generic single-choice modal.",

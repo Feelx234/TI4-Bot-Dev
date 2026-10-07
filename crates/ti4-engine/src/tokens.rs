@@ -227,7 +227,7 @@ pub fn with_pool_details(
         .detailed("reinforcements", reinforcements);
     match (mode, tokens_to_place) {
         ("gain" | "buy", Some(count)) => choice.detailed("tokens_to_place", count),
-        ("redistribute", _) => choice.detailed("total", tactic + fleet + strategic),
+        ("redistribute" | "restack", _) => choice.detailed("total", tactic + fleet + strategic),
         _ => choice,
     }
 }

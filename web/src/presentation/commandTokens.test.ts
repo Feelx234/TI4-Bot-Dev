@@ -15,6 +15,7 @@ import {
   planPayment,
   poolPips,
   removeToken,
+  restackMoves,
   resultingCount,
   tokenOutcome,
   tokenPlan,
@@ -404,5 +405,67 @@ describe("payment override", () => {
   it("builds the starting override from the Auto-pay plan", () => {
     const plan = planPayment(view(), 1)!;
     expect(overrideIsValid(view(), 1, overrideFromPlan(plan))).toBe(true);
+  });
+});
+
+describe("restack (Predictive Intelligence)", () => {
+  const moveIds = ["tactic|fleet", "tactic|strategy", "fleet|tactic", "fleet|strategy", "strategy|tactic", "strategy|fleet", "done"];
+  const restack = () => ({
+    options: moveIds.map((id) => ({ id, kind: id === "done" ? "decline" : "redistribute", label: id })),
+    details: {
+      kind: "command_tokens",
+      mode: "restack",
+      pools: { tactic: 3, fleet: 4, strategic: 2 },
+      reinforcements: 7,
+      total: 9,
+    },
+  });
+
+  it("reads the pools and the total, and needs no batch submitter", () => {
+    const view = describeCommandTokens(restack(), false)!;
+    expect(view.mode).toBe("restack");
+    expect(view.current).toEqual({ tactic: 3, fleet: 4, strategic: 2 });
+    expect(view.total).toBe(9);
+    expect(view.arrangements.has("tactic|fleet")).toBe(true);
+  });
+
+  it("is not offered without any move option", () => {
+    const none = { ...restack(), options: [{ id: "done", kind: "decline", label: "done" }] };
+    expect(describeCommandTokens(none, true)).toBeNull();
+  });
+
+  it("plans the fewest single moves, naming the strategy pool as the engine does", () => {
+    const view = describeCommandTokens(restack(), false)!;
+    expect(restackMoves(view, { tactic: 3, fleet: 4, strategic: 2 })).toEqual([]);
+    expect(restackMoves(view, { tactic: 1, fleet: 4, strategic: 4 })).toEqual([
+      "tactic|strategy",
+      "tactic|strategy",
+    ]);
+    expect(restackMoves(view, { tactic: 0, fleet: 3, strategic: 6 })).toEqual([
+      "tactic|strategy",
+      "tactic|strategy",
+      "tactic|strategy",
+      "fleet|strategy",
+    ]);
+  });
+
+  it("finishes with done unless every token was moved (then the engine stops asking itself)", () => {
+    const view = describeCommandTokens(restack(), false)!;
+    expect(tokenOutcome(view, { tactic: 3, fleet: 4, strategic: 2 })).toEqual({
+      kind: "moves",
+      moveIds: [],
+      finish: true,
+    });
+    expect(tokenOutcome(view, { tactic: 1, fleet: 4, strategic: 4 })).toEqual({
+      kind: "moves",
+      moveIds: ["tactic|strategy", "tactic|strategy"],
+      finish: true,
+    });
+    const swap = { ...view, current: { tactic: 3, fleet: 0, strategic: 0 }, total: 3 };
+    expect(tokenOutcome(swap, { tactic: 0, fleet: 3, strategic: 0 })).toEqual({
+      kind: "moves",
+      moveIds: ["tactic|fleet", "tactic|fleet", "tactic|fleet"],
+      finish: false,
+    });
   });
 });
