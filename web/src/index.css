@@ -199,6 +199,11 @@ html,
   padding: 6px 12px;
   background: var(--color-surface);
 }
+.event-log__jump {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 6px 12px;
+}
 .event-log__heading {
   display: flex;
   align-items: center;

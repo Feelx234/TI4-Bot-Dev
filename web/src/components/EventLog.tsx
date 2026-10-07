@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { GameLogEntry, HistoryChange } from "../protocol/client.ts";
 import { CurrentLogPath } from "../protocol/types.ts";
 import {
@@ -13,6 +13,7 @@ import {
   replayCopyMessage,
   type ReplayCopyState,
 } from "../presentation/replayCopy.ts";
+import { followTarget, isPinned, nextUnseen, restoreTarget } from "./eventLogScroll.ts";
 
 export interface EventLogProps {
   events: GameLogEntry[];
@@ -333,7 +334,58 @@ export const EventLog: React.FC<EventLogProps> = ({
     tree,
     manual,
   ]);
+  // Scroll-follow: a reader at the bottom keeps following new events (and a newly opened round or
+  // phase); a reader who scrolled up is never moved. The list starts pinned, so it opens at the
+  // newest entry. The list unmounts while hidden, so the position is remembered and restored.
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const pinned = useRef(true);
+  const savedTop = useRef(0);
+  const manualToggle = useRef(false);
+  const lastLength = useRef(events.length);
+  const [unseen, setUnseen] = useState(0);
+  const measure = (el: HTMLDivElement) => ({
+    scrollTop: el.scrollTop,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  });
+  const onListScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const el = event.currentTarget;
+    pinned.current = isPinned(measure(el));
+    savedTop.current = el.scrollTop;
+    if (pinned.current) setUnseen(0);
+  };
+  const jumpToLatest = () => {
+    const el = listRef.current;
+    if (!el) return;
+    pinned.current = true;
+    el.scrollTop = followTarget(true, measure(el)) ?? 0;
+    setUnseen(0);
+  };
+  // Shown again: back to the bottom if the reader was pinned, else to where they were.
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!isOpen || !el) return;
+    el.scrollTop = restoreTarget(pinned.current, savedTop.current, measure(el));
+  }, [isOpen]);
+  // Content grew (new events, a new round/phase node opening, a new history generation).
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    const previous = lastLength.current;
+    lastLength.current = events.length;
+    if (!isOpen || !el) return;
+    if (manualToggle.current) {
+      // The reader's own expand/collapse: never move them, just re-read where they are.
+      manualToggle.current = false;
+      pinned.current = isPinned(measure(el));
+      return;
+    }
+    const target = followTarget(pinned.current, measure(el));
+    if (target !== undefined) el.scrollTop = target;
+    else savedTop.current = el.scrollTop;
+    setUnseen((old) => nextUnseen(old, pinned.current, previous, events.length));
+  }, [tree, expanded, isOpen, events.length]);
   const toggle = (id: string) => {
+    manualToggle.current = true;
     setManual((old) => new Set(old).add(id));
     setExpanded((old) => {
       const next = new Set(old);
@@ -520,6 +572,17 @@ export const EventLog: React.FC<EventLogProps> = ({
       </button>
       {isOpen && (
         <>
+          {unseen > 0 && (
+            // Right under the toggle: on a phone the turn bar and drawer buttons cover the rest.
+            <button
+              type="button"
+              className="button button--secondary button--sm event-log__jump"
+              data-testid="event-log-jump"
+              onClick={jumpToLatest}
+            >
+              {unseen} new {unseen === 1 ? "event" : "events"} ↓ Jump to latest
+            </button>
+          )}
           {onFetchReplay && (
             <div className="event-log__replay" data-testid="event-log-replay">
               <button
@@ -619,6 +682,8 @@ export const EventLog: React.FC<EventLogProps> = ({
             aria-labelledby="event-log-toggle"
             data-testid="event-log-list"
             className="event-log__list"
+            ref={listRef}
+            onScroll={onListScroll}
           >
             {tree.length ? (
               tree.map((item) => renderNode(item, 0))
