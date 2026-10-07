@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { PlayerSheet, calculateVPBreakdown, VPBreakdownTooltip } from "./PlayerSheet.tsx";
 import { CardDetails } from "./CardDetails.tsx";
 import { PlayerView, TableView } from "../protocol/types.ts";
@@ -347,5 +347,44 @@ describe("PlayerSheet reaction mode toggle", () => {
   it("has no toggle for a viewer who cannot change modes or for another seat's cards", () => {
     render(<PlayerSheet players={mockPlayers} userSeat="p1" />);
     expect(screen.queryByTestId("reaction-inspect-mode-direct_hit")).toBeNull();
+  });
+});
+
+describe("PlayerSheet economy and token line", () => {
+  it("shows bare token numbers separated by diamonds, without the old label", () => {
+    render(<PlayerSheet players={mockPlayers} userSeat="p1" />);
+    const tokens = screen.getAllByTestId("player-command-tokens");
+    expect(tokens[0].textContent).toBe("3 ◆ 3 ◆ 2");
+    expect(tokens[1].textContent).toBe("2 ◆ 4 ◆ 1");
+    expect(screen.queryByText(/Tokens:/)).toBeNull();
+  });
+
+  it("names the numbers in aria-labels and hover tooltips", () => {
+    vi.useFakeTimers();
+    try {
+      render(<PlayerSheet players={mockPlayers} userSeat="p1" />);
+      const tokens = screen.getAllByTestId("player-command-tokens")[0];
+      expect(tokens.getAttribute("aria-label")).toBe("Command tokens: tactic 3, fleet 3, strategy 2");
+      expect(tokens.tabIndex).toBe(0);
+      fireEvent.pointerEnter(tokens);
+      act(() => void vi.advanceTimersByTime(300));
+      expect(screen.getByRole("tooltip").textContent).toBe("Tactic 3 · Fleet 3 · Strategy 2");
+      fireEvent.pointerLeave(tokens);
+
+      const tg = screen.getAllByTestId("player-trade-goods")[0];
+      expect(tg.getAttribute("aria-label")).toBe("Trade goods: 2");
+      fireEvent.pointerEnter(tg);
+      act(() => void vi.advanceTimersByTime(300));
+      expect(screen.getByRole("tooltip").textContent).toBe("Trade goods");
+      fireEvent.pointerLeave(tg);
+
+      const comm = screen.getAllByTestId("player-commodities")[0];
+      expect(comm.getAttribute("aria-label")).toBe("Commodities: 4");
+      fireEvent.focus(comm);
+      act(() => void vi.advanceTimersByTime(300));
+      expect(screen.getByRole("tooltip").textContent).toBe("Commodities");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
