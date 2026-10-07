@@ -34,6 +34,10 @@ start)
   [ -z "$preset" ] || preset_env="TI4_SMOKE_PRESET=$preset "
   port=$(shuf -i 20000-49000 -n 1)
   deadline="${DEADLINE:-$(( $(now_epoch) + 6 * 3600 ))}"
+  # The code under test: nothing keeps interactive commits off the night branch while a game plays,
+  # so each run records the commit and how many files differ from it.
+  commit=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)
+  dirty_files=$(git -C "$REPO" status --porcelain 2>/dev/null | wc -l)
   budget=$(( deadline - $(now_epoch) ))
   [ "$budget" -gt 60 ] || { echo "no time left before the deadline" >&2; exit 1; }
   cat > "$run_dir/meta.json" <<EOF
@@ -43,6 +47,8 @@ start)
   "players": $players,
   "policy": "$policy",
   "preset": "$preset",
+  "commit": "$commit",
+  "dirty_files": $dirty_files,
   "stop_round": $STOP_ROUND,
   "backend_port": $port,
   "server_data_dir": "/tmp/ti4-playwright-games-$port",
