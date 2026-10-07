@@ -75,9 +75,13 @@ describe("TradeDeskModal", () => {
 
     // Select the promissory note offer
     fireEvent.click(pnOpt);
-    expect(screen.getByTestId("selected-trade-summary")).toHaveTextContent(
-      "Military Support for 3 TG",
+    // The quick deal stages both sides on the desk and the combination is recognised.
+    expect(screen.getByTestId("stage-status-valid")).toHaveTextContent("Military Support for 3 TG");
+    expect(screen.getByTestId("stage-give-note-military_support:sol")).toHaveAttribute(
+      "aria-pressed",
+      "true",
     );
+    expect(screen.getByTestId("stage-receive-tg-value")).toHaveTextContent("3");
     expect(proposeBtn).not.toBeDisabled();
 
     // Click propose deal
@@ -255,9 +259,12 @@ describe("TradeDeskModal", () => {
 
     expect(screen.queryByTestId("trade-tab-commodity_swap")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("trade-opt-cpconvoys:hacan:3"));
-    const summary = screen.getByTestId("selected-trade-summary");
-    expect(summary).toHaveTextContent("Pay 3 commodities");
-    expect(summary).toHaveTextContent("Promissory Note: convoys:hacan");
-    expect(summary).not.toHaveTextContent("Gift");
+    // Staged: 3 commodities on the give side, the partner's note on the receive side.
+    expect(screen.getByTestId("stage-give-cm-value")).toHaveTextContent("3");
+    expect(screen.getByTestId("stage-receive-note-convoys:hacan")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("stage-status-valid")).not.toHaveTextContent("Gift");
   });
 });
