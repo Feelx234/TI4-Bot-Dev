@@ -14,6 +14,7 @@ import { describeStrategySecondary } from "../presentation/strategySecondary.ts"
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { describeCommandTokens, type TokenOutcome } from "../presentation/commandTokens.ts";
 import { CommandTokenPanel } from "./CommandTokenPanel.tsx";
+import { TokenPaymentBar } from "./TokenPaymentBar.tsx";
 import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
 import { describeTradeReplenish } from "../presentation/tradeReplenish.ts";
 import { TradeReplenishPanel } from "./TradeReplenishPanel.tsx";
@@ -176,8 +177,30 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     }
   };
 
+  const confirmTokens = async (outcome: TokenOutcome) => {
+    if (outcome.kind === "option") await onSubmit(outcome.optionId);
+    else if (outcome.kind === "moves") {
+      // One engine question per move; the pipeline answers them in turn.
+      const intents: SemanticIntent[] = outcome.moveIds.map((id) => ({
+        predicate: (o: ChoiceOptionDto) => o.id === id,
+      }));
+      if (outcome.finish) intents.push({ predicate: isDeclineOption });
+      executePipeline(intents);
+    } else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
+  };
   // Minimized floating banner allowing inspection of map, players, and tables
   if (isMinimized) {
+    // Leadership's purchase is paid by clicking planets on the map; this bar confirms it.
+    const minimizedTokens = describeCommandTokens(choice, Boolean(onSubmitBatch));
+    if (minimizedTokens?.purchase) {
+      return (
+        <TokenPaymentBar
+          view={minimizedTokens}
+          onConfirm={confirmTokens}
+          onOpenPanel={() => setIsMinimized(false)}
+        />
+      );
+    }
     return (
       <div data-testid="minimized-choice-banner" className="choice-banner panel">
         <span>{choice.prompt}</span>
@@ -212,17 +235,6 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     tokens || secondary || replenish || abilityOffer ? null : describeOfferCard(choice);
   const voteGoods =
     tokens || secondary || replenish || abilityOffer || offerCard ? null : describeVoteGoods(choice);
-  const confirmTokens = async (outcome: TokenOutcome) => {
-    if (outcome.kind === "option") await onSubmit(outcome.optionId);
-    else if (outcome.kind === "moves") {
-      // One engine question per move; the pipeline answers them in turn.
-      const intents: SemanticIntent[] = outcome.moveIds.map((id) => ({
-        predicate: (o: ChoiceOptionDto) => o.id === id,
-      }));
-      if (outcome.finish) intents.push({ predicate: isDeclineOption });
-      executePipeline(intents);
-    } else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
-  };
   const submitOption = async (optionId: string) => {
     if (isSubmitting || isPipelineRunning) return;
     setSubmissionError(null);
@@ -399,6 +411,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               view={tokens}
               disabled={isSubmitting || isPipelineRunning}
               onConfirm={confirmTokens}
+              onPayOnMap={() => setIsMinimized(true)}
             />
           )}
           {!secondary && !tokens && <RemoveUnitPanel choice={choice} board={boardView} />}

@@ -244,6 +244,8 @@ export function deriveActorTargetHighlights(
   pendingChoice: PendingChoiceDto | null,
   viewerSeat?: string | null,
   board?: BoardView,
+  /** Planets that can pay a purchase staged on a panel (Leadership's command tokens). */
+  paymentPlanetIds?: readonly string[],
 ): TargetHighlightModel {
   const empty: TargetHighlightModel = {
     targetableSystemIds: new Set(),
@@ -309,14 +311,18 @@ export function deriveActorTargetHighlights(
   const isPlanetMode =
     !isActivationMode && !board?.invasion && isPlanetSelectionChoice(pendingChoice);
   // Paying: payable planets are ringed with their worth and toggle in and out of the payment.
-  const isPaymentMode = !isActivationMode && !board?.invasion && isPaymentChoice(pendingChoice);
+  const isPanelPaymentMode = !isActivationMode && !board?.invasion && Boolean(paymentPlanetIds);
+  const isPaymentMode =
+    isPanelPaymentMode || (!isActivationMode && !board?.invasion && isPaymentChoice(pendingChoice));
   const targetMode: MapTargetMode = isActivationMode
     ? "system"
-    : isPlanetMode
-      ? "planet"
-      : isPaymentMode
-        ? "payment"
-        : null;
+    : isPanelPaymentMode
+      ? "payment"
+      : isPlanetMode
+        ? "planet"
+        : isPaymentMode
+          ? "payment"
+          : null;
 
   // Bare system-id picks (diplomacy, warfare recall, ...) highlight their systems on the map.
   const isSystemPick = isSystemPickChoice(pendingChoice, board);
@@ -376,6 +382,17 @@ export function deriveActorTargetHighlights(
       if (sys) {
         addSystemOption(String(sys), opt.id);
       }
+    }
+  }
+
+  if (isPanelPaymentMode) {
+    for (const planet of paymentPlanetIds ?? []) {
+      const ready = Object.values(board?.systems ?? {}).some(
+        (system) =>
+          system.planets[planet]?.controlled_by === pendingChoice.actor &&
+          !system.planets[planet].exhausted,
+      );
+      if (ready) addPlanetOption(planet, `exhaust|${planet}`);
     }
   }
 
@@ -540,9 +557,10 @@ export function buildBoardPresentationModel(
   pendingChoice: PendingChoiceDto | null = null,
   viewerSeat?: string | null,
   selectedSystemId?: string | null,
+  paymentPlanetIds?: readonly string[],
 ): BoardPresentationModel {
   const ownershipMap = deriveOwnershipPalette(seatingOrder, players);
-  const targets = deriveActorTargetHighlights(pendingChoice, viewerSeat, board);
+  const targets = deriveActorTargetHighlights(pendingChoice, viewerSeat, board, paymentPlanetIds);
   const systemsMap = board.systems || {};
 
   // Build unified tile list from map_tiles, or fallback deterministic spiral coordinates

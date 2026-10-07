@@ -25,6 +25,10 @@ import {
 } from "./presentation/paymentDraft.ts";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
 import { PaymentDraftProvider, usePaymentDraftState } from "./presentation/PaymentDraftContext.tsx";
+import {
+  CommandTokenDraftProvider,
+  useCommandTokenDraft,
+} from "./presentation/CommandTokenDraftContext.tsx";
 
 const DevDecisionGallery = import.meta.env.DEV
   ? React.lazy(() =>
@@ -292,6 +296,7 @@ const GameViewContainer: React.FC<{
   };
   const userSeat = viewer.role === "player" ? viewer.seat : undefined;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
+  const tokenDraft = useCommandTokenDraft(pendingChoice);
   const [selectedOptionId, setSelectedOptionId] = useState<string>();
   const [selectedPlanetId, setSelectedPlanetId] = useState<string | null>(null);
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
@@ -335,6 +340,13 @@ const GameViewContainer: React.FC<{
             ));
   const handleSelectTarget = (systemId: string, planetId?: string) => {
     if (!pendingChoice || pendingChoice.actor !== userSeat) return;
+    // Leadership purchase: a click on a planet that can pay flips it in the staged payment.
+    if (tokenDraft.mapPayment) {
+      if (planetId && tokenDraft.mapPayment.offer.planets.some((p) => p.planetId === planetId)) {
+        tokenDraft.togglePlanet(planetId);
+      }
+      return;
+    }
     // Paying: a click on a payable planet stages or unstages it (shared with the payment list).
     if (isPaymentChoice(pendingChoice)) {
       if (!planetId) return;
@@ -359,6 +371,7 @@ const GameViewContainer: React.FC<{
     <DecisionTableProvider table={snapshot?.view ?? null}>
       {/* The provider wraps the rest unindented to keep this diff small. */}
       <PaymentDraftProvider value={paymentDraft}>
+      <CommandTokenDraftProvider value={tokenDraft}>
       {historyError && (
         <div className="session-error" role="alert">
           {historyError}
@@ -526,6 +539,7 @@ const GameViewContainer: React.FC<{
           setCardSubject(subject);
         }}
       />
+      </CommandTokenDraftProvider>
       </PaymentDraftProvider>
     </DecisionTableProvider>
     </PlayerIdentityProvider>

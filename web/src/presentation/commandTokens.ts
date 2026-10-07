@@ -1,5 +1,5 @@
 import type { PendingChoiceDto } from "../protocol/types.ts";
-import { suggestAutoPay, type PayablePlanet, type PaymentOffer } from "./paymentDraft.ts";
+import { suggestAutoPay, type PayablePlanet, type PaymentDraft, type PaymentOffer } from "./paymentDraft.ts";
 
 export type TokenPool = "tactic" | "fleet" | "strategic";
 export const TOKEN_POOLS: readonly TokenPool[] = ["tactic", "fleet", "strategic"];
@@ -514,4 +514,77 @@ export function tokenOutcome(
   }
   const optionId = arrangementId(view, staging);
   return optionId === null ? null : { kind: "option", optionId };
+}
+
+/** The purchase's bill as a payment offer, so the map and the shared bar can reuse the payment machinery. */
+export function purchaseOffer(view: CommandTokenView, bought: number): PaymentOffer | null {
+  const purchase = view.purchase;
+  if (!purchase) return null;
+  const bill = purchase.cost * bought;
+  return {
+    planets: purchase.planets.map((planet) => ({
+      id: `exhaust|${planet.id}`,
+      planetId: planet.id,
+      planetName: planet.id,
+      worth: planet.worth,
+      label: planet.id,
+    })),
+    hasTradeGoodOption: purchase.tradeGoods > 0,
+    tradeGoodWorth: purchase.tradeGoodWorth,
+    owed: bill,
+    totalAmount: bill,
+    alreadyPaid: 0,
+    currency: "Influence",
+  };
+}
+
+/** What would be paid now: the player's own choice, else the Auto-pay plan (empty when none fits). */
+export function effectivePayment(
+  view: CommandTokenView,
+  bought: number,
+  override: PaymentOverride | null,
+): PaymentOverride {
+  if (override) return override;
+  const plan = planPayment(view, bought);
+  return plan ? overrideFromPlan(plan) : { planetIds: [], tradeGoods: 0 };
+}
+
+/** The effective payment in the payment draft's terms (option ids), for the map's marks. */
+export function paymentDraftOf(
+  view: CommandTokenView,
+  bought: number,
+  override: PaymentOverride | null,
+): PaymentDraft {
+  const pay = effectivePayment(view, bought, override);
+  return { planetIds: pay.planetIds.map((id) => `exhaust|${id}`), tradeGoods: pay.tradeGoods };
+}
+
+/** A map click on a planet: starts from what is paid now (Auto-pay's plan) and flips that planet. */
+export function toggleMapPlanet(
+  view: CommandTokenView,
+  bought: number,
+  override: PaymentOverride | null,
+  planetId: string,
+): PaymentOverride | null {
+  const purchase = view.purchase;
+  if (!purchase || bought === 0 || !purchase.planets.some((planet) => planet.id === planetId)) return override;
+  const base = effectivePayment(view, bought, override);
+  const has = base.planetIds.includes(planetId);
+  return {
+    ...base,
+    planetIds: has ? base.planetIds.filter((id) => id !== planetId) : [...base.planetIds, planetId],
+  };
+}
+
+/** Spend one trade good more or less, from what is paid now. */
+export function stepPaymentGoods(
+  view: CommandTokenView,
+  bought: number,
+  override: PaymentOverride | null,
+  delta: number,
+): PaymentOverride | null {
+  const purchase = view.purchase;
+  if (!purchase || bought === 0) return override;
+  const base = effectivePayment(view, bought, override);
+  return { ...base, tradeGoods: Math.max(0, Math.min(purchase.tradeGoods, base.tradeGoods + delta)) };
 }
