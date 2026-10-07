@@ -7,6 +7,12 @@ import {
   usePlayerIdentity,
 } from "../presentation/PlayerIdentity.tsx";
 import { ACTION_CARDS, getActionCardDescription } from "../protocol/contentCatalog.ts";
+import {
+  copyReplay,
+  downloadText,
+  replayCopyMessage,
+  type ReplayCopyState,
+} from "../presentation/replayCopy.ts";
 
 export interface EventLogProps {
   events: GameLogEntry[];
@@ -19,6 +25,8 @@ export interface EventLogProps {
   busy?: boolean;
   currentPath?: CurrentLogPath;
   historyKey?: unknown;
+  /** Any seated player: loads the replay JSON so it can be copied out of the log drawer. */
+  onFetchReplay?: () => Promise<{ text: string; filename: string }>;
 }
 
 export interface LogNode {
@@ -268,7 +276,22 @@ export const EventLog: React.FC<EventLogProps> = ({
   busy = false,
   currentPath,
   historyKey,
+  onFetchReplay,
 }) => {
+  const [replayState, setReplayState] = useState<ReplayCopyState>({ kind: "idle" });
+  const copyReplayToClipboard = async () => {
+    if (!onFetchReplay || replayState.kind === "busy") return;
+    setReplayState({ kind: "busy" });
+    setReplayState(
+      await copyReplay({
+        fetchReplay: onFetchReplay,
+        writeClipboard: navigator.clipboard?.writeText
+          ? (text) => navigator.clipboard.writeText(text)
+          : undefined,
+        download: downloadText,
+      }),
+    );
+  };
   const display = usePlayerIdentity();
   const present = useParticipantText();
   const parts = useParticipantParts();
@@ -483,6 +506,32 @@ export const EventLog: React.FC<EventLogProps> = ({
       </button>
       {isOpen && (
         <>
+          {onFetchReplay && (
+            <div className="event-log__replay" data-testid="event-log-replay">
+              <button
+                type="button"
+                className="button button--secondary button--sm"
+                data-testid="copy-replay-btn"
+                disabled={replayState.kind === "busy"}
+                onClick={() => void copyReplayToClipboard()}
+              >
+                {replayState.kind === "busy" ? "Copying…" : "Copy replay"}
+              </button>
+              <span
+                role="status"
+                aria-live="polite"
+                data-testid="copy-replay-status"
+                data-state={replayState.kind}
+                className={
+                  replayState.kind === "error"
+                    ? "event-log__replay-status text-danger"
+                    : "event-log__replay-status"
+                }
+              >
+                {replayCopyMessage(replayState)}
+              </span>
+            </div>
+          )}
           {onChangeHistory && redoCount > 0 && (
             <div className="event-log__redo" aria-label="Redo history">
               <span>

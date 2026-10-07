@@ -63,6 +63,8 @@ export interface GameShellProps {
     steps?: number,
   ) => void;
   historyBusy?: boolean;
+  /** Loads the replay JSON for the event log's "Copy replay" button (seated players). */
+  onFetchReplay?: () => Promise<{ text: string; filename: string }>;
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
   /** The viewing seat's "never offer" cards (server state) and how to change them. */
@@ -880,6 +882,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   logHistoryKey,
   onChangeHistory,
   historyBusy,
+  onFetchReplay,
   choice,
   onSubmitChoice,
   onSubmitMovementBatch,
@@ -1115,6 +1118,7 @@ export const GameShell: React.FC<GameShellProps> = ({
           onChangeHistory={
             onChangeHistory ? (action) => onChangeHistory(action) : undefined
           }
+          onFetchReplay={onFetchReplay}
           isOpen={openDrawer === "events"}
           onToggle={() =>
             setOpenDrawer((drawer) => (drawer === "events" ? null : "events"))

@@ -707,6 +707,35 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
+  it("fetches the replay with the player session and names the file after the game", async () => {
+    const { client } = await connectedPlayer();
+    const request = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ format: "ti4-replay", history: { decisions: [] } }),
+    });
+    vi.stubGlobal("fetch", request);
+    const replay = await client.fetchReplay();
+    expect(request.mock.calls[0][0]).toBe("/api/games/game_12345/replay");
+    expect(request.mock.calls[0][1].headers).toHaveProperty("x-ti4-player-session");
+    expect(replay.filename).toBe("ti4-replay-game_12345.json");
+    expect(JSON.parse(replay.text)).toEqual({ format: "ti4-replay", history: { decisions: [] } });
+    client.stop();
+  });
+
+  it("surfaces the server's reason when the replay is refused", async () => {
+    const { client } = await connectedPlayer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "the session credential is not valid for this game",
+      }),
+    );
+    await expect(client.fetchReplay()).rejects.toThrow(/session credential is not valid/);
+    client.stop();
+  });
+
   it("does not retry undo if another decision was made during refresh", async () => {
     const { client } = await connectedPlayer();
     const request = vi

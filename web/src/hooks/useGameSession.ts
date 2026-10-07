@@ -32,6 +32,8 @@ export interface UseGameSessionReturn {
   /** Never (or again) offer one action card, by printed name, to this seat. */
   setReactionMode: (card: string, mode: import("../protocol/types.ts").ReactionModeSetting) => void;
   changeHistory: (action: import("../protocol/client.ts").HistoryChange) => Promise<void>;
+  /** The game's replay JSON for copying out (any seated player). */
+  fetchReplay: () => Promise<{ text: string; filename: string }>;
   submitMovementBatch: (
     destination: string,
     steps: import("../protocol/client.ts").MovementStep[],
@@ -69,6 +71,7 @@ export function useGameSession({
     submitChoice,
     setReactionMode: (card, mode) => client.setReactionMode(card, mode),
     changeHistory,
+    fetchReplay: () => client.fetchReplay(),
     submitMovementBatch: (destination, steps) => client.submitMovementBatch(destination, steps),
     submitBatch: (plan) => client.submitBatch(plan),
     resumeBatch: () => client.resumeBatch(),

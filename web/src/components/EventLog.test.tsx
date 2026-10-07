@@ -227,3 +227,44 @@ describe("hierarchical event log", () => {
     });
   });
 });
+
+describe("copy replay", () => {
+  const replay = { text: '{"format":"ti4-replay"}', filename: "ti4-replay-g1.json" };
+
+  it("has no button unless the viewer can fetch a replay", () => {
+    render(wrap([decision(1)]));
+    expect(screen.queryByTestId("copy-replay-btn")).toBeNull();
+  });
+
+  it("copies the replay, shows a polite status and disables the button while loading", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    let release!: () => void;
+    const onFetchReplay = vi.fn(
+      () =>
+        new Promise<typeof replay>((resolve) => {
+          release = () => resolve(replay);
+        }),
+    );
+    render(wrap([decision(1)], { onFetchReplay }));
+    const button = screen.getByTestId("copy-replay-btn");
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(onFetchReplay).toHaveBeenCalledOnce();
+    release();
+    const status = await screen.findByText(/Replay copied/);
+    expect(writeText).toHaveBeenCalledWith(replay.text);
+    expect(status).toBe(screen.getByTestId("copy-replay-status"));
+    expect(status).toHaveAttribute("role", "status");
+    expect(button).not.toBeDisabled();
+  });
+
+  it("shows a visible error when the server refuses", async () => {
+    const onFetchReplay = vi.fn().mockRejectedValue(new Error("not your game"));
+    render(wrap([decision(1)], { onFetchReplay }));
+    fireEvent.click(screen.getByTestId("copy-replay-btn"));
+    expect(await screen.findByText("Could not load the replay: not your game")).toBeVisible();
+    expect(screen.getByTestId("copy-replay-status")).toHaveAttribute("data-state", "error");
+  });
+});

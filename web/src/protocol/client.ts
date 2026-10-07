@@ -592,6 +592,24 @@ export class GameSessionClient {
     this.openSocket();
   }
 
+  /** Any seated player: the live game history (seed, seats, decisions, events) as pretty JSON. */
+  async fetchReplay(): Promise<{ text: string; filename: string }> {
+    if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
+      throw new Error("A player session is required");
+    const response = await fetch(this.snapshotUrl().replace(/\/snapshot$/, "/replay"), {
+      headers: this.snapshotHeaders(),
+    });
+    if (!response.ok) {
+      const reason = (await response.text().catch(() => "")).trim();
+      throw new Error(reason || `The server refused the replay (${response.status})`);
+    }
+    const replay: unknown = await response.json();
+    return {
+      text: JSON.stringify(replay, null, 2),
+      filename: `ti4-replay-${this.options.gameId}.json`,
+    };
+  }
+
   /** The host changes the authoritative Rust timeline; all clients reconnect to it. */
   async changeHistory(action: HistoryChange): Promise<void> {
     if (

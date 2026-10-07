@@ -251,6 +251,7 @@ const GameViewContainer: React.FC<{
     submitChoice,
     setReactionMode,
     changeHistory,
+    fetchReplay,
     submitMovementBatch,
     submitBatch,
     batchResume,
@@ -473,6 +474,7 @@ const GameViewContainer: React.FC<{
         history={gameHistory}
         historyBusy={historyBusy}
         onChangeHistory={userSeat === lobby.host_player_id ? onChangeHistory : undefined}
+        onFetchReplay={userSeat ? fetchReplay : undefined}
         choice={pendingChoice}
         viewerSeat={userSeat}
         players={snapshot?.view.players}
