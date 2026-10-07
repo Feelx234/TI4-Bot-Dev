@@ -382,7 +382,7 @@ const GameViewContainer: React.FC<{
               connectionStatus={status}
               userSeat={userSeat}
             />
-            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <div className="game-header__actions">
               <button
                 type="button"
                 data-testid="technology-modal-button"

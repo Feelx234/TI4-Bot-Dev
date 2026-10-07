@@ -65,7 +65,7 @@ export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
         fontSize: 14,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px 16px", flexWrap: "wrap" }}>
         {/* Connection status indicator */}
         <div
           data-testid="connection-indicator"
