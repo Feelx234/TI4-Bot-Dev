@@ -529,6 +529,10 @@ pub struct AutoplayResult {
     /// Decks that sit a different number of cards from the original after the redone turn,
     /// as far as the kept tail reached (a shift no kept decision drew against is not a conflict).
     pub deck_offsets: Vec<DeckDelta>,
+    /// Where the random streams stood when the new turn's last decision was answered (after the
+    /// restore, if one applied there). Without forcing this is the natural position, which a
+    /// measurement compares with the original's to see whether the new turn shifted the dice.
+    pub join_positions: Option<RngPositions>,
     /// Remapped events of the kept tail, to append to the prefix events.
     pub tail_events: Vec<GameEvent>,
 }
@@ -732,6 +736,10 @@ pub fn autoplay(
         stop,
         asking_seat,
         deck_offsets,
+        join_positions: prefix_len
+            .checked_sub(1)
+            .and_then(|i| run.captured.get(&i))
+            .cloned(),
         tail_events,
     })
 }

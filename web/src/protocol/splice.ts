@@ -15,7 +15,8 @@ export type ConflictKind =
   | "options_changed"
   | "quantity_changed"
   | "engine_ended"
-  | "engine_error";
+  | "engine_error"
+  | "deck_cursor";
 
 const CONFLICT_KINDS: readonly string[] = [
   "actor",
@@ -26,6 +27,7 @@ const CONFLICT_KINDS: readonly string[] = [
   "quantity_changed",
   "engine_ended",
   "engine_error",
+  "deck_cursor",
 ];
 
 export interface SpliceConflict {

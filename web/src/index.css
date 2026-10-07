@@ -142,6 +142,34 @@ html,
   border-bottom: 1px solid var(--color-border);
 }
 
+.event-log__turn-redo {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.event-log__turn-redo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.75rem;
+}
+
+.event-log__turn-redo-field select {
+  min-height: 32px;
+  padding: 2px 6px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.85rem;
+}
+
 .event-log__toggle {
   display: flex;
   justify-content: space-between;
@@ -358,6 +386,88 @@ html,
   color: inherit;
   font-size: 0.9rem;
   pointer-events: auto;
+}
+
+.turn-redo {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  width: max-content;
+  max-width: min(720px, calc(100% - 32px));
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong, #8886);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--surface-raised, #1c2230);
+  color: inherit;
+  font-size: 0.9rem;
+  pointer-events: auto;
+}
+
+.turn-redo[data-state="conflict"] {
+  border-left-color: var(--color-warning, #f59e0b);
+}
+
+.turn-redo[data-state="replaying"],
+.turn-redo[data-state="rewinding"],
+.turn-redo[data-state="restoring"] {
+  border-left-color: var(--color-accent, #38bdf8);
+}
+
+.turn-redo[data-state="handoff"],
+.turn-redo[data-state="complete"] {
+  border-left-color: var(--color-success, #22c55e);
+}
+
+.turn-redo__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 280px;
+}
+
+.turn-redo__detail,
+.turn-redo__note {
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.85rem;
+}
+
+.turn-redo__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.turn-redo[data-state="replaying"] .turn-redo__title::after {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-left: 8px;
+  vertical-align: -0.1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: turn-redo-spin 0.8s linear infinite;
+}
+
+@keyframes turn-redo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-redo[data-state="replaying"] .turn-redo__title::after {
+    animation: none;
+  }
 }
 
 .invasion-overlay {

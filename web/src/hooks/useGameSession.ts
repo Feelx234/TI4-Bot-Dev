@@ -34,6 +34,9 @@ export interface UseGameSessionReturn {
   changeHistory: (action: import("../protocol/client.ts").HistoryChange) => Promise<void>;
   /** The game's replay JSON for copying out (any seated player). */
   fetchReplay: () => Promise<{ text: string; filename: string }>;
+  /** Turn redo: where it stands (null when none is in flight), and the commands that change it. */
+  fetchTurnRedoStatus: () => Promise<import("../protocol/turnRedo.ts").TurnRedoStatus | null>;
+  turnRedoCommand: (command: import("../protocol/turnRedo.ts").TurnRedoCommand) => Promise<void>;
   submitMovementBatch: (
     destination: string,
     steps: import("../protocol/client.ts").MovementStep[],
@@ -72,6 +75,8 @@ export function useGameSession({
     setReactionMode: (card, mode) => client.setReactionMode(card, mode),
     changeHistory,
     fetchReplay: () => client.fetchReplay(),
+    fetchTurnRedoStatus: () => client.fetchTurnRedoStatus(),
+    turnRedoCommand: (command) => client.turnRedoCommand(command),
     submitMovementBatch: (destination, steps) => client.submitMovementBatch(destination, steps),
     submitBatch: (plan) => client.submitBatch(plan),
     resumeBatch: () => client.resumeBatch(),

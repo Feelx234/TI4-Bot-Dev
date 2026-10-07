@@ -736,6 +736,89 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
+  it("reads the turn redo status with the player session and decodes it", async () => {
+    const { client } = await connectedPlayer();
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: null }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: {
+            seat: "player_a",
+            requested_by: "player_a",
+            turns_back: 1,
+            redo_count: 1,
+            stage: "new_turn",
+            original_decisions: 10,
+            rewound_to: 4,
+            turn_complete: false,
+            handoff_len: null,
+            outcome: null,
+            can_control: true,
+          },
+        }),
+      });
+    vi.stubGlobal("fetch", request);
+    expect(await client.fetchTurnRedoStatus()).toBeNull();
+    expect(request.mock.calls[0][0]).toBe("/api/games/game_12345/turn-redo");
+    expect(request.mock.calls[0][1].headers).toHaveProperty("x-ti4-player-session");
+    expect((await client.fetchTurnRedoStatus())?.stage).toBe("new_turn");
+    client.stop();
+  });
+
+  it("posts a turn redo request and switches to the replacement timeline", async () => {
+    const { client } = await connectedPlayer();
+    const request = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...snapshot,
+        game_version: 9,
+        viewer: { role: "player", seat: "player_a" },
+        history: { cursor: 2, redo_count: 0, generation: 3 },
+        events: [],
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    await client.turnRedoCommand({ action: "request", turns: 2 });
+    expect(request.mock.calls[0][0]).toBe("/api/games/game_12345/turn-redo");
+    expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({
+      action: "request",
+      turns: 2,
+      expected_version: 4,
+    });
+    expect(client.getState().gameVersion).toBe(9);
+    expect(client.getState().history.generation).toBe(3);
+    client.stop();
+  });
+
+  it("surfaces a refused turn redo and keeps the timeline", async () => {
+    const { client } = await connectedPlayer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "History change forbidden: only the host may redo another seat's turn",
+      }),
+    );
+    await expect(client.turnRedoCommand({ action: "request", seat: "player_b" })).rejects.toThrow(
+      /Turn redo failed \(403\).*only the host/,
+    );
+    expect(client.getState().gameVersion).toBe(4);
+    client.stop();
+  });
+
+  it("keeps the new timeline without replacing the session", async () => {
+    const { client } = await connectedPlayer();
+    const request = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ kept: true }) });
+    vi.stubGlobal("fetch", request);
+    await client.turnRedoCommand({ action: "keep" });
+    expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({ action: "keep", expected_version: 4 });
+    expect(client.getState().gameVersion).toBe(4);
+    client.stop();
+  });
+
   it("does not retry undo if another decision was made during refresh", async () => {
     const { client } = await connectedPlayer();
     const request = vi

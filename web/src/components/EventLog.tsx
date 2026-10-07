@@ -27,6 +27,17 @@ export interface EventLogProps {
   historyKey?: unknown;
   /** Any seated player: loads the replay JSON so it can be copied out of the log drawer. */
   onFetchReplay?: () => Promise<{ text: string; filename: string }>;
+  /** Turn redo: lets a seated player rewind their own last turn(s); the host may pick any seat. */
+  turnRedo?: TurnRedoRequestControls;
+}
+
+export interface TurnRedoRequestControls {
+  onRequest: (options: { turns?: 1 | 2; seat?: string }) => void;
+  /** A request is running, or a redo is already in flight: the button waits. */
+  disabled: boolean;
+  /** Host only: the seats whose turn may be redone (the viewer's own seat first). */
+  seats?: { id: string; label: string }[];
+  viewerSeat?: string | null;
 }
 
 export interface LogNode {
@@ -277,7 +288,10 @@ export const EventLog: React.FC<EventLogProps> = ({
   currentPath,
   historyKey,
   onFetchReplay,
+  turnRedo,
 }) => {
+  const [redoTurns, setRedoTurns] = useState<1 | 2>(1);
+  const [redoSeat, setRedoSeat] = useState<string | undefined>(undefined);
   const [replayState, setReplayState] = useState<ReplayCopyState>({ kind: "idle" });
   const copyReplayToClipboard = async () => {
     if (!onFetchReplay || replayState.kind === "busy") return;
@@ -530,6 +544,55 @@ export const EventLog: React.FC<EventLogProps> = ({
               >
                 {replayCopyMessage(replayState)}
               </span>
+            </div>
+          )}
+          {turnRedo && (
+            <div className="event-log__turn-redo" data-testid="event-log-turn-redo">
+              {turnRedo.seats && turnRedo.seats.length > 1 && (
+                <label className="event-log__turn-redo-field">
+                  <span>Whose turn</span>
+                  <select
+                    data-testid="turn-redo-seat"
+                    value={redoSeat ?? turnRedo.viewerSeat ?? turnRedo.seats[0].id}
+                    onChange={(event) => setRedoSeat(event.target.value)}
+                  >
+                    {turnRedo.seats.map((seat) => (
+                      <option key={seat.id} value={seat.id}>
+                        {seat.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="event-log__turn-redo-field">
+                <span>Go back over</span>
+                <select
+                  data-testid="turn-redo-turns"
+                  value={redoTurns}
+                  onChange={(event) => setRedoTurns(event.target.value === "2" ? 2 : 1)}
+                >
+                  <option value="1">the last turn</option>
+                  <option value="2">the last two turns</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="button button--secondary button--sm"
+                data-testid="turn-redo-btn"
+                disabled={turnRedo.disabled}
+                title="Rewinds the game for everyone to the start of that turn. The original timeline is kept and can be restored."
+                onClick={() =>
+                  turnRedo.onRequest({
+                    turns: redoTurns,
+                    seat:
+                      redoSeat && redoSeat !== turnRedo.viewerSeat ? redoSeat : undefined,
+                  })
+                }
+              >
+                {!redoSeat || redoSeat === turnRedo.viewerSeat
+                  ? "Redo my last turn"
+                  : "Redo their last turn"}
+              </button>
             </div>
           )}
           {onChangeHistory && redoCount > 0 && (
