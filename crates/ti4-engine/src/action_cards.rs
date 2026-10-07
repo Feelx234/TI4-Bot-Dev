@@ -589,6 +589,17 @@ fn active_action_card() -> Option<ActionCardId> {
     ACTIVE_ACTION_CARD.with(|active| active.borrow().clone())
 }
 
+/// The decision source for a question a card effect asks: the played card's own content id.
+///
+/// Effects run inside [`with_action_card_source`] on every production path, so the id is the
+/// physical copy that was played (`s_retreat3`, not a name for the card). `fallback` is a content
+/// id too and only applies when an effect is invoked directly, outside a play.
+fn played_card_source(fallback: &str) -> DecisionSource {
+    DecisionSource::ActionCard(
+        active_action_card().map_or_else(|| fallback.to_owned(), |card| card.to_string()),
+    )
+}
+
 /// Morale Boost: "+1 to the result of each of your unit's combat rolls during this combat round."
 ///
 /// Scoped to [`GameState::combat_round_seq`] rather than a flag, so the bonus expires with the
@@ -719,7 +730,7 @@ fn confusing(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) 
         )
         .contextualized(DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("confusing".to_owned()),
+            played_card_source("confusing"),
             "confusing_legal_text_elect",
             context.state.phase,
             context.state.round,
@@ -901,7 +912,7 @@ fn public_disgrace(context: &mut crate::timing::TimingContext<'_>, player: &Play
     )
     .contextualized(DecisionContext::new(
         picker.clone(),
-        DecisionSource::ActionCard("public_disgrace".to_owned()),
+        played_card_source("disgrace"),
         "public_disgrace_choose_card",
         context.state.phase,
         context.state.round,
@@ -1103,6 +1114,12 @@ fn reparations(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
                         "reparations_exhaust",
                         planet.to_string(),
                     )
+                    .with_planet_located(
+                        context.state,
+                        context.content,
+                        context.sources,
+                        planet.as_str(),
+                    )
                 })
                 .collect();
             let choice = crate::choice::Choice::new(
@@ -1112,7 +1129,7 @@ fn reparations(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
             )
             .contextualized(DecisionContext::new(
                 gainer.clone(),
-                DecisionSource::ActionCard("reparations".to_owned()),
+                played_card_source("reparations"),
                 "reparations_exhaust",
                 context.state.phase,
                 context.state.round,
@@ -1150,13 +1167,19 @@ fn reparations(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
                         "reparations_ready",
                         planet.to_string(),
                     )
+                    .with_planet_located(
+                        context.state,
+                        context.content,
+                        context.sources,
+                        planet.as_str(),
+                    )
                 })
                 .collect();
             let choice =
                 crate::choice::Choice::new(player.clone(), "ready a planet (Reparations)", options)
                     .contextualized(DecisionContext::new(
                         player.clone(),
-                        DecisionSource::ActionCard("reparations".to_owned()),
+                        played_card_source("reparations"),
                         "reparations_ready",
                         context.state.phase,
                         context.state.round,
@@ -1425,7 +1448,7 @@ fn courageous(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
             context.table,
             opponent,
             &alive,
-            &DecisionSource::ActionCard("courageous".to_owned()),
+            &played_card_source("courageous"),
             "courageous_to_the_end_assign_casualty",
             Some(&system),
         ) else {
@@ -1561,7 +1584,7 @@ fn choose_crashlanding_ground(
     .contextualized(
         DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("crashlanding".to_owned()),
+            played_card_source("crashlanding"),
             "crashlanding_choose_ground",
             context.state.phase,
             context.state.round,
@@ -1598,6 +1621,7 @@ fn choose_crashlanding_planet(
                 "crashlanding_planet",
                 name,
             )
+            .with_planet(planet.as_str(), Some(system.as_str()))
         })
         .collect();
     let choice = crate::choice::Choice::new(
@@ -1608,7 +1632,7 @@ fn choose_crashlanding_planet(
     .contextualized(
         DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("crashlanding".to_owned()),
+            played_card_source("crashlanding"),
             "crashlanding_choose_planet",
             context.state.phase,
             context.state.round,
@@ -1668,7 +1692,7 @@ fn in_the_silence_of_space(context: &mut crate::timing::TimingContext<'_>, playe
         )
         .contextualized(DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("in_the_silence_of_space".to_owned()),
+            played_card_source("silence_space"),
             "silence_choose_system",
             context.state.phase,
             context.state.round,
@@ -1760,7 +1784,7 @@ fn skilled_retreat(context: &mut crate::timing::TimingContext<'_>, player: &Play
         .contextualized(
             DecisionContext::new(
                 player.clone(),
-                DecisionSource::ActionCard("skilled_retreat".to_owned()),
+                played_card_source("s_retreat1"),
                 "skilled_retreat_choose_system",
                 context.state.phase,
                 context.state.round,
@@ -2261,11 +2285,7 @@ fn rider_payoff(
         // The bare imperial encoding, and anything unknown a correct prediction is worth the
         // rider that stores a bare outcome: 1 victory point.
         _ => {
-            if let Some(seat) = state.player_mut(player) {
-                seat.victory_points =
-                    (seat.victory_points + 1).min(crate::objectives::VICTORY_TARGET);
-            }
-            state.note_vp(player, 1, "imperial_rider");
+            crate::objectives::adjust_victory_points(state, player, 1, "imperial_rider");
         }
     }
 }
@@ -2781,7 +2801,7 @@ fn ghost_squad(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
         .contextualized(
             DecisionContext::new(
                 player.clone(),
-                DecisionSource::ActionCard("ghost_squad".to_owned()),
+                played_card_source("ghost_squad"),
                 "ghost_squad_move",
                 context.state.phase,
                 context.state.round,
@@ -3826,6 +3846,34 @@ fn exploration_probe(context: &mut crate::timing::TimingContext<'_>, player: &Pl
     );
 }
 
+/// Display only: what each unit option of Refit Troops or Scuttle stands for, keyed by option id
+/// (`system|index` or `system|planet|index`): where it is, its type, whether it is damaged and its
+/// printed cost, so a client can name the unit and say what the card does to it.
+fn unit_pick_details(
+    found: &[(String, String, ti4_model::units::Unit)],
+    cost_of: &dyn Fn(&str) -> f64,
+) -> serde_json::Value {
+    serde_json::Value::Object(
+        found
+            .iter()
+            .map(|(id, _, unit)| {
+                let parts: Vec<&str> = id.split('|').collect();
+                let planet = (parts.len() == 3).then(|| parts[1]);
+                (
+                    id.clone(),
+                    serde_json::json!({
+                        "system": parts.first(),
+                        "planet": planet,
+                        "unit": unit.type_id.as_str(),
+                        "damaged": unit.sustained_damage,
+                        "cost": cost_of(unit.type_id.as_str()),
+                    }),
+                )
+            })
+            .collect(),
+    )
+}
+
 /// Refit Troops: "Choose 1 or 2 of your infantry on the game board. Replace each of those
 /// infantry with mechs."
 ///
@@ -3886,12 +3934,14 @@ fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
             .iter()
             .map(|(id, label, _)| (id.clone(), label.clone()))
             .collect::<Vec<_>>();
-        let Some(first) = pick(
+        let units = unit_pick_details(&found, &|id| types.get(id).map_or(0.0, |kind| kind.cost()));
+        let Some(first) = pick_detailed(
             context,
             player,
             "Refit Troops: which infantry to replace",
             "infantry",
             &options,
+            &[("units", units.clone())],
         ) else {
             return;
         };
@@ -3910,12 +3960,13 @@ fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
             )))
             .collect();
         if max_replacements > 1 {
-        let Some(second) = pick(
+        let Some(second) = pick_detailed(
             context,
             player,
             "Refit Troops: another infantry or stop",
             "infantry",
             &rest,
+            &[("units", units)],
         ) else {
             return;
         };
@@ -4020,12 +4071,14 @@ fn scuttle(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
             .iter()
             .map(|(id, label, _)| (id.clone(), label.clone()))
             .collect::<Vec<_>>();
-        let Some(first) = pick(
+        let units = unit_pick_details(&found, &|id| types.get(id).map_or(0.0, |kind| kind.cost()));
+        let Some(first) = pick_detailed(
             context,
             player,
             "Scuttle: which ship to scuttle",
             "ship",
             &options,
+            &[("units", units.clone())],
         ) else {
             return;
         };
@@ -4043,12 +4096,13 @@ fn scuttle(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
                 "stop after one".to_owned(),
             )))
             .collect();
-        let Some(second) = pick(
+        let Some(second) = pick_detailed(
             context,
             player,
             "Scuttle: another ship or stop",
             "ship",
             &rest,
+            &[("units", units)],
         ) else {
             return;
         };
@@ -4241,7 +4295,7 @@ fn exchange_program(context: &mut crate::timing::TimingContext<'_>, player: &Pla
     .contextualized(
         DecisionContext::new(
             other.clone(),
-            DecisionSource::ActionCard("exchange_program".to_owned()),
+            played_card_source("exchangeprogram"),
             "exchange_program_answer",
             context.state.phase,
             context.state.round,
@@ -4676,6 +4730,18 @@ fn pick(
     kind: &str,
     options: &[(String, String)],
 ) -> Option<String> {
+    pick_detailed(context, player, prompt, kind, options, &[])
+}
+
+/// [`pick`] with display-only facts for clients (see `Choice::details`): never read by the engine.
+fn pick_detailed(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    prompt: &str,
+    kind: &str,
+    options: &[(String, String)],
+    details: &[(&str, serde_json::Value)],
+) -> Option<String> {
     match options {
         [] => None,
         [(only, _)] => Some(only.clone()),
@@ -4685,10 +4751,24 @@ fn pick(
                 prompt,
                 many.iter()
                     .map(|(id, label)| {
-                        crate::choice::ChoiceOption::labelled(id.clone(), kind, label.clone())
+                        let option =
+                            crate::choice::ChoiceOption::labelled(id.clone(), kind, label.clone());
+                        if kind == "planet" {
+                            locate_planet_option(
+                                context.state,
+                                context.content,
+                                context.sources,
+                                option,
+                            )
+                        } else {
+                            option
+                        }
                     })
                     .collect(),
             );
+            let choice = details
+                .iter()
+                .fold(choice, |choice, (key, value)| choice.detailed(key, value.clone()));
             let action_card = active_action_card();
             let source = action_card.as_ref().map_or_else(
                 || DecisionSource::Rule("2".to_owned()),
@@ -4707,6 +4787,22 @@ fn pick(
             ));
             context.ask_seeing(&choice).ok().map(|answer| answer.id)
         }
+    }
+}
+
+/// A `planet` option of [`pick`] with the `planet`/`system` payload a map UI locates it by. Its
+/// id is either a bare planet id or a `system|planet` spot.
+fn locate_planet_option(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    option: crate::choice::ChoiceOption,
+) -> crate::choice::ChoiceOption {
+    if let Some((system, planet)) = spot(&option.id) {
+        option.with_planet(planet.as_str(), Some(system.as_str()))
+    } else {
+        let planet = option.id.clone();
+        option.with_planet_located(state, content, sources, &planet)
     }
 }
 
@@ -5120,9 +5216,44 @@ pub fn place_units_choosing(
                 .with("count", i64::try_from(wanted).unwrap_or(i64::MAX))
             })
             .collect();
+        // Display only: each spot by its planet's name and system, with how many go there.
+        let mut captions: Vec<(String, serde_json::Value)> = options
+            .iter()
+            .zip(spots.iter().zip(&fits))
+            .map(|(option, ((system, planet), &wanted))| {
+                let place = planet.as_ref().map_or_else(
+                    || format!("In the space of system {system}"),
+                    |planet| {
+                        let name = ti4_content::galaxy::planet(
+                            context.content,
+                            planet.as_str(),
+                            context.sources,
+                        )
+                        .and_then(|record| record.name())
+                        .unwrap_or(planet.as_str());
+                        format!("{name} (system {system})")
+                    },
+                );
+                (
+                    option.id.clone(),
+                    crate::choice::offer_caption(
+                        &place,
+                        Some(&format!("Place {wanted} {base_type} here")),
+                    ),
+                )
+            })
+            .collect();
         if optional {
             options.push(ChoiceOption::decline());
+            captions.push((
+                crate::choice::DECLINE_ID.to_owned(),
+                crate::choice::offer_caption("Place none", Some("Nothing is placed")),
+            ));
         }
+        let caption_refs: Vec<(&str, serde_json::Value)> = captions
+            .iter()
+            .map(|(id, caption)| (id.as_str(), caption.clone()))
+            .collect();
         let choice = Choice::new(
             player.clone(),
             format!(
@@ -5130,6 +5261,19 @@ pub fn place_units_choosing(
                 fits.iter().max().copied().unwrap_or(0)
             ),
             options,
+        )
+        .offered(
+            crate::choice::offer_card(
+                "Place units from your reinforcements",
+                "placement",
+                None,
+                Some("Choose where they go."),
+            ),
+            vec![
+                crate::choice::offer_fact_unit("Unit", base_type),
+                crate::choice::offer_fact("Up to", fits.iter().max().copied().unwrap_or(0) as u64),
+            ],
+            &caption_refs,
         )
         .contextualized(DecisionContext::new(
             player.clone(),
@@ -5344,12 +5488,17 @@ fn manipulate_investments(context: &mut crate::timing::TimingContext<'_>, player
             .filter(|alias| remaining > owed || !used.contains(*alias))
             .map(|alias| (alias.clone(), format!("place a trade good on {alias}")))
             .collect();
-        let Some(chosen) = pick(
+        let Some(chosen) = pick_detailed(
             context,
             player,
             "Manipulate Investments: place a trade good on which strategy card",
             "strategy_card",
             &offer,
+            &[
+                ("step", (placed + 1).into()),
+                ("of", TOKENS.into()),
+                ("distinct_owed", owed.into()),
+            ],
         ) else {
             return;
         };
@@ -6374,7 +6523,7 @@ fn fire_team(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) 
         context.galaxy,
         context.table,
         player,
-        &DecisionSource::ActionCard("fire_team".to_owned()),
+        &played_card_source("fire_team"),
         "fire_team_reroll",
     );
     if picks.is_empty() {
@@ -8600,6 +8749,160 @@ mod tests {
         seen
     }
 
+    /// `pick`'s planet options carry `planet` + `system` for both id shapes the cards use: a
+    /// `system|planet` spot (Mining Initiative) and a bare planet id (Archaeological
+    /// Expedition). Ids, kinds and labels are unchanged.
+    #[test]
+    fn pick_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, offered};
+        let a = PlayerId::new("a");
+        let hold = |state: &mut GameState, system: &str, planet: &str| {
+            state
+                .system_mut(&ti4_model::id::SystemId::new(system))
+                .set_control(ti4_model::id::PlanetId::new(planet), a.clone());
+        };
+
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        hold(&mut state, "26", "lodor");
+        hold(&mut state, "28", "torkan");
+        let seen = resolve_card_capturing(&mut state, "mining_initiative", &a, &[]);
+        let choice = &seen.borrow()[0];
+        // Outside a play window no card is active, so the subtype is the bare `pick_planet`.
+        assert!(
+            choice
+                .context
+                .as_ref()
+                .is_some_and(|c| c.subtype.ends_with("pick_planet"))
+        );
+        let lodor = offered(choice, "26|lodor");
+        assert_eq!(
+            (lodor.kind.as_str(), lodor.label.as_str()),
+            ("planet", "lodor")
+        );
+        assert_locates(lodor, "lodor", "26");
+        assert_locates(offered(choice, "28|torkan"), "torkan", "28");
+
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        hold(&mut state, "26", "lodor");
+        hold(&mut state, "28", "torkan");
+        let seen = resolve_card_capturing(&mut state, "arch_expedition", &a, &[]);
+        let choice = &seen.borrow()[0];
+        // Outside a play window no card is active, so the subtype is the bare `pick_planet`.
+        assert!(
+            choice
+                .context
+                .as_ref()
+                .is_some_and(|c| c.subtype.ends_with("pick_planet"))
+        );
+        assert_locates(offered(choice, "lodor"), "lodor", "26");
+        assert_locates(offered(choice, "torkan"), "torkan", "28");
+    }
+
+    /// Every other `pick` kind stays payload-free: a player pick is not a planet.
+    #[test]
+    fn pick_non_planet_options_get_no_planet_payload() {
+        let state = crate::fixtures::game(&["a"]);
+        let content = ContentStore::embedded();
+        let spot = locate_planet_option(
+            &state,
+            content,
+            POK,
+            ChoiceOption::labelled("28|torkan", "planet", "torkan"),
+        );
+        crate::choice::planet_payload::assert_locates(&spot, "torkan", "28");
+        let bare = locate_planet_option(
+            &state,
+            content,
+            POK,
+            ChoiceOption::labelled("not_a_planet", "planet", "?"),
+        );
+        assert_eq!(
+            bare.payload
+                .get("planet")
+                .and_then(serde_json::Value::as_str),
+            Some("not_a_planet")
+        );
+        assert!(!bare.payload.contains_key("system"), "no system invented");
+
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        let seen = resolve_card_capturing(&mut state, "confusing", &PlayerId::new("a"), &["b"]);
+        for option in &seen.borrow()[0].options {
+            crate::choice::planet_payload::assert_not_a_planet(option);
+        }
+    }
+
+    /// Reparations: both the gainer's exhaust and the holder's ready carry `planet` + `system`.
+    #[test]
+    fn reparations_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, offered};
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let at = |system: &str| ti4_model::id::SystemId::new(system);
+        let planet = |id: &str| ti4_model::id::PlanetId::new(id);
+        state
+            .system_mut(&at("26"))
+            .set_control(planet("lodor"), b.clone());
+        state
+            .system_mut(&at("25"))
+            .set_control(planet("quann"), b.clone());
+        state
+            .system_mut(&at("28"))
+            .set_control(planet("tequran"), a.clone());
+        state
+            .system_mut(&at("28"))
+            .set_control(planet("torkan"), a.clone());
+        state.exhausted_planets.insert(planet("tequran"));
+        state.exhausted_planets.insert(planet("torkan"));
+        state.last_control_gained = Some((at("26"), planet("lodor"), b.clone(), Some(a.clone())));
+        let seen = resolve_card_capturing(&mut state, "reparations", &a, &[]);
+        let seen = seen.borrow();
+        let by_subtype = |subtype: &str| {
+            seen.iter()
+                .find(|choice| {
+                    choice
+                        .context
+                        .as_ref()
+                        .is_some_and(|c| c.subtype == subtype)
+                })
+                .unwrap_or_else(|| panic!("{subtype} asked"))
+        };
+        let exhaust = by_subtype("reparations_exhaust");
+        assert_locates(offered(exhaust, "lodor"), "lodor", "26");
+        assert_locates(offered(exhaust, "quann"), "quann", "25");
+        let ready = by_subtype("reparations_ready");
+        assert_locates(offered(ready, "tequran"), "tequran", "28");
+        assert_locates(offered(ready, "torkan"), "torkan", "28");
+    }
+
+    /// Crash Landing's planet options (`planet|<id>`) name the planet and the system landed in.
+    #[test]
+    fn crashlanding_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, offered};
+        let a = PlayerId::new("a");
+        let system = ti4_model::id::SystemId::new("28");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        crate::fixtures::put(&mut state, &system, "infantry", &a, 1);
+        state.last_ship_destroyed = Some((
+            system.clone(),
+            a.clone(),
+            ti4_model::id::UnitTypeId::new("destroyer"),
+        ));
+        let seen = resolve_card_capturing(&mut state, "crashlanding", &a, &[]);
+        let seen = seen.borrow();
+        let choice = seen
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|c| c.subtype == "crashlanding_choose_planet")
+            })
+            .expect("the planet was asked");
+        assert_locates(offered(choice, "planet|tequran"), "tequran", "28");
+        assert_locates(offered(choice, "planet|torkan"), "torkan", "28");
+    }
+
     /// OBS-008g2: Skilled Retreat's destination choice previews the exact arrival count, the
     /// whole retreating fleet landing on top of whatever the seat already has there -- the same
     /// consequence OBS-008b3 gave the ordinary `retreat_to` decision.
@@ -8756,6 +9059,31 @@ mod tests {
             "at least three different cards, saw {:?}",
             state.strategy_card_goods
         );
+    }
+
+    /// Each placement question says which of the five it is and how many different cards are
+    /// still owed, so a client can show the progress (display only).
+    #[test]
+    fn manipulate_investments_questions_carry_their_step() {
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.strategy_card_goods.clear();
+
+        let seen = resolve_card_capturing(&mut state, "investments", &player, &[]);
+
+        let first = seen.borrow()[0].clone();
+        // The card prefix of the subtype comes from the play path, not from this direct call.
+        assert!(
+            first
+                .context
+                .as_ref()
+                .unwrap()
+                .subtype
+                .ends_with("pick_strategy_card")
+        );
+        assert_eq!(first.details["step"], 1);
+        assert_eq!(first.details["of"], 5);
+        assert_eq!(first.details["distinct_owed"], 3);
     }
 
     /// Lie in Wait takes one card from each of two neighbours who traded, and counts a
@@ -10381,6 +10709,31 @@ mod tests {
         assert_eq!(infantry_left, 1, "the other infantry is untouched");
     }
 
+    /// Each ship option names its system, type, damage and printed cost (display only), so a
+    /// client can say what scuttling it pays out.
+    #[test]
+    fn scuttle_questions_describe_each_ship() {
+        let player = PlayerId::new("a");
+        let (system, _) = crate::fixtures::a_placed_planet();
+        let mut state = crate::fixtures::game(&["a"]);
+        let board = state.system_mut(&system);
+        for kind in ["destroyer", "cruiser"] {
+            board.units.push(ti4_model::units::Unit::new(
+                ti4_model::id::UnitTypeId::new(kind),
+                player.clone(),
+            ));
+        }
+
+        let seen = resolve_card_capturing(&mut state, "scuttle", &player, &[]);
+
+        let first = seen.borrow()[0].clone();
+        let id = format!("{system}|1");
+        assert_eq!(first.details["units"][&id]["unit"], "cruiser");
+        assert_eq!(first.details["units"][&id]["system"], system.as_str());
+        assert_eq!(first.details["units"][&id]["damaged"], false);
+        assert_eq!(first.details["units"][&id]["cost"], 2.0);
+    }
+
     #[test]
     fn scuttle_returns_ships_and_pays_their_cost() {
         let player = PlayerId::new("a");
@@ -11309,6 +11662,49 @@ mod economy_hooks {
             1,
             "the space area still holds only the destroyer"
         );
+    }
+
+    /// The placement question is an offer card: the unit, how many at most, and each spot by its
+    /// planet's name and system with how many go there (display only; option ids unchanged).
+    #[test]
+    fn the_placement_question_is_an_offer_card_with_a_caption_per_spot() {
+        let (mut state, system, planet) = planet_and_ship();
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
+            format!("{system}|{planet}"),
+        ])));
+        let mut table = Table::with_default(Box::new(decider));
+        with_context(&mut state, POK, None, &mut table, |context| {
+            place_units_choosing(
+                context,
+                &me(),
+                "infantry",
+                2,
+                PlacementTarget::ControlledPlanetOrShipSpace,
+                None,
+                true,
+                "yso",
+                PlacementLimits::Respect,
+            )
+            .unwrap();
+        });
+        let asked = seen.borrow();
+        let offer = &asked[0];
+        assert_eq!(offer.details["kind"], "offer");
+        assert_eq!(offer.details["facts"][0]["unit"], "infantry");
+        assert_eq!(offer.details["facts"][1]["value"], 2);
+        let planet_caption = &offer.details["captions"][format!("{system}|{planet}").as_str()];
+        assert!(
+            planet_caption["label"]
+                .as_str()
+                .is_some_and(|label| label.ends_with(&format!("(system {system})")))
+        );
+        assert_eq!(planet_caption["hint"], "Place 2 infantry here");
+        // Infantry cannot be placed in space, so the ship space is not a spot: the planet and the
+        // optional decline are the only captions.
+        assert!(offer.details["captions"]
+            .as_object()
+            .is_some_and(|captions| captions.len() == 2));
+        assert_eq!(offer.details["captions"]["decline"]["label"], "Place none");
     }
 
     #[test]

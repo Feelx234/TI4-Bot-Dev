@@ -189,6 +189,12 @@ pub fn start_turn(
                     )
                     .with("planet", planet.to_string())
                     .with("technology", "pa")
+                    .with_planet_located(
+                        state,
+                        content,
+                        sources,
+                        planet.as_str(),
+                    )
                 })
                 .collect();
             options.push(ChoiceOption::decline());
@@ -387,10 +393,16 @@ pub fn end_turn(
                 crate::choice::DECLINE_KIND,
                 "finish redistribution",
             ));
-            let choice = Choice::new(
-                player.clone(),
-                "Predictive Intelligence: redistribute command tokens",
-                options,
+            // Display only: the pools and total, so clients can plan the whole restack at once.
+            let choice = crate::tokens::with_pool_details(
+                Choice::new(
+                    player.clone(),
+                    "Predictive Intelligence: redistribute command tokens",
+                    options,
+                ),
+                state,
+                "restack",
+                None,
             )
             .contextualized(DecisionContext::new(
                 player.clone(),
@@ -452,6 +464,7 @@ pub fn end_turn(
                 )
                 .with("planet", planet.to_string())
                 .with("technology", "bs")
+                .with_planet_located(state, content, sources, planet.as_str())
             })
             .collect();
         if let Some(seat) = state.player(player) {
@@ -859,6 +872,9 @@ pub fn specialties(
 ) -> BTreeMap<&'static str, usize> {
     let mut found = BTreeMap::new();
     for (_, planet) in state.controlled_planets(player) {
+        if state.exhausted_planets.contains(planet) {
+            continue;
+        }
         for specialty in crate::planets::tech_specialties_now(state, content, sources, planet) {
             let upper = specialty.to_ascii_uppercase();
             if let Some(colour) = COLOURS.iter().find(|c| **c == upper) {
@@ -1251,6 +1267,69 @@ pub fn apply_unit_upgrades(
     }
 }
 
+fn exhaust_specialties_for_research(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &TechnologyId,
+) {
+    if crate::laws::war_sun_prerequisites_waived(state, content, alias) {
+        return;
+    }
+    let reqs = prerequisites(content, alias);
+    if reqs.is_empty() {
+        return;
+    }
+    let held = owned_colours(state, content, player);
+    let mut waivable = crate::faction_abilities::waived_prerequisites(
+        state,
+        content,
+        sources,
+        player,
+        alias.as_str(),
+    );
+    for colour in COLOURS {
+        waivable += crate::laws::research_team_waivers(state, player, colour);
+    }
+    waivable += crate::relics::prerequisite_waivers(state, player);
+
+    let mut to_exhaust = Vec::new();
+    for (colour, req_count) in reqs {
+        let owned_count = held.get(colour).copied().unwrap_or(0);
+        if req_count > owned_count {
+            let mut shortage = req_count - owned_count;
+            if waivable > 0 {
+                let waived = shortage.min(waivable);
+                shortage -= waived;
+                waivable -= waived;
+            }
+            if shortage > 0 {
+                let mut exhausted_for_colour = 0;
+                for (_, planet) in state.controlled_planets(player) {
+                    if exhausted_for_colour >= shortage {
+                        break;
+                    }
+                    if state.exhausted_planets.contains(planet) || to_exhaust.contains(planet) {
+                        continue;
+                    }
+                    if crate::planets::tech_specialties_now(state, content, sources, planet)
+                        .iter()
+                        .any(|s| s.eq_ignore_ascii_case(colour))
+                    {
+                        to_exhaust.push(planet.clone());
+                        exhausted_for_colour += 1;
+                    }
+                }
+            }
+        }
+    }
+    for planet in to_exhaust {
+        state.exhaust_planet(planet);
+    }
+}
+
+
 /// Research `alias` by taking a selected module waiver and paying its selected legal cost.
 ///
 /// This is intentionally separate from [`research`]: a table-less caller cannot silently spend an
@@ -1336,6 +1415,8 @@ pub fn research(
         if let Some(seat) = state.player_mut(player) {
             seat.exhausted_technologies.insert(TechnologyId::new("is"));
         }
+    } else {
+        exhaust_specialties_for_research(state, content, sources, player, alias);
     }
     complete_research(state, content, sources, player, alias);
     true
@@ -1526,6 +1607,51 @@ mod tests {
         }
     }
 
+    /// Psychoarchaeology's and Bio-Stims' planet options carry `planet` + `system`; Bio-Stims'
+    /// technology options and both declines do not name a planet.
+    #[test]
+    fn technology_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, assert_not_a_planet, offered};
+        let content = ContentStore::embedded();
+        let hold = |state: &mut GameState, system: &str, planet: &str| {
+            state
+                .system_mut(&ti4_model::id::SystemId::new(system))
+                .set_control(PlanetId::new(planet), player());
+        };
+        let subtype = |choice: &Choice| choice.context.as_ref().unwrap().subtype.clone();
+
+        let mut state = game(&["a"]);
+        give(&mut state, &["pa"]);
+        hold(&mut state, "19", "wellon");
+        hold(&mut state, "27", "newalbion");
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+        let mut table = Table::with_default(Box::new(decider));
+        start_turn(&mut state, content, POK, None, &mut table, &player()).unwrap();
+        let choice = seen.borrow()[0].clone();
+        assert_eq!(subtype(&choice), "psychoarchaeology_exhaust_specialty");
+        assert_locates(offered(&choice, "wellon"), "wellon", "19");
+        assert_locates(offered(&choice, "newalbion"), "newalbion", "27");
+        assert_not_a_planet(offered(&choice, crate::choice::DECLINE_ID));
+
+        let mut state = game(&["a"]);
+        give(&mut state, &["bs", "td"]);
+        hold(&mut state, "19", "wellon");
+        state.exhausted_planets.insert(PlanetId::new("wellon"));
+        state
+            .player_mut(&player())
+            .unwrap()
+            .exhausted_technologies
+            .insert(TechnologyId::new("td"));
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+        let mut table = Table::with_default(Box::new(decider));
+        end_turn(&mut state, content, POK, None, &mut table, &player()).unwrap();
+        let choice = seen.borrow()[0].clone();
+        assert_eq!(subtype(&choice), "bio_stims_ready");
+        assert_locates(offered(&choice, "ready|planet|wellon"), "wellon", "19");
+        assert_not_a_planet(offered(&choice, "ready|technology|td"));
+        assert_not_a_planet(offered(&choice, crate::choice::DECLINE_ID));
+    }
+
     #[test]
     fn transit_diodes_redeploys_ground_at_the_start_of_a_turn_and_exhausts() {
         let mut state = game(&["a"]);
@@ -1710,6 +1836,41 @@ mod tests {
         let exhausted = &state.player(&player()).unwrap().exhausted_technologies;
         assert!(!exhausted.contains(&TechnologyId::new("td")));
         assert!(exhausted.contains(&TechnologyId::new("bs")));
+    }
+
+    /// Predictive Intelligence moves one token per decision; the question carries the pools and the
+    /// total held so a client can plan the whole restack at once (display only).
+    #[test]
+    fn predictive_intelligence_restack_carries_the_pools_and_the_total() {
+        let mut state = game(&["a"]);
+        give(&mut state, &["pi"]);
+        {
+            let seat = state.player_mut(&player()).unwrap();
+            seat.tactic_tokens = 3;
+            seat.fleet_tokens = 4;
+            seat.strategic_tokens = 2;
+        }
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+        let mut table = Table::with_default(Box::new(decider));
+        end_turn(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            &player(),
+        )
+        .unwrap();
+        let choice = seen.borrow()[0].clone();
+        assert_eq!(
+            choice.context.as_ref().unwrap().subtype,
+            "predictive_intelligence_redistribute"
+        );
+        assert_eq!(choice.details["kind"], "command_tokens");
+        assert_eq!(choice.details["mode"], "restack");
+        assert_eq!(choice.details["total"], 9);
+        assert_eq!(choice.details["pools"]["fleet"], 4);
+        assert!(choice.options.iter().any(|option| option.id == "fleet|tactic"));
     }
 
     /// OBS-003e: `start_turn`/`end_turn`'s remaining reactive asks -- Chaos Mapping and
@@ -2256,11 +2417,27 @@ mod tests {
         let Some((system, planet)) = planet else {
             return; // no propulsion specialty in this scope
         };
-        state.system_mut(&system).set_control(planet, player());
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
 
         assert!(
             can_research(&state, ContentStore::embedded(), POK, &player(), &target),
             "the specialty covers the prerequisite"
+        );
+        assert!(
+            research(
+                &mut state,
+                ContentStore::embedded(),
+                POK,
+                &player(),
+                &target
+            ),
+            "research should succeed using specialty"
+        );
+        assert!(
+            state.exhausted_planets.contains(&planet),
+            "specialty planet must be exhausted after being used for research"
         );
     }
 

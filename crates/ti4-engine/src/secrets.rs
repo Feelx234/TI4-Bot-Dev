@@ -1147,7 +1147,7 @@ pub fn award(
     state.record_score(player, ti4_model::id::ObjectiveId::new(alias.as_str()));
     let seat = state.player_mut(player)?;
     seat.secret_objectives.retain(|held| held != alias);
-    seat.victory_points = (seat.victory_points + points).min(crate::objectives::VICTORY_TARGET);
+    crate::objectives::adjust_victory_points(state, player, points, "secret_objective");
     Some(points)
 }
 

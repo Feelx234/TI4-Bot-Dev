@@ -13,11 +13,13 @@ use ti4_content::galaxy::Galaxy;
 use ti4_content::units::{UnitType, catalogue};
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, RelicId, SystemId};
-use ti4_model::state::{Feat, FeatOccurrence, GameState, RerollEntry, RerollSet};
+use ti4_model::state::{CombatRollRecord, Feat, FeatOccurrence, GameState, RerollEntry, RerollSet};
 use ti4_model::units::Unit;
 
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, Observed, Resolving, Table, Window};
-use crate::decision_context::{DecisionContext, DecisionSource, DecisionTarget};
+use crate::decision_context::{
+    ConstraintKind, DecisionContext, DecisionSource, DecisionTarget, OutstandingConstraint,
+};
 use crate::dice::Dice;
 use crate::factions::hooks_combat::{AfbExcess, CombatMoment, HitSite, ProducedHits};
 use crate::preview::{Delta, Preview, Quantity, stochastic};
@@ -2337,6 +2339,13 @@ fn assignable_to_hit(
 /// Offer every available SUSTAIN DAMAGE until the hits run out or the player takes them.
 ///
 /// Only units that could actually be assigned a hit of `origin` are offered.
+/// `non_fighters_first` marks "take the hit" when the loss is bound to non-fighter ships
+/// (Graviton Laser System). Display only: a client planning the loss ahead must not pick a
+/// fighter the next question will not offer.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the combat position, the decider and the one binding"
+)]
 fn offer_sustain(
     state: &mut GameState,
     content: &ContentStore,
@@ -2349,6 +2358,7 @@ fn offer_sustain(
     mut hits: usize,
     origin: HitOrigin,
     during_space_combat: bool,
+    non_fighters_first: bool,
 ) -> Result<usize, CombatError> {
     let types = catalogue(content, sources);
     while hits > 0 {
@@ -2452,18 +2462,22 @@ fn offer_sustain(
                     )])),
             );
         }
-        options.push(
-            ChoiceOption::labelled(
-                crate::choice::DECLINE_ID,
-                crate::choice::DECLINE_KIND,
-                "take the hit",
-            )
-            .previewed(Preview::certain(vec![Delta::new(
-                Quantity::ShipsInSystem,
-                own_ships,
-                own_ships - 1,
-            )])),
-        );
+        let mut take = ChoiceOption::labelled(
+            crate::choice::DECLINE_ID,
+            crate::choice::DECLINE_KIND,
+            "take the hit",
+        )
+        .previewed(Preview::certain(vec![Delta::new(
+            Quantity::ShipsInSystem,
+            own_ships,
+            own_ships - 1,
+        )]));
+        if non_fighters_first
+            && !non_fighter_ships(state, content, sources, player, system).is_empty()
+        {
+            take = take.with("non_fighters_first", true);
+        }
+        options.push(take);
 
         let choice = Choice::new(player.clone(), format!("cancel a hit at {system}"), options)
             .contextualized(
@@ -2474,7 +2488,12 @@ fn offer_sustain(
                     state.phase,
                     state.round,
                 )
-                .about(DecisionTarget::System(system.clone())),
+                .about(DecisionTarget::System(system.clone()))
+                .owing(OutstandingConstraint::new(
+                    ConstraintKind::UnitsToRemove,
+                    i64::try_from(hits).unwrap_or(0),
+                    0,
+                )),
             );
         // Neutral units rule 5: they use every ability they can, so they always sustain and are
         // never asked.
@@ -2726,6 +2745,7 @@ fn absorb_hits_seeing_with_context(
         hits,
         origin,
         during_space_combat,
+        non_fighters_first,
     )?;
 
     while remaining > 0 {
@@ -2760,7 +2780,7 @@ fn absorb_hits_seeing_with_context(
                 alive = bound;
             }
         }
-        let casualty = choose_casualty(
+        let casualty = choose_casualty_owing(
             state,
             content,
             sources,
@@ -2771,6 +2791,7 @@ fn absorb_hits_seeing_with_context(
             &DecisionSource::Rule("78.4".to_owned()),
             "assign_casualty",
             Some(system),
+            Some(remaining),
         )?;
         remove_combat_ship(state, system, &casualty);
         if crate::supply::staging_enabled(state) {
@@ -3301,6 +3322,26 @@ pub(crate) fn choose_casualty(
     subtype: &str,
     target: Option<&SystemId>,
 ) -> Result<Unit, CombatError> {
+    choose_casualty_owing(
+        state, content, sources, galaxy, table, player, units, source, subtype, target, None,
+    )
+}
+
+/// [`choose_casualty`], telling the decision how many hits are still owed (itself included), so
+/// a client can stage them together instead of guessing.
+pub(crate) fn choose_casualty_owing(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    units: &[Unit],
+    source: &DecisionSource,
+    subtype: &str,
+    target: Option<&SystemId>,
+    owed: Option<usize>,
+) -> Result<Unit, CombatError> {
     if let [only] = units {
         return Ok(only.clone());
     }
@@ -3351,6 +3392,13 @@ pub(crate) fn choose_casualty(
     );
     if let Some(system) = target {
         context = context.about(DecisionTarget::System(system.clone()));
+    }
+    if let Some(owed) = owed {
+        context = context.owing(OutstandingConstraint::new(
+            ConstraintKind::UnitsToRemove,
+            i64::try_from(owed).unwrap_or(0),
+            0,
+        ));
     }
     let choice = Choice::new(player.clone(), "assign a hit", options).contextualized(context);
     let answer = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
@@ -3685,6 +3733,9 @@ pub struct CombatWindow {
     galaxy: Option<ti4_content::galaxy::Galaxy>,
     /// Players who announced a retreat this round and will leave once it ends (78.7).
     pending_retreats: Vec<PlayerId>,
+    /// One before-assignment reaction window per seat and combat round, even when
+    /// a card cancels some (but not all) of that seat's incoming hits.
+    hit_reaction_offered: std::collections::BTreeSet<(u32, PlayerId)>,
     /// One identity spans the barrage and resolution of this combat (61.7).
     combat_occurrence: Option<FeatOccurrence>,
     /// A timing pause that the game driver has not yet opened a scoring window for.
@@ -3761,6 +3812,7 @@ impl CombatWindow {
                 }),
                 galaxy: None,
                 pending_retreats: Vec::new(),
+                hit_reaction_offered: Default::default(),
                 combat_occurrence: None,
                 pending_scoring_occurrence: None,
                 damaged_before_round: std::collections::BTreeMap::new(),
@@ -3791,6 +3843,7 @@ impl CombatWindow {
             stage: Stage::Opening { round: 1 },
             galaxy: None,
             pending_retreats: Vec::new(),
+            hit_reaction_offered: Default::default(),
             combat_occurrence: None,
             pending_scoring_occurrence: None,
             damaged_before_round: std::collections::BTreeMap::new(),
@@ -4207,6 +4260,9 @@ impl CombatWindow {
             return Ok(false);
         }
         self.hit_phase = HitPhase::RoundEnd;
+        // Hits produced after the round are their own "before you assign hits" moment, so the
+        // once-per-round guard on the ordinary assignment must not swallow their announcement.
+        self.hit_reaction_offered.retain(|(seen, _)| *seen != round);
         self.stage = Stage::Sustaining { queue, round };
         Ok(true)
     }
@@ -4344,6 +4400,28 @@ impl CombatWindow {
         let resumed = std::mem::take(&mut self.resuming_round);
         if !resumed {
             state.combat_round_seq = state.combat_round_seq.saturating_add(1);
+            state.combat_presentation.phase = "pre_roll".to_owned();
+            state.combat_presentation.round = round;
+            state.combat_presentation.remaining_hits.clear();
+            state.combat_round_hits.clear();
+            state.combat_round_dice.clear();
+            state.combat_presentation.round_start =
+                ships_of(state, content, sources, &self.attacker, &self.system)
+                    .into_iter()
+                    .chain(ships_of(
+                        state,
+                        content,
+                        sources,
+                        &self.defender,
+                        &self.system,
+                    ))
+                    .collect();
+            if round == 1 {
+                state.combat_presentation.barrage_start =
+                    state.combat_presentation.round_start.clone();
+                state.combat_presentation.barrage_hits.clear();
+                state.combat_presentation.barrage_dice.clear();
+            }
 
             // Announced before anything is rolled, because eight action cards read "at the start of
             // a combat round" and Morale Boost scopes its bonus to `combat_round_seq`. Emitting after
@@ -4474,6 +4552,7 @@ impl CombatWindow {
                 payload.insert("player".to_owned(), side.to_string().into());
                 payload.insert("round".to_owned(), i64::from(round).into());
                 let _ = ctx.emit(state, "ANTI_FIGHTER_BARRAGE_STARTED", payload);
+                state.combat_presentation.phase = "barrage".to_owned();
                 let _ = roll_barrage_side(
                     state,
                     content,
@@ -4486,6 +4565,27 @@ impl CombatWindow {
                 open_reroll_windows(state, ctx, &side);
                 if let Some(set) = state.reroll_staging.get(&side).cloned() {
                     let hits = staged_hits(&set);
+                    state
+                        .combat_presentation
+                        .barrage_hits
+                        .insert(side.clone(), hits as u32);
+                    for entry in &set.rolls {
+                        for (index, face) in entry.faces.iter().enumerate() {
+                            let target = entry.hits_on.unwrap_or(0);
+                            let adjusted = i64::from(*face)
+                                + i64::from(entry.deltas.get(&index).copied().unwrap_or(0));
+                            state
+                                .combat_presentation
+                                .barrage_dice
+                                .push(CombatRollRecord {
+                                    player: side.clone(),
+                                    unit: entry.unit.clone(),
+                                    roll: *face,
+                                    target,
+                                    hit: target > 0 && adjusted >= i64::from(target),
+                                });
+                        }
+                    }
                     if hits > 0 {
                         results.push((side.clone(), hits));
                     }
@@ -4493,6 +4593,7 @@ impl CombatWindow {
                 state.reroll_staging.remove(&side);
             }
             state.last_reroll_player = None;
+            state.combat_presentation.phase = "barrage".to_owned();
             let feat_players = apply_barrage(
                 state,
                 content,
@@ -4515,7 +4616,19 @@ impl CombatWindow {
                 self.stage = self.conclude(state, content, sources, round);
                 return Ok(());
             }
+            state.combat_presentation.phase = "pre_roll".to_owned();
         }
+        state.combat_presentation.round_start =
+            ships_of(state, content, sources, &self.attacker, &self.system)
+                .into_iter()
+                .chain(ships_of(
+                    state,
+                    content,
+                    sources,
+                    &self.defender,
+                    &self.system,
+                ))
+                .collect();
         self.stage = Stage::Announcing {
             round,
             asking: self.defender.clone(),
@@ -4536,6 +4649,18 @@ impl CombatWindow {
         round: u32,
     ) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
+        state.combat_presentation.phase = "resolving_hits".to_owned();
+        state.combat_presentation.round_start =
+            ships_of(state, content, sources, &self.attacker, &self.system)
+                .into_iter()
+                .chain(ships_of(
+                    state,
+                    content,
+                    sources,
+                    &self.defender,
+                    &self.system,
+                ))
+                .collect();
         // 78.5f: the attacker rolls everything first. 78.6: both sides' hits are computed
         // before either is absorbed. Each side's window opens before the next side's dice
         // are drawn, like the barrage's, so a reroll can empty a fleet mid-roll and end
@@ -4685,6 +4810,37 @@ impl CombatWindow {
         defender_free += by_defender.any_ship;
         defender_forced += by_defender.non_fighter;
 
+        state.combat_round_hits.insert(
+            self.attacker.clone(),
+            (attacker_free + attacker_forced) as u32,
+        );
+        state.combat_round_hits.insert(
+            self.defender.clone(),
+            (defender_free + defender_forced) as u32,
+        );
+
+        let mut round_dice = Vec::new();
+        for (side, set) in [(&self.attacker, &sets[0]), (&self.defender, &sets[1])] {
+            if let Some(s) = set {
+                for entry in &s.rolls {
+                    let threshold = entry.hits_on.unwrap_or(0);
+                    for (die_idx, face) in entry.faces.iter().enumerate() {
+                        let delta = entry.deltas.get(&die_idx).copied().unwrap_or(0);
+                        let final_val = (*face as i64 + delta as i64).max(0) as u32;
+                        let hit = threshold > 0 && final_val >= threshold;
+                        round_dice.push(CombatRollRecord {
+                            player: (*side).clone(),
+                            unit: entry.unit.clone(),
+                            roll: *face,
+                            target: threshold,
+                            hit,
+                        });
+                    }
+                }
+            }
+        }
+        state.combat_round_dice = round_dice;
+
         // Forced hits first, so a free hit can still take a fighter the forced ones had to spare.
         let mut queue: Vec<Pending> = [
             (&self.defender, attacker_forced, &self.attacker, true),
@@ -4764,9 +4920,29 @@ impl CombatWindow {
     ) -> Result<(), CombatError> {
         let (content, sources) = (ctx.content, ctx.sources);
         loop {
+            state.combat_presentation.phase = match &self.stage {
+                Stage::Opening { .. } | Stage::Announcing { .. } => "pre_roll",
+                Stage::RollingAfterBarrage { .. } => "barrage",
+                Stage::Sustaining { .. } | Stage::Assigning { .. } | Stage::Rolling { .. } => {
+                    "resolving_hits"
+                }
+                Stage::Retreating { .. } => "retreating",
+                Stage::Done(_) => "complete",
+            }
+            .to_owned();
+            state.combat_presentation.remaining_hits = match &self.stage {
+                Stage::Sustaining { queue, .. } | Stage::Assigning { queue, .. } => {
+                    let mut remaining = std::collections::BTreeMap::new();
+                    for pending in queue {
+                        *remaining.entry(pending.player.clone()).or_insert(0) += pending.hits;
+                    }
+                    remaining
+                }
+                _ => Default::default(),
+            };
             match self.stage.clone() {
-                Stage::Sustaining { mut queue, round } | Stage::Assigning { mut queue, round } => {
-                    let Some(mut front) = queue.first().cloned() else {
+                Stage::Sustaining { queue, round } | Stage::Assigning { queue, round } => {
+                    let Some(front) = queue.first().cloned() else {
                         // Hits modules produced at the start of the combat are assigned; the
                         // round resumes at its anti-fighter barrage.
                         if self.hit_phase == HitPhase::CombatStart {
@@ -4831,7 +5007,11 @@ impl CombatWindow {
                     // "Before you assign hits to your ships during a space combat." Emitted as the
                     // first of a player's hits is about to land: `front` still carries its full
                     // count here and the stage has consumed none of it.
-                    if matches!(self.stage, Stage::Sustaining { .. }) {
+                    if matches!(self.stage, Stage::Sustaining { .. })
+                        && self
+                            .hit_reaction_offered
+                            .insert((round, front.player.clone()))
+                    {
                         let mut payload = std::collections::BTreeMap::new();
                         payload.insert("system".to_owned(), self.system.to_string().into());
                         payload.insert("player".to_owned(), front.player.to_string().into());
@@ -4841,17 +5021,15 @@ impl CombatWindow {
                         );
                         payload.insert("round".to_owned(), i64::from(round).into());
                         let _ = ctx.emit(state, "HITS_TO_ASSIGN", payload);
-                        // A card played in that window (Tellurian) cancels hits "before a hit
-                        // would be assigned": spend them now, before the sustain offer, rather
-                        // than after the player has answered it.
+                        // The reaction window may have granted cancellations while `emit`
+                        // was waiting for its players. Apply them before offering sustain or
+                        // casualties; the earlier spend only covers grants from prior windows.
                         let cancelled = spend_cancellations(state, &front.player, front.hits);
                         if cancelled > 0 {
-                            queue[0].hits -= cancelled;
-                            front.hits -= cancelled;
-                            if front.hits == 0 {
-                                self.stage = Stage::Sustaining { queue, round };
-                                continue;
-                            }
+                            let mut rest = queue.clone();
+                            rest[0].hits -= cancelled;
+                            self.stage = Stage::Sustaining { queue: rest, round };
+                            continue;
                         }
                     }
                     // A sustain is only offered when something can take one.
@@ -5160,18 +5338,25 @@ impl Window for CombatWindow {
                             )])),
                     );
                 }
-                options.push(
-                    ChoiceOption::labelled(
-                        crate::choice::DECLINE_ID,
-                        crate::choice::DECLINE_KIND,
-                        "take the hit",
-                    )
-                    .previewed(Preview::certain(vec![Delta::new(
-                        Quantity::ShipsInSystem,
-                        own_ships,
-                        own_ships - 1,
-                    )])),
-                );
+                let mut take = ChoiceOption::labelled(
+                    crate::choice::DECLINE_ID,
+                    crate::choice::DECLINE_KIND,
+                    "take the hit",
+                )
+                .previewed(Preview::certain(vec![Delta::new(
+                    Quantity::ShipsInSystem,
+                    own_ships,
+                    own_ships - 1,
+                )]));
+                // Display only, as in `offer_sustain`: the loss this hit forces is a
+                // non-fighter while one is left.
+                if front.non_fighters_only
+                    && !non_fighter_ships(state, content, sources, &front.player, &self.system)
+                        .is_empty()
+                {
+                    take = take.with("non_fighters_first", true);
+                }
+                options.push(take);
                 Some(
                     Choice::new(
                         front.player.clone(),
@@ -5186,7 +5371,12 @@ impl Window for CombatWindow {
                             state.phase,
                             state.round,
                         )
-                        .about(DecisionTarget::System(self.system.clone())),
+                        .about(DecisionTarget::System(self.system.clone()))
+                        .owing(OutstandingConstraint::new(
+                            ConstraintKind::UnitsToRemove,
+                            i64::try_from(front.hits).unwrap_or(0),
+                            0,
+                        )),
                     ),
                 )
             }
@@ -5234,7 +5424,12 @@ impl Window for CombatWindow {
                             state.phase,
                             state.round,
                         )
-                        .about(DecisionTarget::System(self.system.clone())),
+                        .about(DecisionTarget::System(self.system.clone()))
+                        .owing(OutstandingConstraint::new(
+                            ConstraintKind::UnitsToRemove,
+                            i64::try_from(front.hits).unwrap_or(0),
+                            0,
+                        )),
                     ),
                 )
             }
@@ -5981,6 +6176,110 @@ mod tests {
         );
     }
 
+    /// Forced hits (L1Z1X dreadnoughts) go to non-fighter ships; the window's sustain question
+    /// says so on "take the hit", as the cannon path does, so a client never plans a fighter
+    /// loss the next question will not offer.
+    #[test]
+    fn a_windowed_forced_hit_marks_its_sustain_question_bound_to_non_fighters() {
+        for forced in [true, false] {
+            let (mut state, system) = arena();
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 1);
+            let mut window = CombatWindow::new(&state, ContentStore::embedded(), POK, &system);
+            window.stage = Stage::Sustaining {
+                queue: vec![Pending {
+                    player: defender(),
+                    hits: 1,
+                    producer: attacker(),
+                    non_fighters_only: forced,
+                    producer_assigns: false,
+                }],
+                round: 1,
+            };
+            let sustaining = window
+                .pending_choice(&state, ContentStore::embedded(), POK)
+                .expect("a hit is queued");
+            let take = sustaining
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .expect("taking the hit is offered");
+            assert_eq!(
+                take.payload
+                    .get("non_fighters_first")
+                    .and_then(serde_json::Value::as_bool),
+                forced.then_some(true),
+                "forced = {forced}"
+            );
+        }
+    }
+
+    /// Hits outside a combat window (space cannon, barrage) are absorbed one ask at a time. Each
+    /// ask must say how many hits are still owed, or a client cannot stage them together and
+    /// has to guess the amount.
+    #[test]
+    fn absorbing_hits_outside_a_window_states_the_hits_still_owed() {
+        let content = ContentStore::embedded();
+        let (mut state, system) = arena();
+        let player = defender();
+        put(&mut state, &system, "dreadnought", &player, 1);
+        put(&mut state, &system, "cruiser", &player, 2);
+        put(&mut state, &system, "fighter", &player, 2);
+
+        let (capturing, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = Table::with_default(Box::new(capturing));
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(1);
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        absorb_hits_seeing(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut ctx,
+            &player,
+            &system,
+            &attacker(),
+            3,
+        )
+        .expect("the hits resolve");
+
+        let owed: Vec<(String, i64)> = seen
+            .borrow()
+            .iter()
+            .filter_map(|choice| {
+                let context = choice.context.as_ref()?;
+                let amount = context.outstanding.first()?.amount;
+                Some((context.subtype.clone(), amount))
+            })
+            .collect();
+        assert_eq!(
+            owed.first(),
+            Some(&("sustain_damage".to_owned(), 3)),
+            "the sustain ask owes every hit: {owed:?}"
+        );
+        let casualties: Vec<_> = owed
+            .iter()
+            .filter(|(subtype, _)| subtype == "assign_casualty")
+            .collect();
+        assert!(!casualties.is_empty(), "a casualty ask followed: {owed:?}");
+        assert!(
+            seen.borrow().iter().all(|choice| choice
+                .context
+                .as_ref()
+                .is_some_and(|c| !c.outstanding.is_empty())),
+            "no ask leaves the amount unstated"
+        );
+    }
+
     /// Non-Euclidean Shielding cancels two hits per sustain, not two sustains.
     ///
     /// "When 1 of your units uses SUSTAIN DAMAGE, cancel 2 hits instead of 1" -- so one dreadnought
@@ -6017,6 +6316,7 @@ mod tests {
             2,
             HitOrigin::CombatRoll,
             false,
+            false,
         )
         .expect("the offer resolves");
         assert_eq!(
@@ -6041,6 +6341,7 @@ mod tests {
             &attacker(),
             2,
             HitOrigin::CombatRoll,
+            false,
             false,
         )
         .expect("the offer resolves");
@@ -6801,6 +7102,59 @@ mod tests {
             ships_of(&state, content, POK, &defender(), &system).len(),
             2
         );
+    }
+
+    #[test]
+    fn graviton_bound_sustain_question_says_the_hit_goes_to_a_non_fighter() {
+        // Nightly runs 07-2221 and 37-0225: the sustain question did not say the hits were
+        // bound, so the client planned "take the hit, lose a fighter" and the follow-up
+        // casualty question (non-fighters only) rejected it.
+        for bound in [true, false] {
+            let (mut state, system) = arena();
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            put(&mut state, &system, "destroyer", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 1);
+            let content = ContentStore::embedded();
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(1);
+            let (decider, seen) = crate::choice::Capturing::new(Box::new(FirstOption));
+            let mut table = Table::with_default(Box::new(decider));
+            let mut ctx = Resolving {
+                content,
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            absorb_hits_seeing_with(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut ctx,
+                &defender(),
+                &system,
+                &attacker(),
+                1,
+                bound,
+                HitOrigin::CombatRoll,
+            )
+            .unwrap();
+            let asked = seen.borrow();
+            let take = asked[0]
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .expect("the sustain question offers taking the hit");
+            assert_eq!(
+                take.payload
+                    .get("non_fighters_first")
+                    .and_then(serde_json::Value::as_bool),
+                bound.then_some(true),
+                "bound = {bound}"
+            );
+        }
     }
 
     #[test]
@@ -7841,6 +8195,7 @@ mod tests {
             1,
             HitOrigin::CombatRoll,
             false,
+            false,
         )
         .unwrap();
         let sustain_asked = sustain_seen.borrow();
@@ -8153,6 +8508,7 @@ mod tests {
             &attacker(),
             1,
             HitOrigin::CombatRoll,
+            false,
             false,
         )
         .unwrap();
@@ -9376,7 +9732,8 @@ mod space_routes_tests {
                 &a(),
                 1,
                 HitOrigin::CombatRoll,
-                true
+                true,
+                false
             )
             .unwrap(),
             0
@@ -9429,7 +9786,8 @@ mod space_routes_tests {
                 &a(),
                 1,
                 HitOrigin::CombatRoll,
-                true
+                true,
+                false
             )
             .unwrap(),
             0
@@ -9496,6 +9854,7 @@ mod space_routes_tests {
                 1,
                 HitOrigin::CombatRoll,
                 true,
+                false,
             )
             .unwrap(),
             0

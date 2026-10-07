@@ -295,6 +295,29 @@ impl AftermathWindow {
             notes_at_tactical_start.clone(),
         );
         let mut window = crate::combat::CombatWindow::new(state, ctx.content, ctx.sources, system);
+        let sides = crate::combat::combatants(state, ctx.content, ctx.sources, system);
+        state.active_space_combat = (sides.len() == 2).then(|| {
+            let attacker = state
+                .active
+                .clone()
+                .filter(|seat| sides.contains(seat))
+                .unwrap_or_else(|| sides[0].clone());
+            let defender = sides
+                .iter()
+                .find(|seat| **seat != attacker)
+                .expect("two sides")
+                .clone();
+            (system.clone(), attacker, defender)
+        });
+        if state.active_space_combat.is_some() {
+            state.combat_presentation = ti4_model::state::CombatPresentation {
+                battle_seq: state.combat_round_seq.saturating_add(1),
+                phase: "pre_roll".to_owned(),
+                ..Default::default()
+            };
+            state.combat_round_hits.clear();
+            state.combat_round_dice.clear();
+        }
         if let Some(galaxy) = galaxy {
             window = window.with_galaxy(galaxy.clone());
         }
@@ -361,19 +384,6 @@ impl AftermathWindow {
         self.pending_event_scoring.take()
     }
 
-    /// Open the production step for this activation.
-    ///
-    /// "When 1 or more of your units use PRODUCTION" is a *before* window: the driver opens it
-    /// once the step is built and before its first choice, so a War Machine changes this
-    /// production rather than one that already spent its budget. The step produces nothing for
-    /// a player with no budget at all, so the window stays shut for them (and a War Machine
-    /// cannot create the production it answers). Reactions resolve inside the emit; [`ProductionWindow::refresh`]
-    /// then re-derives the budget so faces a reaction added are spent, and a step that would
-    /// otherwise have been done re-opens.
-    ///
-    /// # Errors
-    /// [`IllegalChoice`] if a decider answers a discount or reaction prompt with something not
-    /// offered.
     /// Open the step after combat (or after a negotiation pause): invasion when the active
     /// player holds the space, else production.
     fn next_step(
@@ -384,6 +394,16 @@ impl AftermathWindow {
     ) -> Result<Aftermath, IllegalChoice> {
         let holds = invade;
         Ok(if holds {
+            state.active_invasion = Some(ti4_model::state::ActiveInvasion {
+                system: self.system.clone(),
+                invader: self.player.clone(),
+                seq: u64::from(state.activation_seq),
+                phase: "bombardment".to_owned(),
+                planet: None,
+                defender: None,
+                ground_round: 0,
+                last_step: None,
+            });
             // Two cards read "at the start of an invasion", so the window opens
             // before the invasion does rather than after it has resolved.
             let mut payload = BTreeMap::new();
@@ -419,6 +439,19 @@ impl AftermathWindow {
         })
     }
 
+    /// Open the production step for this activation.
+    ///
+    /// "When 1 or more of your units use PRODUCTION" is a *before* window: the driver opens it
+    /// once the step is built and before its first choice, so a War Machine changes this
+    /// production rather than one that already spent its budget. The step produces nothing for
+    /// a player with no budget at all, so the window stays shut for them (and a War Machine
+    /// cannot create the production it answers). Reactions resolve inside the emit; [`ProductionWindow::refresh`]
+    /// then re-derives the budget so faces a reaction added are spent, and a step that would
+    /// otherwise have been done re-opens.
+    ///
+    /// # Errors
+    /// [`IllegalChoice`] if a decider answers a discount or reaction prompt with something not
+    /// offered.
     fn enter_production(
         &self,
         state: &mut GameState,
@@ -627,6 +660,7 @@ impl AftermathWindow {
                         }
                         self.log.push("SPACE_COMBAT_RESOLVED".to_owned());
                     }
+                    state.active_space_combat = None;
                     // 16.3 at the moment the carrier dies, not at the end of the turn.
                     //
                     // A space combat that destroys a carrier strands whatever it was holding:
@@ -682,6 +716,7 @@ impl AftermathWindow {
                     }
                     window.settle(state, ctx);
                     window.take_settle_error()?;
+                    window.update_public_boundary(state);
                     if let Some((occurrence, combat)) = window.take_scoring_occurrence() {
                         self.pending_event_scoring = Some((
                             occurrence,
@@ -693,16 +728,23 @@ impl AftermathWindow {
                         ));
                         return Ok(());
                     }
-                    if window
-                        .pending_choice(state, ctx.content, ctx.sources)
-                        .is_some()
-                    {
+                    if let Some(offered) = window.pending_choice(state, ctx.content, ctx.sources) {
+                        if offered
+                            .context
+                            .as_ref()
+                            .is_some_and(|context| context.subtype == "commit_ground_forces")
+                        {
+                            if let Some(active) = state.active_invasion.as_mut() {
+                                active.phase = "landing".to_owned();
+                            }
+                        }
                         return Ok(());
                     }
                     if !window.is_done() {
                         return Ok(());
                     }
                     self.log.push("INVASION_RESOLVED".to_owned());
+                    state.active_invasion = None;
                     if crate::diplomacy::candidates::available_contacts(state, &self.player)
                         .is_empty()
                     {
@@ -1088,6 +1130,12 @@ impl<'a> Game<'a> {
         &mut self.timing
     }
 
+    /// Access the game dice roller and its roll history.
+    #[must_use]
+    pub const fn dice(&self) -> &Dice {
+        &self.dice
+    }
+
     /// Every die this game has rolled, in order. Read-only: a viewer shows them, nothing may
     /// change them. Rolls made on a scratch roller inside a helper that owns its own `Dice` are
     /// not here.
@@ -1114,13 +1162,19 @@ impl<'a> Game<'a> {
         if let Some((window, _)) = &self.tokens {
             return window.pending_choice().map(|choice| {
                 let actor = choice.player.clone();
-                choice.contextualized(DecisionContext::new(
+                let choice = choice.contextualized(DecisionContext::new(
                     actor,
                     DecisionSource::Rule("52.4".to_owned()),
                     "gain_command_token",
                     self.state.phase,
                     self.state.round,
-                ))
+                ));
+                crate::tokens::with_pool_details(
+                    choice,
+                    &self.state,
+                    "gain",
+                    Some(window.remaining_for_next_player()),
+                )
             });
         }
         if let Some((window, _)) = &self.voting {
@@ -1324,15 +1378,32 @@ impl<'a> Game<'a> {
         let Some(choice) = self.legal_options() else {
             return self.step_phase();
         };
+        // The last strategy card is not a choice: the picker takes it and is told so. Never
+        // journaled, so a replay reaches the same pick by the same route.
+        let is_draft = choice
+            .context
+            .as_ref()
+            .is_some_and(|context| context.subtype == "draft_strategy_card");
+        let lone_card = if is_draft {
+            self.table
+                .auto_resolve(&choice, "only one strategy card left")
+        } else {
+            None
+        };
         // Field borrows, not `self`: the table answers while the position stays readable.
-        let answer = match self.table.ask_seeing(
-            &choice,
-            &crate::choice::Observed::new(
-                &self.state,
-                self.content,
-                self.sources,
-                self.galaxy.as_ref(),
-            ),
+        let answer = match lone_card.map_or_else(
+            || {
+                self.table.ask_seeing(
+                    &choice,
+                    &crate::choice::Observed::new(
+                        &self.state,
+                        self.content,
+                        self.sources,
+                        self.galaxy.as_ref(),
+                    ),
+                )
+            },
+            Ok,
         ) {
             Ok(answer) => answer,
             Err(error) => return self.result(false, Some(error.into())),
@@ -1388,9 +1459,118 @@ impl<'a> Game<'a> {
             return window.pending_choice(&self.state, self.content, self.sources);
         }
         if let Some(player) = &self.turn_closing {
-            return Some(self.closing_options(player));
+            return Some(self.with_turn_menu(self.closing_options(player), true));
         }
         self.turn_options()
+            .map(|choice| self.with_turn_menu(choice, false))
+    }
+
+    /// Display-only facts for the persistent action bar: the seat's token pools, every strategy
+    /// card it holds with its used state, and every other seat with whether a transaction can be
+    /// opened right now and, when not, why. The client cannot rebuild the "why" for a partner
+    /// that is simply absent from the options. Never read by the engine.
+    fn with_turn_menu(&self, choice: Choice, closing: bool) -> Choice {
+        use serde_json::json;
+        use ti4_model::state::TokenPool;
+        let player = choice.player.clone();
+        let Some(seat) = self.state.player(&player) else {
+            return choice;
+        };
+        let cards: Vec<serde_json::Value> = seat
+            .strategy_cards
+            .iter()
+            .map(|card| {
+                // A lone unused card keeps the bare `strategic` id even when another card is
+                // already spent, so the option has to be named here rather than rebuilt.
+                let named = format!("{}|{}", crate::strategy::STRATEGIC_ACTION_ID, card.as_str());
+                let option = choice
+                    .options
+                    .iter()
+                    .find(|option| option.id == named)
+                    .or_else(|| {
+                        (seat.unused_strategy_cards() == [card])
+                            .then(|| {
+                                choice
+                                    .options
+                                    .iter()
+                                    .find(|o| o.id == crate::strategy::STRATEGIC_ACTION_ID)
+                            })
+                            .flatten()
+                    })
+                    .map(|option| option.id.clone());
+                json!({
+                    "card": card.as_str(),
+                    "used": seat.exhausted_strategy_cards.contains(card),
+                    "option": option,
+                })
+            })
+            .collect();
+        let offered = |other: &PlayerId| {
+            choice.options.iter().any(|option| {
+                option.kind == crate::transactions::OPEN_KIND
+                    && crate::transactions::opens_with(&self.state, option).as_ref() == Some(other)
+            })
+        };
+        let already = self.state.transacted_with(&player);
+        let partners: Vec<serde_json::Value> = self
+            .state
+            .seating_order
+            .iter()
+            .filter(|other| **other != player)
+            .filter_map(|other| {
+                let theirs = self.state.player(other)?;
+                let neighbour = self.galaxy.as_ref().is_some_and(|galaxy| {
+                    crate::transactions::may_transact(
+                        &self.state,
+                        self.content,
+                        galaxy,
+                        &player,
+                        other,
+                    )
+                });
+                let available = offered(other);
+                let reason = if available {
+                    None
+                } else if self.state.diplomacy.enabled {
+                    Some("Deals go through diplomatic contacts")
+                } else if already.contains(other) {
+                    Some("Already traded with them this turn")
+                } else if !neighbour {
+                    Some("No contact: not neighbours")
+                } else {
+                    Some("Not available now")
+                };
+                Some(json!({
+                    "seat": other.as_str(),
+                    "faction": theirs.faction.as_str(),
+                    "available": available,
+                    "in_contact": neighbour,
+                    "reason": reason,
+                    "trade_goods": theirs.trade_goods,
+                    "commodities": theirs.commodities,
+                    "promissory_notes": self
+                        .state
+                        .promissory_notes
+                        .values()
+                        .filter(|holder| *holder == other)
+                        .count(),
+                }))
+            })
+            .collect();
+        choice
+            .detailed("kind", "turn_menu")
+            .detailed("closing", closing)
+            .detailed("actions_taken", self.actions_this_turn)
+            .detailed(
+                "tokens",
+                json!({
+                    "tactic": seat.tokens(TokenPool::Tactic),
+                    "fleet": seat.tokens(TokenPool::Fleet),
+                    "strategy": seat.tokens(TokenPool::Strategic),
+                }),
+            )
+            .detailed("strategy_cards", cards)
+            .detailed("partners", partners)
     }
 
     /// Whether an action-phase option leaves the turn's action untouched: a contact, a trade, a
@@ -1945,6 +2125,8 @@ impl<'a> Game<'a> {
                     "player".to_owned(),
                     serde_json::Value::String(active.to_string()),
                 );
+                // Which strategy card is about to be used, so a reaction can say so.
+                payload.insert("card".to_owned(), serde_json::Value::String(card.clone()));
                 self.emit_typed("STRATEGIC_ACTION_BEGAN", payload)?;
                 if self
                     .state
@@ -3098,9 +3280,9 @@ impl<'a> Game<'a> {
         path: &[String],
         outcome: &MoveOutcome,
     ) {
-        if !matches!(outcome, MoveOutcome::Arrived { .. }) {
+        let MoveOutcome::Arrived { cargo } = outcome else {
             return;
-        }
+        };
         // Counted for MOVEMENT_FINISHED's `ships_moved`: "after you move ships into the active
         // system" needs to know that something did. A private mark, so it survives a restored
         // or branched game and no seat sees it.
@@ -3121,12 +3303,30 @@ impl<'a> Game<'a> {
             "player".to_owned(),
             serde_json::Value::String(player.to_string()),
         );
+        // Where the ships are now and what arrived: the ship plus what it carried, by type.
         if let Some(system) = &self.state.active_system {
             payload.insert(
                 "system".to_owned(),
                 serde_json::Value::String(system.to_string()),
             );
         }
+        let mut counts: BTreeMap<(String, String), u64> = BTreeMap::new();
+        for unit in std::iter::once(ship).chain(cargo.iter().map(|carried| &carried.unit)) {
+            *counts
+                .entry((unit.owner.to_string(), unit.type_id.to_string()))
+                .or_default() += 1;
+        }
+        payload.insert(
+            "units".to_owned(),
+            serde_json::Value::Array(
+                counts
+                    .into_iter()
+                    .map(|((owner, unit_type), count)| {
+                        serde_json::json!({"owner": owner, "unit_type": unit_type, "count": count})
+                    })
+                    .collect(),
+            ),
+        );
         payload.insert(
             "origin".to_owned(),
             serde_json::Value::String(origin.to_string()),
@@ -6969,6 +7169,57 @@ mod tests {
     }
 
     #[test]
+    fn the_turn_menu_carries_pools_cards_and_partners_for_the_action_bar() {
+        let (state, galaxy, _) = tactical_fixture();
+        let game = Game::new(state, ContentStore::embedded()).with_galaxy(galaxy);
+
+        let choice = game.legal_options().unwrap();
+        assert_eq!(choice.details["kind"], "turn_menu");
+        assert_eq!(choice.details["closing"], false);
+        let tokens = &choice.details["tokens"];
+        let seat = game.state.player(&PlayerId::new("a")).unwrap();
+        assert_eq!(tokens["tactic"], seat.tactic_tokens);
+        assert_eq!(tokens["strategy"], seat.strategic_tokens);
+        let partners = choice.details["partners"].as_array().unwrap();
+        assert_eq!(partners.len(), 1, "every other seat is listed: {partners:?}");
+        assert_eq!(partners[0]["seat"], "b");
+        assert!(partners[0]["trade_goods"].is_number());
+        let offered = choice
+            .options
+            .iter()
+            .any(|option| option.kind == crate::transactions::OPEN_KIND);
+        assert_eq!(partners[0]["available"], offered);
+        if !offered {
+            assert!(partners[0]["reason"].is_string(), "a missing partner says why");
+        }
+    }
+
+    #[test]
+    fn the_turn_menu_lists_held_strategy_cards_with_their_used_state() {
+        let (mut state, galaxy, _) = tactical_fixture();
+        let a = PlayerId::new("a");
+        let seat = state.player_mut(&a).unwrap();
+        seat.strategy_cards = vec![
+            StrategyCardId::new("pok2diplomacy"),
+            StrategyCardId::new("pok8imperial"),
+        ];
+        seat.exhausted_strategy_cards
+            .insert(StrategyCardId::new("pok2diplomacy"));
+        let game = Game::new(state, ContentStore::embedded()).with_galaxy(galaxy);
+
+        let choice = game.legal_options().unwrap();
+        let cards = choice.details["strategy_cards"].as_array().unwrap();
+        assert_eq!(cards.len(), 2);
+        assert_eq!(cards[0]["card"], "pok2diplomacy");
+        assert_eq!(cards[0]["used"], true);
+        assert_eq!(cards[1]["used"], false);
+        // Only the unused card is an option; the used one is explained by the details.
+        // A lone unused card keeps the bare id, and the details name it.
+        assert_eq!(cards[1]["option"], "strategic");
+        assert!(cards[0]["option"].is_null());
+    }
+
+    #[test]
     fn a_player_with_no_tactic_token_is_not_offered_one() {
         let (mut state, galaxy, _) = tactical_fixture();
         state.player_mut(&PlayerId::new("a")).unwrap().tactic_tokens = 0;
@@ -7751,6 +8002,67 @@ mod tests {
                 .trust
                 < 0
         );
+    }
+
+    #[test]
+    fn the_typed_ship_moved_event_names_the_destination_and_what_arrived() {
+        // Reaction dialogs say "Anna moved 1 carrier into System X" from this payload.
+        let (mut state, galaxy, ids) = tactical_fixture();
+        crate::fixtures::put(&mut state, &ids[1], "carrier", &PlayerId::new("a"), 1);
+        crate::fixtures::put(&mut state, &ids[1], "infantry", &PlayerId::new("a"), 1);
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            format!("move|{}|0", ids[1]),
+            "done_loading".to_owned(),
+            "done_moving".to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        for _ in 0..40 {
+            assert_eq!(game.step().error, None);
+            if game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") {
+                break;
+            }
+        }
+        let moved = game
+            .timing
+            .applied_events()
+            .iter()
+            .find(|event| event.event_type == "SHIP_MOVED")
+            .expect("the cargo path announces the arrival");
+        assert_eq!(moved.text("player"), Some("a"));
+        assert_eq!(moved.text("system"), Some(ids[0].to_string().as_str()));
+        assert_eq!(
+            moved.payload.get("units"),
+            Some(&serde_json::json!([{"owner": "a", "unit_type": "carrier", "count": 1}]))
+        );
+    }
+
+    #[test]
+    fn the_typed_strategic_action_event_names_the_strategy_card() {
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut state =
+            start_game(ContentStore::embedded(), &[a.clone(), b.clone()], POK, None).unwrap();
+        state.phase = Phase::Action;
+        state.active = Some(a.clone());
+        state.deal_strategy_card(&a, StrategyCardId::new("leadership"));
+        state.deal_strategy_card(&b, StrategyCardId::new("imperial"));
+        let table = Table::with_default(Box::new(TurnDecider::new(&[]).taking_the_strategic_action()));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table);
+        let mut guard = 0;
+        while !game.events.iter().any(|e| e == "STRATEGIC_ACTION_BEGAN") && guard < 100 {
+            assert_eq!(game.step().error, None, "no turn step should refuse");
+            guard += 1;
+        }
+        let began = game
+            .timing
+            .applied_events()
+            .iter()
+            .find(|event| event.event_type == "STRATEGIC_ACTION_BEGAN")
+            .expect("the strategic action began");
+        assert_eq!(began.text("player"), Some("a"));
+        assert_eq!(began.text("card"), Some("leadership"));
     }
 
     #[test]
@@ -14056,6 +14368,88 @@ mod tests {
             "a's card was never played; log {events:?}"
         );
     }
+
+    /// Plays one strategy phase; returns (asked picks, notes left for auto-resolved picks).
+    fn draft_round(count: usize) -> (usize, Vec<crate::choice::AutoResolved>, GameState) {
+        let players: Vec<PlayerId> = ["a", "b", "c", "d", "e", "f"][..count]
+            .iter()
+            .map(|id| PlayerId::new(*id))
+            .collect();
+        let state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        let mut game = Game::new(state, ContentStore::embedded());
+        let mut picks = 0;
+        while game.state.phase == Phase::Strategy {
+            assert_eq!(game.step().error, None);
+            picks += 1;
+        }
+        let asked = game
+            .table
+            .log
+            .records
+            .iter()
+            .filter(|record| record.prompt == "choose a strategy card")
+            .count();
+        let notes = game.table.take_auto_resolved();
+        // Every pick happened, asked or not.
+        let dealt: usize = game.state.players.iter().map(|p| p.strategy_cards.len()).sum();
+        assert_eq!(asked + notes.len(), dealt, "{count} players, {picks} steps");
+        (asked, notes, game.state)
+    }
+
+    /// Only a four-player draft ends on a lone card (8 cards, 8 picks); 3, 5 and 6 players leave
+    /// several on the mat at the end, so every pick there is still a real choice.
+    #[test]
+    fn the_last_card_of_a_four_player_draft_is_taken_without_asking() {
+        let (asked, notes, state) = draft_round(4);
+        assert_eq!((asked, notes.len()), (7, 1));
+        assert_eq!(notes[0].reason, "only one strategy card left");
+        assert_eq!(notes[0].prompt, "choose a strategy card");
+        assert!(notes[0].label.contains(". "), "the card is named: {}", notes[0].label);
+        assert!(state.unclaimed_strategy_cards.is_empty());
+        let taker = state
+            .players
+            .iter()
+            .find(|p| p.strategy_cards.iter().any(|c| c.as_str() == notes[0].option_id))
+            .expect("someone holds the card");
+        assert_eq!(taker.id, notes[0].player);
+    }
+
+    #[test]
+    fn three_five_and_six_player_drafts_still_ask_for_every_pick() {
+        for (count, picks) in [(3, 6), (5, 5), (6, 6)] {
+            let (asked, notes, state) = draft_round(count);
+            assert_eq!((asked, notes.len()), (picks, 0), "{count} players");
+            assert!(state.unclaimed_strategy_cards.len() > 1);
+        }
+    }
+
+    /// The skipped ask is not journaled, so replaying the journal re-derives the same pick.
+    #[test]
+    fn a_replay_of_the_journal_re_derives_the_auto_resolved_pick() {
+        let play = |script: Vec<String>| {
+            let players: Vec<PlayerId> = ["a", "b", "c", "d"]
+                .iter()
+                .map(|id| PlayerId::new(*id))
+                .collect();
+            let state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+            let table = Table::with_default(Box::new(Scripted::new(script)));
+            let mut game = Game::with_table(state, ContentStore::embedded(), table);
+            while game.state.phase == Phase::Strategy {
+                assert_eq!(game.step().error, None);
+            }
+            let notes = game.table.take_auto_resolved();
+            (game.state, game.table.log, notes)
+        };
+        let (state, log, notes) = play(Vec::new());
+        assert_eq!(notes.len(), 1);
+        let journal: Vec<String> = log.records.iter().map(|r| r.chosen.clone()).collect();
+        assert_eq!(journal.len(), 7, "the lone pick is not journaled");
+        let (replayed, replayed_log, replayed_notes) = play(journal);
+        assert!(state.identical(&replayed));
+        assert_eq!(log, replayed_log);
+        assert_eq!(notes, replayed_notes);
+    }
+
     #[test]
     fn invalid_copied_l1z_activation_restores_token_window_and_log_for_retry() {
         let content = ContentStore::embedded();

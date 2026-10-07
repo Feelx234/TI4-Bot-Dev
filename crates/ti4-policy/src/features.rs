@@ -276,15 +276,27 @@ fn deal_draft_features(features: &mut FeatureVector, draft: &Value, round: u32) 
         #[allow(clippy::cast_precision_loss, reason = "a handful of terms")]
         let count = terms.len() as f64;
         add_named(features, format_args!("diplomacy:{name}-terms"), count);
-        add_named(features, format_args!("diplomacy:{name}-goods"), goods / 10.0);
-        add_named(features, format_args!("diplomacy:{name}-promises"), promises);
+        add_named(
+            features,
+            format_args!("diplomacy:{name}-goods"),
+            goods / 10.0,
+        );
+        add_named(
+            features,
+            format_args!("diplomacy:{name}-promises"),
+            promises,
+        );
         add_named(features, format_args!("diplomacy:{name}-next-round"), later);
     }
     if draft.get("asking").and_then(Value::as_bool) == Some(true) {
         add_named(features, format_args!("diplomacy:deal-stage-asking"), 1.0);
     }
     if draft.get("reviewing").and_then(Value::as_bool) == Some(true) {
-        add_named(features, format_args!("diplomacy:deal-stage-reviewing"), 1.0);
+        add_named(
+            features,
+            format_args!("diplomacy:deal-stage-reviewing"),
+            1.0,
+        );
     }
 }
 
@@ -5406,7 +5418,7 @@ mod tests {
         )
         .contextualized(DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("skilled_retreat".to_owned()),
+            DecisionSource::ActionCard("s_retreat1".to_owned()),
             "skilled_retreat_choose_system",
             Phase::Action,
             2,

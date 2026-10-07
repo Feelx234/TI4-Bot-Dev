@@ -57,7 +57,45 @@ pub enum StrategySecondaryError {
     IllegalChoice(#[from] IllegalChoice),
 }
 
+/// The follower's secondary question with the facts a client needs to present it: which card
+/// was played, by whom, and how many strategy tokens the follower has left.
 fn secondary_choice(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    card: &StrategyCardId,
+    primary: &PlayerId,
+    player: &PlayerId,
+    costs_token: bool,
+) -> Choice {
+    let tokens_left = state.player(player).map_or(0, |seat| seat.strategic_tokens);
+    let mut question = secondary_question(content, card, player, costs_token);
+    if crate::strategy_cards::card_name(content, card.as_str()).as_deref() == Some("Leadership") {
+        // The window's question is the purchase question itself: typed like the loop's later
+        // asks, and carrying what a client needs to plan every purchase at once.
+        question = question.contextualized(crate::decision_context::DecisionContext::new(
+            player.clone(),
+            crate::decision_context::DecisionSource::Rule("52.3".to_owned()),
+            "buy_token_with_influence",
+            state.phase,
+            state.round,
+        ));
+        if let Some(purchase) =
+            crate::strategy_cards::purchase_details(state, content, sources, player)
+        {
+            question = crate::tokens::with_pool_details(question, state, "buy", Some(0))
+                .detailed("purchase", purchase);
+        }
+    }
+    question
+        .detailed("kind", "strategy_secondary")
+        .detailed("card", card.as_str())
+        .detailed("played_by", primary.as_str())
+        .detailed("tokens_left", tokens_left)
+        .detailed("costs_token", costs_token)
+}
+
+fn secondary_question(
     content: &ContentStore,
     card: &StrategyCardId,
     player: &PlayerId,
@@ -292,7 +330,15 @@ impl StrategySecondaryWindow {
             .map(|player_id| {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, player_id, &self.card);
-                let choice = secondary_choice(content, &self.card, player_id, costs_token);
+                let choice = secondary_choice(
+                    state,
+                    content,
+                    sources,
+                    &self.card,
+                    &self.primary_player,
+                    player_id,
+                    costs_token,
+                );
                 with_waivers(
                     state,
                     content,
@@ -319,7 +365,15 @@ impl StrategySecondaryWindow {
             if self.eligible(state, content, sources, &player_id) {
                 let costs_token = secondary_costs_token(content, &self.card)
                     && !secondary_is_free(state, content, &player_id, &self.card);
-                let choice = secondary_choice(content, &self.card, &player_id, costs_token);
+                let choice = secondary_choice(
+                    state,
+                    content,
+                    sources,
+                    &self.card,
+                    &self.primary_player,
+                    &player_id,
+                    costs_token,
+                );
                 return Some(with_waivers(
                     state,
                     content,
@@ -882,6 +936,55 @@ mod tests {
     }
 
     #[test]
+    fn a_secondary_offer_says_which_card_was_played_by_whom_and_how_many_tokens_are_left() {
+        let (mut state, card) = drafted_with_first_pick("Politics");
+        if let Some(seat) = state.player_mut(&PlayerId::new("b")) {
+            seat.strategic_tokens = 3;
+        }
+        let window = StrategySecondaryWindow {
+            primary_player: PlayerId::new("a"),
+            card: card.clone(),
+            followers: vec![PlayerId::new("b"), PlayerId::new("c")],
+            next_follower: 0,
+            resolutions: Vec::new(),
+            exhausts_card: false,
+        };
+        let choice = window
+            .pending_choice(&state, ContentStore::embedded(), POK)
+            .expect("the first follower is offered the secondary");
+        assert_eq!(choice.player, PlayerId::new("b"));
+        assert_eq!(choice.details["kind"], "strategy_secondary");
+        assert_eq!(choice.details["card"], card.as_str());
+        assert_eq!(choice.details["played_by"], "a");
+        assert_eq!(choice.details["tokens_left"], 3);
+        assert_eq!(choice.details["costs_token"], true);
+    }
+
+    #[test]
+    fn display_details_never_change_which_decision_is_recorded() {
+        let (state, card) = drafted_with_first_pick("Politics");
+        let window = StrategySecondaryWindow {
+            primary_player: PlayerId::new("a"),
+            card,
+            followers: vec![PlayerId::new("b")],
+            next_follower: 0,
+            resolutions: Vec::new(),
+            exhausts_card: false,
+        };
+        let with = window
+            .pending_choice(&state, ContentStore::embedded(), POK)
+            .expect("offered");
+        let mut bare = with.clone();
+        bare.details.clear();
+        assert_eq!(with.options, bare.options);
+        assert_eq!(with.prompt, bare.prompt);
+        assert_eq!(with.context, bare.context);
+        // Empty details are not serialised, so an old reader sees exactly the old bytes.
+        assert!(!serde_json::to_string(&bare).unwrap().contains("details"));
+        assert!(serde_json::to_string(&with).unwrap().contains("details"));
+    }
+
+    #[test]
     fn diplomacy_secondary_is_withheld_when_nothing_is_exhausted() {
         let mut state = drafted_three_player_game();
         let player = PlayerId::new("a");
@@ -1200,6 +1303,17 @@ mod tests {
         assert_eq!(choice.player, affordable);
         assert_eq!(choice.prompt, "spend 3 influence for a command token");
         assert_eq!(choice.ids(), vec!["no", "yes"]);
+        // The window's question is typed like the loop's asks and carries the purchase facts,
+        // so a client can plan every purchase and its pool from this one decision.
+        assert_eq!(
+            choice.context.as_ref().map(|c| c.subtype.as_str()),
+            Some("buy_token_with_influence")
+        );
+        assert_eq!(choice.details["kind"], "strategy_secondary");
+        assert_eq!(choice.details["mode"], "buy");
+        assert_eq!(choice.details["tokens_to_place"], 0);
+        assert_eq!(choice.details["purchase"]["influence_available"], 3);
+        assert_eq!(choice.details["purchase"]["max"], 1);
 
         let resolution = window
             .take_choice(

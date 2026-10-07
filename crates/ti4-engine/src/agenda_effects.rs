@@ -121,10 +121,13 @@ pub fn unimplemented(content: &ContentStore, sources: SourceSet) -> Vec<String> 
 
 /// 98.4a caps a player at the target; a loss cannot take them below zero.
 fn adjust_victory_points(state: &mut GameState, player: &PlayerId, delta: i32) {
+    let Some(before) = state.player(player).map(|seat| seat.victory_points) else {
+        return;
+    };
     if let Some(seat) = state.player_mut(player) {
         seat.victory_points = (seat.victory_points + delta).clamp(0, VICTORY_TARGET);
     }
-    state.note_vp(player, delta, "agenda");
+    crate::objectives::note_vp_since(state, player, before, "agenda");
 }
 
 fn everyone(state: &GameState) -> Vec<PlayerId> {
@@ -176,12 +179,13 @@ fn choose_structure(
                 "destroy one of your structures",
                 many.iter()
                     .enumerate()
-                    .map(|(index, (_, planet, _))| {
+                    .map(|(index, (system, planet, _))| {
                         crate::choice::ChoiceOption::labelled(
                             index.to_string(),
                             "scuttle",
                             format!("destroy the one on {planet}"),
                         )
+                        .with_planet(planet.as_str(), Some(system.as_str()))
                     })
                     .collect(),
             )
@@ -1642,6 +1646,62 @@ mod tests {
             timing: None,
         };
         resolve_with(state, &mut ctx, galaxy, agenda, outcome, &Ballot::default())
+    }
+
+    /// Defense Act's structure options (ids are indices) carry the `planet` + `system` each
+    /// index stands for.
+    #[test]
+    fn defense_act_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, offered};
+        let mut state = game(&["a"]);
+        for (system, planet) in [("26", "lodor"), ("28", "torkan")] {
+            let (system, planet) = (
+                ti4_model::id::SystemId::new(system),
+                ti4_model::id::PlanetId::new(planet),
+            );
+            state.system_mut(&system).set_control(planet.clone(), a());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &a(), 1);
+        }
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let mut ctx = crate::choice::Resolving {
+            content: ContentStore::embedded(),
+            sources: ti4_model::content_types::POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        resolve_with(
+            &mut state,
+            &mut ctx,
+            None,
+            "defense_act",
+            AGAINST,
+            &Ballot::default(),
+        );
+        let seen = seen.borrow();
+        let choice = &seen[0];
+        assert_eq!(
+            choice.context.as_ref().unwrap().subtype,
+            "defense_act_choose_pds"
+        );
+        let label_of = |planet: &str| format!("destroy the one on {planet}");
+        let lodor = choice
+            .options
+            .iter()
+            .find(|option| option.label == label_of("lodor"))
+            .expect("lodor offered");
+        assert_locates(lodor, "lodor", "26");
+        let torkan = choice
+            .options
+            .iter()
+            .find(|option| option.label == label_of("torkan"))
+            .expect("torkan offered");
+        assert_locates(torkan, "torkan", "28");
+        assert_locates(offered(choice, &lodor.id), "lodor", "26");
     }
 
     /// OBS-003g: Homeland Defense Act's PDS choice, Colonial Redistribution's settler choice, and
