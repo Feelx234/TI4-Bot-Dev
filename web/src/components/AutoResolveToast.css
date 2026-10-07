@@ -146,7 +146,22 @@
   }
 }
 
-.auto-resolve-toast--action .toast-value {
+.auto-resolve-toast--action .toast-value,
+.auto-resolve-toast--recap .toast-value {
   color: inherit;
   font-weight: 400;
+}
+
+/* The closing recap of another player's turn: like an action toast, with a small "Turn" tag. */
+.toast-recap-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
 }

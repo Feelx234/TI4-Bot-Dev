@@ -311,6 +311,22 @@ describe("PlayerSheet toast mute", () => {
   });
 });
 
+describe("PlayerSheet turn recap toggle", () => {
+  it("starts off, turns on and remembers it", async () => {
+    const { TURN_RECAP_KEY } = await import("../hooks/useTurnRecapSetting.ts");
+    localStorage.clear();
+    render(<PlayerSheet players={mockPlayers} />);
+    const button = screen.getByTestId("turn-recap-btn");
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(localStorage.getItem(TURN_RECAP_KEY)).toBe("true");
+    fireEvent.click(button);
+    expect(localStorage.getItem(TURN_RECAP_KEY)).toBe("false");
+    localStorage.clear();
+  });
+});
+
 describe("PlayerSheet reaction mode toggle", () => {
   const name = getActionCardMeta("direct_hit").name;
 

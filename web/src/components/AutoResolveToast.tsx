@@ -6,8 +6,8 @@ import "./AutoResolveToast.css";
 
 export interface AutoResolveNotification {
   id: string;
-  /** "auto-resolve" (default): the game took the only legal option. "action": another player acted. */
-  kind?: "auto-resolve" | "action";
+  /** "auto-resolve" (default): the game took the only legal option. "action": another player acted. "recap": a summary of another player's finished turn. */
+  kind?: "auto-resolve" | "action" | "recap";
   decisionType: string;
   selectedValue: string;
   /** Auto-resolve toasts: why there was only one choice (default "the only legal option"). */
@@ -20,7 +20,7 @@ export interface AutoResolveNotification {
 }
 
 /** How long a toast stays, in ms. */
-export const TOAST_DURATION_MS = { "auto-resolve": 3500, action: 5000 } as const;
+export const TOAST_DURATION_MS = { "auto-resolve": 3500, action: 5000, recap: 8000 } as const;
 
 interface AutoResolveToastProps {
   notification: AutoResolveNotification;
@@ -62,8 +62,9 @@ export const AutoResolveToast: React.FC<AutoResolveToastProps> = ({
       style={actor ? ({ "--toast-accent": actor.color } as React.CSSProperties) : undefined}
       onClick={() => setIsDismissing(true)}
     >
-      {kind === "action" && actor ? (
+      {(kind === "action" || kind === "recap") && actor ? (
         <>
+          {kind === "recap" && <span className="toast-recap-tag">Turn</span>}
           <span className="toast-actor" data-testid="toast-actor">
             <span aria-hidden="true" className="toast-actor__symbol">
               {actor.symbol}
