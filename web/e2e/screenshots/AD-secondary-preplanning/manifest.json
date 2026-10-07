@@ -1,0 +1,24 @@
+{
+  "title": "Prepare a strategy-card secondary",
+  "description": "While another player resolves a strategy card, a follower can prepare the secondary: a private, revocable suggestion kept only on this device. When the real question opens it is shown for a one-click confirm (Review, the default) or, in Auto mode, sent after a short cancellable delay. Nothing is spent until the real decision is answered. Synthetic gallery fixtures, not captured engine states.",
+  "tag": "web/e2e/screenshots/AD-secondary-preplanning",
+  "shots": [
+    { "file": "out/1-waiting-chip.png", "heading": "Waiting: the prepare affordance", "caption": "Another seat is resolving Technology. The status bar says who is deciding; a small 'Prepare your secondary' chip names the card and who played it. No one else sees it, and it only appears for a follower who has not been asked yet and could pay a strategy token." },
+    { "file": "out/2-prepare-panel.png", "heading": "The prepare panel", "caption": "Opened: the card's printed secondary, Follow or Skip, and a note that this stays on this device, spends nothing, and can be changed when the real question comes." },
+    { "file": "out/3-prepared-badge.png", "heading": "Prepared", "caption": "Follow plus a technology picked. The 'Prepared' badge appears, the choice is saved at once, and 'Clear prepared' revokes it. The technology list is an estimate from the viewer's own technologies; the engine still chooses the payment." },
+    { "file": "out/4-review-prefilled.png", "heading": "Review before play (default): prefilled", "caption": "The real secondary question opened. The prepared answer, validated against the options the engine actually offers, is ready: 'Prepared: Follow Technology (spends 1 strategy token)', Confirm with one click, or Choose myself." },
+    { "file": "out/5-needs-review.png", "heading": "Needs review", "caption": "When the prepared answer no longer validates (here no 'yes' is offered any more), nothing is pre-filled or auto-played. The bar says why and offers 'Clear prepared'." },
+    { "file": "out/6-trade-warning.png", "heading": "Trade: follow or skip, with a warning", "caption": "Trade can only be prepared as follow or skip, with a visible warning: if the Trade player replenishes you, you are not offered a secondary at all and the prepared answer is dropped." },
+    { "file": "out/7-setting-review.png", "heading": "Setting: Review (default)", "caption": "The viewer-local switch sits in the player sheet header next to Sound and Toasts. 'Review' is the default for everyone and is stored only when changed." },
+    { "file": "out/8-setting-auto.png", "heading": "Setting: Auto", "caption": "'Auto' sends a prepared answer for you once your decision opens, only while it still validates, after a short visible delay." },
+    { "file": "out/9-auto-toast.png", "heading": "Auto mode: the toast", "caption": "In Auto mode the window opens and the prepared answer is announced ('Auto-playing your prepared secondary: ...') with a Cancel button for about 2.5 seconds before it is sent. It never fires after an undo, redo, restore, reload or reconnect, from a spectator, or from a second tab." },
+    { "file": "out/10-phone.png", "heading": "Phone width", "caption": "On a 390 px wide screen the panel spans the width under the status bar and scrolls if needed." },
+    { "file": "out/11-diplomacy-planets.png", "heading": "Diplomacy: planets", "caption": "Pick up to two of your exhausted planets to ready. Prepared planets are matched by planet, not by option id." },
+    { "file": "out/12-construction-site.png", "heading": "Construction: site", "caption": "Pick a PDS or space dock and the planet; at arrival it is matched against the placements the engine offers." },
+    { "file": "out/13-leadership-plan.png", "heading": "Leadership: purchase plan", "caption": "Leadership needs no strategy token. Prepare how many tokens to buy (3 influence each) and which pool; at arrival the influence payment is planned and sent as the existing token batch, or flagged if the influence no longer pays for it." }
+  ],
+  "notes": [
+    { "title": "Client-only. ", "text": "No server, protocol, history or bot change. A prepared answer is never sent anywhere and never binding; the real answer is an ordinary recorded decision." },
+    { "title": "Which card is in progress. ", "text": "The public turn status does not name the card, so the client reads the public event log (the action selection's 'played <Card>' detail) and, for a seat holding one card, infers it from the primary's single unexhausted card." }
+  ]
+}
