@@ -21,6 +21,8 @@ export interface OfferAnswer {
   label: string;
   /** What it does, under the label. */
   hint: string | null;
+  /** The seat the option is about (a unit of theirs), shown beside the hint. */
+  seat: string | null;
   /** The stop/decline answer, shown as the quiet button. */
   isDecline: boolean;
 }
@@ -97,6 +99,7 @@ export function describeOfferCard(
       option,
       label: text(caption?.label) ?? capitalize(option.label ?? option.id),
       hint: text(caption?.hint),
+      seat: text(caption?.seat),
       isDecline: isDecline(option),
     };
   });

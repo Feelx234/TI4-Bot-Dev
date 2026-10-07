@@ -69,7 +69,12 @@ export const OfferCardPanel: React.FC<{
           onClick={() => onChoose(answer.option.id)}
         >
           <span>{answer.label}</span>
-          {answer.hint && <small className="offer-card__hint">{answer.hint}</small>}
+          {(answer.hint || answer.seat) && (
+            <small className="offer-card__hint">
+              {answer.seat && <>{display(answer.seat).label}{answer.hint ? " · " : ""}</>}
+              {answer.hint}
+            </small>
+          )}
         </button>
       ))}
     </div>

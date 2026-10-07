@@ -88,6 +88,15 @@ describe("offer card", () => {
     expect(onSubmit).toHaveBeenCalledWith("coexist");
   });
 
+  it("shows the owner of each candidate unit beside its hint", () => {
+    const choice = galleryChoice("Ssruu: choose a unit for the copied agent");
+    const view = describeOfferCard(choice)!;
+    expect(view.title).toBe("Viscount Unlenn");
+    expect(view.answers[1]).toMatchObject({ label: "infantry · On Jord", seat: "other_seat" });
+    render(<PendingChoiceModal choice={choice} onSubmit={vi.fn()} />);
+    expect(screen.getByTestId("offer-card-answer-other_seat|jord|infantry|1|0")).toHaveTextContent("Unit 2 of that kind there");
+  });
+
   it("shows a number that changes as before → after", () => {
     const view = describeOfferCard(galleryChoice("Deepwrought commander: reduce research"))!;
     expect(view.facts[0].change).toEqual({ from: 4, to: 3, of: null });

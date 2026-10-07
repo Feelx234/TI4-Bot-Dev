@@ -228,6 +228,13 @@ pub fn offer_caption(label: &str, hint: Option<&str>) -> Value {
     serde_json::json!({ "label": label, "hint": hint })
 }
 
+/// Display only: [`offer_caption`] for an option about another seat's unit: the client adds the
+/// seat's name beside the hint.
+#[must_use]
+pub fn offer_caption_for_seat(label: &str, hint: Option<&str>, seat: &str) -> Value {
+    serde_json::json!({ "label": label, "hint": hint, "seat": seat })
+}
+
 impl Choice {
     #[must_use]
     pub fn new(player: PlayerId, prompt: impl Into<String>, options: Vec<ChoiceOption>) -> Self {

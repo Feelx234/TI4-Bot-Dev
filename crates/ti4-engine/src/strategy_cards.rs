@@ -1746,11 +1746,16 @@ pub(crate) fn commodity_limit(state: &GameState, content: &ContentStore, player:
 /// Display only: a commander's printed card (name, ability window and text) as an offer-card
 /// header. See [`Choice::offered`].
 pub(crate) fn commander_card(content: &ContentStore, id: &str) -> serde_json::Value {
+    leader_card(content, id, "commander")
+}
+
+/// Display only: a leader's printed card (name, ability window and text) as an offer-card header.
+pub(crate) fn leader_card(content: &ContentStore, id: &str, tag: &str) -> serde_json::Value {
     let record = content.get(ContentType::Leaders, id);
     let field = |key: &str| record.as_ref().and_then(|record| record.text(key));
     crate::choice::offer_card(
         field("name").unwrap_or(id),
-        "commander",
+        tag,
         field("abilityWindow"),
         field("abilityText"),
     )

@@ -1938,6 +1938,13 @@ pub fn ssruu_l1z1x_activation_abilities(state: &GameState) -> Vec<crate::timing:
                                                     .unwrap_or(planet.as_str())
                                                 ),
                                             )
+                                            // Display only: lets the web client pick it on the map.
+                                            .with_planet_located(
+                                                context.state,
+                                                context.content,
+                                                context.sources,
+                                                planet.as_str(),
+                                            )
                                         })
                                         .collect(),
                                 )

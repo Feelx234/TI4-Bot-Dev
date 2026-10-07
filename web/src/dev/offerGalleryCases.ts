@@ -45,6 +45,54 @@ export function offerCases(): GalleryCase[] {
     reduceCase(),
     {
       workflow: "generic_selection",
+      title: "Ssruu: choose a unit for the copied agent",
+      fallback: "'other_seat's cruiser (unit 1)' labels -> the copied agent as printed and each unit by place and owner",
+      note: "Ssruu copies a Letnev or Sol agent: choose one unit that rolls an extra die this round.",
+      choice: {
+        actor,
+        nonce: "gallery-ssruu-round",
+        prompt: "Ssruu copying letnevagent: choose one unit for +1 combat die",
+        context: { subtype: "leader_ssruu_round_agent_unit", source: { Content: "letnevagent" } },
+        options: [
+          option("other_seat|space|cruiser|0|0", "other_seat's cruiser (unit 1)", "leader_ssruu_round_agent_unit"),
+          option("other_seat|jord|infantry|1|0", "other_seat's infantry on jord (unit 2)", "leader_ssruu_round_agent_unit"),
+          option("gallery_seat|space|dreadnought|0|0", "gallery_seat's dreadnought (unit 1)", "leader_ssruu_round_agent_unit"),
+        ],
+        details: {
+          kind: "offer",
+          card: {
+            title: "Viscount Unlenn",
+            tag: "agent (copied by Ssruu)",
+            window: "At the start of a space combat round:",
+            text: "You may exhaust this card to choose 1 ship in the active system: that ship rolls 1 additional die during this combat round.",
+          },
+          facts: [],
+          captions: {
+            "other_seat|space|cruiser|0|0": { label: "cruiser · In the fleet", hint: "Unit 1 of that kind there", seat: "other_seat" },
+            "other_seat|jord|infantry|1|0": { label: "infantry · On Jord", hint: "Unit 2 of that kind there", seat: "other_seat" },
+            "gallery_seat|space|dreadnought|0|0": { label: "dreadnought · In the fleet", hint: "Unit 1 of that kind there", seat: "gallery_seat" },
+          },
+        },
+      },
+    },
+    {
+      workflow: "planet_selection",
+      title: "L1Z1X agent (copied): replace which infantry",
+      fallback: "A list of 'replace infantry on X with a mech' labels -> the planet bar with the candidates on the map",
+      note: "Ssruu copying I48S after an activation: several planets in the active system hold your infantry; pick the one that becomes a mech. The options now carry their planet, so the planet bar and the map take over.",
+      choice: {
+        actor,
+        nonce: "gallery-l1z1x-copy",
+        prompt: "I48S (Ssruu): replace which infantry in the active system?",
+        context: { subtype: "leader_l1z1xagent_copy_planet", source: { Content: "l1z1xagent" } },
+        options: [
+          option("jord", "replace infantry on Jord with a mech", "leader_l1z1xagent_copy_planet", { planet: "jord", system: "14" }),
+          option("lodor", "replace infantry on Lodor with a mech", "leader_l1z1xagent_copy_planet", { planet: "lodor", system: "14" }),
+        ],
+      },
+    },
+    {
+      workflow: "generic_selection",
       title: "Slumberstate Computing: coexist or fight",
       fallback: "'fight for jord' / 'coexist on jord' -> the breakthrough as printed, the planet and its controller, what each answer does",
       note: "Titans' Coalescence would start a ground combat on a planet another seat controls; with no other units committed the Titans may coexist instead.",
