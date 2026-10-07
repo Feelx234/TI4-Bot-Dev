@@ -5,6 +5,7 @@ import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import { MechInfoRow, UnitInfoButton } from "./UnitInfo.tsx";
 
 export interface ProductionBuilderDrawerProps {
   choice: PendingChoiceDto | null;
@@ -215,6 +216,8 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                       )}
                     </div>
 
+                    <MechInfoRow seat={choice.actor} />
+
                     {/* Units Grid */}
                     <div data-testid="production-options-grid" className="production-drawer__grid">
                       {productionOptions.map((opt) => {
@@ -234,7 +237,14 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                         });
                         return (
                           <div key={opt.id} className="workflow-card production-drawer__unit">
-                            <span>{label}</span>
+                            <span className="production-drawer__unit-name">
+                              {label}
+                              <UnitInfoButton
+                                unit={String(opt.payload?.unit ?? opt.id)}
+                                seat={choice.actor}
+                                name={label}
+                              />
+                            </span>
                             <div className="workflow-row">
                               <button
                                 type="button"
