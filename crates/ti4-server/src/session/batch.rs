@@ -1003,6 +1003,16 @@ pub fn replay_boundary_state(
     simulate_script(config, prefix, &actor, &plan).map(|simulation| simulation.boundary_state)
 }
 
+/// Wall-clock budget for replaying `decisions` recorded choices from the opening state.
+///
+/// Every batch replays the whole game, so the cost grows with it: a debug server spends a few
+/// milliseconds per recorded choice, more on a loaded machine. Runaway loops are still caught by
+/// the step cap in [`simulate_script`].
+pub fn replay_budget(decisions: usize) -> Duration {
+    let per_decision = Duration::from_millis(20);
+    Duration::from_secs(15) + per_decision * u32::try_from(decisions).unwrap_or(u32::MAX / 1000)
+}
+
 fn simulate_script(
     config: &SessionConfig,
     prefix: &[DecisionRecord],
@@ -1035,7 +1045,7 @@ fn simulate_script(
     if let Some(force) = &force {
         force.attach(&mut game);
     }
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + replay_budget(prefix.len());
     let mut phase = game.state.phase;
     let mut round = game.state.round;
     let mut transitions = Vec::new();
@@ -1120,6 +1130,16 @@ fn simulate_script(
 
 #[cfg(test)]
 mod tests {
+    /// Run 04-0023 (2026-10-07): a round 7 batch replayed 1650 recorded choices in a debug
+    /// server on a loaded machine and hit a flat 15 s budget ("simulation timed out"). Idle,
+    /// the same replay took 4.5 to 10 s, so the budget must grow with the game.
+    #[test]
+    fn replay_budget_grows_with_the_recorded_prefix() {
+        assert!(super::replay_budget(0) >= std::time::Duration::from_secs(15));
+        assert!(super::replay_budget(1650) >= std::time::Duration::from_secs(45));
+        assert!(super::replay_budget(3000) > super::replay_budget(1650));
+    }
+
     use super::*;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
 

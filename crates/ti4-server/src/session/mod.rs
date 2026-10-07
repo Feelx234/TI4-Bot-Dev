@@ -618,7 +618,9 @@ impl GameSession {
     }
 
     pub fn wait_replayed(&self) -> Result<(), String> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let deadline = std::time::Instant::now()
+            + std::time::Duration::from_secs(15)
+            + batch::replay_budget(self.initial_config.prior_decisions.len());
         loop {
             let lock = self.shared.lock().expect("shared lock");
             if let Some(error) = &lock.error {
