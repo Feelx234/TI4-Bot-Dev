@@ -212,3 +212,23 @@ it("keeps trade target and submitted choice IDs internal while displaying the cu
   });
   expect(onSubmit).toHaveBeenCalledWith("offer-1");
 });
+
+it("marks the viewer's own card with (You) only when the label is not already You", () => {
+  const named = render(
+    <PlayerIdentityProvider lobby={lobby} seatingOrder={["player_b", "player_a"]}>
+      <PlayerSheet players={players} userSeat="player_b" />
+    </PlayerIdentityProvider>,
+  );
+  expect(named.container.textContent).toContain("(You)");
+  named.unmount();
+  const youLobby: LobbyDto = {
+    ...lobby,
+    slots: slots.map((slot) => (slot.occupant === "player_b" ? { ...slot, nickname: "You" } : slot)),
+  };
+  const you = render(
+    <PlayerIdentityProvider lobby={youLobby} seatingOrder={["player_b", "player_a"]}>
+      <PlayerSheet players={players} userSeat="player_b" />
+    </PlayerIdentityProvider>,
+  );
+  expect(you.container.textContent).not.toContain("(You)");
+});

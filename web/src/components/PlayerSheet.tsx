@@ -336,7 +336,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
               <div>
                 <strong style={{ fontSize: 15, color: "#f8fafc" }}>
                   {identity.position && <SeatBadge position={identity.position} />} {identity.label}{" "}
-                  {isSelf && "(You)"}
+                  {isSelf && identity.label.trim().toLowerCase() !== "you" && "(You)"}
                 </strong>
                 <div style={{ fontSize: 12, color: "#94a3b8" }}>{player.faction}</div>
               </div>
