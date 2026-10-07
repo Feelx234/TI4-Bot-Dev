@@ -143,6 +143,10 @@ fn seat(content: &ContentStore, table: &Table, seed: u64) -> Result<(GameState, 
         }
     }
 
+    // Setup dealt the notes before factions were known, so note ids read a blank faction and no
+    // faction note was dealt; re-deal now that every seat has its faction (as training does).
+    ti4_engine::promissory::deal(&mut state, content, table.sources);
+
     // Enough neutral tiles to sit between the homes and Mecatol.
     let filler: Vec<String> = ti4_engine::seating::neutral_systems(content, 30, table.sources)
         .into_iter()
@@ -228,6 +232,10 @@ pub fn play_learned(
             seat.faction = faction.clone();
         }
     }
+
+    // Setup dealt the notes before factions were known, so note ids read a blank faction and no
+    // faction note was dealt; re-deal now that every seat has its faction (as training does).
+    ti4_engine::promissory::deal(&mut state, content, sources);
 
     // Home systems in assignment order: the pool places them into its home slots.
     let mut homes: Vec<String> = Vec::with_capacity(table.factions.len());
@@ -393,6 +401,8 @@ pub fn run(
 }
 
 /// Play `count` games with a named set of seats.
+/// # Panics
+/// Panics if a seed worker panics; an incomplete batch is never returned as success.
 #[must_use]
 pub fn run_with(
     content: &'static ContentStore,
@@ -402,7 +412,9 @@ pub fn run_with(
     seats: Seats,
 ) -> Batch {
     let seeds: Vec<u64> = seeds.into_iter().collect();
-    let workers = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    let workers = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .min(16);
     let chunk = seeds.len().div_ceil(workers.max(1)).max(1);
 
     let mut results: Vec<GameResult> = std::thread::scope(|scope| {
@@ -420,8 +432,7 @@ pub fn run_with(
             .collect();
         handles
             .into_iter()
-            .filter_map(|handle| handle.join().ok())
-            .flatten()
+            .flat_map(|handle| handle.join().expect("simulation seed worker panicked"))
             .collect()
     });
     results.sort_by_key(|result| result.seed);

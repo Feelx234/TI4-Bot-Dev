@@ -1,6 +1,6 @@
 # Structured diplomacy v2: user feedback and plan, 2026-09-15
 
-Diplomacy v1 is on `codex/diplomacy-v1` (see `DIPLOMACY_HANDOVER_2026-09-15.md`). After watching games in the
+Diplomacy v1 is on `codex/diplomacy-v1` (see `plans/archive/DIPLOMACY_HANDOVER_2026-09-15.md`). After watching games in the
 reviewer, the user gave this feedback:
 
 - request, threat, assurance and warning are just words, with no clue what they are supposed to mean;

@@ -78,6 +78,16 @@ fn actor_is_not(event: &Event, player: &PlayerId, _state: &GameState) -> bool {
         .is_some_and(|who| who != player.as_str())
 }
 
+/// Courageous to the End: the destroyed ship belongs to the holder and the event states that
+/// the removal happened during a space combat. The effect source in `cause` is independent.
+fn your_ship_destroyed_during_space_combat(
+    event: &Event,
+    player: &PlayerId,
+    state: &GameState,
+) -> bool {
+    actor_is(event, player, state) && event.boolean("during_space_combat") == Some(true)
+}
+
 /// "When you are negotiating a transaction" — Black Market Dealings. The event names the
 /// proposer as `player` and the other chair as `partner`; either chair at the table is
 /// negotiating.
@@ -218,7 +228,16 @@ fn another_players_card_is_not_sabotage(
     player: &PlayerId,
     state: &GameState,
 ) -> bool {
-    actor_is_not(event, player, state) && !is_sabotage_play(event)
+    actor_is_not(event, player, state)
+        && !is_sabotage_play(event)
+        // Last Bastion commander: "Your action cards cannot be canceled by 'Sabotage'".
+        && !event.text("player").is_some_and(|actor| {
+            crate::promissory::has_commander_ability(
+                state,
+                &PlayerId::new(actor),
+                "bastioncommander",
+            )
+        })
 }
 
 /// The `ACTION_CARD_PLAYED` payload names one of the four Sabotage copies.
@@ -489,7 +508,11 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         // hits, losing the last ship -- and `After` for one that reacts to it having happened.
         (
             "After 1 of your ships is destroyed during a space combat",
-            guarded("SHIP_DESTROYED", After, actor_is),
+            guarded(
+                "SHIP_DESTROYED",
+                After,
+                your_ship_destroyed_during_space_combat,
+            ),
         ),
         (
             "When your last ship in the active system is destroyed",
@@ -647,6 +670,12 @@ pub fn playable_now(
     let Some(seat) = state.player(player) else {
         return Vec::new();
     };
+    // A faction card that stops this player playing action cards (Yssaril Transparasteel
+    // Plating). Deliberately not `laws::action_cards_forbidden`: Political Censure is not enforced
+    // in reaction windows today and this must not start it.
+    if crate::factions::hooks_economy::action_cards_forbidden(state, player) {
+        return Vec::new();
+    }
     // Cards lying on Garbozia are played "as if they were in your hand", so they are read beside
     // it rather than through a path of their own -- every guard below applies to them unchanged.
     let salvaged = crate::legendary::salvaged(state, player);
@@ -746,24 +775,23 @@ pub fn announce(
     // inside the window, where it holds no resolver): announce each removal through the game's
     // resolver now, so the event's own WHEN and AFTER windows open around it. The ship is off
     // the board before this runs, so `last` is read from the position a reacting card would see.
-    for (system, owner, unit_type) in std::mem::take(&mut context.state.pending_destructions) {
-        let remaining = crate::combat::ships_of(
-            context.state,
-            context.content,
-            context.sources,
-            &owner,
-            &system,
-        )
-        .len();
+    for (system, owner, unit_type, cause, during_space_combat) in
+        std::mem::take(&mut context.state.pending_destructions)
+    {
         // The same handoff the combat window's own emissions make: a reacting effect that
         // needs to know which ship was destroyed cannot read the event once the window runs.
         context.state.last_ship_destroyed =
             Some((system.clone(), owner.clone(), unit_type.clone()));
-        let mut payload = BTreeMap::new();
-        payload.insert("system".to_owned(), system.to_string().into());
-        payload.insert("player".to_owned(), owner.to_string().into());
-        payload.insert("unit".to_owned(), unit_type.to_string().into());
-        payload.insert("last".to_owned(), (remaining == 0).into());
+        let payload = crate::combat::ship_destroyed_payload(
+            context.state,
+            context.content,
+            context.sources,
+            &system,
+            &owner,
+            &unit_type,
+            &cause,
+            during_space_combat,
+        );
         let destroyed = context.event_sequence.next("SHIP_DESTROYED", payload)?;
         resolver.emit_with_context(context, destroyed, |_, _| {})?;
     }
@@ -798,6 +826,48 @@ fn announce_discard(
         .next("ACTION_CARD_DISCARDED", payload)?;
     resolver.emit_with_context(context, discarded, |_, _| {})?;
     Ok(())
+}
+
+/// Open the windows for the card events faction hooks staged
+/// (`factions::hooks_cards::{discard_chosen, take_revealed_action_card}`), oldest first, and
+/// return how many were announced.
+///
+/// A hook runs with a `TimingContext`, which has no resolver, so it can only stage; whoever owns
+/// both a context and the resolver calls this after the hook returns. A staged discard becomes
+/// `ACTION_CARD_DISCARDED` exactly as a played card's does (the pile and
+/// `last_action_discarded` are set by [`announce_discard`]); a staged take becomes the new
+/// `ACTION_CARD_TAKEN` (`player` = taker, `from`; deliberately no card id). With nothing staged — every game
+/// without a faction module — this does nothing at all.
+///
+/// # Errors
+/// [`TimingError`] when a window cannot be resolved.
+pub fn announce_staged_card_events(
+    context: &mut TimingContext<'_>,
+    resolver: &mut Resolver,
+) -> Result<usize, TimingError> {
+    use crate::factions::hooks_cards::{StagedCardEvent, drain_staged, has_staged};
+    if !has_staged(context.state) {
+        return Ok(0);
+    }
+    let staged = drain_staged(context.state);
+    let count = staged.len();
+    for event in staged {
+        match event {
+            StagedCardEvent::Discarded { player, card } => {
+                announce_discard(context, resolver, &player, &card)?;
+            }
+            StagedCardEvent::Taken { player, from, .. } => {
+                let mut payload = BTreeMap::new();
+                payload.insert("player".to_owned(), player.to_string().into());
+                payload.insert("from".to_owned(), from.to_string().into());
+                // No `card`: which card moved is known to the taker and the owner only, and
+                // a typed event is evaluated in every seat's window.
+                let taken = context.event_sequence.next("ACTION_CARD_TAKEN", payload)?;
+                resolver.emit_with_context(context, taken, |_, _| {})?;
+            }
+        }
+    }
+    Ok(count)
 }
 
 /// The choice kind the oracle offers reaction cards under (engine/reactions.py:320–324).
@@ -940,6 +1010,9 @@ pub fn arm(resolver: &mut Resolver, state: &GameState) {
     windows.sort_unstable();
     windows.dedup();
 
+    resolver.register(crate::leaders::ssruu_l1z1x_activation_abilities(state));
+    resolver.register(crate::factions::borrowed_round_agents::abilities(state));
+
     for seat in &state.players {
         let owner_name = crate::promissory::faction_name(state, &seat.id);
         for (event_type, relation) in &windows {
@@ -950,6 +1023,13 @@ pub fn arm(resolver: &mut Resolver, state: &GameState) {
         resolver.register([instinct_training(&owner_name, &seat.id)]);
         // The same for a leader that acts in a window rather than as an action.
         resolver.register([l1z1x_agent(&owner_name, &seat.id)]);
+        // Per-faction modules (`crate::factions`), after the shared slots so existing ordering
+        // in every window is unchanged.
+        resolver.register(crate::factions::timing_abilities(
+            state,
+            &owner_name,
+            &seat.id,
+        ));
     }
 }
 
@@ -1115,6 +1195,7 @@ fn instinct_training(owner_name: &str, player: &PlayerId) -> Ability {
                 seat.exhausted_technologies
                     .insert(ti4_model::id::TechnologyId::new("it"));
             }
+            crate::supply::note_strategy_token_spent(context.state, &owner, "instinct_training");
             event.cancel();
             Ok(())
         }),
@@ -1253,6 +1334,45 @@ mod tests {
         assert!(
             playable_now(&state, content, &player(), &theirs, Relation::After).is_empty(),
             "another player's activation is not yours"
+        );
+    }
+
+    #[test]
+    fn courageous_requires_the_destroyed_ship_to_be_lost_during_space_combat() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&player()).unwrap().action_cards = vec![ActionCardId::new("courageous")];
+        let destroyed = |during_space_combat: bool| {
+            let mut payload = BTreeMap::new();
+            payload.insert("player".to_owned(), "a".into());
+            payload.insert("system".to_owned(), "18".into());
+            payload.insert("unit".to_owned(), "cruiser".into());
+            payload.insert("cause".to_owned(), "action_card:direct_hit".into());
+            payload.insert("during_space_combat".to_owned(), during_space_combat.into());
+            Event::new(1, "SHIP_DESTROYED", payload)
+        };
+
+        assert_eq!(
+            playable_now(
+                &state,
+                content,
+                &player(),
+                &destroyed(true),
+                Relation::After,
+            ),
+            vec![ActionCardId::new("courageous")],
+            "the effect source remains Direct Hit while the independent window fact qualifies"
+        );
+        assert!(
+            playable_now(
+                &state,
+                content,
+                &player(),
+                &destroyed(false),
+                Relation::After,
+            )
+            .is_empty(),
+            "the same effect outside combat does not open Courageous"
         );
     }
 
@@ -2033,6 +2153,58 @@ mod tests {
             playable_now(&state, content, &b, &activation, Relation::After),
             vec![ActionCardId::new("decoy")],
             "Decoy Operation should be offered when the system contains the player's structures"
+        );
+    }
+
+    /// BF-00h-cards: staged card events are announced oldest first; with none staged nothing runs.
+    #[test]
+    fn staged_card_events_are_announced_through_their_windows() {
+        use crate::factions::hooks_cards::{
+            RevealScope, discard_chosen, reveal_hand, take_revealed_action_card,
+        };
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&PlayerId::new("a")).unwrap().action_cards =
+            vec![ActionCardId::new("bribery")];
+        state.player_mut(&PlayerId::new("b")).unwrap().action_cards =
+            vec![ActionCardId::new("dh1")];
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut table = crate::choice::Table::new();
+        let announced = crate::fixtures::with_context(&mut state, POK, None, &mut table, |ctx| {
+            assert_eq!(
+                announce_staged_card_events(ctx, &mut resolver).unwrap(),
+                0,
+                "nothing staged, nothing emitted"
+            );
+            assert!(resolver.log().is_empty());
+            let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+            assert!(discard_chosen(ctx.state, &a, &ActionCardId::new("bribery")));
+            reveal_hand(ctx.state, &a, &b, RevealScope::Choice, "mi");
+            assert!(take_revealed_action_card(
+                ctx.state,
+                &a,
+                &b,
+                &ActionCardId::new("dh1")
+            ));
+            announce_staged_card_events(ctx, &mut resolver).unwrap()
+        });
+        assert_eq!(announced, 2);
+        let log = resolver.log().join(
+            "
+",
+        );
+        let discarded = log
+            .find("emit ACTION_CARD_DISCARDED")
+            .expect("discard announced");
+        let taken = log.find("emit ACTION_CARD_TAKEN").expect("take announced");
+        assert!(discarded < taken, "oldest first: {log}");
+        assert_eq!(
+            state.discarded_action_cards,
+            [ActionCardId::new("bribery")],
+            "the pile is set when the discard is announced"
+        );
+        assert_eq!(
+            state.last_action_discarded,
+            Some((PlayerId::new("a"), ActionCardId::new("bribery")))
         );
     }
 }

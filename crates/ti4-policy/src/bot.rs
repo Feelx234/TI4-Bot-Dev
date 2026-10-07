@@ -1104,7 +1104,7 @@ mod tests {
 
     /// A non-Support promissory note is scored by its own identity, not the zero fallback.
     ///
-    /// The behavioural half of `plans/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md`. The
+    /// The behavioural half of `plans/archive/BUG_2026-08-29_PROMISSORY_NOTE_TRANSACTION_OFFERS.md`. The
     /// option being *present* was never the problem -- the engine has enumerated note sales for a
     /// while. It scored zero, which made it indistinguishable from declining and from every other
     /// note, so Support was the only note ever traded. This asserts selection, not enumeration.
@@ -2470,6 +2470,94 @@ mod tests {
         Ok((records, allowed))
     }
 
+    /// Run independent campaign cases on a bounded pool, retaining canonical job order.
+    /// Each pair stays sequential so its same-seed replay comparison remains exact.
+    fn scored_campaign_pairs(
+        jobs: &[(usize, u64)],
+    ) -> Vec<Result<(CampaignOutcome, CampaignOutcome), String>> {
+        assert!(!jobs.is_empty(), "the campaign needs at least one case");
+        let workers = std::thread::available_parallelism()
+            .map_or(1, std::num::NonZero::get)
+            .min(16)
+            .min(jobs.len())
+            .max(1);
+        let mut results: Vec<Option<Result<_, String>>> =
+            std::iter::repeat_with(|| None).take(jobs.len()).collect();
+
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..workers)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut completed = Vec::new();
+                        loop {
+                            let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            let Some((rotation, seed)) = jobs.get(index).copied() else {
+                                break;
+                            };
+                            // Record case panics so every job can finish and be reported in
+                            // canonical order below. The panic hook still makes the panic visible.
+                            let pair =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    let first = scored_game(seed, rotation)
+                                        .map_err(|error| format!("first run failed: {error}"))?;
+                                    let second = scored_game(seed, rotation)
+                                        .map_err(|error| format!("second run failed: {error}"))?;
+                                    Ok::<_, String>((first, second))
+                                }))
+                                .unwrap_or_else(|payload| {
+                                    let detail = payload
+                                        .downcast_ref::<String>()
+                                        .cloned()
+                                        .or_else(|| {
+                                            payload
+                                                .downcast_ref::<&'static str>()
+                                                .map(|message| (*message).to_owned())
+                                        })
+                                        .unwrap_or_else(|| "non-string panic payload".to_owned());
+                                    Err(format!("case panicked: {detail}"))
+                                });
+                            completed.push((index, pair));
+                        }
+                        completed
+                    })
+                })
+                .collect();
+
+            for handle in handles {
+                let completed = handle.join().unwrap_or_else(|payload| {
+                    let detail = payload
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| {
+                            payload
+                                .downcast_ref::<&'static str>()
+                                .map(|message| (*message).to_owned())
+                        })
+                        .unwrap_or_else(|| "non-string panic payload".to_owned());
+                    panic!("campaign worker panicked outside a case: {detail}");
+                });
+                for (index, result) in completed {
+                    assert!(
+                        results[index].replace(result).is_none(),
+                        "duplicate case result"
+                    );
+                }
+            }
+        });
+
+        results
+            .into_iter()
+            .enumerate()
+            .map(|(index, result)| {
+                result.unwrap_or_else(|| {
+                    let (rotation, seed) = jobs[index];
+                    panic!("seed {seed} rotation {rotation}: worker omitted the case result")
+                })
+            })
+            .collect()
+    }
+
     #[test]
     fn scored_games_stay_legal_and_deterministic_across_nested_windows() {
         // Every seat plays the authored bot through five rounds of real play: action-phase
@@ -2482,83 +2570,84 @@ mod tests {
             .map(ToString::to_string)
             .collect();
 
-        let mut total_offers = 0;
-        let mut re_offers = 0;
         let mut seeds: Vec<u64> = (0..CAMPAIGN_SEEDS)
             .map(|offset| CAMPAIGN_SEED_BASE + offset)
             .collect();
         seeds.extend(NESTED_WINDOW_SEEDS.iter().copied());
-        for rotation in 0..CAMPAIGN_ROTATIONS {
-            for seed in seeds.iter().copied() {
-                let (first, allowed) = scored_game(seed, rotation)
-                    .unwrap_or_else(|error| panic!("seed {seed} rotation {rotation}: {error}"));
-                let (second, _) = scored_game(seed, rotation)
-                    .expect("the second run of the same seed must also complete");
+        let jobs: Vec<(usize, u64)> = (0..CAMPAIGN_ROTATIONS)
+            .flat_map(|rotation| seeds.iter().copied().map(move |seed| (rotation, seed)))
+            .collect();
+        let pairs = scored_campaign_pairs(&jobs);
+        let mut total_offers = 0;
+        let mut re_offers = 0;
 
-                assert_eq!(first.len(), second.len(), "seed {seed} rotation {rotation}");
-                assert_eq!(
-                    first, second,
-                    "seed {seed} rotation {rotation}: identical replay record"
-                );
+        for ((rotation, seed), pair) in jobs.iter().copied().zip(pairs) {
+            let (first, second) =
+                pair.unwrap_or_else(|error| panic!("seed {seed} rotation {rotation}: {error}"));
+            let (first, allowed) = first;
+            let (second, _) = second;
 
-                // Secrets handed back to the deck over the hand limit (45.4). The end-state
-                // ledger cannot see these: the seat held the card, was offered it, then returned
-                // it, so it appears in neither the final hand nor the scored list.
-                let mut returned: BTreeMap<String, Vec<String>> = BTreeMap::new();
-                for record in &first {
-                    if record.prompt == "return a secret objective to the deck" {
-                        returned
-                            .entry(record.player.to_string())
-                            .or_default()
-                            .extend(record.offered.iter().cloned());
-                    }
+            assert_eq!(first.len(), second.len(), "seed {seed} rotation {rotation}");
+            assert_eq!(
+                first, second,
+                "seed {seed} rotation {rotation}: identical replay record"
+            );
+
+            // Secrets handed back to the deck over the hand limit (45.4). The end-state
+            // ledger cannot see these: the seat held the card, was offered it, then returned
+            // it, so it appears in neither the final hand nor the scored list.
+            let mut returned: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for record in &first {
+                if record.prompt == "return a secret objective to the deck" {
+                    returned
+                        .entry(record.player.to_string())
+                        .or_default()
+                        .extend(record.offered.iter().cloned());
                 }
-                for record in &first {
-                    // Every answer came from a seated bot.
-                    assert!(seat_names.contains(&record.player.to_string()));
-                    // Secrets are offered only in scoring windows (the window offers the seat's
-                    // own hand, nothing else). Alias spaces collide across categories — `sar` is
-                    // both a secret and a warfare technology — so this check inspects scoring
-                    // records only; within one there is no public/secret alias collision.
-                    if record.prompt != "score an objective" {
+            }
+            for record in &first {
+                // Every answer came from a seated bot.
+                assert!(seat_names.contains(&record.player.to_string()));
+                // Secrets are offered only in scoring windows (the window offers the seat's
+                // own hand, nothing else). Alias spaces collide across categories — `sar` is
+                // both a secret and a warfare technology — so this check inspects scoring
+                // records only; within one there is no public/secret alias collision.
+                if record.prompt != "score an objective" {
+                    continue;
+                }
+                let allowed = &allowed[&record.player.to_string()];
+                let handed_back = returned
+                    .get(&record.player.to_string())
+                    .map_or(&[][..], Vec::as_slice);
+                for offered in &record.offered {
+                    if offered == "decline" {
                         continue;
                     }
-                    let allowed = &allowed[&record.player.to_string()];
-                    let handed_back = returned
-                        .get(&record.player.to_string())
-                        .map_or(&[][..], Vec::as_slice);
-                    for offered in &record.offered {
-                        if offered == "decline" {
-                            continue;
-                        }
-                        let is_secret = content
-                            .get(ContentType::SecretObjectives, offered)
-                            .is_some();
-                        assert!(
-                            !is_secret
-                                || allowed.contains(offered)
-                                || handed_back.contains(offered),
-                            "bot {} was offered the secret {offered} it never held",
-                            record.player
-                        );
-                    }
+                    let is_secret = content
+                        .get(ContentType::SecretObjectives, offered)
+                        .is_some();
+                    assert!(
+                        !is_secret || allowed.contains(offered) || handed_back.contains(offered),
+                        "bot {} was offered the secret {offered} it never held",
+                        record.player
+                    );
                 }
+            }
 
-                // Non-vacuity: the campaign must actually exercise the nested structure — a
-                // scorer re-offered by an unlimited window is two consecutive score offers to
-                // the same seat.
-                total_offers += first
-                    .iter()
-                    .filter(|record| record.prompt == "score an objective")
-                    .count();
-                for pair in first.iter().zip(first.iter().skip(1)) {
-                    let (a, b) = pair;
-                    if a.prompt == "score an objective"
-                        && b.prompt == "score an objective"
-                        && a.player == b.player
-                    {
-                        re_offers += 1;
-                    }
+            // Non-vacuity: the campaign must actually exercise the nested structure — a
+            // scorer re-offered by an unlimited window is two consecutive score offers to
+            // the same seat.
+            total_offers += first
+                .iter()
+                .filter(|record| record.prompt == "score an objective")
+                .count();
+            for pair in first.iter().zip(first.iter().skip(1)) {
+                let (a, b) = pair;
+                if a.prompt == "score an objective"
+                    && b.prompt == "score an objective"
+                    && a.player == b.player
+                {
+                    re_offers += 1;
                 }
             }
         }

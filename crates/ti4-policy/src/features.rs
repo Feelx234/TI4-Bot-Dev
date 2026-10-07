@@ -2950,7 +2950,9 @@ fn add_system_features(
         format_args!("{prefix}:own-here"),
         f64::from(u8::from(nearest == Some(0))),
     );
-    if let Some(distance) = galaxy.distance(crate::features::MECATOL, system_id) {
+    if let Some(distance) =
+        galaxy.distance(ti4_engine::seating::mecatol_in_galaxy(galaxy), system_id)
+    {
         add_named(
             features,
             format_args!("{prefix}:mecatol-distance"),

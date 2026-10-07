@@ -498,7 +498,7 @@ fn lone_planet(content: &ContentStore) -> (String, String) {
             !planet.is_placed_during_play()
                 && away.iter().any(|away| away == *id)
                 && planet.system_id().is_some_and(|system| {
-                    system != ti4_engine::seating::MECATOL
+                    !ti4_engine::seating::is_mecatol(system)
                         && systems.get(system).is_some_and(|s| !s.is_anomaly())
                         && planets
                             .values()

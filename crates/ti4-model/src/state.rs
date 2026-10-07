@@ -867,6 +867,75 @@ mod promise_map {
     }
 }
 
+/// Backward-compatible decoding for in-flight ship destructions.
+///
+/// The current wire shape is `(system, owner, unit, cause, during_space_combat)`. Saves made
+/// while destruction provenance was being introduced may contain either the four-field shape,
+/// where `space_combat` carried both meanings, or the earlier three-field shape. The latter has
+/// no evidence of either fact and is deliberately loaded as unknown and non-combat.
+mod pending_destructions {
+    use super::{PlayerId, SystemId, UnitTypeId};
+    use serde::Deserializer;
+    use serde::de::Deserialize as _;
+
+    type Current = (SystemId, PlayerId, UnitTypeId, String, bool);
+
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Record {
+        Current(Current),
+        Cause((SystemId, PlayerId, UnitTypeId, String)),
+        Legacy((SystemId, PlayerId, UnitTypeId)),
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<Current>, D::Error> {
+        Ok(Vec::<Record>::deserialize(deserializer)?
+            .into_iter()
+            .map(|record| match record {
+                Record::Current(record) => record,
+                Record::Cause((system, owner, unit, cause)) => {
+                    let during_space_combat = cause == "space_combat";
+                    (system, owner, unit, cause, during_space_combat)
+                }
+                Record::Legacy((system, owner, unit)) => {
+                    (system, owner, unit, "unknown".to_owned(), false)
+                }
+            })
+            .collect())
+    }
+}
+
+/// Backward-compatible decoding for the sustain handoff used by Direct Hit.
+mod last_sustain {
+    use super::{PlayerId, SystemId, UnitTypeId};
+    use serde::Deserializer;
+    use serde::de::Deserialize as _;
+
+    type Current = (SystemId, PlayerId, UnitTypeId, PlayerId, bool);
+
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Record {
+        Current(Current),
+        Legacy((SystemId, PlayerId, UnitTypeId, PlayerId)),
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Current>, D::Error> {
+        Ok(
+            Option::<Record>::deserialize(deserializer)?.map(|record| match record {
+                Record::Current(record) => record,
+                Record::Legacy((system, owner, unit, producer)) => {
+                    (system, owner, unit, producer, false)
+                }
+            }),
+        )
+    }
+}
+
 /// One die roll of a unit, held between the roll and the window that may reroll it.
 ///
 /// Fire Team, Scramble Frequency, and Aglnlan Oln all act on dice that have been rolled but
@@ -1302,21 +1371,27 @@ pub struct GameState {
     #[serde(default)]
     pub last_committed_unit: Option<(PlayerId, SystemId, PlanetId, Unit)>,
     /// The most recent SUSTAIN DAMAGE use: the system, the player whose ship sustained,
-    /// the unit type that did it, and the player whose unit or ability produced the hit it
-    /// cancelled. Both emission sites (the combat window's sustain stage and the
+    /// the unit type that did it, the player whose unit or ability produced the hit it
+    /// cancelled, and whether that sustain happened during a space combat. Both emission sites
+    /// (the combat window's sustain stage and the
     /// absorption path) record it right before emitting `SUSTAIN_DAMAGE_USED`, and Direct
     /// Hit reads it back in the window that follows — the event itself is consumed by the
     /// timing machinery, which the effect cannot see. In-flight bookkeeping — not compared.
-    #[serde(default)]
-    pub last_sustain: Option<(SystemId, PlayerId, UnitTypeId, PlayerId)>,
-    /// Destructions staged by a card effect to be announced once the card's own resolution is
+    #[serde(default, deserialize_with = "last_sustain::deserialize")]
+    pub last_sustain: Option<(SystemId, PlayerId, UnitTypeId, PlayerId, bool)>,
+    /// Destructions staged by an effect to be announced once its own resolution is
     /// complete. A Direct Hit destroys a ship from inside a timing-window effect, which holds no
     /// resolver of its own, so it records the removal here and the card-announce step emits the
     /// `SHIP_DESTROYED` event through the game's resolver on its behalf. The tuple carries the
-    /// system, the owner, and the destroyed unit's type; the `last` fact is recomputed at
-    /// emission time from the board, which nothing else has touched in between. In-flight — not compared.
-    #[serde(default)]
-    pub pending_destructions: Vec<(SystemId, PlayerId, UnitTypeId)>,
+    /// system, the owner, the destroyed unit's type, the `cause` the announcement will carry,
+    /// and whether the removal happened during a space combat;
+    /// the `last` fact is recomputed at emission time from the board, which nothing else has
+    /// touched in between. The cause travels with the removal rather than being inferred at
+    /// announcement time because the two provenances -- a ship lost while a space combat was
+    /// resolving, and a ship some other effect removed -- are only known where they happened; see
+    /// `ti4_engine::combat::SHIP_CAUSE_COMBAT` for the vocabulary. In-flight — not compared.
+    #[serde(default, deserialize_with = "pending_destructions::deserialize")]
+    pub pending_destructions: Vec<(SystemId, PlayerId, UnitTypeId, String, bool)>,
     /// The most recent destroyed ship: the system, the owner, and the unit type. Both
     /// emission sites (the combat window's casualty step and the card-announce drain of
     /// staged destructions) record it right before emitting `SHIP_DESTROYED`, and cards that
@@ -1490,6 +1565,22 @@ pub struct GameState {
     /// Notes faceup in a play area rather than held in hand (LRR 69.3). Alliance and Trade
     /// Convoys work from the play area; the rest resolve from hand.
     pub promissory_faceup: BTreeSet<String>,
+    /// Small per-faction bookkeeping for faction modules (`ti4_engine::factions`): a card's
+    /// "once per round" use, a swapped planet value, a revealed hand. Keys are namespaced
+    /// `"<faction alias>:<card>:<detail>"`; values are the module's own encoding.
+    ///
+    /// Generic on purpose, so a faction package does not need a schema change for one flag; a
+    /// mark that several subsystems must read deserves a typed field instead. Skipped when empty,
+    /// so games without faction modules serialize and hash exactly as before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub faction_marks: BTreeMap<String, String>,
+    /// Initiative numbers that replace a player's printed one for the rest of the round (Naalu's
+    /// "0" token, Telepathic and Gift of Prescience): player to the number they now count as.
+    /// Read by [`GameState::initiative_order`]; set and cleared through
+    /// `ti4_engine::strategy::{set_initiative_override, clear_initiative_overrides}`. Skipped when
+    /// empty, so games without an override serialize and hash exactly as before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub initiative_overrides: BTreeMap<PlayerId, i32>,
 }
 
 /// Equality over the declared, compared fields only — the oracle marks 20 of these maps
@@ -1543,6 +1634,7 @@ impl PartialEq for GameState {
             && self.production_discount_remaining == other.production_discount_remaining
             && self.production_value_swapped_planet == other.production_value_swapped_planet
             && self.promissory_faceup == other.promissory_faceup
+            && self.initiative_overrides == other.initiative_overrides
     }
 }
 
@@ -1714,6 +1806,8 @@ impl GameState {
             support_holders: BTreeMap::new(),
             promissory_notes: BTreeMap::new(),
             promissory_faceup: BTreeSet::new(),
+            faction_marks: BTreeMap::new(),
+            initiative_overrides: BTreeMap::new(),
         }
     }
 
@@ -1765,17 +1859,25 @@ impl GameState {
     ///
     /// A player holding two cards — the three-player deal — takes their initiative from the
     /// lower-numbered one, so a seat holding Leadership and Imperial goes first, not last.
-    /// Players holding no card sort last, stably by seating.
+    /// Players holding no card sort last, stably by seating. A player in
+    /// [`GameState::initiative_overrides`] counts as that number instead (a "0" token puts
+    /// them first), ties still broken by seating.
     #[must_use]
     pub fn initiative_order(&self) -> Vec<PlayerId> {
         let mut ordered: Vec<&Player> = self.players.iter().collect();
         ordered.sort_by_key(|p| {
-            let initiative = p
+            let printed = p
                 .strategy_cards
                 .iter()
                 .map(|c| self.card_initiative.get(c).copied().unwrap_or(99))
                 .min()
                 .unwrap_or(99);
+            // A "0" token and its like replace the printed number (Naalu Telepathic).
+            let initiative = self
+                .initiative_overrides
+                .get(&p.id)
+                .copied()
+                .unwrap_or(printed);
             let seat = self
                 .seating_order
                 .iter()
@@ -2751,11 +2853,83 @@ mod tests {
         g.deal_strategy_card(&pid("a"), card("leadership"));
         g.record_promise(&pid("a"), &pid("b"), "p");
         g.migrate_legacy_promises().unwrap();
+        g.last_sustain = Some((
+            SystemId::new("18"),
+            pid("a"),
+            UnitTypeId::new("dreadnought"),
+            pid("b"),
+            true,
+        ));
+        g.pending_destructions.push((
+            SystemId::new("18"),
+            pid("a"),
+            UnitTypeId::new("dreadnought"),
+            "action_card:direct_hit".to_owned(),
+            true,
+        ));
 
         let json = serde_json::to_string(&g).unwrap();
         let back = GameState::from_compatible_json(&json).unwrap();
         assert!(g.identical(&back));
+        assert_eq!(back.last_sustain, g.last_sustain);
+        assert_eq!(back.pending_destructions, g.pending_destructions);
         assert!(!json.contains("\"promises\""));
+    }
+
+    #[test]
+    fn compatible_loader_migrates_legacy_destruction_provenance_conservatively() {
+        let g = game(&["a", "b"]);
+        let mut value = serde_json::to_value(&g).unwrap();
+        value.as_object_mut().unwrap().insert(
+            "pending_destructions".to_owned(),
+            serde_json::json!([
+                ["18", "a", "cruiser"],
+                ["18", "a", "destroyer", "space_combat"],
+                ["18", "b", "carrier", "action_card:courageous"]
+            ]),
+        );
+        value.as_object_mut().unwrap().insert(
+            "last_sustain".to_owned(),
+            serde_json::json!(["18", "a", "dreadnought", "b"]),
+        );
+
+        let loaded = GameState::from_compatible_json(&value.to_string()).unwrap();
+        assert_eq!(
+            loaded.pending_destructions,
+            [
+                (
+                    SystemId::new("18"),
+                    pid("a"),
+                    UnitTypeId::new("cruiser"),
+                    "unknown".to_owned(),
+                    false,
+                ),
+                (
+                    SystemId::new("18"),
+                    pid("a"),
+                    UnitTypeId::new("destroyer"),
+                    "space_combat".to_owned(),
+                    true,
+                ),
+                (
+                    SystemId::new("18"),
+                    pid("b"),
+                    UnitTypeId::new("carrier"),
+                    "action_card:courageous".to_owned(),
+                    false,
+                ),
+            ]
+        );
+        assert_eq!(
+            loaded.last_sustain,
+            Some((
+                SystemId::new("18"),
+                pid("a"),
+                UnitTypeId::new("dreadnought"),
+                pid("b"),
+                false,
+            ))
+        );
     }
 
     #[test]

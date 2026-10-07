@@ -33,6 +33,8 @@ pub const VOTE_KIND: &str = "vote";
 pub const VOTE_PLANET_KIND: &str = "vote_planet";
 /// The choice kind for the speaker's tie-break, which is not a vote (8.19a).
 pub const TIEBREAK_KIND: &str = "tiebreak";
+/// Gila the Silvertongue: trade goods spent for two votes each, as `"spend|<n>"`.
+pub const VOTE_TRADE_GOODS_KIND: &str = "vote_trade_goods";
 
 /// What may be voted for on one agenda (8.8 to 8.11).
 ///
@@ -77,7 +79,7 @@ pub fn outcomes(
         if elects.contains("Non-Home") || elects.contains("Other Than Mecatol") {
             let catalogue = all_planets(content, sources);
             planets.retain(|planet| {
-                planet != MECATOL
+                !crate::seating::is_mecatol_planet(planet)
                     && catalogue
                         .get(planet.as_str())
                         .is_none_or(|record| record.homeworld_of().is_none())
@@ -273,6 +275,13 @@ enum Stage {
         outcome: String,
         votes: i64,
     },
+    /// Asking `order[index]`, who holds Hacan's commander ability, how many trade goods to spend
+    /// for two more votes each ("When you cast votes: You may spend any number of trade goods").
+    TradeGoods {
+        index: usize,
+        outcome: String,
+        votes: i64,
+    },
     /// The speaker is deciding a tie or a silent table.
     Tiebreak,
     /// Finished, with the winning outcome if there was one.
@@ -327,11 +336,17 @@ impl VoteWindow {
         };
         let (hackers, rest): (Vec<PlayerId>, Vec<PlayerId>) =
             order.into_iter().partition(|player| votes_last(player));
-        let mut final_order: Vec<PlayerId> = rest
-            .iter()
-            .filter(|player| *player != &state.speaker)
-            .cloned()
-            .collect();
+        // A module that seats a player first (Argent's Zeal) takes the opening seats, clockwise
+        // from the speaker among themselves; nobody else's relative order changes.
+        let (firsts, rest): (Vec<PlayerId>, Vec<PlayerId>) = rest
+            .into_iter()
+            .partition(|player| crate::factions::hooks_cards::votes_first(state, player));
+        let mut final_order: Vec<PlayerId> = firsts;
+        final_order.extend(
+            rest.iter()
+                .filter(|player| *player != &state.speaker)
+                .cloned(),
+        );
         if rest.contains(&state.speaker) {
             final_order.push(state.speaker.clone());
         }
@@ -467,6 +482,45 @@ impl VoteWindow {
                     )),
                 )
             }
+            Stage::TradeGoods {
+                index,
+                outcome,
+                votes,
+            } => {
+                let player = self.order.get(*index)?;
+                let goods = state.player(player).map_or(0, |seat| seat.trade_goods);
+                let mut options: Vec<ChoiceOption> = (1..=goods)
+                    .map(|spent| {
+                        let spent = i64::from(spent);
+                        ChoiceOption::labelled(
+                            format!("spend|{spent}"),
+                            VOTE_TRADE_GOODS_KIND,
+                            format!("spend {spent} trade goods for {} votes", 2 * spent),
+                        )
+                        .with("trade_goods", spent)
+                        .previewed(Preview::certain(vec![Delta::new(
+                            Quantity::Votes,
+                            *votes,
+                            *votes + 2 * spent,
+                        )]))
+                    })
+                    .collect();
+                options.push(ChoiceOption::decline());
+                Some(
+                    Choice::new(
+                        player.clone(),
+                        format!("spend trade goods for votes on {outcome}"),
+                        options,
+                    )
+                    .contextualized(DecisionContext::new(
+                        player.clone(),
+                        DecisionSource::Content("hacancommander".to_owned()),
+                        "vote_spend_trade_goods",
+                        state.phase,
+                        state.round,
+                    )),
+                )
+            }
             Stage::Tiebreak => {
                 let candidates = tiebreak_candidates(&self.ballot, &self.choices);
                 let planet_outcomes = elects_planet(content, &self.alias);
@@ -514,8 +568,7 @@ impl VoteWindow {
                     let player = &self.order[*index];
                     if votable_planets(state, content, sources, player).is_empty() {
                         let (index, outcome, votes) = (*index, outcome.clone(), *votes);
-                        self.record(state, index, &outcome, votes);
-                        self.stage = Stage::Outcome(index + 1);
+                        self.finish_planets(state, content, index, outcome, votes);
                         continue;
                     }
                     return;
@@ -525,18 +578,64 @@ impl VoteWindow {
         }
     }
 
+    /// A player is done exhausting planets: offer Gila the Silvertongue's trade-goods votes when
+    /// they hold the ability, have trade goods, and are casting votes at all; else bank the votes.
+    fn finish_planets(
+        &mut self,
+        state: &GameState,
+        content: &ContentStore,
+        index: usize,
+        outcome: String,
+        votes: i64,
+    ) {
+        let player = &self.order[index];
+        let gila = votes > 0
+            && crate::promissory::has_commander_ability(state, player, "hacancommander")
+            && state
+                .player(player)
+                .is_some_and(|seat| seat.trade_goods > 0);
+        if gila {
+            self.stage = Stage::TradeGoods {
+                index,
+                outcome,
+                votes,
+            };
+        } else {
+            self.record(state, content, index, &outcome, votes);
+            self.stage = Stage::Outcome(index + 1);
+        }
+    }
+
     /// Bank one player's votes, ignoring an outcome nobody actually paid for (8.14).
     ///
     /// A commander's bonus is added here rather than at the card, so it cannot be honoured on
     /// one voting path and forgotten on another. It rides on votes actually cast: a player who
     /// exhausts nothing casts nothing, and a bonus alone is not a vote.
-    fn record(&mut self, state: &GameState, index: usize, outcome: &str, votes: i64) {
+    fn record(
+        &mut self,
+        state: &GameState,
+        content: &ContentStore,
+        index: usize,
+        outcome: &str,
+        votes: i64,
+    ) {
         if votes <= 0 {
             return;
         }
         let votes = votes
             + crate::leaders::vote_bonus(state, &self.order[index])
-            + extra_votes(state, &self.order[index]);
+            + crate::factions::hooks_cards::vote_bonus_with_content(
+                state,
+                content,
+                &self.order[index],
+            )
+            + extra_votes(state, &self.order[index])
+            + crate::factions::empyrean_units::blood_pact_votes(
+                state,
+                &self.ballot.votes,
+                &self.order[index],
+                outcome,
+            );
         self.ballot
             .votes
             .insert(self.order[index].clone(), outcome.to_owned());
@@ -595,8 +694,7 @@ impl VoteWindow {
                 votes,
             } => {
                 if option.is_decline() {
-                    self.record(state, index, &outcome, votes);
-                    self.stage = Stage::Outcome(index + 1);
+                    self.finish_planets(state, content, index, outcome, votes);
                 } else {
                     let planet = PlanetId::new(option.id);
                     // Elder Qanoj: each planet exhausted to vote gives one vote more.
@@ -609,6 +707,30 @@ impl VoteWindow {
                         votes: votes + influence,
                     };
                 }
+            }
+            Stage::TradeGoods {
+                index,
+                outcome,
+                votes,
+            } => {
+                let spent = option
+                    .id
+                    .strip_prefix("spend|")
+                    .and_then(|n| n.parse::<i32>().ok())
+                    .unwrap_or(0);
+                if spent > 0 {
+                    if let Some(seat) = state.player_mut(&self.order[index]) {
+                        seat.trade_goods -= spent;
+                    }
+                }
+                self.record(
+                    state,
+                    content,
+                    index,
+                    &outcome,
+                    votes + 2 * i64::from(spent),
+                );
+                self.stage = Stage::Outcome(index + 1);
             }
             Stage::Tiebreak => {
                 self.stage = Stage::Done(Some(option.id));
@@ -728,6 +850,36 @@ mod tests {
             [PlayerId::new("c"), PlayerId::new("a"), PlayerId::new("b")],
             "the speaker keeps their seat ahead of the hacker, b votes dead last"
         );
+    }
+
+    #[test]
+    fn a_seat_a_module_puts_first_votes_first_and_others_keep_their_order() {
+        let (mut state, _) = game(&["a", "b", "c"]);
+        state.speaker = PlayerId::new("a");
+        let baseline = VoteWindow::new(&state, "some_agenda", for_against());
+        assert_eq!(
+            baseline.order(),
+            [PlayerId::new("b"), PlayerId::new("c"), PlayerId::new("a")],
+            "no module: unchanged, the speaker last"
+        );
+        let hook = crate::factions::hooks_cards::CardHooks {
+            votes_first: Some(|_, player| player.as_str() == "c"),
+            ..crate::factions::hooks_cards::CardHooks::NONE
+        };
+        crate::factions::hooks_cards::with_test_hooks(hook, || {
+            let vote = VoteWindow::new(&state, "some_agenda", for_against());
+            assert_eq!(
+                vote.order(),
+                [PlayerId::new("c"), PlayerId::new("b"), PlayerId::new("a")]
+            );
+            // The speaker as first voter really votes first; a hacker still goes last.
+            state.speaker = PlayerId::new("c");
+            let vote = VoteWindow::new(&state, "some_agenda", for_against());
+            assert_eq!(
+                vote.order(),
+                [PlayerId::new("c"), PlayerId::new("a"), PlayerId::new("b")]
+            );
+        });
     }
 
     #[test]
@@ -1088,6 +1240,115 @@ mod tests {
             window.ballot.counts.get(FOR).copied(),
             Some(first_influence + second_influence + 2)
         );
+    }
+
+    #[test]
+    fn gila_spends_trade_goods_for_two_votes_each_after_the_planets() {
+        let (mut state, players) = game(&["a"]);
+        let (first, first_influence, _second, _) = give_two_voting_planets(&mut state, &players[0]);
+        state.player_mut(&players[0]).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new("hacancommander"),
+            ti4_model::state::LeaderStatus::Unlocked,
+        );
+        state.player_mut(&players[0]).unwrap().trade_goods = 3;
+        let content = ContentStore::embedded();
+        let mut window = VoteWindow::new(&state, "x", for_against());
+        window.open(&state, content, POK);
+        let option = pick(&window, &state, FOR);
+        window.resolve(&mut state, content, POK, option).unwrap();
+        let option = pick(&window, &state, first.as_str());
+        window.resolve(&mut state, content, POK, option).unwrap();
+        let decline = window
+            .pending_choice(&state, content, POK)
+            .and_then(|choice| choice.options.into_iter().find(ChoiceOption::is_decline))
+            .expect("decline the second planet");
+        window.resolve(&mut state, content, POK, decline).unwrap();
+        let choice = window
+            .pending_choice(&state, content, POK)
+            .expect("Gila asks how many trade goods");
+        let ids: Vec<&str> = choice.options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["spend|1", "spend|2", "spend|3", "decline"]);
+        let two = choice.options[1].clone();
+        window.resolve(&mut state, content, POK, two).unwrap();
+        assert_eq!(state.player(&players[0]).unwrap().trade_goods, 1);
+        assert_eq!(
+            window.ballot.counts.get(FOR).copied(),
+            Some(first_influence + 4)
+        );
+    }
+
+    #[test]
+    fn gila_is_not_offered_without_the_ability_or_trade_goods() {
+        let (mut state, players) = game(&["a"]);
+        let (first, first_influence, _second, _) = give_two_voting_planets(&mut state, &players[0]);
+        state.player_mut(&players[0]).unwrap().trade_goods = 3;
+        let content = ContentStore::embedded();
+        let mut window = VoteWindow::new(&state, "x", for_against());
+        window.open(&state, content, POK);
+        let option = pick(&window, &state, FOR);
+        window.resolve(&mut state, content, POK, option).unwrap();
+        let option = pick(&window, &state, first.as_str());
+        window.resolve(&mut state, content, POK, option).unwrap();
+        let decline = window
+            .pending_choice(&state, content, POK)
+            .and_then(|choice| choice.options.into_iter().find(ChoiceOption::is_decline))
+            .unwrap();
+        window.resolve(&mut state, content, POK, decline).unwrap();
+        assert_eq!(
+            window.ballot.counts.get(FOR).copied(),
+            Some(first_influence)
+        );
+        assert_eq!(state.player(&players[0]).unwrap().trade_goods, 3);
+    }
+
+    /// BF-00l deferral: a module's vote bonus can now read the content corpus, and rides on votes
+    /// actually cast like the commander bonus does.
+    #[test]
+    fn a_module_vote_bonus_with_content_is_banked_with_the_votes() {
+        let (mut state, players) = game(&["a"]);
+        let (first, first_influence, _second, _) = give_two_voting_planets(&mut state, &players[0]);
+        let hook = crate::factions::hooks_cards::CardHooks {
+            vote_bonus_with_content: Some(|_, content, _| {
+                // Reads the corpus, which the older `Hooks::vote_bonus` could not.
+                i64::from(
+                    content
+                        .get(ContentType::Agendas, "no_such_agenda")
+                        .is_none(),
+                ) * 4
+            }),
+            ..crate::factions::hooks_cards::CardHooks::NONE
+        };
+        let tally = |bonus: bool| {
+            let mut state = state.clone();
+            let run = |state: &mut GameState| {
+                let mut window = VoteWindow::new(state, "x", for_against());
+                window.open(state, ContentStore::embedded(), POK);
+                let option = pick(&window, state, FOR);
+                window
+                    .resolve(state, ContentStore::embedded(), POK, option)
+                    .unwrap();
+                let option = pick(&window, state, first.as_str());
+                window
+                    .resolve(state, ContentStore::embedded(), POK, option)
+                    .unwrap();
+                if let Some(done) = window
+                    .pending_choice(state, ContentStore::embedded(), POK)
+                    .and_then(|choice| choice.options.into_iter().find(ChoiceOption::is_decline))
+                {
+                    window
+                        .resolve(state, ContentStore::embedded(), POK, done)
+                        .unwrap();
+                }
+                window.ballot.counts.get(FOR).copied()
+            };
+            if bonus {
+                crate::factions::hooks_cards::with_test_hooks(hook, || run(&mut state))
+            } else {
+                run(&mut state)
+            }
+        };
+        assert_eq!(tally(false), Some(first_influence));
+        assert_eq!(tally(true), Some(first_influence + 4));
     }
 
     #[test]

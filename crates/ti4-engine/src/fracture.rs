@@ -217,7 +217,8 @@ pub fn after_breakthrough_gained(
     let Some(record) = content.get(ContentType::Breakthroughs, breakthrough.as_str()) else {
         return Ok(false);
     };
-    if !breakthrough_roll(rng) {
+    // Al'Raith Ix Ianovar: "This breakthrough causes The Fracture to enter play without a roll".
+    if breakthrough.as_str() != "cabalbt" && !breakthrough_roll(rng) {
         return Ok(false);
     }
 
@@ -364,7 +365,7 @@ pub fn enter_play(
         state
             .thunders_edge_system
             .clone()
-            .unwrap_or_else(|| SystemId::new(crate::seating::MECATOL)),
+            .unwrap_or_else(|| SystemId::new(crate::seating::mecatol_on(state))),
     );
     state.fracture_in_play = true;
     Ok(())

@@ -101,11 +101,28 @@ impl<'a> UnitType<'a> {
         self.record.flag("isStructure")
     }
 
+    /// A structure printed as living in the space area rather than on a planet (`isSpaceOnly`):
+    /// the Clan of Saar's Floating Factory ("This unit is placed in the space area instead of on a
+    /// planet. This unit can move and retreat as if it were a ship.").
+    #[must_use]
+    pub fn is_space_only_structure(&self) -> bool {
+        self.is_structure() && self.record.flag("isSpaceOnly")
+    }
+
+    /// Whether this unit moves and retreats like a ship although it is not one: a space-only
+    /// structure with a move value (Floating Factory). It is not a ship for fleet supply,
+    /// capacity-consumption or combat; only movement treats it as one.
+    #[must_use]
+    pub fn moves_as_ship(&self) -> bool {
+        self.is_ship() || (self.is_space_only_structure() && self.move_value() > 0)
+    }
+
     /// Ground forces are infantry and mechs — plus the Titans' PDS, which is a ground
     /// force that also happens to be a structure.
     #[must_use]
     pub fn is_ground_force(&self) -> bool {
-        matches!(self.base_type(), "infantry" | "mech") || self.id() == "titans_pds2"
+        matches!(self.base_type(), "infantry" | "mech")
+            || matches!(self.id(), "titans_pds" | "titans_pds2")
     }
 
     #[must_use]
@@ -442,11 +459,14 @@ mod tests {
 
     #[test]
     fn the_titans_pds_is_a_ground_force_despite_being_a_structure() {
-        let pds = unit("titans_pds2");
-        assert!(pds.is_ground_force());
-        assert!(pds.is_structure());
-        // It is a structure, so it does not eat capacity even though it is a ground force.
-        assert!(!pds.consumes_capacity());
+        // Hel-Titan I and II both print "treated as both a structure and a ground force".
+        for id in ["titans_pds", "titans_pds2"] {
+            let pds = unit(id);
+            assert!(pds.is_ground_force(), "{id}");
+            assert!(pds.is_structure(), "{id}");
+            // A structure, so it does not eat capacity even though it is a ground force.
+            assert!(!pds.consumes_capacity(), "{id}");
+        }
     }
 
     #[test]

@@ -39,7 +39,7 @@ const ID_CONTEXTS: [&str; 6] = [
 ///
 /// Each is a name the engine defines for itself, so the corpus cannot be expected to carry it.
 /// Anything not here and not in the corpus is either a typo or a dead branch.
-const ENGINE_VOCABULARY: [&str; 17] = [
+const ENGINE_VOCABULARY: [&str; 18] = [
     "decline",
     "activate",
     "system",
@@ -58,6 +58,7 @@ const ENGINE_VOCABULARY: [&str; 17] = [
     "card",
     "return",
     "alias",
+    "objective", // PUBLIC_OBJECTIVE_SCORED payload field, not a corpus identity.
 ];
 
 /// Record accessors whose argument is a JSON field name, not a content id.

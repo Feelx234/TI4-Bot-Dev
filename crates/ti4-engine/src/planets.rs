@@ -85,6 +85,46 @@ pub fn place(
     true
 }
 
+/// Move a placed planet together with its controller, units and coexistence records.
+/// Planet-keyed exhaustion, attachments and legendary-card state keep their identities.
+///
+/// # Panics
+/// If the destination system disappears from the board between the check here and the move.
+pub fn move_placed(state: &mut GameState, planet: &PlanetId, destination: &SystemId) -> bool {
+    let Some(origin) = state.placed_planets.get(planet).cloned() else {
+        return false;
+    };
+    if origin == *destination || !state.board.contains_key(destination) {
+        return false;
+    }
+    let Some(here) = state.board.get_mut(&origin) else {
+        return false;
+    };
+    if here.purged_planets.contains(planet) {
+        return false;
+    }
+    let control = here.planet_control.remove(planet);
+    let units = here.planet_units.remove(planet);
+    let coexist = here.coexisting.remove(planet);
+    let there = state
+        .board
+        .get_mut(destination)
+        .expect("destination checked");
+    if let Some(owner) = control {
+        there.planet_control.insert(planet.clone(), owner);
+    }
+    if let Some(units) = units {
+        there.planet_units.insert(planet.clone(), units);
+    }
+    if let Some(owners) = coexist {
+        there.coexisting.insert(planet.clone(), owners);
+    }
+    state
+        .placed_planets
+        .insert(planet.clone(), destination.clone());
+    true
+}
+
 /// A planet's technology specialties as they now stand: those printed on its card plus any an
 /// attachment gave it (a research facility on a planet without one, LRR 35.8), lower-case.
 ///
@@ -121,9 +161,111 @@ pub fn tech_specialties_now(
     found
 }
 
+/// A planet's exploration traits as they now stand: those printed on its card plus any an
+/// attachment gave it (Titans' Terraform: "treated as having all 3 planet traits"), upper-case,
+/// printed ones first.
+///
+/// Readers that know the game state ask here; [`crate::exploration::traits_of`] is the printed
+/// answer only.
+#[must_use]
+pub fn traits_now(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &PlanetId,
+) -> Vec<String> {
+    let mut found = crate::exploration::traits_of(content, sources, planet);
+    for id in state.planet_attachments.get(planet).into_iter().flatten() {
+        let Some(record) = content.get(ti4_model::content_types::ContentType::Attachments, id)
+        else {
+            continue;
+        };
+        for kind in record.strings("planetTypes") {
+            let kind = kind.to_ascii_uppercase();
+            if crate::deck::EXPLORATION_TRAITS.contains(&kind.as_str())
+                && kind != crate::exploration::FRONTIER
+                && !found.contains(&kind)
+            {
+                found.push(kind);
+            }
+        }
+    }
+    found
+}
+
+/// The SPACE CANNON an attachment on a planet gives it "as if it were a unit" (Titans' Geoform:
+/// SPACE CANNON 5 (x3)): `(controller, hits on, dice)` for each such attachment on `planet`, which
+/// must lie in `system`. Empty when the planet is uncontrolled or carries no such attachment.
+///
+/// Read by space cannon offense and, for the planet's own invasion, space cannon defense.
+#[must_use]
+pub fn attachment_cannons(
+    state: &GameState,
+    content: &ContentStore,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> Vec<(ti4_model::id::PlayerId, u32, usize)> {
+    let Some(owner) = state
+        .board
+        .get(system)
+        .and_then(|board| board.planet_control.get(planet))
+    else {
+        return Vec::new();
+    };
+    state
+        .planet_attachments
+        .get(planet)
+        .into_iter()
+        .flatten()
+        .filter_map(|id| content.get(ti4_model::content_types::ContentType::Attachments, id))
+        .filter_map(|record| {
+            let hits_on = u32::try_from(record.int("spaceCannonHitsOn")?).ok()?;
+            let dice = usize::try_from(record.int("spaceCannonDieCount")?).ok()?;
+            (dice > 0).then(|| (owner.clone(), hits_on, dice))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relocating_a_planet_keeps_every_planet_record_and_rejects_invalid_moves() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let (from, to) = (SystemId::new("19"), SystemId::new("20"));
+        let planet = PlanetId::new("avernus");
+        let owner = ti4_model::id::PlayerId::new("a");
+        place(&mut state, &from, &planet, &owner);
+        crate::fixtures::put_on_planet(&mut state, &from, &planet, "infantry", &owner, 1);
+        state
+            .system_mut(&from)
+            .coexisting
+            .entry(planet.clone())
+            .or_default()
+            .insert(ti4_model::id::PlayerId::new("b"));
+        state.exhausted_planets.insert(planet.clone());
+        state
+            .player_mut(&owner)
+            .unwrap()
+            .exhausted_legendary
+            .insert(planet.clone());
+        assert!(!move_placed(&mut state, &planet, &to));
+        state.board.entry(to.clone()).or_default();
+        assert!(move_placed(&mut state, &planet, &to));
+        assert_eq!(state.board[&to].planet_control.get(&planet), Some(&owner));
+        assert_eq!(state.board[&to].on_planet(&planet).len(), 1);
+        assert!(state.board[&to].coexisting[&planet].contains(&ti4_model::id::PlayerId::new("b")));
+        assert!(state.exhausted_planets.contains(&planet));
+        assert!(
+            state
+                .player(&owner)
+                .unwrap()
+                .exhausted_legendary
+                .contains(&planet)
+        );
+        assert!(!move_placed(&mut state, &planet, &to));
+    }
 
     /// A placed planet is in its system, and the printed ones are still there too.
     #[test]

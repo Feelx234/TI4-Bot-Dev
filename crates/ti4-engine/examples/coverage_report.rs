@@ -10,7 +10,7 @@
 use ti4_content::ContentStore;
 use ti4_model::content_types::{ContentType, DEFAULT, SourceSet};
 
-const FACTIONS: [&str; 6] = ["sol", "letnev", "xxcha", "hacan", "jolnar", "l1z1x"];
+const FACTIONS: [&str; 6] = ti4_engine::seating::IN_SCOPE_FACTIONS;
 
 fn row(area: &str, implemented: usize, total: usize) {
     let share = if total == 0 {

@@ -213,3 +213,72 @@ pub fn plain_hub() -> Hub {
     reason = "a shared fixture module is used a piece at a time"
 )]
 const fn _all_used(_: Option<&System<'_>>) {}
+
+/// A game with each `(player, faction)` seated and deployed (home system, starting units and
+/// technologies, leaders) at `sources`.
+///
+/// Seat factions here rather than overwriting `Player::faction` on a [`game`]: overwriting leaves
+/// the previous faction's leaders, home and units behind, and anything armed at construction
+/// (timing abilities) reads the name it was built with.
+///
+/// # Panics
+/// If setup refuses these players or a faction cannot deploy.
+#[must_use]
+pub fn seated_game(
+    seats: &[(&str, &str)],
+    sources: ti4_model::content_types::SourceSet,
+) -> GameState {
+    let content = ContentStore::embedded();
+    let ids: Vec<PlayerId> = seats.iter().map(|(name, _)| PlayerId::new(*name)).collect();
+    let mut state =
+        crate::setup::start_game_seeded(content, &ids, sources, None, 0).expect("setup succeeds");
+    for (name, faction) in seats {
+        crate::seating::deploy(
+            &mut state,
+            content,
+            &PlayerId::new(*name),
+            &ti4_model::id::FactionId::new(*faction),
+            sources,
+        )
+        .expect("the faction deploys");
+    }
+    state
+}
+
+/// Run `run` with a real [`crate::timing::TimingContext`] over `state`, seed-0 dice and an empty
+/// event sequence — what a faction hook or a component action receives in a game.
+pub fn with_context<T>(
+    state: &mut GameState,
+    sources: ti4_model::content_types::SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut crate::choice::Table,
+    run: impl FnOnce(&mut crate::timing::TimingContext<'_>) -> T,
+) -> T {
+    let mut dice = crate::dice::Dice::new();
+    let mut rng = crate::rng::GameRng::new(0);
+    let mut sequence = crate::event::EventSequence::new();
+    let mut context = crate::timing::TimingContext {
+        state,
+        content: ContentStore::embedded(),
+        sources,
+        table,
+        dice: &mut dice,
+        rng: &mut rng,
+        event_sequence: &mut sequence,
+        galaxy,
+    };
+    run(&mut context)
+}
+
+/// A timing resolver armed exactly as the game driver arms one ([`crate::reactions::arm`]):
+/// shared reaction slots and every faction module's `timing_abilities`, for every seat.
+///
+/// Use this, not a hand-registered ability, so a test proves the module's hook is wired.
+#[must_use]
+pub fn armed_resolver(state: &GameState) -> crate::timing::Resolver {
+    let order: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
+    let active = order.first().cloned();
+    let mut resolver = crate::timing::Resolver::new(order, active, crate::choice::Table::default());
+    crate::reactions::arm(&mut resolver, state);
+    resolver
+}

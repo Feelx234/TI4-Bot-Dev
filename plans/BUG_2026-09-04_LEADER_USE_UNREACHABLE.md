@@ -39,7 +39,7 @@ currently.
 
 `crates/ti4-engine/src/production.rs::ProductionWindow::free_this_use` now correctly reads
 `Player::free_production_use` once it exists (see
-`plans/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md`), proven by writing the marker directly into
+`plans/archive/BUG_2026-09-04_PRODUCTION_DISCOUNT_UNWIRED.md`), proven by writing the marker directly into
 state and observing the discount apply. That is the *consumption* side. This defect is the
 *invocation* side: nothing ever asks a policy whether it wants to use Harrugh Gefhara — or any other
 leader — in the first place. Fixing invocation needs no further change to `production.rs`: the

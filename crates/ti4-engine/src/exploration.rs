@@ -82,7 +82,7 @@ pub fn choose_deck(
     player: &PlayerId,
     planet: &PlanetId,
 ) -> Option<String> {
-    let mut traits = traits_of(ctx.content, ctx.sources, planet);
+    let mut traits = crate::planets::traits_now(state, ctx.content, ctx.sources, planet);
     match traits.len() {
         0 => None,
         1 => traits.pop(),
@@ -164,12 +164,18 @@ fn gain_commodities(state: &mut GameState, content: &ContentStore, player: &Play
 ///
 /// 21.5 only converts commodities when they *change hands*; these cards say so explicitly, which
 /// is why this is written here rather than reached for anywhere a commodity is spent.
-fn convert_commodities(state: &mut GameState, player: &PlayerId, most: Option<i32>) {
-    if let Some(seat) = state.player_mut(player) {
+fn convert_commodities(
+    state: &mut GameState,
+    ctx: &mut crate::choice::Resolving<'_>,
+    player: &PlayerId,
+    most: Option<i32>,
+) {
+    let moved = state.player_mut(player).map_or(0, |seat| {
         let moved = most.map_or(seat.commodities, |cap| seat.commodities.min(cap));
         seat.commodities -= moved;
-        seat.trade_goods += moved;
-    }
+        moved
+    });
+    crate::supply::gain_trade_goods_announced(state, ctx, player, moved, "exploration");
 }
 
 /// Ask this player one question with the given options.
@@ -249,7 +255,8 @@ fn place_on_planet(
         .planet_units
         .entry(planet.clone())
         .or_default()
-        .push(ti4_model::units::Unit::new(type_id, player.clone()));
+        .push(ti4_model::units::Unit::new(type_id.clone(), player.clone()));
+    crate::supply::stage_naaz_mech_placed(state, player, &system, &type_id);
     true
 }
 
@@ -643,7 +650,7 @@ fn resolve_instant(
                 ],
             );
             if chosen.as_deref() == Some("convert") {
-                convert_commodities(state, player, Some(2));
+                convert_commodities(state, ctx, player, Some(2));
             } else {
                 gain_commodities(state, content, player, 2);
             }
@@ -662,10 +669,12 @@ fn resolve_instant(
                 ],
             );
             if chosen.as_deref() == Some("convert") {
-                convert_commodities(state, player, None);
+                convert_commodities(state, ctx, player, None);
             } else {
                 let limit = commodity_limit(state, content, player);
                 gain_commodities(state, content, player, limit);
+                // A replenish like any other: Trade Agreement and Stillness of Stars read it.
+                crate::promissory::trade_agreement_on_replenish(state, player);
             }
             return true;
         }
@@ -711,10 +720,13 @@ fn resolve_instant(
                 .player(player)
                 .map_or((0, 0), |seat| (seat.trade_goods, seat.commodities));
             let mut options = vec![("gain", "gain 1 commodity")];
-            if goods_held >= 1 {
+            let forbidden = crate::factions::hooks_economy::effect_placement_forbidden(
+                state, content, sources, player, &ti4_model::id::UnitTypeId::new("mech"),
+            );
+            if goods_held >= 1 && !forbidden {
                 options.push(("spend_tg", "spend 1 trade good to place a mech"));
             }
-            if commodities_held >= 1 {
+            if commodities_held >= 1 && !forbidden {
                 options.push(("spend_com", "spend 1 commodity to place a mech"));
             }
             let chosen = ask(
@@ -763,10 +775,8 @@ fn resolve_instant(
             let Some(planet) = planet else {
                 return true;
             };
-            if pay_with_mech_or_infantry(ctx, state, content, sources, player, planet, card)
-                && let Some(seat) = state.player_mut(player)
-            {
-                seat.trade_goods += 1;
+            if pay_with_mech_or_infantry(ctx, state, content, sources, player, planet, card) {
+                crate::supply::gain_trade_goods_announced(state, ctx, player, 1, "exploration");
             }
             return true;
         }
@@ -799,9 +809,7 @@ fn resolve_instant(
         _ => return false,
     };
     state.gain_token(player, ti4_model::state::TokenPool::Strategic, tokens);
-    if let Some(seat) = state.player_mut(player) {
-        seat.trade_goods += goods;
-    }
+    crate::supply::gain_trade_goods_announced(state, ctx, player, goods, "exploration");
     true
 }
 
@@ -939,6 +947,24 @@ pub fn explore_with(
     if let Some(record) = state.exploration_log.get_mut(logged) {
         record.outcome = text;
     }
+    if let Some(explored) = planet {
+        // Pre-Fab Arcologies et al. run first (they change the state), then the typed event.
+        crate::factions::hooks_economy::explored(state, ctx.content, ctx.sources, player, explored);
+        let mut payload = std::collections::BTreeMap::new();
+        payload.insert("player".to_owned(), player.to_string().into());
+        payload.insert("planet".to_owned(), explored.to_string().into());
+        payload.insert("deck".to_owned(), deck.into());
+        payload.insert(
+            "card".to_owned(),
+            state
+                .exploration_log
+                .get(logged)
+                .map(|record| record.card.clone())
+                .unwrap_or_default()
+                .into(),
+        );
+        crate::factions::hooks_economy::emit(ctx, state, "PLANET_EXPLORED", payload);
+    }
     Some(outcome)
 }
 
@@ -950,7 +976,36 @@ fn explore_drawn(
     planet: Option<&PlanetId>,
 ) -> Option<Explored> {
     let content = ctx.content;
-    let card = draw(state, deck)?;
+    let mut card = draw(state, deck)?;
+    // Naaz Distant Suns: draw 1 additional card, resolve 1 of the two, discard the other (a
+    // discarded fragment is not gained). The engine keeps no discard pile; the card leaves the deck.
+    if let Some(here) = planet
+        && crate::factions::hooks_economy::explore_extra_draw(
+            state,
+            content,
+            ctx.sources,
+            player,
+            here,
+        )
+        && let Some(second) = draw(state, deck)
+    {
+        let label = |id: &str| format!("resolve {id}");
+        let (first_label, second_label) = (label(&card), label(&second));
+        let picked = ask(
+            ctx,
+            state,
+            player,
+            &card,
+            "Distant Suns: which exploration card to resolve",
+            &[
+                (card.as_str(), &first_label),
+                (second.as_str(), &second_label),
+            ],
+        );
+        if picked.as_deref() == Some(second.as_str()) {
+            card = second;
+        }
+    }
     state
         .exploration_log
         .push(ti4_model::state::ExplorationRecord {
@@ -2064,4 +2119,267 @@ mod tests {
             "nothing was spent"
         );
     }
+}
+
+#[cfg(test)]
+mod bf_f3_tests {
+    use super::*;
+    use crate::choice::{Resolving, Scripted, Table};
+    use crate::factions::hooks_economy::{EconomyHooks, with_test_hooks};
+    use crate::fixtures::game;
+    use ti4_model::content_types::POK;
+
+    fn explore_scripted(
+        state: &mut GameState,
+        planet: &PlanetId,
+        answers: &[&str],
+    ) -> Option<Explored> {
+        let mut table = Table::with_default(Box::new(Scripted::new(answers.iter().copied())));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        explore_with(
+            state,
+            &mut ctx,
+            &PlayerId::new("a"),
+            "CULTURAL",
+            Some(planet),
+        )
+    }
+
+    fn deck_game() -> (GameState, PlanetId) {
+        let mut state = game(&["a"]);
+        state.exploration_decks.insert(
+            "CULTURAL".to_owned(),
+            vec!["minent".to_owned(), "majent".to_owned(), "ent".to_owned()],
+        );
+        (state, crate::fixtures::a_placed_planet().1)
+    }
+
+    #[test]
+    fn without_the_hook_one_card_is_drawn() {
+        let (mut state, planet) = deck_game();
+        let before = state.player(&PlayerId::new("a")).unwrap().trade_goods;
+        explore_scripted(&mut state, &planet, &[]);
+        assert_eq!(state.exploration_decks["CULTURAL"].len(), 2);
+        assert_eq!(
+            state.player(&PlayerId::new("a")).unwrap().trade_goods,
+            before + 1,
+            "minent gives 1 trade good"
+        );
+    }
+
+    #[test]
+    fn an_extra_draw_lets_the_player_pick_and_discards_the_other() {
+        let hook = EconomyHooks {
+            explore_extra_draw: Some(|_, _, _, _, _| true),
+            ..EconomyHooks::NONE
+        };
+        let (mut state, planet) = deck_game();
+        let before = state.player(&PlayerId::new("a")).unwrap().trade_goods;
+        with_test_hooks(hook, || explore_scripted(&mut state, &planet, &["majent"]));
+        assert_eq!(
+            state.player(&PlayerId::new("a")).unwrap().trade_goods,
+            before + 3,
+            "the chosen second card (majent: 3 goods) resolved, the first did not"
+        );
+        assert_eq!(state.exploration_decks["CULTURAL"], ["ent"]);
+        assert_eq!(state.exploration_log.len(), 1);
+        assert_eq!(state.exploration_log[0].card, "majent");
+    }
+
+    #[test]
+    fn an_extra_draw_with_a_lone_card_resolves_it() {
+        let hook = EconomyHooks {
+            explore_extra_draw: Some(|_, _, _, _, _| true),
+            ..EconomyHooks::NONE
+        };
+        let (mut state, planet) = deck_game();
+        state
+            .exploration_decks
+            .insert("CULTURAL".to_owned(), vec!["minent".to_owned()]);
+        let outcome = with_test_hooks(hook, || explore_scripted(&mut state, &planet, &[]));
+        assert!(matches!(outcome, Some(Explored::Resolved { .. })));
+    }
+
+    #[test]
+    fn the_explored_callback_runs_once_after_a_planet_is_explored() {
+        let hook = EconomyHooks {
+            explored: Some(|state, _, _, _, planet| {
+                state.exhausted_planets.remove(planet);
+            }),
+            ..EconomyHooks::NONE
+        };
+        let (mut state, planet) = deck_game();
+        state.exhausted_planets.insert(planet.clone());
+        explore_scripted(&mut state, &planet, &[]);
+        assert!(
+            state.exhausted_planets.contains(&planet),
+            "no hook, no change"
+        );
+        with_test_hooks(hook, || explore_scripted(&mut state, &planet, &[]));
+        assert!(!state.exhausted_planets.contains(&planet));
+    }
+
+    #[test]
+    fn a_frontier_draw_calls_no_explored_callback() {
+        let hook = EconomyHooks {
+            explored: Some(|state, _, _, _, _| {
+                state
+                    .faction_marks
+                    .insert("called".to_owned(), String::new());
+            }),
+            ..EconomyHooks::NONE
+        };
+        let (mut state, _) = deck_game();
+        state
+            .exploration_decks
+            .insert("FRONTIER".to_owned(), vec!["minent".to_owned()]);
+        let mut table = Table::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        with_test_hooks(hook, || {
+            explore_with(&mut state, &mut ctx, &PlayerId::new("a"), "FRONTIER", None)
+        });
+        assert!(!state.faction_marks.contains_key("called"));
+    }
+
+    #[test]
+    fn planet_explored_is_announced_with_a_timing_handle() {
+        let (mut state, planet) = deck_game();
+        let mut resolver = crate::timing::Resolver::new(
+            vec![PlayerId::new("a")],
+            Some(PlayerId::new("a")),
+            Table::default(),
+        );
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        resolver.register([crate::timing::Ability::new(
+            "test:listener",
+            PlayerId::new("a"),
+            "PLANET_EXPLORED",
+            crate::timing::Relation::After,
+            std::sync::Arc::new(move |event, _| {
+                sink.lock().unwrap().push(event.payload.clone());
+                Ok(())
+            }),
+        )]);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut table = Table::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        explore_with(
+            &mut state,
+            &mut ctx,
+            &PlayerId::new("a"),
+            "CULTURAL",
+            Some(&planet),
+        );
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0]["planet"], planet.to_string());
+        assert_eq!(seen[0]["card"], "minent");
+    }
+
+    #[test]
+    fn an_exploration_gain_is_announced_as_trade_goods_gained() {
+        let (mut state, planet) = deck_game();
+        let mut resolver = crate::timing::Resolver::new(
+            vec![PlayerId::new("a")],
+            Some(PlayerId::new("a")),
+            Table::default(),
+        );
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        resolver.register([crate::timing::Ability::new(
+            "test:listener",
+            PlayerId::new("a"),
+            "TRADE_GOODS_GAINED",
+            crate::timing::Relation::After,
+            std::sync::Arc::new(move |event, _| {
+                sink.lock().unwrap().push(event.payload.clone());
+                Ok(())
+            }),
+        )]);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut table = Table::new();
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(1);
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        explore_with(
+            &mut state,
+            &mut ctx,
+            &PlayerId::new("a"),
+            "CULTURAL",
+            Some(&planet),
+        );
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0]["amount"], 1);
+        assert_eq!(seen[0]["source"], "exploration");
+    }
+    #[test]
+    fn local_fabricators_with_a_maximum_offers_only_the_commodity_reward() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let mut state = crate::fixtures::seated_game(&[("a", "naaz"), ("b", "sol")], sources);
+        let a = PlayerId::new("a");
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "naaz_voltron", &a, 1);
+        state.player_mut(&a).unwrap().trade_goods = 2;
+        state.player_mut(&a).unwrap().commodities = 1;
+        let board = state.board.clone();
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut ctx = crate::choice::Resolving {content, sources, table: &mut table,
+            dice: &mut dice, rng: &mut rng, timing: None};
+        assert!(resolve_instant(&mut state, &mut ctx, &a, Some(&planet), "lf1"));
+        assert_eq!(state.board, board);
+        assert_eq!(state.player(&a).unwrap().trade_goods, 2);
+        assert_eq!(state.player(&a).unwrap().commodities, 2);
+        let seen = seen.borrow();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), vec!["gain"]);
+    }
+
 }

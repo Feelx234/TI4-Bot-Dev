@@ -158,7 +158,28 @@ pub(crate) fn standing_using(
         player,
         fleet_limit,
         arriving,
+        &fighter_halves(state, content, player),
     )
+}
+
+/// Whether a fighter of this type counts as half a ship against `player`'s fleet pool, by the
+/// module hook (Naalu Hybrid Crystal Fighter II). Always `false` when no module says so.
+fn fighter_halves<'a>(
+    state: &'a GameState,
+    content: &'a ContentStore,
+    player: &'a PlayerId,
+) -> impl Fn(&str) -> bool + 'a {
+    move |unit_type| {
+        crate::factions::hooks_combat::fighter_fleet_weight_halves(
+            state, content, player, unit_type,
+        )
+    }
+}
+
+/// A hook answer that is never half: for the capacity-only questions, which never read the fleet
+/// charge.
+fn never_half(_: &str) -> bool {
+    false
 }
 
 /// [`standing`] with the catalogue built, the board borrowed and the fleet limit already known.
@@ -175,6 +196,7 @@ fn standing_with(
     player: &PlayerId,
     fleet_limit: i64,
     arriving: Option<Arrival<'_>>,
+    half_weight: &dyn Fn(&str) -> bool,
 ) -> Standing {
     let space: Vec<UnitType<'_>> = board
         .map(|board| {
@@ -253,16 +275,27 @@ fn standing_with(
     let excused = fighters.min(support);
     let consumed = carried + fighters - excused;
     let overflow = (consumed - transport).max(0);
-    let upgraded = space
-        .iter()
-        .chain(arrival.as_ref().map(|arrival| &arrival.kind))
-        .any(|kind| kind.is_fighter() && kind.required_technology().is_some());
+    let upgraded_fighters = || {
+        space
+            .iter()
+            .chain(arrival.as_ref().map(|arrival| &arrival.kind))
+            .filter(|kind| kind.is_fighter() && kind.required_technology().is_some())
+    };
+    let upgraded = upgraded_fighters().next().is_some();
     let fighters_charged = fighters_charged_to_fleet_pool(upgraded, fighters, excused, overflow);
+    // Naalu Hybrid Crystal Fighter II: each excess fighter counts as 1/2 of a ship. The pool is
+    // compared in whole ships, and `present + k/2 > limit` holds exactly when
+    // `present + ceil(k/2) > limit` (both integers), so the charge rounds an odd half up.
+    let pool_charge = if upgraded_fighters().any(|kind| half_weight(kind.id())) {
+        (fighters_charged + 1) / 2
+    } else {
+        fighters_charged
+    };
     Standing {
         fleet_limit,
         // Fighter II from the other side: fighters the capacity cannot hold are ships as far as the
         // fleet pool is concerned, so they are counted here rather than removed there.
-        fleet_charged: present + fighters_charged,
+        fleet_charged: present + pool_charge,
         transport,
         consumed,
         fighters_charged,
@@ -302,6 +335,7 @@ fn over_supply_with(
         player,
         i64::from(limit(state, content, player)).max(0),
         None,
+        &fighter_halves(state, content, player),
     );
     usize::try_from(standing.fleet_excess()).unwrap_or(0)
 }
@@ -333,7 +367,8 @@ fn over_capacity_with(
     board: &ti4_model::state::SystemState,
     player: &PlayerId,
 ) -> usize {
-    usize::try_from(standing_with(types, Some(board), player, 0, None).capacity_excess).unwrap_or(0)
+    usize::try_from(standing_with(types, Some(board), player, 0, None, &never_half).capacity_excess)
+        .unwrap_or(0)
 }
 
 /// Fighters that the fleet pool absorbs instead of capacity (Fighter II).
@@ -371,7 +406,7 @@ pub fn fighters_over_capacity(
     let Some(board) = state.board.get(system) else {
         return 0;
     };
-    standing_with(&types, Some(board), player, 0, None).fighters_charged
+    standing_with(&types, Some(board), player, 0, None, &never_half).fighters_charged
 }
 
 /// 37.3 and 16.3: the owner chooses and removes units until within the limit.
@@ -558,6 +593,131 @@ fn remove_one(
         .system_mut(system)
         .remove(std::slice::from_ref(&doomed));
     Ok(())
+}
+
+// -- dual-form units (BF-00d-strategy) ---------------------------------------------------------------
+
+/// The other form of a dual-form unit: `naaz_mech` and `naaz_mech_space` (Naaz Eidolon / Z-Grav
+/// Eidolon) name each other by the `_space` suffix and share a base type. `None` for every unit
+/// without such a twin in `types`, which is every unit of every faction but Naaz's mech, and for
+/// Thunder's Edge `naaz_voltron`, which is both a ship and a ground force in one record.
+#[must_use]
+pub fn other_form<'a>(types: &BTreeMap<&'a str, UnitType<'a>>, id: &str) -> Option<&'a str> {
+    let twin = id
+        .strip_suffix("_space")
+        .map_or_else(|| format!("{id}_space"), ToOwned::to_owned);
+    let (twin_id, twin) = types.get_key_value(twin.as_str())?;
+    let own = types.get(id)?;
+    (twin.base_type() == own.base_type() && twin.faction() == own.faction()).then_some(*twin_id)
+}
+
+/// Flip one unit of `player`'s of type `from` to its other form, in place: in `system`'s space
+/// area when `planet` is `None`, otherwise on that planet. Returns the new unit type, or `None`
+/// with nothing changed.
+///
+/// Both forms are the same plastic (one base type, `supply::held` counts by it), so the supply
+/// cannot change and no cap is asked. Damage and the galvanize token stay with the unit. A flip to
+/// a ship form is refused on a planet (a ship is never on a planet), so a Z-Grav Eidolon that lands
+/// is flipped back by its owner's effect first; the flip to the ground form is legal anywhere.
+///
+/// Naaz Eidolon: "If this unit is in the space area of the active system at the start of a space
+/// combat, flip this card." Z-Grav Eidolon: "If this unit is in the space area of the active
+/// system, it is also a ship. At the end of a space battle in the active system, flip this card."
+/// This is per unit, not per card: see the rules question in `plans/evidence/BF-00d-strategy.md`.
+/// The caller decides *when* a flip is required; this changes nothing without being asked.
+pub fn flip_form(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    planet: Option<&ti4_model::id::PlanetId>,
+    from: &ti4_model::id::UnitTypeId,
+) -> Option<ti4_model::id::UnitTypeId> {
+    let types = catalogue(content, sources);
+    let to = other_form(&types, from.as_str())?;
+    if planet.is_some() && types.get(to).is_some_and(UnitType::is_ship) {
+        return None;
+    }
+    let board = state.board.get_mut(system)?;
+    let pool = match planet {
+        Some(planet) => board.planet_units.get_mut(planet)?,
+        None => &mut board.units,
+    };
+    let unit = pool
+        .iter_mut()
+        .find(|unit| &unit.owner == player && &unit.type_id == from)?;
+    let flipped = ti4_model::id::UnitTypeId::new(to);
+    unit.type_id = flipped.clone();
+    Some(flipped)
+}
+
+/// Flip every dual-form unit of `players` standing in `system`'s space area whose current form is
+/// not a ship (`to_ship`) or is a ship (`!to_ship`) to its other form, returning each flip as
+/// `(owner, new form)`. Units without a twin, or whose twin is the wrong kind, are untouched, so
+/// this changes nothing in a game without a dual-form unit.
+fn flip_space_area(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    players: &[PlayerId],
+    system: &SystemId,
+    to_ship: bool,
+) -> Vec<(PlayerId, ti4_model::id::UnitTypeId)> {
+    let types = catalogue(content, sources);
+    let wanted: Vec<(PlayerId, ti4_model::id::UnitTypeId)> = state
+        .board
+        .get(system)
+        .map(|board| {
+            board
+                .units
+                .iter()
+                .filter(|unit| players.contains(&unit.owner))
+                .filter(|unit| {
+                    types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                        kind.is_ship() != to_ship
+                            && other_form(&types, unit.type_id.as_str())
+                                .and_then(|twin| types.get(twin))
+                                .is_some_and(|twin| twin.is_ship() == to_ship)
+                    })
+                })
+                .map(|unit| (unit.owner.clone(), unit.type_id.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    wanted
+        .into_iter()
+        .filter_map(|(owner, from)| {
+            flip_form(state, content, sources, &owner, system, None, &from)
+                .map(|flipped| (owner, flipped))
+        })
+        .collect()
+}
+
+/// "At the start of a space combat": every ground-form dual-form unit of `players` in the space
+/// area of the active `system` takes its ship form (Naaz Eidolon). Returns `(owner, ship form)`
+/// per flip.
+pub fn flip_to_ship_forms(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    players: &[PlayerId],
+    system: &SystemId,
+) -> Vec<(PlayerId, ti4_model::id::UnitTypeId)> {
+    flip_space_area(state, content, sources, players, system, true)
+}
+
+/// "At the end of a space battle in the active system": every ship-form dual-form unit of
+/// `players` in the space area of `system` takes its ground form (Z-Grav Eidolon). Returns
+/// `(owner, ground form)` per flip.
+pub fn flip_to_ground_forms(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    players: &[PlayerId],
+    system: &SystemId,
+) -> Vec<(PlayerId, ti4_model::id::UnitTypeId)> {
+    flip_space_area(state, content, sources, players, system, false)
 }
 
 #[cfg(test)]
@@ -1059,5 +1219,324 @@ mod obs_review_super_dreadnought {
             1,
             "the third fighter does not fit"
         );
+    }
+}
+
+#[cfg(test)]
+mod dual_form_tests {
+    use super::*;
+    use crate::fixtures::{a_placed_planet, game, put, put_on_planet};
+    use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::UnitTypeId;
+
+    fn pid(id: &str) -> PlayerId {
+        PlayerId::new(id)
+    }
+
+    #[test]
+    fn only_the_naaz_mech_has_another_form() {
+        let content = ContentStore::embedded();
+        let types = catalogue(content, DEFAULT);
+        assert_eq!(other_form(&types, "naaz_mech"), Some("naaz_mech_space"));
+        assert_eq!(other_form(&types, "naaz_mech_space"), Some("naaz_mech"));
+        for id in [
+            "mech",
+            "infantry",
+            "carrier",
+            "naaz_voltron",
+            "saar_spacedock",
+            "nothing",
+        ] {
+            assert_eq!(other_form(&types, id), None, "{id}");
+        }
+        // The census: every unit that has a twin, by the rule above.
+        let twins: Vec<&str> = types
+            .keys()
+            .copied()
+            .filter(|id| other_form(&types, id).is_some())
+            .collect();
+        assert_eq!(twins, vec!["naaz_mech", "naaz_mech_space"]);
+    }
+
+    #[test]
+    fn flipping_in_the_space_area_makes_the_mech_a_ship_without_touching_the_supply() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        let (a, ground) = (pid("a"), UnitTypeId::new("naaz_mech"));
+        put(&mut state, &system, "naaz_mech", &a, 1);
+        state.system_mut(&system).units[0].sustained_damage = true;
+        let held = |state: &GameState| crate::supply::held(state, content, DEFAULT, &a, "mech");
+        let before = (
+            held(&state),
+            standing(&state, content, DEFAULT, &a, &system, None),
+        );
+        assert!(crate::combat::ships_of(&state, content, DEFAULT, &a, &system).is_empty());
+        assert!(crate::combat::combatants(&state, content, DEFAULT, &system).is_empty());
+
+        let flipped = flip_form(&mut state, content, DEFAULT, &a, &system, None, &ground);
+        assert_eq!(flipped, Some(UnitTypeId::new("naaz_mech_space")));
+        let ships = crate::combat::ships_of(&state, content, DEFAULT, &a, &system);
+        assert_eq!(
+            ships.len(),
+            1,
+            "the space form is a ship: it fights the space combat"
+        );
+        assert!(ships[0].sustained_damage, "damage stays with the unit");
+        assert_eq!(
+            crate::combat::combatants(&state, content, DEFAULT, &system),
+            vec![a.clone()]
+        );
+        let after = (
+            held(&state),
+            standing(&state, content, DEFAULT, &a, &system, None),
+        );
+        assert_eq!(after.0, before.0, "one plastic pool for both forms");
+        assert_eq!(
+            after.1.consumed, before.1.consumed,
+            "still carried: the hold is unchanged"
+        );
+        assert_eq!(
+            after.1.fleet_charged, before.1.fleet_charged,
+            "and not charged to the fleet pool"
+        );
+
+        // And back again at the end of the battle.
+        assert_eq!(
+            flip_form(
+                &mut state,
+                content,
+                DEFAULT,
+                &a,
+                &system,
+                None,
+                &UnitTypeId::new("naaz_mech_space")
+            ),
+            Some(ground)
+        );
+        assert!(crate::combat::ships_of(&state, content, DEFAULT, &a, &system).is_empty());
+    }
+
+    #[test]
+    fn both_forms_are_one_model_for_the_cap() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        let (system, _) = a_placed_planet();
+        let a = pid("a");
+        put(&mut state, &system, "naaz_mech", &a, 3);
+        put(&mut state, &system, "naaz_mech_space", &a, 1);
+        assert_eq!(
+            crate::supply::remaining(&state, content, DEFAULT, &a, &UnitTypeId::new("naaz_mech")),
+            0
+        );
+        flip_form(
+            &mut state,
+            content,
+            DEFAULT,
+            &a,
+            &system,
+            None,
+            &UnitTypeId::new("naaz_mech"),
+        );
+        assert_eq!(
+            crate::supply::remaining(&state, content, DEFAULT, &a, &UnitTypeId::new("naaz_mech")),
+            0,
+            "flipping neither frees nor consumes a model"
+        );
+    }
+
+    #[test]
+    fn a_ship_form_is_never_made_on_a_planet_and_the_ground_form_may_be() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a"]);
+        let (system, planet) = a_placed_planet();
+        let a = pid("a");
+        put_on_planet(&mut state, &system, &planet, "naaz_mech", &a, 1);
+        let before = serde_json::to_value(&state).unwrap();
+        assert_eq!(
+            flip_form(
+                &mut state,
+                content,
+                DEFAULT,
+                &a,
+                &system,
+                Some(&planet),
+                &UnitTypeId::new("naaz_mech")
+            ),
+            None
+        );
+        assert_eq!(serde_json::to_value(&state).unwrap(), before);
+
+        // A space-form mech that landed is put back to its ground form.
+        put_on_planet(&mut state, &system, &planet, "naaz_mech_space", &a, 1);
+        assert_eq!(
+            flip_form(
+                &mut state,
+                content,
+                DEFAULT,
+                &a,
+                &system,
+                Some(&planet),
+                &UnitTypeId::new("naaz_mech_space")
+            ),
+            Some(UnitTypeId::new("naaz_mech"))
+        );
+    }
+
+    #[test]
+    fn a_flip_that_cannot_happen_changes_nothing() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let (system, _) = a_placed_planet();
+        put(&mut state, &system, "naaz_mech", &pid("b"), 1);
+        put(&mut state, &system, "carrier", &pid("a"), 1);
+        let before = serde_json::to_value(&state).unwrap();
+        let try_flip = |state: &mut GameState, who: &str, id: &str, at: &SystemId| {
+            flip_form(
+                state,
+                content,
+                DEFAULT,
+                &pid(who),
+                at,
+                None,
+                &UnitTypeId::new(id),
+            )
+        };
+        assert_eq!(
+            try_flip(&mut state, "a", "naaz_mech", &system),
+            None,
+            "not a's unit"
+        );
+        assert_eq!(
+            try_flip(&mut state, "a", "carrier", &system),
+            None,
+            "no other form"
+        );
+        assert_eq!(
+            try_flip(&mut state, "b", "naaz_mech", &SystemId::new("none")),
+            None
+        );
+        assert_eq!(serde_json::to_value(&state).unwrap(), before);
+    }
+}
+
+#[cfg(test)]
+mod bf_f2_tests {
+    use super::*;
+    use crate::factions::hooks_combat::{CombatHooks, with_test_hooks};
+    use crate::fixtures::{game, put};
+    use ti4_model::content_types::POK;
+
+    fn loose_fighters(count: usize, tokens: i32) -> (GameState, PlayerId, SystemId) {
+        let player = PlayerId::new("a");
+        let mut state = game(&["a"]);
+        let system = SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+        state.board.entry(system.clone()).or_default();
+        put(&mut state, &system, "fighter2", &player, count);
+        if let Some(seat) = state.player_mut(&player) {
+            seat.fleet_tokens = tokens;
+        }
+        (state, player, system)
+    }
+
+    const HALF: CombatHooks = CombatHooks {
+        fighter_fleet_weight_halves: Some(|_, _, _, unit| unit == "fighter2"),
+        ..CombatHooks::NONE
+    };
+
+    #[test]
+    fn half_weight_fighters_charge_the_pool_rounding_an_odd_half_up() {
+        let content = ContentStore::embedded();
+        let charged = |count| {
+            let (state, player, system) = loose_fighters(count, 2);
+            standing(&state, content, POK, &player, &system, None).fleet_charged
+        };
+        // Neutral without the hook: one slot each.
+        assert_eq!([charged(1), charged(2), charged(3)], [1, 2, 3]);
+        with_test_hooks(HALF, || {
+            assert_eq!(
+                [charged(0), charged(1), charged(2), charged(3), charged(4)],
+                [0, 1, 1, 2, 2]
+            );
+        });
+    }
+
+    #[test]
+    fn half_weight_fighters_fit_twice_as_many_in_the_pool_and_the_fifth_is_over() {
+        let content = ContentStore::embedded();
+        let excess = |count| {
+            let (state, player, system) = loose_fighters(count, 2);
+            over_supply(&state, content, POK, &player, &system)
+        };
+        assert_eq!(
+            excess(3),
+            1,
+            "a pool of two does not hold three whole fighters"
+        );
+        with_test_hooks(HALF, || {
+            assert_eq!(excess(3), 0);
+            assert_eq!(excess(4), 0, "four halves fill a pool of two exactly");
+            assert_eq!(excess(5), 1, "five halves are two and a half");
+        });
+    }
+
+    #[test]
+    fn the_hook_does_not_touch_capacity_or_base_fighters() {
+        let content = ContentStore::embedded();
+        let (state, player, system) = loose_fighters(3, 2);
+        with_test_hooks(HALF, || {
+            assert_eq!(over_capacity(&state, content, POK, &player, &system), 0);
+            assert_eq!(
+                fighters_over_capacity(&state, content, POK, &player, &system),
+                3,
+                "fighters carried by the pool are still counted whole"
+            );
+        });
+        let mut plain = game(&["a"]);
+        plain.board.entry(system.clone()).or_default();
+        put(&mut plain, &system, "fighter", &player, 3);
+        with_test_hooks(HALF, || {
+            let kind = standing(&plain, content, POK, &player, &system, None);
+            assert_eq!(kind.fleet_charged, 0, "a base fighter is never charged");
+        });
+    }
+
+    #[test]
+    fn space_combat_forms_flip_only_dual_form_units() {
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("a");
+        let mut state = game(&["a", "b"]);
+        let system = SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+        state.board.entry(system.clone()).or_default();
+        put(&mut state, &system, "naaz_mech", &player, 2);
+        put(&mut state, &system, "cruiser", &player, 1);
+        put(&mut state, &system, "infantry", &player, 1);
+        let sides = [player.clone()];
+        let flipped = flip_to_ship_forms(&mut state, content, POK, &sides, &system);
+        assert_eq!(flipped.len(), 2);
+        let kinds = |state: &GameState| -> Vec<String> {
+            state.board[&system]
+                .units
+                .iter()
+                .map(|unit| unit.type_id.to_string())
+                .collect()
+        };
+        assert_eq!(
+            kinds(&state),
+            ["naaz_mech_space", "naaz_mech_space", "cruiser", "infantry"]
+        );
+        assert!(flip_to_ship_forms(&mut state, content, POK, &sides, &system).is_empty());
+        assert_eq!(
+            flip_to_ground_forms(&mut state, content, POK, &sides, &system).len(),
+            2
+        );
+        assert_eq!(
+            kinds(&state),
+            ["naaz_mech", "naaz_mech", "cruiser", "infantry"]
+        );
+        // Another player's unit is left alone.
+        put(&mut state, &system, "naaz_mech", &PlayerId::new("b"), 1);
+        assert!(flip_to_ship_forms(&mut state, content, POK, &sides, &system).len() == 2);
+        assert_eq!(kinds(&state).last().map(String::as_str), Some("naaz_mech"));
     }
 }

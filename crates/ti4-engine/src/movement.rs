@@ -24,12 +24,13 @@
 //! destruction roll is a *consequence* of moving, not a legality question, and belongs to the
 //! tactical action rather than here.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use ti4_content::ContentStore;
 use ti4_content::galaxy::{Galaxy, System, all_systems};
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::PlayerId;
+use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::GameState;
 
 /// The occupancy facts movement legality depends on.
@@ -39,6 +40,10 @@ pub struct Board {
     pub enemy_ships: BTreeSet<String>,
     /// Systems containing the moving player's own command tokens.
     pub own_command_tokens: BTreeSet<String>,
+    /// The moving player, when the board was read for one. Faction modules' per-player movement
+    /// effects (extra adjacency, supernova passage, ships that pass blockades) apply only when
+    /// this is set, which `for_player` does.
+    pub mover: Option<PlayerId>,
 }
 
 impl Board {
@@ -72,6 +77,7 @@ impl Board {
         Self {
             enemy_ships,
             own_command_tokens,
+            mover: Some(player.clone()),
         }
     }
 
@@ -97,7 +103,9 @@ impl Board {
     reason = "one field per printed ability, as the oracle has"
 )]
 pub struct MovementRules<'a> {
-    galaxy: &'a Galaxy,
+    /// Borrowed, unless a faction module put wormholes on the map (Creuss flagship), in which case
+    /// an owned copy carrying them.
+    galaxy: Cow<'a, Galaxy>,
     /// Resolved once. Looking a system up per search step rebuilt an index over the whole
     /// system corpus, which is how the objective predicates first went quadratic.
     systems: BTreeMap<&'a str, System<'a>>,
@@ -112,6 +120,9 @@ pub struct MovementRules<'a> {
     pub asteroid_fields_open: bool,
     /// Magmus Reactor permits supernovas without switching off other anomalies.
     pub supernovae_open: bool,
+    /// Gashlai Physiology: ships may move *through* supernovas (as intermediate systems) but
+    /// still may not end a move in one. Set from `MovementHooks::may_pass_through_supernova`.
+    pub supernovae_pass_through: bool,
     /// The Dominus Orb, for the activation it was purged into: ships may leave systems holding
     /// this player's command tokens (58.4c suspended).
     pub command_tokens_ignored: bool,
@@ -141,11 +152,35 @@ pub struct MovementRules<'a> {
     pub barred_transit: BTreeSet<String>,
     /// Systems made into gravity rifts by Dimensional Tears.
     pub gravity_rift_systems: BTreeSet<String>,
+    /// The subset of [`Self::gravity_rift_systems`] this mover's ships do not roll for
+    /// (`MovementHooks::rift_roll_exempt`). They are still gravity rifts for every other rule.
+    pub rift_roll_exempt: BTreeSet<String>,
     /// The Circlet of the Void: this player's units never roll for a rift.
     ///
     /// Kept beside the other modifiers rather than checked at the card, so the immunity is
     /// honoured wherever the roll happens — the mistake Nav Suite nearly made.
     pub rifts_ignored: bool,
+    /// Extra steps granted once per route, at the first gravity rift it leaves or passes, on top of
+    /// the printed +1 (Crucible: "apply an additional +1 to the move values of your ships that
+    /// would move out of or through a gravity rift"; the note: "only ever add +1 movement total,
+    /// regardless of how many gravity rifts you pass through").
+    pub rift_extra_steps: i32,
+    /// Ship types of the moving player that may pass other players' ships, from
+    /// `MovementHooks::may_move_through_ships`. Consulted only by [`Self::path_from_ship`].
+    passing_ship_types: BTreeSet<String>,
+    /// Per ship type of the moving player: systems that type is treated as adjacent to from
+    /// wherever it stands (`MovementHooks::unit_adjacent_systems`). Consulted only by
+    /// [`Self::path_from_ship`].
+    ship_adjacent: BTreeMap<String, BTreeSet<String>>,
+    /// Ship types of the moving player that may leave systems holding the player's command
+    /// token (`MovementHooks::ignores_command_tokens`). Consulted only by [`Self::path_from_ship`].
+    token_free_types: BTreeSet<String>,
+    /// Empyrean Voidborn: nebulae do not affect this mover's ships' movement
+    /// (`MovementHooks::ignores_nebulae`).
+    nebulae_ignored: bool,
+    /// Borders this mover does not treat as adjacent, normalised `(low, high)`
+    /// (`MovementHooks::blocked_borders`; Void Tether).
+    blocked_edges: BTreeSet<(String, String)>,
 }
 
 impl<'a> MovementRules<'a> {
@@ -172,7 +207,7 @@ impl<'a> MovementRules<'a> {
         state: Option<&GameState>,
     ) -> Self {
         let mut rules = Self {
-            galaxy,
+            galaxy: Cow::Borrowed(galaxy),
             systems: all_systems(content, sources),
             active_system: active_system.to_owned(),
             board,
@@ -180,6 +215,7 @@ impl<'a> MovementRules<'a> {
             nebulae_open: state.is_some_and(crate::laws::nebulae_passable),
             asteroid_fields_open: false,
             supernovae_open: false,
+            supernovae_pass_through: false,
             command_tokens_ignored: false,
             anomalies_ignored: false,
             ignore_enemy_ships_from: None,
@@ -189,8 +225,18 @@ impl<'a> MovementRules<'a> {
             token_wormhole_systems: BTreeSet::new(),
             barred_transit: BTreeSet::new(),
             gravity_rift_systems: BTreeSet::new(),
+            rift_roll_exempt: BTreeSet::new(),
             rifts_ignored: false,
+            rift_extra_steps: 0,
+            passing_ship_types: BTreeSet::new(),
+            ship_adjacent: BTreeMap::new(),
+            token_free_types: BTreeSet::new(),
+            nebulae_ignored: false,
+            blocked_edges: BTreeSet::new(),
         };
+        if let Some(state) = state {
+            rules.apply_faction_modules(state, content, sources);
+        }
         if let Some(state) = state
             && state.fracture_in_play
         {
@@ -223,6 +269,126 @@ impl<'a> MovementRules<'a> {
         rules
     }
 
+    /// Faction-module movement effects: wormholes carried by pieces, this player's extra
+    /// adjacency, supernova passage, ships that pass blockades. Every hook is empty today, so
+    /// this changes nothing for the in-scope factions.
+    fn apply_faction_modules(
+        &mut self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+    ) {
+        use crate::factions::hooks_movement as hooks;
+        if hooks::any(|table| table.extra_wormholes.is_some()) {
+            let mut owned = (*self.galaxy).clone();
+            if hooks::apply_extra_wormholes(state, &mut owned) {
+                self.galaxy = Cow::Owned(owned);
+            }
+        }
+        let Some(mover) = self.board.mover.clone() else {
+            return;
+        };
+        for (a, b) in hooks::linked_systems(state, content, sources, &self.galaxy, &mover) {
+            self.extra_adjacency
+                .entry(a.clone())
+                .or_default()
+                .insert(b.clone());
+            self.extra_adjacency.entry(b).or_default().insert(a);
+        }
+        if hooks::may_enter_supernova(state, content, sources, &mover) {
+            self.supernovae_open = true;
+        }
+        if hooks::may_pass_through_supernova(state, content, sources, &mover) {
+            self.supernovae_pass_through = true;
+        }
+        if hooks::any(|table| table.ignores_nebulae.is_some())
+            && hooks::ignores_nebulae(state, &mover)
+        {
+            self.nebulae_ignored = true;
+        }
+        if hooks::any(|table| table.blocked_borders.is_some()) {
+            self.blocked_edges = hooks::blocked_borders(state, &mover);
+        }
+        if hooks::any(|table| table.passable_owners.is_some()) {
+            // Aetherpassage: a system whose only foreign ships belong to players who allow the
+            // passage no longer blocks (58.4b); one that also holds anybody else's still does.
+            let allowed = hooks::passable_owners(state, &mover);
+            if !allowed.is_empty() {
+                let types = ti4_content::units::catalogue(content, sources);
+                let cleared: Vec<String> = self
+                    .board
+                    .enemy_ships
+                    .iter()
+                    .filter(|system_id| {
+                        state
+                            .board
+                            .get(&SystemId::new(system_id.as_str()))
+                            .is_some_and(|system| {
+                                // At least one foreign ship, all of them allowing: an entry with
+                                // none was put there by another hook and is not ours to clear.
+                                let mut foreign = system
+                                    .units
+                                    .iter()
+                                    .filter(|unit| {
+                                        unit.owner != mover
+                                            && types
+                                                .get(unit.type_id.as_str())
+                                                .is_some_and(ti4_content::units::UnitType::is_ship)
+                                    })
+                                    .peekable();
+                                foreign.peek().is_some()
+                                    && foreign.all(|unit| allowed.contains(&unit.owner))
+                            })
+                    })
+                    .cloned()
+                    .collect();
+                for system_id in cleared {
+                    self.board.enemy_ships.remove(&system_id);
+                }
+            }
+        }
+        if hooks::any(|table| table.blocks_passage.is_some()) {
+            // Aerie Hololattice: the system may still be entered (it is the active system), but
+            // not crossed; `barred_transit` is exactly that rule.
+            for system in state.board.keys() {
+                if hooks::blocks_passage(state, content, sources, &mover, system) {
+                    self.barred_transit.insert(system.to_string());
+                }
+            }
+        }
+        if hooks::any(|table| {
+            table.may_move_through_ships.is_some()
+                || table.unit_adjacent_systems.is_some()
+                || table.ignores_command_tokens.is_some()
+        }) {
+            let active = SystemId::new(self.active_system.as_str());
+            let types: BTreeSet<&str> = state
+                .board
+                .values()
+                .flat_map(|system| system.units.iter())
+                .filter(|unit| unit.owner == mover)
+                .map(|unit| unit.type_id.as_str())
+                .collect();
+            for ship_type in types {
+                let site = hooks::PassSite {
+                    player: &mover,
+                    active: &active,
+                    ship_type,
+                };
+                if hooks::may_move_through_ships(state, content, sources, &site) {
+                    self.passing_ship_types.insert(ship_type.to_owned());
+                }
+                let near = hooks::unit_adjacent_systems(state, content, sources, &mover, ship_type);
+                if !near.is_empty() {
+                    self.ship_adjacent.insert(ship_type.to_owned(), near);
+                }
+                if hooks::ignores_command_tokens(state, content, sources, &mover, ship_type) {
+                    self.token_free_types.insert(ship_type.to_owned());
+                }
+            }
+        }
+    }
+
     fn system(&self, system_id: &str) -> Option<&System<'a>> {
         self.systems.get(system_id)
     }
@@ -242,12 +408,18 @@ impl<'a> MovementRules<'a> {
     }
 
     const fn nebulae_open(&self) -> bool {
-        self.nebulae_open || self.anomalies_ignored
+        self.nebulae_open || self.anomalies_ignored || self.nebulae_ignored
     }
 
     /// Whether a ship may end or pass a step in this system at all.
     #[must_use]
     pub fn can_enter(&self, system_id: &str) -> bool {
+        self.enterable(system_id, false)
+    }
+
+    /// [`Self::can_enter`] for a step that is only passed through when `passing`: Gashlai
+    /// Physiology opens supernovas to those and to nothing else.
+    fn enterable(&self, system_id: &str, passing: bool) -> bool {
         if self.anomalies_ignored {
             return true;
         }
@@ -255,7 +427,9 @@ impl<'a> MovementRules<'a> {
             // A system the corpus does not describe is not a licence to move anywhere.
             return false;
         };
-        if (system.is_supernova() && !self.supernovae_open)
+        if (system.is_supernova()
+            && !self.supernovae_open
+            && !(passing && self.supernovae_pass_through))
             || (system.is_asteroid_field() && !self.asteroid_fields_open)
         {
             return false; // 86.1, 11.1
@@ -269,7 +443,20 @@ impl<'a> MovementRules<'a> {
     /// Whether a ship may continue *beyond* this system.
     #[must_use]
     pub fn can_pass_through(&self, system_id: &str, origin: Option<&str>) -> bool {
-        if !self.can_enter(system_id) {
+        self.can_pass_through_ship(system_id, origin, None)
+    }
+
+    /// [`Self::can_pass_through`] for one ship type, which may be allowed to pass other players'
+    /// ships where the rules otherwise bar it (58.4b): see
+    /// `MovementHooks::may_move_through_ships`. Every other bar still applies.
+    #[must_use]
+    pub fn can_pass_through_ship(
+        &self,
+        system_id: &str,
+        origin: Option<&str>,
+        ship_type: Option<&str>,
+    ) -> bool {
+        if !self.enterable(system_id, true) {
             return false;
         }
         if self.system(system_id).is_some_and(System::is_nebula) && !self.nebulae_open() {
@@ -280,6 +467,9 @@ impl<'a> MovementRules<'a> {
         }
         if self.ignore_enemy_ships {
             return true;
+        }
+        if ship_type.is_some_and(|kind| self.passing_ship_types.contains(kind)) {
+            return true; // a faction's ship that passes blockades
         }
         if origin.is_some() && origin.map(str::to_owned) == self.ignore_enemy_ships_from {
             return true;
@@ -296,9 +486,21 @@ impl<'a> MovementRules<'a> {
         !self.board.own_command_tokens.contains(origin)
     }
 
+    /// [`Self::may_depart`] for one ship type, which a module may free of 58.4c.
+    fn may_depart_ship(&self, origin: &str, ship_type: Option<&str>) -> bool {
+        self.may_depart(origin)
+            || ship_type.is_some_and(|kind| self.token_free_types.contains(kind))
+    }
+
     #[must_use]
     pub fn can_reach(&self, origin: &str, move_value: i32) -> bool {
         self.path_from(origin, move_value).is_some()
+    }
+
+    /// [`Self::can_reach`] for one ship type; see [`Self::path_from_ship`].
+    #[must_use]
+    pub fn can_reach_ship(&self, origin: &str, move_value: i32, ship_type: Option<&str>) -> bool {
+        self.path_from_ship(origin, move_value, ship_type).is_some()
     }
 
     /// A legal route from `origin` to the active system, or `None`.
@@ -307,38 +509,61 @@ impl<'a> MovementRules<'a> {
     /// remaining budget because gravity rifts extend it en route.
     #[must_use]
     pub fn path_from(&self, origin: &str, move_value: i32) -> Option<Vec<String>> {
-        if !self.may_depart(origin) {
+        self.path_from_ship(origin, move_value, None)
+    }
+
+    /// [`Self::path_from`] for one ship type: the route a ship of that type could take, which is
+    /// longer than the type-blind one when the type may pass other players' ships (Mentak
+    /// Corsair, Yssaril flagship). A caller that offers a move found with a type and then looks
+    /// the route up without it would refuse its own offer, so both must pass the same type.
+    #[must_use]
+    pub fn path_from_ship(
+        &self,
+        origin: &str,
+        move_value: i32,
+        ship_type: Option<&str>,
+    ) -> Option<Vec<String>> {
+        if !self.may_depart_ship(origin, ship_type) {
             return None;
         }
 
         // 59.2: starting inside a nebula caps the move value at 1 — unless anomalies are being
         // ignored, in which case the nebula is not there to cap it.
-        let in_nebula =
-            self.system(origin).is_some_and(System::is_nebula) && !self.anomalies_ignored;
+        let in_nebula = self.system(origin).is_some_and(System::is_nebula)
+            && !self.anomalies_ignored
+            && !self.nebulae_ignored;
         let budget = if in_nebula { 1 } else { move_value };
         if budget <= 0 {
             return None;
         }
 
-        let mut queue: VecDeque<(String, i32, i32, Vec<String>)> =
-            VecDeque::from([(origin.to_owned(), 0, budget, vec![origin.to_owned()])]);
-        // Revisiting is only worthwhile with a larger budget left over.
-        let mut best: BTreeMap<String, i32> = BTreeMap::new();
+        // The last field is whether this route has already taken the Crucible bonus: it is worth
+        // +1 in total however many rifts the route passes, so it is carried per route.
+        let mut queue: VecDeque<(String, i32, i32, Vec<String>, bool)> =
+            VecDeque::from([(origin.to_owned(), 0, budget, vec![origin.to_owned()], false)]);
+        // Revisiting is only worthwhile with a larger budget left over (and the same bonus state).
+        let mut best: BTreeMap<(String, bool), i32> = BTreeMap::new();
 
-        while let Some((current, entered, mut allowance, route)) = queue.pop_front() {
+        while let Some((current, entered, mut allowance, route, mut bonus_used)) = queue.pop_front()
+        {
             // 41.1: leaving a rift is worth an extra step, and 41.3 allows that to happen more
             // than once in one movement. The bonus must land *before* the budget is judged,
             // because it is what pays for the departure — a ship arriving at a rift with
             // nothing left can still leave it.
             if self.is_gravity_rift(&current) && !self.anomalies_ignored {
                 allowance += 1;
+                if !bonus_used && self.rift_extra_steps > 0 {
+                    allowance += self.rift_extra_steps;
+                    bonus_used = true;
+                }
             }
 
             let remaining = allowance - entered;
-            if best.get(&current).is_some_and(|seen| *seen >= remaining) {
+            let key = (current.clone(), bonus_used);
+            if best.get(&key).is_some_and(|seen| *seen >= remaining) {
                 continue;
             }
-            best.insert(current.clone(), remaining);
+            best.insert(key, remaining);
             if remaining <= 0 {
                 continue;
             }
@@ -360,6 +585,10 @@ impl<'a> MovementRules<'a> {
             if let Some(extra) = self.extra_adjacency.get(&current) {
                 neighbours.extend(extra.iter().cloned());
             }
+            // A ship treated as adjacent to some systems (Nomad Memoria) is, wherever it stands.
+            if let Some(near) = ship_type.and_then(|kind| self.ship_adjacent.get(kind)) {
+                neighbours.extend(near.iter().filter(|id| **id != current).cloned());
+            }
             // The conduit joins the active system to the listed ones in both directions: a
             // route out of one of them is what the card buys.
             if self.also_adjacent.contains(&current) {
@@ -367,20 +596,34 @@ impl<'a> MovementRules<'a> {
             } else if current == self.active_system {
                 neighbours.extend(self.also_adjacent.iter().cloned());
             }
+            // Void Tether: a tethered border is not an adjacency for this mover.
+            if !self.blocked_edges.is_empty() {
+                neighbours.retain(|other| {
+                    let edge = if current.as_str() < other.as_str() {
+                        (current.clone(), other.clone())
+                    } else {
+                        (other.clone(), current.clone())
+                    };
+                    !self.blocked_edges.contains(&edge)
+                });
+            }
 
             for neighbour in neighbours {
-                if !self.can_enter(&neighbour) {
+                let ends_here = neighbour == self.active_system;
+                // The step that ends the move is judged by `can_enter`; every other step is
+                // judged by `can_pass_through_ship`, whose first test is the passing form of it.
+                if ends_here && !self.can_enter(&neighbour) {
                     continue;
                 }
                 let mut arrived = route.clone();
                 arrived.push(neighbour.clone());
-                if neighbour == self.active_system {
+                if ends_here {
                     return Some(arrived); // 58.4a — movement ends here
                 }
-                if !self.can_pass_through(&neighbour, Some(origin)) {
+                if !self.can_pass_through_ship(&neighbour, Some(origin), ship_type) {
                     continue;
                 }
-                queue.push_back((neighbour, entered + 1, allowance, arrived));
+                queue.push_back((neighbour, entered + 1, allowance, arrived, bonus_used));
             }
         }
 
@@ -408,6 +651,238 @@ impl<'a> MovementRules<'a> {
             .filter(|origin| self.can_reach(origin, move_value))
             .collect()
     }
+}
+
+// -- player-aware adjacency ----------------------------------------------------------------------
+
+/// Adjacency as one player sees it: the map's, plus wormholes that modules' pieces carry (visible to
+/// everyone) and the links only this player has (Creuss Quantum Entanglement, Winnu Lazax Gate
+/// Folding).
+///
+/// This is the one place to ask a player-aware adjacency question outside movement itself
+/// (transaction neighbours, space cannon range, retreat, agents...). `MovementRules` builds the same
+/// thing for movement. With every faction module empty it answers exactly what `Galaxy::adjacent`
+/// does. Build one per decision rather than per query: the hooks run when it is built.
+#[derive(Debug, Clone)]
+pub struct PlayerAdjacency<'a> {
+    galaxy: Cow<'a, Galaxy>,
+    links: BTreeMap<String, BTreeSet<String>>,
+    /// Borders this player does not treat as adjacent (`MovementHooks::blocked_borders`).
+    blocked: BTreeSet<(String, String)>,
+}
+
+impl<'a> PlayerAdjacency<'a> {
+    /// Adjacency for `player` in this state.
+    #[must_use]
+    pub fn new(
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        galaxy: &'a Galaxy,
+        player: &PlayerId,
+    ) -> Self {
+        use crate::factions::hooks_movement as hooks;
+        let mut galaxy = Cow::Borrowed(galaxy);
+        if hooks::any(|table| table.extra_wormholes.is_some()) {
+            let mut owned = galaxy.as_ref().clone();
+            if hooks::apply_extra_wormholes(state, &mut owned) {
+                galaxy = Cow::Owned(owned);
+            }
+        }
+        let mut links: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for (a, b) in hooks::linked_systems(state, content, sources, &galaxy, player) {
+            links.entry(a.clone()).or_default().insert(b.clone());
+            links.entry(b).or_default().insert(a);
+        }
+        let blocked = if hooks::any(|table| table.blocked_borders.is_some()) {
+            hooks::blocked_borders(state, player)
+        } else {
+            BTreeSet::new()
+        };
+        Self {
+            galaxy,
+            links,
+            blocked,
+        }
+    }
+
+    /// Systems adjacent to `system` for this player.
+    #[must_use]
+    pub fn neighbours(&self, system: &str) -> BTreeSet<String> {
+        let mut found: BTreeSet<String> = self
+            .galaxy
+            .adjacent(system)
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect();
+        if let Some(extra) = self.links.get(system) {
+            found.extend(extra.iter().cloned());
+        }
+        found.remove(system);
+        if !self.blocked.is_empty() {
+            found.retain(|other| {
+                let edge = if system < other.as_str() {
+                    (system.to_owned(), other.clone())
+                } else {
+                    (other.clone(), system.to_owned())
+                };
+                !self.blocked.contains(&edge)
+            });
+        }
+        found
+    }
+
+    /// Whether two systems are adjacent for this player.
+    #[must_use]
+    pub fn are_adjacent(&self, a: &str, b: &str) -> bool {
+        self.neighbours(a).contains(b)
+    }
+}
+
+// -- map edits -----------------------------------------------------------------------------------
+
+/// The Nova Seed tile, the Muaat supernova.
+pub const NOVA_SEED: &str = "81";
+
+/// A change to which tile sits where.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MapEdit {
+    /// Creuss hero: "Swap the positions of any 2 non-Fracture systems that contain wormholes or
+    /// your units." The two systems exchange hexes; each keeps its contents (the game state is
+    /// keyed by system, not by position).
+    Swap { a: String, b: String },
+    /// Muaat hero: "replace that system tile with the Muaat supernova tile". The tile on the hex
+    /// becomes `new`.
+    Replace { old: String, new: String },
+}
+
+impl MapEdit {
+    fn encode(&self) -> String {
+        match self {
+            Self::Swap { a, b } => format!("swap|{a}|{b}"),
+            Self::Replace { old, new } => format!("replace|{old}|{new}"),
+        }
+    }
+
+    fn decode(text: &str) -> Option<Self> {
+        let mut parts = text.split('|');
+        match (parts.next()?, parts.next()?, parts.next()?, parts.next()) {
+            ("swap", a, b, None) => Some(Self::Swap {
+                a: a.to_owned(),
+                b: b.to_owned(),
+            }),
+            ("replace", old, new, None) => Some(Self::Replace {
+                old: old.to_owned(),
+                new: new.to_owned(),
+            }),
+            _ => None,
+        }
+    }
+}
+
+const MAP_EDIT_PREFIX: &str = "map_edit|";
+
+/// The recorded edits, oldest first.
+fn recorded_edits(state: &GameState) -> Vec<MapEdit> {
+    state
+        .faction_marks
+        .range(MAP_EDIT_PREFIX.to_owned()..)
+        .take_while(|(key, _)| key.starts_with(MAP_EDIT_PREFIX))
+        .filter_map(|(_, value)| MapEdit::decode(value))
+        .collect()
+}
+
+/// Why a map edit was refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum MapEditError {
+    #[error(transparent)]
+    Galaxy(#[from] ti4_content::galaxy::GalaxyError),
+}
+
+fn apply_to_galaxy_only(
+    galaxy: &mut Galaxy,
+    content: &ContentStore,
+    sources: SourceSet,
+    edit: &MapEdit,
+) -> Result<(), ti4_content::galaxy::GalaxyError> {
+    match edit {
+        MapEdit::Swap { a, b } => galaxy.swap_systems(a, b),
+        MapEdit::Replace { old, new } => galaxy.replace_system(content, old, new, sources),
+    }
+}
+
+/// Bring `galaxy` up to the edits recorded in `state`. Idempotent: the galaxy counts the edits it
+/// carries. A game that re-derives its map from the state (restore, branch) calls this after
+/// rebuilding it; `laws::apply_to_galaxy` should call it every step (see the BF-00e evidence).
+///
+/// # Errors
+/// The first edit that no longer fits the map; edits before it stay applied.
+pub fn replay_map_edits(
+    state: &GameState,
+    galaxy: &mut Galaxy,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Result<(), MapEditError> {
+    for edit in recorded_edits(state).iter().skip(galaxy.edits_applied()) {
+        apply_to_galaxy_only(galaxy, content, sources, edit)?;
+    }
+    Ok(())
+}
+
+/// Make a map edit: change the galaxy, record it in the state so a re-derived map follows, and
+/// carry the system's contents with a replaced tile.
+///
+/// Atomic: on error neither the galaxy nor the state has changed. For [`MapEdit::Replace`] the
+/// contents of the old tile move to the new one the way the Muaat hero's notes describe: units in
+/// space and command tokens move; the frontier token stays; Creuss wormhole tokens on the old tile
+/// are returned (removed from `wormhole_tokens`) and the ion storm token is purged. Planet control
+/// and units on the old tile's planets are discarded with it: the **caller** destroys other
+/// players' units and handles the purged planet cards *before* calling.
+///
+/// # Errors
+/// [`MapEditError::Galaxy`] for a system not on the grid, a replacement already on the map or
+/// not in the corpus, or a swap of a system with itself.
+pub fn apply_map_edit(
+    state: &mut GameState,
+    galaxy: &mut Galaxy,
+    content: &ContentStore,
+    sources: SourceSet,
+    edit: &MapEdit,
+) -> Result<(), MapEditError> {
+    // Catch the galaxy up first, so the index recorded below is the galaxy's own.
+    replay_map_edits(state, galaxy, content, sources)?;
+    let mut trial = galaxy.clone();
+    apply_to_galaxy_only(&mut trial, content, sources, edit)?;
+    *galaxy = trial;
+
+    if let MapEdit::Replace { old, new } = edit {
+        let (old, new) = (SystemId::new(old.as_str()), SystemId::new(new.as_str()));
+        if let Some(gone) = state.board.remove(&old) {
+            let moved = state.system_mut(&new);
+            moved.units = gone.units;
+            moved.command_tokens = gone.command_tokens;
+        }
+        if state.frontier_tokens.remove(&old) {
+            state.frontier_tokens.insert(new);
+        }
+        state.wormhole_tokens.retain(|_, system| system != &old);
+        if state
+            .ion_storm
+            .as_ref()
+            .is_some_and(|(system, _)| system == &old)
+        {
+            state.ion_storm = None;
+        }
+    }
+    let index = state
+        .faction_marks
+        .keys()
+        .filter(|key| key.starts_with(MAP_EDIT_PREFIX))
+        .count();
+    state
+        .faction_marks
+        .insert(format!("{MAP_EDIT_PREFIX}{index:04}"), edit.encode());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -836,6 +1311,71 @@ mod tests {
         assert!(rules.can_reach(&rift, 2));
     }
 
+    /// A three-ring galaxy of ordinary systems, with the two opposite corners of the outer ring and
+    /// the systems strictly between them (the one straight line, so the only shortest route).
+    fn long_line() -> (Galaxy, String, String, Vec<String>) {
+        let ids: Vec<String> = plain_systems(200)
+            .into_iter()
+            .filter(|id| {
+                ti4_content::galaxy::system(ContentStore::embedded(), id, POK)
+                    .is_some_and(|system| system.wormholes().is_empty())
+            })
+            .take(37)
+            .collect();
+        assert_eq!(ids.len(), 37);
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let galaxy = Galaxy::build(ContentStore::embedded(), &refs, POK, 3).unwrap();
+        let line_between = |a: &String, b: &String| -> Vec<String> {
+            let mut between: Vec<String> = ids
+                .iter()
+                .filter(|x| {
+                    galaxy.distance(a, x).unwrap() + galaxy.distance(x, b).unwrap() == 6
+                        && *x != a
+                        && *x != b
+                })
+                .cloned()
+                .collect();
+            between.sort_by_key(|x| galaxy.distance(a, x));
+            between
+        };
+        // Opposite corners lie on a straight line, so the route between them is unique.
+        let (a, b) = ids
+            .iter()
+            .flat_map(|a| ids.iter().map(move |b| (a, b)))
+            .find(|(a, b)| galaxy.distance(a, b) == Some(6) && line_between(a, b).len() == 5)
+            .expect("opposite corners");
+        let between = line_between(a, b);
+        (galaxy, a.clone(), b.clone(), between)
+    }
+
+    #[test]
+    fn the_crucible_bonus_is_one_extra_step_however_many_rifts_the_route_passes() {
+        // Route a, s1..s5, b: six systems entered. Rifts at s1, s2, s3: printed +1 each.
+        let (galaxy, a, b, between) = long_line();
+        assert_eq!(between.len(), 5);
+        let make = |extra: i32, rifts: &[usize]| {
+            let mut rules =
+                MovementRules::new(&galaxy, ContentStore::embedded(), POK, &b, Board::default());
+            rules.gravity_rift_systems = rifts.iter().map(|i| between[*i].clone()).collect();
+            rules.rift_extra_steps = extra;
+            rules
+        };
+        // Three rifts: move 1 + 3 = 4 systems, short of six. One Crucible step makes five: still
+        // short. Per-rift it would make seven and arrive, so this fails if the bonus repeats.
+        assert!(!make(0, &[0, 1, 2]).can_reach(&a, 1));
+        assert!(
+            !make(1, &[0, 1, 2]).can_reach(&a, 1),
+            "the Crucible adds +1 in total, not per rift"
+        );
+        // Two rifts: move 1 + 2 = 3, plus the one step = 4; still six away. Needs the step: with
+        // move 3 the printed bonuses reach five, short by one that only the Crucible step pays.
+        assert!(!make(0, &[0, 1]).can_reach(&a, 3));
+        assert!(
+            make(1, &[0, 1]).can_reach(&a, 3),
+            "two rifts plus the single extra step reach a six-system route on move 3"
+        );
+    }
+
     #[test]
     fn ignoring_anomalies_opens_supernovae() {
         let supernova = a_system_where("supernova");
@@ -976,5 +1516,458 @@ mod tests {
             .push(Unit::new(UnitTypeId::new("destroyer"), players[1].clone()));
         let board = Board::for_player(&state, ContentStore::embedded(), POK, &players[0]);
         assert!(board.has_enemy_ships(&id), "a destroyer is");
+    }
+
+    // -- faction-module movement hooks (BF-00e) -----------------------------------------------
+
+    use crate::factions::hooks_movement::{MovementHooks, with_test_hooks};
+
+    /// A state whose marks name two systems, for hooks that cannot capture.
+    fn marked(state: &mut GameState, pairs: &[(&str, &str)]) {
+        for (key, value) in pairs {
+            state
+                .faction_marks
+                .insert((*key).to_owned(), (*value).to_owned());
+        }
+    }
+
+    fn mover_board(player: &str) -> Board {
+        Board {
+            mover: Some(PlayerId::new(player)),
+            ..Board::default()
+        }
+    }
+
+    fn with_state<'a>(
+        hub: &'a Hub,
+        state: &GameState,
+        active: &str,
+        player: &str,
+    ) -> MovementRules<'a> {
+        MovementRules::with_laws(
+            &hub.galaxy,
+            ContentStore::embedded(),
+            POK,
+            active,
+            mover_board(player),
+            Some(state),
+        )
+    }
+
+    #[test]
+    fn empty_modules_change_no_route_for_any_player() {
+        let hub = plain_hub();
+        let state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], FULL);
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let plain = movement_rules(&hub, &near_b, Board::default());
+        for player in ["a", "b"] {
+            let rules = with_state(&hub, &state, &near_b, player);
+            for move_value in 0..4 {
+                assert_eq!(
+                    rules.path_from(&near_a, move_value),
+                    plain.path_from(&near_a, move_value),
+                    "{player} at move {move_value}"
+                );
+            }
+            let adjacency = PlayerAdjacency::new(
+                &state,
+                ContentStore::embedded(),
+                POK,
+                &hub.galaxy,
+                &PlayerId::new(player),
+            );
+            for id in std::iter::once(&hub.centre).chain(&hub.outer) {
+                let want: BTreeSet<String> = hub
+                    .galaxy
+                    .adjacent(id)
+                    .into_iter()
+                    .map(ToOwned::to_owned)
+                    .collect();
+                assert_eq!(adjacency.neighbours(id), want, "{id} for {player}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_players_extra_link_shortens_only_their_routes() {
+        let hub = plain_hub();
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], FULL);
+        marked(&mut state, &[("link_x", &near_a), ("link_y", &near_b)]);
+        let hooks = MovementHooks {
+            linked_systems: Some(|state, _, _, _, who| {
+                match (
+                    who.as_str(),
+                    state.faction_marks.get("link_x"),
+                    state.faction_marks.get("link_y"),
+                ) {
+                    ("a", Some(x), Some(y)) => vec![(x.clone(), y.clone())],
+                    _ => Vec::new(),
+                }
+            }),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(hooks, || {
+            let mine = with_state(&hub, &state, &near_b, "a");
+            assert_eq!(
+                mine.path_from(&near_a, 1),
+                Some(vec![near_a.clone(), near_b.clone()]),
+                "one step along the link, in the direction away from the hook's first system too"
+            );
+            let back = with_state(&hub, &state, &near_a, "a");
+            assert!(back.can_reach(&near_b, 1), "links run both ways");
+            let theirs = with_state(&hub, &state, &near_b, "b");
+            assert!(!theirs.can_reach(&near_a, 1), "another player has no link");
+            let adjacency = PlayerAdjacency::new(
+                &state,
+                ContentStore::embedded(),
+                POK,
+                &hub.galaxy,
+                &PlayerId::new("a"),
+            );
+            assert!(adjacency.are_adjacent(&near_a, &near_b));
+            assert!(adjacency.are_adjacent(&near_b, &near_a));
+        });
+        let after = with_state(&hub, &state, &near_b, "a");
+        assert!(!after.can_reach(&near_a, 1), "the test hook is gone");
+    }
+
+    #[test]
+    fn a_wormhole_a_piece_carries_links_for_everyone() {
+        let hub = plain_hub();
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], FULL);
+        marked(&mut state, &[("wh_x", &near_a), ("wh_y", &near_b)]);
+        let hooks = MovementHooks {
+            extra_wormholes: Some(|state| {
+                ["wh_x", "wh_y"]
+                    .into_iter()
+                    .filter_map(|key| state.faction_marks.get(key))
+                    .map(|system| (system.clone(), "DELTA".to_owned()))
+                    .collect()
+            }),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(hooks, || {
+            for player in ["a", "b"] {
+                let rules = with_state(&hub, &state, &near_b, player);
+                assert!(rules.can_reach(&near_a, 1), "{player} uses the delta pair");
+            }
+            // Law switches still apply to it: Enforced Travel Ban silences wormholes during
+            // movement (the gate keeps hex adjacency only).
+            let mut banned = hub.galaxy.clone();
+            banned.wormholes_off = true;
+            let off = MovementRules::with_laws(
+                &banned,
+                ContentStore::embedded(),
+                POK,
+                &near_b,
+                mover_board("a"),
+                Some(&state),
+            );
+            assert!(!off.can_reach(&near_a, 1));
+        });
+        let rules = with_state(&hub, &state, &near_b, "a");
+        assert!(!rules.can_reach(&near_a, 1), "hook removed, no wormhole");
+    }
+
+    #[test]
+    fn supernova_passage_is_per_player_and_needs_the_hook() {
+        let supernova = a_system_where("supernova");
+        let hub = hub_with_centre(&supernova);
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], FULL);
+        assert!(!with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2));
+        let hooks = MovementHooks {
+            may_enter_supernova: Some(|_, _, _, who| who.as_str() == "a"),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(hooks, || {
+            assert!(with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2));
+            assert!(
+                !with_state(&hub, &state, &near_b, "b").can_reach(&near_a, 2),
+                "only the hook's player"
+            );
+            let blind = movement_rules(&hub, &near_b, Board::default());
+            assert!(!blind.can_reach(&near_a, 2), "no mover, no module effect");
+        });
+    }
+
+    #[test]
+    fn passing_through_a_supernova_is_not_ending_a_move_in_one() {
+        let supernova = a_system_where("supernova");
+        let hub = hub_with_centre(&supernova);
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], FULL);
+        let pass_only = MovementHooks {
+            may_pass_through_supernova: Some(|_, _, _, who| who.as_str() == "a"),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(pass_only, || {
+            assert!(
+                with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2),
+                "through is allowed"
+            );
+            assert!(
+                !with_state(&hub, &state, &hub.centre, "a").can_reach(&near_a, 1),
+                "ending in the supernova is not"
+            );
+            assert!(!with_state(&hub, &state, &hub.centre, "a").can_enter(&hub.centre));
+            assert!(
+                !with_state(&hub, &state, &near_b, "b").can_reach(&near_a, 2),
+                "only the hook's player"
+            );
+        });
+        let enter_only = MovementHooks {
+            may_enter_supernova: Some(|_, _, _, who| who.as_str() == "a"),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(enter_only, || {
+            assert!(with_state(&hub, &state, &hub.centre, "a").can_reach(&near_a, 1));
+        });
+        assert!(
+            !with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2),
+            "neutral"
+        );
+    }
+
+    #[test]
+    fn a_module_can_bar_passage_through_a_system_for_other_players_only() {
+        let hub = plain_hub();
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], FULL);
+        assert!(
+            with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2),
+            "neutral"
+        );
+        let hololattice = MovementHooks {
+            // b owns the structures: every other player is barred from the centre.
+            blocks_passage: Some(|_, _, _, mover, _| mover.as_str() != "b"),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(hololattice, || {
+            assert!(!with_state(&hub, &state, &near_b, "a").can_reach(&near_a, 2));
+            assert!(
+                with_state(&hub, &state, &hub.centre, "a").can_reach(&near_a, 1),
+                "the system itself may still be the destination"
+            );
+            assert!(with_state(&hub, &state, &near_b, "b").can_reach(&near_a, 2));
+        });
+    }
+
+    #[test]
+    fn a_ship_type_that_passes_blockades_routes_through_them() {
+        let hub = plain_hub();
+        let (near_a, near_b) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], FULL);
+        // a owns a corsair-like cruiser and a plain carrier somewhere; b's ship blocks the centre.
+        let hub_system = SystemId::new(hub.centre.as_str());
+        let foreign = ti4_model::units::Unit::new(
+            ti4_model::id::UnitTypeId::new("destroyer"),
+            PlayerId::new("b"),
+        );
+        state.system_mut(&hub_system).add(&[foreign]);
+        let board = Board::for_player(&state, ContentStore::embedded(), FULL, &PlayerId::new("a"));
+        assert!(board.has_enemy_ships(&hub.centre));
+        let make = |active: &str, state: &GameState| {
+            MovementRules::with_laws(
+                &hub.galaxy,
+                ContentStore::embedded(),
+                FULL,
+                active,
+                board.clone(),
+                Some(state),
+            )
+        };
+        assert!(!make(&near_b, &state).can_reach_ship(&near_a, 2, Some("sol_carrier")));
+        marked(&mut state, &[("allow_pass", "yes")]);
+        // The hook is asked about the types the player owns on the board: Sol's carrier.
+        let carrier_type = state
+            .board
+            .values()
+            .flat_map(|system| system.units.iter())
+            .find(|unit| unit.owner.as_str() == "a" && unit.type_id.as_str().contains("carrier"))
+            .map(|unit| unit.type_id.to_string())
+            .expect("sol starts with a carrier");
+        let hooks = MovementHooks {
+            may_move_through_ships: Some(|state, _, _, site| {
+                site.player.as_str() == "a"
+                    && site.ship_type.contains("carrier")
+                    && state.faction_marks.contains_key("allow_pass")
+            }),
+            ..MovementHooks::NONE
+        };
+        with_test_hooks(hooks, || {
+            let rules = make(&near_b, &state);
+            assert!(
+                rules.can_reach_ship(&near_a, 2, Some(&carrier_type)),
+                "the allowed type passes the blockade"
+            );
+            assert!(
+                !rules.can_reach_ship(&near_a, 2, Some("destroyer")),
+                "another type does not"
+            );
+            assert!(
+                !rules.can_reach(&near_a, 2),
+                "the type-blind route keeps the blockade"
+            );
+            // The active system itself may hold the blockade: entering is not passing.
+            assert!(make(&hub.centre, &state).can_reach_ship(&near_a, 1, Some("destroyer")));
+        });
+    }
+
+    #[test]
+    fn map_edits_swap_and_replace_record_and_replay() {
+        let content = ContentStore::embedded();
+        let hub = plain_hub();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol")], FULL);
+        let mut galaxy = hub.galaxy.clone();
+        let (x, y) = (hub.outer[0].clone(), hub.across(&hub.outer[0]));
+        assert!(galaxy.coord_of(&x) != galaxy.coord_of(&y));
+        let (hx, hy) = (galaxy.coord_of(&x).unwrap(), galaxy.coord_of(&y).unwrap());
+
+        apply_map_edit(
+            &mut state,
+            &mut galaxy,
+            content,
+            FULL,
+            &MapEdit::Swap {
+                a: x.clone(),
+                b: y.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(galaxy.coord_of(&x), Some(hy));
+        assert_eq!(galaxy.coord_of(&y), Some(hx));
+        assert_eq!(
+            state.faction_marks.get("map_edit|0000").unwrap(),
+            &format!("swap|{x}|{y}")
+        );
+
+        // A map re-derived from the base replays to the same place, and replaying is idempotent.
+        let mut rebuilt = hub.galaxy.clone();
+        replay_map_edits(&state, &mut rebuilt, content, FULL).unwrap();
+        assert_eq!(rebuilt, galaxy);
+        replay_map_edits(&state, &mut rebuilt, content, FULL).unwrap();
+        assert_eq!(rebuilt, galaxy, "idempotent");
+
+        // Replace: the Nova Seed takes the hex; space units and command tokens go with it.
+        let target = SystemId::new(hub.outer[1].as_str());
+        let ship = ti4_model::units::Unit::new(
+            ti4_model::id::UnitTypeId::new("war_sun"),
+            PlayerId::new("a"),
+        );
+        state.system_mut(&target).add(std::slice::from_ref(&ship));
+        state.system_mut(&target).place_token(PlayerId::new("a"));
+        state
+            .wormhole_tokens
+            .insert("ALPHA".to_owned(), target.clone());
+        let hex = galaxy.coord_of(target.as_str()).unwrap();
+        apply_map_edit(
+            &mut state,
+            &mut galaxy,
+            content,
+            FULL,
+            &MapEdit::Replace {
+                old: target.to_string(),
+                new: NOVA_SEED.to_owned(),
+            },
+        )
+        .unwrap();
+        assert_eq!(galaxy.coord_of(NOVA_SEED), Some(hex));
+        assert!(galaxy.coord_of(target.as_str()).is_none());
+        let nova = state.system_state(&SystemId::new(NOVA_SEED));
+        assert_eq!(nova.units, vec![ship], "the war sun stands on the new tile");
+        assert!(nova.command_tokens.contains(&PlayerId::new("a")));
+        assert!(
+            !state.board.contains_key(&target),
+            "the old tile's entry is gone"
+        );
+        assert!(
+            state.wormhole_tokens.is_empty(),
+            "Creuss tokens are returned"
+        );
+        let nova_tile = ti4_content::galaxy::system(content, NOVA_SEED, FULL).unwrap();
+        assert!(nova_tile.is_supernova());
+        assert_eq!(
+            state
+                .faction_marks
+                .keys()
+                .filter(|k| k.starts_with("map_edit|"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_refused_map_edit_changes_nothing() {
+        let content = ContentStore::embedded();
+        let hub = plain_hub();
+        let mut state = crate::fixtures::seated_game(&[("a", "sol")], FULL);
+        let mut galaxy = hub.galaxy.clone();
+        let (state_before, galaxy_before) = (state.clone(), galaxy.clone());
+        let marks_before = state.faction_marks.clone();
+        for edit in [
+            MapEdit::Swap {
+                a: hub.centre.clone(),
+                b: hub.centre.clone(),
+            },
+            MapEdit::Swap {
+                a: hub.centre.clone(),
+                b: "nowhere".to_owned(),
+            },
+            MapEdit::Replace {
+                old: "nowhere".to_owned(),
+                new: NOVA_SEED.to_owned(),
+            },
+            MapEdit::Replace {
+                old: hub.centre.clone(),
+                new: hub.outer[0].clone(),
+            },
+            MapEdit::Replace {
+                old: hub.centre.clone(),
+                new: "not a tile".to_owned(),
+            },
+        ] {
+            assert!(
+                apply_map_edit(&mut state, &mut galaxy, content, FULL, &edit).is_err(),
+                "{edit:?}"
+            );
+            assert_eq!(galaxy, galaxy_before, "{edit:?}");
+            assert!(state == state_before, "{edit:?}");
+            assert_eq!(state.faction_marks, marks_before, "{edit:?}");
+        }
+    }
+
+    #[test]
+    fn the_creuss_gate_and_home_are_adjacent_for_everyone_by_their_delta_wormholes() {
+        let content = ContentStore::embedded();
+        let hub = plain_hub();
+        let mut galaxy = Galaxy::placed(
+            content,
+            &[
+                (crate::seating::CREUSS_GATE, ti4_model::hex::Hex::new(0, 0)),
+                (hub.centre.as_str(), ti4_model::hex::Hex::new(1, 0)),
+            ],
+            FULL,
+        )
+        .unwrap();
+        crate::seating::place_creuss_home(&mut galaxy, content, FULL).unwrap();
+        let rules = MovementRules::new(
+            &galaxy,
+            content,
+            FULL,
+            crate::seating::CREUSS_HOME,
+            Board::default(),
+        );
+        assert!(
+            rules.can_reach(crate::seating::CREUSS_GATE, 1),
+            "gate to home, one step"
+        );
+        let out = MovementRules::new(&galaxy, content, FULL, &hub.centre, Board::default());
+        assert!(
+            out.can_reach(crate::seating::CREUSS_HOME, 2),
+            "home out through the gate to its neighbour: two systems entered"
+        );
     }
 }

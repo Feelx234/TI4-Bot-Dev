@@ -69,6 +69,7 @@ pub fn redact_player(player: &Player) -> Player {
 #[must_use]
 pub fn view_for(state: &GameState, viewer: &PlayerId) -> GameState {
     let mut view = state.clone();
+    ti4_model::view::redact_marks(&mut view, viewer);
     for player in &mut view.players {
         if &player.id != viewer {
             *player = redact_player(player);
@@ -83,7 +84,12 @@ pub fn view_for(state: &GameState, viewer: &PlayerId) -> GameState {
 /// shows up as a failing test instead of a quiet leak.
 #[must_use]
 pub fn leaks(state: &GameState, viewer: &PlayerId) -> Vec<String> {
-    let mut found = Vec::new();
+    let mut found: Vec<String> = state
+        .faction_marks
+        .keys()
+        .filter(|key| !ti4_model::view::mark_visible_to(key, viewer))
+        .map(|key| format!("faction_marks.{key}"))
+        .collect();
     for player in &state.players {
         if &player.id == viewer {
             continue;
