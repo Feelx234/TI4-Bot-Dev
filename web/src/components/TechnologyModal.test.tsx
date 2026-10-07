@@ -209,6 +209,7 @@ describe("TechnologyModal", () => {
         isOpen={true}
         onClose={vi.fn()}
         players={researchPlayers}
+        viewerSeat="player1"
         selectableTechIds={["gd", "sr"]}
         selectedTechId={null}
         onSelectTech={onSelectTech}
@@ -242,6 +243,7 @@ describe("TechnologyModal", () => {
           isOpen={true}
           onClose={vi.fn()}
           players={researchPlayers}
+          viewerSeat="player1"
           selectableTechIds={["gd", "sr"]}
           selectedTechId="gd"
           onSelectTech={onSelectTech}
@@ -292,6 +294,22 @@ describe("TechnologyModal", () => {
     expect(
       factionSection.compareDocumentPosition(propulsionHeader) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("shows the viewing seat's own faction technologies, not player 1's", () => {
+    renderWithIdentity(
+      <TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} viewerSeat="player2" />,
+    );
+    const section = screen.getByTestId("faction-technologies-section");
+    expect(section).toHaveTextContent(/Hacan/i);
+    expect(screen.queryByTestId("tech-card-so2")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tech-card-ac2")).not.toBeInTheDocument();
+  });
+
+  it("shows no faction technologies section for a spectator (no seat)", () => {
+    renderWithIdentity(<TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />);
+    expect(screen.queryByTestId("faction-technologies-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tech-card-so2")).not.toBeInTheDocument();
   });
 
   it("shows tech skips, handles exhausted vs ready, and toggling unlocks higher tier techs", () => {

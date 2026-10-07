@@ -508,6 +508,7 @@ const GameViewContainer: React.FC<{
         isOpen={isTechModalOpen}
         onClose={() => setIsTechModalOpen(false)}
         players={snapshot?.view.players}
+        viewerSeat={userSeat}
       />
       <ObjectivesModal
         isOpen={
