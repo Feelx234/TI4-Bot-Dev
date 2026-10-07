@@ -157,6 +157,9 @@ pub enum OfferError {
     ActionCardsNotTradeable,
     #[error("{0} does not hold {1}")]
     MissingActionCard(PlayerId, String),
+    /// Mahact, Hubris: nobody may give the Mahact player their Alliance note.
+    #[error("{0} cannot be given {1}")]
+    NoteRefused(PlayerId, String),
 }
 
 /// Systems where a player has a unit or controls a planet.
@@ -389,6 +392,16 @@ pub fn why_illegal(
     if !can_pay(state, content, &offer.partner, &offer.received) {
         return Some(OfferError::CannotPay(offer.partner.clone()));
     }
+    for (receiver, terms) in [
+        (&offer.partner, &offer.given),
+        (&offer.proposer, &offer.received),
+    ] {
+        if let Some(note) = &terms.promissory
+            && !crate::promissory::may_receive(state, receiver, note)
+        {
+            return Some(OfferError::NoteRefused(receiver.clone(), note.clone()));
+        }
+    }
     // 94.3: action cards are not tradeable unless somebody at the table has Arbiters, or
     // Black Market Dealings is marking this negotiation as one in which they may change hands
     // — and each side must hold whatever its own leg hands over (can_pay covers goods, notes
@@ -611,6 +624,7 @@ fn action_card_shape(
             // find -- "hacan cant sell action cards for promissory notes".
             for note in crate::promissory::available_notes(state, content, partner)
                 .into_iter()
+                .filter(|note| crate::promissory::may_receive(state, proposer, note))
                 .take(3)
             {
                 let mut payload = payload.clone();
@@ -893,6 +907,9 @@ pub fn offer_options(
     // only note that could change hands was Support, so every other note in the corpus was
     // unreachable at any price.
     for note in crate::promissory::available_notes(state, content, proposer) {
+        if !crate::promissory::may_receive(state, partner, &note) {
+            continue; // Hubris
+        }
         // Each note prices itself (oracle `propose`): a Research Agreement is not on the table
         // until its partner can pay what a technology costs.
         let price = note_option_price(&note);
@@ -1120,8 +1137,15 @@ fn partner_assets(
 ) {
     let (my_goods, my_commodities) = holdings(state, proposer);
     let (_, their_commodities) = holdings(state, partner);
-    let mine = crate::promissory::available_notes(state, content, proposer);
-    let theirs = crate::promissory::available_notes(state, content, partner);
+    // Hubris: nobody gives the Mahact player an Alliance, so such a note is not offered.
+    let mine: Vec<String> = crate::promissory::available_notes(state, content, proposer)
+        .into_iter()
+        .filter(|note| crate::promissory::may_receive(state, partner, note))
+        .collect();
+    let theirs: Vec<String> = crate::promissory::available_notes(state, content, partner)
+        .into_iter()
+        .filter(|note| crate::promissory::may_receive(state, proposer, note))
+        .collect();
     let asking = |given: Option<&str>, want: &str| {
         let mut payload = BTreeMap::new();
         if let Some(given) = given {

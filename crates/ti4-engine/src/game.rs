@@ -2970,6 +2970,22 @@ impl<'a> Game<'a> {
                     self.advance_turn()?;
                     return Ok(self.result(true, None));
                 }
+                if let Some(holder) = crate::factions::mahact_units::offer_starlancer(
+                    &mut self.state,
+                    self.content,
+                    self.sources,
+                    &mut self.table,
+                    self.galaxy.as_ref(),
+                    &system,
+                    &window.player,
+                ) {
+                    self.tactical = None;
+                    self.state.active_system = None;
+                    self.state.pending = None;
+                    self.emit(&format!("TURN_ENDED_BY_STARLANCER:{holder}"));
+                    self.advance_turn()?;
+                    return Ok(self.result(true, None));
+                }
                 if self.minister_of_peace(&system, &window.player) {
                     self.tactical = None;
                     self.state.active_system = None;
@@ -7007,6 +7023,99 @@ mod tests {
             Some(&b),
             "the note went home"
         );
+    }
+
+    #[test]
+    fn a_starlancer_ends_the_activators_turn_in_the_driven_game() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("mahact");
+        crate::fixtures::put(&mut state, &ids[0], "mahact_mech", &b, 1);
+        state
+            .faction_marks
+            .insert(crate::factions::mahact::fleet_mark(&b), "a".to_owned());
+        let table = Table::with_default(Box::new(Scripted::new([
+            TACTICAL_ACTION_ID.to_owned(),
+            ids[0].to_string(),
+            "use".to_owned(),
+            "tactic_tokens".to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        for _ in 0..4 {
+            let result = game.step();
+            assert_eq!(result.error, None);
+            if game.events.iter().any(|e| e.starts_with("TURN_ENDED_BY")) {
+                break;
+            }
+        }
+        assert!(
+            game.events.iter().any(|e| e == "TURN_ENDED_BY_STARLANCER:b"),
+            "{:?}",
+            game.events
+        );
+        assert!(
+            !game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE"),
+            "the action never reached movement"
+        );
+        assert_eq!(game.state.active_system, None);
+        assert_ne!(game.state.active, Some(a.clone()), "the turn passed on");
+        assert!(crate::factions::mahact::fleet_pool_owners(&game.state, &b).is_empty());
+    }
+
+    #[test]
+    fn the_mahact_hero_is_offered_and_resolves_in_the_driven_game() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let (owner, other) = (PlayerId::new("a"), PlayerId::new("b"));
+        let hero = ti4_model::id::LeaderId::new("mahacthero");
+        state.player_mut(&owner).unwrap().faction = ti4_model::id::FactionId::new("mahact");
+        state
+            .player_mut(&owner)
+            .unwrap()
+            .leaders
+            .insert(hero.clone(), ti4_model::state::LeaderStatus::Unlocked);
+        let origin = ids[0].clone();
+        let destination = SystemId::new(
+            galaxy
+                .adjacent(origin.as_str())
+                .into_iter()
+                .next()
+                .expect("the origin has a neighbour"),
+        );
+        for system in [&origin, &destination] {
+            state.system_mut(system).units.clear();
+            state.system_mut(system).planet_units.clear();
+        }
+        crate::fixtures::put(&mut state, &origin, "cruiser", &owner, 4);
+        crate::fixtures::put(&mut state, &destination, "cruiser", &other, 1);
+        let offered = crate::leaders::component_actions(&state, ContentStore::embedded(), &owner);
+        assert!(
+            offered
+                .iter()
+                .any(|option| option.id == "component|leader|mahacthero"),
+            "the hero is a component action"
+        );
+        let table = Table::with_default(Box::new(Scripted::new([
+            "component|leader|mahacthero".to_owned(),
+        ])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table)
+            .with_sources(ti4_model::content_types::DEFAULT)
+            .with_galaxy(galaxy);
+        assert_eq!(game.step().error, None);
+        assert_eq!(
+            crate::leaders::status(&game.state, &owner, &hero),
+            Some(ti4_model::state::LeaderStatus::Purged)
+        );
+        assert!(
+            game.state
+                .system_state(&origin)
+                .units
+                .iter()
+                .all(|unit| unit.owner != owner),
+            "the fleet left the origin"
+        );
+        assert!(!crate::factions::mahact_units::ship_movement_barred(
+            &game.state
+        ));
     }
 
     #[test]

@@ -35,6 +35,11 @@ pub const VOTE_PLANET_KIND: &str = "vote_planet";
 pub const TIEBREAK_KIND: &str = "tiebreak";
 /// Gila the Silvertongue: trade goods spent for two votes each, as `"spend|<n>"`.
 pub const VOTE_TRADE_GOODS_KIND: &str = "vote_trade_goods";
+/// Genetic Recombination (Mahact): the holder names the outcome a voter must back, as
+/// `"recombine|<outcome>"`.
+pub const RECOMBINE_KIND: &str = "recombine";
+/// Genetic Recombination: the voter's answer, `"tribute|vote"` or `"tribute|token"`.
+pub const TRIBUTE_KIND: &str = "tribute";
 
 /// What may be voted for on one agenda (8.8 to 8.11).
 ///
@@ -243,6 +248,12 @@ pub fn tiebreak_candidates(ballot: &Ballot, choices: &[String]) -> Vec<String> {
 enum Stage {
     /// Asking `order[index]` which outcome to back.
     Outcome(usize),
+    /// Mahact's Genetic Recombination: asking its holder whether to exhaust it before
+    /// `order[index]` casts votes, and for which outcome.
+    Recombine(usize),
+    /// Genetic Recombination was used on `order[index]`, who can either cast a vote for the named
+    /// outcome or remove a token from their fleet pool: asking which.
+    Tribute(usize),
     /// Asking `order[index]` which planet to exhaust for the outcome they picked.
     Planets {
         index: usize,
@@ -283,6 +294,13 @@ pub struct VoteWindow {
     /// as if they were votes". Besides influence, its planets may be exhausted for resources, and
     /// its trade goods are a vote each.
     spender: Option<PlayerId>,
+    /// Seats whose turn to vote has already been offered to Genetic Recombination's holder.
+    recombination_offered: std::collections::BTreeSet<usize>,
+    /// Genetic Recombination in force: the voter's index and the outcome they must back. Set when
+    /// the voter must cast at least 1 vote for it (they chose to, or have no token to remove).
+    obligation: Option<(usize, String)>,
+    /// The outcome the holder chose for the voter now answering the [`Stage::Tribute`] question.
+    demanded: Option<(usize, String)>,
 }
 
 /// One way for a voter to exhaust a planet: the option id, the planet and the votes it casts.
@@ -347,6 +365,9 @@ impl VoteWindow {
             stage: opening,
             ballot: Ballot::default(),
             spender: None,
+            recombination_offered: std::collections::BTreeSet::new(),
+            obligation: None,
+            demanded: None,
         }
     }
 
@@ -477,7 +498,18 @@ impl VoteWindow {
                             .with("current_votes", tally)
                     })
                     .collect();
-                options.push(ChoiceOption::decline());
+                // Genetic Recombination: a voter who must cast a vote for an outcome may back
+                // nothing else and may not abstain.
+                let bound = self
+                    .obligation
+                    .as_ref()
+                    .filter(|(at, _)| at == index)
+                    .map(|(_, outcome)| outcome);
+                if let Some(outcome) = bound {
+                    options.retain(|option| option.id == *outcome);
+                } else {
+                    options.push(ChoiceOption::decline());
+                }
                 Some(
                     Choice::new(player.clone(), "vote for which outcome", options).contextualized(
                         DecisionContext::new(
@@ -523,7 +555,15 @@ impl VoteWindow {
                         )
                     })
                     .collect();
-                options.push(ChoiceOption::decline());
+                // Genetic Recombination: the first planet is not optional.
+                let must_cast = *votes == 0
+                    && self
+                        .obligation
+                        .as_ref()
+                        .is_some_and(|(at, backed)| at == index && backed == outcome);
+                if !must_cast {
+                    options.push(ChoiceOption::decline());
+                }
                 Some(
                     Choice::new(
                         player.clone(),
@@ -587,6 +627,75 @@ impl VoteWindow {
                     )),
                 )
             }
+            Stage::Recombine(index) => {
+                let voter = self.order.get(*index)?;
+                let holder = crate::factions::mahact::recombination_holder(state, voter)?;
+                let mut options: Vec<ChoiceOption> = self
+                    .choices
+                    .iter()
+                    .map(|outcome| {
+                        ChoiceOption::labelled(
+                            format!("recombine|{outcome}"),
+                            RECOMBINE_KIND,
+                            format!("{voter} must vote {outcome} or return a fleet token"),
+                        )
+                    })
+                    .collect();
+                options.push(ChoiceOption::decline());
+                Some(
+                    Choice::new(
+                        holder.clone(),
+                        format!("Genetic Recombination before {voter} votes"),
+                        options,
+                    )
+                    .contextualized(DecisionContext::new(
+                        holder,
+                        DecisionSource::Content(crate::factions::mahact::RECOMBINATION.to_owned()),
+                        "recombination_outcome",
+                        state.phase,
+                        state.round,
+                    )),
+                )
+            }
+            Stage::Tribute(index) => {
+                let voter = self.order.get(*index)?;
+                let (_, outcome) = self.demanded.as_ref().filter(|(at, _)| at == index)?;
+                let mut options = Vec::new();
+                if !self
+                    .planet_offers(state, content, sources, voter)
+                    .is_empty()
+                {
+                    options.push(ChoiceOption::labelled(
+                        "tribute|vote",
+                        TRIBUTE_KIND,
+                        format!("cast at least 1 vote for {outcome}"),
+                    ));
+                }
+                if crate::factions::mahact::can_pay_tribute(state, voter) {
+                    options.push(ChoiceOption::labelled(
+                        "tribute|token",
+                        TRIBUTE_KIND,
+                        "remove 1 token from your fleet pool and return it to reinforcements",
+                    ));
+                }
+                if options.is_empty() {
+                    return None;
+                }
+                Some(
+                    Choice::new(
+                        voter.clone(),
+                        format!("Genetic Recombination: vote {outcome} or return a fleet token"),
+                        options,
+                    )
+                    .contextualized(DecisionContext::new(
+                        voter.clone(),
+                        DecisionSource::Content(crate::factions::mahact::RECOMBINATION.to_owned()),
+                        "recombination_tribute",
+                        state.phase,
+                        state.round,
+                    )),
+                )
+            }
             Stage::Tiebreak => {
                 let candidates = tiebreak_candidates(&self.ballot, &self.choices);
                 Some(
@@ -613,6 +722,17 @@ impl VoteWindow {
     /// Advance past any stage that has no decision left to make.
     fn settle(&mut self, state: &GameState, content: &ContentStore, sources: SourceSet) {
         loop {
+            // Genetic Recombination: "before a player casts votes", once per voter, the holder
+            // is asked.
+            if let Stage::Outcome(index) = self.stage
+                && index < self.order.len()
+                && self.recombination_offered.insert(index)
+                && crate::factions::mahact::recombination_holder(state, &self.order[index])
+                    .is_some()
+            {
+                self.stage = Stage::Recombine(index);
+                return;
+            }
             match &self.stage {
                 Stage::Outcome(index) if *index >= self.order.len() => {
                     self.stage = self.close();
@@ -734,6 +854,47 @@ impl VoteWindow {
 
         match self.stage.clone() {
             Stage::Done(_) => return Err(VoteError::Complete),
+            Stage::Recombine(index) => {
+                if option.is_decline() {
+                    self.stage = Stage::Outcome(index);
+                } else {
+                    let holder =
+                        crate::factions::mahact::recombination_holder(state, &self.order[index])
+                            .ok_or(VoteError::Complete)?;
+                    let outcome = option
+                        .id
+                        .strip_prefix("recombine|")
+                        .unwrap_or_default()
+                        .to_owned();
+                    crate::factions::mahact::exhaust_recombination(state, &holder);
+                    let voter = self.order[index].clone();
+                    let can_vote = !self
+                        .planet_offers(state, content, sources, &voter)
+                        .is_empty();
+                    let can_pay = crate::factions::mahact::can_pay_tribute(state, &voter);
+                    self.stage = Stage::Outcome(index);
+                    match (can_vote, can_pay) {
+                        (true, true) => {
+                            self.demanded = Some((index, outcome));
+                            self.stage = Stage::Tribute(index);
+                        }
+                        (true, false) => self.obligation = Some((index, outcome)),
+                        (false, true) => {
+                            crate::factions::mahact::pay_tribute(state, &voter);
+                        }
+                        (false, false) => {}
+                    }
+                }
+            }
+            Stage::Tribute(index) => {
+                let demanded = self.demanded.take();
+                if option.id == "tribute|vote" {
+                    self.obligation = demanded;
+                } else {
+                    crate::factions::mahact::pay_tribute(state, &self.order[index].clone());
+                }
+                self.stage = Stage::Outcome(index);
+            }
             Stage::Outcome(index) => {
                 if option.is_decline() {
                     // 8.14: an abstention casts nothing and is not recorded as a vote.

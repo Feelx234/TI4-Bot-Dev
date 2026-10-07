@@ -1008,10 +1008,13 @@ fn commander_unlocked(
 
 /// Promissory notes in `player`'s hand: held and not faceup in a play area, plus their own
 /// Support for the Throne while it is still home (it lives in `support_holders`, not the note map).
-fn notes_in_hand(state: &GameState, player: &PlayerId) -> Vec<String> {
+///
+/// Only notes `receiver` may be given (Mahact's Hubris refuses an Alliance).
+fn notes_in_hand(state: &GameState, player: &PlayerId, receiver: &PlayerId) -> Vec<String> {
     let mut notes: Vec<String> = crate::promissory::held_by(state, player)
         .into_iter()
         .filter(|note| !state.promissory_faceup.contains(note))
+        .filter(|note| crate::promissory::may_receive(state, receiver, note))
         .collect();
     notes.extend(crate::promissory::available_support(state, player));
     notes
@@ -1032,7 +1035,9 @@ fn commander_targets(event: &Event, state: &GameState, owner: &PlayerId) -> Vec<
             list.iter()
                 .filter_map(serde_json::Value::as_str)
                 .map(PlayerId::new)
-                .filter(|opponent| opponent != owner && !notes_in_hand(state, opponent).is_empty())
+                .filter(|opponent| {
+                    opponent != owner && !notes_in_hand(state, opponent, owner).is_empty()
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -1081,7 +1086,7 @@ fn commander(owner_name: &str, seat: &PlayerId) -> Ability {
             if !targets.contains(&target) {
                 return Ok(());
             }
-            let hand = notes_in_hand(context.state, &target);
+            let hand = notes_in_hand(context.state, &target, &owner);
             let options = hand
                 .iter()
                 .map(|note| ChoiceOption::labelled(note.clone(), "give_note", note.clone()))

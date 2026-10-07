@@ -485,6 +485,7 @@ fn favour_bundles(
         crate::promissory::available_notes(ctx.state, ctx.content, ctx.proposer)
             .into_iter()
             .filter(|note| crate::promissory::owner_of(note).as_deref() == Some(own_name.as_str()))
+            .filter(|note| crate::promissory::may_receive(ctx.state, ctx.recipient, note))
             .take(3)
             .collect();
     let mut variants = Vec::new();

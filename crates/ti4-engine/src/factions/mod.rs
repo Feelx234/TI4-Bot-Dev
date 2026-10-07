@@ -59,6 +59,8 @@ pub mod hooks_movement;
 pub mod hooks_strategy;
 pub mod keleres;
 pub mod keleres_units;
+pub mod mahact;
+pub mod mahact_units;
 pub mod mentak;
 pub mod muaat;
 pub mod naalu;
@@ -74,7 +76,7 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 19] = [
+pub const MODULES: [&FactionModule; 20] = [
     &arborec::MODULE,
     &argent::MODULE,
     &cabal::MODULE,
@@ -83,6 +85,7 @@ pub const MODULES: [&FactionModule; 19] = [
     &keleres::MODULE_M,
     &keleres::MODULE_X,
     &keleres::MODULE_A,
+    &mahact::MODULE,
     &mentak::MODULE,
     &muaat::MODULE,
     &naalu::MODULE,

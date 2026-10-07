@@ -463,6 +463,38 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Mahact: Edict opponent, Scepter system (BF-mahact.md).
+        module: "mahact.rs",
+        function: "ask_among",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Mahact units: Crimson Legionnaire, Starlancer, Airo Shir Aur (BF-mahact-units.md).
+        module: "mahact_units.rs",
+        function: "legionnaire",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "mahact_units.rs",
+        function: "legionnaire_returns",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "mahact_units.rs",
+        function: "offer_starlancer",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "mahact_units.rs",
+        function: "use_leader_timed",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Empyrean: Void Tether placement (BF-empyrean.md).
         module: "empyrean.rs",
         function: "tether_place",
@@ -1339,8 +1371,9 @@ const PRODUCERS: &[Producer] = &[
     Producer {
         module: "vote.rs",
         function: "pending_choice",
-        // Outcome, planets, Gila's trade goods (hacancommander), tiebreak.
-        count: 4,
+        // Outcome, planets, Gila's trade goods (hacancommander), tiebreak, Mahact's Recombine
+        // and Tribute stages.
+        count: 6,
         delivery: Delivery::ObservedVia("game.rs::step_vote"),
     },
 ];
@@ -1388,6 +1421,11 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("production.rs", "agency_supply_network", 2),
     ("empyrean.rs", "tether_place", 1),
     ("empyrean.rs", "voidwatch", 1),
+    ("mahact.rs", "ask_among", 1),
+    ("mahact_units.rs", "legionnaire", 1),
+    ("mahact_units.rs", "legionnaire_returns", 1),
+    ("mahact_units.rs", "offer_starlancer", 1),
+    ("mahact_units.rs", "use_leader_timed", 1),
     ("empyrean_units.rs", "ask", 1),
     ("nomad.rs", "temporal_command_suite", 1),
     ("nomad_agents.rs", "ask", 1),

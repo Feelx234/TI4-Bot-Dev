@@ -799,7 +799,9 @@ impl<'a> Observed<'a> {
             trade_goods: seat.trade_goods,
             commodities: seat.commodities,
             tactic_tokens: seat.tactic_tokens,
-            fleet_tokens: seat.fleet_tokens,
+            // The Mahact's fleet pool also holds other players' tokens (Edict), in public view.
+            fleet_tokens: seat.fleet_tokens
+                + crate::factions::mahact::foreign_tokens(self.state, player),
             strategic_tokens: seat.strategic_tokens,
             strategy_cards: &seat.strategy_cards,
             exhausted_strategy_cards: &seat.exhausted_strategy_cards,
