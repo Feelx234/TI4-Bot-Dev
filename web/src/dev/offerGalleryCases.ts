@@ -45,6 +45,37 @@ export function offerCases(): GalleryCase[] {
     reduceCase(),
     {
       workflow: "generic_selection",
+      title: "Hacan commander: spend trade goods for votes",
+      fallback: "Five 'spend N trade goods for 2N votes' labels -> an amount picker with the votes before and after",
+      note: "Gila the Silvertongue: after your planets, spend any number of trade goods for two more votes each.",
+      choice: {
+        actor,
+        nonce: "gallery-vote-goods",
+        prompt: "spend trade goods for votes on for",
+        context: { subtype: "vote_spend_trade_goods", source: { Content: "hacancommander" } },
+        options: [
+          option("spend|1", "spend 1 trade goods for 2 votes", "vote_trade_goods", { trade_goods: 1 }),
+          option("spend|2", "spend 2 trade goods for 4 votes", "vote_trade_goods", { trade_goods: 2 }),
+          option("spend|3", "spend 3 trade goods for 6 votes", "vote_trade_goods", { trade_goods: 3 }),
+          option("spend|4", "spend 4 trade goods for 8 votes", "vote_trade_goods", { trade_goods: 4 }),
+          decline(),
+        ],
+        details: {
+          kind: "vote_trade_goods",
+          card: {
+            title: "Gila the Silvertongue",
+            window: "When you cast votes:",
+            text: "You may spend any number of trade goods: cast 2 additional votes for each trade good spent.",
+          },
+          outcome: "for",
+          votes: 7,
+          goods: 4,
+          votes_per_good: 2,
+        },
+      },
+    },
+    {
+      workflow: "generic_selection",
       title: "Research waiver: ignore prerequisites",
       fallback: "'return 1 infantry ...' / decline -> the technology and what the faction ability does",
       note: "Yin's commander lets a seat research a technology another seat owns without its prerequisites; the seat chooses the waiver, then pays for it.",

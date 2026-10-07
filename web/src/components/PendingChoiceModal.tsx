@@ -33,6 +33,8 @@ import { ExploreRewardPanel } from "./ExploreRewardParts.tsx";
 import { AbilityOfferPanel } from "./AbilityOfferPanel.tsx";
 import { describeOfferCard } from "../presentation/offerCard.ts";
 import { OfferCardPanel } from "./OfferCardPanel.tsx";
+import { describeVoteGoods } from "../presentation/voteGoods.ts";
+import { VoteGoodsPanel } from "./VoteGoodsPanel.tsx";
 import { investmentsProgress, isStrategyCardGrid } from "../presentation/strategyGoods.ts";
 
 export interface PendingChoiceModalProps {
@@ -208,6 +210,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const abilityOffer = tokens || secondary || replenish ? null : describeAbilityOffer(choice);
   const offerCard =
     tokens || secondary || replenish || abilityOffer ? null : describeOfferCard(choice);
+  const voteGoods =
+    tokens || secondary || replenish || abilityOffer || offerCard ? null : describeVoteGoods(choice);
   const confirmTokens = async (outcome: TokenOutcome) => {
     if (outcome.kind === "option") await onSubmit(outcome.optionId);
     else if (outcome.kind === "moves") {
@@ -381,6 +385,14 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               onChoose={(id) => void submitOption(id)}
             />
           )}
+          {voteGoods && (
+            <VoteGoodsPanel
+              key={choice.nonce}
+              view={voteGoods}
+              disabled={isSubmitting || isPipelineRunning}
+              onChoose={(id) => void submitOption(id)}
+            />
+          )}
           {tokens && (
             <CommandTokenPanel
               key={choice.nonce}
@@ -397,7 +409,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           {!secondary && !tokens && !replenish && <TechnologyPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <PredictOutcomePanel choice={choice} />}
           {!secondary && !tokens && !replenish && <ExploreRewardPanel choice={choice} />}
-          {!secondary && !tokens && !replenish && !abilityOffer && !offerCard && (
+          {!secondary && !tokens && !replenish && !abilityOffer && !offerCard && !voteGoods && (
           <form
             onSubmit={handleSubmit}
             style={{ display: "flex", flexDirection: "column", gap: 12 }}

@@ -512,6 +512,15 @@ impl VoteWindow {
                         format!("spend trade goods for votes on {outcome}"),
                         options,
                     )
+                    .detailed("kind", "vote_trade_goods")
+                    .detailed(
+                        "card",
+                        crate::strategy_cards::commander_card(content, "hacancommander"),
+                    )
+                    .detailed("outcome", outcome.as_str())
+                    .detailed("votes", *votes)
+                    .detailed("goods", i64::from(goods))
+                    .detailed("votes_per_good", 2)
                     .contextualized(DecisionContext::new(
                         player.clone(),
                         DecisionSource::Content("hacancommander".to_owned()),
@@ -1268,6 +1277,13 @@ mod tests {
             .expect("Gila asks how many trade goods");
         let ids: Vec<&str> = choice.options.iter().map(|o| o.id.as_str()).collect();
         assert_eq!(ids, ["spend|1", "spend|2", "spend|3", "decline"]);
+        // Display only: what the panel needs to show votes before and after.
+        assert_eq!(choice.details["kind"], "vote_trade_goods");
+        assert_eq!(choice.details["outcome"], FOR);
+        assert_eq!(choice.details["votes"], first_influence);
+        assert_eq!(choice.details["goods"], 3);
+        assert_eq!(choice.details["votes_per_good"], 2);
+        assert_eq!(choice.details["card"]["title"], "Gila the Silvertongue");
         let two = choice.options[1].clone();
         window.resolve(&mut state, content, POK, two).unwrap();
         assert_eq!(state.player(&players[0]).unwrap().trade_goods, 1);
