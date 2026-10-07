@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { BoardView, PendingChoiceDto } from "../protocol/types.ts";
+import { BoardView, ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
 import { Dialog } from "../primitives/index.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
-import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import { ChoiceRendererModel, isDeclineOption } from "../presentation/choiceModel.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { findStrategyCardMeta } from "../protocol/contentCatalog.ts";
 import {
@@ -23,6 +23,15 @@ import { UnitAbilityOptionNote } from "./UnitAbilityParts.tsx";
 import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts";
 import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
+import { LegendaryContextPanel, LegendaryOptionNote } from "./LegendaryParts.tsx";
+import { InvestmentsContextPanel, StrategyGoodsNote } from "./StrategyGoodsParts.tsx";
+import { describeAbilityOffer } from "../presentation/abilityOffer.ts";
+import { UnitPickOptionNote, UnitPickPanel } from "./UnitPickParts.tsx";
+import { TechnologyPickOptionNote, TechnologyPickPanel } from "./TechnologyPickParts.tsx";
+import { PredictOutcomeNote, PredictOutcomePanel } from "./PredictOutcomeParts.tsx";
+import { ExploreRewardPanel } from "./ExploreRewardParts.tsx";
+import { AbilityOfferPanel } from "./AbilityOfferPanel.tsx";
+import { investmentsProgress, isStrategyCardGrid } from "../presentation/strategyGoods.ts";
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -144,7 +153,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
       opt.label.toLowerCase().includes(q) || (opt.description?.toLowerCase().includes(q) ?? false)
     );
   });
-  const strategyDraft = choice.context?.subtype === "draft_strategy_card";
+  const strategyDraft = isStrategyCardGrid(choice);
+  const investments = investmentsProgress(choice);
 
   const handleToggleOption = (id: string) => {
     if (isMultiSelect) {
@@ -193,9 +203,17 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const tokens = describeCommandTokens(choice, Boolean(onSubmitBatch));
   const secondary = tokens ? null : describeStrategySecondary(choice);
   const replenish = tokens || secondary ? null : describeTradeReplenish(choice);
+  const abilityOffer = tokens || secondary || replenish ? null : describeAbilityOffer(choice);
   const confirmTokens = async (outcome: TokenOutcome) => {
     if (outcome.kind === "option") await onSubmit(outcome.optionId);
-    else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
+    else if (outcome.kind === "moves") {
+      // One engine question per move; the pipeline answers them in turn.
+      const intents: SemanticIntent[] = outcome.moveIds.map((id) => ({
+        predicate: (o: ChoiceOptionDto) => o.id === id,
+      }));
+      if (outcome.finish) intents.push({ predicate: isDeclineOption });
+      executePipeline(intents);
+    } else await onSubmitBatch?.({ kind: "tokens", steps: outcome.steps });
   };
   const submitOption = async (optionId: string) => {
     if (isSubmitting || isPipelineRunning) return;
@@ -294,7 +312,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           )}
 
           {/* Search Bar for long option lists */}
-          {choice.options.length >= 6 && (
+          {choice.options.length >= 6 && !tokens && (
             <input
               type="search"
               data-testid="choice-search-input"
@@ -345,6 +363,13 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               onChoose={(id) => void submitOption(id)}
             />
           )}
+          {abilityOffer && (
+            <AbilityOfferPanel
+              view={abilityOffer}
+              disabled={isSubmitting || isPipelineRunning}
+              onChoose={(id) => void submitOption(id)}
+            />
+          )}
           {tokens && (
             <CommandTokenPanel
               key={choice.nonce}
@@ -355,7 +380,13 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           )}
           {!secondary && !tokens && <RemoveUnitPanel choice={choice} board={boardView} />}
           {!secondary && !tokens && !replenish && <PoliticsContextPanel choice={choice} />}
-          {!secondary && !tokens && !replenish && (
+          {!secondary && !tokens && !replenish && <LegendaryContextPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <InvestmentsContextPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <UnitPickPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <TechnologyPickPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <PredictOutcomePanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <ExploreRewardPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && !abilityOffer && (
           <form
             onSubmit={handleSubmit}
             style={{ display: "flex", flexDirection: "column", gap: 12 }}
@@ -453,7 +484,12 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         )}
                         <UnitAbilityOptionNote choice={choice} option={opt} board={boardView} />
                         <RemoveUnitOptionNote choice={choice} option={opt} board={boardView} />
+                        <UnitPickOptionNote choice={choice} option={opt} />
+                        <TechnologyPickOptionNote choice={choice} option={opt} />
+                        <PredictOutcomeNote choice={choice} option={opt} />
                         <PoliticsOptionNote choice={choice} option={opt} />
+                        <LegendaryOptionNote choice={choice} option={opt} board={boardView} />
+                        {card && <StrategyGoodsNote choice={choice} option={opt} />}
                         <SystemPickOptionFacts choice={choice} optionId={opt.id} board={boardView} />
                         {opt.description && (
                           <div
@@ -494,7 +530,9 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               >
                 {isSubmitting || isPipelineRunning
                   ? "Submitting..."
-                  : strategyDraft
+                  : investments
+                    ? "Place trade good"
+                    : strategyDraft
                     ? "Choose card"
                     : handDecisionConfirmLabel(choice.context?.subtype)
                       ? handDecisionConfirmLabel(choice.context?.subtype)

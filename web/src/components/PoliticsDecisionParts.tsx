@@ -3,6 +3,7 @@ import type { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import {
   describeAgendaPlacement,
+  describePickCard,
   optionNote,
   replenishReason,
   seatStanding,
@@ -10,6 +11,9 @@ import {
 } from "../presentation/politicsDecision.ts";
 
 const TableContext = createContext<DecisionTable | null>(null);
+
+/** The table standing the surrounding provider holds, or `null` outside one. */
+export const useDecisionTable = (): DecisionTable | null => useContext(TableContext);
 
 /** Gives decisions the table standing (VP, commodities, speaker order) the client already holds. */
 export const DecisionTableProvider: React.FC<{
@@ -22,9 +26,23 @@ export const PoliticsContextPanel: React.FC<{ choice: PendingChoiceDto }> = ({ c
   const table = useContext(TableContext);
   const agenda = describeAgendaPlacement(choice);
   const reason = replenishReason(choice, table);
-  if (!agenda && !reason) return null;
+  const pickCard = describePickCard(choice);
+  if (!agenda && !reason && !pickCard) return null;
   return (
     <div className="politics-panel" data-testid="politics-context-panel">
+      {pickCard && (
+        <div data-testid="pick-card">
+          <div className="politics-panel__title" data-testid="pick-card-name">
+            {pickCard.name}
+            <span className="politics-panel__tag">pick a player</span>
+          </div>
+          {pickCard.text && (
+            <p className="politics-panel__text" data-testid="pick-card-text">
+              {pickCard.text}
+            </p>
+          )}
+        </div>
+      )}
       {agenda && (
         <div data-testid="agenda-card">
           <div className="politics-panel__title" data-testid="agenda-card-name">

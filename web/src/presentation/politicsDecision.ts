@@ -1,8 +1,9 @@
 import type { ChoiceOptionDto, GameView, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
-import { humanizeId } from "../protocol/contentCatalog.ts";
+import { findActionCardMeta, humanizeId } from "../protocol/contentCatalog.ts";
 
 /** What the client already knows about the table; enough to describe a candidate seat. */
-export type DecisionTable = Pick<GameView, "players" | "seating_order" | "speaker">;
+export type DecisionTable = Pick<GameView, "players" | "seating_order" | "speaker"> &
+  Partial<Pick<GameView, "table">>;
 
 export const SPEAKER_ROLE_TEXT =
   "The speaker picks first in the strategy phase, votes last on agendas and breaks voting ties.";
@@ -80,6 +81,57 @@ export function optionSeat(
     : undefined;
 }
 
+const PLAYER_PICK = /_pick_player$/;
+
+/** An action card (or ability) asking the actor to pick a player: Spy, Insubordination, Signal Jamming ... */
+export const isPlayerPick = (choice: Pick<PendingChoiceDto, "context">): boolean =>
+  PLAYER_PICK.test(subtypeOf(choice));
+
+/**
+ * The player a pick option stands for: the option id is a seat id, or (Signal Jamming) the name
+ * of the faction that seat plays.
+ */
+export function playerPickSeat(option: ChoiceOptionDto, table: DecisionTable): PlayerView | undefined {
+  const id = option.id.toLowerCase();
+  return (
+    table.players.find((p) => p.id === option.id) ??
+    table.players.find((p) => p.faction.toLowerCase() === id || humanizeId(p.faction).toLowerCase() === id)
+  );
+}
+
+/** The action card behind a player pick, as printed; `null` when the decision has no card. */
+export function describePickCard(
+  choice: Pick<PendingChoiceDto, "context">,
+): { name: string; text: string } | null {
+  if (!isPlayerPick(choice)) return null;
+  const source = choice.context?.source as Record<string, unknown> | undefined;
+  const id = source?.ActionCard;
+  if (typeof id !== "string") return null;
+  const meta = findActionCardMeta(id);
+  return { name: meta?.name ?? humanizeId(id), text: meta?.description ?? "" };
+}
+
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** One line about a player the actor may pick: standing first, then what the card does to them. */
+function playerPickNote(
+  choice: Pick<PendingChoiceDto, "context" | "actor">,
+  option: ChoiceOptionDto,
+  table: DecisionTable | null,
+): OptionNote | null {
+  const target = table ? playerPickSeat(option, table) : undefined;
+  if (!target) return null;
+  const subtype = subtypeOf(choice);
+  const standing = `${target.victory_points} VP, ${count(target.trade_goods, "trade good")}, ${count(target.commodities, "commodity", "commodities")}`;
+  let effect = "";
+  if (subtype.startsWith("spy_")) {
+    effect = ` Holds ${count(target.action_cards_count, "action card")}; you take one at random.`;
+  } else if (subtype.startsWith("insubordination_")) {
+    effect = ` Has ${count(target.tactic_tokens, "tactic token")}; you take one.`;
+  }
+  return { seat: target.id, text: `${standing}.${effect}` };
+}
+
 export interface OptionNote {
   /** One short line under the option's label. */
   text: string;
@@ -94,6 +146,7 @@ export function optionNote(
   table: DecisionTable | null,
 ): OptionNote | null {
   const subtype = subtypeOf(choice);
+  if (isPlayerPick(choice)) return playerPickNote(choice, option, table);
   const decline = option.kind === "decline" || option.id === "decline" || option.id === "done";
   if (subtype === "trade_choose_replenish" && decline) {
     return { text: "Nobody else replenishes; the Trade primary ends here." };

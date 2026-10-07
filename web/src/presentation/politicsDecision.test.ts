@@ -1,14 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
   describeAgendaPlacement,
+  describePickCard,
+  isPlayerPick,
   optionNote,
+  playerPickSeat,
   replenishReason,
   seatStanding,
   type DecisionTable,
 } from "./politicsDecision.ts";
 
 const player = (id: string, faction: string, vp: number, commodities: number) =>
-  ({ id, faction, victory_points: vp, commodities }) as DecisionTable["players"][number];
+  ({
+    id,
+    faction,
+    victory_points: vp,
+    commodities,
+    trade_goods: 2,
+    action_cards_count: 3,
+    tactic_tokens: 4,
+  }) as DecisionTable["players"][number];
 const table: DecisionTable = {
   players: [player("a", "sol", 3, 1), player("b", "hacan", 5, 0), player("c", "xxcha", 2, 3)],
   seating_order: ["a", "b", "c"],
@@ -48,5 +59,43 @@ describe("politicsDecision", () => {
     expect(replenishReason(hacan, table)).toContain("holds 0");
     const trade = { context: { subtype: "trade_choose_replenish" } as never, actor: "a", details: { seats: {} } };
     expect(optionNote(trade, { id: "done", label: "d", kind: "decline" }, table)?.text).toMatch(/Nobody/);
+  });
+
+  describe("player picks (Spy, Insubordination, Signal Jamming ...)", () => {
+    const pick = (subtype: string) => ({
+      context: { subtype, source: { ActionCard: "spy" } } as never,
+      actor: "a",
+    });
+
+    it("recognises a card asking for a player", () => {
+      expect(isPlayerPick(pick("spy_pick_player"))).toBe(true);
+      expect(isPlayerPick(pick("politics_choose_speaker"))).toBe(false);
+    });
+
+    it("resolves a seat id or the faction a seat plays (Signal Jamming names factions)", () => {
+      expect(playerPickSeat({ id: "b", label: "" }, table)?.id).toBe("b");
+      expect(playerPickSeat({ id: "Hacan", label: "" }, table)?.id).toBe("b");
+      expect(playerPickSeat({ id: "nobody", label: "" }, table)).toBeUndefined();
+    });
+
+    it("notes standing, with what Spy and Insubordination take", () => {
+      const spy = optionNote(pick("spy_pick_player"), { id: "b", label: "" }, table);
+      expect(spy?.seat).toBe("b");
+      expect(spy?.text).toContain("5 VP, 2 trade goods, 0 commodities");
+      expect(spy?.text).toContain("Holds 3 action cards; you take one at random");
+      const insub = optionNote(pick("insubordination_pick_player"), { id: "c", label: "" }, table);
+      expect(insub?.text).toContain("Has 4 tactic tokens; you take one");
+      const jam = optionNote(pick("jamming_pick_player"), { id: "Xxcha", label: "" }, table);
+      expect(jam?.seat).toBe("c");
+      expect(jam?.text).not.toContain("take");
+      expect(optionNote(pick("spy_pick_player"), { id: "b", label: "" }, null)).toBeNull();
+    });
+
+    it("shows the printed card above the options", () => {
+      const card = describePickCard(pick("spy_pick_player"));
+      expect(card?.name).toBe("Spy");
+      expect(card?.text).not.toBe("");
+      expect(describePickCard({ context: { subtype: "spy_pick_player" } as never })).toBeNull();
+    });
   });
 });

@@ -486,6 +486,25 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Unexpected Action: recall your token",
+    fallback: "Bare system numbers -> named systems with facts, also clickable on the map",
+    note: "The action card's recall of one of your own tokens uses the same system picker as Diplomacy and Warfare.",
+    choice: {
+      actor,
+      nonce: "gallery-unexpected-recall",
+      prompt: "Unexpected Action: recall your token from where",
+      context: {
+        subtype: "unexpected_pick_recall",
+        source: { Content: "unexpected" },
+      },
+      options: [
+        option("25", "recall your token from 25", "recall"),
+        option("26", "recall your token from 26", "recall"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Warfare: recall a command token",
     fallback: "Bare system numbers -> named systems with facts, also clickable on the map",
     note: "Same system facts for each system holding one of your command tokens.",
@@ -903,6 +922,212 @@ export const fallbackCases: GalleryCase[] = [
       details: {
         kind: "command_tokens",
         mode: "redistribute",
+        pools: { tactic: 3, fleet: 4, strategic: 2 },
+        reinforcements: 7,
+        total: 9,
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Exploration card: choose the reward",
+    fallback: "Bare reward labels -> the exploration card as printed above the options",
+    note: "A reward choice of an exploration card (Abandoned Warehouses, Local Fabricators, ...) shows the card's name, type and printed text.",
+    choice: {
+      actor,
+      nonce: "gallery-explore-reward",
+      prompt: "Abandoned Warehouses",
+      context: {
+        subtype: "abandoned_warehouses_choose_reward",
+        source: { Content: "abandoned_warehouses" },
+      },
+      options: [
+        option("gain", "gain 2 commodities", "explore"),
+        option("convert", "convert up to 2 commodities to trade goods", "explore"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Imperial Rider: predict the outcome",
+    fallback: "'predict FOR' options -> the rider as printed above and each outcome in words",
+    note: "The riders (Imperial, Construction, Diplomacy, ...) ask which outcome of the agenda to predict; the printed card above says what a correct prediction pays and that you cannot vote.",
+    choice: {
+      actor,
+      nonce: "gallery-predict-outcome",
+      prompt: "Imperial Rider: predict the agenda outcome",
+      context: {
+        subtype: "predict_agenda_outcome",
+        source: { Rule: "8" },
+      },
+      options: [
+        option("FOR", "predict FOR", "prediction"),
+        option("AGAINST", "predict AGAINST", "prediction"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Divert Funding: which technology to return",
+    fallback: "Technology names only -> colour, prerequisites and printed text per technology, and what this half of the card does",
+    note: "Divert Funding (and the other cards that ask for a technology) shows each technology as printed; the header says whether it is returned or researched.",
+    choice: {
+      actor,
+      nonce: "gallery-divert-pick",
+      prompt: "Divert Funding: which technology to return",
+      context: {
+        subtype: "divert_funding_pick_technology",
+        source: { ActionCard: "divert" },
+      },
+      options: [
+        option("pa", "Psychoarchaeology", "technology"),
+        option("amd", "Antimass Deflectors", "technology"),
+        option("st", "Sarween Tools", "technology"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Scuttle: which ship to scuttle",
+    fallback: "Raw ship ids -> named ships with their system and the trade goods each pays out",
+    note: "Scuttle (and Refit Troops, for infantry) names each unit, says where it is and what the card does to it; the printed card is above the options.",
+    choice: {
+      actor,
+      nonce: "gallery-scuttle-pick",
+      prompt: "Scuttle: which ship to scuttle",
+      context: {
+        subtype: "scuttle_pick_ship",
+        source: { ActionCard: "scuttle" },
+      },
+      options: [
+        option("26|0", "dreadnought2 in 26", "ship"),
+        option("25|1", "cruiser in 25", "ship"),
+        option("25|2", "carrier in 25", "ship"),
+      ],
+      details: {
+        units: {
+          "26|0": { system: "26", planet: null, unit: "dreadnought2", damaged: true, cost: 4 },
+          "25|1": { system: "25", planet: null, unit: "cruiser", damaged: false, cost: 2 },
+          "25|2": { system: "25", planet: null, unit: "carrier", damaged: false, cost: 3 },
+        },
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Munitions Reserves: reroll misses",
+    fallback: "Yes/no with the cost in the label -> the printed ability, the price against the trade goods held, and Skip",
+    note: "Letnev's Munitions Reserves is offered at the start of every space combat round, before any dice are rolled, and costs 2 trade goods each time.",
+    choice: {
+      actor,
+      nonce: "gallery-munitions",
+      prompt: "spend 2 trade goods for Munitions Reserves",
+      context: {
+        subtype: "munitions_reserves_reroll",
+        source: { FactionAbility: "munitions" },
+      },
+      options: [
+        option("munitions", "reroll this round's misses", "ability"),
+        option("decline", "decline", "decline"),
+      ],
+      details: {
+        kind: "ability_offer",
+        ability: {
+          name: "Munitions Reserves",
+          window: "At the start of each round of space combat",
+          effect: "You may spend 2 trade goods to re-roll any number of your dice during that combat round.",
+        },
+        cost: { trade_goods: 2, have: 5 },
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Manipulate Investments: place a trade good",
+    fallback: "Plain list of card names -> the strategy card grid with the trade goods already on each card and the progress",
+    note: "Five placements, one question each: the card grid shows each card's printed text and the trade goods lying on it, and the header says which good this is and how many different cards are still owed.",
+    choice: {
+      actor,
+      nonce: "gallery-investments-pick",
+      prompt: "Manipulate Investments: place a trade good on which strategy card",
+      context: {
+        subtype: "investments_pick_strategy_card",
+        source: { ActionCard: "investments" },
+      },
+      options: [
+        "pok1leadership",
+        "pok2diplomacy",
+        "pok3politics",
+        "pok4construction",
+        "pok5trade",
+        "pok6warfare",
+        "pok7technology",
+        "pok8imperial",
+      ].map((id) => option(id, `place a trade good on ${id}`, "strategy_card")),
+      details: { step: 2, of: 5, distinct_owed: 2 },
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Legendary planet abilities",
+    fallback: "Raw ability labels -> the planet that carries each ability and its printed text",
+    note: "The end-of-turn (and when-you-pass) legendary menu shows each ready ability with its planet, stats and card text; Decline ends the window.",
+    choice: {
+      actor,
+      nonce: "gallery-legendary-menu",
+      prompt: "use a legendary planet ability",
+      context: {
+        subtype: "legendary_end_of_turn",
+        source: { Content: "legendary" },
+      },
+      options: [
+        option("primor", "The Atrament", "legendary"),
+        option("mirage", "Mirage Flight Academy", "legendary"),
+        option("decline", "decline", "decline"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Spy: rob which player",
+    fallback: "Plain list of seats -> the printed card, and each player's VP, trade goods, commodities and what the card takes",
+    note: "Player picks (Spy, Insubordination, Signal Jamming, Diplomatic Pressure, ...) show the card's printed text above and each candidate's standing under their name.",
+    choice: {
+      actor,
+      nonce: "gallery-spy-pick",
+      prompt: "Spy: rob which player",
+      context: {
+        subtype: "spy_pick_player",
+        source: { ActionCard: "spy" },
+      },
+      options: [
+        option("other_seat", "take a card from other_seat", "player"),
+        option("third_seat", "take a card from third_seat", "player"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
+    title: "Predictive Intelligence: restack tokens",
+    fallback: "One move per question -> per-pool +/- panel; the fewest moves are answered in turn",
+    note: "Predictive Intelligence redistributes at the end of the turn, one token per question. The panel plans the whole arrangement and sends the moves one after another, then finishes.",
+    choice: {
+      actor,
+      nonce: "gallery-pi-restack",
+      prompt: "Predictive Intelligence: redistribute command tokens",
+      context: {
+        subtype: "predictive_intelligence_redistribute",
+        source: { Content: "pi" },
+      },
+      options: [
+        ...["tactic|fleet", "tactic|strategy", "fleet|tactic", "fleet|strategy", "strategy|tactic", "strategy|fleet"].map(
+          (id) => option(id, `move 1 token from ${id.replace("|", " to ")}`, "redistribute"),
+        ),
+        option("done", "finish redistribution", "decline"),
+      ],
+      details: {
+        kind: "command_tokens",
+        mode: "restack",
         pools: { tactic: 3, fleet: 4, strategic: 2 },
         reinforcements: 7,
         total: 9,

@@ -185,6 +185,9 @@ export interface PlanetStaticMeta {
   resources: number;
   influence: number;
   techSpecialties?: readonly string[];
+  /** Legendary planets: the ability card's name and printed text. */
+  legendaryAbilityName?: string;
+  legendaryAbilityText?: string;
 }
 
 export interface AttachmentStaticMeta {

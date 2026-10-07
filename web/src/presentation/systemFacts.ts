@@ -109,7 +109,7 @@ export function planetOccupants(
   return [...byOwner].map(([owner, list]) => ({ owner, summary: summarizeUnits(list) }));
 }
 
-const SYSTEM_PICK_SUBTYPE = /(_pick_system|_choose_system|_recall_token)$/;
+const SYSTEM_PICK_SUBTYPE = /(_pick_system|_choose_system|_recall_token|_pick_recall)$/;
 
 /** The system an option of a system pick stands for: payload.system, else the option id. */
 export function systemPickOptionSystem(opt: ChoiceOptionDto): string | null {

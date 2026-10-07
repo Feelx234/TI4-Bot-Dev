@@ -398,10 +398,16 @@ pub fn end_turn(
                 crate::choice::DECLINE_KIND,
                 "finish redistribution",
             ));
-            let choice = Choice::new(
-                player.clone(),
-                "Predictive Intelligence: redistribute command tokens",
-                options,
+            // Display only: the pools and total, so clients can plan the whole restack at once.
+            let choice = crate::tokens::with_pool_details(
+                Choice::new(
+                    player.clone(),
+                    "Predictive Intelligence: redistribute command tokens",
+                    options,
+                ),
+                state,
+                "restack",
+                None,
             )
             .contextualized(DecisionContext::new(
                 player.clone(),
@@ -1589,6 +1595,41 @@ mod tests {
         let exhausted = &state.player(&player()).unwrap().exhausted_technologies;
         assert!(!exhausted.contains(&TechnologyId::new("td")));
         assert!(exhausted.contains(&TechnologyId::new("bs")));
+    }
+
+    /// Predictive Intelligence moves one token per decision; the question carries the pools and the
+    /// total held so a client can plan the whole restack at once (display only).
+    #[test]
+    fn predictive_intelligence_restack_carries_the_pools_and_the_total() {
+        let mut state = game(&["a"]);
+        give(&mut state, &["pi"]);
+        {
+            let seat = state.player_mut(&player()).unwrap();
+            seat.tactic_tokens = 3;
+            seat.fleet_tokens = 4;
+            seat.strategic_tokens = 2;
+        }
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+        let mut table = Table::with_default(Box::new(decider));
+        end_turn(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            &player(),
+        )
+        .unwrap();
+        let choice = seen.borrow()[0].clone();
+        assert_eq!(
+            choice.context.as_ref().unwrap().subtype,
+            "predictive_intelligence_redistribute"
+        );
+        assert_eq!(choice.details["kind"], "command_tokens");
+        assert_eq!(choice.details["mode"], "restack");
+        assert_eq!(choice.details["total"], 9);
+        assert_eq!(choice.details["pools"]["fleet"], 4);
+        assert!(choice.options.iter().any(|option| option.id == "fleet|tactic"));
     }
 
     /// OBS-003e: `start_turn`/`end_turn`'s remaining reactive asks -- Chaos Mapping and

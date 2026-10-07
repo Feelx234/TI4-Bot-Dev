@@ -44,15 +44,19 @@ export interface PurchaseView {
 }
 
 export interface CommandTokenView {
-  /** "gain": add new tokens to the pools; "redistribute": rearrange the tokens already held. */
-  mode: "gain" | "redistribute";
+  /**
+   * "gain": add new tokens to the pools; "redistribute": rearrange the tokens already held in one
+   * decision; "restack": rearrange them too, but the engine takes one token move per question
+   * (Predictive Intelligence), so the plan goes out as a sequence of moves.
+   */
+  mode: "gain" | "redistribute" | "restack";
   /** The pools as the engine has them now. */
   current: Pools;
   /** Tokens left in reinforcements. */
   reinforcements: number | null;
   /** Gain: tokens to place in this window. Redistribute: every token held. */
   total: number;
-  /** Redistribute: the arrangement option ids the engine offers. */
+  /** Redistribute: the arrangement option ids the engine offers. Restack: the move ids offered now. */
   arrangements: ReadonlySet<string>;
   /** Gain: the influence purchase that follows (or is asked first), planned on the same screen. */
   purchase: PurchaseView | null;
@@ -101,6 +105,14 @@ export function describeCommandTokens(
       return null;
     }
     return { mode: "gain", current: held, reinforcements, total, arrangements: new Set(), purchase };
+  }
+  if (details.mode === "restack") {
+    const total = asCount(details.total);
+    const moves = new Set(
+      choice.options.filter((option) => option.kind === "redistribute").map((option) => option.id),
+    );
+    if (!total || moves.size === 0) return null;
+    return { mode: "restack", current: held, reinforcements, total, arrangements: moves, purchase: null };
   }
   if (details.mode === "redistribute") {
     const total = asCount(details.total);
@@ -462,7 +474,26 @@ export function tokenPlanWithPurchase(
 
 export type TokenOutcome =
   | { kind: "plan"; steps: TokenStep[] }
-  | { kind: "option"; optionId: string };
+  | { kind: "option"; optionId: string }
+  /** Restack: one engine question per move, then "done" when the engine would ask again. */
+  | { kind: "moves"; moveIds: string[]; finish: boolean };
+
+/** The engine's id for a pool in a restack move (`source|destination`). */
+const restackPool = (pool: TokenPool): string => (pool === "strategic" ? "strategy" : pool);
+
+/**
+ * The fewest single-token moves that turn the pools into `staging`, as the engine's `from|to`
+ * ids. Sources are always pools with a surplus, so each move is offered when its turn comes.
+ */
+export function restackMoves(view: CommandTokenView, staging: TokenStaging): string[] {
+  const surplus = TOKEN_POOLS.flatMap((pool) =>
+    Array.from({ length: Math.max(0, view.current[pool] - staging[pool]) }, () => pool),
+  );
+  const deficit = TOKEN_POOLS.flatMap((pool) =>
+    Array.from({ length: Math.max(0, staging[pool] - view.current[pool]) }, () => pool),
+  );
+  return surplus.map((from, i) => `${restackPool(from)}|${restackPool(deficit[i])}`);
+}
 
 /** What confirming sends: a batch plan for a gain, the arrangement's option for a redistribute. */
 export function tokenOutcome(
@@ -475,6 +506,11 @@ export function tokenOutcome(
   if (view.mode === "gain") {
     const steps = tokenPlanWithPurchase(view, staging, bought, override);
     return steps ? { kind: "plan", steps } : null;
+  }
+  if (view.mode === "restack") {
+    const moveIds = restackMoves(view, staging);
+    // The engine stops asking by itself once as many moves as tokens were made.
+    return { kind: "moves", moveIds, finish: moveIds.length < view.total };
   }
   const optionId = arrangementId(view, staging);
   return optionId === null ? null : { kind: "option", optionId };

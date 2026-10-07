@@ -310,7 +310,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "action_cards.rs",
-        function: "pick",
+        function: "pick_detailed",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -958,7 +958,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("action_cards.rs", "exchange_program", 1),
     ("action_cards.rs", "ghost_squad", 1),
     ("action_cards.rs", "in_the_silence_of_space", 1),
-    ("action_cards.rs", "pick", 1),
+    ("action_cards.rs", "pick_detailed", 1),
     ("action_cards.rs", "predicted_outcome", 1),
     ("action_cards.rs", "public_disgrace", 1),
     ("action_cards.rs", "reparations", 2),
