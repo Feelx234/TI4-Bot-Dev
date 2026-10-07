@@ -87,7 +87,9 @@ Worktrees under `nightly-reports/<night>/fixer-*` can be removed with `git workt
 | `NIGHTLY_START_DEFER_SECONDS` | `7200` | how long the next sweep waits for the old night |
 | `NIGHTLY_BUILD_CMD` | `cargo build --quiet -p ti4-server --bin server` | check before every game and after merges |
 | `NIGHTLY_PROCTOR_MODEL`, `NIGHTLY_SUMMARY_MODEL` | Sonnet 5.5, Opus 5.5 | |
-| `NIGHTLY_PRESET_PROBABILITY` | `50` | percent of runs that start from the combat preset |
+| `NIGHTLY_PRESET_PROBABILITY` | `70` | percent of runs that start from a prepared state |
+| `NIGHTLY_PRESET` | `combat combat cards agenda relics invasion techs leaders` | one preset name or a list to pick from per run (see `crates/ti4-server/src/preset.rs`; `endgame` is left out of the mix) |
+| `NIGHTLY_PRESET_ROTATE_PERCENT` | `20` | percent of preset runs that also rotate the factions (`<preset>+rot`: Jol-Nar and L1Z1X at small tables) |
 | `NIGHTLY_NOW`, `NIGHTLY_NOW_FILE` | unset | fake clock for tests |
 
 To switch the Opus rounds off: `NIGHTLY_FIXERS=` in the cron line. Two long Opus sessions per night
@@ -103,3 +105,5 @@ of midnight and both daylight-saving changes, the not-before guard, what `tick` 
 previous-night gap), a dry run of a whole night including the between-games merge, a merge that
 breaks the build, and a merge conflict. It never starts a real proctor, game or build and never
 touches the live checkout. `test_preset_pick.sh` tests the preset choice.
+`coverage.py <reports-dir>...` lists the decision subtypes no run ever offered (and those offered in
+fewer than two runs) by diffing the engine's literal subtypes against the runs' `report.json`; `test_coverage.sh` tests it.

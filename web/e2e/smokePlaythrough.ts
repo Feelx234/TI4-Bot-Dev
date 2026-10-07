@@ -12,6 +12,7 @@ import {
   openPlayerGame,
 } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
+import { missingExpected, type Expectation } from "./smokePreset";
 import {
   activationWeight,
   preferHitConfirm,
@@ -39,6 +40,8 @@ export interface PlaythroughOptions {
   clickSeed: number;
   /** Start preset for the game (e.g. "combat": fleets beside homes and Mecatol). */
   startPreset?: string;
+  /** Decision subtypes the run must have offered (see `parseExpect`); a miss fails the run. */
+  expect?: Expectation[];
   /** Stop successfully after this many resolved decisions. */
   maxDecisions: number;
   /** Fail when a single decision does not advance after this many clicks. */
@@ -82,6 +85,8 @@ export interface PlaythroughReport {
   reactionDecisions: number;
   /** Reaction dialogs whose text showed a raw engine id or a doubled verb ("Play play"). */
   reactionTextProblems: string[];
+  /** Expectations (`TI4_SMOKE_EXPECT`) the run did not meet; empty when all were met. */
+  expectMissing: string[];
 }
 
 // Containers that render a decision for the acting seat.
@@ -284,18 +289,23 @@ function activationWeights(
     });
     const enemies =
       board.systems[id]?.units.some((u) => u.owner !== actor) ?? false;
+    const defended =
+      board.systems[id]?.units.some((u) => u.owner !== actor && !!u.planet) ??
+      false;
     const inPlace =
-      id === "18" &&
+      (id === "18" || defended) &&
       (board.systems[id]?.units.some(
-        // Still in space: once landed on the planet the custodians are gone and there is nothing
-        // left to do in place.
+        // Still in space: once landed on the planet there is nothing left to do in place.
         (u) =>
           u.owner === actor &&
           !u.planet &&
           /infantry|mech|spec_ops/i.test(u.unit_type),
       ) ??
         false);
-    weights.set(id, activationWeight(id, reachable, enemies, inPlace));
+    weights.set(
+      id,
+      activationWeight(id, reachable, enemies, inPlace, defended),
+    );
   }
   return weights;
 }
@@ -459,7 +469,7 @@ export async function randomUiPlaythrough(
       const url = msg.location().url ?? "";
       // The optional battle advisor (/battle, /ground_odds) is not started for e2e runs.
       if (url.includes("favicon") || url.includes("/battle") || url.includes("/ground_odds")) return;
-      browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}`);
+      browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}${url ? ` (${url})` : ""}`);
     });
     // The console only reports a status code; keep the server's reason for failed API calls.
     page.on("response", async (response) => {
@@ -483,7 +493,16 @@ export async function randomUiPlaythrough(
       log(`  ${line}`);
     });
     await openPlayerGame(page, gameId, player.session);
-    await expect(page.getByTestId("turn-status-bar")).toBeVisible();
+    try {
+      await expect(page.getByTestId("turn-status-bar")).toBeVisible();
+    } catch (err) {
+      // Say what the tab showed instead (an error page, a crashed app) rather than only "not found".
+      const text = await page.locator("body").innerText().catch(() => "");
+      await page.screenshot({ path: `test-results/smoke-open-failure-${gameId}-seat${index + 1}.png` }).catch(() => {});
+      throw new Error(
+        `seat ${index + 1} never showed the status bar (game ${gameId}). Page text: ${text.slice(0, 600)}\nBrowser errors so far: ${browserErrors.join(" | ").slice(0, 800)}\n${err instanceof Error ? err.message.split("\n")[0] : err}`,
+      );
+    }
     pages.push(page);
   }
 
@@ -504,6 +523,7 @@ export async function randomUiPlaythrough(
     turnMenuFallbacks: [],
     reactionDecisions: 0,
     reactionTextProblems: [],
+    expectMissing: [],
   };
 
   const trace = (file: string, data: unknown, append = false) => {
@@ -833,8 +853,40 @@ export async function randomUiPlaythrough(
   report.finalStatus = (
     await gameSnapshot(request, gameId, players[0].session)
   ).turn_status;
+  if (report.finished) {
+    // The game ended: every seat's tab must say so (the banner is the UI's whole game-over
+    // screen) without a reload. Before the client handled the game_over push every tab stayed on
+    // the last phase banner.
+    const shows = (page: Page, timeout: number) =>
+      expect
+        .poll(
+          async () =>
+            (await page
+              .getByTestId("turn-status-banner")
+              .textContent()
+              .catch(() => "")) ?? "",
+          { timeout },
+        )
+        .toMatch(/Game Over/)
+        .then(() => true)
+        .catch(() => false);
+    for (const [index, page] of pages.entries()) {
+      if (!(await shows(page, 10_000)))
+        await fail(page, `seat ${index + 1} never showed the game-over banner`);
+    }
+  }
   trace("browser-errors.json", browserErrors);
+  report.expectMissing = missingExpected(
+    // "game_over" counts as a decision subtype for expectations, so a run can assert it ended.
+    report.finished ? { ...report.subtypes, game_over: 1 } : report.subtypes,
+    options.expect ?? [],
+  );
   await writeFinal();
   expect(browserErrors, "browser errors during playthrough").toEqual([]);
+  if (report.expectMissing.length)
+    await fail(
+      undefined,
+      `expected decisions never offered: ${report.expectMissing.join("; ")}`,
+    );
   return report;
 }

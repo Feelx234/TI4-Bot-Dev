@@ -92,6 +92,28 @@ describe("GameSessionClient reducer", () => {
     expect(next.turnStatus).toMatchObject({ seat: "seat_b" });
   });
 
+  it("shows a game_over push: the status turns to game over and no choice stays open", () => {
+    const open = {
+      ...state,
+      pendingChoice: {
+        player: "seat_a",
+        prompt: "end your turn",
+        options: [{ id: "end", label: "end your turn" }],
+      },
+    } as unknown as GameSessionState;
+    const next = reduceServerMessage(open, {
+      type: "game_over",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      game_version: 9,
+      winner: "seat_b",
+      final_scores: { seat_a: 8, seat_b: 10 },
+    });
+    expect(next.turnStatus).toEqual({ kind: "game_over", winner: "seat_b" });
+    expect(next.pendingChoice).toBeNull();
+    expect(next.gameVersion).toBe(9);
+  });
+
   it("carries the server's display details into the pending choice", () => {
     const next = reduceServerMessage(state, {
       type: "pending_choice",

@@ -32,11 +32,22 @@ You may make **minor repairs**; otherwise you observe. Rules:
   for 23:59; just report them. The script refuses when a request or the round already exists.
 - At most 3 repairs and about 25 extra tool calls per run.
 
-About half the runs start from the **combat preset** (`preset` in meta.json, `TI4_SMOKE_PRESET=combat`
-in the repro): each seat gets an extra fleet one jump from an opponent's home system, and half the
-seats get a raiding party beside Mecatol Rex with enough trade goods for the custodians. Early
-combats, casualty assignments, Mecatol activations and agenda phases are therefore *expected* in
-those runs, not suspicious. Extra units on the board at the start are by design.
+Most runs (about 70%) start from a prepared state (`preset` in meta.json, `TI4_SMOKE_PRESET=<name>`
+in the repro; a `+rot` suffix means the factions are rotated, so Jol-Nar or L1Z1X may sit at a small
+table). The presets only change the opening state, never a rule, and extra units, cards, relics,
+technologies, leaders or a pre-lifted custodians token are by design:
+- `combat`: an extra fleet one jump from an opponent's home, and a raiding party beside Mecatol Rex
+  with the trade goods for the custodians (early combats, Mecatol activations, agenda phases).
+- `cards`: every seat holds five never-played action cards, some of them Thunder's Edge cards.
+- `agenda`: the custodians token is already gone, the top of the agenda deck is hand-ordered, and
+  agenda-window cards are dealt (an agenda phase every round).
+- `relics`: three relics per seat, one cultural fragment set.
+- `invasion`: each seat has a defended colony (infantry, mech, two PDS) with the previous seat's
+  invasion force in its space area (space cannon, ground combat in the first rounds).
+- `techs`: the invasion setup plus a set of prompt-bearing technologies for every seat.
+- `leaders`: every leader usable at once and unclaimed legendary planets handed out.
+- `endgame` (not in the default mix): the game ends within a round or two.
+Such prompts and fights in those runs are *expected*, not suspicious.
 
 Run directory: {{RUN_DIR}}
 Tools directory: {{TOOLS}}

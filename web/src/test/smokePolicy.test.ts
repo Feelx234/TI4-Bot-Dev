@@ -92,6 +92,12 @@ describe("activationWeight (smoke harness steering)", () => {
     expect(activationWeight("18", true, false, false)).toBe(40);
     expect(activationWeight("35", true, true, false)).toBe(30);
     expect(activationWeight("35", true, false, false)).toBe(5);
+    // A defended planet outranks a bare enemy fleet, but an unreachable one is still skipped.
+    expect(activationWeight("35", true, true, false, true)).toBe(60);
+    expect(activationWeight("35", false, true, false, true)).toBe(0.2);
+    // Own ground forces waiting beside a defended planet: activate in place, ahead of everything.
+    expect(activationWeight("35", false, true, true, true)).toBe(2000);
+    expect(activationWeight("35", true, true, true, false)).toBe(30);
     expect(activationWeight("35", false, true, false)).toBe(0.2);
   });
 
@@ -317,7 +323,14 @@ describe("turn bar controls (smoke harness)", () => {
     expect(steerWeight("turn-bar-pass | Pass")).toBeLessThan(1);
     expect(steerWeight(end.desc)).toBeGreaterThan(steerWeight(components.desc));
     // The test id decides, not the words in a card's text.
-    expect(steerWeight("turn-bar-components | Components take a tactical action")).toBe(1);
+    expect(steerWeight("turn-bar-components | Components take a tactical action")).toBe(6);
+    expect(steerWeight("turn-bar-cards | Action cards 2 A")).toBeGreaterThan(steerWeight(trade.desc));
+  });
+
+  it("prefers playing a reaction over passing it", () => {
+    expect(steerWeight("play-reaction-btn-reaction:sol:SHIP_MOVED:after | Play Rescue")).toBeGreaterThan(
+      steerWeight("pass-reaction-btn | Pass (Spacebar)"),
+    );
   });
 
   it("gives every split strategic button the same weight so each card gets played", () => {
