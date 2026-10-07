@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { Board, getPlayerColor } from "./Board.tsx";
 import { BoardView } from "../protocol/types.ts";
 import { PaymentDraftProvider } from "../presentation/PaymentDraftContext.tsx";
@@ -122,7 +122,7 @@ describe("Board Component", () => {
     expect(screen.getByText("Mecatol Rex")).toBeInTheDocument();
     expect(screen.getByText("GRAVITY RIFT")).toBeInTheDocument();
     expect(screen.getByText("α")).toBeInTheDocument();
-    expect(screen.getByText("1/6")).toBeInTheDocument();
+    expect(screen.getByLabelText("1 resource, 6 influence")).toBeInTheDocument();
 
     // Zoom buttons
     expect(screen.getByTitle("Zoom In")).toBeInTheDocument();
@@ -448,6 +448,8 @@ describe("Board Component", () => {
       expect(eco202).toBeInTheDocument();
       expect(eco202).toHaveTextContent("0/1");
       expect(eco202).toHaveTextContent("0/3");
+      expect(within(eco202).getByLabelText("0 resources ready of 1 total")).toBeInTheDocument();
+      expect(within(eco202).getByLabelText("0 influence ready of 3 total")).toBeInTheDocument();
     });
 
     it("displays space combat units, average hits per round, and sustain damage with planets hidden", () => {
@@ -641,7 +643,8 @@ describe("Board Component", () => {
 
       const overlayTooltip = screen.getByTestId("system-tooltip-overlay");
       expect(overlayTooltip).toHaveTextContent("Economy Overlay");
-      expect(overlayTooltip).toHaveTextContent("Ready: 3 Res / 1 Inf");
+      expect(overlayTooltip).toHaveTextContent("Ready:");
+      expect(within(overlayTooltip).getByLabelText("Ready: 3 resources, 1 influence")).toBeInTheDocument();
     });
   });
 });
@@ -779,7 +782,7 @@ describe("Board payment mode", () => {
         onSelectTarget={onSelectTarget}
       />,
     );
-    expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("4R");
+    expect(screen.getByTestId("payment-mark-fria")).toHaveAttribute("aria-label", "4 resources");
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "false");
     expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-target-dimmed", "true");
     fireEvent.click(screen.getByTestId("planet-fria"));
@@ -817,6 +820,7 @@ describe("Board payment mode", () => {
       </PaymentDraftProvider>,
     );
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "true");
-    expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("✓ 4R");
+    expect(screen.getByTestId("payment-mark-fria")).toHaveAttribute("aria-label", "Staged: 4 resources");
+    expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("✓ 4");
   });
 });

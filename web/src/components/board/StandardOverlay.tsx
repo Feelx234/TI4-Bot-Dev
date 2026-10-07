@@ -3,6 +3,7 @@ import { MapTargetMode, TilePresentation } from "../../presentation/boardPresent
 import { SvgButton } from "../../primitives/index.ts";
 import type { PaymentMark } from "../../presentation/paymentDraft.ts";
 import { usePlayerIdentity } from "../../presentation/PlayerIdentity.tsx";
+import { PlanetValueGlyph, valueKind, valueLabel } from "../PlanetValueIcons.tsx";
 
 export interface StandardOverlayProps {
   tile: TilePresentation;
@@ -47,7 +48,7 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
             isInteractive={isCandidateTarget}
             label={
               mark
-                ? `${mark.staged ? "Stop exhausting" : "Exhaust"} planet ${p.label} for ${mark.worth} ${mark.unit === "I" ? "influence" : "resources"}`
+                ? `${mark.staged ? "Stop exhausting" : "Exhaust"} planet ${p.label} for ${valueLabel(valueKind(mark.unit), mark.worth)}`
                 : `Target planet ${p.label}`
             }
             onActivate={() => {
@@ -146,28 +147,40 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
             )}
 
             {mark && isCandidateTarget && (
-              <g data-testid={`payment-mark-${p.id}`} pointerEvents="none">
+              <g
+                data-testid={`payment-mark-${p.id}`}
+                pointerEvents="none"
+                role="img"
+                aria-label={`${mark.staged ? "Staged: " : ""}${valueLabel(valueKind(mark.unit), mark.worth)}`}
+              >
+                <title>{valueLabel(valueKind(mark.unit), mark.worth)}</title>
                 <rect
-                  x={pX - 19}
-                  y={pY - planetRadius - 22}
-                  width={38}
-                  height={14}
-                  rx={7}
+                  x={pX - 22}
+                  y={pY - planetRadius - 23}
+                  width={44}
+                  height={16}
+                  rx={8}
                   fill={mark.staged ? "#166534" : "#0c4a6e"}
                   stroke={mark.staged ? "#4ade80" : "#38bdf8"}
                   strokeWidth={1.5}
                 />
+                <PlanetValueGlyph
+                  kind={valueKind(mark.unit)}
+                  x={pX - 15}
+                  y={pY - planetRadius - 21}
+                  size={12}
+                />
                 <text
-                  x={pX}
-                  y={pY - planetRadius - 12}
+                  x={pX + 4}
+                  y={pY - planetRadius - 11}
                   textAnchor="middle"
                   fill="#f8fafc"
-                  fontSize="9"
+                  fontSize="10"
                   fontWeight="bold"
+                  aria-hidden="true"
                 >
                   {mark.staged ? "✓ " : ""}
                   {mark.worth}
-                  {mark.unit}
                 </text>
               </g>
             )}
@@ -185,19 +198,23 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
               {p.id.substring(0, 3).toUpperCase()}
             </text>
 
-            {/* Resources / Influence fraction */}
+            {/* Resources / Influence values */}
             {p.resources !== undefined && p.influence !== undefined && (
-              <text
-                x={pX}
-                y={pY + 8}
-                textAnchor="middle"
-                fill="#fef08a"
-                fontSize="7.5"
-                fontWeight="bold"
+              <g
                 pointerEvents="none"
+                role="img"
+                aria-label={`${valueLabel("resources", p.resources)}, ${valueLabel("influence", p.influence)}`}
               >
-                {p.resources}/{p.influence}
-              </text>
+                <title>{`${valueLabel("resources", p.resources)}, ${valueLabel("influence", p.influence)}`}</title>
+                <PlanetValueGlyph kind="resources" x={pX - 14} y={pY + 2} size={8} />
+                <text x={pX - 5} y={pY + 9} fill="#fef08a" fontSize="8" fontWeight="bold" aria-hidden="true">
+                  {p.resources}
+                </text>
+                <PlanetValueGlyph kind="influence" x={pX + 2} y={pY + 2} size={8} />
+                <text x={pX + 11} y={pY + 9} fill="#bae6fd" fontSize="8" fontWeight="bold" aria-hidden="true">
+                  {p.influence}
+                </text>
+              </g>
             )}
           </SvgButton>
         );
