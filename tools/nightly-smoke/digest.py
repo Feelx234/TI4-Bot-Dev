@@ -165,7 +165,9 @@ def main():
     out = []
     p = out.append
     p(f"### Run digest — game seed {meta.get('game_seed')} · click seed {meta.get('click_seed')} · "
-      f"{meta.get('players')} players · policy {meta.get('policy')} · preset {meta.get('preset') or 'none'}")
+      f"{meta.get('players')} players · policy {meta.get('policy')} · preset {meta.get('preset') or 'none'}"
+      + (f" · commit {str(meta['commit'])[:8]}" + (f" (+{meta['dirty_files']} uncommitted files)" if meta.get("dirty_files") else "")
+         if meta.get("commit") else ""))
     p("")
     p("#### Outcome")
     rounds = report.get("roundStarts", {})
