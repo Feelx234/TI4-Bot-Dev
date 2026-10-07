@@ -16,6 +16,12 @@ import {
   decodeServerMessage,
   isStaleServerMessage,
 } from "./decode.ts";
+import { decodeSplicePreview, type SpliceEdit, type SplicePreview } from "./splice.ts";
+import {
+  decodeTurnRedoStatusResponse,
+  type TurnRedoCommand,
+  type TurnRedoStatus,
+} from "./turnRedo.ts";
 
 export type ConnectionStatus =
   "connecting" | "connected" | "disconnected" | "error";
@@ -619,20 +625,94 @@ export class GameSessionClient {
     };
   }
 
+  /**
+   * Host only, read-only: how would the game fare if one past decision were removed or changed
+   * and the rest replayed from the same seed? Changes nothing on the server.
+   */
+  async previewSplice(edit: SpliceEdit): Promise<SplicePreview> {
+    if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
+      throw new Error("A player session is required");
+    const url = this.snapshotUrl().replace(/\/snapshot$/, "/history/splice-preview");
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ edit }),
+    });
+    if (!response.ok) {
+      const reason = (await response.text().catch(() => "")).trim();
+      throw new Error(reason || `The server refused the splice preview (${response.status})`);
+    }
+    return decodeSplicePreview(await response.json());
+  }
+
   /** The host changes the authoritative Rust timeline; all clients reconnect to it. */
   async changeHistory(action: HistoryChange): Promise<void> {
-    if (
-      this.options.viewer.role !== "player" ||
-      !this.options.viewer.playerSession
-    )
-      throw new Error("A player session is required");
-    const url = this.snapshotUrl().replace(/\/snapshot$/, "/history");
     const body =
       typeof action === "string"
         ? { action }
         : "cursor" in action
           ? { action: "restore_cursor", cursor: action.cursor }
           : { action: "restore", event_id: action.eventId };
+    await this.replaceHistory("/history", body, "History change");
+  }
+
+  /**
+   * Any seated player (the host for another seat): where a turn redo stands, or null when none is
+   * in flight. The server drops an original that can no longer be restored when this is read.
+   */
+  async fetchTurnRedoStatus(): Promise<TurnRedoStatus | null> {
+    if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
+      throw new Error("A player session is required");
+    const response = await fetch(this.snapshotUrl().replace(/\/snapshot$/, "/turn-redo"), {
+      headers: this.snapshotHeaders(),
+    });
+    if (!response.ok) {
+      const reason = (await response.text().catch(() => "")).trim();
+      throw new Error(reason || `The server refused the turn redo status (${response.status})`);
+    }
+    return decodeTurnRedoStatusResponse(await response.json());
+  }
+
+  /**
+   * Turn redo: rewind a seat's last turn(s), replay the round after the new turn, restore the
+   * original timeline, or keep the new one. Every action but `keep` replaces the timeline for
+   * everyone, so all clients reconnect to it.
+   */
+  async turnRedoCommand(command: TurnRedoCommand): Promise<void> {
+    if (command.action === "keep") {
+      if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
+        throw new Error("A player session is required");
+      const response = await fetch(this.snapshotUrl().replace(/\/snapshot$/, "/turn-redo"), {
+        method: "POST",
+        headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
+        body: JSON.stringify({ action: "keep", expected_version: this.state.gameVersion }),
+      });
+      if (!response.ok) {
+        const reason = (await response.text().catch(() => "")).trim();
+        throw new Error(
+          reason || `The server refused to keep the new timeline (${response.status})`,
+        );
+      }
+      return;
+    }
+    await this.replaceHistory("/turn-redo", { ...command }, "Turn redo");
+  }
+
+  /**
+   * POST a timeline replacement (`/history` or `/turn-redo`) and switch to the snapshot of the
+   * replacement session. Retries while the server is still advancing toward its next human choice.
+   */
+  private async replaceHistory(
+    path: string,
+    body: Record<string, unknown>,
+    label: string,
+  ): Promise<void> {
+    if (
+      this.options.viewer.role !== "player" ||
+      !this.options.viewer.playerSession
+    )
+      throw new Error("A player session is required");
+    const url = this.snapshotUrl().replace(/\/snapshot$/, path);
     let version = this.state.gameVersion;
     const cursor = this.state.history.cursor;
     let response!: Response;
@@ -670,7 +750,7 @@ export class GameSessionClient {
     }
     if (!response.ok) {
       const reason = conflictReason ?? (await response.text());
-      const error = `History change failed (${response.status}): ${reason}`;
+      const error = `${label} failed (${response.status}): ${reason}`;
       this.setState({ ...this.state, lastError: error });
       throw new Error(error);
     }

@@ -17,7 +17,7 @@ use ti4_model::state::GameState;
 
 use crate::protocol::server::GameEvent;
 use crate::protocol::view::BoardTileView;
-use crate::session::replay::replay_session;
+use crate::session::replay::{replay_session, replay_session_forced};
 use crate::session::{GameSession, SeatController, SessionConfig};
 
 /// Errors encountered during game persistence or recovery.
@@ -319,6 +319,10 @@ pub struct GameHistory {
     pub generation: u64,
     #[serde(default)]
     pub batches: Vec<BatchRecord>,
+    /// Forced random stream positions by decision index; present only on a timeline made by a
+    /// turn redo (see `session::rng_force`). Absent in every older save.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub rng_marks: crate::session::RngMarks,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -713,6 +717,55 @@ impl FileGameStore {
         read_json_file(&path, MAX_SNAPSHOT_BYTES)
     }
 
+    /// Saves the alternate timeline kept by a turn redo (`turn_redo.json`).
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the record is too large or cannot be written.
+    pub fn save_turn_redo(
+        &self,
+        game_id: &str,
+        record: &crate::session::turn_redo::TurnRedoRecord,
+    ) -> Result<(), StorageError> {
+        let dir = self.game_dir(game_id)?;
+        fs::create_dir_all(&dir)?;
+        let path = dir.join("turn_redo.json");
+        if serde_json::to_vec_pretty(&persist(record)?)?.len() + 1 > MAX_LOG_BYTES {
+            return Err(StorageError::Oversized {
+                path,
+                limit: MAX_LOG_BYTES,
+            });
+        }
+        atomic_write_json(&path, record)?;
+        Ok(())
+    }
+
+    /// Loads the saved alternate timeline, if the game has one.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the file exists but cannot be read.
+    pub fn load_turn_redo(
+        &self,
+        game_id: &str,
+    ) -> Result<Option<crate::session::turn_redo::TurnRedoRecord>, StorageError> {
+        let path = self.game_dir(game_id)?.join("turn_redo.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        read_json_file(&path, MAX_LOG_BYTES).map(Some)
+    }
+
+    /// Removes the saved alternate timeline (it was restored, kept past, or discarded).
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the file exists but cannot be removed.
+    pub fn delete_turn_redo(&self, game_id: &str) -> Result<(), StorageError> {
+        let path = self.game_dir(game_id)?.join("turn_redo.json");
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
     /// Atomically stores a bounded replay-validation snapshot.
     pub fn save_snapshot(
         &self,
@@ -917,8 +970,17 @@ impl FileGameStore {
         };
 
         // Replay all accepted decisions to reach the current recovered state
-        let replay_report = replay_session(&init_record.initial_state, galaxy.as_ref(), &decisions)
-            .map_err(|source| StorageError::Replay {
+        let marks = history
+            .as_ref()
+            .map(|h| h.rng_marks.clone())
+            .unwrap_or_default();
+        let replay_report = replay_session_forced(
+            &init_record.initial_state,
+            galaxy.as_ref(),
+            &decisions,
+            &marks,
+        )
+        .map_err(|source| StorageError::Replay {
                 game_id: game_id.to_owned(),
                 source,
             })?;
@@ -934,8 +996,13 @@ impl FileGameStore {
                 .chain(&history.redo)
                 .cloned()
                 .collect();
-            let validated = replay_session(&init_record.initial_state, galaxy.as_ref(), &future)
-                .map_err(|source| StorageError::Replay {
+            let validated = replay_session_forced(
+                &init_record.initial_state,
+                galaxy.as_ref(),
+                &future,
+                &history.rng_marks,
+            )
+            .map_err(|source| StorageError::Replay {
                     game_id: game_id.to_owned(),
                     source,
                 })?;
@@ -996,6 +1063,7 @@ impl FileGameStore {
             config.history_generation = history.generation;
             config.history_active = true;
             config.batches = history.batches;
+            config.rng_marks = history.rng_marks;
         }
 
         if let Some(seed) = init_record.seed {

@@ -2,6 +2,9 @@ pub mod batch;
 pub mod decider;
 pub mod registry;
 pub mod replay;
+pub mod rng_force;
+pub mod splice;
+pub mod turn_redo;
 pub mod transport;
 pub mod worker;
 
@@ -56,7 +59,8 @@ use serde::{Deserialize, Serialize};
 
 pub use decider::RemoteHumanDecider;
 pub use registry::{BotServiceConfig, GameRegistry};
-pub use replay::{ReplayError, ReplayReport, replay_session};
+pub use replay::{ReplayError, ReplayReport, replay_session, replay_session_forced};
+pub use rng_force::{RngForce, RngMarks};
 pub use transport::MockClient;
 
 /// Configuration for the controller occupying a table seat.
@@ -94,6 +98,9 @@ pub struct SessionConfig {
     pub event_counter: u64,
     pub history_generation: u64,
     pub batches: Vec<crate::storage::BatchRecord>,
+    /// Stream positions forced while replaying `prior_decisions` and `redo_decisions`
+    /// (set only on a timeline made by a turn redo).
+    pub rng_marks: RngMarks,
     /// State at the first unplanned choice, computed by private replay for a committed batch.
     pub replay_boundary_state: Option<GameState>,
     /// Card names each seat asked never to be offered (see `ti4_engine::reaction_modes`).
@@ -128,6 +135,7 @@ impl SessionConfig {
             event_counter: 0,
             history_generation: 0,
             batches: Vec::new(),
+            rng_marks: RngMarks::new(),
             replay_boundary_state: None,
             reaction_modes: BTreeMap::new(),
         }
@@ -549,6 +557,7 @@ impl GameSession {
                 revision: lock.game_version.saturating_add(1),
                 generation: lock.history_generation,
                 batches: lock.batches.clone(),
+                rng_marks: lock.rng_marks.clone(),
             },
             lock.seed,
             lock.player_ids.clone(),
@@ -561,8 +570,28 @@ impl GameSession {
         // The old speculative view must never be reused for a different cursor.
         config.replay_boundary_state = None;
         // A rewind or a batch starts a new worker; what each seat asked for survives it.
-        config.reaction_modes = self.shared.lock().expect("shared lock").reaction_modes_snapshot();
+        {
+            let lock = self.shared.lock().expect("shared lock");
+            config.reaction_modes = lock.reaction_modes_snapshot();
+            // A timeline made by a turn redo replays with forced random positions.
+            config.rng_marks.clone_from(&lock.rng_marks);
+        }
         config
+    }
+
+    /// The forced random positions of the live timeline (empty unless a turn redo made it).
+    #[must_use]
+    pub fn rng_marks(&self) -> RngMarks {
+        self.shared.lock().expect("shared lock").rng_marks.clone()
+    }
+
+    /// The decision the engine is waiting on, as `(seat, prompt)`, if any.
+    #[must_use]
+    pub fn pending_prompt(&self) -> Option<(PlayerId, String)> {
+        let lock = self.shared.lock().expect("shared lock");
+        lock.pending_decision
+            .as_ref()
+            .map(|p| (p.seat.clone(), p.choice.prompt.clone()))
     }
 
     pub fn history_ready(&self) -> bool {

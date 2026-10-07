@@ -811,6 +811,9 @@ pub struct GameRegistry {
     presence_grace: Duration,
     bot_config: Option<BotServiceConfig>,
     active_bots: Mutex<BTreeMap<String, Vec<BotChild>>>,
+    /// Redos in flight, by game: the saved original timeline and where the redo stands.
+    /// Mirrors `turn_redo.json`; loaded from the store on first use after a restart.
+    turn_redos: Mutex<BTreeMap<String, crate::session::turn_redo::TurnRedoRecord>>,
 }
 
 impl Default for GameRegistry {
@@ -824,9 +827,12 @@ impl Default for GameRegistry {
             presence_grace: PRESENCE_GRACE,
             bot_config: None,
             active_bots: Mutex::new(BTreeMap::new()),
+            turn_redos: Mutex::new(BTreeMap::new()),
         }
     }
 }
+
+mod turn_redo_ops;
 
 // The history is already durable here. Do not publish an unusable first worker:
 // a fresh replay can recover from a transient worker-start failure without
@@ -1148,6 +1154,11 @@ impl GameRegistry {
             revision,
             generation: session.history_status().generation.saturating_add(1),
             batches,
+            rng_marks: {
+                let mut marks = session.rng_marks();
+                marks.retain(|index, _| *index < start_cursor);
+                marks
+            },
         };
         let mut state = self.state.lock().expect("registry lock");
         if !state
@@ -1208,6 +1219,7 @@ impl GameRegistry {
         next.history_generation = history.generation;
         next.history_active = true;
         next.batches = history.batches;
+        next.rng_marks = history.rng_marks;
         next.replay_boundary_state = Some(boundary_state);
         let (replacement, replay) = start_committed_worker(next, &mut start_worker);
         {
@@ -1247,6 +1259,70 @@ impl GameRegistry {
             snapshot: replacement.get_snapshot(&ViewerRole::Player(actor)),
         })
     }
+    /// The host's seat for `game_id`, or why `credential` may not change history.
+    fn require_host(
+        state: &RegistryState,
+        game_id: &str,
+        credential: &str,
+    ) -> Result<PlayerId, HistoryError> {
+        if let Some(lobby) = state.player_lobbies.get(game_id) {
+            let actor = authenticate_player(lobby, credential).map_err(|_| {
+                HistoryError::Forbidden(
+                    "the session credential is not valid for this game".to_owned(),
+                )
+            })?;
+            if actor != lobby.host_player_id {
+                return Err(HistoryError::Forbidden(
+                    "only the host may change history".to_owned(),
+                ));
+            }
+            Ok(actor)
+        } else if let Some(lobby) = state.lobbies.get(game_id) {
+            let actor = authenticated_seat(lobby, credential).map_err(|_| {
+                HistoryError::Forbidden(
+                    "the session credential is not valid for this game".to_owned(),
+                )
+            })?;
+            if actor != lobby.host_seat {
+                return Err(HistoryError::Forbidden(
+                    "only the host may change history".to_owned(),
+                ));
+            }
+            Ok(actor)
+        } else {
+            Err(HistoryError::NotFound)
+        }
+    }
+
+    /// Host-only, read-only dry run of removing or changing one past decision (H7 phase 1).
+    ///
+    /// Replays the edited history in memory from the game's fixed seed. It changes no session,
+    /// no stored history and no version; the registry lock is released before the replay.
+    pub fn splice_preview(
+        &self,
+        game_id: &str,
+        credential: &str,
+        edit: &crate::protocol::splice::SpliceEdit,
+    ) -> Result<crate::protocol::splice::SplicePreview, HistoryError> {
+        let (decisions, config) = {
+            let state = self.state.lock().expect("registry lock");
+            Self::require_host(&state, game_id, credential)?;
+            let session = state
+                .sessions
+                .get(game_id)
+                .ok_or(HistoryError::NotFound)?
+                .clone();
+            (session.decision_log(), session.restart_config())
+        };
+        crate::session::splice::splice_preview(
+            &config.state,
+            config.galaxy.as_ref(),
+            &decisions,
+            edit,
+        )
+        .map_err(|e| HistoryError::InvalidTarget(e.to_string()))
+    }
+
     /// Serializes a host rewind against credential rotation and human submissions.
     #[expect(
         clippy::too_many_lines,
@@ -1262,33 +1338,7 @@ impl GameRegistry {
         let gate = self.game_gate(game_id);
         let _reservation = gate.lock().expect("game gate lock");
         let state = self.state.lock().expect("registry lock");
-        let host = if let Some(lobby) = state.player_lobbies.get(game_id) {
-            let actor = authenticate_player(lobby, credential).map_err(|_| {
-                HistoryError::Forbidden(
-                    "the session credential is not valid for this game".to_owned(),
-                )
-            })?;
-            if actor != lobby.host_player_id {
-                return Err(HistoryError::Forbidden(
-                    "only the host may change history".to_owned(),
-                ));
-            }
-            actor
-        } else if let Some(lobby) = state.lobbies.get(game_id) {
-            let actor = authenticated_seat(lobby, credential).map_err(|_| {
-                HistoryError::Forbidden(
-                    "the session credential is not valid for this game".to_owned(),
-                )
-            })?;
-            if actor != lobby.host_seat {
-                return Err(HistoryError::Forbidden(
-                    "only the host may change history".to_owned(),
-                ));
-            }
-            actor
-        } else {
-            return Err(HistoryError::NotFound);
-        };
+        let host = Self::require_host(&state, game_id, credential)?;
         let session = state
             .sessions
             .get(game_id)
@@ -1477,10 +1527,11 @@ impl GameRegistry {
         let all: Vec<_> = current.into_iter().chain(redo).collect();
         let config = session.restart_config();
         drop(state);
-        let report = crate::session::replay::replay_session(
+        let report = crate::session::replay::replay_session_forced(
             &config.state,
             config.galaxy.as_ref(),
             &all[..target],
+            &config.rng_marks,
         )
         .map_err(|e| HistoryError::Conflict(format!("Replay failed: {e}")))?;
         if !report.hashes_match || report.decision_count != target {
@@ -1515,13 +1566,39 @@ impl GameRegistry {
             revision,
             generation: session.history_status().generation.saturating_add(1),
             batches: session.batches(),
+            rng_marks: config.rng_marks.clone(),
         };
+        self.publish_history(game_id, &session, config, history, expected_version, original_count, host)
+    }
+
+    /// Replace the live session by one that replays `history`, the shared tail of every history
+    /// change (rewind, redo, turn redo, restore of an original timeline).
+    ///
+    /// Stops the live worker once it is quiescent, saves the history, and starts a replacement
+    /// that replays to the end of `history.decisions` and waits there. The game version becomes
+    /// `history.revision` and the history generation is whatever `history` carries, so every
+    /// websocket client resyncs.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one serialized publication boundary shared by every history change"
+    )]
+    pub(crate) fn publish_history(
+        &self,
+        game_id: &str,
+        session: &Arc<GameSession>,
+        config: SessionConfig,
+        history: GameHistory,
+        expected_version: u64,
+        original_count: usize,
+        host: PlayerId,
+    ) -> Result<InitialSnapshotMsg, HistoryError> {
+        let revision = history.revision;
         // A live worker must be quiescent before publishing the new authoritative branch.
         let mut state = self.state.lock().expect("registry lock");
         if !state
             .sessions
             .get(game_id)
-            .is_some_and(|live| Arc::ptr_eq(live, &session))
+            .is_some_and(|live| Arc::ptr_eq(live, session))
             || session.game_version() != expected_version
             || !session.history_ready()
         {
@@ -1558,6 +1635,7 @@ impl GameRegistry {
         next.prior_decisions.clone_from(&history.decisions);
         next.prior_events.clone_from(&history.events);
         next.redo_decisions = history.redo;
+        next.rng_marks = history.rng_marks;
         next.redo_events = history.redo_events;
         next.event_counter = history.event_counter;
         next.initial_version = revision;
@@ -3350,6 +3428,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         history_active: false,
         history_generation: 0,
         batches: Vec::new(),
+        rng_marks: crate::session::RngMarks::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
     })
@@ -3463,6 +3542,7 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         history_active: false,
         history_generation: 0,
         batches: Vec::new(),
+        rng_marks: crate::session::RngMarks::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
     })

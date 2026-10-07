@@ -103,6 +103,14 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             "/api/games/{game_id}/history",
             axum::routing::post(games::change_history),
         )
+        .route(
+            "/api/games/{game_id}/history/splice-preview",
+            axum::routing::post(games::splice_preview),
+        )
+        .route(
+            "/api/games/{game_id}/turn-redo",
+            axum::routing::get(games::turn_redo_status).post(games::turn_redo),
+        )
         .route("/api/games/{game_id}/replay", get(games::get_replay))
         .route("/api/games/{game_id}/map", get(games::get_map))
         .route("/api/content/catalog", get(content::get_catalog))

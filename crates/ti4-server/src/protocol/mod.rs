@@ -3,7 +3,9 @@
 pub mod client;
 pub mod error;
 pub mod server;
+pub mod splice;
 pub mod status;
+pub mod turn_redo;
 pub mod view;
 
 pub use client::ClientMessage;

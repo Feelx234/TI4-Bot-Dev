@@ -3,6 +3,8 @@ import { ViewerRole } from "./protocol/types.ts";
 import { useGameSession } from "./hooks/useGameSession.ts";
 import { useLobbySession } from "./hooks/useLobbySession.ts";
 import { useTurnSound } from "./hooks/useTurnSound.ts";
+import { useTurnRedo } from "./hooks/useTurnRedo.ts";
+import { playerDisplay } from "./presentation/playerDisplay.ts";
 import { Board } from "./components/Board.tsx";
 import { TurnStatusBar } from "./components/TurnStatusBar.tsx";
 import { PlayerSheet } from "./components/PlayerSheet.tsx";
@@ -253,6 +255,8 @@ const GameViewContainer: React.FC<{
     setReactionMode,
     changeHistory,
     fetchReplay,
+    fetchTurnRedoStatus,
+    turnRedoCommand,
     submitMovementBatch,
     submitBatch,
     batchResume,
@@ -298,6 +302,19 @@ const GameViewContainer: React.FC<{
       .finally(() => setHistoryBusy(false));
   };
   const userSeat = viewer.role === "player" ? viewer.seat : undefined;
+  const turnRedo = useTurnRedo({
+    enabled: viewer.role === "player",
+    fetchStatus: fetchTurnRedoStatus,
+    command: turnRedoCommand,
+    gameVersion,
+    generation: gameHistory.generation ?? 0,
+    onTimelineChanged: () => {
+      setSelectedOptionId(undefined);
+      setSelectedPlanetId(null);
+      setSelectedSystemId(null);
+      setCardSubject(null);
+    },
+  });
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
   const [selectedOptionId, setSelectedOptionId] = useState<string>();
   const [selectedPlanetId, setSelectedPlanetId] = useState<string | null>(null);
@@ -493,6 +510,29 @@ const GameViewContainer: React.FC<{
         historyBusy={historyBusy}
         onChangeHistory={userSeat === lobby.host_player_id ? onChangeHistory : undefined}
         onFetchReplay={userSeat ? fetchReplay : undefined}
+        turnRedo={
+          userSeat
+            ? {
+                status: turnRedo.status,
+                busy: turnRedo.busy,
+                error: turnRedo.error,
+                onRequest: turnRedo.request,
+                onAutoplay: turnRedo.autoplay,
+                onRestore: turnRedo.restore,
+                onKeep: turnRedo.keep,
+                viewerSeat: userSeat,
+                seats:
+                  userSeat === lobby.host_player_id && snapshot
+                    ? [userSeat, ...snapshot.view.seating_order.filter((id) => id !== userSeat)].map(
+                        (id) => ({
+                          id,
+                          label: playerDisplay(lobby, snapshot.view.seating_order, id).label,
+                        }),
+                      )
+                    : undefined,
+              }
+            : undefined
+        }
         choice={pendingChoice}
         viewerSeat={userSeat}
         players={snapshot?.view.players}

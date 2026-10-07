@@ -9,6 +9,10 @@ import {
   ObjectiveProgressView,
 } from "../protocol/types.ts";
 import { EventLog } from "./EventLog.tsx";
+import { TurnRedoBar } from "./TurnRedoBar.tsx";
+import type { TurnRedoRequestControls } from "./EventLog.tsx";
+import type { TurnRedoBusy } from "../hooks/useTurnRedo.ts";
+import type { TurnRedoStatus } from "../protocol/turnRedo.ts";
 import { PausedPlanBanner } from "./PausedPlanBanner.tsx";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { TechnologyModal } from "./TechnologyModal.tsx";
@@ -65,6 +69,8 @@ export interface GameShellProps {
   historyBusy?: boolean;
   /** Loads the replay JSON for the event log's "Copy replay" button (seated players). */
   onFetchReplay?: () => Promise<{ text: string; filename: string }>;
+  /** Turn redo (seated players): the status strip and the "Redo my last turn" controls. */
+  turnRedo?: TurnRedoShellProps;
   choice: PendingChoiceDto | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
   /** The viewing seat's "never offer" cards (server state) and how to change them. */
@@ -104,6 +110,19 @@ export interface GameShellProps {
   onQueueProduction?: (units: string[]) => void;
   /** The phase and whose turn it is, for the read-only action bar when it is not your turn. */
   turn?: TurnInfo;
+}
+
+export interface TurnRedoShellProps {
+  status: TurnRedoStatus | null;
+  busy: TurnRedoBusy;
+  error: string | null;
+  onRequest: TurnRedoRequestControls["onRequest"];
+  onAutoplay: () => void;
+  onRestore: () => void;
+  onKeep: () => void;
+  /** Host only: the seats whose turn may be redone. */
+  seats?: TurnRedoRequestControls["seats"];
+  viewerSeat?: string | null;
 }
 
 export interface TurnInfo {
@@ -883,6 +902,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   onChangeHistory,
   historyBusy,
   onFetchReplay,
+  turnRedo,
   choice,
   onSubmitChoice,
   onSubmitMovementBatch,
@@ -1119,6 +1139,16 @@ export const GameShell: React.FC<GameShellProps> = ({
             onChangeHistory ? (action) => onChangeHistory(action) : undefined
           }
           onFetchReplay={onFetchReplay}
+          turnRedo={
+            turnRedo
+              ? {
+                  onRequest: turnRedo.onRequest,
+                  disabled: turnRedo.busy !== null || turnRedo.status !== null,
+                  seats: turnRedo.seats,
+                  viewerSeat: turnRedo.viewerSeat,
+                }
+              : undefined
+          }
           isOpen={openDrawer === "events"}
           onToggle={() =>
             setOpenDrawer((drawer) => (drawer === "events" ? null : "events"))
@@ -1127,6 +1157,16 @@ export const GameShell: React.FC<GameShellProps> = ({
       </section>
 
       <div className="app-shell__overlays">
+        {turnRedo && (
+          <TurnRedoBar
+            status={turnRedo.status}
+            busy={turnRedo.busy}
+            error={turnRedo.error}
+            onAutoplay={turnRedo.onAutoplay}
+            onRestore={turnRedo.onRestore}
+            onKeep={turnRedo.onKeep}
+          />
+        )}
         {batchResume && onResumeBatch && onDismissBatchResume && (
           <PausedPlanBanner
             resume={batchResume}

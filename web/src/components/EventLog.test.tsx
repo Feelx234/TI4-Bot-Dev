@@ -268,3 +268,58 @@ describe("copy replay", () => {
     expect(screen.getByTestId("copy-replay-status")).toHaveAttribute("data-state", "error");
   });
 });
+
+describe("turn redo controls", () => {
+  it("has no controls unless the viewer may redo a turn", () => {
+    render(wrap([decision(1)]));
+    expect(screen.queryByTestId("turn-redo-btn")).toBeNull();
+  });
+
+  it("offers a seated player their own last turn, or the last two", () => {
+    const onRequest = vi.fn();
+    render(
+      wrap([decision(1)], {
+        turnRedo: { onRequest, disabled: false, viewerSeat: "p1" },
+      }),
+    );
+    expect(screen.queryByTestId("turn-redo-seat")).toBeNull();
+    const button = screen.getByTestId("turn-redo-btn");
+    expect(button.textContent).toBe("Redo my last turn");
+    fireEvent.click(button);
+    expect(onRequest).toHaveBeenLastCalledWith({ turns: 1, seat: undefined });
+    fireEvent.change(screen.getByTestId("turn-redo-turns"), { target: { value: "2" } });
+    fireEvent.click(button);
+    expect(onRequest).toHaveBeenLastCalledWith({ turns: 2, seat: undefined });
+  });
+
+  it("lets the host pick another seat and says so on the button", () => {
+    const onRequest = vi.fn();
+    render(
+      wrap([decision(1)], {
+        turnRedo: {
+          onRequest,
+          disabled: false,
+          viewerSeat: "p1",
+          seats: [
+            { id: "p1", label: "Ana" },
+            { id: "p2", label: "Bo" },
+          ],
+        },
+      }),
+    );
+    fireEvent.change(screen.getByTestId("turn-redo-seat"), { target: { value: "p2" } });
+    const button = screen.getByTestId("turn-redo-btn");
+    expect(button.textContent).toBe("Redo their last turn");
+    fireEvent.click(button);
+    expect(onRequest).toHaveBeenLastCalledWith({ turns: 1, seat: "p2" });
+  });
+
+  it("waits while a redo is running or in flight", () => {
+    render(
+      wrap([decision(1)], {
+        turnRedo: { onRequest: vi.fn(), disabled: true, viewerSeat: "p1" },
+      }),
+    );
+    expect(screen.getByTestId("turn-redo-btn")).toBeDisabled();
+  });
+});

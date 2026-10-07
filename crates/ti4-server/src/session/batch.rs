@@ -489,6 +489,9 @@ fn is_reaction_window(choice: &Choice) -> bool {
 
 struct Script {
     prefix: VecDeque<DecisionRecord>,
+    /// Forced random positions for the prefix (a timeline made by a turn redo), and its length.
+    force: Option<crate::session::RngForce>,
+    prefix_len: usize,
     steps: Vec<MovementStep>,
     next: usize,
     actor: PlayerId,
@@ -519,7 +522,11 @@ pub struct Simulation {
 impl Decider for PrivateDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         let mut script = self.0.lock().expect("batch script lock");
+        let prefix_index = script.prefix_len.saturating_sub(script.prefix.len());
         if let Some(record) = script.prefix.pop_front() {
+            if let Some(force) = &script.force {
+                force.before_answer(prefix_index);
+            }
             let matching: Vec<_> = choice
                 .options
                 .iter()
@@ -1002,8 +1009,11 @@ fn simulate_script(
     actor: &PlayerId,
     plan: &MovementPlan,
 ) -> Result<Simulation, BatchFailure> {
+    let force = crate::session::RngForce::new(&config.rng_marks);
     let script = Arc::new(Mutex::new(Script {
         prefix: prefix.iter().cloned().collect(),
+        force: force.clone(),
+        prefix_len: prefix.len(),
         steps: plan.steps.clone(),
         next: 0,
         actor: actor.clone(),
@@ -1021,6 +1031,9 @@ fn simulate_script(
     let mut game = Game::with_table(config.state.clone(), ContentStore::embedded(), table);
     if let Some(galaxy) = &config.galaxy {
         game = game.with_galaxy(galaxy.clone());
+    }
+    if let Some(force) = &force {
+        force.attach(&mut game);
     }
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut phase = game.state.phase;
@@ -1230,6 +1243,8 @@ mod tests {
     fn decider(kind: BatchKind, steps: Vec<MovementStep>) -> PrivateDecider {
         PrivateDecider(Arc::new(Mutex::new(Script {
             prefix: VecDeque::new(),
+            force: None,
+            prefix_len: 0,
             steps,
             next: 0,
             actor: PlayerId::new("p1"),
