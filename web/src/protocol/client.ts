@@ -285,6 +285,15 @@ export function reduceServerMessage(
     case "error":
       return { ...state, lastError: `Server Error: ${message.message}` };
     case "game_over":
+      // The server pushes this when the game ends and then no more turn statuses. Ignoring it left
+      // every open tab on the last phase banner until it was reloaded (found by the endgame smoke
+      // preset).
+      return {
+        ...state,
+        gameVersion: message.game_version,
+        turnStatus: { kind: "game_over", winner: message.winner ?? null },
+        pendingChoice: null,
+      };
     case "pong":
       return state;
   }
