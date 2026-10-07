@@ -12,13 +12,28 @@ export function presetFromEnv(value: string | undefined): string | undefined {
   return name;
 }
 
+/** Strategy card sets the create form offers (`card_set::OFFERED`). */
+export const KNOWN_CARD_SETS = ["te", "pok", "base_game_codex1"] as const;
+
+/** Reads TI4_SMOKE_CARD_SET: unset or empty means the server default; an unknown name is an error. */
+export function cardSetFromEnv(value: string | undefined): string | undefined {
+  const name = value?.trim();
+  if (!name) return undefined;
+  if (!(KNOWN_CARD_SETS as readonly string[]).includes(name)) {
+    throw new Error(`unknown TI4_SMOKE_CARD_SET "${name}" (known: ${KNOWN_CARD_SETS.join(", ")})`);
+  }
+  return name;
+}
+
 /** The POST /api/games body; `start_preset` is only sent when a preset was asked for. */
-export function createGameBody(playerCount: number, seed: number, preset?: string) {
+export function createGameBody(playerCount: number, seed: number, preset?: string, cardSet?: string) {
   return {
     player_count: playerCount,
     seed,
     nickname: "E2E Host",
     ...(preset ? { start_preset: preset } : {}),
+    // Left out for the server default (te); the nightly sets pok on part of the runs.
+    ...(cardSet ? { strategy_card_set: cardSet } : {}),
   };
 }
 

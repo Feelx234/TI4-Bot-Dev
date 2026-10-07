@@ -64,3 +64,19 @@ for i in $(seq 1 10); do
   grep -q '"preset": "leaders"' "$tmp/lead$i/meta.json" || fail "leaders must not get +rot"
 done
 echo "ok: preset list and rotation (+rot $rot/80)"
+
+# The strategy card set: Thunder's Edge by default (nothing in the repro), pok on part of the runs.
+NIGHTLY_REPO="$tmp" NIGHTLY_POK_PROBABILITY=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/pok" > /dev/null
+grep -q '"card_set": "pok"' "$tmp/pok/meta.json" || fail "100% should pick pok"
+grep -q 'TI4_SMOKE_CARD_SET=pok ' "$tmp/pok/meta.json" || fail "repro should carry the pok card set"
+python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/pok/meta.json" || fail "meta.json must stay valid JSON"
+NIGHTLY_REPO="$tmp" NIGHTLY_POK_PROBABILITY=0 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/te" > /dev/null
+grep -q '"card_set": "te"' "$tmp/te/meta.json" || fail "0% should keep te"
+grep -q 'TI4_SMOKE_CARD_SET' "$tmp/te/meta.json" && fail "repro must not mention the card set for the default te"
+pok=0
+for i in $(seq 1 80); do
+  NIGHTLY_REPO="$tmp" "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/cs$i" > /dev/null
+  grep -q '"card_set": "pok"' "$tmp/cs$i/meta.json" && pok=$((pok + 1))
+done
+[ "$pok" -ge 6 ] && [ "$pok" -le 36 ] || fail "the default 25% picked pok $pok/80 times"
+echo "ok: card set pick (pok $pok/80)"

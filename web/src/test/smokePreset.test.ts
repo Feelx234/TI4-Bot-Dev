@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createGameBody, missingExpected, parseExpect, presetFromEnv } from "../../e2e/smokePreset";
+import { cardSetFromEnv, createGameBody, missingExpected, parseExpect, presetFromEnv } from "../../e2e/smokePreset";
 
 describe("smoke start preset", () => {
   it("treats an unset or empty TI4_SMOKE_PRESET as a normal opening", () => {
@@ -28,6 +28,18 @@ describe("smoke start preset", () => {
       nickname: "E2E Host",
       start_preset: "combat",
     });
+  });
+
+  it("sends strategy_card_set only when a set was asked for", () => {
+    expect(createGameBody(3, 7, undefined, "pok")).toEqual({
+      player_count: 3,
+      seed: 7,
+      nickname: "E2E Host",
+      strategy_card_set: "pok",
+    });
+    expect(cardSetFromEnv(undefined)).toBeUndefined();
+    expect(cardSetFromEnv(" te ")).toBe("te");
+    expect(() => cardSetFromEnv("nope")).toThrow(/unknown TI4_SMOKE_CARD_SET/);
   });
 
   it("parses expectations: plain, any-of and at-least-N", () => {

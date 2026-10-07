@@ -45,18 +45,59 @@ export function preferTokenConfirm<T extends PolicyCandidate>(
   candidates: T[],
   rng?: () => number,
 ): T[] {
+  // Leadership's "Pay on the map" bar (minimized dialog): confirm as soon as it is enabled, else
+  // fall back to the Auto-pay suggestion, never the trade-goods stepper or the map planets, whose
+  // toggles can leave the bill unpaid. With neither enabled only the way back to the panel is left.
+  if (candidates.some((c) => /^token-bar-/.test(c.desc))) {
+    const barConfirm = candidates.find((c) => /^token-bar-confirm\b/.test(c.desc));
+    if (barConfirm) return [barConfirm];
+    const barAuto = candidates.find((c) => /^token-bar-auto\b/.test(c.desc));
+    if (barAuto) return [barAuto];
+    const back = candidates.filter((c) => /^resume-/.test(c.desc));
+    return back.length ? back : candidates.filter((c) => !/^token-bar-goods/.test(c.desc));
+  }
+  // With the token panel up the map's payable planets are clickable too; toggling one writes a
+  // payment override that can leave the bill unpaid. The panel's own controls make all the progress.
+  if (candidates.some((c) => /^token-/.test(c.desc))) {
+    candidates = candidates.filter((c) => !/^(planet|system-hex)-/.test(c.desc));
+  }
   // The payment override is optional and its toggles can leave the bill unpaid: never click them,
   // only "Use Auto-pay" (to recover) when nothing else can make progress.
   const autoPay = candidates.find((c) => /^token-payment-auto\b/.test(c.desc));
-  candidates = candidates.filter((c) => !/^token-payment-/.test(c.desc));
+  const payOnMap = candidates.find((c) => /^token-pay-on-map\b/.test(c.desc));
+  candidates = candidates.filter((c) => !/^token-payment-|^token-pay-on-map\b/.test(c.desc));
   const buy = candidates.find((c) => /^token-buy-plus\b/.test(c.desc));
   if (buy && rng && rng() < TOKEN_BUY_CHANCE) return [buy];
   const confirm = candidates.find((c) => /^token-confirm\b/.test(c.desc));
+  // Once everything is assigned, now and then pay from the map bar instead of the panel.
+  if (confirm && payOnMap && rng && rng() < PAY_ON_MAP_CHANCE) return [payOnMap];
   if (confirm) return [confirm];
   const plus = candidates.filter((c) => /^token-plus-/.test(c.desc));
   if (plus.length) return plus;
   return autoPay && !candidates.length ? [autoPay] : candidates;
 }
+
+/** How often a settled Leadership purchase is paid from the map bar ("Pay on the map"). */
+export const PAY_ON_MAP_CHANCE = 0.3;
+
+/**
+ * The trade desk (propose screen). Propose is enabled only when the staged combination is a deal
+ * the server lists, so random staging rarely got there. Once Propose is enabled press it; while the
+ * desk shows "Nearest available deals" press one of those (it stages a listed deal). Now and then
+ * decline instead ("Offer Nothing"), so the desk is not always pushed through. Anything else (an
+ * empty desk, the answer screen with Accept/Refuse/Counter) is left to the general choice.
+ */
+export function preferTradeDesk<T extends PolicyCandidate>(candidates: T[], rng?: () => number): T[] {
+  const propose = candidates.find((c) => /^propose-trade-btn\b/.test(c.desc));
+  const decline = candidates.find((c) => /^decline-trade-btn\b/.test(c.desc));
+  const suggestions = candidates.filter((c) => /^stage-suggest-/.test(c.desc));
+  if (!propose && !suggestions.length) return candidates;
+  if (decline && rng && rng() < TRADE_DECLINE_CHANCE) return [decline];
+  return propose ? [propose] : suggestions;
+}
+
+/** How often a desk that could be pushed through is declined instead. */
+export const TRADE_DECLINE_CHANCE = 0.15;
 
 /** How often the harness buys one more Leadership token while the panel offers it. */
 export const TOKEN_BUY_CHANCE = 0.35;
@@ -145,8 +186,10 @@ export function isUnstage(desc: string): boolean {
 
 // Controls that hide the decision or rewrite history; clicking them never advances the game. The
 // reaction dialog's card-text, compact and map controls are all `reaction-inspect-*`.
+// The info buttons (unit and faction cards, hover popovers) only show text; "prepare" and the
+// secondary-prep chip/banner record a local plan instead of answering the real question.
 export const EXCLUDED_CONTROLS =
-  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss/i;
+  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss|^(unit|faction)-info|: (unit|faction) details|^(secondary-prep|prepare-|prep-)/i;
 
 /** Whether a decision subtype is a reaction window, its inner card pick or a reaction ability. */
 export function isReactionSubtype(subtype: string): boolean {

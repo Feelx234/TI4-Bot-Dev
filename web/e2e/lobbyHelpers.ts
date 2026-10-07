@@ -32,9 +32,10 @@ export async function createStartedGame(
   playerCount: number,
   seed: number,
   startPreset?: string,
+  cardSet?: string,
 ) {
   const created = await request.post(`${backend}/api/games`, {
-    data: createGameBody(playerCount, seed, startPreset),
+    data: createGameBody(playerCount, seed, startPreset, cardSet),
   });
   expect(created.ok()).toBeTruthy();
   const host = await created.json();

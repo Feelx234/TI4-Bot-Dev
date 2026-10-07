@@ -18,6 +18,7 @@ import {
   preferHitConfirm,
   preferPayment,
   preferTokenConfirm,
+  preferTradeDesk,
   steerWeight as policySteerWeight,
   strongUnselected,
   classifyControl,
@@ -40,6 +41,8 @@ export interface PlaythroughOptions {
   clickSeed: number;
   /** Start preset for the game (e.g. "combat": fleets beside homes and Mecatol). */
   startPreset?: string;
+  /** Strategy card set for the game ("te" server default, "pok", "base_game_codex1"). */
+  cardSet?: string;
   /** Decision subtypes the run must have offered (see `parseExpect`); a miss fails the run. */
   expect?: Expectation[];
   /** Stop successfully after this many resolved decisions. */
@@ -62,6 +65,7 @@ export interface PlaythroughOptions {
 export interface PlaythroughReport {
   gameId: string;
   startPreset: string | null;
+  cardSet: string | null;
   decisions: number;
   clicks: number;
   finished: boolean;
@@ -101,6 +105,7 @@ const DECISION_CONTAINERS = [
   "invasion-overlay",
   "payment-drawer",
   "payment-bar",
+  "token-payment-bar",
   "production-builder-drawer",
   "objectives-modal",
   "technology-modal",
@@ -110,6 +115,24 @@ const DECISION_CONTAINERS = [
   "reaction-status-bar",
   "paused-plan",
 ];
+
+// New UI surfaces worth a look by the proctor: the first time one is on screen during a run (and
+// the first decision of each round), a screenshot of the acting seat's tab lands in
+// `<traceDir>/shots/`. A handful per run, so the disk and the proctor's reading stay small.
+const SHOT_TARGETS = [
+  "trade-staging-desk",
+  "trade-offer-columns",
+  "production-builder-drawer",
+  "token-payment-bar",
+  "command-token-panel",
+  "secondary-prep",
+  "combat-result-summary",
+  "ground-combat-result-summary",
+  "corner-toast",
+  "objectives-modal",
+  "agenda-ballot-modal",
+];
+const MAX_SHOTS = 20;
 
 const ERROR_BANNERS = [
   "choice-error-banner",
@@ -176,10 +199,19 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
           !covered(rect, el)
         );
       };
+      // The trade desk's "Quick deals" list sits in a closed <details>: its buttons have a box but
+      // cannot be clicked until the summary is opened, so the click only timed out.
+      const folded = (el: Element) => {
+        const closed = el.closest("details:not([open])");
+        return closed !== null && !el.closest("summary");
+      };
       const enabled = (el: Element) =>
         !(el as HTMLButtonElement).disabled &&
         el.getAttribute("aria-disabled") !== "true" &&
         el.getAttribute("data-actionable") !== "false";
+      // Secondary preparation (chip, banner, prepared-answer bar) answers into a local plan, never
+      // the engine's question; it must not be clicked as a decision control.
+      const inPrep = (el: Element) => el.closest('[data-testid="secondary-prep"]') !== null;
       const found = new Set<Element>();
       document
         .querySelectorAll(
@@ -214,7 +246,7 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
       }[] = [];
       let idx = 0;
       for (const el of found) {
-        if (!visible(el) || !enabled(el)) continue;
+        if (!visible(el) || !enabled(el) || inPrep(el) || folded(el)) continue;
         // An unlabeled checkbox or radio is described by the label that wraps it.
         const named =
           el instanceof HTMLInputElement ? (el.closest("label") ?? el) : el;
@@ -344,7 +376,7 @@ function pick(
     return weightedPick(bar, (c) => steerWeight(c.full, hexWeights), rng);
   }
   candidates = preferTokenConfirm(
-    preferHitConfirm(preferPayment(candidates)),
+    preferTradeDesk(preferHitConfirm(preferPayment(candidates)), rng),
     rng,
   );
   const resume = candidates.filter((c) => c.resume);
@@ -421,9 +453,10 @@ export async function randomUiPlaythrough(
     options.playerCount,
     options.gameSeed,
     options.startPreset,
+    options.cardSet,
   );
   log(
-    `game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed} preset=${options.startPreset ?? "none"}`,
+    `game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed} preset=${options.startPreset ?? "none"} cards=${options.cardSet ?? "default"}`,
   );
 
   const browserErrors: string[] = [];
@@ -519,6 +552,7 @@ export async function randomUiPlaythrough(
   const report: PlaythroughReport = {
     gameId,
     startPreset: options.startPreset ?? null,
+    cardSet: options.cardSet ?? null,
     decisions: 0,
     clicks: 0,
     finished: false,
@@ -560,6 +594,16 @@ export async function randomUiPlaythrough(
       players[0].session,
     ).catch(() => null);
     if (snapshot) trace("final-snapshot.json", snapshot);
+  };
+
+  const shotsTaken = new Set<string>();
+  const shot = async (page: Page, key: string, name: string) => {
+    if (!options.traceDir || shotsTaken.size >= MAX_SHOTS || shotsTaken.has(key)) return;
+    shotsTaken.add(key);
+    mkdirSync(join(options.traceDir, "shots"), { recursive: true });
+    await page
+      .screenshot({ path: join(options.traceDir, "shots", `${name}.png`) })
+      .catch(() => {});
   };
 
   let traceWritten = false;
@@ -672,6 +716,8 @@ export async function randomUiPlaythrough(
           ? activationWeights(actorState.view.board, players[actorIndex].id)
           : new Map<string, number>();
       report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
+      if (status.round <= 3)
+        await shot(page, `round-${status.round}`, `round-${status.round}-d${report.decisions}-${subtype}`.slice(0, 120));
       trace(
         "trace.jsonl",
         {
@@ -731,6 +777,16 @@ export async function randomUiPlaythrough(
             const problem = reactionTextProblem(shown);
             if (problem) report.reactionTextProblems.push(`${subtype}: ${problem}`);
           }
+        }
+        if (options.traceDir && shotsTaken.size < MAX_SHOTS) {
+          const shown = await page
+            .evaluate(
+              (ids) => ids.filter((id) => document.querySelector(`[data-testid="${id}"]`) !== null),
+              SHOT_TARGETS,
+            )
+            .catch(() => [] as string[]);
+          for (const id of shown)
+            await shot(page, id, `${id}-d${report.decisions}-${subtype}`.slice(0, 120));
         }
         const candidates = await collectCandidates(page);
         if (!candidates.length) {

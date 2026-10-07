@@ -49,6 +49,9 @@ PRESET_NAME="${NIGHTLY_PRESET:-combat combat cards agenda relics invasion techs 
 # Share of preset runs (percent) that also rotate the factions ("<preset>+rot": Jol-Nar and L1Z1X
 # at three and four seats); `leaders` always rotates.
 PRESET_ROTATE_PERCENT="${NIGHTLY_PRESET_ROTATE_PERCENT:-20}"
+# Share of runs (percent) that play the Prophecy of Kings strategy cards (`strategy_card_set` "pok")
+# instead of the default Thunder's Edge set (TE Warfare offers an extra redistribute decision).
+POK_PROBABILITY="${NIGHTLY_POK_PROBABILITY:-25}"
 # Free space (GB) needed on the report filesystem to start a run or a fixer round. Below it the loop
 # waits (DISK_WAIT_SECONDS between checks) and gives the night up after MAX_DISK_WAITS checks.
 # DF_CMD is a test hook (the tests put a stub `df` here).

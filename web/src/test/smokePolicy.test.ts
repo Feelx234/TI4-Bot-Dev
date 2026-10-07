@@ -3,6 +3,7 @@ import {
   activationWeight,
   preferHitConfirm,
   preferTokenConfirm,
+  preferTradeDesk,
   preferPayment,
   steerWeight,
   strongUnselected,
@@ -411,5 +412,79 @@ describe("system pick controls", () => {
     // The list stays the path: option rows are choice-option, the submit is a commit.
     expect(classifyControl("choice-option | 14").unstage).toBe(false);
     expect(classifyControl("submit-choice-button | Confirm choice").commit).toBe(true);
+  });
+});
+
+describe("Leadership map payment (Pay on the map)", () => {
+  const payOnMap = c("token-pay-on-map | Pay on the map");
+  const confirm = c("token-confirm | Confirm tokens and purchase");
+  const plus = c("token-plus-fleet | Add a token to Fleet | +");
+  const mapPlanet = c("planet-jord | Exhaust planet Jord for 2 influence");
+
+  it("takes the map route only now and then, and only once everything is assigned", () => {
+    expect(preferTokenConfirm([payOnMap, confirm, mapPlanet], () => 0)).toEqual([payOnMap]);
+    expect(preferTokenConfirm([payOnMap, confirm, mapPlanet], () => 0.99)).toEqual([confirm]);
+    expect(preferTokenConfirm([payOnMap, plus, mapPlanet], () => 0)).toEqual([plus]);
+    expect(preferTokenConfirm([payOnMap, confirm])).toEqual([confirm]);
+  });
+
+  it("never toggles the map's payable planets while the token panel is up", () => {
+    expect(preferTokenConfirm([mapPlanet, plus])).toEqual([plus]);
+    // A payment dialog without token controls keeps its map targets.
+    expect(preferTokenConfirm([mapPlanet])).toEqual([mapPlanet]);
+  });
+
+  describe("the payment bar", () => {
+    const barConfirm = c("token-bar-confirm | Confirm tokens and purchase");
+    const barAuto = c("token-bar-auto | Auto-pay");
+    const goods = c("token-bar-goods-plus | Spend one trade good more | +");
+    const resume = c("resume-choice-button | Open token panel");
+
+    it("confirms when enabled, else restores Auto-pay, else goes back to the panel", () => {
+      expect(preferTokenConfirm([mapPlanet, goods, barAuto, resume, barConfirm])).toEqual([barConfirm]);
+      expect(preferTokenConfirm([mapPlanet, goods, barAuto, resume])).toEqual([barAuto]);
+      expect(preferTokenConfirm([mapPlanet, goods, resume, c("token-bar-tally")])).toEqual([resume]);
+    });
+  });
+});
+
+describe("preferTradeDesk", () => {
+  const propose = c("propose-trade-btn | Propose Deal");
+  const decline = c("decline-trade-btn | Offer Nothing");
+  const suggest = c("stage-suggest-offer_1 | Give 1 trade good, receive 1 commodity");
+  const stage = c("stage-give-trade_goods-inc | Increase Trade goods | +");
+
+  it("proposes once the staged combination is a listed deal", () => {
+    expect(preferTradeDesk([stage, decline, propose])).toEqual([propose]);
+    expect(preferTradeDesk([stage, decline, propose], () => 0.5)).toEqual([propose]);
+  });
+
+  it("takes a suggested listed deal while the staged one is not available", () => {
+    expect(preferTradeDesk([stage, decline, suggest])).toEqual([suggest]);
+  });
+
+  it("now and then offers nothing instead, and leaves other screens alone", () => {
+    expect(preferTradeDesk([stage, decline, propose], () => 0)).toEqual([decline]);
+    const answer = [c("answer-opt-accept | Accept"), c("answer-opt-refuse | Refuse")];
+    expect(preferTradeDesk(answer, () => 0)).toEqual(answer);
+    expect(preferTradeDesk([stage, decline], () => 0)).toEqual([stage, decline]);
+  });
+});
+
+describe("controls the harness never clicks as decisions", () => {
+  it("excludes the info buttons and the secondary-prep chrome", () => {
+    for (const desc of [
+      "unit-info-cruiser",
+      "Cruiser: unit details",
+      "faction-info-button",
+      "secondary-prep-chip",
+      "prepare-banner",
+      "prep-save",
+    ]) {
+      expect(EXCLUDED_CONTROLS.test(desc), desc).toBe(true);
+    }
+    for (const desc of ["produce-unit-btn-cruiser", "confirm-builds", "done-producing-btn", "trade-opt-1", "answer-opt-accept", "token-bar-confirm"]) {
+      expect(EXCLUDED_CONTROLS.test(desc), desc).toBe(false);
+    }
   });
 });
