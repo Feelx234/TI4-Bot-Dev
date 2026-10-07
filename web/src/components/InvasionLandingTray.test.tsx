@@ -231,10 +231,9 @@ it("shows each planet's resources, influence, trait and attachment-modified valu
   );
   const rows = screen.getAllByTestId("invasion-planet-values");
   expect(rows).toHaveLength(2);
-  expect(rows[1]).toHaveTextContent("R 1");
-  expect(rows[1]).toHaveTextContent("I 1");
+  expect(rows[1]).toHaveTextContent("1");
   expect(rows[0]).toHaveTextContent("cultural");
   expect(rows[0]).toHaveTextContent("dmz");
-  expect(rows[1].querySelector('[aria-label="Resources 1"]')).not.toBeNull();
-  expect(rows[1].querySelector('[aria-label="Influence 1"]')).not.toBeNull();
+  expect(rows[1].querySelector('[aria-label="1 resource"]')).not.toBeNull();
+  expect(rows[1].querySelector('[aria-label="1 influence"]')).not.toBeNull();
 });

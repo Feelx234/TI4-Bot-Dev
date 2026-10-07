@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { InfluenceIcon, ResourceIcon } from "./PlanetValueIcons.tsx";
+import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { BoardView, PlayerView, ReactionModes, ReactionModeSetting, TableView } from "../protocol/types.ts";
 import {
   getStrategyCardMeta,
@@ -390,14 +390,14 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                     cursor: "default",
                   }}
                 >
-                  <ResourceIcon />
-                  <span style={{ fontWeight: 600 }}>
-                    <span style={{ color: stats.remainingResources > 0 ? "#f8fafc" : "#94a3b8" }}>
-                      {stats.remainingResources}
-                    </span>
-                    <span style={{ color: "#64748b" }}>/</span>
-                    <span style={{ color: "#94a3b8" }}>{stats.totalResources}</span>
-                  </span>
+                  <PlanetValue
+                    kind="resources"
+                    value={stats.remainingResources}
+                    total={stats.totalResources}
+                    alwaysTotal
+                    state={stats.remainingResources > 0 ? "ready" : "muted"}
+                    label={`Resources: ${stats.remainingResources} ready / ${stats.totalResources} total`}
+                  />
                 </div>
               </Tooltip>
 
@@ -416,14 +416,14 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                     cursor: "default",
                   }}
                 >
-                  <InfluenceIcon />
-                  <span style={{ fontWeight: 600 }}>
-                    <span style={{ color: stats.remainingInfluence > 0 ? "#f8fafc" : "#94a3b8" }}>
-                      {stats.remainingInfluence}
-                    </span>
-                    <span style={{ color: "#64748b" }}>/</span>
-                    <span style={{ color: "#94a3b8" }}>{stats.totalInfluence}</span>
-                  </span>
+                  <PlanetValue
+                    kind="influence"
+                    value={stats.remainingInfluence}
+                    total={stats.totalInfluence}
+                    alwaysTotal
+                    state={stats.remainingInfluence > 0 ? "ready" : "muted"}
+                    label={`Influence: ${stats.remainingInfluence} ready / ${stats.totalInfluence} total`}
+                  />
                 </div>
               </Tooltip>
 

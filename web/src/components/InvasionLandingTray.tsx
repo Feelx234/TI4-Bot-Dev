@@ -8,7 +8,7 @@ import {
 import { getPlanetEffectiveValues } from "../presentation/playerStats.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
-import { InfluenceIcon, ResourceIcon } from "./PlanetValueIcons.tsx";
+import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 
 export type Landing = { planet: string; unit: string; damaged: boolean };
@@ -364,23 +364,9 @@ export const InvasionLandingTray: React.FC<{
                         className="invasion-planet-landing-card__values"
                         data-testid="invasion-planet-values"
                       >
-                        <span
-                          className="invasion-planet-value"
-                          title={`Resources ${info.resources}`}
-                          aria-label={`Resources ${info.resources}`}
-                          role="img"
-                        >
-                          <ResourceIcon /> R {info.resources}
-                        </span>
+                        <PlanetValue kind="resources" value={info.resources} />
                         <span aria-hidden="true">·</span>
-                        <span
-                          className="invasion-planet-value"
-                          title={`Influence ${info.influence}`}
-                          aria-label={`Influence ${info.influence}`}
-                          role="img"
-                        >
-                          <InfluenceIcon /> I {info.influence}
-                        </span>
+                        <PlanetValue kind="influence" value={info.influence} />
                         {info.traits.length > 0 && (
                           <span className="invasion-planet-trait" title={`Trait: ${info.traits.join(", ")}`}>
                             {info.traits.join(" / ")}
