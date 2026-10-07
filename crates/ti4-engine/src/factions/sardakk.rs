@@ -2423,7 +2423,7 @@ mod tests {
         // Enough coloured technologies that every unit upgrade's prerequisites are met.
         let mut per_colour: std::collections::BTreeMap<&str, usize> =
             std::collections::BTreeMap::default();
-        for alias in crate::technology::active_aliases(content) {
+        for alias in crate::technology::active_aliases(content, DEFAULT) {
             if crate::technology::faction_of(content, &alias).is_some() {
                 continue;
             }
