@@ -390,7 +390,8 @@ html,
 
 .turn-redo {
   position: absolute;
-  top: 8px;
+  /* Below the game header, which sits above the overlay layer. */
+  top: 56px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

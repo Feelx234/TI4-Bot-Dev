@@ -2,6 +2,20 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TurnRedoBar } from "./TurnRedoBar.tsx";
 import type { TurnRedoStatus } from "../protocol/turnRedo.ts";
+import { PlayerIdentityProvider } from "../presentation/PlayerIdentity.tsx";
+import type { LobbyDto } from "../protocol/types.ts";
+
+const lobby: LobbyDto = {
+  game_id: "g",
+  phase: "running",
+  lobby_version: 1,
+  host_player_id: "p1",
+  slots: [
+    { slot_id: "s1", position: 1, occupant: "p1", nickname: "Ana", ready: true, connected: true, can_take_over: false },
+    { slot_id: "s2", position: 2, occupant: "p2", nickname: "Bo", ready: true, connected: true, can_take_over: false },
+    { slot_id: "s3", position: 3, occupant: "p3", nickname: "Cy", ready: true, connected: true, can_take_over: false },
+  ],
+};
 
 const base: TurnRedoStatus = {
   seat: "p2",
@@ -19,7 +33,11 @@ const base: TurnRedoStatus = {
 
 const handlers = { onAutoplay: vi.fn(), onRestore: vi.fn(), onKeep: vi.fn() };
 const renderBar = (status: TurnRedoStatus | null, busy = null as null | "autoplay", error = null as string | null) =>
-  render(<TurnRedoBar status={status} busy={busy} error={error} {...handlers} />);
+  render(
+    <PlayerIdentityProvider lobby={lobby} seatingOrder={["p1", "p2", "p3"]}>
+      <TurnRedoBar status={status} busy={busy} error={error} {...handlers} />
+    </PlayerIdentityProvider>,
+  );
 
 describe("TurnRedoBar", () => {
   it("renders nothing when no redo is in flight", () => {
@@ -32,7 +50,7 @@ describe("TurnRedoBar", () => {
     const bar = screen.getByTestId("turn-redo-bar");
     expect(bar).toHaveAttribute("data-state", "new-turn");
     expect(bar).toHaveAttribute("role", "status");
-    expect(bar.textContent).toMatch(/Redoing p2's last turn/);
+    expect(bar.textContent).toMatch(/Redoing Bo's last turn/);
     expect(screen.queryByTestId("turn-redo-keep")).toBeNull();
     fireEvent.click(screen.getByTestId("turn-redo-restore"));
     expect(handlers.onRestore).toHaveBeenCalledOnce();
@@ -73,7 +91,7 @@ describe("TurnRedoBar", () => {
     });
     const bar = screen.getByTestId("turn-redo-bar");
     expect(bar).toHaveAttribute("data-state", "handoff");
-    expect(bar.textContent).toMatch(/Back to p2/);
+    expect(bar.textContent).toMatch(/Back to Bo/);
     expect(bar.textContent).toMatch(/9 decisions of the other seats were replayed/);
     expect(screen.getByTestId("turn-redo-deck-offsets").textContent).toMatch(/action card -1/);
     fireEvent.click(screen.getByTestId("turn-redo-keep"));
@@ -108,7 +126,7 @@ describe("TurnRedoBar", () => {
     expect(bar).toHaveAttribute("data-state", "conflict");
     expect(bar.textContent).toMatch(/1 recorded decision was kept/);
     expect(bar.textContent).toMatch(/drew a different number of cards/);
-    expect(bar.textContent).toMatch(/p3 decides/);
+    expect(bar.textContent).toMatch(/Cy decides/);
     expect(screen.getByTestId("turn-redo-keep").textContent).toBe("Continue from here");
     fireEvent.click(screen.getByTestId("turn-redo-restore"));
     expect(handlers.onRestore).toHaveBeenCalled();

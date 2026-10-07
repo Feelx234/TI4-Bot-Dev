@@ -1,0 +1,23 @@
+{
+  "title": "Turn redo",
+  "description": "Casual-play \"Redo my last turn\": the game rewinds to the start of the seat's turn (same game seed), the seat plays a new turn live, then the other seats' recorded decisions replay on top of it, with the original dice, until control returns to the seat or one of them no longer fits. The original timeline can be restored at any point before the redone one moves past the hand-off. Synthetic mocked game and mocked server statuses, not captured engine states.",
+  "tag": "web/e2e/screenshots/Q-turn-redo",
+  "shots": [
+    { "file": "out/1-controls.png", "heading": "Event log: Redo my last turn", "caption": "Any seated player finds the control in the open event log, under Copy replay. \"Go back over\" picks the last turn or the last two of the player's own turns. The button is disabled while a redo is running or already in flight." },
+    { "file": "out/2-controls-host.png", "heading": "Host: another seat's turn", "caption": "The host additionally gets a \"Whose turn\" list (own seat first); naming another seat is host-only on the server too, a guest who tries gets a 403. The button text says whose turn goes back." },
+    { "file": "out/3-rewinding.png", "heading": "Rewinding", "caption": "After the click, the status strip at the top of the board says the game is going back; the server replaces the timeline for everyone (same version and history-generation semantics as an undo) and all clients reconnect." },
+    { "file": "out/4-new-turn.png", "heading": "Playing the new turn", "caption": "The seat plays a new turn live with free choices. The strip says what will happen next and offers \"Restore original timeline\" for the redoing seat and the host; other players see the strip without buttons." },
+    { "file": "out/5-replaying.png", "heading": "Replaying the round", "caption": "As soon as the new turn is complete the redoing client asks the server to replay the round (no button press needed). The strip is busy while the server replays the other seats' recorded decisions with the strict matcher, forcing the dice to their original positions." },
+    { "file": "out/6-handoff.png", "heading": "Back to the redoing seat", "caption": "Auto-play reached the redoing seat's next decision: N decisions of the other seats were kept, the seat plays on live. The original stays restorable until a live decision is recorded past this point; \"Keep this timeline\" drops it at once. A deck that sits a different number of cards from the original, without any replayed decision drawing from it, is listed instead of stopping the replay." },
+    { "file": "out/7-conflict.png", "heading": "Conflict: restore or continue", "caption": "A recorded decision no longer fits (here: the options on offer changed). The strip names the seat the engine now asks (it decides live), the kind of mismatch and how many decisions were kept, but not the recorded choice. \"Restore original timeline\" brings the pre-redo history back exactly; \"Continue from here\" keeps the new timeline." },
+    { "file": "out/8-deck-conflict.png", "heading": "Conflict: deck draw positions", "caption": "Decks are shuffled once and drawn positionally, so a redone turn that drew a different number of cards would shift every later draw. When a replayed decision would meet a draw from such a deck, the replay stops with this conflict instead of hiding it." },
+    { "file": "out/9-watching.png", "heading": "Another player's view", "caption": "Everyone else at the table sees that a redo happened and where it stopped, without the restore and keep buttons (those are for the host and the redoing seat)." },
+    { "file": "out/10-refused.png", "heading": "Server refused", "caption": "A refusal shows the server's reason in the strip; nothing changed and the button is usable again once the strip is gone." }
+  ],
+  "notesHeading": "How it behaves",
+  "notes": [
+    { "title": "Seed: ", "text": "the game seed is never changed. The dice come back because the per-domain random streams are restored to their original positions before each kept decision (stored with the history), not because anything is re-rolled." },
+    { "title": "Alternate timeline: ", "text": "the first redo saves the whole pre-redo history on the server. A second redo before the first is decided keeps that same original, so \"Restore\" always means \"before the first redo\". It is dropped by Keep, by Restore, and once a live decision is recorded after the hand-off." },
+    { "title": "Auto-play stops: ", "text": "at the redoing seat's next decision (control returns to it), at the first recorded decision that no longer fits (the seat the engine asks decides live), or when the recorded tail is used up." }
+  ]
+}

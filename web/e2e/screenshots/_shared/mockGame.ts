@@ -44,6 +44,8 @@ export interface MockGameOptions {
   version?: number;
   /** Watch as a spectator: no seat, no private data, every public action visible. */
   spectator?: boolean;
+  /** The lobby host (default: the viewing seat, who then sees the host-only controls). */
+  host?: string;
 }
 
 export interface MockedGame {
@@ -124,7 +126,7 @@ export async function openMockedGame(page: Page, options: MockGameOptions = {}):
     game_id: GAME_ID,
     phase: "running",
     lobby_version: 1,
-    host_player_id: seat,
+    host_player_id: options.host ?? seat,
     slots: snapshot.view.players.map((p, index) => ({
       slot_id: `slot-${index + 1}`,
       position: index + 1,

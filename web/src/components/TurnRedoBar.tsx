@@ -1,7 +1,7 @@
 import React from "react";
 import type { TurnRedoBusy } from "../hooks/useTurnRedo.ts";
 import type { TurnRedoConflictKind, TurnRedoStatus } from "../protocol/turnRedo.ts";
-import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
+import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 
 export interface TurnRedoBarProps {
   status: TurnRedoStatus | null;
@@ -48,7 +48,8 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
   onRestore,
   onKeep,
 }) => {
-  const present = useParticipantText();
+  const display = usePlayerIdentity();
+  const name = (seat: string) => display(seat).label;
   if (!status && !busy && !error) return null;
 
   let state = "idle";
@@ -58,18 +59,21 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
   const outcome = status?.outcome ?? null;
 
   if (!status) {
-    state = busy === "restore" ? "restoring" : "rewinding";
-    title = busy === "restore" ? "Restoring the original timeline…" : "Going back to the start of the turn…";
+    state = busy === "restore" ? "restoring" : busy ? "rewinding" : "error";
+    title =
+      busy === "restore"
+        ? "Restoring the original timeline…"
+        : busy
+          ? "Going back to the start of the turn…"
+          : "The turn redo did not happen";
   } else if (busy === "autoplay" || (status.stage === "new_turn" && status.turn_complete)) {
     state = "replaying";
     title = "Replaying the round…";
-    detail = present(
-      `${status.seat}'s new turn is done. The other seats' recorded decisions are being replayed with the original dice.`,
-    );
+    detail = `${name(status.seat)}'s new turn is done. The other seats' recorded decisions are being replayed with the original dice.`;
     actions = busy ? "none" : "replay";
   } else if (status.stage === "new_turn") {
     state = "new-turn";
-    title = present(`Redoing ${status.seat}'s ${status.turns_back === 2 ? "last two turns" : "last turn"}`);
+    title = `Redoing ${name(status.seat)}'s ${status.turns_back === 2 ? "last two turns" : "last turn"}`;
     detail =
       "Play the new turn. When it ends, the other seats' recorded decisions replay on top of it, with the original dice.";
     actions = "restore";
@@ -77,13 +81,11 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
     const { conflict } = outcome.stop;
     state = "conflict";
     title = "The replay stopped";
-    detail = present(
-      `${plural(outcome.kept, "recorded decision was", "recorded decisions were")} kept, then ${REASON[conflict.kind]}. ${conflict.seat} decides what happens next.`,
-    );
+    detail = `${plural(outcome.kept, "recorded decision was", "recorded decisions were")} kept, then ${REASON[conflict.kind]}. ${name(conflict.seat)} decides "${conflict.prompt}" now.`;
     actions = "decide";
   } else if (outcome?.stop.kind === "handoff") {
     state = "handoff";
-    title = present(`Back to ${outcome.stop.seat}`);
+    title = `Back to ${name(outcome.stop.seat)}`;
     detail = `${plural(outcome.kept, "decision", "decisions")} of the other seats ${outcome.kept === 1 ? "was" : "were"} replayed and kept.`;
     actions = "decide";
   } else {
@@ -145,7 +147,7 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
           {actions === "decide" && (
             <button
               type="button"
-              className="button button--sm"
+              className="button button--primary button--sm"
               data-testid="turn-redo-keep"
               disabled={busy !== null}
               onClick={onKeep}
