@@ -11,7 +11,30 @@ import {
   boughtProgressText,
   isBoughtObjective,
 } from "../presentation/boughtObjective.ts";
+import { ValueUnit } from "./PlanetValueIcons.tsx";
 import "./ObjectivesModal.css";
+
+/**
+ * `boughtProgressText` with the resource / influence word as the shared icon ("can pay 5 / 8
+ * [icon] now"); trade goods and the unitless form stay words. The container's aria-label carries
+ * the full sentence.
+ */
+const BoughtProgress: React.FC<{
+  have: number;
+  threshold: number;
+  unit: ReturnType<typeof boughtObjectiveUnit>;
+  scoringWindowOpen: boolean;
+}> = ({ have, threshold, unit, scoringWindowOpen }) => {
+  if (unit !== "resources" && unit !== "influence") {
+    return <>{boughtProgressText(have, threshold, unit, scoringWindowOpen)}</>;
+  }
+  return (
+    <>
+      can pay {have} / {threshold} <ValueUnit kind={unit} /> now
+      {scoringWindowOpen ? "" : " · pay at scoring"}
+    </>
+  );
+};
 
 export interface ObjectivesModalProps {
   isOpen: boolean;
@@ -335,12 +358,12 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
                         activeScoringMode && isCurrentActor,
                       )}. ${BOUGHT_PROGRESS_HINT}`}
                     >
-                      {boughtProgressText(
-                        progress.have,
-                        progress.threshold,
-                        boughtUnit,
-                        activeScoringMode && isCurrentActor,
-                      )}
+                      <BoughtProgress
+                        have={progress.have}
+                        threshold={progress.threshold}
+                        unit={boughtUnit}
+                        scoringWindowOpen={activeScoringMode && isCurrentActor}
+                      />
                     </div>
                   ) : (
                     <div className="objectives-matrix__progress-label">

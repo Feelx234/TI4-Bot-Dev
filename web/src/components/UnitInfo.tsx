@@ -10,6 +10,7 @@ import {
 } from "../presentation/factionInfo.ts";
 import { useSeatInfo } from "../presentation/SeatInfoContext.tsx";
 import { InfoPopover } from "./InfoPopover.tsx";
+import { CostValue } from "./PlanetValueIcons.tsx";
 import { UnitIcon } from "./UnitIcon.tsx";
 
 const NO_INFO = "No information available for this in the game content.";
@@ -29,7 +30,7 @@ export const UnitInfoCard: React.FC<{ unit: UnitDescription }> = ({ unit }) => (
         {unit.facts.map((fact) => (
           <div key={fact.label} className="info-card__fact">
             <dt>{fact.label}</dt>
-            <dd>{fact.value}</dd>
+            <dd>{fact.label === "Cost" ? <CostValue text={fact.value} /> : fact.value}</dd>
           </div>
         ))}
       </dl>

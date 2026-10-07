@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import {
+  CostValue,
   PlanetValue,
   PlanetValuePair,
   ValueText,
@@ -109,5 +110,22 @@ describe("ValueUnit, PlanetValuePair and ValueText", () => {
   it("leaves text without values alone", () => {
     render(<ValueText text="No planets" />);
     expect(screen.getByText("No planets")).toBeInTheDocument();
+  });
+});
+
+describe("CostValue", () => {
+  it("shows a plain cost as icon + number", () => {
+    render(<CostValue text="4" />);
+    expect(screen.getByRole("img", { name: "4 resources" })).toBeInTheDocument();
+  });
+  it("keeps the batch size as text and puts the icon on the price", () => {
+    const { container } = render(<CostValue text="2 for 1" />);
+    expect(container).toHaveTextContent("2 for 1");
+    expect(screen.getByRole("img", { name: "1 resource" })).toBeInTheDocument();
+  });
+  it("leaves Free as text", () => {
+    render(<CostValue text="Free" />);
+    expect(screen.getByText("Free")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
   });
 });

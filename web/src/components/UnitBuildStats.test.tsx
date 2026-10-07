@@ -122,10 +122,10 @@ describe("ProductionBuilderDrawer rows", () => {
   it("says why an option cannot be added", () => {
     renderDrawer();
     const dreadnought = screen.getByTestId("produce-option-b|dreadnought");
-    expect(dreadnought).toHaveTextContent("Needs 1 more resource");
+    expect(dreadnought).toHaveTextContent("Needs 1 more");
     expect(screen.getByRole("button", { name: "Add 1x dreadnought for 4" })).toBeDisabled();
     expect(screen.getByTestId("produce-option-b|carrier")).not.toHaveTextContent("Needs");
     fireEvent.click(screen.getByRole("button", { name: "Add 1x carrier for 3" }));
-    expect(screen.getByTestId("produce-option-b|infantry")).toHaveTextContent("Needs 1 more resource");
+    expect(screen.getByTestId("produce-option-b|infantry")).toHaveTextContent("Needs 1 more");
   });
 });

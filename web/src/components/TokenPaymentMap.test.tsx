@@ -110,8 +110,9 @@ describe("Leadership purchase paid on the map", () => {
   it("rings the planets that can pay, with Auto-pay's pick staged, and not the others", async () => {
     render(<Harness onSubmitBatch={vi.fn()} />);
     await click("token-buy-plus");
-    expect(screen.getByTestId("payment-mark-abyz")).toHaveTextContent("✓ 3I");
-    expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("2I");
+    expect(screen.getByTestId("payment-mark-abyz")).toHaveTextContent("✓ 3");
+    expect(screen.getByTestId("payment-mark-abyz")).toHaveAttribute("aria-label", "Staged: 3 influence");
+    expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("2");
     expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-payment-staged", "true");
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "false");
     expect(screen.queryByTestId("payment-mark-arnor")).not.toBeInTheDocument();

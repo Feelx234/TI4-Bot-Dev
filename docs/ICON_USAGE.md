@@ -12,6 +12,7 @@ and the payment unit letters, and then reading each hit. Line numbers are on the
 | `PlanetValue` | icon + number, `kind="resources" \| "influence"`, `size="inline" \| "bar" \| "tooltip"`, `state="ready" \| "spent" \| "muted"` (zero defaults to muted), `total` (+ `alwaysTotal`) for ready/total, `sign` for `+3`, `label` to override the text equivalent |
 | `ValueUnit` | just the icon, where a number is already shown next to it (`Paid 3 / 5 [icon]`) |
 | `PlanetValuePair` | resources then influence (a planet's printed values) |
+| `CostValue` | a unit's build cost string from `costText` / `formatUnitCost`: `3` becomes icon + number, `2 for 1` keeps the batch size as text with the icon on the price, `Free` stays text |
 | `ValueText` | text from our own presentation models (`Cost: 3 resources`, `Lodor (3R/1I)`): every `N resources`, `N influence` and `NR/MI` becomes icon + number, the rest stays text |
 | `PlanetValueGlyph` | the same glyph as SVG `<svg x y>` for the map (cards, payment marks, planet badge, map preview) |
 | `ResourceIcon`, `InfluenceIcon` | the bare decorative icons (overlay toolbar button) |
@@ -68,6 +69,12 @@ Spent/zero: `muted`/`spent` dim the number and the icon (0.55 opacity).
 | `StrategySecondaryPanel.tsx:57` (labels from `presentation/strategySecondary.ts`) | `Spend 1 strategy token + 4 resources to research`, `Spend 3 influence for a command token` | `ValueText` |
 | `PlayerSheet.tsx:393,419` | hand-styled icon + ready/total spans | `PlanetValue` with `total`, `alwaysTotal`, muted at 0 ready; same `title` |
 | `InvasionLandingTray.tsx:367` | icon + `R 2`, `I 2` (letters redundant next to the icon) | `PlanetValue` (number only; singular label) |
+| `UnitBuildStats.tsx` (inline stats in the production builder) | `Cost 4`, `Cost 2 for 1` (bare numbers, no word) | `Cost` + `CostValue`; the struck-through printed cost has a `title` "printed cost N resources" |
+| `UnitInfo.tsx` (unit and faction info card, `Cost` fact) | `Cost 4` | `CostValue` |
+| `ProductionBuilderDrawer.tsx` (blocked reason) | `Needs 1 more resource` | `Needs 1 more` + `ValueUnit` (the card was already `ValueUnit` for the budget) |
+| `TokenPaymentBar.tsx` (Leadership map-payment bar) | badge `Pay 3 influence for 1 token`, `Paid 2 / 3 influence` | `Pay` + `PlanetValue` (bar size); `Paid 2 / 3` + `ValueUnit`. The map's payment marks were already glyphs |
+| `ObjectivesModal.tsx` (`BoughtProgress`, bought-objective label) | `can pay 5 / 8 resources now` | `can pay 5 / 8` + `ValueUnit` + `now`; the container `aria-label` keeps the sentence with the word; trade goods stay text |
+| `SecondaryPrepHost.tsx` (prepared / auto-playing / auto-played bars) | plan text such as `Buy 2 tokens (...) for 6 influence`, `Spend 1 strategy token + 4 resources to research` | `ValueText`. The prepared secondary panel button already used `ValueText`; the Leadership dry choice renders `CommandTokenPanel` (icons) |
 
 ## Inventory: kept as text, on purpose
 
@@ -86,11 +93,22 @@ Spent/zero: `muted`/`spent` dim the number and the icon (0.55 opacity).
 | `CommandTokenPanel.tsx` "Pays with lodor (3)" | the engine-style note has numbers but no resource/influence word |
 | `playerStats.ts`, `mapOverlays.ts`, `boardPresentation.ts`, `choiceModel.ts`, `protocol/*`, `technologyData.ts` ("R" tech colour) | data and logic, no rendered words |
 
-## Not visible from this branch
+## Second pass (after unifying the branches)
 
-Surfaces that exist only on other unmerged branches (for example inline production-builder stats,
-the Leadership map payment) could not be searched or converted here. They should use `PlanetValue`
-/ `ValueText` when those branches are merged; the grep that finds them:
+The surfaces that only existed on other branches were converted in the unified branch: production
+builder inline stats and blocked reason, unit/faction info cost, Leadership payment bar,
+bought-objective progress label and the secondary-prep bars (rows above).
+
+Kept as text, second pass:
+
+| where | why |
+|---|---|
+| `presentation/dryChoice.ts` stand-in prompts and labels (`spend 3 influence for a command token`, `spend a strategy token and 4 resources to research`) | they imitate the engine's own free-text prompts and are shown by the generic option list; the dedicated panels (strategy secondary, command token panel) render the icons |
+| `presentation/secondaryPlan.ts` plan text, `presentation/boughtObjective.ts` | still plain strings for tests, aria text and other consumers; components convert them |
+| Trade desk (staging desk, Hacan decoder) | only trade goods and commodities; no resource or influence value |
+| `UnitBuildStats` stat labels `Combat`, `Move`, `Capacity` | not resource or influence |
+
+Find leftovers with:
 `grep -rnE "Res /|\bInf\b|[0-9]R/|resources|influence" web/src --include=*.tsx`.
 
 ## Tests and screenshots

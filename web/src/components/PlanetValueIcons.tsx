@@ -186,6 +186,24 @@ export const ValueText: React.FC<{ text: string; size?: PlanetValueSize }> = ({ 
   return <>{parts}</>;
 };
 
+/**
+ * A unit's build cost from `formatUnitCost` / `costText`: "3", "2 for 1" (two to a resource) or
+ * "Free". A number becomes icon + number; "2 for 1" keeps the batch size as text and puts the
+ * icon on the price. Anything else stays text.
+ */
+export const CostValue: React.FC<{ text: string; size?: PlanetValueSize }> = ({ text, size = "inline" }) => {
+  const batch = /^(\d+) for (\d+)$/.exec(text);
+  if (batch) {
+    return (
+      <>
+        {batch[1]} for <PlanetValue kind="resources" value={Number(batch[2])} size={size} />
+      </>
+    );
+  }
+  if (/^\d+(\.\d+)?$/.test(text)) return <PlanetValue kind="resources" value={Number(text)} size={size} />;
+  return <>{text}</>;
+};
+
 /** Plain-text equivalent of a pair, for aria-labels and titles of containers. */
 export function pairLabel(resources: number, influence: number): string {
   return `${valueLabel("resources", resources)}, ${valueLabel("influence", influence)}`;

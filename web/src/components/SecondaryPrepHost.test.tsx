@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type {
   BoardView,
   GameEvent,
@@ -183,7 +183,8 @@ describe("preparation mode renders the REAL components and sends nothing", () =>
     open();
     expect(screen.getByTestId("prepare-banner").textContent).toMatch(/Preparing\s*—\s*nothing is sent or spent/);
     expect(screen.getByTestId("strategy-secondary-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("secondary-yes-btn").textContent).toMatch(/Spend 1 strategy token \+ 4 resources to research/);
+    expect(screen.getByTestId("secondary-yes-btn").textContent).toMatch(/Spend 1 strategy token \+ 4 to research/);
+    expect(within(screen.getByTestId("secondary-yes-btn")).getByRole("img", { name: "4 resources" })).toBeInTheDocument();
     expect(submit).not.toHaveBeenCalled();
     expect(batch).not.toHaveBeenCalled();
   });

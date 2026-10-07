@@ -7,6 +7,7 @@ import {
   type CommandTokenView,
   type TokenOutcome,
 } from "../presentation/commandTokens.ts";
+import { PlanetValue, ValueUnit } from "./PlanetValueIcons.tsx";
 import { useSharedTokenDraft, useTokenDraftState } from "../presentation/CommandTokenDraftContext.tsx";
 
 export interface TokenPaymentBarProps {
@@ -65,9 +66,14 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
       <div className="system-activation-bar__body">
         <div className="system-activation-bar__prompt-row">
           <span className="badge badge--primary">
-            {bought > 0
-              ? `Pay ${bill} influence for ${bought} token${bought === 1 ? "" : "s"}`
-              : "No tokens bought"}
+            {bought > 0 ? (
+              <>
+                Pay <PlanetValue kind="influence" value={bill} size="bar" state="ready" /> for {bought} token
+                {bought === 1 ? "" : "s"}
+              </>
+            ) : (
+              "No tokens bought"
+            )}
           </span>
           <span className="system-activation-bar__hint text-muted">
             {bought > 0
@@ -78,7 +84,7 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
         {bought > 0 && (
           <div className="payment-bar__tally" data-testid="token-bar-tally" data-settled={covered}>
             <span>
-              Paid <strong data-testid="token-bar-paid">{paid}</strong> / {bill} influence
+              Paid <strong data-testid="token-bar-paid">{paid}</strong> / {bill} <ValueUnit kind="influence" />
             </span>
             <span className="text-muted">
               from {planetCount} planet{planetCount === 1 ? "" : "s"}

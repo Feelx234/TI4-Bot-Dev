@@ -376,11 +376,13 @@ describe("ObjectivesModal", () => {
     it("labels spending capacity, unit-aware, and marks it as paid at scoring", () => {
       render1();
       const monument = screen.getByTestId("bought-progress-monument-p1");
-      expect(monument).toHaveTextContent("can pay 5 / 8 resources now · pay at scoring");
+      expect(monument).toHaveTextContent("can pay 5 / 8 now · pay at scoring");
+      expect(monument.querySelector("[data-kind=resources]")).not.toBeNull();
+      expect(monument.getAttribute("aria-label")).toContain("can pay 5 / 8 resources now");
       expect(monument).toHaveAttribute("title", expect.stringContaining("paid for when you score them"));
       expect(monument.getAttribute("aria-label")).toContain("ready planets and trade goods");
       expect(screen.getByTestId("bought-progress-sway_council-p1")).toHaveTextContent(
-        "can pay 0 / 8 influence now · pay at scoring",
+        "can pay 0 / 8 now · pay at scoring",
       );
     });
 
@@ -400,7 +402,7 @@ describe("ObjectivesModal", () => {
           options: [{ id: "corner", label: "Corner" }],
         },
       });
-      expect(screen.getByTestId("bought-progress-monument-p1")).toHaveTextContent(/^can pay 5 \/ 8 resources now$/);
+      expect(screen.getByTestId("bought-progress-monument-p1")).toHaveTextContent(/^can pay 5 \/ 8 now$/);
     });
 
     it("keeps Ready when satisfied and Scored over progress", () => {

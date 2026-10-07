@@ -9,6 +9,7 @@ import {
   type DiceStat,
   type UnitStats,
 } from "../presentation/unitStats.ts";
+import { CostValue } from "./PlanetValueIcons.tsx";
 import "./UnitBuildStats.css";
 
 /** What the build option itself charges: the batch's cost and size as the engine offered it. */
@@ -65,8 +66,14 @@ export const UnitBuildStats: React.FC<{
     <ul className="unit-stats" aria-label={`${name} stats`} data-testid="unit-stats">
       {cost !== undefined && (
         <li className="unit-stats__item unit-stats__item--cost" data-stat="cost">
-          <span className="unit-stats__label">Cost</span> <strong>{cost}</strong>
-          {discounted && <s className="unit-stats__was">{price.printedCost}</s>}
+          <span className="unit-stats__label">Cost</span> <strong>
+            <CostValue text={cost} />
+          </strong>
+          {discounted && (
+            <s className="unit-stats__was" title={`printed cost ${price.printedCost} resources`}>
+              {price.printedCost}
+            </s>
+          )}
         </li>
       )}
       {stats?.combat && (

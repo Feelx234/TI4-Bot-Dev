@@ -159,7 +159,9 @@ describe("ProductionBuilderDrawer", () => {
     // from the control labels.
     expect(screen.getByRole("button", { name: "Add 2x fighter for 1" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add produce 2x fighter for 1" })).not.toBeInTheDocument();
-    expect(within(screen.getByTestId("produce-option-build|fighter|2")).getByText("2 for 1")).toBeInTheDocument();
+    const fighterCost = within(screen.getByTestId("produce-option-build|fighter|2")).getByTestId("unit-stats");
+    expect(fighterCost).toHaveTextContent("Cost 2 for 1");
+    expect(within(fighterCost).getByRole("img", { name: "1 resource" })).toBeInTheDocument();
     fireEvent.click(fighter);
     fireEvent.click(fighter);
     expect(screen.getByTestId("production-capacity-counter")).toHaveTextContent(

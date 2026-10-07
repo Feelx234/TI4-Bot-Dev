@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { describePlan } from "../presentation/secondaryPlan.ts";
 import type { SecondaryPrepare } from "../hooks/useSecondaryPrepare.ts";
+import { ValueText } from "./PlanetValueIcons.tsx";
 import "./SecondaryPrep.css";
 
 export interface SecondaryPrepHostProps {
@@ -114,7 +115,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
       {pending && (
         <div className="secondary-prep__bar" role="status" data-testid="secondary-autoplay-toast">
           <span className="secondary-prep__bar-text">
-            Auto-playing your prepared secondary: <strong>{pending.text}</strong>
+            Auto-playing your prepared secondary: <strong><ValueText text={pending.text} /></strong>
           </span>
           <span className="secondary-prep__bar-actions">
             <button type="button" className="button button--secondary button--sm" data-testid="secondary-autoplay-cancel" onClick={prep.cancel}>
@@ -126,7 +127,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
       {!pending && played && (
         <div className="secondary-prep__bar" role="status" data-testid="secondary-autoplayed-toast">
           <span className="secondary-prep__bar-text">
-            Auto-played your prepared secondary: <strong>{played}</strong>
+            Auto-played your prepared secondary: <strong><ValueText text={played} /></strong>
           </span>
         </div>
       )}
@@ -134,7 +135,9 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
         <div className="secondary-prep__bar" data-testid="secondary-prepared-bar">
           <span className="secondary-prep__bar-text">
             <span className="secondary-prep__badge" style={{ marginRight: 8 }}>Prepared</span>
-            <strong>{resolution.kind === "option" || resolution.kind === "tokens" ? resolution.text : ""}</strong>
+            <strong>
+              <ValueText text={resolution.kind === "option" || resolution.kind === "tokens" ? resolution.text : ""} />
+            </strong>
             {error && <span role="alert"> {error}</span>}
           </span>
           <span className="secondary-prep__bar-actions">

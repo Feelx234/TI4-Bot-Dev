@@ -83,7 +83,7 @@ const BuildOptionCard: React.FC<{
   option: ChoiceOptionDto;
   seat: string;
   count: number;
-  blockedReason: string | null;
+  blockedReason: React.ReactNode;
   disabledAdd: boolean;
   disabledRemove: boolean;
   onAdd: () => void;
@@ -367,7 +367,11 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                               const blocked = capacityBlocked
                                 ? "No production capacity left"
                                 : resourceBlocked
-                                  ? `Needs ${nextCost - (resourceLimit ?? 0)} more resource${nextCost - (resourceLimit ?? 0) === 1 ? "" : "s"}`
+                                  ? (
+                                      <>
+                                        Needs {nextCost - (resourceLimit ?? 0)} more <ValueUnit kind="resources" />
+                                      </>
+                                    )
                                   : null;
                               return (
                                 <BuildOptionCard

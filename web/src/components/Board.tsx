@@ -236,11 +236,11 @@ export const Board: React.FC<BoardProps> = ({
       </div>
       </div>
 
-      <p id={helpId} className="visually-hidden">
-        Drag the map to pan it. Use the zoom buttons to zoom in and out, and the reset button to
-        return to the full view.
-      </p>
       <div className="board-stage" data-testid="board-stage" style={boardStageStyle(pendingChoice != null)}>
+        <p id={helpId} className="visually-hidden">
+          Drag the map to pan it. Use the zoom buttons to zoom in and out, and the reset button to
+          return to the full view.
+        </p>
       <svg
         role="group"
         aria-label="Galaxy map"
