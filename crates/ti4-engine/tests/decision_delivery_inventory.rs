@@ -980,6 +980,14 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The Obsidian: every question asked inside a timing window, including the opponent's
+        // choice for Vos Hollow (BF-obsidian.md).
+        module: "obsidian.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // The seat's action-phase turn: strategic, tactical, component, pass, contacts.
         module: "game.rs",
         function: "turn_options",
@@ -1632,6 +1640,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("fracture.rs", "after_breakthrough_gained", 1),
     ("fracture.rs", "enter_play_by_effect", 1),
     ("firmament.rs", "ask", 1),
+    ("obsidian.rs", "ask", 1),
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard", 1),

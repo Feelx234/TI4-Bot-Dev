@@ -739,6 +739,22 @@ pub fn goods_on_card(state: &GameState, player: &PlayerId) -> i32 {
         .unwrap_or(0)
 }
 
+/// Put `count` trade goods on The Sowing (The Reaping once flipped); the card's own text decides
+/// where they come from (the Obsidian takes them from the supply).
+pub(crate) fn add_goods_to_card(state: &mut GameState, player: &PlayerId, count: i32) {
+    let total = goods_on_card(state, player) + count.max(0);
+    state
+        .faction_marks
+        .insert(sowing_key(player), total.to_string());
+}
+
+/// Take every trade good off the card and return how many there were.
+pub(crate) fn take_goods_from_card(state: &mut GameState, player: &PlayerId) -> i32 {
+    let held = goods_on_card(state, player);
+    state.faction_marks.remove(&sowing_key(player));
+    held
+}
+
 /// "You may place up to 3 of your trade goods on this card."
 fn sow(context: &mut TimingContext<'_>, owner: &PlayerId) -> Result<(), TimingError> {
     let held = context

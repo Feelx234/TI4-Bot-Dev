@@ -119,6 +119,9 @@ pub enum FactionAssignmentError {
     DuplicatePlayer(String),
     #[error("{players} players require distinct factions, but the roster has only {candidates}")]
     InsufficientCandidates { players: usize, candidates: usize },
+    /// The faction's own text forbids choosing it at setup (the Obsidian's Nocturne).
+    #[error("faction {0:?} cannot be chosen during setup")]
+    NotChoosable(String),
 }
 
 /// The factions this project plays.
@@ -166,7 +169,8 @@ pub fn seat_in_scope(players: &[PlayerId]) -> BTreeMap<PlayerId, FactionId> {
 ///
 /// # Errors
 /// Returns an error for an empty or duplicate candidate roster, duplicate players, or too few
-/// candidates to give every player a distinct faction.
+/// candidates to give every player a distinct faction, or a faction that cannot be chosen during
+/// setup (the Obsidian, Nocturne).
 pub fn seeded_faction_assignments(
     candidates: &[&str],
     players: &[PlayerId],
@@ -177,6 +181,10 @@ pub fn seeded_faction_assignments(
     }
     let mut seen_candidates = BTreeSet::new();
     for candidate in candidates {
+        // Nocturne: "This faction cannot be chosen during setup."
+        if crate::factions::obsidian::NOT_CHOOSABLE_DURING_SETUP.contains(candidate) {
+            return Err(FactionAssignmentError::NotChoosable((*candidate).to_owned()));
+        }
         if !seen_candidates.insert(*candidate) {
             return Err(FactionAssignmentError::DuplicateCandidate(
                 (*candidate).to_owned(),
