@@ -1,4 +1,5 @@
 import React from "react";
+import { ValueText } from "./PlanetValueIcons.tsx";
 import type { StrategySecondaryView } from "../presentation/strategySecondary.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import "./DecisionContext.css";
@@ -53,7 +54,7 @@ export const StrategySecondaryPanel: React.FC<{
           disabled={disabled || cantPay}
           onClick={() => onChoose(view.yes.id)}
         >
-          {view.yesLabel}
+          <ValueText text={view.yesLabel} />
         </button>
         <button
           type="button"

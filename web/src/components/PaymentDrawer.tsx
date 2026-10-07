@@ -5,6 +5,7 @@ import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import { PlanetValue, ValueUnit, valueKind } from "./PlanetValueIcons.tsx";
 import {
   buildPaymentSteps,
   derivePaymentOffer,
@@ -75,6 +76,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   const alreadyPaid = offer?.alreadyPaid ?? 0;
   const owed = offer?.owed ?? 0;
   const currency = offer?.currency ?? "Resources";
+  const kind = valueKind(currency);
   const availablePlanets: DraftPlanet[] = offer?.planets ?? [];
   const hasTradeGoodOption = offer?.hasTradeGoodOption ?? false;
   const tradeGoodWorth = offer?.tradeGoodWorth ?? 1;
@@ -177,12 +179,20 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
         <DecisionHeader
           actor={choice.actor}
           choice={choice}
-          title={`Pay ${owed} ${currency}`}
+          title={
+            <>
+              Pay <PlanetValue kind={kind} value={owed} size="bar" state="ready" />
+            </>
+          }
           instruction={choice.prompt}
           progress={
             constraints?.amount === undefined
               ? undefined
-              : `${alreadyPaid} / ${totalAmount} ${currency} already paid`
+              : (
+                  <>
+                    {alreadyPaid} / {totalAmount} <ValueUnit kind={kind} /> already paid
+                  </>
+                )
           }
           onMinimize={onClose}
           titleTestId="payment-drawer-title"
@@ -209,9 +219,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                 >
                   <div className="workflow-card--row">
                     <span className="text-muted">Total Owed:</span>
-                    <span>
-                      {owed} {currency}
-                    </span>
+                    <PlanetValue kind={kind} value={owed} state="ready" />
                   </div>
                   <div className="workflow-card--row">
                     <span className="text-muted">Staged (not yet paid):</span>
@@ -219,15 +227,17 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                       data-testid="committed-amount"
                       className={isSettled ? "text-success" : "text-accent"}
                     >
-                      {totalCommitted} {currency}
+                      <PlanetValue
+                        kind={kind}
+                        value={totalCommitted}
+                        state={totalCommitted === 0 ? "muted" : "ready"}
+                      />
                     </span>
                   </div>
                   {credit > 0 && (
                     <div className="workflow-card--row text-warning">
                       <span>Potential overpayment (server determines credit):</span>
-                      <span>
-                        +{credit} {currency}
-                      </span>
+                      <PlanetValue kind={kind} value={credit} sign="+" state="ready" />
                     </div>
                   )}
 
@@ -279,9 +289,11 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                             </div>
                           </div>
                           <span className="workflow-badge">
-                            {planet.worth
-                              ? `+${planet.worth} ${currency.slice(0, 3)}`
-                              : "Value unknown"}
+                            {planet.worth ? (
+                              <PlanetValue kind={kind} value={planet.worth} sign="+" />
+                            ) : (
+                              "Value unknown"
+                            )}
                           </span>
                         </label>
                       );
@@ -297,7 +309,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                       <div>
                         <div>Trade Goods</div>
                         <div className="text-muted">
-                          1 TG = {tradeGoodWorth} {currency.slice(0, 3)} (Available:{" "}
+                          1 TG = <PlanetValue kind={kind} value={tradeGoodWorth} /> (Available:{" "}
                           {maxTradeGoodsAvailable})
                         </div>
                       </div>

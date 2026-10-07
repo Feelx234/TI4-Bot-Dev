@@ -226,7 +226,7 @@ describe("development decision gallery", () => {
     // Quann's option has no payload.system: the planet is still found on the map.
     fireEvent.click(screen.getByTestId("planet-quann"));
     expect(screen.getByTestId("planet-selection-action")).toHaveTextContent(
-      "Mining Initiative — mine Quann (2R/1I)",
+      "Mining Initiative — mine Quann (21)",
     );
     fireEvent.click(screen.getByTestId("confirm-planet-btn"));
     await waitFor(() =>
@@ -260,7 +260,7 @@ describe("development decision gallery", () => {
     expect(screen.queryByTestId("agenda-ballot-modal")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("planet-lodor"));
     expect(screen.getByTestId("planet-selection-action")).toHaveTextContent(
-      "Agenda Vote — vote for Lodor (3R/1I) · 3 votes cast",
+      "Agenda Vote — vote for Lodor (31) · 3 votes cast",
     );
     fireEvent.click(screen.getByTestId("confirm-planet-btn"));
     await waitFor(() =>

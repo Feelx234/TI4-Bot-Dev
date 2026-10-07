@@ -4,9 +4,10 @@ import { deriveHexGeometry } from "../presentation/boardPresentation.ts";
 import { homeIdSet, mainTiles, tileKind, viewerSeat } from "../presentation/mapPicker.ts";
 import { seatStyle } from "../presentation/playerDisplay.ts";
 import { TILE_FILL } from "./MapThumbnail.tsx";
+import { PlanetValueGlyph, pairLabel } from "./PlanetValueIcons.tsx";
 
 const planetLabel = (tile: MapPreviewDto["tiles"][number]) =>
-  (tile.planets ?? []).map((p) => `${p.resources}/${p.influence}`).join("  ");
+  (tile.planets ?? []).map((p) => pairLabel(p.resources, p.influence)).join("; ");
 
 /**
  * The large picture of a map: the same hex geometry as the game board, with each seat's home
@@ -93,15 +94,24 @@ export const MapPreviewBoard: React.FC<{
               </text>
             )}
             {!seat && tile.planets && tile.planets.length > 0 && (
-              <text
-                x={geometry.center.x}
-                y={geometry.center.y + 28}
-                textAnchor="middle"
-                fontSize="18"
-                fill="#94a3b8"
-              >
-                {planetLabel(tile)}
-              </text>
+              <g aria-hidden="true">
+                {tile.planets.map((planet, i) => {
+                  const y = geometry.center.y + 12 + i * 18;
+                  const x = geometry.center.x - 26;
+                  return (
+                    <g key={i} data-testid={`map-planet-values-${tile.system_id}-${i}`}>
+                      <PlanetValueGlyph kind="resources" x={x} y={y} size={14} />
+                      <text x={x + 17} y={y + 12} fontSize="14" fontWeight="bold" fill="#fef08a">
+                        {planet.resources}
+                      </text>
+                      <PlanetValueGlyph kind="influence" x={x + 33} y={y} size={14} />
+                      <text x={x + 50} y={y + 12} fontSize="14" fontWeight="bold" fill="#bae6fd">
+                        {planet.influence}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
             )}
           </g>
         );

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { BoardView, PlayerView, ReactionModes, ReactionModeSetting, TableView } from "../protocol/types.ts";
 import {
   getStrategyCardMeta,
@@ -100,32 +101,6 @@ export const VPBreakdownTooltip: React.FC<{ breakdown: VPBreakdown }> = ({ break
       </div>
     )}
   </div>
-);
-
-const ResourceIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
-  <svg
-    viewBox="0 0 16 16"
-    width="13"
-    height="13"
-    fill="currentColor"
-    aria-hidden="true"
-    style={{ display: "inline-block", verticalAlign: "-2px", color: "#fbbf24", ...style }}
-  >
-    <path d="M8 1 L14 7 L8 15 L2 7 Z" />
-  </svg>
-);
-
-const InfluenceIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
-  <svg
-    viewBox="0 0 16 16"
-    width="13"
-    height="13"
-    fill="currentColor"
-    aria-hidden="true"
-    style={{ display: "inline-block", verticalAlign: "-2px", color: "#38bdf8", ...style }}
-  >
-    <path d="M2 13h12v1.5H2zm1.5-2l2-6 2.5 3 2.5-3 2 6H3.5z" />
-  </svg>
 );
 
 const SystemIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
@@ -444,14 +419,14 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                     cursor: "default",
                   }}
                 >
-                  <ResourceIcon />
-                  <span style={{ fontWeight: 600 }}>
-                    <span style={{ color: stats.remainingResources > 0 ? "#f8fafc" : "#94a3b8" }}>
-                      {stats.remainingResources}
-                    </span>
-                    <span style={{ color: "#64748b" }}>/</span>
-                    <span style={{ color: "#94a3b8" }}>{stats.totalResources}</span>
-                  </span>
+                  <PlanetValue
+                    kind="resources"
+                    value={stats.remainingResources}
+                    total={stats.totalResources}
+                    alwaysTotal
+                    state={stats.remainingResources > 0 ? "ready" : "muted"}
+                    label={`Resources: ${stats.remainingResources} ready / ${stats.totalResources} total`}
+                  />
                 </div>
               </Tooltip>
 
@@ -470,14 +445,14 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                     cursor: "default",
                   }}
                 >
-                  <InfluenceIcon />
-                  <span style={{ fontWeight: 600 }}>
-                    <span style={{ color: stats.remainingInfluence > 0 ? "#f8fafc" : "#94a3b8" }}>
-                      {stats.remainingInfluence}
-                    </span>
-                    <span style={{ color: "#64748b" }}>/</span>
-                    <span style={{ color: "#94a3b8" }}>{stats.totalInfluence}</span>
-                  </span>
+                  <PlanetValue
+                    kind="influence"
+                    value={stats.remainingInfluence}
+                    total={stats.totalInfluence}
+                    alwaysTotal
+                    state={stats.remainingInfluence > 0 ? "ready" : "muted"}
+                    label={`Influence: ${stats.remainingInfluence} ready / ${stats.totalInfluence} total`}
+                  />
                 </div>
               </Tooltip>
 

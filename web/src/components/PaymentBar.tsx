@@ -12,6 +12,7 @@ import {
 import { usePaymentDraftState, useSharedPaymentDraft } from "../presentation/PaymentDraftContext.tsx";
 import { usePipelineRunner } from "../hooks/usePipelineRunner.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
+import { PlanetValue, ValueText, ValueUnit, valueKind } from "./PlanetValueIcons.tsx";
 
 export interface PaymentBarProps {
   choice: PendingChoiceDto;
@@ -60,7 +61,7 @@ export const PaymentBar: React.FC<PaymentBarProps> = ({
   const problem = paymentProblem(offer, draft, tradeGoodsAvailable);
   const declineOption = choice.options.find(isDeclineOption) ?? null;
   const busy = running || pipelineRunning;
-  const unit = offer.currency.toLowerCase();
+  const kind = valueKind(offer.currency);
   const staged = draft.planetIds.length + draft.tradeGoods;
 
   const confirm = async () => {
@@ -106,7 +107,9 @@ export const PaymentBar: React.FC<PaymentBarProps> = ({
     >
       <div className="system-activation-bar__body">
         <div className="system-activation-bar__prompt-row">
-          <span className="badge badge--primary">Pay {offer.owed} {unit}</span>
+          <span className="badge badge--primary" data-testid="payment-bar-owed">
+            Pay <PlanetValue kind={kind} value={offer.owed} size="bar" state="ready" />
+          </span>
           {!/\bpay\b/i.test(choice.prompt) && (
             <span className="system-activation-bar__prompt">{present(choice.prompt)}</span>
           )}
@@ -122,7 +125,7 @@ export const PaymentBar: React.FC<PaymentBarProps> = ({
         >
           <span>
             Paid <strong data-testid="payment-bar-staged">{summary.committed}</strong> / {offer.owed}{" "}
-            {unit}
+            <ValueUnit kind={kind} />
           </span>
           <span className="text-muted">
             {summary.fromPlanets} from {draft.planetIds.length} planet
@@ -143,7 +146,7 @@ export const PaymentBar: React.FC<PaymentBarProps> = ({
 
         {problem && (
           <div role="status" className="payment-bar__problem text-warning" data-testid="payment-bar-problem">
-            {problem}
+            <ValueText text={problem} />
           </div>
         )}
 

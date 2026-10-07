@@ -8,6 +8,7 @@ import {
 import { getPlanetEffectiveValues } from "../presentation/playerStats.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
+import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 
 export type Landing = { planet: string; unit: string; damaged: boolean };
@@ -81,14 +82,28 @@ export const InvasionLandingTray: React.FC<{
 
   const units = board?.systems[system]?.units ?? [];
 
+  /** Resources/influence with attachment modifiers (map tile data, catalog fallback), plus trait. */
+  const planetInfo = (planetId: string) => {
+    const attachments = Object.values(board?.systems[system]?.planets ?? {}).find(
+      (view) => view.planet_id === planetId,
+    )?.attachments;
+    const meta = board?.map_tiles
+      ?.flatMap((tile) => tile.planets ?? [])
+      .find((entry) => entry.id === planetId);
+    return {
+      ...getPlanetEffectiveValues(planetId, attachments, board?.map_tiles),
+      traits: meta?.traits ?? [],
+      attachments: attachments ?? [],
+    };
+  };
+
   // M20: Calculate default target planet (highest value by resources + influence)
   const getDefaultTargetPlanet = (): string | null => {
     if (planets.length === 0) return null;
-    const mapTiles = board?.map_tiles;
     let highestValuePlanet = planets[0];
     let highestValue = -1;
     for (const planetId of planets) {
-      const values = getPlanetEffectiveValues(planetId, undefined, mapTiles);
+      const values = planetInfo(planetId);
       const totalValue = values.resources + values.influence;
       if (totalValue > highestValue) {
         highestValue = totalValue;
@@ -302,6 +317,7 @@ export const InvasionLandingTray: React.FC<{
                     (piece) => piece.owner === choice.actor && piece.planet === name,
                   ).length ?? 0;
                 const planetDraftCount = draft.filter((item) => item.planet === name).length;
+                const info = planetInfo(name);
                 const isCurrentSelected = planet === name;
                 const planetOptions = options.filter(({ landing }) => landing.planet === name);
 
@@ -342,6 +358,28 @@ export const InvasionLandingTray: React.FC<{
                         <span className="invasion-planet-landing-card__meta">
                           Already on planet: {planetUnitsAlready} · Staged: {planetDraftCount}
                         </span>
+                      </div>
+
+                      <div
+                        className="invasion-planet-landing-card__values"
+                        data-testid="invasion-planet-values"
+                      >
+                        <PlanetValue kind="resources" value={info.resources} />
+                        <span aria-hidden="true">·</span>
+                        <PlanetValue kind="influence" value={info.influence} />
+                        {info.traits.length > 0 && (
+                          <span className="invasion-planet-trait" title={`Trait: ${info.traits.join(", ")}`}>
+                            {info.traits.join(" / ")}
+                          </span>
+                        )}
+                        {info.attachments.length > 0 && (
+                          <span
+                            className="invasion-planet-trait"
+                            title={`Attachments: ${info.attachments.join(", ")}`}
+                          >
+                            + {info.attachments.join(", ")}
+                          </span>
+                        )}
                       </div>
 
                       {isCurrentSelected && board?.invasion?.phase === "landing" && (

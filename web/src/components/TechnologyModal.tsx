@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import { PlanetValue, ValueText } from "./PlanetValueIcons.tsx";
 import type { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.ts";
 import type { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { Dialog } from "../primitives/index.ts";
@@ -586,9 +587,14 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                   className="technology-modal__resources-bar"
                   data-testid="tech-available-resources"
                 >
-                  <span>Available Resources:</span>
+                  <span>Available:</span>
                   <span className="technology-modal__resources-tag">
-                    {availableResources.total}
+                    <PlanetValue
+                      kind="resources"
+                      value={availableResources.total}
+                      size="bar"
+                      label={`${availableResources.total} resources available`}
+                    />
                   </span>
                   <span className="technology-modal__resources-detail">
                     ({availableResources.planet} planet + {availableResources.tradeGoods} TG)
@@ -601,7 +607,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       Selected: <strong>{selectedTechs.length} / 2</strong>
                       {selectedTechs.length === 2 ? (
                         <span className="tech-cost-badge tech-cost-badge--paid">
-                          Cost: 6 Resources
+                          Cost: <PlanetValue kind="resources" value={6} />
                         </span>
                       ) : (
                         <span className="tech-cost-badge tech-cost-badge--free">Cost: Free</span>
@@ -612,7 +618,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       Selected: <strong>{selectedTechs.length} / 1</strong>
                       {researchCost > 0 ? (
                         <span className="tech-cost-badge tech-cost-badge--paid">
-                          Cost: {researchCost} Resources
+                          Cost: <PlanetValue kind="resources" value={researchCost} />
                         </span>
                       ) : (
                         <span className="tech-cost-badge tech-cost-badge--free">Cost: Free</span>
@@ -646,10 +652,10 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                         ? "Select Technology"
                         : isPrimaryTechnology
                           ? selectedTechs.length === 2
-                            ? "Confirm Research (2 Techs - 6 Resources)"
+                            ? <ValueText text="Confirm Research (2 Techs - 6 resources)" />
                             : "Confirm Research (1 Tech - Free)"
                           : researchCost > 0
-                            ? `Confirm Research (${researchCost} Resources)`
+                            ? <ValueText text={`Confirm Research (${researchCost} resources)`} />
                             : "Confirm Research (Free)"}
                   </button>
                 </div>

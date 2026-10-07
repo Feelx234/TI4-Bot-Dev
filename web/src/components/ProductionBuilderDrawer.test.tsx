@@ -82,7 +82,7 @@ describe("ProductionBuilderDrawer", () => {
       "2 / 5 Units (3 Left)",
     );
     expect(screen.getByTestId("production-resources-counter")).toHaveTextContent(
-      "0 / 8 Resources (8 Left)",
+      "0 / 8 (8 Left)",
     );
 
     const fighterBtn = screen.getByTestId("produce-unit-btn-produce|fighter");
@@ -92,7 +92,7 @@ describe("ProductionBuilderDrawer", () => {
       "4 / 5 Units (1 Left)",
     );
     expect(screen.getByTestId("production-resources-counter")).toHaveTextContent(
-      "1 / 8 Resources (7 Left)",
+      "1 / 8 (7 Left)",
     );
     expect(fighterBtn).toBeDisabled(); // Only one capacity left.
     fireEvent.click(screen.getByRole("button", { name: "Remove Fighter (0.5 cost)" }));
@@ -105,7 +105,7 @@ describe("ProductionBuilderDrawer", () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByTestId("produce-count-produce|fighter")).toHaveTextContent("0");
     expect(screen.getByTestId("production-resources-counter")).toHaveTextContent(
-      "0 / 8 Resources (8 Left)",
+      "0 / 8 (8 Left)",
     );
 
     fireEvent.click(fighterBtn);
@@ -163,13 +163,13 @@ describe("ProductionBuilderDrawer", () => {
       "4 / 5 Units (1 Left)",
     );
     expect(screen.getByTestId("production-resources-counter")).toHaveTextContent(
-      "2 / 3 Resources (1 Left)",
+      "2 / 3 (1 Left)",
     );
     expect(carrier).toBeDisabled();
     expect(fighter).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Remove 2x fighter for 1" }));
     expect(screen.getByTestId("production-resources-counter")).toHaveTextContent(
-      "1 / 3 Resources (2 Left)",
+      "1 / 3 (2 Left)",
     );
     expect(fighter).toBeEnabled();
     expect(carrier).toBeDisabled();
@@ -209,12 +209,12 @@ describe("ProductionBuilderDrawer", () => {
     );
     const plus = screen.getByTestId("produce-unit-btn-build|fighter|1");
     expect(screen.getByTestId("production-resources-counter")).toHaveTextContent(
-      "0 / 4 Resources (4 Left)",
+      "0 / 4 (4 Left)",
     );
     fireEvent.click(plus);
     fireEvent.click(plus);
     expect(screen.getByTestId("production-resources-counter")).toHaveTextContent(
-      "4 / 4 Resources (0 Left)",
+      "4 / 4 (0 Left)",
     );
     expect(plus).toBeDisabled();
   });
@@ -253,7 +253,7 @@ describe("ProductionBuilderDrawer", () => {
     const plus = screen.getByTestId("produce-unit-btn-build|fighter|1");
     fireEvent.click(plus);
     expect(screen.getByTestId("production-resources-counter")).toHaveTextContent(
-      "1 / 2 Resources (1 Left)",
+      "1 / 2 (1 Left)",
     );
     expect(plus).toBeDisabled(); // A second batch would cost the full 2, not the discounted 1.
   });
@@ -322,7 +322,7 @@ describe("ProductionBuilderDrawer", () => {
     fireEvent.click(plus);
     fireEvent.click(plus);
     expect(screen.getByTestId("production-resources-counter")).toHaveTextContent(
-      "0 / 0 Resources (0 Left)",
+      "0 / 0 (0 Left)",
     );
     expect(plus).toBeEnabled();
   });

@@ -6,10 +6,10 @@ import "./DecisionContext.css";
 
 /** Identical header/minimize semantics for both modal and board-side decisions. */
 export const DecisionHeader: React.FC<{
-  title: string;
+  title: React.ReactNode;
   instruction?: string;
   actor?: string;
-  progress?: string;
+  progress?: React.ReactNode;
   /** When given, the header also shows what this decision is about and when it was asked. */
   choice?: Pick<PendingChoiceDto, "context"> | null;
   onMinimize: () => void;

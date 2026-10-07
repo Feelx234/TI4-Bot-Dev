@@ -178,3 +178,62 @@ it("uses a fresh option for each staged copy and keeps the remainder when interr
   );
   await waitFor(() => expect(onSubmit).toHaveBeenNthCalledWith(2, "fresh-offer"));
 });
+
+it("shows each planet's resources, influence, trait and attachment-modified values", () => {
+  const sys = galleryBoard.systems["18"];
+  const board = {
+    ...galleryBoard,
+    active_system: "18",
+    map_tiles: [
+      {
+        system_id: "18",
+        label: "18",
+        q: 0,
+        r: 0,
+        planets: [
+          { id: "jord", label: "Jord", resources: 4, influence: 2, traits: ["cultural"] },
+          { id: "moll", label: "Moll", resources: 1, influence: 1 },
+        ],
+      },
+    ],
+    invasion: undefined,
+    systems: {
+      ...galleryBoard.systems,
+      "18": {
+        ...sys,
+        planets: {
+          jord: { planet_id: "jord", exhausted: false, attachments: ["dmz"] },
+          moll: { planet_id: "moll", exhausted: false },
+        },
+      },
+    },
+  } as unknown as typeof galleryBoard;
+  const twoPlanets = {
+    ...choice,
+    options: [
+      choice.options[0],
+      {
+        id: "land|moll|infantry",
+        label: "Land",
+        kind: "land",
+        payload: { planet: "moll", unit: "infantry" },
+      },
+    ],
+  };
+  render(
+    <InvasionLandingTray
+      choice={twoPlanets}
+      board={board}
+      viewerSeat={actor}
+      onSubmit={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  const rows = screen.getAllByTestId("invasion-planet-values");
+  expect(rows).toHaveLength(2);
+  expect(rows[1]).toHaveTextContent("1");
+  expect(rows[0]).toHaveTextContent("cultural");
+  expect(rows[0]).toHaveTextContent("dmz");
+  expect(rows[1].querySelector('[aria-label="1 resource"]')).not.toBeNull();
+  expect(rows[1].querySelector('[aria-label="1 influence"]')).not.toBeNull();
+});

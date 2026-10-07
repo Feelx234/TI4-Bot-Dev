@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { TechnologyModal } from "./TechnologyModal.tsx";
 import { PlayerIdentityProvider } from "../presentation/PlayerIdentity.tsx";
 import type { LobbyDto, PlayerView, BoardView, PendingChoiceDto } from "../protocol/types.ts";
@@ -447,8 +447,10 @@ describe("TechnologyModal", () => {
     const psCard = screen.getByTestId("tech-card-ps");
     fireEvent.click(psCard);
     expect(screen.getByText(/Selected:/)).toHaveTextContent("2 / 2");
-    expect(screen.getByText("Cost: 6 Resources")).toBeInTheDocument();
-    expect(confirmBtn).toHaveTextContent("Confirm Research (2 Techs - 6 Resources)");
+    expect(screen.getAllByLabelText("6 resources").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/Cost:/)).toBeInTheDocument();
+    expect(confirmBtn).toHaveTextContent("Confirm Research (2 Techs - 6)");
+    expect(within(confirmBtn).getByLabelText("6 resources")).toBeInTheDocument();
 
     // Click confirm -> executes Option B two-step research pipeline
     fireEvent.click(confirmBtn);

@@ -12,6 +12,7 @@ import { EconomyTooltipSection } from "./EconomyOverlay.tsx";
 import { SpaceCombatTooltipSection } from "./SpaceCombatOverlay.tsx";
 import { GroundCombatTooltipSection } from "./GroundCombatOverlay.tsx";
 import { TechBenefitsTooltipSection } from "./TechBenefitsOverlay.tsx";
+import { PlanetValuePair } from "../PlanetValueIcons.tsx";
 
 export interface HoveredTileInfo {
   systemId: string;
@@ -90,7 +91,12 @@ export const BoardTooltip: React.FC<BoardTooltipProps> = ({
           hoveredTile.planets.map((p, i) => (
             <div key={i} style={{ marginLeft: 6, fontSize: 12 }}>
               • {p.label}
-              {p.resources !== undefined && ` (${p.resources} Res / ${p.influence} Inf)`}
+              {p.resources !== undefined && p.influence !== undefined && (
+                <>
+                  {" "}
+                  <PlanetValuePair resources={p.resources} influence={p.influence} size="tooltip" />
+                </>
+              )}
               {p.owner && (
                 <span style={{ color: getPlayerColor(p.owner, seatingOrder) }}>
                   {" "}

@@ -4,6 +4,7 @@ import {
   PlacedUnitPresentation,
 } from "../presentation/boardPresentation.ts";
 import { DetailPanel } from "./DetailPanel.tsx";
+import { PlanetValuePair } from "./PlanetValueIcons.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import {
   UnitIcon,
@@ -153,7 +154,7 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
                     )}
                   </span>
                   <span style={{ fontSize: 12, color: "#facc15", fontWeight: 600 }}>
-                    {p.resources} Res / {p.influence} Inf
+                    <PlanetValuePair resources={p.resources} influence={p.influence} size="tooltip" />
                   </span>
                 </div>
 
