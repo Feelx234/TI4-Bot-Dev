@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { ValueText } from "./PlanetValueIcons.tsx";
 import { BoardView, ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
 import {
   ChoiceRendererModel,
@@ -72,7 +73,11 @@ function PlanetFacts({ planet }: { planet: PlanetDetails }) {
   ];
   return (
     <span className="planet-selection-bar__facts" data-testid="planet-selection-facts">
-      {stats && <span className="planet-selection-bar__stats">({stats})</span>}
+      {stats && (
+        <span className="planet-selection-bar__stats">
+          (<ValueText text={stats} />)
+        </span>
+      )}
       {facts.length > 0 && <span className="text-muted"> · {facts.join(" · ")}</span>}
     </span>
   );
@@ -308,7 +313,12 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
                 onClick={() => pickPlanet(candidate.planetId)}
               >
                 {planet.name}
-                {stats && <span className="text-muted"> {stats}</span>}
+                {stats && (
+                  <span className="text-muted">
+                    {" "}
+                    <ValueText text={stats} />
+                  </span>
+                )}
                 {votes !== null && <span className="text-muted"> · {votes} votes</span>}
               </button>
             );
