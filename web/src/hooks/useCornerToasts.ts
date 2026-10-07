@@ -21,6 +21,8 @@ export interface CornerToastsInput {
   pendingChoice?: PendingChoiceDto | null;
   /** The server's notes for decisions it settled for this seat (state updates only). */
   autoResolved?: readonly AutoResolvedNote[];
+  /** Decisions this client answered for the viewer (lone strategic action / activation). */
+  localNotes?: readonly { id: string; text: string }[];
   /** False until the first snapshot arrived: what is already in the log is history, not news. */
   ready: boolean;
 }
@@ -38,6 +40,7 @@ export function useCornerToasts({
   viewerSeat,
   pendingChoice,
   autoResolved,
+  localNotes,
   ready,
 }: CornerToastsInput) {
   const { muted } = useToastMute();
@@ -108,6 +111,15 @@ export function useCornerToasts({
       showToast(note.prompt, `${note.selected}${times}`, note.reason || undefined);
     }
   }, [autoResolved, showToast]);
+
+  useEffect(() => {
+    if (!localNotes) return;
+    for (const note of localNotes) {
+      if (shownNotes.current.has(note.id)) continue;
+      shownNotes.current.add(note.id);
+      showToast("action phase", note.text);
+    }
+  }, [localNotes, showToast]);
 
   // Muting also clears what is on screen.
   useEffect(() => {

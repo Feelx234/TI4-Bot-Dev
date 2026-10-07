@@ -44,6 +44,7 @@ import {
 } from "../presentation/choiceModel.ts";
 import { Dialog, overlayStack } from "../primitives/index.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
+import { useLoneAutoSubmit } from "../hooks/useLoneAutoSubmit.ts";
 import {
   PipelineRunnerContext,
   useOwnedPipelineRunner,
@@ -63,6 +64,8 @@ export interface GameShellProps {
     steps?: number,
   ) => void;
   historyBusy?: boolean;
+  /** Told when the client answered a lone strategic action / activation, for the corner toast. */
+  onAutoSubmitNotice?: (note: { id: string; text: string }) => void;
   /** Loads the replay JSON for the event log's "Copy replay" button (seated players). */
   onFetchReplay?: () => Promise<{ text: string; filename: string }>;
   choice: PendingChoiceDto | null;
@@ -882,6 +885,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   logHistoryKey,
   onChangeHistory,
   historyBusy,
+  onAutoSubmitNotice,
   onFetchReplay,
   choice,
   onSubmitChoice,
@@ -931,6 +935,14 @@ export const GameShell: React.FC<GameShellProps> = ({
   const [tacticalStep, setTacticalStep] = useState(0);
   const lastHistoryGeneration = useRef(history?.generation);
   const pipelineRunner = useOwnedPipelineRunner(choice, onSubmitChoice);
+  useLoneAutoSubmit({
+    choice,
+    viewerSeat,
+    history,
+    busy: pipelineRunner.isRunning || Boolean(historyBusy),
+    submit: onSubmitChoice,
+    onNotice: onAutoSubmitNotice,
+  });
 
   // A restored timeline must not resume a movement plan from the old timeline.
   if (history?.generation !== lastHistoryGeneration.current) {

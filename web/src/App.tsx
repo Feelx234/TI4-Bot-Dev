@@ -266,6 +266,7 @@ const GameViewContainer: React.FC<{
     logHistoryKey.current !== snapshot.events
   )
     logHistoryKey.current = snapshot.events;
+  const [localNotes, setLocalNotes] = useState<{ id: string; text: string }[]>([]);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const onChangeHistory = (action: import("./protocol/client.ts").HistoryChange, steps = 1) => {
@@ -371,6 +372,7 @@ const GameViewContainer: React.FC<{
         pendingChoice={pendingChoice}
         autoResolved={snapshot?.type === "state_update" ? snapshot.auto_resolved : undefined}
         ready={Boolean(snapshot)}
+        localNotes={localNotes}
       />
       <GameShell
         header={
@@ -473,6 +475,7 @@ const GameViewContainer: React.FC<{
         logHistoryKey={logHistoryKey.current}
         history={gameHistory}
         historyBusy={historyBusy}
+        onAutoSubmitNotice={(note) => setLocalNotes((prev) => [...prev, note])}
         onChangeHistory={userSeat === lobby.host_player_id ? onChangeHistory : undefined}
         onFetchReplay={userSeat ? fetchReplay : undefined}
         choice={pendingChoice}
