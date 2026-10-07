@@ -10,7 +10,7 @@ import {
   maxPurchases,
   tokenOutcome,
   TOKEN_POOLS,
-  type TokenPool,
+  type Pools,
   type TokenStep,
   type TokenStaging,
 } from "./commandTokens.ts";
@@ -46,8 +46,8 @@ export interface SecondaryPlan {
   planets?: string[];
   /** Construction: what to place and where. */
   structure?: { unit: StructureUnit; planet: string };
-  /** Leadership: how many tokens to buy with influence and the pool they go to. */
-  leadership?: { tokens: number; pool: TokenPool };
+  /** Leadership: the tokens to buy with influence and the pool each one goes to. */
+  leadership?: { pools: Pools };
 }
 
 export type StructureUnit = "pds" | "spacedock";
@@ -98,18 +98,23 @@ export function parseStoredPlan(raw: string | null | undefined): StoredPlan | nu
     clean.structure = { unit: structure.unit as StructureUnit, planet: structure.planet };
   }
   const leadership = plan.leadership as Record<string, unknown> | undefined;
-  if (
-    leadership &&
-    typeof leadership.tokens === "number" &&
-    Number.isInteger(leadership.tokens) &&
-    leadership.tokens >= 1 &&
-    leadership.tokens <= 10 &&
-    TOKEN_POOLS.includes(leadership.pool as TokenPool)
-  ) {
-    clean.leadership = { tokens: leadership.tokens, pool: leadership.pool as TokenPool };
+  const pools = leadership?.pools as Record<string, unknown> | undefined;
+  if (pools) {
+    const counts = TOKEN_POOLS.map((pool) => pools[pool] ?? 0);
+    const valid = counts.every((count) => typeof count === "number" && Number.isInteger(count) && count >= 0);
+    const total = valid ? (counts as number[]).reduce((sum, count) => sum + count, 0) : 0;
+    if (valid && total >= 1 && total <= 10) {
+      clean.leadership = {
+        pools: { tactic: counts[0] as number, fleet: counts[1] as number, strategic: counts[2] as number },
+      };
+    }
   }
   return { v: 1, actionKey: record.actionKey, generation: record.generation, plan: clean };
 }
+
+/** Tokens a Leadership plan buys. */
+export const leadershipTokens = (pools: Pools): number =>
+  TOKEN_POOLS.reduce((sum, pool) => sum + pools[pool], 0);
 
 export const serializeStoredPlan = (stored: StoredPlan): string => JSON.stringify(stored);
 
@@ -300,6 +305,7 @@ function resolveLeadership(
   name: string,
 ): StepResolution {
   const wanted = plan.leadership!;
+  const count = leadershipTokens(wanted.pools);
   const view = describeCommandTokens(choice, true);
   if (!view?.purchase) {
     // No purchase details: fall back to the plain first purchase; later prompts are answered by hand.
@@ -309,28 +315,33 @@ function resolveLeadership(
       : { kind: "review", reason: "You can no longer buy a command token." };
   }
   const affordable = maxPurchases(view);
-  if (affordable < wanted.tokens) {
+  if (affordable < count) {
     return {
       kind: "review",
       reason:
         affordable === 0
           ? "You can no longer afford a command token."
-          : `You can now afford only ${affordable} of the ${wanted.tokens} tokens you prepared.`,
+          : `You can now afford only ${affordable} of the ${count} tokens you prepared.`,
     };
   }
-  const staging: TokenStaging = { tactic: 0, fleet: 0, strategic: 0 };
-  staging[wanted.pool] = wanted.tokens;
-  const outcome = tokenOutcome(view, staging, wanted.tokens);
+  const staging: TokenStaging = { ...wanted.pools };
+  const outcome = tokenOutcome(view, staging, count);
   if (!outcome || outcome.kind !== "plan") {
     return { kind: "review", reason: "The influence payment can no longer be planned." };
   }
-  const tokens = `${wanted.tokens} command token${wanted.tokens === 1 ? "" : "s"}`;
+  const tokens = `${count} command token${count === 1 ? "" : "s"}`;
   return {
     kind: "tokens",
     steps: outcome.steps,
-    text: `Buy ${tokens} (${wanted.pool} pool) for ${view.purchase.cost * wanted.tokens} influence`,
+    text: `Buy ${tokens} (${describePools(wanted.pools)}) for ${view.purchase.cost * count} influence`,
   };
 }
+
+/** "2 tactic, 1 fleet" for the pools a purchase fills. */
+export const describePools = (pools: Pools): string =>
+  TOKEN_POOLS.filter((pool) => pools[pool] > 0)
+    .map((pool) => `${pools[pool]} ${pool === "strategic" ? "strategy" : pool}`)
+    .join(", ");
 
 /** One-line description of a plan for the badge and the toast. */
 export function describePlan(plan: SecondaryPlan): string {
@@ -345,7 +356,8 @@ export function describePlan(plan: SecondaryPlan): string {
     return `Follow ${name}: ${structureName(plan.structure.unit)} on ${planetName(plan.structure.planet)}`;
   }
   if (family === "leadership" && plan.leadership) {
-    return `Buy ${plan.leadership.tokens} command token${plan.leadership.tokens === 1 ? "" : "s"}`;
+    const count = leadershipTokens(plan.leadership.pools);
+    return `Buy ${count} command token${count === 1 ? "" : "s"} (${describePools(plan.leadership.pools)})`;
   }
   return `Follow ${name}`;
 }

@@ -41,7 +41,7 @@ describe("stored plans", () => {
         follow: true,
         planets: ["a", "b", "c", 4],
         structure: { unit: "castle", planet: "x" },
-        leadership: { tokens: 99, pool: "tactic" },
+        leadership: { pools: { tactic: 99, fleet: 0, strategic: 0 } },
       },
     });
     expect(parseStoredPlan(raw)?.plan).toEqual({ card: "pok2diplomacy", follow: true, planets: ["a", "b"] });
@@ -168,7 +168,7 @@ describe("resolveStep: Leadership purchase plan", () => {
     });
 
   it("plans the purchase, the payment and the pool as one token batch", () => {
-    const plan: SecondaryPlan = { card: "pok1leadership", follow: true, leadership: { tokens: 1, pool: "fleet" } };
+    const plan: SecondaryPlan = { card: "pok1leadership", follow: true, leadership: { pools: { tactic: 0, fleet: 1, strategic: 0 } } };
     const result = resolveStep(plan, leadership(1), "b");
     expect(result.kind).toBe("tokens");
     if (result.kind !== "tokens") return;
@@ -178,7 +178,7 @@ describe("resolveStep: Leadership purchase plan", () => {
   });
 
   it("needs review when the influence no longer pays for the prepared tokens", () => {
-    const plan: SecondaryPlan = { card: "pok1leadership", follow: true, leadership: { tokens: 2, pool: "tactic" } };
+    const plan: SecondaryPlan = { card: "pok1leadership", follow: true, leadership: { pools: { tactic: 2, fleet: 0, strategic: 0 } } };
     const result = resolveStep(plan, leadership(1), "b");
     expect(result.kind).toBe("review");
     expect(resolveStep(plan, leadership(1, []), "b").kind).toBe("review");
