@@ -690,6 +690,41 @@ pub async fn change_history(
     Ok(Json(ServerMessage::InitialSnapshot(snapshot)))
 }
 
+/// Host-only, read-only dry run of removing or changing one past decision.
+///
+/// `POST /api/games/{game_id}/history/splice-preview`. Nothing in the game, its history or its
+/// storage changes; the response says how many later decisions would still fit and where the
+/// first one that does not is.
+pub async fn splice_preview(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<crate::protocol::splice::SplicePreviewRequest>,
+) -> Result<Json<crate::protocol::splice::SplicePreview>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?.to_owned();
+    let preview = tokio::task::spawn_blocking(move || {
+        registry.splice_preview(&game_id, &token, &payload.edit)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Splice preview worker failed: {error}"),
+        )
+    })?
+    .map_err(|error| {
+        let status = match error {
+            HistoryError::NotFound => StatusCode::NOT_FOUND,
+            HistoryError::Forbidden(_) => StatusCode::FORBIDDEN,
+            HistoryError::InvalidTarget(_) => StatusCode::BAD_REQUEST,
+            HistoryError::Conflict(_) => StatusCode::CONFLICT,
+            HistoryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        (status, error.message())
+    })?;
+    Ok(Json(preview))
+}
+
 #[cfg(test)]
 mod template_request_tests {
     use super::*;

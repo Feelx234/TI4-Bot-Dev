@@ -1247,6 +1247,70 @@ impl GameRegistry {
             snapshot: replacement.get_snapshot(&ViewerRole::Player(actor)),
         })
     }
+    /// The host's seat for `game_id`, or why `credential` may not change history.
+    fn require_host(
+        state: &RegistryState,
+        game_id: &str,
+        credential: &str,
+    ) -> Result<PlayerId, HistoryError> {
+        if let Some(lobby) = state.player_lobbies.get(game_id) {
+            let actor = authenticate_player(lobby, credential).map_err(|_| {
+                HistoryError::Forbidden(
+                    "the session credential is not valid for this game".to_owned(),
+                )
+            })?;
+            if actor != lobby.host_player_id {
+                return Err(HistoryError::Forbidden(
+                    "only the host may change history".to_owned(),
+                ));
+            }
+            Ok(actor)
+        } else if let Some(lobby) = state.lobbies.get(game_id) {
+            let actor = authenticated_seat(lobby, credential).map_err(|_| {
+                HistoryError::Forbidden(
+                    "the session credential is not valid for this game".to_owned(),
+                )
+            })?;
+            if actor != lobby.host_seat {
+                return Err(HistoryError::Forbidden(
+                    "only the host may change history".to_owned(),
+                ));
+            }
+            Ok(actor)
+        } else {
+            Err(HistoryError::NotFound)
+        }
+    }
+
+    /// Host-only, read-only dry run of removing or changing one past decision (H7 phase 1).
+    ///
+    /// Replays the edited history in memory from the game's fixed seed. It changes no session,
+    /// no stored history and no version; the registry lock is released before the replay.
+    pub fn splice_preview(
+        &self,
+        game_id: &str,
+        credential: &str,
+        edit: &crate::protocol::splice::SpliceEdit,
+    ) -> Result<crate::protocol::splice::SplicePreview, HistoryError> {
+        let (decisions, config) = {
+            let state = self.state.lock().expect("registry lock");
+            Self::require_host(&state, game_id, credential)?;
+            let session = state
+                .sessions
+                .get(game_id)
+                .ok_or(HistoryError::NotFound)?
+                .clone();
+            (session.decision_log(), session.restart_config())
+        };
+        crate::session::splice::splice_preview(
+            &config.state,
+            config.galaxy.as_ref(),
+            &decisions,
+            edit,
+        )
+        .map_err(|e| HistoryError::InvalidTarget(e.to_string()))
+    }
+
     /// Serializes a host rewind against credential rotation and human submissions.
     #[expect(
         clippy::too_many_lines,
@@ -1262,33 +1326,7 @@ impl GameRegistry {
         let gate = self.game_gate(game_id);
         let _reservation = gate.lock().expect("game gate lock");
         let state = self.state.lock().expect("registry lock");
-        let host = if let Some(lobby) = state.player_lobbies.get(game_id) {
-            let actor = authenticate_player(lobby, credential).map_err(|_| {
-                HistoryError::Forbidden(
-                    "the session credential is not valid for this game".to_owned(),
-                )
-            })?;
-            if actor != lobby.host_player_id {
-                return Err(HistoryError::Forbidden(
-                    "only the host may change history".to_owned(),
-                ));
-            }
-            actor
-        } else if let Some(lobby) = state.lobbies.get(game_id) {
-            let actor = authenticated_seat(lobby, credential).map_err(|_| {
-                HistoryError::Forbidden(
-                    "the session credential is not valid for this game".to_owned(),
-                )
-            })?;
-            if actor != lobby.host_seat {
-                return Err(HistoryError::Forbidden(
-                    "only the host may change history".to_owned(),
-                ));
-            }
-            actor
-        } else {
-            return Err(HistoryError::NotFound);
-        };
+        let host = Self::require_host(&state, game_id, credential)?;
         let session = state
             .sessions
             .get(game_id)

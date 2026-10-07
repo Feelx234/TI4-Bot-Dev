@@ -2,6 +2,7 @@ pub mod batch;
 pub mod decider;
 pub mod registry;
 pub mod replay;
+pub mod splice;
 pub mod transport;
 pub mod worker;
 
