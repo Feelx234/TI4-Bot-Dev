@@ -5,6 +5,12 @@ import { describeImperialOutcome } from "../presentation/imperialOutcome.ts";
 import { Dialog } from "../primitives/index.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { getPublicObjectiveMeta, humanizeId } from "../protocol/contentCatalog.ts";
+import {
+  BOUGHT_PROGRESS_HINT,
+  boughtObjectiveUnit,
+  boughtProgressText,
+  isBoughtObjective,
+} from "../presentation/boughtObjective.ts";
 import "./ObjectivesModal.css";
 
 export interface ObjectivesModalProps {
@@ -209,6 +215,8 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
 
   const renderObjectiveRow = (objectiveId: string) => {
     const meta = getPublicObjectiveMeta(objectiveId);
+    const bought = isBoughtObjective(meta.description);
+    const boughtUnit = boughtObjectiveUnit(meta.description);
     const isScoreable = scoreableOptionMap.has(objectiveId);
     const isSelected = selectedOptionId === objectiveId;
 
@@ -315,9 +323,30 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
                   className="objectives-matrix__status-progress"
                   data-testid={`status-progress-${objectiveId}-${player.id}`}
                 >
-                  <div className="objectives-matrix__progress-label">
-                    <span>{progress.have}</span> / <span>{progress.threshold}</span>
-                  </div>
+                  {bought ? (
+                    <div
+                      className="objectives-matrix__progress-label objectives-matrix__progress-label--bought"
+                      data-testid={`bought-progress-${objectiveId}-${player.id}`}
+                      title={BOUGHT_PROGRESS_HINT}
+                      aria-label={`${boughtProgressText(
+                        progress.have,
+                        progress.threshold,
+                        boughtUnit,
+                        activeScoringMode && isCurrentActor,
+                      )}. ${BOUGHT_PROGRESS_HINT}`}
+                    >
+                      {boughtProgressText(
+                        progress.have,
+                        progress.threshold,
+                        boughtUnit,
+                        activeScoringMode && isCurrentActor,
+                      )}
+                    </div>
+                  ) : (
+                    <div className="objectives-matrix__progress-label">
+                      <span>{progress.have}</span> / <span>{progress.threshold}</span>
+                    </div>
+                  )}
                   <div className="objectives-matrix__progress-bar-bg">
                     <div
                       className="objectives-matrix__progress-bar-fill"

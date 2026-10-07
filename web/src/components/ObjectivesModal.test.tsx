@@ -352,4 +352,70 @@ describe("ObjectivesModal", () => {
       expect(screen.queryByTestId("imperial-outcome")).toBeNull();
     });
   });
+
+  describe("bought objective progress", () => {
+    const render1 = (props: Partial<React.ComponentProps<typeof ObjectivesModal>> = {}) =>
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["monument", "sway_council", "corner"]}
+          players={mockPlayers}
+          viewerSeat="p1"
+          objectiveProgress={{
+            p1: {
+              monument: { have: 5, threshold: 8, satisfied: false },
+              sway_council: { have: 0, threshold: 8, satisfied: false },
+              corner: { have: 3, threshold: 4, satisfied: false },
+            },
+          }}
+          {...props}
+        />,
+      );
+
+    it("labels spending capacity, unit-aware, and marks it as paid at scoring", () => {
+      render1();
+      const monument = screen.getByTestId("bought-progress-monument-p1");
+      expect(monument).toHaveTextContent("can pay 5 / 8 resources now · pay at scoring");
+      expect(monument).toHaveAttribute("title", expect.stringContaining("paid for when you score them"));
+      expect(monument.getAttribute("aria-label")).toContain("ready planets and trade goods");
+      expect(screen.getByTestId("bought-progress-sway_council-p1")).toHaveTextContent(
+        "can pay 0 / 8 influence now · pay at scoring",
+      );
+    });
+
+    it("leaves counting objectives as a plain N / M", () => {
+      render1();
+      expect(screen.queryByTestId("bought-progress-corner-p1")).toBeNull();
+      expect(screen.getByTestId("status-progress-corner-p1")).toHaveTextContent("3 / 4");
+    });
+
+    it("drops the suffix for the seat whose scoring window is open", () => {
+      render1({
+        choice: {
+          actor: "p1",
+          nonce: "n",
+          prompt: "Score",
+          context: { subtype: "score_objective" },
+          options: [{ id: "corner", label: "Corner" }],
+        },
+      });
+      expect(screen.getByTestId("bought-progress-monument-p1")).toHaveTextContent(/^can pay 5 \/ 8 resources now$/);
+    });
+
+    it("keeps Ready when satisfied and Scored over progress", () => {
+      render1({
+        scoredObjectives: { p1: ["sway_council"] },
+        objectiveProgress: {
+          p1: {
+            monument: { have: 8, threshold: 8, satisfied: true },
+            sway_council: { have: 8, threshold: 8, satisfied: true },
+          },
+        },
+      });
+      expect(screen.getByTestId("status-ready-monument-p1")).toHaveTextContent("Ready (8/8)");
+      expect(screen.getByTestId("status-scored-sway_council-p1")).toBeInTheDocument();
+      expect(screen.queryByTestId("bought-progress-monument-p1")).toBeNull();
+    });
+  });
 });
