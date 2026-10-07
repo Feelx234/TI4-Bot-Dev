@@ -28,6 +28,7 @@ import { InvestmentsContextPanel, StrategyGoodsNote } from "./StrategyGoodsParts
 import { describeAbilityOffer } from "../presentation/abilityOffer.ts";
 import { UnitPickOptionNote, UnitPickPanel } from "./UnitPickParts.tsx";
 import { TechnologyPickOptionNote, TechnologyPickPanel } from "./TechnologyPickParts.tsx";
+import { PredictOutcomeNote, PredictOutcomePanel } from "./PredictOutcomeParts.tsx";
 import { AbilityOfferPanel } from "./AbilityOfferPanel.tsx";
 import { investmentsProgress, isStrategyCardGrid } from "../presentation/strategyGoods.ts";
 
@@ -382,6 +383,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           {!secondary && !tokens && !replenish && <InvestmentsContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <UnitPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <TechnologyPickPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <PredictOutcomePanel choice={choice} />}
           {!secondary && !tokens && !replenish && !abilityOffer && (
           <form
             onSubmit={handleSubmit}
@@ -482,6 +484,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         <RemoveUnitOptionNote choice={choice} option={opt} board={boardView} />
                         <UnitPickOptionNote choice={choice} option={opt} />
                         <TechnologyPickOptionNote choice={choice} option={opt} />
+                        <PredictOutcomeNote choice={choice} option={opt} />
                         <PoliticsOptionNote choice={choice} option={opt} />
                         <LegendaryOptionNote choice={choice} option={opt} board={boardView} />
                         {card && <StrategyGoodsNote choice={choice} option={opt} />}

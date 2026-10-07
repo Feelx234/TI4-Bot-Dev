@@ -930,6 +930,25 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Imperial Rider: predict the outcome",
+    fallback: "'predict FOR' options -> the rider as printed above and each outcome in words",
+    note: "The riders (Imperial, Construction, Diplomacy, ...) ask which outcome of the agenda to predict; the printed card above says what a correct prediction pays and that you cannot vote.",
+    choice: {
+      actor,
+      nonce: "gallery-predict-outcome",
+      prompt: "Imperial Rider: predict the agenda outcome",
+      context: {
+        subtype: "predict_agenda_outcome",
+        source: { Rule: "8" },
+      },
+      options: [
+        option("FOR", "predict FOR", "prediction"),
+        option("AGAINST", "predict AGAINST", "prediction"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Divert Funding: which technology to return",
     fallback: "Technology names only -> colour, prerequisites and printed text per technology, and what this half of the card does",
     note: "Divert Funding (and the other cards that ask for a technology) shows each technology as printed; the header says whether it is returned or researched.",
