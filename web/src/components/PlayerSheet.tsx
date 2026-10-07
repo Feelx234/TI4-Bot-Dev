@@ -16,6 +16,7 @@ import { Tooltip } from "../primitives/index.ts";
 import { useTurnSound } from "../hooks/useTurnSound.ts";
 import { useToastMute } from "../hooks/useToastMute.ts";
 import { useTurnRecapSetting } from "../hooks/useTurnRecapSetting.ts";
+import { useAutoSubmitSetting } from "../hooks/useAutoSubmitSetting.ts";
 
 
 export interface VPBreakdown {
@@ -177,6 +178,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   const [isMutedState, setIsMutedState] = useState(isMuted);
   const { muted: toastsMuted, toggleMute: toggleToastMute } = useToastMute();
   const { enabled: recapOn, toggle: toggleRecap } = useTurnRecapSetting();
+  const { enabled: autoSubmit, toggle: toggleAutoSubmit } = useAutoSubmitSetting();
 
   // Sort players: current player first, then by turn order
   const sortedPlayers = React.useMemo(() => {
@@ -310,6 +312,31 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
         >
           {recapOn ? "📝 Recap on" : "📝 Recap"}
         </button>
+        {userSeat && (
+          <button
+            type="button"
+            data-testid="auto-submit-btn"
+            aria-pressed={autoSubmit}
+            title={
+              autoSubmit
+                ? "Your only move (a lone strategic action, a lone system to activate) is taken for you. Click to be asked every time."
+                : "You are asked even when there is only one move. Click to take lone moves automatically."
+            }
+            onClick={toggleAutoSubmit}
+            style={{
+              background: autoSubmit ? "transparent" : "rgba(148, 163, 184, 0.1)",
+              border: "1px solid #94a3b8",
+              color: "#94a3b8",
+              borderRadius: 4,
+              padding: "4px 8px",
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: "500",
+            }}
+          >
+            {autoSubmit ? "⚡ Auto" : "⚡ Auto off"}
+          </button>
+        )}
         </div>
       </div>
 

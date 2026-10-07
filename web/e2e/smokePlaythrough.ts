@@ -433,6 +433,16 @@ export async function randomUiPlaythrough(
   const wsFrames: string[][] = [];
   for (const [index, player] of players.entries()) {
     const context = await browser.newContext();
+    // The harness clicks the bar itself; the client's lone-case auto-submit would race it.
+    // TI4_SMOKE_AUTO_LONE=1 leaves the default (on) to exercise that path.
+    if (!process.env.TI4_SMOKE_AUTO_LONE)
+      await context.addInitScript(() => {
+        try {
+          localStorage.setItem("player_auto_submit_lone", "false");
+        } catch {
+          // storage unavailable
+        }
+      });
     const page = await context.newPage();
     page.on("pageerror", (err) =>
       browserErrors.push(`[seat ${index + 1}] ${err.message}`),
