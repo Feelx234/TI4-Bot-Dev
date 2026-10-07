@@ -1000,6 +1000,22 @@ impl<'a> Game<'a> {
         game
     }
 
+    /// Where every random stream of this game stands (see [`crate::rng::RngPositions`]).
+    #[must_use]
+    pub fn rng_positions(&self) -> crate::rng::RngPositions {
+        self.rng.positions()
+    }
+
+    /// Put the game's random streams at recorded positions. The game seed is never changed.
+    pub fn set_rng_positions(&mut self, positions: &crate::rng::RngPositions) {
+        self.rng.set_positions(positions);
+    }
+
+    /// Attach a side channel for forcing or reading random positions from a decider.
+    pub fn set_rng_sync(&mut self, sync: Option<std::sync::Arc<crate::rng::RngSync>>) {
+        self.rng.set_sync(sync);
+    }
+
     /// Create a game with explicit deciders for generated choices.
     #[must_use]
     pub fn with_table(mut state: GameState, content: &'a ContentStore, table: Table) -> Self {
