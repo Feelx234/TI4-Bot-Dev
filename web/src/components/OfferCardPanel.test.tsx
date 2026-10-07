@@ -32,7 +32,7 @@ describe("offer card", () => {
       ...choice,
       details: { kind: "offer", card: { title: "T" }, facts: [], captions: {} },
     })!;
-    expect(view.answers[0].label).toBe("use SUSTAIN DAMAGE");
+    expect(view.answers[0].label).toBe("Use SUSTAIN DAMAGE");
   });
 
   it("shows a commander payment with the amounts and what each answer does", () => {
@@ -45,6 +45,17 @@ describe("offer card", () => {
     expect(screen.getByTestId("offer-card-answer-convert")).toHaveTextContent("trade goods 4 → 5");
     fireEvent.click(screen.getByTestId("offer-card-answer-gain"));
     expect(onSubmit).toHaveBeenCalledWith("gain");
+  });
+
+  it("names the technology of a research waiver and capitalises the engine's labels", () => {
+    const view = describeOfferCard(galleryChoice("Research waiver: ignore prerequisites"))!;
+    expect(view.facts[0].text).toBe("War Sun");
+    expect(view.answers.map((a) => a.label)).toEqual([
+      "Return 1 infantry to reinforcements to ignore its prerequisites",
+      "Don't use a waiver",
+    ]);
+    const pay = describeOfferCard(galleryChoice("Research waiver: choose the payment"))!;
+    expect(pay.answers.map((a) => a.option.id)).toEqual(["space|18", "planet|jord", "decline"]);
   });
 
   it("shows a number that changes as before → after", () => {

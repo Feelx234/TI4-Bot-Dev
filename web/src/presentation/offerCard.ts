@@ -1,5 +1,5 @@
 import type { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
-import { findPlanetMeta, humanizeId } from "../protocol/contentCatalog.ts";
+import { findPlanetMeta, getTechnologyMeta, humanizeId } from "../protocol/contentCatalog.ts";
 import { getUnitDisplayName } from "../components/UnitIcon.tsx";
 
 /** One labelled fact of an offer card. */
@@ -39,6 +39,8 @@ const text = (value: unknown): string | null =>
 const num = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
+const capitalize = (value: string): string => (value ? value[0].toUpperCase() + value.slice(1) : value);
+
 const isDecline = (option: ChoiceOptionDto) => option.kind === "decline" || option.id === "decline";
 
 function readFact(raw: unknown): OfferFact | null {
@@ -48,6 +50,7 @@ function readFact(raw: unknown): OfferFact | null {
   if (!label) return null;
   const unit = text(record.unit);
   const planetId = text(record.planet);
+  const technologyId = text(record.technology);
   const system = text(record.system);
   const from = num(record.from);
   const to = num(record.to);
@@ -57,6 +60,7 @@ function readFact(raw: unknown): OfferFact | null {
     const name = findPlanetMeta(planetId)?.name ?? humanizeId(planetId);
     value = system ? `${name} (system ${system})` : name;
   }
+  if (technologyId) value = getTechnologyMeta(technologyId).name;
   if (unit) value = null;
   const change = from !== null && to !== null ? { from, to, of: num(record.of) } : null;
   if (!unit && !change && value === null) return null;
@@ -88,7 +92,7 @@ export function describeOfferCard(
     const caption = captions[option.id];
     return {
       option,
-      label: text(caption?.label) ?? option.label ?? option.id,
+      label: text(caption?.label) ?? capitalize(option.label ?? option.id),
       hint: text(caption?.hint),
       isDecline: isDecline(option),
     };

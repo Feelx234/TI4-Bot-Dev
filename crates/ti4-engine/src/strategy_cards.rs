@@ -504,6 +504,19 @@ fn resolve_research(
             .chain(std::iter::once(ChoiceOption::decline()))
             .collect(),
     )
+    .offered(
+        crate::choice::offer_card(
+            "Research without prerequisites",
+            "faction ability",
+            Some("A faction ability lets you research this technology without its prerequisites"),
+            Some("Choose how, and pay its cost on the next step. Declining researches nothing."),
+        ),
+        vec![crate::choice::offer_fact_technology("Technology", technology.as_str())],
+        &[(
+            "decline",
+            crate::choice::offer_caption("Don't use a waiver", Some("Nothing is researched")),
+        )],
+    )
     .contextualized(DecisionContext::new(
         player.clone(),
         DecisionSource::FactionAbility("research_waiver".to_owned()),
@@ -540,6 +553,19 @@ fn resolve_research(
             })
             .chain(std::iter::once(ChoiceOption::decline()))
             .collect(),
+    )
+    .offered(
+        crate::choice::offer_card(
+            "Pay for the waiver",
+            "faction ability",
+            Some(&waiver.label),
+            Some("Choose what pays for it. Declining researches nothing and pays nothing."),
+        ),
+        vec![crate::choice::offer_fact_technology("Technology", technology.as_str())],
+        &[(
+            "decline",
+            crate::choice::offer_caption("Don't pay", Some("Nothing is researched or paid")),
+        )],
     )
     .contextualized(DecisionContext::new(
         player.clone(),
@@ -2522,6 +2548,44 @@ mod tests {
             state.system_state(&system).units.iter().all(|unit| {
                 !(unit.owner == player && unit.type_id.as_str().contains("infantry"))
             })
+        );
+    }
+
+    /// Both research-waiver questions are offer cards that name the technology (display only;
+    /// the option ids stay `waiver|n`, the payment ids and `decline`).
+    #[test]
+    fn research_waiver_questions_name_the_technology() {
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("a");
+        let technology = TechnologyId::new("ws");
+        let mut state = seated_game(&[("a", "yin"), ("b", "sol")], POK);
+        state.player_mut(&player).expect("Yin seat").leaders.insert(
+            ti4_model::id::LeaderId::new("yincommander"),
+            ti4_model::state::LeaderStatus::Unlocked,
+        );
+        state
+            .player_mut(&PlayerId::new("b"))
+            .expect("other seat")
+            .technologies
+            .insert(technology.clone());
+        put(&mut state, &SystemId::new("18"), "infantry", &player, 1);
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new(["waiver|0", "decline"]),
+        ));
+        let mut table = Table::with_default(Box::new(decider));
+        resolve_research(&mut state, content, POK, None, &mut table, &player, &technology)
+            .expect("declining the payment");
+        let asked = seen.borrow();
+        assert_eq!(asked.len(), 2);
+        for (choice, title) in [(&asked[0], "Research without prerequisites"), (&asked[1], "Pay for the waiver")] {
+            assert_eq!(choice.details["kind"], "offer");
+            assert_eq!(choice.details["card"]["title"], title);
+            assert_eq!(choice.details["facts"][0]["technology"], "ws");
+        }
+        assert_eq!(asked[0].options[0].id, "waiver|0");
+        assert_eq!(
+            asked[1].details["card"]["window"],
+            "return 1 infantry to reinforcements to ignore its prerequisites"
         );
     }
 

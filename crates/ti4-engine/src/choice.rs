@@ -204,6 +204,12 @@ pub fn offer_fact_planet(label: &str, planet: &str, system: &str) -> Value {
     serde_json::json!({ "label": label, "planet": planet, "system": system })
 }
 
+/// Display only: a fact whose value is a technology (shown by its name).
+#[must_use]
+pub fn offer_fact_technology(label: &str, technology: &str) -> Value {
+    serde_json::json!({ "label": label, "technology": technology })
+}
+
 /// Display only: a number that changes, e.g. commodities `1 -> 2` of at most `of`.
 #[must_use]
 pub fn offer_fact_change(label: &str, from: i64, to: i64, of: Option<i64>) -> Value {

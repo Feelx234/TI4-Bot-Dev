@@ -43,6 +43,61 @@ export function offerCases(): GalleryCase[] {
       },
     },
     reduceCase(),
+    {
+      workflow: "generic_selection",
+      title: "Research waiver: ignore prerequisites",
+      fallback: "'return 1 infantry ...' / decline -> the technology and what the faction ability does",
+      note: "Yin's commander lets a seat research a technology another seat owns without its prerequisites; the seat chooses the waiver, then pays for it.",
+      choice: {
+        actor,
+        nonce: "gallery-research-waiver",
+        prompt: "research ws: choose a prerequisite waiver",
+        context: { subtype: "research_waiver", source: { FactionAbility: "research_waiver" } },
+        options: [
+          option("waiver|0", "return 1 infantry to reinforcements to ignore its prerequisites", "research_waiver"),
+          decline(),
+        ],
+        details: {
+          kind: "offer",
+          card: {
+            title: "Research without prerequisites",
+            tag: "faction ability",
+            window: "A faction ability lets you research this technology without its prerequisites",
+            text: "Choose how, and pay its cost on the next step. Declining researches nothing.",
+          },
+          facts: [{ label: "Technology", technology: "ws" }],
+          captions: { decline: { label: "Don't use a waiver", hint: "Nothing is researched" } },
+        },
+      },
+    },
+    {
+      workflow: "generic_selection",
+      title: "Research waiver: choose the payment",
+      fallback: "A list of payment labels -> the card says what the waiver is and which technology it buys",
+      note: "The second step: which infantry (or captured unit) pays for the waived research.",
+      choice: {
+        actor,
+        nonce: "gallery-waiver-pay",
+        prompt: "return 1 infantry to reinforcements to ignore its prerequisites: choose the payment",
+        context: { subtype: "research_waiver_payment", source: { FactionAbility: "research_waiver" } },
+        options: [
+          option("space|18", "return infantry from the space of system 18", "research_waiver_payment"),
+          option("planet|jord", "return infantry from Jord", "research_waiver_payment"),
+          decline(),
+        ],
+        details: {
+          kind: "offer",
+          card: {
+            title: "Pay for the waiver",
+            tag: "faction ability",
+            window: "return 1 infantry to reinforcements to ignore its prerequisites",
+            text: "Choose what pays for it. Declining researches nothing and pays nothing.",
+          },
+          facts: [{ label: "Technology", technology: "ws" }],
+          captions: { decline: { label: "Don't pay", hint: "Nothing is researched or paid" } },
+        },
+      },
+    },
     paymentCase({
       nonce: "gallery-crimson-pay",
       title: "Crimson commander: gain or convert",
