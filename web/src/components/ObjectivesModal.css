@@ -485,3 +485,9 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+
+.objectives-matrix__progress-label--bought {
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 1.3;
+}
