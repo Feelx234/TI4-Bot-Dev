@@ -99,16 +99,6 @@ export const UnitBuildStats: React.FC<{
           {chip.text}
         </li>
       ))}
-      {stats?.upgraded && (
-        <li className="unit-stats__chip unit-stats__chip--tag" data-stat="upgraded">
-          Upgraded
-        </li>
-      )}
-      {stats?.factionSpecific && (
-        <li className="unit-stats__chip unit-stats__chip--tag" data-stat="faction">
-          Faction
-        </li>
-      )}
     </ul>
   );
 };

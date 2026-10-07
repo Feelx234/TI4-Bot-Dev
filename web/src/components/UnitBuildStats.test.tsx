@@ -31,7 +31,6 @@ describe("UnitBuildStats", () => {
     expect(list).toHaveTextContent("Capacity 1");
     expect(list).toHaveTextContent("Sustain");
     expect(list).toHaveTextContent("Bombard 5 · 60%");
-    expect(list).toHaveTextContent("Upgraded");
   });
   it("labels the combat value for screen readers", () => {
     renderStats("warsun", { faction: "hacan" }, { cost: 12 });
@@ -48,7 +47,6 @@ describe("UnitBuildStats", () => {
   it("uses the seat's own flagship and variant carrier", () => {
     const { unmount } = renderStats("flagship", { faction: "sol" }, { cost: 8 });
     expect(screen.getByTestId("unit-stats")).toHaveTextContent("Capacity 12");
-    expect(screen.getByTestId("unit-stats")).toHaveTextContent("Faction");
     unmount();
     renderStats("carrier", { faction: "sol", technologies: ["ac2"] }, { cost: 3 });
     expect(screen.getByTestId("unit-stats")).toHaveTextContent("Move 2");
