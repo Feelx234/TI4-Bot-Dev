@@ -2,7 +2,8 @@ import type { ChoiceOptionDto, GameView, PendingChoiceDto, PlayerView } from "..
 import { findActionCardMeta, humanizeId } from "../protocol/contentCatalog.ts";
 
 /** What the client already knows about the table; enough to describe a candidate seat. */
-export type DecisionTable = Pick<GameView, "players" | "seating_order" | "speaker">;
+export type DecisionTable = Pick<GameView, "players" | "seating_order" | "speaker"> &
+  Partial<Pick<GameView, "table">>;
 
 export const SPEAKER_ROLE_TEXT =
   "The speaker picks first in the strategy phase, votes last on agendas and breaks voting ties.";

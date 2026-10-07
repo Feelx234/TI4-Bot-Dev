@@ -12,6 +12,9 @@ import {
 
 const TableContext = createContext<DecisionTable | null>(null);
 
+/** The table standing the surrounding provider holds, or `null` outside one. */
+export const useDecisionTable = (): DecisionTable | null => useContext(TableContext);
+
 /** Gives decisions the table standing (VP, commodities, speaker order) the client already holds. */
 export const DecisionTableProvider: React.FC<{
   table: DecisionTable | null;

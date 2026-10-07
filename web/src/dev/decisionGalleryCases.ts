@@ -930,6 +930,32 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Manipulate Investments: place a trade good",
+    fallback: "Plain list of card names -> the strategy card grid with the trade goods already on each card and the progress",
+    note: "Five placements, one question each: the card grid shows each card's printed text and the trade goods lying on it, and the header says which good this is and how many different cards are still owed.",
+    choice: {
+      actor,
+      nonce: "gallery-investments-pick",
+      prompt: "Manipulate Investments: place a trade good on which strategy card",
+      context: {
+        subtype: "investments_pick_strategy_card",
+        source: { ActionCard: "investments" },
+      },
+      options: [
+        "pok1leadership",
+        "pok2diplomacy",
+        "pok3politics",
+        "pok4construction",
+        "pok5trade",
+        "pok6warfare",
+        "pok7technology",
+        "pok8imperial",
+      ].map((id) => option(id, `place a trade good on ${id}`, "strategy_card")),
+      details: { step: 2, of: 5, distinct_owed: 2 },
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Legendary planet abilities",
     fallback: "Raw ability labels -> the planet that carries each ability and its printed text",
     note: "The end-of-turn (and when-you-pass) legendary menu shows each ready ability with its planet, stats and card text; Decline ends the window.",

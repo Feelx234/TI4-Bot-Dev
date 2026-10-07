@@ -24,6 +24,8 @@ import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts
 import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
 import { LegendaryContextPanel, LegendaryOptionNote } from "./LegendaryParts.tsx";
+import { InvestmentsContextPanel, StrategyGoodsNote } from "./StrategyGoodsParts.tsx";
+import { investmentsProgress, isStrategyCardGrid } from "../presentation/strategyGoods.ts";
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -145,7 +147,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
       opt.label.toLowerCase().includes(q) || (opt.description?.toLowerCase().includes(q) ?? false)
     );
   });
-  const strategyDraft = choice.context?.subtype === "draft_strategy_card";
+  const strategyDraft = isStrategyCardGrid(choice);
+  const investments = investmentsProgress(choice);
 
   const handleToggleOption = (id: string) => {
     if (isMultiSelect) {
@@ -364,6 +367,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           {!secondary && !tokens && <RemoveUnitPanel choice={choice} board={boardView} />}
           {!secondary && !tokens && !replenish && <PoliticsContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <LegendaryContextPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <InvestmentsContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && (
           <form
             onSubmit={handleSubmit}
@@ -464,6 +468,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         <RemoveUnitOptionNote choice={choice} option={opt} board={boardView} />
                         <PoliticsOptionNote choice={choice} option={opt} />
                         <LegendaryOptionNote choice={choice} option={opt} board={boardView} />
+                        {card && <StrategyGoodsNote choice={choice} option={opt} />}
                         <SystemPickOptionFacts choice={choice} optionId={opt.id} board={boardView} />
                         {opt.description && (
                           <div
@@ -504,7 +509,9 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               >
                 {isSubmitting || isPipelineRunning
                   ? "Submitting..."
-                  : strategyDraft
+                  : investments
+                    ? "Place trade good"
+                    : strategyDraft
                     ? "Choose card"
                     : handDecisionConfirmLabel(choice.context?.subtype)
                       ? handDecisionConfirmLabel(choice.context?.subtype)

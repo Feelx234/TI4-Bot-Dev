@@ -4285,6 +4285,18 @@ fn pick(
     kind: &str,
     options: &[(String, String)],
 ) -> Option<String> {
+    pick_detailed(context, player, prompt, kind, options, &[])
+}
+
+/// [`pick`] with display-only facts for clients (see `Choice::details`): never read by the engine.
+fn pick_detailed(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    prompt: &str,
+    kind: &str,
+    options: &[(String, String)],
+    details: &[(&str, serde_json::Value)],
+) -> Option<String> {
     match options {
         [] => None,
         [(only, _)] => Some(only.clone()),
@@ -4309,6 +4321,9 @@ fn pick(
                     })
                     .collect(),
             );
+            let choice = details
+                .iter()
+                .fold(choice, |choice, (key, value)| choice.detailed(key, value.clone()));
             let action_card = active_action_card();
             let source = action_card.as_ref().map_or_else(
                 || DecisionSource::Rule("2".to_owned()),
@@ -4522,12 +4537,17 @@ fn manipulate_investments(context: &mut crate::timing::TimingContext<'_>, player
             .filter(|alias| remaining > owed || !used.contains(*alias))
             .map(|alias| (alias.clone(), format!("place a trade good on {alias}")))
             .collect();
-        let Some(chosen) = pick(
+        let Some(chosen) = pick_detailed(
             context,
             player,
             "Manipulate Investments: place a trade good on which strategy card",
             "strategy_card",
             &offer,
+            &[
+                ("step", (placed + 1).into()),
+                ("of", TOKENS.into()),
+                ("distinct_owed", owed.into()),
+            ],
         ) else {
             return;
         };
@@ -7779,6 +7799,31 @@ mod tests {
             "at least three different cards, saw {:?}",
             state.strategy_card_goods
         );
+    }
+
+    /// Each placement question says which of the five it is and how many different cards are
+    /// still owed, so a client can show the progress (display only).
+    #[test]
+    fn manipulate_investments_questions_carry_their_step() {
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.strategy_card_goods.clear();
+
+        let seen = resolve_card_capturing(&mut state, "investments", &player, &[]);
+
+        let first = seen.borrow()[0].clone();
+        // The card prefix of the subtype comes from the play path, not from this direct call.
+        assert!(
+            first
+                .context
+                .as_ref()
+                .unwrap()
+                .subtype
+                .ends_with("pick_strategy_card")
+        );
+        assert_eq!(first.details["step"], 1);
+        assert_eq!(first.details["of"], 5);
+        assert_eq!(first.details["distinct_owed"], 3);
     }
 
     /// Lie in Wait takes one card from each of two neighbours who traded, and counts a
