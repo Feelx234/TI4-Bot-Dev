@@ -490,6 +490,7 @@ const GameViewContainer: React.FC<{
         scoredObjectives={snapshot?.view.table.scored_objectives}
         objectiveProgress={snapshot?.view.table.objective_progress}
         onSubmitChoice={submitChoice}
+        preparedGameId={gameId}
         reactionModes={snapshot?.reaction_modes}
         onSetReactionMode={userSeat ? setReactionMode : undefined}
         onSubmitMovementBatch={submitMovementBatch}

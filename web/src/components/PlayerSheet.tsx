@@ -8,6 +8,7 @@ import {
   SECRET_OBJECTIVES,
 } from "../protocol/contentCatalog.ts";
 import { CardSubject } from "./CardDetails.tsx";
+import { SecondaryPrepModeToggle } from "./SecondaryPrepModeToggle.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { computePlayerStats } from "../presentation/playerStats.ts";
 import { Tooltip } from "../primitives/index.ts";
@@ -254,7 +255,8 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
       >
         <h2 style={{ fontSize: 16, fontWeight: "bold", margin: 0, color: "#94a3b8" }}>Players</h2>
 
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
+        {userSeat && <SecondaryPrepModeToggle />}
         {/* Sound Settings Toggle */}
         <button
           type="button"
