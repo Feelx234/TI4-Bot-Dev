@@ -1,10 +1,23 @@
+import React, { useState } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { GameEvent, HistoryStatus, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
-import { SecondaryPrepHost, type SecondaryPrepHostProps } from "./SecondaryPrepHost.tsx";
+import type {
+  BoardView,
+  GameEvent,
+  HistoryStatus,
+  PendingChoiceDto,
+  PlayerView,
+} from "../protocol/types.ts";
+import type { BasketPlan } from "../protocol/client.ts";
+import { ChoiceRendererDispatcher } from "./GameShell.tsx";
+import { SecondaryPrepHost } from "./SecondaryPrepHost.tsx";
 import { PlayerSheet } from "./PlayerSheet.tsx";
+import { useSecondaryPrepare } from "../hooks/useSecondaryPrepare.ts";
+import { resolveMapTargetSelection } from "../presentation/planetSelection.ts";
+import { PreparedHintProvider } from "../presentation/PreparedHint.tsx";
 import { SECONDARY_PREP_MODE_KEY } from "../hooks/useSecondaryPrepMode.ts";
-import { AUTO_PLAY_DELAY_MS } from "../hooks/useSecondaryAutoPlay.ts";
+import { AUTO_PLAY_DELAY_MS, AUTO_PLAY_HOLD_LIMIT_MS } from "../hooks/useSecondaryAutoPlay.ts";
+import { loadPlan } from "../hooks/useSecondaryPlan.ts";
 import {
   actionEvent,
   boardWith,
@@ -18,39 +31,129 @@ import {
 const hist = (cursor: number, generation = 0, redo_count = 0): HistoryStatus => ({ cursor, redo_count, generation });
 const players = (card = "pok7technology", extra: Partial<PlayerView> = {}): PlayerView[] => [
   player("a", { strategy_cards: [card, "pok1leadership"] }),
-  player("b", extra),
+  player("b", { trade_goods: 4, ...extra }),
   player("c"),
 ];
 
-const base = (over: Partial<SecondaryPrepHostProps> = {}): SecondaryPrepHostProps => ({
-  gameId: "g1",
-  viewerSeat: "b",
-  players: players(),
-  events: playedLog("Technology"),
-  board: boardWith([{ system: "18", planet: "jord", owner: "b", exhausted: true }]),
-  phase: "action",
-  activePlayer: "a",
-  history: hist(5),
-  choice: null,
-  busy: false,
-  onSubmitChoice: vi.fn().mockResolvedValue(undefined),
-  onSubmitBasketBatch: vi.fn().mockResolvedValue(undefined),
-  ...over,
-});
+interface HarnessProps {
+  viewerSeat?: string | null;
+  players?: PlayerView[];
+  events?: GameEvent[];
+  board?: BoardView;
+  phase?: string;
+  activePlayer?: string | null;
+  history?: HistoryStatus;
+  choice?: PendingChoiceDto | null;
+  submit: (optionId: string) => Promise<void>;
+  batch: (plan: BasketPlan) => Promise<void>;
+}
 
-const open = () => fireEvent.click(screen.getByTestId("secondary-prep-chip"));
+/** Wires the hook, the real decision renderer and the prepare chrome the way App.tsx does. */
+const Harness: React.FC<HarnessProps> = (p) => {
+  const viewerSeat = p.viewerSeat === undefined ? "b" : p.viewerSeat;
+  const list = p.players ?? players();
+  const board = p.board ?? boardWith([{ system: "18", planet: "jord", owner: "b", exhausted: true }]);
+  const prep = useSecondaryPrepare({
+    gameId: "g1",
+    viewerSeat,
+    players: list,
+    events: p.events ?? playedLog("Technology"),
+    board,
+    phase: p.phase ?? "action",
+    activePlayer: p.activePlayer === undefined ? "a" : p.activePlayer,
+    history: p.history ?? hist(5),
+    realChoice: p.choice ?? null,
+    submitChoice: p.submit,
+    submitBatch: p.batch,
+  });
+  const [minimized, setMinimized] = useState(false);
+  const [selected, setSelected] = useState<string | undefined>();
+  const [planet, setPlanet] = useState<string | null>(null);
+  const record = Object.fromEntries(list.map((entry) => [entry.id, entry]));
+  return (
+    <PreparedHintProvider
+      value={
+        prep.resolution.kind === "option" && !prep.preparing && prep.realChoice
+          ? { optionId: prep.resolution.optionId, text: prep.resolution.text }
+          : null
+      }
+    >
+      <ChoiceRendererDispatcher
+        choice={prep.shownChoice}
+        viewerSeat={viewerSeat}
+        players={record}
+        boardView={board}
+        onSubmit={prep.preparing ? prep.prepareSubmit : p.submit}
+        onSubmitBasketBatch={prep.preparing ? prep.prepareBatch : p.batch}
+        isMinimized={minimized}
+        onMinimizedChange={setMinimized}
+        selectedOptionId={selected}
+        onSelectOption={setSelected}
+        selectedPlanetId={planet}
+        onSelectPlanet={setPlanet}
+      />
+      {/* Stands in for a click on the map: App.tsx runs the same resolveMapTargetSelection. */}
+      <button
+        type="button"
+        data-testid="map-click-jord"
+        onClick={() => {
+          const picked = resolveMapTargetSelection(prep.shownChoice, "18", "jord", board);
+          if (picked.kind === "select") {
+            setSelected(picked.optionId);
+            setPlanet(picked.planetId ?? null);
+          }
+        }}
+      />
+      <SecondaryPrepHost
+        prep={prep}
+        onConfirm={async (resolution) => {
+          if (resolution.kind === "option") await p.submit(resolution.optionId);
+          else if (resolution.kind === "tokens") await p.batch({ kind: "tokens", steps: resolution.steps });
+        }}
+      />
+    </PreparedHintProvider>
+  );
+};
 
-describe("waiting: the prepare panel", () => {
+function setup(over: Partial<HarnessProps> = {}) {
+  const submit = vi.fn().mockResolvedValue(undefined);
+  const batch = vi.fn().mockResolvedValue(undefined);
+  const props: HarnessProps = { submit, batch, ...over };
+  const view = render(<Harness {...props} />);
+  const again = (next: Partial<HarnessProps>) => {
+    Object.assign(props, next);
+    view.rerender(<Harness {...props} />);
+  };
+  return { submit, batch, props, view, again };
+}
+
+const click = (id: string) => fireEvent.click(screen.getByTestId(id));
+const open = () => click("secondary-prep-chip");
+const plan = () => loadPlan("g1", "b")?.plan;
+/** The first technology the real list offers, picked and confirmed through the real controls. */
+const pickFirstTech = async () => {
+  const card = document.querySelector('[data-testid^="tech-card-"][data-selectable="true"]') as HTMLElement;
+  const id = card.getAttribute("data-testid")!.replace("tech-card-", "");
+  fireEvent.click(card);
+  await act(async () => {
+    click("confirm-research-btn");
+  });
+  await act(async () => {});
+  return id;
+};
+const dialog = () => screen.queryByTestId("pending-choice-dialog");
+
+describe("waiting: the chip", () => {
   beforeEach(() => localStorage.clear());
 
   it("offers 'Prepare your secondary' to an eligible follower who has not been asked", () => {
-    render(<SecondaryPrepHost {...base()} />);
+    setup();
     expect(screen.getByTestId("secondary-prep-chip").textContent).toMatch(/Prepare your secondary/);
-    expect(screen.queryByTestId("secondary-prepared-badge")).toBeNull();
+    expect(dialog()).toBeNull();
   });
 
   it("shows nothing to spectators, the primary player, tokenless followers, or once asked", () => {
-    const hidden: Partial<SecondaryPrepHostProps>[] = [
+    const hidden: Partial<HarnessProps>[] = [
       { viewerSeat: null },
       { viewerSeat: "a" },
       { players: players("pok7technology", { strategic_tokens: 0 }) },
@@ -60,258 +163,378 @@ describe("waiting: the prepare panel", () => {
       { phase: "status" },
     ];
     for (const over of hidden) {
-      const { container, unmount } = render(<SecondaryPrepHost {...base(over)} />);
-      expect(container.querySelector("[data-testid=secondary-prep]")).toBeNull();
-      unmount();
+      const { view } = setup(over);
+      expect(screen.queryByTestId("secondary-prep")).toBeNull();
+      view.unmount();
     }
   });
 
-  it("hides the panel while the viewer has a decision pending", () => {
-    render(<SecondaryPrepHost {...base({ choice: stepChoice("reaction_when_x", [option("a")]) })} />);
+  it("hides the chip while the viewer has a real decision pending", () => {
+    setup({ choice: stepChoice("reaction_when_x", [option("a")]) });
     expect(screen.queryByTestId("secondary-prep-chip")).toBeNull();
   });
+});
 
-  it("sets a 'Prepared' badge, keeps it on this device, and clears it", () => {
-    render(<SecondaryPrepHost {...base()} />);
+describe("preparation mode renders the REAL components and sends nothing", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("shows the banner and the real strategy secondary panel for a dry choice", () => {
+    const { submit, batch } = setup();
     open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    expect(screen.getByTestId("secondary-prepared-badge").textContent).toBe("Prepared");
-    fireEvent.click(screen.getByTestId("prep-tech-amd"));
-    expect(localStorage.getItem("ti4_secondary_prepared:g1:b")).toContain("amd");
-    fireEvent.click(screen.getByTestId("prep-clear"));
-    expect(screen.queryByTestId("secondary-prepared-badge")).toBeNull();
-    expect(localStorage.getItem("ti4_secondary_prepared:g1:b")).toBeNull();
+    expect(screen.getByTestId("prepare-banner").textContent).toMatch(/Preparing\s*—\s*nothing is sent or spent/);
+    expect(screen.getByTestId("strategy-secondary-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("secondary-yes-btn").textContent).toMatch(/Spend 1 strategy token \+ 4 resources to research/);
+    expect(submit).not.toHaveBeenCalled();
+    expect(batch).not.toHaveBeenCalled();
   });
 
-  it("is not shown to other seats as a ready indicator: nothing is sent anywhere", () => {
-    const props = base();
-    render(<SecondaryPrepHost {...props} />);
+  it("Technology: follow, then the real technology list; picking records the plan (no submit_choice)", async () => {
+    const { submit, batch } = setup();
     open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    expect(props.onSubmitChoice).not.toHaveBeenCalled();
-    expect(props.onSubmitBasketBatch).not.toHaveBeenCalled();
+    click("secondary-yes-btn");
+    expect(plan()).toEqual({ card: "pok7technology", follow: true });
+    expect(screen.getByTestId("prepare-approximate").textContent).toMatch(/Approximate until the real question opens/);
+    const tech = await pickFirstTech();
+    expect(plan()).toEqual({ card: "pok7technology", follow: true, tech });
+    expect(screen.queryByTestId("prepare-banner")).toBeNull();
+    expect(screen.getByTestId("secondary-prep-chip").textContent).toMatch(/Prepared/);
+    expect(submit).not.toHaveBeenCalled();
+    expect(batch).not.toHaveBeenCalled();
   });
 
-  it("warns on Trade that a replenish removes the window", () => {
-    render(<SecondaryPrepHost {...base({ players: players("pok5trade"), events: playedLog("Trade") })} />);
+  it("skip records a skip and ends", () => {
+    const { submit } = setup();
     open();
-    expect(screen.getByTestId("prep-trade-warning").textContent).toMatch(/replenishes you/);
+    click("secondary-skip-btn");
+    expect(plan()).toEqual({ card: "pok7technology", follow: false });
+    expect(screen.queryByTestId("prepare-banner")).toBeNull();
+    expect(submit).not.toHaveBeenCalled();
   });
 
-  it("offers per-card detail pickers: planets for Diplomacy, sites for Construction", () => {
-    const { unmount } = render(
-      <SecondaryPrepHost {...base({ players: players("pok2diplomacy"), events: playedLog("Diplomacy") })} />,
-    );
+  it("Save plan keeps the plan, Clear plan revokes it", () => {
+    setup();
     open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    fireEvent.click(screen.getByTestId("prep-planet-jord"));
-    expect(screen.getByTestId("prep-planet-jord").getAttribute("aria-pressed")).toBe("true");
-    unmount();
-    localStorage.clear();
-    render(
-      <SecondaryPrepHost {...base({ players: players("pok4construction"), events: playedLog("Construction") })} />,
-    );
+    click("secondary-yes-btn");
+    click("prep-save");
+    expect(plan()).toBeTruthy();
     open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    fireEvent.click(screen.getByTestId("prep-site-jord"));
-    fireEvent.click(screen.getByTestId("prep-unit-spacedock"));
-    expect(localStorage.getItem("ti4_secondary_prepared:g1:b")).toContain("spacedock");
+    click("prep-clear");
+    expect(plan()).toBeUndefined();
+    expect(screen.queryByTestId("prepare-banner")).toBeNull();
+  });
+
+  it("Diplomacy: the planet pick is the real planet selection bar with the map-selected option", async () => {
+    const board = boardWith([
+      { system: "18", planet: "jord", owner: "b", exhausted: true },
+      { system: "26", planet: "lodor", owner: "b", exhausted: true },
+    ]);
+    const { submit } = setup({ players: players("pok2diplomacy"), events: playedLog("Diplomacy"), board });
+    open();
+    click("secondary-yes-btn");
+    expect(screen.getByTestId("planet-selection-bar")).toBeInTheDocument();
+    // A map click selects the planet's option exactly as in the real flow; the real bar confirms.
+    click("map-click-jord");
+    expect(screen.getByTestId("planet-selection-action").textContent).toMatch(/Jord/i);
+    await act(async () => {
+      click("confirm-planet-btn");
+    });
+    expect(plan()?.planets).toEqual(["jord"]);
+    // The second pick follows, with the first planet no longer offered.
+    expect(screen.getByTestId("planet-selection-bar")).toBeInTheDocument();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("Leadership: the real command token panel, pool arrangement recorded in the plan", async () => {
+    const lead = players("pok1leadership", { trade_goods: 3 });
+    const { submit, batch } = setup({
+      players: lead,
+      events: playedLog("Leadership"),
+      board: boardWith([{ system: "18", planet: "jord", owner: "b" }]),
+    });
+    open();
+    expect(screen.getByTestId("command-token-panel")).toBeInTheDocument();
+    click("token-buy-plus");
+    click("token-plus-fleet");
+    await act(async () => {
+      click("token-confirm");
+    });
+    expect(plan()).toEqual({
+      card: "pok1leadership",
+      follow: true,
+      leadership: { pools: { tactic: 0, fleet: 1, strategic: 0 } },
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect(batch).not.toHaveBeenCalled();
+  });
+
+  it("Trade: only follow or skip, with the replenish warning", () => {
+    setup({ players: players("pok5trade"), events: playedLog("Trade") });
+    open();
+    expect(screen.getByTestId("prepare-approximate").textContent).toMatch(/replenishes you/);
+    click("secondary-yes-btn");
+    expect(plan()).toEqual({ card: "pok5trade", follow: true });
+    expect(screen.queryByTestId("prepare-banner")).toBeNull();
+  });
+
+  it("the mode ends by itself when the viewer's real decision arrives", () => {
+    const { again } = setup();
+    open();
+    expect(screen.getByTestId("prepare-banner")).toBeInTheDocument();
+    again({ history: hist(6), choice: secondaryChoice("pok7technology") });
+    expect(screen.queryByTestId("prepare-banner")).toBeNull();
+    expect(dialog()).toBeInTheDocument();
   });
 });
 
 describe("invalidation", () => {
   beforeEach(() => localStorage.clear());
 
-  const prepare = () => {
-    const view = render(<SecondaryPrepHost {...base()} />);
+  const prepared = () => {
+    const ctx = setup();
     open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    return view;
+    click("secondary-yes-btn");
+    click("prep-save");
+    return ctx;
   };
 
   it("drops the plan on a new strategic action", () => {
-    const view = prepare();
-    view.rerender(
-      <SecondaryPrepHost
-        {...base({
-          events: [...playedLog("Technology"), actionEvent("action_9", "c", { action_actor: "c", detail: "c played Politics" })],
-          activePlayer: "c",
-          players: [player("a"), player("b"), player("c", { strategy_cards: ["pok3politics"] })],
-        })}
-      />,
-    );
-    expect(localStorage.getItem("ti4_secondary_prepared:g1:b")).toBeNull();
+    const { again } = prepared();
+    again({
+      events: [...playedLog("Technology"), actionEvent("action_9", "c", { action_actor: "c", detail: "c played Politics" })],
+      activePlayer: "c",
+      players: [player("a"), player("b"), player("c", { strategy_cards: ["pok3politics"] })],
+    });
+    expect(plan()).toBeUndefined();
   });
 
   it("drops the plan when the action is cancelled (the turn moves on)", () => {
-    const view = prepare();
-    view.rerender(<SecondaryPrepHost {...base({ activePlayer: "c" })} />);
-    expect(localStorage.getItem("ti4_secondary_prepared:g1:b")).toBeNull();
+    const { again } = prepared();
+    again({ activePlayer: "c" });
+    expect(plan()).toBeUndefined();
   });
 
-  it("drops the plan when history changes generation (undo past the action)", () => {
-    const view = prepare();
-    view.rerender(<SecondaryPrepHost {...base({ history: hist(3, 1) })} />);
-    expect(localStorage.getItem("ti4_secondary_prepared:g1:b")).toBeNull();
+  it("drops the plan when history changes generation (undo past the action)", async () => {
+    const { again } = prepared();
+    again({ history: hist(3, 1) });
+    expect(plan()).toBeUndefined();
   });
 });
 
 describe("review mode (the default): the prepared answer in the real decision", () => {
   beforeEach(() => localStorage.clear());
 
-  /** Prepares a plan, then lets the real question arrive after the game moved forward. */
-  function arrive(choice: PendingChoiceDto, props: Partial<SecondaryPrepHostProps> = {}) {
-    const shared = base(props);
-    const view = render(<SecondaryPrepHost {...shared} />);
+  async function arrive(choice: PendingChoiceDto) {
+    const ctx = setup();
     open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    fireEvent.click(screen.getByTestId("prep-tech-amd"));
-    const events: GameEvent[] = [...(shared.events ?? [])];
-    view.rerender(<SecondaryPrepHost {...shared} events={events} history={hist(6)} choice={choice} />);
-    return { shared, view };
+    click("secondary-yes-btn");
+    const tech = await pickFirstTech();
+    ctx.again({ history: hist(6), choice });
+    return { ...ctx, tech };
   }
 
-  it("pre-fills the window and confirms with one click, sending nothing by itself", async () => {
-    const { shared } = arrive(secondaryChoice("pok7technology"));
+  it("opens the REAL secondary panel with the prepared answer marked, and confirms with one click", async () => {
+    const { submit } = await arrive(secondaryChoice("pok7technology"));
+    expect(dialog()).toBeInTheDocument();
+    expect(screen.getByTestId("strategy-secondary-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("secondary-yes-btn").getAttribute("data-prepared")).toBe("true");
     expect(screen.getByTestId("secondary-prepared-bar").textContent).toMatch(/Follow Technology/);
-    expect(shared.onSubmitChoice).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
     await act(async () => {
-      fireEvent.click(screen.getByTestId("secondary-prepared-confirm"));
+      click("secondary-prepared-confirm");
     });
-    expect(shared.onSubmitChoice).toHaveBeenCalledTimes(1);
-    expect(shared.onSubmitChoice).toHaveBeenCalledWith("yes");
+    expect(submit).toHaveBeenCalledWith("yes");
+  });
+
+  it("the real yes button still answers directly", async () => {
+    const { submit } = await arrive(secondaryChoice("pok7technology"));
+    await act(async () => {
+      click("secondary-yes-btn");
+    });
+    expect(submit).toHaveBeenCalledWith("yes");
+  });
+
+  it("lets the player choose differently without sending anything", async () => {
+    const { submit } = await arrive(secondaryChoice("pok7technology"));
+    click("secondary-prepared-dismiss");
+    expect(screen.queryByTestId("secondary-prepared-bar")).toBeNull();
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it("uses the faction waiver option when that is what the engine offers", async () => {
-    const waiver = secondaryChoice("pok7technology", {}, [option("no"), option("follow|waived|0|w", "strategy", "free")]);
-    const { shared } = arrive(waiver);
+    const { submit } = await arrive(
+      secondaryChoice("pok7technology", {}, [option("no"), option("follow|waived|0|w", "strategy", "free")]),
+    );
     await act(async () => {
-      fireEvent.click(screen.getByTestId("secondary-prepared-confirm"));
+      click("secondary-prepared-confirm");
     });
-    expect(shared.onSubmitChoice).toHaveBeenCalledWith("follow|waived|0|w");
+    expect(submit).toHaveBeenCalledWith("follow|waived|0|w");
   });
 
-  it("lets the player choose differently without sending anything", () => {
-    const { shared } = arrive(secondaryChoice("pok7technology"));
-    fireEvent.click(screen.getByTestId("secondary-prepared-dismiss"));
-    expect(screen.queryByTestId("secondary-prepared-bar")).toBeNull();
-    expect(shared.onSubmitChoice).not.toHaveBeenCalled();
-  });
-
-  it("shows 'Needs review' instead of pre-filling when the prepared intent no longer validates", () => {
-    arrive(secondaryChoice("pok7technology", {}, [option("no")]));
+  it("shows 'Needs review' instead of pre-filling when the prepared intent no longer validates", async () => {
+    await arrive(secondaryChoice("pok7technology", {}, [option("no")]));
     expect(screen.getByTestId("secondary-needs-review").textContent).toMatch(/Needs review/);
     expect(screen.queryByTestId("secondary-prepared-confirm")).toBeNull();
+    expect(dialog()).toBeInTheDocument();
   });
 
-  it("prefills the technology pick after the window was answered, and flags an unavailable one", async () => {
-    const { shared, view } = arrive(secondaryChoice("pok7technology"));
-    const asked = [...(shared.events ?? []), actionEvent("action_5", "b", { detail: "b followed" })];
-    view.rerender(
-      <SecondaryPrepHost
-        {...shared}
-        events={asked}
-        history={hist(7)}
-        choice={stepChoice("research_technology", [option("amd", "research"), option("decline", "decline")])}
-      />,
-    );
+  it("pre-fills the technology pick after the window, and flags an unavailable one", async () => {
+    const { submit, again, props, tech } = await arrive(secondaryChoice("pok7technology"));
+    const asked = [...(props.events ?? playedLog("Technology")), actionEvent("action_5", "b", { detail: "b followed" })];
+    again({
+      events: asked,
+      history: hist(7),
+      choice: stepChoice("research_technology", [option(tech, "research"), option("decline", "decline")]),
+    });
     expect(screen.getByTestId("secondary-prepared-bar").textContent).toMatch(/Research/);
     await act(async () => {
-      fireEvent.click(screen.getByTestId("secondary-prepared-confirm"));
+      click("secondary-prepared-confirm");
     });
-    expect(shared.onSubmitChoice).toHaveBeenCalledWith("amd");
-    view.rerender(
-      <SecondaryPrepHost
-        {...shared}
-        events={asked}
-        history={hist(8)}
-        choice={stepChoice("research_technology", [option("nm", "research")], "other")}
-      />,
-    );
-    expect(screen.getByTestId("secondary-needs-review")).toBeTruthy();
+    expect(submit).toHaveBeenCalledWith(tech);
+    again({ history: hist(8), choice: stepChoice("research_technology", [option("nm", "research")], "other") });
+    expect(screen.getByTestId("secondary-needs-review")).toBeInTheDocument();
   });
 
   it("does not apply the plan to an unrelated research prompt after a reload", () => {
-    const shared = base();
-    const first = render(<SecondaryPrepHost {...shared} />);
+    const first = setup();
     open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    fireEvent.click(screen.getByTestId("prep-tech-amd"));
-    first.unmount();
-    render(
-      <SecondaryPrepHost
-        {...shared}
-        choice={stepChoice("research_technology", [option("amd", "research")])}
-      />,
-    );
+    click("secondary-yes-btn");
+    click("prep-save");
+    first.view.unmount();
+    setup({ choice: stepChoice("research_technology", [option("amd", "research")]) });
     expect(screen.queryByTestId("secondary-prepared-bar")).toBeNull();
     expect(screen.queryByTestId("secondary-needs-review")).toBeNull();
   });
 
-  it("never auto-plays in Review mode, even when the game moved forward", () => {
+  it("never auto-plays in Review mode, even when the game moved forward", async () => {
     vi.useFakeTimers();
     try {
-      const { shared } = arrive(secondaryChoice("pok7technology"));
+      const { submit } = await arrive(secondaryChoice("pok7technology"));
       act(() => {
         vi.advanceTimersByTime(AUTO_PLAY_DELAY_MS + 10);
       });
-      expect(shared.onSubmitChoice).not.toHaveBeenCalled();
+      expect(submit).not.toHaveBeenCalled();
       expect(screen.queryByTestId("secondary-autoplay-toast")).toBeNull();
+      expect(dialog()).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
   });
 });
 
-describe("auto mode", () => {
+describe("auto mode: decided in the background, the decision UI stays closed", () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem(SECONDARY_PREP_MODE_KEY, "auto");
+    vi.useFakeTimers();
   });
   afterEach(() => vi.useRealTimers());
 
-  it("shows the toast, then submits the prepared answer once", () => {
-    vi.useFakeTimers();
-    const shared = base();
-    const view = render(<SecondaryPrepHost {...shared} />);
+  function prepareFollow(over: Partial<HarnessProps> = {}) {
+    const ctx = setup({ history: hist(5), ...over });
     open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    view.rerender(<SecondaryPrepHost {...shared} history={hist(6)} choice={secondaryChoice("pok7technology")} />);
+    click("secondary-yes-btn");
+    // Technology asks for the tech next; skip it for the plain follow plan: save.
+    click("prep-save");
+    return ctx;
+  }
+  const advance = (ms = AUTO_PLAY_DELAY_MS + 10) =>
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+
+  it("does not open the modal, shows the toast, sends once, and announces it", async () => {
+    const { submit, again } = prepareFollow();
+    again({ history: hist(6), choice: secondaryChoice("pok7technology") });
+    expect(dialog()).toBeNull();
+    expect(screen.queryByTestId("strategy-secondary-panel")).toBeNull();
     expect(screen.getByTestId("secondary-autoplay-toast").textContent).toMatch(/Follow Technology/);
-    act(() => {
+    expect(screen.queryByTestId("secondary-prepared-bar")).toBeNull();
+    await act(async () => {
       vi.advanceTimersByTime(AUTO_PLAY_DELAY_MS + 10);
     });
-    expect(shared.onSubmitChoice).toHaveBeenCalledTimes(1);
-    expect(shared.onSubmitChoice).toHaveBeenCalledWith("yes");
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledWith("yes");
+    // Still no UI while the answer is in flight, and the player is told afterwards.
+    expect(dialog()).toBeNull();
+    expect(screen.getByTestId("secondary-autoplayed-toast").textContent).toMatch(/Auto-played your prepared secondary/);
   });
 
-  it("Cancel keeps the decision open for a click", () => {
-    vi.useFakeTimers();
-    const shared = base();
-    const view = render(<SecondaryPrepHost {...shared} />);
-    open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    view.rerender(<SecondaryPrepHost {...shared} history={hist(6)} choice={secondaryChoice("pok7technology")} />);
-    fireEvent.click(screen.getByTestId("secondary-autoplay-cancel"));
-    act(() => {
-      vi.advanceTimersByTime(AUTO_PLAY_DELAY_MS + 10);
-    });
-    expect(shared.onSubmitChoice).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("secondary-autoplay-toast")).toBeNull();
+  it("Cancel opens the real decision for a manual answer", () => {
+    const { submit, again } = prepareFollow();
+    again({ history: hist(6), choice: secondaryChoice("pok7technology") });
+    expect(dialog()).toBeNull();
+    click("secondary-autoplay-cancel");
+    advance();
+    expect(submit).not.toHaveBeenCalled();
+    expect(dialog()).toBeInTheDocument();
+    expect(screen.getByTestId("strategy-secondary-panel")).toBeInTheDocument();
   });
 
-  it("does not auto-play after an undo even with a plan", () => {
-    vi.useFakeTimers();
-    const shared = base({ history: hist(8) });
-    const view = render(<SecondaryPrepHost {...shared} />);
-    open();
-    fireEvent.click(screen.getByTestId("prep-follow"));
-    // The undo changes the generation, which voids the plan as well.
-    view.rerender(<SecondaryPrepHost {...shared} history={hist(6, 1, 2)} choice={secondaryChoice("pok7technology")} />);
-    act(() => {
+  it("opens the UI when the plan does not validate (Needs review)", () => {
+    const { submit, again } = prepareFollow();
+    again({ history: hist(6), choice: secondaryChoice("pok7technology", {}, [option("no")]) });
+    expect(dialog()).toBeInTheDocument();
+    expect(screen.getByTestId("secondary-needs-review")).toBeInTheDocument();
+    advance();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("opens the UI at once when the submit is rejected", async () => {
+    const { submit, again } = prepareFollow();
+    submit.mockRejectedValueOnce(new Error("stale"));
+    again({ history: hist(6), choice: secondaryChoice("pok7technology") });
+    await act(async () => {
       vi.advanceTimersByTime(AUTO_PLAY_DELAY_MS + 10);
     });
-    expect(shared.onSubmitChoice).not.toHaveBeenCalled();
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it("opens the UI after the safety timeout if nothing moved on", async () => {
+    const { again } = prepareFollow();
+    again({ history: hist(6), choice: secondaryChoice("pok7technology") });
+    await act(async () => {
+      vi.advanceTimersByTime(AUTO_PLAY_DELAY_MS + 10);
+    });
+    expect(dialog()).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(AUTO_PLAY_HOLD_LIMIT_MS + 10);
+    });
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it("multi-step: the technology pick is answered without opening the UI, then it ends", async () => {
+    const ctx = setup({ history: hist(5) });
+    open();
+    click("secondary-yes-btn");
+    const tech = await pickFirstTech();
+    ctx.again({ history: hist(6), choice: secondaryChoice("pok7technology", { nonce: "w" }) });
+    await act(async () => {
+      vi.advanceTimersByTime(AUTO_PLAY_DELAY_MS + 10);
+    });
+    expect(ctx.submit).toHaveBeenLastCalledWith("yes");
+    const asked = [...(ctx.props.events ?? playedLog("Technology")), actionEvent("action_5", "b", { detail: "b followed" })];
+    ctx.again({
+      events: asked,
+      history: hist(7),
+      choice: stepChoice("research_technology", [option(tech, "research"), option("zz", "research")], "t1"),
+    });
+    expect(dialog()).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(AUTO_PLAY_DELAY_MS + 10);
+    });
+    expect(ctx.submit).toHaveBeenLastCalledWith(tech);
+    // The next, unplanned question opens normally.
+    ctx.again({ history: hist(8), choice: stepChoice("something_else", [option("x"), option("y")], "n3") });
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it("an undo (history generation change) never arms it: the real UI opens", () => {
+    const { submit, again } = prepareFollow({ history: hist(8) });
+    again({ history: hist(6, 1, 2), choice: secondaryChoice("pok7technology") });
+    advance();
+    expect(submit).not.toHaveBeenCalled();
+    expect(dialog()).toBeInTheDocument();
   });
 });
 

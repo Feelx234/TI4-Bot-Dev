@@ -1,124 +1,36 @@
-import React, { useEffect, useMemo, useState } from "react";
-import type {
-  BoardView,
-  GameEvent,
-  HistoryStatus,
-  PendingChoiceDto,
-  PlayerView,
-} from "../protocol/types.ts";
-import type { BasketPlan } from "../protocol/client.ts";
-import type { TokenStep } from "../presentation/commandTokens.ts";
-import {
-  detectStrategicAction,
-  prepareEligibility,
-} from "../presentation/strategicAction.ts";
-import { isSecondaryQuestion, resolveStep, describePlan } from "../presentation/secondaryPlan.ts";
-import { usePreparedPlan } from "../hooks/useSecondaryPlan.ts";
-import { useSecondaryAutoPlay } from "../hooks/useSecondaryAutoPlay.ts";
-import { SecondaryPrepPanel } from "./SecondaryPrepPanel.tsx";
+import React, { useState } from "react";
+import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { describePlan } from "../presentation/secondaryPlan.ts";
+import type { SecondaryPrepare } from "../hooks/useSecondaryPrepare.ts";
 import "./SecondaryPrep.css";
 
 export interface SecondaryPrepHostProps {
-  gameId?: string;
-  viewerSeat?: string | null;
-  players: readonly PlayerView[];
-  events: readonly GameEvent[];
-  board?: BoardView;
-  phase?: string;
-  activePlayer?: string | null;
-  history?: HistoryStatus;
-  choice: PendingChoiceDto | null;
-  /** A pipeline or a history change is busy: nothing is sent on the player's behalf. */
+  prep: SecondaryPrepare;
+  /** Sends the prepared answer for the viewer's real pending decision (the click-equivalent path). */
+  onConfirm: (resolution: SecondaryPrepare["resolution"]) => Promise<void>;
   busy?: boolean;
-  onSubmitChoice: (optionId: string) => Promise<void>;
-  onSubmitBasketBatch?: (plan: BasketPlan) => Promise<void>;
-  /** Open the panel at once (screenshots). */
-  defaultOpen?: boolean;
 }
 
 /**
- * Everything about prepared strategy-card secondaries, on the viewer's side only:
- *  - while another seat resolves a card and the viewer has not been asked: the "Prepare your
- *    secondary" panel (no public "ready" signal; nothing leaves the device);
- *  - when the viewer's real question arrives: the prepared answer, validated against the options
- *    the engine really offers, shown for a one-click confirm ("Review", the default) or, in auto
- *    mode, sent after a short cancellable delay;
- *  - "Needs review" instead of either, when the prepared answer no longer validates.
- * Spectators see nothing.
+ * The chrome around preparing a strategy-card secondary with the usual UI:
+ *  - the chip that opens preparation mode, and the "Preparing" banner while it is open;
+ *  - the prepared answer for the viewer's real question: a one-click bar (Review), "Needs review",
+ *    and the auto-play toasts. The question itself is rendered by the real components.
+ * Spectators and non-followers see nothing.
  */
-export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({
-  gameId,
-  viewerSeat,
-  players,
-  events,
-  board,
-  phase,
-  activePlayer,
-  history,
-  choice,
-  busy,
-  onSubmitChoice,
-  onSubmitBasketBatch,
-  defaultOpen,
-}) => {
-  const generation = history?.generation ?? 0;
-  const action = useMemo(
-    () => detectStrategicAction({ events, players, activePlayer, phase }),
-    [events, players, activePlayer, phase],
-  );
-  const eligibility = prepareEligibility(action, viewerSeat, players, events);
-  const ready = events.length > 0 && players.length > 0;
-  const { plan, set, clear } = usePreparedPlan({
-    gameId,
-    viewerSeat,
-    actionKey: action?.key ?? null,
-    generation,
-    ready,
-  });
-
-  // The follow-up prompts (technology, planets, site) belong to the plan only once its own window
-  // opened in this action: a decision seen after a page load, or any other research prompt, is not
-  // answered by it.
-  const [openedFor, setOpenedFor] = useState<string | null>(null);
-  const mine = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
-  const secondaryOpen = Boolean(
-    mine && choice && action && isSecondaryQuestion(choice) && choice.details?.card === action.card,
-  );
-  useEffect(() => {
-    if (secondaryOpen && action) setOpenedFor(action.key);
-  }, [secondaryOpen, action]);
-
-  const applicable = secondaryOpen || (action !== null && openedFor === action.key);
-  const resolution = useMemo(
-    () => (plan && applicable ? resolveStep(plan, choice, viewerSeat) : { kind: "none" as const }),
-    [plan, applicable, choice, viewerSeat],
-  );
-
-  const submitTokens = onSubmitBasketBatch
-    ? (steps: TokenStep[]) => onSubmitBasketBatch({ kind: "tokens", steps })
-    : undefined;
-  const { pending, cancel } = useSecondaryAutoPlay({
-    choice,
-    viewerSeat,
-    history,
-    busy,
-    resolution,
-    submitOption: onSubmitChoice,
-    submitTokens,
-  });
-
+export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onConfirm, busy }) => {
+  const display = usePlayerIdentity();
+  const { action, plan, resolution, realChoice, mine, pending, played, holding } = prep;
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const nonce = mine && choice ? choice.nonce : null;
+  const nonce = mine && realChoice ? realChoice.nonce : null;
 
   const confirm = async () => {
-    if (resolution.kind !== "option" && resolution.kind !== "tokens") return;
     setSending(true);
     setError(null);
     try {
-      if (resolution.kind === "option") await onSubmitChoice(resolution.optionId);
-      else if (submitTokens) await submitTokens(resolution.steps);
+      await onConfirm(resolution);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
@@ -126,25 +38,79 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({
     }
   };
 
-  if (!viewerSeat) return null;
-
-  const showPanel = action !== null && eligibility.canPrepare && !mine;
+  const showChip = prep.canPrepare && !prep.preparing && action !== null;
   const actionable = resolution.kind === "option" || resolution.kind === "tokens";
-  const showBar = nonce !== null && dismissed !== nonce && !pending && (actionable || resolution.kind === "review");
+  const showBar =
+    nonce !== null &&
+    dismissed !== nonce &&
+    !pending &&
+    !holding &&
+    (actionable || resolution.kind === "review");
+  const showBanner = prep.preparing && action !== null;
+  if (!showChip && !showBanner && !showBar && !pending && !played) return null;
 
-  if (!showPanel && !showBar && !pending) return null;
   return (
     <div className="secondary-prep" data-testid="secondary-prep">
-      {showPanel && action && (
-        <SecondaryPrepPanel
-          action={action}
-          viewer={players.find((player) => player.id === viewerSeat)}
-          board={board}
-          plan={plan}
-          onChange={set}
-          onClear={clear}
-          defaultOpen={defaultOpen}
-        />
+      {showChip && action && (
+        <button type="button" className="secondary-prep__chip" data-testid="secondary-prep-chip" onClick={prep.open}>
+          {plan ? "Prepared" : "Prepare your secondary"}
+          <span className="secondary-prep__note" style={{ margin: 0 }}>
+            {plan ? describePlan(plan) : `${action.cardName}, played by ${display(action.primary).label}`}
+          </span>
+        </button>
+      )}
+      {showChip && plan && (
+        <button type="button" className="button button--secondary button--sm" data-testid="prep-clear-chip" onClick={prep.clear}>
+          Clear prepared
+        </button>
+      )}
+      {showBanner && action && (
+        <section className="secondary-prep__banner" data-testid="prepare-banner" aria-label="Preparing your secondary">
+          <div className="secondary-prep__head">
+            <div>
+              <span className="secondary-prep__eyebrow">Preparing &mdash; nothing is sent or spent</span>
+              <span className="secondary-prep__title">
+                {action.cardName} secondary
+                <span className="secondary-prep__note" style={{ display: "inline", marginLeft: 8 }}>
+                  played by {display(action.primary).label}
+                </span>
+              </span>
+            </div>
+            {plan && (
+              <span className="secondary-prep__badge" data-testid="secondary-prepared-badge">
+                Prepared
+              </span>
+            )}
+          </div>
+          <p className="secondary-prep__note" data-testid="prepare-plan-summary">
+            {plan ? `Your plan: ${describePlan(plan)}.` : "Answer the question below as you would for real."}
+          </p>
+          {prep.dry?.approximate && (
+            <p className="secondary-prep__warning" data-testid="prepare-approximate" role="note">
+              Approximate until the real question opens. {prep.dry.approximate}
+            </p>
+          )}
+          <p className="secondary-prep__note" data-testid="prep-private-note">
+            Private, kept only on this device. You can change your mind when the real question comes.
+          </p>
+          <div className="secondary-prep__row">
+            <button type="button" className="button button--primary button--sm" data-testid="prep-save" onClick={prep.close}>
+              Save plan
+            </button>
+            <button
+              type="button"
+              className="button button--secondary button--sm"
+              data-testid="prep-clear"
+              disabled={!plan}
+              onClick={() => {
+                prep.clear();
+                prep.close();
+              }}
+            >
+              Clear plan
+            </button>
+          </div>
+        </section>
       )}
       {pending && (
         <div className="secondary-prep__bar" role="status" data-testid="secondary-autoplay-toast">
@@ -152,9 +118,16 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({
             Auto-playing your prepared secondary: <strong>{pending.text}</strong>
           </span>
           <span className="secondary-prep__bar-actions">
-            <button type="button" className="button button--secondary button--sm" data-testid="secondary-autoplay-cancel" onClick={cancel}>
+            <button type="button" className="button button--secondary button--sm" data-testid="secondary-autoplay-cancel" onClick={prep.cancel}>
               Cancel
             </button>
+          </span>
+        </div>
+      )}
+      {!pending && played && (
+        <div className="secondary-prep__bar" role="status" data-testid="secondary-autoplayed-toast">
+          <span className="secondary-prep__bar-text">
+            Auto-played your prepared secondary: <strong>{played}</strong>
           </span>
         </div>
       )}
@@ -196,7 +169,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({
             {plan && <span className="secondary-prep__note"> (You prepared: {describePlan(plan)}.)</span>}
           </span>
           <span className="secondary-prep__bar-actions">
-            <button type="button" className="button button--secondary button--sm" data-testid="secondary-prepared-clear" onClick={clear}>
+            <button type="button" className="button button--secondary button--sm" data-testid="secondary-prepared-clear" onClick={prep.clear}>
               Clear prepared
             </button>
           </span>

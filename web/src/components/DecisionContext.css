@@ -360,3 +360,13 @@
   display: flex;
   gap: 10px;
 }
+
+/* A prepared answer, shown already picked in the real secondary question. */
+.secondary-panel__actions .button[data-prepared] {
+  outline: 2px solid #16a34a;
+  outline-offset: 2px;
+}
+.secondary-panel__prepared {
+  font-weight: 600;
+  opacity: 0.9;
+}

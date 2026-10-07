@@ -48,7 +48,6 @@ import {
   PipelineRunnerContext,
   useOwnedPipelineRunner,
 } from "../hooks/usePipelineRunner.ts";
-import { SecondaryPrepHost } from "./SecondaryPrepHost.tsx";
 
 export interface GameShellProps {
   header: React.ReactNode;
@@ -106,7 +105,8 @@ export interface GameShellProps {
   /** The phase and whose turn it is, for the read-only action bar when it is not your turn. */
   turn?: TurnInfo;
   /** The game, for keeping a prepared strategy-card secondary apart per game (device storage). */
-  preparedGameId?: string;
+  /** Secondary preparation chrome (chip, banner, prepared-answer bar, toasts), rendered over the board. */
+  prepOverlay?: React.ReactNode;
 }
 
 export interface TurnInfo {
@@ -910,7 +910,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   scoredObjectives,
   objectiveProgress,
   turn,
-  preparedGameId,
+  prepOverlay,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<"events" | "players" | null>(
     null,
@@ -1193,20 +1193,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             }}
           />
         </PipelineRunnerContext.Provider>
-        <SecondaryPrepHost
-          gameId={preparedGameId}
-          viewerSeat={viewerSeat}
-          players={Object.values(playersMap)}
-          events={events}
-          board={boardView}
-          phase={turn?.phase}
-          activePlayer={turn?.activePlayer}
-          history={history}
-          choice={choice}
-          busy={pipelineRunner.isRunning || Boolean(historyBusy)}
-          onSubmitChoice={onSubmitChoice}
-          onSubmitBasketBatch={onSubmitBasketBatch}
-        />
+        {prepOverlay}
       </div>
     </div>
   );

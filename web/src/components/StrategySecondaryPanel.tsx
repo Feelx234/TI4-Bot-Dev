@@ -1,6 +1,7 @@
 import React from "react";
 import type { StrategySecondaryView } from "../presentation/strategySecondary.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { usePreparedHint } from "../presentation/PreparedHint.tsx";
 import "./DecisionContext.css";
 
 /** A strategy card's secondary as a named action: the card, who played it, what it costs. */
@@ -11,6 +12,9 @@ export const StrategySecondaryPanel: React.FC<{
 }> = ({ view, disabled, onChoose }) => {
   const display = usePlayerIdentity();
   const player = view.playedBy ? display(view.playedBy) : null;
+  const hint = usePreparedHint();
+  const preparedYes = hint?.optionId === view.yes.id;
+  const preparedNo = hint?.optionId === view.no.id;
   const cantPay = view.costsToken && view.tokensLeft !== null && view.tokensLeft < 1;
   return (
     <div className="secondary-panel" data-testid="strategy-secondary-panel">
@@ -50,19 +54,23 @@ export const StrategySecondaryPanel: React.FC<{
           type="button"
           className="button button--primary"
           data-testid="secondary-yes-btn"
+          data-prepared={preparedYes || undefined}
           disabled={disabled || cantPay}
           onClick={() => onChoose(view.yes.id)}
         >
           {view.yesLabel}
+          {preparedYes && <span className="secondary-panel__prepared"> (prepared)</span>}
         </button>
         <button
           type="button"
           className="button button--secondary"
           data-testid="secondary-skip-btn"
+          data-prepared={preparedNo || undefined}
           disabled={disabled}
           onClick={() => onChoose(view.no.id)}
         >
           {view.noLabel}
+          {preparedNo && <span className="secondary-panel__prepared"> (prepared)</span>}
         </button>
       </div>
     </div>
