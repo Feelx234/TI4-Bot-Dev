@@ -335,6 +335,17 @@ fn active_action_card() -> Option<ActionCardId> {
     ACTIVE_ACTION_CARD.with(|active| active.borrow().clone())
 }
 
+/// The decision source for a question a card effect asks: the played card's own content id.
+///
+/// Effects run inside [`with_action_card_source`] on every production path, so the id is the
+/// physical copy that was played (`s_retreat3`, not a name for the card). `fallback` is a content
+/// id too and only applies when an effect is invoked directly, outside a play.
+fn played_card_source(fallback: &str) -> DecisionSource {
+    DecisionSource::ActionCard(
+        active_action_card().map_or_else(|| fallback.to_owned(), |card| card.to_string()),
+    )
+}
+
 /// Morale Boost: "+1 to the result of each of your unit's combat rolls during this combat round."
 ///
 /// Scoped to [`GameState::combat_round_seq`] rather than a flag, so the bonus expires with the
@@ -465,7 +476,7 @@ fn confusing(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) 
         )
         .contextualized(DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("confusing".to_owned()),
+            played_card_source("confusing"),
             "confusing_legal_text_elect",
             context.state.phase,
             context.state.round,
@@ -647,7 +658,7 @@ fn public_disgrace(context: &mut crate::timing::TimingContext<'_>, player: &Play
     )
     .contextualized(DecisionContext::new(
         picker.clone(),
-        DecisionSource::ActionCard("public_disgrace".to_owned()),
+        played_card_source("disgrace"),
         "public_disgrace_choose_card",
         context.state.phase,
         context.state.round,
@@ -864,7 +875,7 @@ fn reparations(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
             )
             .contextualized(DecisionContext::new(
                 gainer.clone(),
-                DecisionSource::ActionCard("reparations".to_owned()),
+                played_card_source("reparations"),
                 "reparations_exhaust",
                 context.state.phase,
                 context.state.round,
@@ -914,7 +925,7 @@ fn reparations(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
                 crate::choice::Choice::new(player.clone(), "ready a planet (Reparations)", options)
                     .contextualized(DecisionContext::new(
                         player.clone(),
-                        DecisionSource::ActionCard("reparations".to_owned()),
+                        played_card_source("reparations"),
                         "reparations_ready",
                         context.state.phase,
                         context.state.round,
@@ -1148,7 +1159,7 @@ fn courageous(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
             context.table,
             opponent,
             &alive,
-            &DecisionSource::ActionCard("courageous".to_owned()),
+            &played_card_source("courageous"),
             "courageous_to_the_end_assign_casualty",
             Some(&system),
         ) else {
@@ -1285,7 +1296,7 @@ fn choose_crashlanding_ground(
     .contextualized(
         DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("crashlanding".to_owned()),
+            played_card_source("crashlanding"),
             "crashlanding_choose_ground",
             context.state.phase,
             context.state.round,
@@ -1333,7 +1344,7 @@ fn choose_crashlanding_planet(
     .contextualized(
         DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("crashlanding".to_owned()),
+            played_card_source("crashlanding"),
             "crashlanding_choose_planet",
             context.state.phase,
             context.state.round,
@@ -1393,7 +1404,7 @@ fn in_the_silence_of_space(context: &mut crate::timing::TimingContext<'_>, playe
         )
         .contextualized(DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("in_the_silence_of_space".to_owned()),
+            played_card_source("silence_space"),
             "silence_choose_system",
             context.state.phase,
             context.state.round,
@@ -1485,7 +1496,7 @@ fn skilled_retreat(context: &mut crate::timing::TimingContext<'_>, player: &Play
         .contextualized(
             DecisionContext::new(
                 player.clone(),
-                DecisionSource::ActionCard("skilled_retreat".to_owned()),
+                played_card_source("s_retreat1"),
                 "skilled_retreat_choose_system",
                 context.state.phase,
                 context.state.round,
@@ -2414,7 +2425,7 @@ fn ghost_squad(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
         .contextualized(
             DecisionContext::new(
                 player.clone(),
-                DecisionSource::ActionCard("ghost_squad".to_owned()),
+                played_card_source("ghost_squad"),
                 "ghost_squad_move",
                 context.state.phase,
                 context.state.round,
@@ -3851,7 +3862,7 @@ fn exchange_program(context: &mut crate::timing::TimingContext<'_>, player: &Pla
     .contextualized(
         DecisionContext::new(
             other.clone(),
-            DecisionSource::ActionCard("exchange_program".to_owned()),
+            played_card_source("exchangeprogram"),
             "exchange_program_answer",
             context.state.phase,
             context.state.round,
@@ -5500,7 +5511,7 @@ fn fire_team(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) 
         context.galaxy,
         context.table,
         player,
-        &DecisionSource::ActionCard("fire_team".to_owned()),
+        &played_card_source("fire_team"),
         "fire_team_reroll",
     );
     if picks.is_empty() {

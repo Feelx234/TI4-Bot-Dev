@@ -5416,7 +5416,7 @@ mod tests {
         )
         .contextualized(DecisionContext::new(
             player.clone(),
-            DecisionSource::ActionCard("skilled_retreat".to_owned()),
+            DecisionSource::ActionCard("s_retreat1".to_owned()),
             "skilled_retreat_choose_system",
             Phase::Action,
             2,

@@ -575,7 +575,7 @@ mod tests {
         );
         let rider = DecisionContext::new(
             PlayerId::new("a"),
-            DecisionSource::ActionCard("imperial_rider".to_owned()),
+            DecisionSource::ActionCard("imp_rider".to_owned()),
             "agenda_rider_prediction",
             Phase::Agenda,
             3,
