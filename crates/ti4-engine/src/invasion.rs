@@ -3312,6 +3312,19 @@ impl InvasionWindow {
         for (name, payload) in log {
             self.emit_ground_event(state, ctx, name, payload);
         }
+        // Alarum: "At the end of a round of combat on this planet". Emitted only when a Ral Nel mech
+        // stands on the planet, so every other game's event log is unchanged.
+        if crate::factions::ralnel::alarum_on(state, &self.system, &planet) {
+            let mut ended = std::collections::BTreeMap::new();
+            ended.insert("system".to_owned(), self.system.to_string().into());
+            ended.insert("planet".to_owned(), planet.to_string().into());
+            ended.insert("attacker".to_owned(), self.invader.to_string().into());
+            ended.insert("defender".to_owned(), defender.to_string().into());
+            if let Err(error) = ctx.emit(state, "GROUND_COMBAT_ROUND_ENDED", ended) {
+                self.strict_timing_error = Some(error);
+                return;
+            }
+        }
         self.finish_ground_round(state, ctx, planets, index, defender, &planet);
     }
 

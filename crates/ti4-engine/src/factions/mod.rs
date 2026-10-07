@@ -76,6 +76,8 @@ pub mod nekro;
 pub mod nekro_units;
 pub mod nomad;
 pub mod nomad_agents;
+pub mod ralnel;
+pub(crate) mod ralnel_cards;
 pub mod saar;
 pub mod sardakk;
 pub mod titans;
@@ -85,7 +87,7 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 24] = [
+pub const MODULES: [&FactionModule; 25] = [
     &arborec::MODULE,
     &argent::MODULE,
     &bastion::MODULE,
@@ -104,6 +106,7 @@ pub const MODULES: [&FactionModule; 24] = [
     &naaz::MODULE,
     &nekro::MODULE,
     &nomad::MODULE,
+    &ralnel::MODULE,
     &saar::MODULE,
     &sardakk::MODULE,
     &titans::MODULE,

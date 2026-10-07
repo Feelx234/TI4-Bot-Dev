@@ -207,7 +207,11 @@ fn discard_hand(state: &mut GameState, player: &PlayerId) -> usize {
     let Some(seat) = state.player_mut(player) else {
         return 0;
     };
-    std::mem::take(&mut seat.action_cards).len()
+    let cards = std::mem::take(&mut seat.action_cards);
+    for card in &cards {
+        crate::action_cards::discarded(state, player, card, false);
+    }
+    cards.len()
 }
 
 /// The system a planet sits in.
@@ -693,7 +697,9 @@ pub fn resolve_with(
                     .first()
                     .copied()
                     .unwrap_or(1) as usize;
-                crate::action_cards::discard(state, &player, face % held);
+                if let Some(card) = crate::action_cards::discard(state, &player, face % held) {
+                    crate::action_cards::discarded(state, &player, &card, false);
+                }
             }
         }
         "travel_ban" => {
@@ -1311,8 +1317,8 @@ pub fn resolve_with(
                         2,
                         "unconventional_measures",
                     );
-                } else if let Some(seat) = state.player_mut(&player) {
-                    seat.action_cards.clear();
+                } else {
+                    discard_hand(state, &player);
                 }
             }
         }

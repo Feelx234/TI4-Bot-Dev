@@ -66,6 +66,7 @@ pub const LENDABLE_FLAGSHIPS: &[&str] = &[
     "naalu_flagship",
     "naaz_flagship",
     "nomad_flagship",
+    "ralnel_flagship",
     "sardakk_flagship",
     "sol_flagship",
     "titans_flagship",

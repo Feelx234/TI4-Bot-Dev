@@ -1385,7 +1385,11 @@ pub fn producers(
     let mut found: Vec<(Unit, Option<PlanetId>)> = board
         .units_of(player)
         .into_iter()
-        .filter(|unit| produces(unit))
+        // Miniaturization: a Ral Nel structure in the space area cannot use PRODUCTION.
+        .filter(|unit| {
+            produces(unit)
+                && !crate::factions::ralnel::silenced_in_space(state, content, sources, unit)
+        })
         .map(|unit| (unit.clone(), None))
         .collect();
     for (planet, units) in &board.planet_units {

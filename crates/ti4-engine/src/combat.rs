@@ -1894,6 +1894,7 @@ fn reaching_guns_by(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     system: &SystemId,
     fires: impl Fn(&PlayerId) -> bool,
+    silenced_in_space: impl Fn(&Unit) -> bool,
 ) -> Vec<Unit> {
     let Some(galaxy) = galaxy else {
         return Vec::new();
@@ -1901,11 +1902,12 @@ fn reaching_guns_by(
     let mut found = Vec::new();
     for neighbour in galaxy.adjacent(system.as_str()) {
         let board = state.system_state(&SystemId::new(neighbour));
+        // Miniaturization: a Ral Nel structure in the space area has no unit abilities.
         let standing = board
             .planet_units
             .values()
             .flat_map(|units| units.iter())
-            .chain(board.units.iter());
+            .chain(board.units.iter().filter(|unit| !silenced_in_space(unit)));
         let here = SystemId::new(neighbour);
         found.extend(
             standing
@@ -1993,10 +1995,14 @@ pub fn space_cannon_offense(
     let may_fire_here = |owner: &PlayerId| {
         may_fire(owner) && !crate::factions::crimson::abilities_lost(state, owner, system)
     };
+    // Miniaturization: a Ral Nel structure in the space area cannot use its own SPACE CANNON.
     let mut guns: Vec<Unit> = board
         .units
         .iter()
-        .filter(|unit| may_fire_here(&unit.owner))
+        .filter(|unit| {
+            may_fire_here(&unit.owner)
+                && !crate::factions::ralnel::silenced_in_space(state, content, sources, unit)
+        })
         .cloned()
         .collect();
     for planet in board.planet_units.keys() {
@@ -2013,7 +2019,22 @@ pub fn space_cannon_offense(
     // ships that are in adjacent systems." Two cards, one clause, and neither reached the active
     // system before: `space_cannon_offense` read only the system being activated, so an upgraded
     // PDS next door -- a technology every faction can research -- never fired at all.
-    guns.extend(reaching_guns_by(state, &types, galaxy, system, &may_fire));
+    guns.extend(reaching_guns_by(
+        state,
+        &types,
+        galaxy,
+        system,
+        &may_fire,
+        |unit| crate::factions::ralnel::silenced_in_space(state, content, sources, unit),
+    ));
+    // Linkship I / II: the SPACE CANNON of a Ral Nel structure in the space area, borrowed.
+    guns.extend(crate::factions::ralnel::linkship_guns(
+        state,
+        content,
+        sources,
+        system,
+        &may_fire_here,
+    ));
     // SPACE CANNON an attachment gives its planet "as if it were a unit" (Titans' Geoform).
     // Disable and Plasma Scoring do not apply to these dice: the attachment is not a PDS unit.
     let attachment_guns: Vec<(PlayerId, ti4_model::id::PlanetId, u32, usize)> = board
@@ -4118,6 +4139,14 @@ impl CombatWindow {
                 now.remove(index);
             }
         }
+        // Last Dispatch: "When this unit retreats". Only a flagship that arrived counts.
+        if crate::factions::ralnel::flagship_among(state, player, &now) {
+            let mut payload = std::collections::BTreeMap::new();
+            payload.insert("system".to_owned(), self.system.to_string().into());
+            payload.insert("player".to_owned(), player.to_string().into());
+            payload.insert("destination".to_owned(), destination.to_string().into());
+            let _ = ctx.emit(state, "FLAGSHIP_RETREATED", payload);
+        }
         self.fled.push((player.clone(), now));
     }
 
@@ -5857,9 +5886,14 @@ mod tests {
 
         let types = catalogue(ContentStore::embedded(), POK);
         let guns = |state: &GameState| {
-            reaching_guns_by(state, &types, Some(&hub.galaxy), &active, |owner| {
-                owner != &attacker()
-            })
+            reaching_guns_by(
+                state,
+                &types,
+                Some(&hub.galaxy),
+                &active,
+                |owner| owner != &attacker(),
+                |_| false,
+            )
             .len()
         };
 

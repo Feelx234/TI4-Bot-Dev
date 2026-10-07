@@ -2057,7 +2057,7 @@ impl<'a> Game<'a> {
         // The punishment discards every action card left in the hand, and every discarded
         // component action is a moment another player's Reverse Engineer may take.
         for card in discarded {
-            self.state.discarded_action_cards.push(card.clone());
+            crate::action_cards::discarded(&mut self.state, player, &card, true);
             self.sync_timing_context();
             let mut payload = BTreeMap::new();
             payload.insert(

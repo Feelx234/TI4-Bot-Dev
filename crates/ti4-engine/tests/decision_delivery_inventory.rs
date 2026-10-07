@@ -590,6 +590,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Ral Nel: every question asked inside a timing window or component action (BF-ralnel.md).
+        module: "ralnel.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Doctor Carrina, in the one window every research route opens: the holder's exhaust
         // offer, then the infantry placement (BF-deepwrought.md).
         module: "deepwrought_research.rs",
@@ -1517,6 +1524,10 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("crimson.rs", "ask", 1),
     ("crimson.rs", "ask_about", 1),
     ("crimson_cards.rs", "fill_hold", 1),
+    // Ral Nel's timing windows and component actions (BF-ralnel): every question is put through
+    // `ralnel::ask`; Survival Instinct's transport is the shared cargo hold (`passengers`).
+    ("ralnel.rs", "ask", 1),
+    ("ralnel.rs", "passengers", 1),
     ("titans_leaders.rs", "sleeper_allowance", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),

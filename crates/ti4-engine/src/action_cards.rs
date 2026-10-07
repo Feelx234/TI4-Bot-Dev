@@ -191,8 +191,31 @@ pub fn enforce_hand_limit(
         ));
         let answer = table.ask_seeing(&choice, &Observed::new(state, content, POK, None))?;
         let index = answer.id.parse::<usize>().unwrap_or(0);
-        discard(state, player, index);
+        if let Some(card) = discard(state, player, index) {
+            discarded(state, player, &card, false);
+        }
     }
+}
+
+/// The one place an action card that has left `discarder`'s hand by discarding lands.
+///
+/// Data Skimmer (Ral Nel): during the action phase, another player's discard is placed on the
+/// breakthrough instead of going anywhere else. Returns whether it was taken there. Otherwise,
+/// with `to_pile`, the card goes on the discard pile; without it the card is simply gone, as the
+/// callers that never kept a pile have always done (hand limit, agenda effects, Expedition).
+pub fn discarded(
+    state: &mut GameState,
+    discarder: &PlayerId,
+    card: &ActionCardId,
+    to_pile: bool,
+) -> bool {
+    if crate::factions::ralnel_cards::skimmer_takes(state, discarder, card) {
+        return true;
+    }
+    if to_pile {
+        state.discarded_action_cards.push(card.clone());
+    }
+    false
 }
 
 /// Remove one card from a hand by index.
