@@ -4011,10 +4011,25 @@ impl<'a> Game<'a> {
         self.state.pending = None;
         self.emit("TACTICAL_ACTION_COMPLETE");
         if self.leader_strategy.is_some() {
+            // Thunder's Edge Warfare: "...redistribute your command tokens ... after this action."
+            if let Some(player) = self
+                .leader_strategy
+                .as_ref()
+                .map(|(player, ..)| player.clone())
+                && let Err(error) = self.redistribute_after_te_warfare(&player)
+            {
+                return self.result(false, Some(error));
+            }
             let outcome = self.select_leader_strategy_followers();
             return self.result(false, outcome.err());
         }
         if let Some(window) = self.secondary_after_tactical.take() {
+            // Only Thunder's Edge Warfare returns a free tactical action from a primary ability.
+            if let Some(player) = self.state.active.clone()
+                && let Err(error) = self.redistribute_after_te_warfare(&player)
+            {
+                return self.result(false, Some(error));
+            }
             self.secondary = Some(window);
             return self.result(false, None);
         }
@@ -4024,6 +4039,24 @@ impl<'a> Game<'a> {
             return self.result(false, Some(error));
         }
         self.result(false, None)
+    }
+
+    /// The second half of Thunder's Edge Warfare's "redistribute your command tokens before and
+    /// after this action", once the free tactical action has ended.
+    fn redistribute_after_te_warfare(&mut self, player: &PlayerId) -> Result<(), GameError> {
+        if self.state.finished {
+            return Ok(());
+        }
+        crate::strategy_cards::redistribute_around_te_warfare(
+            &mut self.state,
+            self.content,
+            self.sources,
+            self.galaxy.as_ref(),
+            &mut self.table,
+            player,
+            false,
+        )?;
+        Ok(())
     }
 
     /// Open a structured diplomatic contact from `actor` to `partner`.
@@ -6860,6 +6893,16 @@ mod tests {
     }
 
     /// A one-ring map plus a fleet, ready to take a tactical action.
+    /// The answer that keeps a player's command tokens where they are, for the redistribution a
+    /// Thunder's Edge Warfare offers before (and after) its free tactical action.
+    fn keep_tokens(state: &GameState, player: &PlayerId) -> String {
+        let seat = state.player(player).unwrap();
+        format!(
+            "{}|{}|{}",
+            seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens
+        )
+    }
+
     fn tactical_fixture() -> (GameState, ti4_content::galaxy::Galaxy, Vec<SystemId>) {
         let players = [PlayerId::new("a"), PlayerId::new("b")];
         let mut state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
@@ -7748,11 +7791,14 @@ mod tests {
         state.system_mut(&ids[0]).units.clear();
         state.system_mut(&ids[0]).planet_units.clear();
         let tactic_tokens = state.player(&owner).unwrap().tactic_tokens;
+        let keep = keep_tokens(&state, &owner);
         let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
             "component|leader|winnuhero".to_owned(),
             "te6warfare".to_owned(),
+            keep.clone(),
             ids[0].to_string(),
             "done_moving".to_owned(),
+            keep,
             "no|b".to_owned(),
         ])));
         let mut game = Game::with_table(
@@ -7829,11 +7875,14 @@ mod tests {
         state.system_mut(&ids[0]).units.clear();
         state.system_mut(&ids[0]).planet_units.clear();
         let tactic_tokens = state.player(&owner).unwrap().tactic_tokens;
+        let keep = keep_tokens(&state, &owner);
         let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
             "component|leader|winnuhero".to_owned(),
             "te6warfare".to_owned(),
+            keep.clone(),
             ids[0].to_string(),
             "done_moving".to_owned(),
+            keep,
             "invalid-follower".to_owned(),
             "no|b".to_owned(),
         ])));
@@ -7911,6 +7960,57 @@ mod tests {
         );
     }
 
+    /// "You may redistribute your command tokens before and after this action": the second offer
+    /// comes when the free tactical action has ended, before the secondary window opens.
+    #[test]
+    fn thunders_edge_warfare_offers_a_second_redistribution_after_the_free_tactical_action() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let player = PlayerId::new("a");
+        state.player_mut(&player).unwrap().strategy_cards =
+            vec![ti4_model::id::StrategyCardId::new("te6warfare")];
+        state.system_mut(&ids[0]).units.clear();
+        state.system_mut(&ids[0]).planet_units.clear();
+        let (tactic, fleet, strategic) = {
+            let seat = state.player(&player).unwrap();
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens)
+        };
+        let keep = keep_tokens(&state, &player);
+        let after = format!("0|{fleet}|{}", strategic + tactic);
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
+            "strategic".to_owned(),
+            keep,
+            ids[0].to_string(),
+            "done_moving".to_owned(),
+            after,
+        ])));
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(capturing)),
+        )
+        .with_galaxy(galaxy);
+        for _ in 0..30 {
+            assert_eq!(game.step().error, None, "log {:?}", game.events);
+            if game.secondary.is_some() {
+                break;
+            }
+        }
+        assert!(game.secondary.is_some(), "the secondary window opened");
+        let seat = game.state.player(&player).unwrap();
+        assert_eq!(
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens),
+            (0, fleet, strategic + tactic),
+            "the redistribution after the action applied"
+        );
+        let prompts: Vec<String> = seen.borrow().iter().map(|c| c.prompt.clone()).collect();
+        let before_at = prompts.iter().position(|p| p.contains("before the tactical action"));
+        let after_at = prompts.iter().position(|p| p.contains("after the tactical action"));
+        assert!(
+            before_at.is_some() && after_at > before_at,
+            "before, then after: {prompts:?}"
+        );
+    }
+
     #[test]
     fn a_warfare_free_tactical_into_the_owners_system_returns_support() {
         // Thunder's Edge Warfare's free tactical action is an activation like any other, so the
@@ -7930,8 +8030,10 @@ mod tests {
         crate::fixtures::put(&mut state, &ids[0], "cruiser", &owner, 1);
         let points_with_support = state.player(&holder).unwrap().victory_points;
 
+        let keep = keep_tokens(&state, &PlayerId::new("a"));
         let table = Table::with_default(Box::new(Scripted::new([
             "strategic".to_owned(),
+            keep,
             ids[0].to_string(),
         ])));
         let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
@@ -7986,8 +8088,10 @@ mod tests {
             .unwrap();
         state.diplomacy.active_deals.get_mut(&deal).unwrap().status = ti4_model::DealStatus::Active;
 
+        let keep = keep_tokens(&state, &PlayerId::new("a"));
         let table = Table::with_default(Box::new(Scripted::new([
             "strategic".to_owned(),
+            keep,
             ids[0].to_string(),
         ])));
         let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);

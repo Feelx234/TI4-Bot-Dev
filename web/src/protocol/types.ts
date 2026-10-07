@@ -32,7 +32,12 @@ export interface LobbyDto {
   map?: MapChoiceDto;
   /** Changes whenever the previewed board changes (new choice, re-roll, new seat order). */
   map_revision?: number;
+  /** The strategy card set this table plays; absent from servers that predate the option. */
+  strategy_card_set?: StrategyCardSetId;
 }
+
+/** Catalog `strategy_card_sets` a game may be created with (`card_set::OFFERED` on the server). */
+export type StrategyCardSetId = "te" | "pok" | "base_game_codex1";
 
 /** The host's choice: a predefined layout or the seeded random board. */
 export type MapChoice = { kind: "template"; alias: string } | { kind: "random" };

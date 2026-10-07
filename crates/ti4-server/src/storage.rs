@@ -183,6 +183,10 @@ pub struct PlayerLobbyRecord {
     /// Opening-state preset (see [`crate::preset`]); the result is saved in the init record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_preset: Option<String>,
+    /// Strategy card set chosen at creation (see [`crate::card_set`]). Absent in records written
+    /// before the option existed: those games play the PoK cards they were recorded with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_card_set: Option<String>,
     /// Bumped whenever the map the table will get changes (a new choice, a re-roll, a new seat
     /// order) so clients know to refetch the preview.
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -256,6 +260,10 @@ pub struct PlayerGameInitRecord {
     pub seats: Option<BTreeMap<PlayerId, SeatController>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_template: Option<String>,
+    /// Strategy card set the game was created with; `None` in records written before the option
+    /// existed (PoK). The cards themselves are part of `initial_state`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_card_set: Option<String>,
 }
 
 /// Authoritative running-session credential mapping, atomically replaced on rotation.
@@ -1531,6 +1539,7 @@ mod player_record_tests {
             map_tiles: Vec::new(),
             seats: None,
             map_template: None,
+            strategy_card_set: None,
         };
         store.save_player_init(&init).unwrap();
         let mut sessions = PlayerSessionsRecord {

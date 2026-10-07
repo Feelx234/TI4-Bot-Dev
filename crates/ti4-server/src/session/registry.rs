@@ -510,6 +510,9 @@ pub struct PlayerLobbyView {
     pub map: crate::maps::MapChoiceView,
     /// Changes whenever the previewed board changes; refetch the preview when it does.
     pub map_revision: u64,
+    /// The strategy card set this table plays (`te`, `pok`, `base_game_codex1`); `pok` for a
+    /// game created before the option existed.
+    pub strategy_card_set: String,
 }
 
 /// Configuration for running bot agents on this server.
@@ -578,6 +581,7 @@ impl PlayerLobbyRecord {
             seed,
             map_template: None,
             start_preset: None,
+            strategy_card_set: Some(crate::card_set::DEFAULT.to_owned()),
             map_revision: 0,
             lobby_version: 1,
         };
@@ -622,6 +626,8 @@ impl PlayerLobbyRecord {
                 self.slots.len(),
             ),
             map_revision: self.map_revision,
+            strategy_card_set: crate::card_set::resolve(self.strategy_card_set.as_deref())
+                .to_owned(),
         }
     }
 }
@@ -2083,6 +2089,32 @@ impl GameRegistry {
         map_template: Option<String>,
         start_preset: Option<String>,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        self.create_player_lobby_with_card_set(
+            game_id,
+            count,
+            seed,
+            nickname,
+            map_template,
+            start_preset,
+            crate::card_set::DEFAULT,
+        )
+    }
+
+    /// As [`Self::create_player_lobby_with_options`], also naming the strategy card set
+    /// (one of [`crate::card_set::OFFERED`]).
+    #[allow(clippy::too_many_arguments, reason = "one argument per creation option")]
+    pub fn create_player_lobby_with_card_set(
+        &self,
+        game_id: String,
+        count: usize,
+        seed: u64,
+        nickname: &str,
+        map_template: Option<String>,
+        start_preset: Option<String>,
+        strategy_card_set: &str,
+    ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        crate::card_set::validate(strategy_card_set)
+            .map_err(|error| LobbyError::Storage(error.to_string()))?;
         check_nickname(nickname)?;
         let mut state = self.state.lock().expect("registry lock");
         if state.lobbies.contains_key(&game_id)
@@ -2100,6 +2132,7 @@ impl GameRegistry {
                 .map_err(|error| LobbyError::Storage(error.to_string()))?;
         record.map_template = map_template;
         record.start_preset = start_preset;
+        record.strategy_card_set = Some(strategy_card_set.to_owned());
         self.save_player_lobby(&record)?;
         let view = record.public_view();
         state
@@ -2581,12 +2614,13 @@ impl GameRegistry {
             .map(|slot| slot.occupant.clone().expect("full lobby"))
             .collect();
         let content = ContentStore::embedded();
-        let (initial_state, galaxy) = crate::map::create_game_with_preset(
+        let (initial_state, galaxy) = crate::map::create_game_with_options(
             content,
             &players,
             lobby.seed,
             lobby.map_template.as_deref(),
             lobby.start_preset.as_deref(),
+            Some(crate::card_set::resolve(lobby.strategy_card_set.as_deref())),
         )
         .map_err(LobbyError::Map)?;
         let map_tiles = crate::map::build_board_tiles(content, &galaxy);
@@ -2634,6 +2668,9 @@ impl GameRegistry {
                 map_tiles,
                 seats: Some(config.seats.clone()),
                 map_template: lobby.map_template.clone(),
+                strategy_card_set: Some(
+                    crate::card_set::resolve(lobby.strategy_card_set.as_deref()).to_owned(),
+                ),
             }) {
                 // No valid init: recovery treats the lobby as unstarted.
                 let _ = self.save_player_lobby(lobby);
@@ -3204,6 +3241,7 @@ impl GameRegistry {
                 map_tiles: config.map_tiles.clone(),
                 seats: Some(config.seats.clone()),
                 map_template: None,
+                strategy_card_set: None,
             };
 
             let mut running_lobby = lobby_record.clone();

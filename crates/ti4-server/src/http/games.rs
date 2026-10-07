@@ -80,6 +80,9 @@ pub struct CreateGameRequest {
     /// Opening-state preset for smoke runs (see [`crate::preset`]); unknown names are a 400.
     /// Like the `/api/dev/scenarios` endpoints, this is not gated.
     pub start_preset: Option<String>,
+    /// Strategy card set: `"te"` (default), `"pok"` or `"base_game_codex1"`; see
+    /// [`crate::card_set`]. Anything else is a 400.
+    pub strategy_card_set: Option<String>,
 }
 
 /// Response after creating a game.
@@ -298,15 +301,22 @@ pub async fn create_game(
         ));
     }
 
+    let strategy_card_set = match payload.strategy_card_set.as_deref() {
+        Some(name) => crate::card_set::validate(name)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?,
+        None => crate::card_set::DEFAULT,
+    };
+
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
     let (lobby, player, session) = registry
-        .create_player_lobby_with_options(
+        .create_player_lobby_with_card_set(
             game_id.clone(),
             payload.player_count,
             seed,
             &payload.nickname,
             map_template,
             payload.start_preset,
+            strategy_card_set,
         )
         .map_err(lobby_error)?;
 
@@ -813,6 +823,7 @@ mod template_request_tests {
             map_template: template.map(str::to_owned),
             map: None,
             start_preset: None,
+            strategy_card_set: None,
         })
     }
 
@@ -824,6 +835,7 @@ mod template_request_tests {
             map_template: None,
             map: None,
             start_preset: Some(preset.to_owned()),
+            strategy_card_set: None,
         })
     }
 
