@@ -108,8 +108,12 @@ impl TimingContext<'_> {
         &mut self,
         choice: &crate::choice::Choice,
     ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+        let mut choice = choice.clone();
+        if let Some(context) = choice.context.take() {
+            choice.context = Some(context.about_battle(self.state).about_invasion(self.state));
+        }
         self.table.ask_seeing(
-            choice,
+            &choice,
             &crate::choice::Observed::new(self.state, self.content, self.sources, self.galaxy),
         )
     }
@@ -828,6 +832,40 @@ impl Resolver {
             .map(|ability| {
                 let mut option = ChoiceOption::labelled(&ability.id, "ability", &ability.id)
                     .with("event", event.event_type.clone());
+                if ability.id.starts_with("reaction:") {
+                    let cards = crate::reactions::playable_now(
+                        context.state,
+                        context.content,
+                        player,
+                        event,
+                        relation,
+                    );
+                    // Every printed name this slot could play, so a seat's "never offer"
+                    // preference can tell a slot that holds only such cards. Not part of the
+                    // option's identity or of the recorded decision.
+                    let mut names: Vec<String> = Vec::new();
+                    for candidate in &cards {
+                        let name = crate::action_cards::name_of(context.content, candidate);
+                        if !names.contains(&name) {
+                            names.push(name);
+                        }
+                    }
+                    option = option.with("card_names", serde_json::json!(names));
+                    if let Some(card) = cards.first().filter(|first| {
+                        cards.iter().all(|candidate| {
+                            crate::action_cards::name_of(context.content, candidate)
+                                == crate::action_cards::name_of(context.content, first)
+                        })
+                    }) {
+                        let name = crate::action_cards::name_of(context.content, card);
+                        option.label = format!("Play {name}");
+                        option = option
+                            .with("card", card.to_string())
+                            .with("card_name", name);
+                    } else if cards.len() > 1 {
+                        option.label = "Choose an action card…".to_owned();
+                    }
+                }
                 if let Some(payload) = &ability.option_payload {
                     option.payload.extend(payload(event, self));
                 }
@@ -842,6 +880,22 @@ impl Resolver {
             format!("{} {}", relation_name(relation), event.event_type),
             options,
         );
+        let choice = choice.contextualized(
+            crate::decision_context::DecisionContext::new(
+                player.clone(),
+                crate::decision_context::DecisionSource::Reaction(event.event_type.clone()),
+                format!("reaction_{}_{}", relation_name(relation), event.event_type),
+                context.state.phase,
+                context.state.round,
+            )
+            .optional(declinable)
+            .about_battle(context.state)
+            .with_trigger(crate::decision_context::DecisionTrigger::from_event(
+                event,
+                relation_name(relation),
+                &self.emission_chain(event),
+            )),
+        );
         let chosen = context
             .ask_seeing(&choice)
             .map_err(TimingError::IllegalChoice)?;
@@ -854,6 +908,17 @@ impl Resolver {
             return Ok(None);
         }
         Ok(eligible.into_iter().find(|ability| ability.id == chosen.id))
+    }
+
+    /// Ids of the events being resolved right now, outermost first, `event` itself excluded: what
+    /// a reaction to a reaction was nested inside.
+    #[must_use]
+    pub fn emission_chain(&self, event: &Event) -> Vec<u64> {
+        self.emission_stack
+            .iter()
+            .map(|(_, id)| *id)
+            .filter(|id| *id != event.id)
+            .collect()
     }
 
     fn player_order(&self) -> Vec<PlayerId> {

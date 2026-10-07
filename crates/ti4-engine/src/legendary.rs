@@ -188,15 +188,11 @@ pub fn settle_control_points(state: &mut GameState) {
     if holder == state.styx_holder {
         return;
     }
-    if let Some(previous) = state.styx_holder.clone()
-        && let Some(seat) = state.player_mut(&previous)
-    {
-        seat.victory_points = (seat.victory_points - 1).max(0);
+    if let Some(previous) = state.styx_holder.clone() {
+        crate::objectives::adjust_victory_points(state, &previous, -1, "styx");
     }
-    if let Some(gained) = holder.clone()
-        && let Some(seat) = state.player_mut(&gained)
-    {
-        seat.victory_points = (seat.victory_points + 1).min(crate::objectives::VICTORY_TARGET);
+    if let Some(gained) = holder.clone() {
+        crate::objectives::adjust_victory_points(state, &gained, 1, "styx");
     }
     state.styx_holder = holder;
 }
@@ -464,6 +460,7 @@ fn resolve_pass(
                         "legendary",
                         format!("gain control of {target}"),
                     )
+                    .with_planet(target.as_str(), Some(system.as_str()))
                 })
                 .collect();
             options.push(ChoiceOption::decline());
@@ -756,6 +753,8 @@ fn place_on_own_planet(
                 "legendary",
                 format!("place on {planet}"),
             )
+            .with_planet(planet.as_str(), Some(system.as_str()))
+            .with("unit", type_id.to_string())
         })
         .collect();
     if placeable == 0 || options.is_empty() {
@@ -795,14 +794,14 @@ fn readyable(state: &GameState, player: &PlayerId, excluding: &PlanetId) -> Vec<
     let mut options: Vec<ChoiceOption> = state
         .controlled_planets(player)
         .into_iter()
-        .map(|(_, planet)| planet)
-        .filter(|planet| state.exhausted_planets.contains(planet.as_str()))
-        .map(|planet| {
+        .filter(|(_, planet)| state.exhausted_planets.contains(planet.as_str()))
+        .map(|(system, planet)| {
             ChoiceOption::labelled(
                 format!("planet|{planet}"),
                 "legendary",
                 format!("ready {planet}"),
             )
+            .with_planet(planet.as_str(), Some(system.as_str()))
         })
         .collect();
     let Some(seat) = state.player(player) else {
@@ -1226,6 +1225,105 @@ mod tests {
             Some(&player),
             "{target} in {system} was taken"
         );
+    }
+
+    /// Legendary planet picks carry `planet` + `system`: placing on an own planet (plus the
+    /// `unit` placed), The Acropolis' planet entries (and only those), and Maxis' targets.
+    #[test]
+    fn legendary_planet_options_carry_planet_and_system_payloads() {
+        use crate::choice::planet_payload::{assert_locates, assert_not_a_planet, offered};
+        let (mut state, player) = holding("emelpar", "99");
+        for (system, planet) in [("26", "lodor"), ("28", "torkan")] {
+            state
+                .system_mut(&ti4_model::id::SystemId::new(system))
+                .set_control(PlanetId::new(planet), player.clone());
+        }
+
+        // Placing on an own planet: ids are `system|planet`.
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = Table::with_default(Box::new(decider));
+        place_on_own_planet(
+            &mut state,
+            content(),
+            POK,
+            None,
+            &mut table,
+            &player,
+            "mech",
+            1,
+            "place the mech where",
+        )
+        .unwrap();
+        let choice = seen.borrow()[0].clone();
+        assert_eq!(choice.context.as_ref().unwrap().subtype, "legendary_place");
+        for (system, planet) in [("26", "lodor"), ("28", "torkan")] {
+            let option = offered(&choice, &format!("{system}|{planet}"));
+            assert_locates(option, planet, system);
+            assert_eq!(
+                option
+                    .payload
+                    .get("unit")
+                    .and_then(serde_json::Value::as_str),
+                Some("mech")
+            );
+        }
+
+        // The Acropolis: planets carry a location; technologies and the rest do not.
+        let mut state = state.clone();
+        state.exhausted_planets.insert(PlanetId::new("lodor"));
+        state.exhausted_planets.insert(PlanetId::new("torkan"));
+        state
+            .player_mut(&player)
+            .unwrap()
+            .exhausted_technologies
+            .insert(ti4_model::id::TechnologyId::new("gd"));
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                "planet|lodor".to_owned()
+            ])));
+        let mut table = Table::with_default(Box::new(decider));
+        resolve(
+            &mut state,
+            content(),
+            POK,
+            None,
+            &mut table,
+            &player,
+            &PlanetId::new("emelpar"),
+        )
+        .unwrap();
+        let choice = seen.borrow()[0].clone();
+        assert_eq!(
+            choice.context.as_ref().unwrap().subtype,
+            "legendary_acropolis"
+        );
+        assert_locates(offered(&choice, "planet|lodor"), "lodor", "26");
+        assert_locates(offered(&choice, "planet|torkan"), "torkan", "28");
+        assert_not_a_planet(offered(&choice, "technology|gd"));
+
+        // Maxis Central Control: ids are `system|planet`.
+        let (mut state, player) = holding("faunus", "97");
+        let elsewhere = ti4_model::id::SystemId::new("20");
+        state.board.entry(elsewhere.clone()).or_default();
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::with_fallback(
+                ["faunus".to_owned()],
+                Box::new(crate::choice::AlwaysDecline),
+            )));
+        let mut table = Table::with_default(Box::new(decider));
+        passing(&mut state, &mut table, &player);
+        let seen = seen.borrow();
+        let maxis = seen
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|c| c.subtype == "legendary_maxis")
+            })
+            .expect("Maxis asked");
+        assert_locates(offered(maxis, "20|vefutii"), "vefutii", "20");
+        assert_not_a_planet(offered(maxis, crate::choice::DECLINE_ID));
     }
 
     #[test]

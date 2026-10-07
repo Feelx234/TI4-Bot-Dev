@@ -1,0 +1,570 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { GameLogEntry, HistoryChange } from "../protocol/client.ts";
+import { CurrentLogPath } from "../protocol/types.ts";
+import {
+  useParticipantParts,
+  useParticipantText,
+  usePlayerIdentity,
+} from "../presentation/PlayerIdentity.tsx";
+import { ACTION_CARDS, getActionCardDescription } from "../protocol/contentCatalog.ts";
+import {
+  copyReplay,
+  downloadText,
+  replayCopyMessage,
+  type ReplayCopyState,
+} from "../presentation/replayCopy.ts";
+
+export interface EventLogProps {
+  events: GameLogEntry[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onRestore?: (cursor: number) => void;
+  onChangeHistory?: (action: HistoryChange) => void;
+  cursor?: number;
+  redoCount?: number;
+  busy?: boolean;
+  currentPath?: CurrentLogPath;
+  historyKey?: unknown;
+  /** Any seated player: loads the replay JSON so it can be copied out of the log drawer. */
+  onFetchReplay?: () => Promise<{ text: string; filename: string }>;
+}
+
+export interface LogNode {
+  id: string;
+  kind: "round" | "phase" | "event" | "decision" | "marker";
+  label: string;
+  children: LogNode[];
+  entry?: GameLogEntry;
+  count: number;
+  actor?: string;
+  stage?: string;
+  eventIndex?: number;
+  actionId?: string;
+  actionType?: string;
+  actionActor?: string;
+}
+
+const heading = (name: string) => name.replace(/_/g, " ").replace(/\b\w/g, (s) => s.toUpperCase());
+const node = (id: string, kind: LogNode["kind"], label: string): LogNode => ({
+  id,
+  kind,
+  label,
+  children: [],
+  count: 0,
+});
+
+/**
+ * Build a map of action card names and their IDs for quick lookup.
+ * Sorted by length (longest first) to avoid partial matches.
+ */
+const buildActionCardMap = () => {
+  const entries = Object.entries(ACTION_CARDS)
+    .map(([id, card]) => ({ id, name: (card as { name: string }).name }))
+    .sort((a, b) => b.name.length - a.name.length);
+  return entries;
+};
+
+const actionCardEntries = buildActionCardMap();
+
+/**
+ * Parse text for action card names and wrap them with tooltip spans.
+ * Returns an array of strings and React elements.
+ */
+function parseActionCardsInText(text: string): (string | React.ReactElement)[] {
+  if (!actionCardEntries.length) return [text];
+
+  const parts: (string | React.ReactElement)[] = [];
+  let remaining = text;
+  let offset = 0;
+
+  while (remaining.length > 0) {
+    let found = false;
+
+    for (const { id, name } of actionCardEntries) {
+      const index = remaining.toLowerCase().indexOf(name.toLowerCase());
+      if (index !== -1) {
+        // Add text before the match
+        if (index > 0) {
+          parts.push(remaining.substring(0, index));
+        }
+
+        // Extract the actual matched text (preserving original case)
+        const matchedText = remaining.substring(index, index + name.length);
+
+        // Add the wrapped action card with tooltip
+        const description = getActionCardDescription(id);
+        parts.push(
+          <span
+            key={`action-card-${offset}-${index}`}
+            className="event-log__action-card"
+            title={description}
+          >
+            {matchedText}
+          </span>,
+        );
+
+        // Move forward
+        remaining = remaining.substring(index + name.length);
+        offset += index + name.length;
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      // No more action cards found, add remaining text
+      parts.push(remaining);
+      break;
+    }
+  }
+
+  return parts.length ? parts : [text];
+}
+
+/** Preserve stream order with flattened structure. Each event gets unique eventIndex within phase. */
+export function buildEventTree(events: readonly GameLogEntry[]): LogNode[] {
+  const rounds: LogNode[] = [];
+  const roundByKey = new Map<string, LogNode>();
+  const phaseByKey = new Map<string, LogNode>();
+  const decisions = new Map<string, LogNode>();
+  let boundaryRound: number | undefined;
+  let boundaryPhase: string | undefined;
+  let lastActionId: string | undefined;
+  let lastStage: string | undefined;
+
+  // Track event indices per phase to ensure unique keys
+  const phaseEventIndices = new Map<string, number>();
+
+  for (const entry of events) {
+    const event = entry.event;
+    if (event.kind === "game_initialized" || event.kind === "phase_transition") {
+      boundaryRound = event.round;
+      boundaryPhase = event.phase;
+    }
+    const round =
+      event.kind === "decision_resolved" ? (entry.round ?? boundaryRound) : boundaryRound;
+    const phase =
+      event.kind === "decision_resolved" ? (entry.phase ?? boundaryPhase) : boundaryPhase;
+    const roundKey = round === undefined ? "unknown" : String(round);
+    let roundNode = roundByKey.get(roundKey);
+    if (!roundNode) {
+      roundNode = node(
+        `round:${roundKey}`,
+        "round",
+        round === undefined ? "Unknown round" : `Round ${round}`,
+      );
+      rounds.push(roundNode);
+      roundByKey.set(roundKey, roundNode);
+    }
+    const phaseKey = `${roundNode.id}:${phase ?? "unknown"}`;
+    let phaseNode = phaseByKey.get(phaseKey);
+    if (!phaseNode) {
+      phaseNode = node(phaseKey, "phase", phase ? `${heading(phase)} phase` : "Unknown phase");
+      roundNode.children.push(phaseNode);
+      phaseByKey.set(phaseKey, phaseNode);
+      phaseEventIndices.set(phaseKey, 0);
+    }
+
+    // Get and increment event index for this phase
+    const eventIndex = phaseEventIndices.get(phaseKey)!;
+    phaseEventIndices.set(phaseKey, eventIndex + 1);
+
+    if (event.kind !== "decision_resolved") {
+      const label =
+        event.kind === "game_initialized"
+          ? "Game initialized"
+          : event.kind === "phase_transition"
+            ? "Phase began"
+            : event.winner
+              ? `Game finished: ${event.winner} wins`
+              : "Game finished: draw";
+      phaseNode.children.push({
+        ...node(`${phaseKey}:event:${eventIndex}`, "marker", label),
+        entry,
+      });
+      lastActionId = undefined;
+      lastStage = undefined;
+      continue;
+    }
+
+    const key =
+      entry.decision_count === undefined
+        ? entry.id
+        : `${phaseNode.id}:cursor:${entry.decision_count}`;
+    const existing = decisions.get(key);
+    if (existing) {
+      const prior = existing.entry!;
+      existing.entry = {
+        ...prior,
+        detail: prior.detail ?? entry.detail,
+        movement: prior.movement ?? entry.movement,
+        private_detail: entry.private_detail ?? prior.private_detail,
+        actor: prior.actor ?? entry.actor,
+      };
+      continue;
+    }
+
+    // Insert action marker if this is a new action
+    if (entry.action_id && entry.action_id !== lastActionId) {
+      const actionEventIndex = phaseEventIndices.get(phaseKey)!;
+      phaseEventIndices.set(phaseKey, actionEventIndex + 1);
+      phaseNode.children.push({
+        ...node(`${phaseKey}:event:${actionEventIndex}`, "marker",
+                entry.action_type ? `${heading(entry.action_type)} action` : "Action"),
+        actionId: entry.action_id,
+        actionType: entry.action_type,
+        actionActor: entry.action_actor,
+      });
+      lastActionId = entry.action_id;
+      lastStage = undefined;
+    }
+
+    // Insert stage marker if this is a new stage
+    if (entry.action_id || lastActionId) {
+      const currentStage = entry.stage ?? "other";
+      if (currentStage !== lastStage) {
+        const stageEventIndex = phaseEventIndices.get(phaseKey)!;
+        phaseEventIndices.set(phaseKey, stageEventIndex + 1);
+        phaseNode.children.push({
+          ...node(`${phaseKey}:event:${stageEventIndex}`, "marker",
+                  currentStage === "other" ? "General" : heading(currentStage)),
+          stage: currentStage,
+        });
+        lastStage = currentStage;
+      }
+    }
+
+    // Add decision event
+    const decisionEventIndex = phaseEventIndices.get(phaseKey)!;
+    phaseEventIndices.set(phaseKey, decisionEventIndex + 1);
+    const leaf = {
+      ...node(`${phaseKey}:event:${decisionEventIndex}`, "decision", ""),
+      entry,
+      actor: entry.actor,
+      eventIndex: decisionEventIndex,
+    };
+    phaseNode.children.push(leaf);
+    decisions.set(key, leaf);
+    roundNode.count++;
+    phaseNode.count++;
+  }
+  return rounds;
+}
+
+function openPath(tree: LogNode[], path?: CurrentLogPath): Set<string> {
+  const opened = new Set<string>();
+  if (!path) return opened;
+  const round = tree.find((n) => n.id === `round:${path.round}`);
+  if (!round) return opened;
+  opened.add(round.id);
+  const phase = round.children.find((n) => n.id === `${round.id}:${path.phase}`);
+  if (!phase) return opened;
+  opened.add(phase.id);
+  // With flattened structure, we open the phase and it will show all nested events.
+  // No need to track individual action/stage opening since they're not expandable.
+  return opened;
+}
+
+export const EventLog: React.FC<EventLogProps> = ({
+  events,
+  isOpen,
+  onToggle,
+  onRestore,
+  onChangeHistory,
+  cursor = 0,
+  redoCount = 0,
+  busy = false,
+  currentPath,
+  historyKey,
+  onFetchReplay,
+}) => {
+  const [replayState, setReplayState] = useState<ReplayCopyState>({ kind: "idle" });
+  const copyReplayToClipboard = async () => {
+    if (!onFetchReplay || replayState.kind === "busy") return;
+    setReplayState({ kind: "busy" });
+    setReplayState(
+      await copyReplay({
+        fetchReplay: onFetchReplay,
+        writeClipboard: navigator.clipboard?.writeText
+          ? (text) => navigator.clipboard.writeText(text)
+          : undefined,
+        download: downloadText,
+      }),
+    );
+  };
+  const display = usePlayerIdentity();
+  const present = useParticipantText();
+  const parts = useParticipantParts();
+  const tree = useMemo(() => buildEventTree(events), [events]);
+  const [expanded, setExpanded] = useState<Set<string>>(() => openPath(tree, currentPath));
+  const [manual, setManual] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setExpanded(openPath(tree, currentPath));
+    setManual(new Set());
+    // Only a new snapshot/history generation resets the reader's navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historyKey]);
+  useEffect(() => {
+    if (!currentPath) return;
+    setExpanded((old) => {
+      const next = new Set(old);
+      for (const id of openPath(tree, currentPath)) if (!manual.has(id)) next.add(id);
+      return next;
+    });
+  }, [
+    currentPath?.round,
+    currentPath?.phase,
+    currentPath?.action_id,
+    currentPath?.stage,
+    tree,
+    manual,
+  ]);
+  const toggle = (id: string) => {
+    setManual((old) => new Set(old).add(id));
+    setExpanded((old) => {
+      const next = new Set(old);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const renderNode = (item: LogNode, depth: number): React.ReactNode => {
+    if (item.kind === "decision") {
+      const entry = item.entry!;
+      const actor = entry.actor ? display(entry.actor) : null;
+      const actorTitle = actor
+        ? actor.position && !/\bposition \d+\b/i.test(actor.label)
+          ? `${actor.label} · Position ${actor.position}`
+          : actor.label
+        : "Unknown participant";
+      const eventNumber = entry.id.match(/-(\d+)$/)?.[1];
+      const text =
+        entry.private_detail ??
+        entry.detail ??
+        (entry.movement
+          ? `${display(entry.movement.actor).label} moved ${entry.movement.unit} from #${entry.movement.origin} to #${entry.movement.destination}`
+          : "Decision resolved");
+      return (
+        <div
+          key={item.id}
+          className="event-log__entry"
+          data-testid="event-log-entry"
+          style={{ paddingLeft: depth * 14 }}
+        >
+          <span className="event-log__index">
+            {eventNumber
+              ? `#${eventNumber}`
+              : entry.decision_count === undefined
+                ? "·"
+                : `#${entry.decision_count}`}
+          </span>
+          <span
+            className="event-log__actor"
+            tabIndex={0}
+            title={actorTitle}
+            data-tooltip={actor?.label ?? "Unknown participant"}
+            aria-label={actorTitle}
+            style={{ color: actor?.color ?? "#94a3b8" }}
+          >
+            {actor?.symbol ?? "?"}
+          </span>
+          <span className="event-log__body">
+            {parts(text).map((part, index) => {
+              const partText = typeof part === "string" ? part : part.label.replace(/ \([●▲■◆★✚⬟◖] Position \d+\)$/, "");
+              const actionCardParts = parseActionCardsInText(partText);
+
+              return typeof part === "string" ? (
+                <React.Fragment key={index}>
+                  {actionCardParts}
+                </React.Fragment>
+              ) : (
+                <span
+                  key={index}
+                  className="event-log__participant"
+                  style={{ color: part.color }}
+                >
+                  {actionCardParts}
+                </span>
+              );
+            })}
+          </span>
+          {entry.visibility !== "public" && (
+            <span className="event-log__private">
+              {entry.visibility === "seat" ? "Private" : "Referee"}
+            </span>
+          )}
+          {entry.timestamp && <time className="event-log__meta">{entry.timestamp}</time>}
+          {entry.version !== undefined && <span className="event-log__meta">v{entry.version}</span>}
+          {onRestore &&
+            entry.decision_count !== undefined &&
+            entry.decision_count <= cursor && (
+              <button
+                type="button"
+                className="event-log__undo"
+                disabled={busy}
+                aria-label={`Undo from decision ${entry.decision_count}`}
+                onClick={() => onRestore(entry.decision_count! - 1)}
+              >
+                Undo
+              </button>
+            )}
+        </div>
+      );
+    }
+
+    if (item.kind === "marker") {
+      // Check if this is a phase/game marker (has entry) or action/stage marker (no entry)
+      if (item.entry) {
+        // Phase transition or game finished marker
+        return (
+          <div
+            key={item.id}
+            className="event-log__entry event-log__entry--marker"
+            data-testid="event-log-entry"
+            style={{ paddingLeft: depth * 14 }}
+          >
+            <span className="event-log__index">·</span>
+            <span className="event-log__body">{present(item.label)}</span>
+          </div>
+        );
+      } else {
+        // Action/stage marker - render as visual separator with label
+        const isAction = !!item.actionId;
+        const isStage = !!item.stage;
+
+        if (isAction) {
+          const actionDisplay = display(item.actionActor ?? "unknown");
+          return (
+            <div
+              key={item.id}
+              className="event-log__action-marker"
+              style={{ paddingLeft: depth * 14 }}
+            >
+              <span className="event-log__action-label">{item.label}</span>
+              {item.actionActor && (
+                <span
+                  className="event-log__action-actor"
+                  style={{ color: actionDisplay?.color ?? "#94a3b8" }}
+                  title={actionDisplay?.label}
+                >
+                  · {actionDisplay?.label}
+                </span>
+              )}
+            </div>
+          );
+        }
+
+        if (isStage) {
+          return (
+            <div
+              key={item.id}
+              className="event-log__stage-marker"
+              style={{ paddingLeft: depth * 14 }}
+            >
+              <span className="event-log__stage-label">{item.label}</span>
+            </div>
+          );
+        }
+      }
+      return null;
+    }
+
+    const open = expanded.has(item.id);
+    return (
+      <div key={item.id} className={`event-log__group event-log__group--${item.kind}`}>
+        <button
+          type="button"
+          className="event-log__heading"
+          style={{ paddingLeft: depth * 14 }}
+          aria-expanded={open}
+          onClick={() => toggle(item.id)}
+        >
+          <span className="event-log__chevron">{open ? "▾" : "▸"}</span>
+          {item.label}
+          <span className="event-log__count">{item.count}</span>
+          {item.actor && <span className="event-log__owner">· {display(item.actor).label}</span>}
+        </button>
+        {open && item.children.map((child) => renderNode(child, depth + 1))}
+      </div>
+    );
+  };
+  return (
+    <div data-testid="event-log-container" className="event-log">
+      <button
+        id="event-log-toggle"
+        type="button"
+        data-testid="event-log-toggle"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-controls="event-log-list"
+        className="button event-log__toggle"
+      >
+        <span>
+          Event Log <span className="event-log__count">{events.length}</span>
+        </span>
+        <span>{isOpen ? "▾ Hide" : "▴ Show"}</span>
+      </button>
+      {isOpen && (
+        <>
+          {onFetchReplay && (
+            <div className="event-log__replay" data-testid="event-log-replay">
+              <button
+                type="button"
+                className="button button--secondary button--sm"
+                data-testid="copy-replay-btn"
+                disabled={replayState.kind === "busy"}
+                onClick={() => void copyReplayToClipboard()}
+              >
+                {replayState.kind === "busy" ? "Copying…" : "Copy replay"}
+              </button>
+              <span
+                role="status"
+                aria-live="polite"
+                data-testid="copy-replay-status"
+                data-state={replayState.kind}
+                className={
+                  replayState.kind === "error"
+                    ? "event-log__replay-status text-danger"
+                    : "event-log__replay-status"
+                }
+              >
+                {replayCopyMessage(replayState)}
+              </span>
+            </div>
+          )}
+          {onChangeHistory && redoCount > 0 && (
+            <div className="event-log__redo" aria-label="Redo history">
+              <span>
+                {redoCount} undone {redoCount === 1 ? "decision" : "decisions"}
+              </span>
+              {(["redo", "redo_batch", "redo_pipeline"] as const).map((action, index) => (
+                <button
+                  key={action}
+                  type="button"
+                  className="button button--secondary button--sm"
+                  disabled={busy}
+                  onClick={() => onChangeHistory(action)}
+                >
+                  Redo {["one", "batch", "action"][index]}
+                </button>
+              ))}
+            </div>
+          )}
+          <div
+            id="event-log-list"
+            role="region"
+            aria-labelledby="event-log-toggle"
+            data-testid="event-log-list"
+            className="event-log__list"
+          >
+            {tree.length ? (
+              tree.map((item) => renderNode(item, 0))
+            ) : (
+              <div>No events recorded yet.</div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};

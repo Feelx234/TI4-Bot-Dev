@@ -557,6 +557,27 @@ fn payment_options(
     options
 }
 
+/// The ready planets that pay `kind` in their own currency, each with the worth of that face,
+/// exactly as the payment loop would list them for an unbounded bill. Cross-source faces
+/// (Archon's Gift) are left out.
+pub(crate) fn native_payment_planets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    kind: Spend,
+) -> Vec<(PlanetId, i64)> {
+    spendable_planets(state, player)
+        .into_iter()
+        .filter_map(|planet| {
+            payment_faces(state, content, sources, player, &planet, kind)
+                .into_iter()
+                .find(|(source, _)| *source == kind)
+                .map(|(_, worth)| (planet, worth))
+        })
+        .collect()
+}
+
 /// Apply the chosen payment option; returns its value against the bill.
 ///
 /// `None` means the id was never offered (defensive — validated tables cannot produce it). As in
@@ -793,9 +814,7 @@ fn pay_with_observation_credit(
         }
 
         // The oracle takes a lone option without asking; only real choices reach a decider.
-        let answer = if options.len() == 1 {
-            options[0].clone()
-        } else {
+        let answer = {
             // Oracle wording: each iteration names the remaining debt and its kind
             // (`pay {cost - paid} more {kind}` in engine/production.py).
             let choice = Choice::new(
@@ -810,7 +829,11 @@ fn pay_with_observation_credit(
                 cost,
                 used_credit + paid,
             ));
-            table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?
+            if let Some(only) = table.auto_resolve(&choice, "it was the only way left to pay") {
+                only
+            } else {
+                table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?
+            }
         };
 
         match apply_payment_option(state, content, sources, player, kind, &answer) {
@@ -2424,6 +2447,8 @@ impl ProductionWindow {
         // The position before any of these options is taken, read once for all of them.
         let before =
             crate::fleet::standing_using(&types, state, content, &self.player, &self.system, None);
+        let spendable_resources =
+            available(state, content, sources, &self.player, Spend::Resources);
         let mut options = Vec::new();
         for id in buildable_for(state, content, sources, &self.player) {
             let Some(kind) = types.get(id.as_str()) else {
@@ -2556,6 +2581,8 @@ impl ProductionWindow {
                 .with("placed", i64::try_from(placed).unwrap_or(1))
                 .with("yield", i64::try_from(pair).unwrap_or(1))
                 .with("credit", self.credit)
+                .with("available_resources", spendable_resources)
+                .with("free_this_use", self.free_this_use)
                 .with("credit_used", credit_used)
                 .with("owed", cost - credit_used)
                 .with("production_spent", production_spent)
@@ -3714,6 +3741,18 @@ mod tests {
     }
 
     #[test]
+    fn a_lone_payment_option_is_noted_but_never_journaled() {
+        let (mut state, _, _) = seated();
+        state.player_mut(&player()).unwrap().trade_goods = 2;
+        let mut table = Table::new();
+        assert!(pay(&mut state, ContentStore::embedded(), POK, &mut table, &player(), 2, Spend::Resources).unwrap());
+        assert!(table.log.is_empty(), "a skipped ask must not enter the journal");
+        let notes = table.take_auto_resolved();
+        assert!(!notes.is_empty());
+        assert!(notes.iter().all(|n| n.player == player() && n.prompt.starts_with("pay ")));
+    }
+
+    #[test]
     fn only_readied_controlled_planets_can_be_spent() {
         // 34, 75.2.
         let (mut state, system, planet) = seated();
@@ -4652,6 +4691,13 @@ mod tests {
         assert_eq!(
             fighter
                 .payload
+                .get("available_resources")
+                .and_then(serde_json::Value::as_i64),
+            Some(available(&state, content, POK, &player(), Spend::Resources))
+        );
+        assert_eq!(
+            fighter
+                .payload
                 .get("credit_used")
                 .and_then(serde_json::Value::as_i64),
             Some(1)
@@ -4944,6 +4990,13 @@ mod tests {
             Some(3),
             "the whole printed price is discounted away"
         );
+        assert_eq!(
+            carrier
+                .payload
+                .get("free_this_use")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
     }
 
     /// A marker left over from a different production sequence must not make an unrelated later
@@ -4968,6 +5021,13 @@ mod tests {
             .into_iter()
             .find(|option| option.id.starts_with("build|carrier|"))
             .expect("carrier");
+        assert_eq!(
+            carrier
+                .payload
+                .get("free_this_use")
+                .and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
         assert_eq!(
             carrier
                 .payload
