@@ -188,15 +188,11 @@ pub fn settle_control_points(state: &mut GameState) {
     if holder == state.styx_holder {
         return;
     }
-    if let Some(previous) = state.styx_holder.clone()
-        && let Some(seat) = state.player_mut(&previous)
-    {
-        seat.victory_points = (seat.victory_points - 1).max(0);
+    if let Some(previous) = state.styx_holder.clone() {
+        crate::objectives::adjust_victory_points(state, &previous, -1, "styx");
     }
-    if let Some(gained) = holder.clone()
-        && let Some(seat) = state.player_mut(&gained)
-    {
-        seat.victory_points = (seat.victory_points + 1).min(crate::objectives::VICTORY_TARGET);
+    if let Some(gained) = holder.clone() {
+        crate::objectives::adjust_victory_points(state, &gained, 1, "styx");
     }
     state.styx_holder = holder;
 }

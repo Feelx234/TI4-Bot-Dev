@@ -590,25 +590,38 @@ pub async fn get_snapshot(
     headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
 ) -> Result<Json<ServerMessage>, (StatusCode, String)> {
-    let session = registry
-        .get_game(&game_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Game '{game_id}' not found")))?;
+    // Checked where it always was (after the game lookup), so the error precedence is unchanged.
+    let credential = player_session(&headers).map(|token| token.map(str::to_owned));
+    // The registry and session locks are blocking mutexes; waiting on them on a runtime worker
+    // stalls every other request scheduled there.
+    tokio::task::spawn_blocking(move || {
+        let session = registry
+            .get_game(&game_id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Game '{game_id}' not found")))?;
 
-    if session.error().is_some() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!(
-                "Game session failed closed: {}",
-                session.error().unwrap_or_default()
-            ),
-        ));
-    }
+        if session.error().is_some() {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!(
+                    "Game session failed closed: {}",
+                    session.error().unwrap_or_default()
+                ),
+            ));
+        }
 
-    Ok(Json(ServerMessage::InitialSnapshot(
-        registry
-            .player_snapshot(&game_id, player_session(&headers)?, &session)
-            .map_err(lobby_error)?,
-    )))
+        Ok(Json(ServerMessage::InitialSnapshot(
+            registry
+                .player_snapshot(&game_id, credential?.as_deref(), &session)
+                .map_err(lobby_error)?,
+        )))
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Snapshot worker failed: {error}"),
+        )
+    })?
 }
 
 #[derive(Deserialize)]

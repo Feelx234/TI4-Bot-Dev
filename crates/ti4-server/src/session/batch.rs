@@ -1110,6 +1110,72 @@ mod tests {
     use super::*;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
 
+    /// The batch simulator's game end (`Simulation::winner`, which `submit_batch` turns into
+    /// `GameFinished`) breaks a three-way VP tie by initiative, not by seat or player order.
+    #[test]
+    fn a_three_way_tie_ending_inside_a_batch_goes_to_the_first_in_initiative() {
+        let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();
+        let (mut state, galaxy) =
+            crate::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        let mut by_initiative: Vec<_> = state
+            .card_initiative
+            .iter()
+            .map(|(card, initiative)| (card.clone(), *initiative))
+            .collect();
+        by_initiative.sort_by_key(|(_, initiative)| *initiative);
+        // Seating p1, p2, p3; initiative p2, p3, p1. The winner is neither the first nor the
+        // last tied seat in player order.
+        let cards = [
+            by_initiative.last().unwrap().0.clone(),
+            by_initiative[0].0.clone(),
+            by_initiative[4].0.clone(),
+        ];
+        // The status phase's mandatory reveal (81.2) finds an empty deck and ends the game.
+        state.phase = Phase::Status;
+        state.round = 4;
+        state.objective_deck.clear();
+        state.seating_order.clone_from(&players);
+        state.unclaimed_strategy_cards.retain(|card| !cards.contains(card));
+        for (seat, card) in players.iter().zip(cards.iter()) {
+            let player = state.player_mut(seat).unwrap();
+            player.victory_points = 7;
+            player.strategy_cards = vec![card.clone()];
+        }
+        // The status windows still ask their questions; every seat declines. Those answers are
+        // the recorded prefix the simulator replays before it reaches the end.
+        let mut game = Game::with_table(
+            state.clone(),
+            ContentStore::embedded(),
+            Table::with_default(Box::new(ti4_engine::choice::AlwaysDecline)),
+        )
+        .with_galaxy(galaxy.clone());
+        for _ in 0..64 {
+            if game.state.finished {
+                break;
+            }
+            assert_eq!(game.step().error, None);
+        }
+        assert!(game.state.finished, "the status phase should end the game");
+        let prefix = game.table.log.records.clone();
+        let config = SessionConfig::new("tie_batch", state).with_galaxy(galaxy, Vec::new());
+        let plan = MovementPlan {
+            kind: BatchKind::TacticalMovement,
+            destination: String::new(),
+            steps: Vec::new(),
+        };
+        let simulation = simulate_script(&config, &prefix, &players[0], &plan).unwrap();
+        assert!(simulation.boundary_state.finished);
+        assert!(
+            simulation
+                .boundary_state
+                .players
+                .iter()
+                .all(|p| p.victory_points == 7),
+            "the tie must hold at the end"
+        );
+        assert_eq!(simulation.winner, Some(Some(players[1].clone())));
+    }
+
     #[test]
     fn request_schemas_reject_steps_from_other_baskets() {
         for (kind, step) in [

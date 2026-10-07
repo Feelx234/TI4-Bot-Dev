@@ -13,7 +13,6 @@ use ti4_model::state::GameState;
 
 use crate::choice::Observed;
 use crate::decision_context::{DecisionContext, DecisionSource};
-use crate::objectives::VICTORY_TARGET;
 use crate::preview::{Delta, Preview, Quantity};
 
 /// The Circlet of the Void: its owner's units do not roll for gravity rifts.
@@ -259,9 +258,7 @@ fn the_silver_flame(
         .unwrap_or(0);
     purge(state, player, relic);
     if roll == 10 {
-        if let Some(seat) = state.player_mut(player) {
-            seat.victory_points = (seat.victory_points + 1).min(VICTORY_TARGET);
-        }
+        crate::objectives::adjust_victory_points(state, player, 1, relic.as_str());
         return Used::Purged {
             relic: relic.clone(),
         };
@@ -720,9 +717,7 @@ pub fn crown_of_emphidia_point(state: &mut GameState, player: &PlayerId) -> bool
         return false;
     }
     purge(state, player, &RelicId::new("emphidia"));
-    if let Some(seat) = state.player_mut(player) {
-        seat.victory_points = (seat.victory_points + 1).min(VICTORY_TARGET);
-    }
+    crate::objectives::adjust_victory_points(state, player, 1, "emphidia");
     true
 }
 
@@ -942,10 +937,8 @@ pub fn gain(state: &mut GameState, player: &PlayerId) -> Option<RelicId> {
     if let Some(seat) = state.player_mut(player) {
         seat.relics.push(top.clone());
     }
-    if top.as_str() == SHARD
-        && let Some(seat) = state.player_mut(player)
-    {
-        seat.victory_points = (seat.victory_points + 1).min(VICTORY_TARGET);
+    if top.as_str() == SHARD && state.player(player).is_some() {
+        crate::objectives::adjust_victory_points(state, player, 1, SHARD);
     }
     Some(top)
 }
@@ -1053,9 +1046,7 @@ pub fn use_relic(
         "bookoflatvinia" => {
             // All four specialties gains a victory point; otherwise the speaker token.
             if controls_all_four_specialties(state, content, sources, player) {
-                if let Some(seat) = state.player_mut(player) {
-                    seat.victory_points = (seat.victory_points + 1).min(VICTORY_TARGET);
-                }
+                crate::objectives::adjust_victory_points(state, player, 1, "bookoflatvinia");
             } else {
                 state.speaker = player.clone();
             }
@@ -1177,9 +1168,9 @@ pub fn perform(
         let gained = crate::exploration::purge_for_relic(state, player, trait_name);
         if let (Some(relic), Some(_)) = (gained.as_ref(), before)
             && relic.as_str() == SHARD
-            && let Some(seat) = state.player_mut(player)
+            && state.player(player).is_some()
         {
-            seat.victory_points = (seat.victory_points + 1).min(VICTORY_TARGET);
+            crate::objectives::adjust_victory_points(state, player, 1, SHARD);
         }
         return gained.is_some();
     }

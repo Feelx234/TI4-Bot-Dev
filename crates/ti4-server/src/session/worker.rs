@@ -1320,7 +1320,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     (shared, handle)
 }
 
-fn current_utc_time_string() -> String {
+pub(crate) fn current_utc_time_string() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
@@ -1391,5 +1391,143 @@ mod auto_resolved_tests {
         shared.note_auto_resolved(&seat, "pay 1 more resources", "trade goods", "only way");
         assert_eq!(shared.pending_auto_resolved.len(), 1);
         assert_eq!(shared.pending_auto_resolved[0].1.count, 2);
+    }
+}
+
+/// The worker's two game-end paths name the tie-break winner, not the first seat with most VP.
+///
+/// `finish_session` records `GameFinished`; with history active the step loop broadcasts
+/// `GameOver` itself. Both call `objectives::leader` (fac47ea), and neither had a test.
+#[cfg(test)]
+mod tie_break_tests {
+    use super::*;
+    use crate::session::{GameSession, SessionConfig};
+    use std::time::Duration;
+    use ti4_model::id::StrategyCardId;
+    use ti4_model::state::Phase;
+
+    /// Three seats tied on VP in the last action turn of a round whose status phase cannot
+    /// reveal an objective. Seating order is p1, p2, p3; initiative order is p2, p3, p1. A tie
+    /// broken by seating names p1, one broken by the last maximum (`max_by_key`) names p3, and the
+    /// rules name p2.
+    fn tied_last_turn(game_id: &str, history_active: bool) -> SessionConfig {
+        let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();
+        let (mut state, galaxy) =
+            crate::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        let tiles = crate::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+        let mut by_initiative: Vec<(StrategyCardId, i32)> = state
+            .card_initiative
+            .iter()
+            .map(|(card, initiative)| (card.clone(), *initiative))
+            .collect();
+        by_initiative.sort_by_key(|(_, initiative)| *initiative);
+        let cards = [
+            by_initiative.last().unwrap().0.clone(), // p1: the highest number
+            by_initiative[0].0.clone(),              // p2: the lowest number
+            by_initiative[4].0.clone(),              // p3
+        ];
+        state.phase = Phase::Action;
+        state.round = 4;
+        state.objective_deck.clear();
+        state.seating_order.clone_from(&players);
+        state.unclaimed_strategy_cards.retain(|card| !cards.contains(card));
+        for (seat, card) in players.iter().zip(cards.iter()) {
+            let player = state.player_mut(seat).unwrap();
+            player.victory_points = 6;
+            player.strategy_cards = vec![card.clone()];
+            player.exhausted_strategy_cards = std::iter::once(card.clone()).collect();
+            player.passed = seat != &players[0];
+        }
+        state.active = Some(players[0].clone());
+        assert_eq!(
+            state.initiative_order(),
+            vec![players[1].clone(), players[2].clone(), players[0].clone()]
+        );
+        let mut config = SessionConfig::new(game_id, state)
+            .with_seed(42)
+            .with_player_ids(players.clone())
+            .with_galaxy(galaxy, tiles);
+        for seat in &players {
+            config = config.with_seat(seat.clone(), SeatController::Human);
+        }
+        config.history_active = history_active;
+        config
+    }
+
+    /// Pass every remaining turn until the game ends; returns the `GameOver` winners seen.
+    fn play_out(session: &GameSession) -> Vec<Option<PlayerId>> {
+        let subscription = session.subscribe(ViewerRole::Spectator);
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while !session.is_finished() {
+            assert!(std::time::Instant::now() < deadline, "{:?}", session.error());
+            assert!(session.error().is_none(), "{:?}", session.error());
+            let Some((seat, nonce, version)) = session.current_pending_decision() else {
+                std::thread::sleep(Duration::from_millis(5));
+                continue;
+            };
+            let choice = session
+                .get_snapshot(&ViewerRole::Player(seat.clone()))
+                .pending_choice
+                .unwrap()
+                .choice;
+            let option = choice
+                .options
+                .iter()
+                .find(|o| o.id.contains("pass") || o.id == "decline" || o.id == "end_turn")
+                .unwrap_or(&choice.options[0]);
+            let _ = session.submit_choice(&seat, &nonce, version, &option.id);
+        }
+        let mut winners = Vec::new();
+        while let Ok(message) = subscription.try_recv() {
+            if let ServerMessage::GameOver(over) = message {
+                winners.push(over.winner);
+            }
+        }
+        winners
+    }
+
+    fn finished_winner(session: &GameSession) -> Option<PlayerId> {
+        session
+            .event_log()
+            .iter()
+            .find_map(|event| match &event.event {
+                GameEventKind::GameFinished { winner } => Some(winner.clone()),
+                _ => None,
+            })
+            .expect("a GameFinished event")
+    }
+
+    fn assert_still_tied(session: &GameSession) {
+        let state = session.current_state();
+        assert!(state.finished);
+        assert!(
+            state.players.iter().all(|p| p.victory_points == 6),
+            "the tie must survive to the end for this test to mean anything: {:?}",
+            state
+                .players
+                .iter()
+                .map(|p| (&p.id, p.victory_points))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_three_way_tie_finishing_in_the_worker_goes_to_the_first_in_initiative() {
+        let session = GameSession::start(tied_last_turn("tie_live", false));
+        let over = play_out(&session);
+        assert_still_tied(&session);
+        assert_eq!(finished_winner(&session), Some(PlayerId::new("p2")));
+        assert_eq!(over, vec![Some(PlayerId::new("p2"))]);
+        session.stop();
+    }
+
+    #[test]
+    fn a_three_way_tie_finishing_with_history_active_broadcasts_the_initiative_winner() {
+        let session = GameSession::start(tied_last_turn("tie_history", true));
+        let over = play_out(&session);
+        assert_still_tied(&session);
+        assert_eq!(finished_winner(&session), Some(PlayerId::new("p2")));
+        assert_eq!(over, vec![Some(PlayerId::new("p2"))]);
+        session.stop();
     }
 }

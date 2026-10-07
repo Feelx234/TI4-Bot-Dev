@@ -3909,11 +3909,12 @@ impl Window for InvasionWindow {
                         )?
                     {
                         state.custodians_removed = true;
-                        if let Some(seat) = state.player_mut(&self.invader) {
-                            seat.victory_points =
-                                (seat.victory_points + 1).min(crate::objectives::VICTORY_TARGET);
-                        }
-                        state.note_vp(&self.invader, 1, "custodians");
+                        crate::objectives::adjust_victory_points(
+                            state,
+                            &self.invader,
+                            1,
+                            "custodians",
+                        );
                         self.report.custodians_removed = true;
                     }
                 }

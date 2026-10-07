@@ -199,6 +199,190 @@ mod committed_worker_tests {
         drop(registry);
         std::fs::remove_dir_all(path).unwrap();
     }
+
+    /// A two-seat game advanced to its first tactical movement boundary.
+    fn game_at_movement(
+        registry: &GameRegistry,
+        game_id: &str,
+    ) -> (Arc<GameSession>, String, BatchRequest) {
+        let host = PlayerId::new("p1");
+        let guest = PlayerId::new("p2");
+        let players = vec![host.clone(), guest.clone()];
+        let (state, galaxy) =
+            crate::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        let tiles = crate::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+        let config = SessionConfig::new(game_id, state)
+            .with_seed(42)
+            .with_player_ids(players)
+            .with_galaxy(galaxy, tiles)
+            .with_seat(host.clone(), SeatController::Human)
+            .with_seat(guest, SeatController::Human);
+        let session = registry.create_game(config).unwrap();
+        let token = session.seat_tokens()[&host].clone();
+        for _ in 0..4 {
+            let (seat, nonce, version, _) = pending(&session);
+            let choice = session
+                .get_snapshot(&ViewerRole::Player(seat.clone()))
+                .pending_choice
+                .unwrap()
+                .choice;
+            let option = choice
+                .options
+                .iter()
+                .find(|o| o.id == "tactical" || o.id == "22")
+                .unwrap_or(&choice.options[0]);
+            session
+                .submit_choice(&seat, &nonce, version, &option.id)
+                .unwrap();
+        }
+        let (_, nonce, version, _) = pending(&session);
+        let request = BatchRequest {
+            request_id: format!("{game_id}_batch"),
+            expected_version: version,
+            nonce,
+            plan: MovementPlan {
+                kind: BatchKind::TacticalMovement,
+                destination: session.current_state().active_system.unwrap().to_string(),
+                steps: vec![MovementStep::DoneMoving],
+            },
+        };
+        (session, token, request)
+    }
+
+    fn is_hh_mm_ss(value: &str) -> bool {
+        let b = value.as_bytes();
+        b.len() == 8
+            && b[2] == b':'
+            && b[5] == b':'
+            && [0, 1, 3, 4, 6, 7].iter().all(|&i| b[i].is_ascii_digit())
+    }
+
+    /// A batch's replacement replay must not hold the registry lock (P1).
+    ///
+    /// Runs 06 and 23 of the 2026-10-06 sweep timed out on `/snapshot` while a batch replayed a
+    /// thousand decisions with the global lock held: every read of every game waited for it.
+    #[test]
+    fn a_slow_batch_replay_does_not_block_registry_reads() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        const SLOW_REPLAY: Duration = Duration::from_millis(1500);
+
+        let registry = GameRegistry::new();
+        let (before, token, request) = game_at_movement(&registry, "slow_replay");
+        let other = game_at_movement(&registry, "bystander").0;
+        let seat = before.current_pending_decision().unwrap().0;
+        let replaying = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            let batch = scope.spawn(|| {
+                registry.submit_batch_with_worker("slow_replay", &token, request, |config| {
+                    replaying.store(true, Ordering::SeqCst);
+                    std::thread::sleep(SLOW_REPLAY);
+                    GameSession::start(config)
+                })
+            });
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !replaying.load(Ordering::SeqCst) {
+                assert!(Instant::now() < deadline, "the batch never reached its replay");
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            let started = Instant::now();
+            // The game being replaced still answers, from the stopped pre-batch session.
+            let stale = registry.get_game("slow_replay").unwrap();
+            assert!(Arc::ptr_eq(&stale, &before));
+            let snapshot = registry
+                .player_snapshot("slow_replay", Some(&token), &stale)
+                .unwrap();
+            assert_eq!(snapshot.game_id, "slow_replay");
+            // So does every other game, and a spectator view.
+            let bystander = registry.get_game("bystander").unwrap();
+            registry
+                .player_snapshot("bystander", None, &bystander)
+                .unwrap();
+            let elapsed = started.elapsed();
+            assert!(
+                elapsed < Duration::from_millis(500),
+                "registry reads waited {elapsed:?} for a batch replay"
+            );
+            assert!(!batch.is_finished(), "the reads overlapped the replay");
+
+            let result = batch.join().unwrap().unwrap();
+            let live = registry.get_game("slow_replay").unwrap();
+            assert!(!Arc::ptr_eq(&live, &before), "the replacement is published");
+            assert_eq!(live.history_status().cursor, result.end_cursor);
+            let _ = pending(&live);
+            assert!(before.current_pending_decision().is_none());
+            assert!(
+                before
+                    .submit_choice(&seat, "any", result.snapshot.game_version, "any")
+                    .is_err(),
+                "the stopped session refuses choices"
+            );
+            live.stop();
+        });
+        other.stop();
+    }
+
+    /// `remove_game` is not serialised by the game gate; a batch must not resurrect a game
+    /// removed while its replacement replayed.
+    #[test]
+    fn a_game_removed_during_the_batch_replay_stays_removed() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let registry = GameRegistry::new();
+        let (_, token, request) = game_at_movement(&registry, "removed_mid_batch");
+        let replaying = AtomicBool::new(false);
+        let release = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            let batch = scope.spawn(|| {
+                registry.submit_batch_with_worker(
+                    "removed_mid_batch",
+                    &token,
+                    request,
+                    |config| {
+                        replaying.store(true, Ordering::SeqCst);
+                        while !release.load(Ordering::SeqCst) {
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                        GameSession::start(config)
+                    },
+                )
+            });
+            while !replaying.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            assert!(registry.remove_game("removed_mid_batch").is_some());
+            release.store(true, Ordering::SeqCst);
+            let error = batch.join().unwrap().unwrap_err();
+            assert_eq!(error.reason, "game not found");
+        });
+        assert!(registry.get_game("removed_mid_batch").is_none());
+    }
+
+    #[test]
+    fn batch_events_carry_wall_clock_timestamps() {
+        let path = std::env::temp_dir().join(format!("ti4_ts_{:032x}", rand::random::<u128>()));
+        let store = Arc::new(FileGameStore::new(&path).unwrap());
+        let registry = GameRegistry::new().with_store(store.clone());
+        let (_, token, request) = game_at_movement(&registry, "batch_ts");
+        let result = registry.submit_batch("batch_ts", &token, request).unwrap();
+        let history = store.load_history("batch_ts").unwrap().unwrap();
+        let batch_events: Vec<_> = history
+            .events
+            .iter()
+            .filter(|e| e.batch_id.as_deref() == Some(result.batch_id.as_str()))
+            .collect();
+        assert!(!batch_events.is_empty());
+        for event in &history.events {
+            assert!(
+                is_hh_mm_ss(&event.timestamp),
+                "event {} has timestamp {:?}",
+                event.id,
+                event.timestamp
+            );
+        }
+        registry.get_game("batch_ts").unwrap().stop();
+        drop(registry);
+        std::fs::remove_dir_all(path).unwrap();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -827,6 +1011,8 @@ impl GameRegistry {
         let mut events = session.event_log();
         let (_, mut counter) = session.history_events();
         counter = counter.max(events.len() as u64);
+        // One wall-clock reading for the whole batch, in the worker's HH:MM:SS format.
+        let timestamp = crate::session::worker::current_utc_time_string();
         for (i, decision) in decisions.iter().enumerate() {
             let offered = &simulation.selected[i];
             let action_id = if decision
@@ -859,7 +1045,7 @@ impl GameRegistry {
             counter += 1;
             events.push(crate::protocol::server::GameEvent {
                 id: format!("{game_id}-{counter}"),
-                timestamp: String::new(),
+                timestamp: timestamp.clone(),
                 version: Some(request.expected_version),
                 visibility: crate::protocol::server::EventVisibility::Public,
                 event: crate::protocol::server::GameEventKind::DecisionResolved,
@@ -888,7 +1074,7 @@ impl GameRegistry {
                 counter += 1;
                 events.push(crate::protocol::server::GameEvent {
                     id: format!("{game_id}-{counter}"),
-                    timestamp: String::new(),
+                    timestamp: timestamp.clone(),
                     version: Some(request.expected_version),
                     visibility: crate::protocol::server::EventVisibility::Public,
                     event: crate::protocol::server::GameEventKind::PhaseTransition {
@@ -918,7 +1104,7 @@ impl GameRegistry {
             counter += 1;
             events.push(crate::protocol::server::GameEvent {
                 id: format!("{game_id}-{counter}"),
-                timestamp: String::new(),
+                timestamp: timestamp.clone(),
                 version: Some(request.expected_version),
                 visibility: crate::protocol::server::EventVisibility::Public,
                 event: crate::protocol::server::GameEventKind::GameFinished { winner },
@@ -1004,6 +1190,14 @@ impl GameRegistry {
             state.sessions.insert(game_id.to_owned(), replacement);
             return Err(BatchError::simple(&format!("storage error: {error}")));
         }
+        // The batch is durable and the old worker is stopped. Replaying the whole game into the
+        // replacement can take seconds, so it runs without the registry lock: every snapshot,
+        // websocket tick and lobby call for every game waits on that lock. This game stays
+        // consistent without it because the game gate, held since the top of this function,
+        // keeps out every other timeline mutation (choices, batches, history changes, takeover)
+        // until the replacement is published. Meanwhile the stopped session keeps answering
+        // reads with the pre-batch position, and a choice sent to it is refused.
+        drop(state);
         let mut next = config;
         next.prior_decisions = history.decisions;
         next.prior_events = history.events;
@@ -1016,9 +1210,28 @@ impl GameRegistry {
         next.batches = history.batches;
         next.replay_boundary_state = Some(boundary_state);
         let (replacement, replay) = start_committed_worker(next, &mut start_worker);
-        state
-            .sessions
-            .insert(game_id.to_owned(), replacement.clone());
+        {
+            let mut state = self.state.lock().expect("registry lock");
+            // Only an ungated call can have touched this slot while the lock was released:
+            // `remove_game` (or a new game created under the same id after it). The stopped
+            // session cannot advance, so identity is the whole check. Never publish over a
+            // session this batch did not stop.
+            if !state
+                .sessions
+                .get(game_id)
+                .is_some_and(|live| Arc::ptr_eq(live, &session))
+            {
+                drop(state);
+                replacement.stop();
+                return Err(BatchError::explained(
+                    "game not found",
+                    "the game was removed while the batch was being committed",
+                ));
+            }
+            state
+                .sessions
+                .insert(game_id.to_owned(), replacement.clone());
+        }
         replay.map_err(|error| {
             BatchError::simple(&format!(
                 "batch committed, replacement session failed to replay: {error}"
