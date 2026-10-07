@@ -8,6 +8,7 @@ import { SpaceCombatOverlay, getSpaceCombatHexStyle } from "./SpaceCombatOverlay
 import { GroundCombatOverlay } from "./GroundCombatOverlay.tsx";
 import { TechBenefitsOverlay } from "./TechBenefitsOverlay.tsx";
 import { StandardOverlay } from "./StandardOverlay.tsx";
+import { COMMAND_TOKEN_RADIUS, COMMAND_TOKEN_STEP } from "./boardLayout.ts";
 
 import { PlayerView } from "../../protocol/types.ts";
 import type { PaymentMark } from "../../presentation/paymentDraft.ts";
@@ -314,29 +315,32 @@ export const BoardTile: React.FC<BoardTileProps> = ({
       )}
 
       {/* Command Tokens */}
-      {tile.commandTokens.map((ct, cIdx) => (
-        <g key={`cmd-${cIdx}`}>
-          <title>{display(ct.owner).label} command token</title>
-          <circle
-            cx={tile.center.x - 42 + cIdx * 12}
-            cy={tile.center.y + 56}
-            r="6"
-            fill={ct.color}
-            stroke="#f8fafc"
-            strokeWidth="1"
-          />
-          <text
-            x={tile.center.x - 42 + cIdx * 12}
-            y={tile.center.y + 59}
-            textAnchor="middle"
-            fill={display(ct.owner).position === 8 ? "#fff" : "#0b1220"}
-            fontSize="8"
-            pointerEvents="none"
-          >
-            {display(ct.owner).symbol}
-          </text>
-        </g>
-      ))}
+      {tile.commandTokens.map((ct, cIdx) => {
+        const cx = tile.center.x + (cIdx - (tile.commandTokens.length - 1) / 2) * COMMAND_TOKEN_STEP;
+        return (
+          <g key={`cmd-${cIdx}`}>
+            <title>{display(ct.owner).label} command token</title>
+            <circle
+              cx={cx}
+              cy={tile.center.y + 56}
+              r={COMMAND_TOKEN_RADIUS}
+              fill={ct.color}
+              stroke="#f8fafc"
+              strokeWidth="1.5"
+            />
+            <text
+              x={cx}
+              y={tile.center.y + 56 + COMMAND_TOKEN_RADIUS * 0.45}
+              textAnchor="middle"
+              fill={display(ct.owner).position === 8 ? "#fff" : "#0b1220"}
+              fontSize={COMMAND_TOKEN_RADIUS * 1.3}
+              pointerEvents="none"
+            >
+              {display(ct.owner).symbol}
+            </text>
+          </g>
+        );
+      })}
     </SvgButton>
   );
 };

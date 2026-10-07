@@ -1,4 +1,5 @@
 import React from "react";
+import { CONTROL_SYMBOL_FONT_SIZE } from "./boardLayout.ts";
 import { MapTargetMode, TilePresentation } from "../../presentation/boardPresentation.ts";
 import { SvgButton } from "../../primitives/index.ts";
 import type { PaymentMark } from "../../presentation/paymentDraft.ts";
@@ -131,14 +132,14 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
 
             {p.controlledBy && (
               <text
-                x={pX + 13}
+                x={pX + 14}
                 y={pY - 11}
                 textAnchor="middle"
                 fill="#fff"
                 stroke="#0b1220"
-                strokeWidth="0.6"
+                strokeWidth="1"
                 paintOrder="stroke"
-                fontSize="12"
+                fontSize={CONTROL_SYMBOL_FONT_SIZE}
                 pointerEvents="none"
               >
                 {display(p.controlledBy).symbol}
