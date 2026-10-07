@@ -12212,6 +12212,147 @@ mod tests {
         );
     }
 
+    /// Picks the first offered "yes"/"strategic"/trade opening and declines everything else,
+    /// recording what each seat was asked (seat, prompt, `costs_token`).
+    #[derive(Clone, Default)]
+    struct TradeSeats(Arc<Mutex<Vec<(String, String, Option<bool>)>>>);
+
+    impl Decider for TradeSeats {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            self.0.lock().unwrap().push((
+                choice.player.to_string(),
+                choice.prompt.clone(),
+                choice.details.get("costs_token").and_then(serde_json::Value::as_bool),
+            ));
+            choice
+                .options
+                .iter()
+                .find(|o| o.id == "strategic" || o.id == "yes" || o.id.starts_with("component|trade|"))
+                .or_else(|| choice.options.iter().find(|o| o.is_decline()))
+                .or_else(|| choice.options.first())
+                .cloned()
+                .ok_or_else(|| IllegalChoice::ScriptDiverged {
+                    player: choice.player.clone(),
+                    wanted: String::new(),
+                    offered: Vec::new(),
+                })
+        }
+    }
+
+    /// Sol "a", Hacan "b", Xxcha "c"; `holder` plays Trade and every seat has `tokens` strategy tokens.
+    fn trade_table(holder: &str, tokens: i32) -> (Vec<(String, String, Option<bool>)>, GameState) {
+        let content = ContentStore::embedded();
+        let ids = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];
+        let mut state = start_game(content, &ids, POK, None).unwrap();
+        for (id, faction) in [("a", "sol"), ("b", "hacan"), ("c", "xxcha")] {
+            let seat = state.player_mut(&PlayerId::new(id)).unwrap();
+            seat.faction = ti4_model::id::FactionId::new(faction);
+            seat.commodities = 0;
+            seat.strategic_tokens = tokens;
+            seat.strategy_cards = Vec::new();
+        }
+        state.phase = Phase::Action;
+        state.active = Some(PlayerId::new(holder));
+        state.player_mut(&PlayerId::new(holder)).unwrap().strategy_cards =
+            vec![ti4_model::id::StrategyCardId::new("pok5trade")];
+        let seen = TradeSeats::default();
+        let mut game = Game::with_table(state, content, Table::with_default(Box::new(seen.clone())));
+        let mut guard = 0;
+        while !game.events.iter().any(|e| e == "STRATEGIC_ACTION_COMPLETE") && guard < 60 {
+            assert_eq!(game.step().error, None, "log {:?}", game.events);
+            guard += 1;
+        }
+        let asked = seen.0.lock().unwrap().clone();
+        (asked, game.state)
+    }
+
+    /// H1 audit (2026-10-07): Hacan plays Trade. Primary gives 3 goods and Hacan's printed 6
+    /// commodities; the other seats are offered the replenish, Hacan is not offered itself.
+    #[test]
+    fn hacan_playing_trade_gains_goods_and_replenishes_to_six() {
+        let (asked, state) = trade_table("b", 2);
+        let hacan = state.player(&PlayerId::new("b")).unwrap();
+        assert_eq!((hacan.trade_goods, hacan.commodities), (3, 6));
+        assert!(
+            asked.iter().any(|(seat, prompt, _)| seat == "b"
+                && prompt == "let another player replenish commodities"),
+            "the Trade player chooses who else replenishes: {asked:?}"
+        );
+        // The followers pay their strategy token, as the secondary always costs one.
+        for seat in ["a", "c"] {
+            assert_eq!(state.player(&PlayerId::new(seat)).unwrap().strategic_tokens, 1);
+        }
+        assert_eq!(hacan.strategic_tokens, 2, "the primary costs no token");
+    }
+
+    /// Masters of Trade: Hacan follows Trade without spending a token, is asked even with none left,
+    /// and the question says so (`costs_token: false`) while the same question costs Xxcha one.
+    #[test]
+    fn hacan_follows_trade_for_free_even_with_no_tokens() {
+        let (asked, state) = trade_table("a", 1);
+        let question = |seat: &str| {
+            asked
+                .iter()
+                .find(|(who, prompt, _)| {
+                    who == seat && prompt.contains("replenish commodities") && !prompt.contains("another")
+                })
+                .unwrap_or_else(|| panic!("{seat} was not asked the Trade secondary: {asked:?}"))
+                .2
+        };
+        assert_eq!(question("b"), Some(false), "Masters of Trade");
+        assert_eq!(question("c"), Some(true));
+        let hacan = state.player(&PlayerId::new("b")).unwrap();
+        assert_eq!((hacan.commodities, hacan.strategic_tokens), (6, 1));
+        assert_eq!(state.player(&PlayerId::new("c")).unwrap().strategic_tokens, 0);
+
+        let (asked, _) = trade_table("a", 0);
+        assert!(
+            asked.iter().any(|(who, ..)| who == "b"),
+            "a tokenless Hacan still gets the free secondary: {asked:?}"
+        );
+        assert!(
+            !asked.iter().any(|(who, ..)| who == "c"),
+            "a tokenless Xxcha does not: {asked:?}"
+        );
+    }
+
+    /// Guild Ships in the turn menu (no diplomacy): far apart, Sol may open a transaction with Hacan and
+    /// Hacan with Sol, and the window that follows is the transaction window.
+    #[test]
+    fn a_distant_hacan_and_sol_can_open_a_transaction_either_way() {
+        let (mut state, galaxy, _) = tactical_fixture();
+        let content = ContentStore::embedded();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        assert!(!crate::transactions::are_neighbours(&state, &galaxy, &a, &b));
+        for seat in [&a, &b] {
+            let seat = state.player_mut(seat).unwrap();
+            seat.trade_goods = 2;
+            seat.commodities = 3;
+        }
+        for (active, partner) in [(&a, "hacan"), (&b, "sol")] {
+            state.active = Some(active.clone());
+            let seen = TradeSeats::default();
+            let table = Table::with_default(Box::new(seen.clone()));
+            let mut game = Game::with_table(state.clone(), content, table).with_galaxy(galaxy.clone());
+            let menu = game.legal_options().expect("the turn menu");
+            assert!(
+                menu.ids().contains(&format!("component|trade|{partner}").as_str()),
+                "{active} may open a transaction with {partner}: {:?}",
+                menu.ids()
+            );
+            let partners = menu.details.get("partners").and_then(|p| p.as_array()).expect("partners");
+            assert_eq!(partners[0]["available"], true, "{partners:?}");
+            assert_eq!(partners[0]["in_contact"], true, "{partners:?}");
+            for _ in 0..2 {
+                assert_eq!(game.step().error, None, "log {:?}", game.events);
+            }
+            let asked = seen.0.lock().unwrap().clone();
+            assert_eq!(asked[1].1, format!("transaction with {partner}"), "{asked:?}");
+        }
+    }
+
     #[test]
     fn without_a_coup_the_same_strategic_action_completes() {
         // The control for the coup test: with no coup in hand, b's diplomacy runs to
