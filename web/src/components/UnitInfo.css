@@ -32,6 +32,12 @@
   }
 }
 
+.production-drawer__unit-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .info-row {
   display: inline-flex;
   align-items: center;
@@ -42,7 +48,7 @@
 .info-card.accessible-popover {
   width: max-content;
   max-width: min(340px, calc(100vw - 24px));
-  max-height: min(70vh, 520px);
+  max-height: min(80vh, 640px);
   overflow-y: auto;
   text-align: left;
   font-style: normal;
@@ -51,6 +57,10 @@
 }
 .info-card--faction.accessible-popover {
   width: 340px;
+}
+/* The card lives in document.body (see Popover `portal`), so it must clear the dialogs it opens from. */
+.info-card.accessible-popover {
+  z-index: calc(var(--layer-dialog) + 1) !important;
 }
 /* On a phone the card is a sheet at the bottom of the screen, clear of the thumb's target. */
 @media (max-width: 600px) {
@@ -159,6 +169,12 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.info-card__leader-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
 }
 .info-card__leaders {
   display: flex;

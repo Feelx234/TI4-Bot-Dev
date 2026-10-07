@@ -79,6 +79,15 @@ describe("InfoPopover behaviour (through the unit button)", () => {
     }
   });
 
+  it("renders the card in document.body so a scrolling dialog cannot clip it", () => {
+    const { container } = render(<UnitInfoButton unit="cruiser" />);
+    fireEvent.click(screen.getByTestId("unit-info-cruiser"));
+    const card = screen.getByTestId("unit-info-cruiser-card");
+    expect(card).toHaveAttribute("data-portal", "true");
+    expect(card.parentElement).toBe(document.body);
+    expect(container.contains(card)).toBe(false);
+  });
+
   it("ignores touch pointer-enter so a tap is not a hover", () => {
     render(<UnitInfoButton unit="cruiser" />);
     fireEvent.pointerEnter(screen.getByTestId("unit-info-cruiser"), { pointerType: "touch" });

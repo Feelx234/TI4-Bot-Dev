@@ -77,6 +77,7 @@ export const InfoPopover: React.FC<InfoPopoverProps> = ({
       isOpen={open}
       onOpenChange={onOpenChange}
       position={position}
+      portal
       ariaLabel={label}
       className={`info-card ${className ?? ""}`}
       data-testid={testId ? `${testId}-card` : undefined}
