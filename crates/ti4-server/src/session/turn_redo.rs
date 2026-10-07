@@ -399,15 +399,84 @@ fn run_redo(
     }
 }
 
-/// Replay `decisions` (with `marks`) once and read off the tail that follows `window`.
+/// The unedited timeline replayed once, from which the tail after any window can be read.
 ///
-/// `events` are the timeline's events (decision numbers as in `decisions`); the tail keeps those
-/// from the first tail decision on.
+/// A history that stops replaying under the strict matcher part-way (an old save) still yields a
+/// baseline; windows that end before the stopping point work, later ones are refused.
+pub struct TailBaseline {
+    decisions: Vec<DecisionRecord>,
+    events: Vec<GameEvent>,
+    run: RedoRun,
+}
+
+impl TailBaseline {
+    /// Replay `decisions` (with `marks`) from the fixed initial state, reading where every stream
+    /// stands at each decision and the remaining deck sizes. `events` are the timeline's events
+    /// (decision numbers as in `decisions`).
+    #[must_use]
+    pub fn new(
+        initial: &GameState,
+        galaxy: Option<&Galaxy>,
+        decisions: &[DecisionRecord],
+        marks: &RngMarks,
+        events: &[GameEvent],
+    ) -> Self {
+        Self {
+            decisions: decisions.to_vec(),
+            events: events.to_vec(),
+            run: run_redo(initial, galaxy, decisions, marks, None),
+        }
+    }
+
+    /// How many decisions replayed under the strict matcher.
+    #[must_use]
+    pub fn replayed(&self) -> usize {
+        self.run.accepted
+    }
+
+    /// The tail after `window`.
+    ///
+    /// # Errors
+    /// [`TurnRedoError::BaselineDiverged`] when the history does not replay up to the end of the
+    /// window; a history that stops replaying *after* the window just gets a shorter tail.
+    pub fn tail(&self, window: &RedoWindow) -> Result<TailSource, TurnRedoError> {
+        let base = &self.run;
+        let end = window.end;
+        if base.accepted < end {
+            let why = base.conflict.as_ref().map_or_else(
+                || "the replay ended early".to_owned(),
+                |c| format!("{:?} at decision {}", c.kind, c.index),
+            );
+            return Err(TurnRedoError::BaselineDiverged(why));
+        }
+        let tail_end = base.accepted;
+        let tail_len = tail_end - end;
+        let decks = base
+            .decks
+            .range(end..=tail_end)
+            .map(|(count, decks)| (count - end, decks.clone()))
+            .collect();
+        let event_split = events_through(&self.events, 0, end);
+        Ok(TailSource {
+            start_cursor: end,
+            decisions: self.decisions[end..tail_end].to_vec(),
+            marks: (0..tail_len)
+                .filter_map(|j| base.captured.get(&(end + j)).map(|m| (j, m.clone())))
+                .collect(),
+            prev_mark: end
+                .checked_sub(1)
+                .and_then(|i| base.captured.get(&i))
+                .cloned(),
+            decks,
+            events: self.events[event_split..].to_vec(),
+        })
+    }
+}
+
+/// [`TailBaseline::new`] then [`TailBaseline::tail`], for one window.
 ///
 /// # Errors
-/// [`TurnRedoError::BaselineDiverged`] when the history does not replay up to the end of the window
-/// (an old save the strict matcher cannot follow); a history that stops replaying *after* the
-/// window just gets a shorter tail.
+/// As [`TailBaseline::tail`].
 pub fn prepare_tail(
     initial: &GameState,
     galaxy: Option<&Galaxy>,
@@ -416,33 +485,7 @@ pub fn prepare_tail(
     events: &[GameEvent],
     window: &RedoWindow,
 ) -> Result<TailSource, TurnRedoError> {
-    let base = run_redo(initial, galaxy, decisions, marks, None);
-    let end = window.end;
-    if base.accepted < end {
-        let why = base.conflict.as_ref().map_or_else(
-            || "the replay ended early".to_owned(),
-            |c| format!("{:?} at decision {}", c.kind, c.index),
-        );
-        return Err(TurnRedoError::BaselineDiverged(why));
-    }
-    let tail_end = base.accepted;
-    let tail_len = tail_end - end;
-    let decks = base
-        .decks
-        .range(end..=tail_end)
-        .map(|(count, decks)| (count - end, decks.clone()))
-        .collect();
-    let event_split = events_through(events, 0, end);
-    Ok(TailSource {
-        start_cursor: end,
-        decisions: decisions[end..tail_end].to_vec(),
-        marks: (0..tail_len)
-            .filter_map(|j| base.captured.get(&(end + j)).map(|m| (j, m.clone())))
-            .collect(),
-        prev_mark: end.checked_sub(1).and_then(|i| base.captured.get(&i)).cloned(),
-        decks,
-        events: events[event_split..].to_vec(),
-    })
+    TailBaseline::new(initial, galaxy, decisions, marks, events).tail(window)
 }
 
 /// How many leading events belong at or before decision `cursor`: those numbered at most `cursor`
@@ -481,6 +524,9 @@ pub struct AutoplayResult {
     pub tail_total: usize,
     pub stop: TurnRedoStop,
     pub asking_seat: Option<String>,
+    /// Decks that sit a different number of cards from the original after the redone turn,
+    /// as far as the kept tail reached (a shift no kept decision drew against is not a conflict).
+    pub deck_offsets: Vec<DeckDelta>,
     /// Remapped events of the kept tail, to append to the prefix events.
     pub tail_events: Vec<GameEvent>,
 }
@@ -545,31 +591,64 @@ pub fn autoplay(
         return Err(TurnRedoError::PrefixDiverged(why));
     }
 
-    // Deck draw positions: compare with the original timeline at aligned points.
+    // Deck draw positions. Decks are shuffled once and drawn positionally, so a deck that sits a
+    // different number of cards from the original after the new turn would hand the *same* later
+    // draw a different card. That only matters when a recorded decision is replayed against such
+    // a draw: it is reported as a conflict (kind `deck_cursor`) the moment the shifted deck is
+    // drawn from in either run, or any other deck stops matching the original. A shift that no
+    // replayed decision touches is listed as `deck_offsets` on the outcome instead.
     let base_decks: BTreeMap<usize, &Decks> =
         source.decks.iter().map(|(rel, d)| (*rel, d)).collect();
+    let delta_of = |new: &Decks, base: &Decks, deck: &str| {
+        new.get(deck).copied().unwrap_or(0) - base.get(deck).copied().unwrap_or(0)
+    };
+    let mut offsets: BTreeMap<String, i64> = BTreeMap::new();
+    let mut last_deltas: BTreeMap<String, i64> = BTreeMap::new();
+    let mut previous: Option<(Decks, Decks)> = None;
     let mut deck_cut: Option<(usize, Vec<DeckDelta>)> = None;
     for (count, decks) in run.decks.range(prefix_len..=run.accepted) {
         let Some(base) = base_decks.get(&(count - prefix_len)) else {
             continue;
         };
-        let keys: BTreeSet<&String> = decks.keys().chain(base.keys()).collect();
-        let deltas: Vec<DeckDelta> = keys
-            .into_iter()
-            .filter_map(|deck| {
-                let delta = decks.get(deck).copied().unwrap_or(0)
-                    - base.get(deck).copied().unwrap_or(0);
-                (delta != 0).then(|| DeckDelta {
-                    deck: deck.clone(),
-                    delta,
+        let keys: BTreeSet<String> = decks.keys().chain(base.keys()).cloned().collect();
+        if let Some((prev_new, prev_base)) = &previous {
+            let touched: Vec<DeckDelta> = keys
+                .iter()
+                .filter(|deck| {
+                    if offsets.get(*deck).copied().unwrap_or(0) == 0 {
+                        delta_of(decks, base, deck) != 0
+                    } else {
+                        decks.get(*deck) != prev_new.get(*deck)
+                            || base.get(*deck) != prev_base.get(*deck)
+                    }
                 })
-            })
-            .collect();
-        if !deltas.is_empty() {
-            deck_cut = Some((*count, deltas));
-            break;
+                .map(|deck| DeckDelta {
+                    deck: deck.clone(),
+                    delta: delta_of(decks, base, deck),
+                })
+                .collect();
+            if !touched.is_empty() {
+                deck_cut = Some((*count, touched));
+                break;
+            }
+        } else {
+            offsets = keys
+                .iter()
+                .map(|deck| (deck.clone(), delta_of(decks, base, deck)))
+                .filter(|(_, delta)| *delta != 0)
+                .collect();
         }
+        last_deltas = keys
+            .iter()
+            .map(|deck| (deck.clone(), delta_of(decks, base, deck)))
+            .filter(|(_, delta)| *delta != 0)
+            .collect();
+        previous = Some((decks.clone(), (*base).clone()));
     }
+    let deck_offsets: Vec<DeckDelta> = last_deltas
+        .into_iter()
+        .map(|(deck, delta)| DeckDelta { deck, delta })
+        .collect();
 
     let tail_total = source.decisions.len();
     let (final_len, stop, asking_seat) = if let Some((cut, deltas)) = deck_cut {
@@ -650,6 +729,7 @@ pub fn autoplay(
         tail_total,
         stop,
         asking_seat,
+        deck_offsets,
         tail_events,
     })
 }

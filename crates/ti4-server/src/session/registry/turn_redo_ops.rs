@@ -392,6 +392,7 @@ impl GameRegistry {
             tail_total: result.tail_total,
             stop: result.stop.clone(),
             asking_seat: result.asking_seat.clone(),
+            deck_offsets: result.deck_offsets.clone(),
         });
         self.write_record(game_id, &snap.config, &next)?;
         let published = self.publish_history(

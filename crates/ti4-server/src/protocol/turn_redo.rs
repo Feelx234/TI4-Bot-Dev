@@ -90,6 +90,10 @@ pub struct TurnRedoOutcome {
     pub stop: TurnRedoStop,
     /// The seat the engine asks right now, if known.
     pub asking_seat: Option<String>,
+    /// Decks that sit a different number of cards from the original after the redone turn
+    /// (no replayed decision drew against them, so this did not stop the auto-play).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deck_offsets: Vec<DeckDelta>,
 }
 
 /// What a client needs to draw the redo UI. `None` in the response means no redo is in flight.
