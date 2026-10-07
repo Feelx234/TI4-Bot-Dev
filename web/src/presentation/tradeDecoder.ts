@@ -20,11 +20,73 @@ export interface DecodedTradeOffer {
     giveTradeGoods?: number;
     receiveTradeGoods?: number;
     promissoryNote?: string;
+    /** A note the proposer hands over in a note-for-X shape (`pc`, `nn`, `cn` ask shapes). */
+    givenNote?: string;
+    /** A note the proposer asks the partner for (`np`, `cp`, `nn`, `cn` ask shapes). */
+    receivedNote?: string;
+    /** An action card the proposer hands over in exchange for a note (`cn`). */
+    givenActionCard?: string;
     actionCard?: string;
     secretObjective?: string;
     fragment?: string;
     price?: number;
   };
+}
+
+/** The note id and price of `{prefix}{note}:{price}`; note ids contain colons, so split on the last. */
+function noteAndPrice(rest: string): { note: string; price: number } | null {
+  const cut = rest.lastIndexOf(":");
+  if (cut <= 0) return null;
+  const price = parseInt(rest.slice(cut + 1), 10);
+  return Number.isFinite(price) ? { note: rest.slice(0, cut), price } : null;
+}
+
+function decodeAskShape(
+  id: string,
+  payload: Record<string, unknown>,
+): { label: string; details: DecodedTradeOffer["details"] } | null {
+  const text = (key: string): string | undefined =>
+    typeof payload[key] === "string" ? (payload[key] as string) : undefined;
+  const prefix = id.slice(0, 2);
+  if (prefix === "np" || prefix === "cp") {
+    const parsed = noteAndPrice(id.slice(2));
+    if (!parsed) return null;
+    const note = text("received_promissory") ?? parsed.note;
+    return prefix === "np"
+      ? {
+          label: `Pay ${parsed.price} trade goods for the note ${note}`,
+          details: { giveTradeGoods: parsed.price, receivedNote: note, price: parsed.price },
+        }
+      : {
+          label: `Pay ${parsed.price} commodities for the note ${note}`,
+          details: { giveCommodities: parsed.price, receivedNote: note, price: parsed.price },
+        };
+  }
+  if (prefix === "pc") {
+    const parsed = noteAndPrice(id.slice(2));
+    if (!parsed) return null;
+    const note = text("promissory") ?? parsed.note;
+    return {
+      label: `Give the note ${note} for ${parsed.price} commodities`,
+      details: { givenNote: note, receiveCommodities: parsed.price, price: parsed.price },
+    };
+  }
+  if (prefix === "nn" || prefix === "cn") {
+    const cut = id.indexOf(">");
+    if (cut < 0) return null;
+    const given = id.slice(2, cut);
+    const wanted = text("received_promissory") ?? id.slice(cut + 1);
+    return prefix === "nn"
+      ? {
+          label: `Give the note ${text("promissory") ?? given} for the note ${wanted}`,
+          details: { givenNote: text("promissory") ?? given, receivedNote: wanted },
+        }
+      : {
+          label: `Give the action card ${text("action_card") ?? given} for the note ${wanted}`,
+          details: { givenActionCard: text("action_card") ?? given, receivedNote: wanted },
+        };
+  }
+  return null;
 }
 
 export function decodeTradeOption(opt: ChoiceOptionDto): DecodedTradeOffer {
@@ -43,6 +105,16 @@ export function decodeTradeOption(opt: ChoiceOptionDto): DecodedTradeOffer {
       their_net,
       details: {},
     };
+  }
+
+  // 0. Ask shapes: the partner's note for goods or commodities (`np`, `cp`), our note for their
+  // commodities (`pc`), note for note (`nn`) or an action card for a note (`cn`). Note ids carry a
+  // colon themselves, so none of these may fall through to the generic "{N}:{M}" branches below,
+  // which read them as zero-for-zero trades (or, for `cp`/`cn`, as a gift of 0 commodities). They
+  // belong on the promissory tab: Hacan's note deals (Trade Convoys, Arbiters) are all of this kind.
+  const ask = decodeAskShape(id, rawPayload);
+  if (ask) {
+    return { id, category: "promissory", label: opt.label || ask.label, net, their_net, details: ask.details };
   }
 
   // 1. Promissory Notes: prioritize payload.note, payload.price, payload.gift

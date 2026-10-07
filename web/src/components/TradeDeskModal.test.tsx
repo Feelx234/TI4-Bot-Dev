@@ -226,4 +226,38 @@ describe("TradeDeskModal", () => {
 
     expect(screen.getByTestId("trade-error-banner")).toHaveTextContent("Cannot afford transaction");
   });
+  it("files a purchase of the partner's note under promissory notes and says what is paid", () => {
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "25",
+      prompt: "Propose a transaction",
+      context: { subtype: "propose_transaction", target: { Player: "seat_2" } },
+      options: [
+        {
+          id: "cpconvoys:hacan:3",
+          label: "pay 3 commodities for the note convoys:hacan",
+          kind: "offer",
+          payload: { received_promissory: "convoys:hacan", net: 0, their_net: 3 },
+        },
+        { id: "decline", label: "Offer nothing", kind: "decline" },
+      ],
+    };
+
+    render(
+      <TradeDeskModal
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("trade-tab-commodity_swap")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("trade-opt-cpconvoys:hacan:3"));
+    const summary = screen.getByTestId("selected-trade-summary");
+    expect(summary).toHaveTextContent("Pay 3 commodities");
+    expect(summary).toHaveTextContent("Promissory Note: convoys:hacan");
+    expect(summary).not.toHaveTextContent("Gift");
+  });
 });
