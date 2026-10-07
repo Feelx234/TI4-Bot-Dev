@@ -534,6 +534,27 @@ impl GameSession {
         self.shared.lock().expect("shared lock").game_version
     }
 
+    /// The live history exactly as `history.json` would hold it right now (unsaved batches
+    /// included), with the game's seed and seats, read under one lock so the pieces agree.
+    #[must_use]
+    pub fn replay_export(&self) -> (crate::storage::GameHistory, Option<u64>, Vec<PlayerId>) {
+        let lock = self.shared.lock().expect("shared lock");
+        (
+            crate::storage::GameHistory {
+                decisions: lock.decision_log.clone(),
+                redo: lock.redo_decisions.clone(),
+                events: lock.event_log.clone(),
+                redo_events: lock.redo_events.clone(),
+                event_counter: lock.event_counter,
+                revision: lock.game_version.saturating_add(1),
+                generation: lock.history_generation,
+                batches: lock.batches.clone(),
+            },
+            lock.seed,
+            lock.player_ids.clone(),
+        )
+    }
+
     pub fn restart_config(&self) -> SessionConfig {
         let mut config = self.initial_config.clone();
         // Callers can replace the decision prefix (batch commit, undo, redo).

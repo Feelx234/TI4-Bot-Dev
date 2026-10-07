@@ -542,6 +542,48 @@ pub async fn get_map(
     Ok(Json(session.map_tiles()))
 }
 
+/// Handler for `GET /api/games/{game_id}/replay`: the game's history for copying out.
+///
+/// Any seated player of the game may fetch it. The body wraps the same JSON a `history.json`
+/// holds (`history`) with the seed and seats needed to replay it; it includes every player's
+/// decisions and the seed, so it is not a spectator view.
+pub async fn get_replay(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let session = registry
+            .get_game(&game_id)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Game '{game_id}' not found")))?;
+        registry
+            .authenticate_player_session(&game_id, &token)
+            .map_err(lobby_error)?;
+        let (history, seed, player_ids) = session.replay_export();
+        let map_template = registry
+            .store()
+            .and_then(|store| store.load_player_init(&game_id).ok())
+            .and_then(|init| init.map_template);
+        Ok(Json(serde_json::json!({
+            "format": "ti4-replay",
+            "version": 1,
+            "game_id": game_id,
+            "seed": seed,
+            "player_ids": player_ids,
+            "map_template": map_template,
+            "history": history,
+        })))
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("replay export failed: {error}"),
+        )
+    })?
+}
+
 /// Handler for `GET /api/games/{game_id}/snapshot`.
 pub async fn get_snapshot(
     Path(game_id): Path<String>,
