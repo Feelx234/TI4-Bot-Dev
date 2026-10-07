@@ -106,6 +106,18 @@ pub struct SessionShared {
 }
 
 impl SessionShared {
+    /// Fail the session closed with `error`, unless it has been stopped on purpose.
+    ///
+    /// A stopped session's worker unwinds with errors (a human decider whose inbox was dropped
+    /// answers "inbox channel closed"); those are the stop, not a failure of the game. Recording
+    /// one would make the session, which readers keep seeing until its replacement is published,
+    /// answer 503 "failed closed" (smoke run 1b, 2026-10-07).
+    pub fn fail_unless_stopped(&mut self, error: String) {
+        if !self.stopped {
+            self.error = Some(error);
+        }
+    }
+
     /// Every seat's Never set as plain data, for persistence and for a restarted worker.
     #[must_use]
     pub fn reaction_modes_snapshot(&self) -> BTreeMap<PlayerId, std::collections::BTreeSet<String>> {
@@ -1006,12 +1018,12 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 let result = game.step();
                 if let Some(err) = result.error {
                     let mut lock = worker_shared.lock().expect("shared lock");
-                    lock.error = Some(format!("recovery replay failed: {err}"));
+                    lock.fail_unless_stopped(format!("recovery replay failed: {err}"));
                     return;
                 }
                 if result.finished && game.table.log.records.len() < prior_count {
                     let mut lock = worker_shared.lock().expect("shared lock");
-                    lock.error = Some("recovery replay ended before all decisions".to_owned());
+                    lock.fail_unless_stopped("recovery replay ended before all decisions".to_owned());
                     return;
                 }
             }
@@ -1329,6 +1341,37 @@ pub(crate) fn current_utc_time_string() -> String {
     let mins = (total_secs / 60) % 60;
     let secs = total_secs % 60;
     format!("{hours:02}:{mins:02}:{secs:02}")
+}
+
+#[cfg(test)]
+mod fail_unless_stopped_tests {
+    use super::*;
+
+    fn shared() -> SessionShared {
+        let ids = [PlayerId::new("a"), PlayerId::new("b")];
+        SessionShared::new(
+            "g".to_owned(),
+            GameState::new(&ids, &[], BTreeMap::new(), None, 1),
+        )
+    }
+
+    #[test]
+    fn a_live_session_records_its_failure() {
+        let mut live = shared();
+        live.fail_unless_stopped("recovery replay failed: boom".to_owned());
+        assert_eq!(live.error.as_deref(), Some("recovery replay failed: boom"));
+    }
+
+    #[test]
+    fn a_stopped_session_does_not_fail_closed_on_its_unwinding() {
+        let mut stopped = shared();
+        stopped.stopped = true;
+        stopped.fail_unless_stopped(
+            "recovery replay failed: decider failed while answering \"assign a hit\": inbox channel closed"
+                .to_owned(),
+        );
+        assert!(stopped.error.is_none());
+    }
 }
 
 #[cfg(test)]
