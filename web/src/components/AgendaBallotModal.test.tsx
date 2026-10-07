@@ -85,6 +85,10 @@ describe("AgendaBallotModal", () => {
 
     const commitBtn = screen.getByTestId("commit-planet-votes-btn");
     expect(commitBtn).toBeDisabled();
+    expect(screen.getByTestId("done-voting-planets-btn")).toHaveTextContent(
+      "Finish without voting more",
+    );
+    expect(screen.queryByText("Done Voting")).not.toBeInTheDocument();
 
     // Stage Mecatol Rex
     const mecatolCard = screen.getByTestId("planet-card-Mecatol Rex");

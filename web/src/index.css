@@ -2034,6 +2034,23 @@ select:focus-visible,
   border: 2px solid #a855f7;
   font-weight: 600;
 }
+.agenda-dialog .agenda-dialog__actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+.agenda-dialog__reset {
+  margin-right: auto;
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: var(--color-text-muted, #94a3b8);
+  text-decoration: underline;
+  cursor: pointer;
+}
 .agenda-dialog__staged {
   margin: 0;
   font-size: 15px;

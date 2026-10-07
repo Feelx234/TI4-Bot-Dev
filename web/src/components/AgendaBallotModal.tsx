@@ -346,11 +346,11 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                       </p>
                     )}
                     {/* Commit & Done Actions */}
-                    <div className="workflow-inline">
+                    <div className="agenda-dialog__actions">
                       {stagedPlanets.length > 0 && (
                         <button
                           type="button"
-                          className="button button--secondary"
+                          className="agenda-dialog__reset"
                           onClick={() => setStagedPlanets([])}
                         >
                           Reset selection
@@ -364,7 +364,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                           disabled={isPipelineRunning || isDirectSubmitting}
                           className="button button--secondary"
                         >
-                          Done Voting
+                          Finish without voting more
                         </button>
                       ) : (
                         <div />
