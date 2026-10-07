@@ -1661,6 +1661,23 @@ pub(crate) fn place_structure_step(
             )];
             offered.extend(alternatives);
             let choice = Choice::new(player.clone(), "place a PDS or an alternative", offered)
+                .offered(
+                    crate::choice::offer_card(
+                        "Place a PDS",
+                        "construction",
+                        Some("A faction ability can replace this PDS"),
+                        Some("You may place something else on this planet instead of the PDS."),
+                    ),
+                    vec![crate::choice::offer_fact_planet(
+                        "Planet",
+                        planet.as_str(),
+                        system.as_str(),
+                    )],
+                    &[(
+                        "pds",
+                        crate::choice::offer_caption("Place the PDS", Some("As planned")),
+                    )],
+                )
                 .contextualized(DecisionContext::new(
                     player.clone(),
                     DecisionSource::Content("place_structure".to_owned()),
@@ -3228,6 +3245,43 @@ mod tests {
             assert_eq!(count_type(&state, &player, "titans_mech"), 1);
             assert_eq!(count_type(&state, &player, "infantry"), infantry + 1);
         }
+    }
+
+    /// The "PDS or an alternative" question is an offer card that names the planet and keeps the
+    /// engine's own label for the alternative (display only; the option ids are unchanged).
+    #[test]
+    fn the_pds_alternative_question_is_an_offer_card() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let (mut state, player) = titans_seat();
+        let first = structure_options(&state, content, sources, &player, true)
+            .into_iter()
+            .next()
+            .expect("a PDS spot")
+            .id;
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new([first.as_str(), "pds"]),
+        ));
+        let mut table = Table::with_default(Box::new(decider));
+        place_structure(&mut state, content, sources, None, &mut table, &player, true).unwrap();
+        let asked = seen.borrow();
+        let offer = asked
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|context| context.subtype == "place_structure_pds_alternative")
+            })
+            .expect("the alternative was offered");
+        assert_eq!(offer.details["kind"], "offer");
+        assert_eq!(offer.details["card"]["title"], "Place a PDS");
+        assert!(offer.details["facts"][0]["planet"].is_string());
+        assert_eq!(offer.details["captions"]["pds"]["label"], "Place the PDS");
+        assert_eq!(
+            offer.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            ["pds", hecatoncheires::ID]
+        );
     }
 
     #[test]

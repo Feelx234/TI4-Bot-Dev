@@ -58,6 +58,15 @@ describe("offer card", () => {
     expect(pay.answers.map((a) => a.option.id)).toEqual(["space|18", "planet|jord", "decline"]);
   });
 
+  it("names the planet of the PDS question and keeps the alternative's own wording", () => {
+    const view = describeOfferCard(galleryChoice("Construction: PDS or an alternative"))!;
+    expect(view.facts[0].text).toBe("Jord (system 14)");
+    expect(view.answers.map((a) => a.label)).toEqual([
+      "Place the PDS",
+      "Place 1 mech and 1 infantry on jord instead",
+    ]);
+  });
+
   it("shows a number that changes as before → after", () => {
     const view = describeOfferCard(galleryChoice("Deepwrought commander: reduce research"))!;
     expect(view.facts[0].change).toEqual({ from: 4, to: 3, of: null });

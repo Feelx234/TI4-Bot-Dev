@@ -45,6 +45,33 @@ export function offerCases(): GalleryCase[] {
     reduceCase(),
     {
       workflow: "generic_selection",
+      title: "Construction: PDS or an alternative",
+      fallback: "'place pds on jord' / 'place 1 mech and 1 infantry ... instead' -> the planet and what each answer does",
+      note: "After picking a PDS spot, a faction ability (Titans' Hecatoncheires) may replace the PDS. The question names the planet; the alternative keeps the engine's own wording.",
+      choice: {
+        actor,
+        nonce: "gallery-pds-alternative",
+        prompt: "place a PDS or an alternative",
+        context: { subtype: "place_structure_pds_alternative", source: { Content: "place_structure" } },
+        options: [
+          option("pds", "place pds on jord", "build"),
+          option("titans|hecatoncheires", "place 1 mech and 1 infantry on jord instead", "build"),
+        ],
+        details: {
+          kind: "offer",
+          card: {
+            title: "Place a PDS",
+            tag: "construction",
+            window: "A faction ability can replace this PDS",
+            text: "You may place something else on this planet instead of the PDS.",
+          },
+          facts: [{ label: "Planet", planet: "jord", system: "14" }],
+          captions: { pds: { label: "Place the PDS", hint: "As planned" } },
+        },
+      },
+    },
+    {
+      workflow: "generic_selection",
       title: "Hacan commander: spend trade goods for votes",
       fallback: "Five 'spend N trade goods for 2N votes' labels -> an amount picker with the votes before and after",
       note: "Gila the Silvertongue: after your planets, spend any number of trade goods for two more votes each.",
