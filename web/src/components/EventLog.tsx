@@ -558,6 +558,17 @@ export const EventLog: React.FC<EventLogProps> = ({
       </button>
       {isOpen && (
         <>
+          {unseen > 0 && (
+            // Right under the toggle: on a phone the turn bar and drawer buttons cover the rest.
+            <button
+              type="button"
+              className="button button--secondary button--sm event-log__jump"
+              data-testid="event-log-jump"
+              onClick={jumpToLatest}
+            >
+              {unseen} new {unseen === 1 ? "event" : "events"} ↓ Jump to latest
+            </button>
+          )}
           {onFetchReplay && (
             <div className="event-log__replay" data-testid="event-log-replay">
               <button
@@ -617,16 +628,6 @@ export const EventLog: React.FC<EventLogProps> = ({
               <div>No events recorded yet.</div>
             )}
           </div>
-          {unseen > 0 && (
-            <button
-              type="button"
-              className="button button--secondary button--sm event-log__jump"
-              data-testid="event-log-jump"
-              onClick={jumpToLatest}
-            >
-              {unseen} new {unseen === 1 ? "event" : "events"} ↓ Jump to latest
-            </button>
-          )}
         </>
       )}
     </div>

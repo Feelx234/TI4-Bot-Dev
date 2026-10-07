@@ -160,8 +160,8 @@ html,
 }
 .event-log__jump {
   display: block;
-  width: 100%;
-  border-radius: 0;
+  width: calc(100% - 24px);
+  margin: 6px 12px;
 }
 .event-log__heading {
   display: flex;
