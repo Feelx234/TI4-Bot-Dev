@@ -179,6 +179,62 @@ pub struct Choice {
     pub details: serde_json::Map<String, Value>,
 }
 
+/// Display only: the header of an offer card: what it is, its kind, when it applies and the
+/// printed or summarised effect. See [`Choice::offered`].
+#[must_use]
+pub fn offer_card(title: &str, tag: &str, window: Option<&str>, text: Option<&str>) -> Value {
+    serde_json::json!({ "title": title, "tag": tag, "window": window, "text": text })
+}
+
+/// Display only: one labelled fact of an offer card, shown as text.
+#[must_use]
+pub fn offer_fact(label: &str, value: impl Into<Value>) -> Value {
+    serde_json::json!({ "label": label, "value": value.into() })
+}
+
+/// Display only: a fact whose value is a unit type (shown with its name and icon).
+#[must_use]
+pub fn offer_fact_unit(label: &str, unit: &str) -> Value {
+    serde_json::json!({ "label": label, "unit": unit })
+}
+
+/// Display only: a fact whose value is a planet (shown by its name, with its system).
+#[must_use]
+pub fn offer_fact_planet(label: &str, planet: &str, system: &str) -> Value {
+    serde_json::json!({ "label": label, "planet": planet, "system": system })
+}
+
+/// Display only: a fact whose value is a seat (shown by the player's name).
+#[must_use]
+pub fn offer_fact_seat(label: &str, seat: &str) -> Value {
+    serde_json::json!({ "label": label, "seat": seat })
+}
+
+/// Display only: a fact whose value is a technology (shown by its name).
+#[must_use]
+pub fn offer_fact_technology(label: &str, technology: &str) -> Value {
+    serde_json::json!({ "label": label, "technology": technology })
+}
+
+/// Display only: a number that changes, e.g. commodities `1 -> 2` of at most `of`.
+#[must_use]
+pub fn offer_fact_change(label: &str, from: i64, to: i64, of: Option<i64>) -> Value {
+    serde_json::json!({ "label": label, "from": from, "to": to, "of": of })
+}
+
+/// Display only: the button caption for an option and an optional hint under it.
+#[must_use]
+pub fn offer_caption(label: &str, hint: Option<&str>) -> Value {
+    serde_json::json!({ "label": label, "hint": hint })
+}
+
+/// Display only: [`offer_caption`] for an option about another seat's unit: the client adds the
+/// seat's name beside the hint.
+#[must_use]
+pub fn offer_caption_for_seat(label: &str, hint: Option<&str>, seat: &str) -> Value {
+    serde_json::json!({ "label": label, "hint": hint, "seat": seat })
+}
+
 impl Choice {
     #[must_use]
     pub fn new(player: PlayerId, prompt: impl Into<String>, options: Vec<ChoiceOption>) -> Self {
@@ -196,6 +252,22 @@ impl Choice {
     pub fn detailed(mut self, key: &str, value: impl Into<Value>) -> Self {
         self.details.insert(key.to_owned(), value.into());
         self
+    }
+
+    /// Present the question as an offer card for clients (display only, like [`Choice::detailed`]):
+    /// `card` names what is asked (see [`offer_card`]), `facts` is a list of [`offer_fact`]s and
+    /// `captions` maps option ids to [`offer_caption`]s that say what each answer does. Option ids,
+    /// order and kinds are untouched, so decision records and replays are unaffected.
+    #[must_use]
+    pub fn offered(self, card: Value, facts: Vec<Value>, captions: &[(&str, Value)]) -> Self {
+        let captions: serde_json::Map<String, Value> = captions
+            .iter()
+            .map(|(id, caption)| ((*id).to_owned(), caption.clone()))
+            .collect();
+        self.detailed("kind", "offer")
+            .detailed("card", card)
+            .detailed("facts", Value::Array(facts))
+            .detailed("captions", Value::Object(captions))
     }
 
     /// Attach producer-authored typed semantics to this decision.

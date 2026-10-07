@@ -432,7 +432,10 @@ export function deriveChoiceRendererModel(
   // Technology Research
   if (
     subtype === "research_technology" ||
-    (choice.options.length > 0 && choice.options.some((o) => o.kind === "research"))
+    // An engine-built offer card (Deepwrought's "reduce by 1") is not a technology pick.
+    (choice.details?.kind !== "offer" &&
+      choice.options.length > 0 &&
+      choice.options.some((o) => o.kind === "research"))
   ) {
     const isPrimary =
       choice.context?.source &&

@@ -247,25 +247,25 @@ Columns: handle, slug (use as `/slug`), subtype, who answers, what is asked, UI 
 
 ## Added by the Porkchop911 merge (2026-10-07)
 
-Found by comparing every `DecisionContext::new` subtype before (`2b49782`) and after the merge (`bfb88b5`): 13 new subtypes, none known to the web client and none seen in a nightly run (the traces predate the merge). All fall back to the generic list unless noted; routing was read from the engine option shapes, not run in a browser. Counts above (144 handles) do not include them: with these the total is 157 handles and 61 generic fallback rows.
+Found by comparing every `DecisionContext::new` subtype before (`2b49782`) and after the merge (`bfb88b5`): 13 new subtypes, none known to the web client and none seen in a nightly run (the traces predate the merge). All fall back to the generic list unless noted; routing was read from the engine option shapes, not run in a browser. The counts at the top were taken before these were added; with the 13 built (12 shared, 1 dedicated, none generic) the totals are 157 handles: Dedicated 47, Shared specialised 62, Generic fallback 48.
 
-| Handle | Slug | Subtype | Engine file | Asks | Expected UI today | Priority |
+| Handle | Slug | Subtype | Engine file | Asks | UI now | Status |
 |---|---|---|---|---|---|---:|
-| Ground Sustain | `/ground-sustain` | `ground_effect_sustain` | invasion.rs | use SUSTAIN DAMAGE in ground combat (option kind `ground_effect_sustain`) | Generic list; the ground combat overlay does not know it | 1 |
-| Crimson Pay | `/crimson-pay` | `crimson_payment` | strategy_cards.rs | Crimson commander: gain or convert (kind `economy`) | Generic list | 2 |
-| Deepwrought Pay | `/deepwrought-pay` | `deepwrought_payment` | strategy_cards.rs | Deepwrought commander: gain or convert | Generic list | 2 |
-| Deepwrought Reduce | `/deepwrought-reduce` | `deepwrought_reduce_research` | strategy_cards.rs | reduce a research cost by 1 | Generic yes/no | 3 |
-| Research Waiver | `/research-waiver` | `research_waiver` | technology.rs | research waiver offer | Generic list | 3 |
-| Waiver Pay | `/waiver-pay` | `research_waiver_payment` | strategy_cards.rs | payment for a waived research | Generic list | 3 |
-| Vote TG | `/vote-tg` | `vote_spend_trade_goods` | vote.rs | Hacan commander: spend trade goods while voting | Generic list | 4 |
-| PDS Alternative | `/pds-alternative` | `place_structure_pds_alternative` | strategy_cards.rs | place a PDS or an alternative | Planet picker without the structure info panel (only `place_structure` shows it); unverified | 5 |
-| Reinforce Place | `/reinforce-place` | `place_units_from_reinforcements` | action_cards.rs | place units (kind `place_unit`, system and count) | Generic list | 6 |
-| Take Revealed | `/take-revealed` | `take_revealed_action_card` | action_cards.rs | take a revealed action card | Generic list | 7 |
-| Coexist | `/coexist` | `coalescence_coexist` | invasion.rs | Titans: fight or coexist | Generic list | 8 |
-| L1Z1X Copy | `/l1z1x-copy` | `leader_l1z1xagent_copy_planet` | leaders.rs | L1Z1X agent: choose a planet | Probably the shared planet picker; unverified | 9 |
-| Ssruu Round | `/ssruu-round` | `leader_ssruu_round_agent_unit` | engine | Ssruu round agent: choose a unit | Generic list | 9 |
+| Ground Sustain | `/ground-sustain` | `ground_effect_sustain` | invasion.rs | use SUSTAIN DAMAGE in ground combat (option kind `ground_effect_sustain`) | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`359a290`) |
+| Crimson Pay | `/crimson-pay` | `crimson_payment` | strategy_cards.rs | Crimson commander: gain or convert (kind `economy`) | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`a153733`) |
+| Deepwrought Pay | `/deepwrought-pay` | `deepwrought_payment` | strategy_cards.rs | Deepwrought commander: gain or convert | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`a153733`) |
+| Deepwrought Reduce | `/deepwrought-reduce` | `deepwrought_reduce_research` | strategy_cards.rs | reduce a research cost by 1 | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`0cab4dc`) |
+| Research Waiver | `/research-waiver` | `research_waiver` | technology.rs | research waiver offer | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`febd08d`) |
+| Waiver Pay | `/waiver-pay` | `research_waiver_payment` | strategy_cards.rs | payment for a waived research | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`febd08d`) |
+| Vote TG | `/vote-tg` | `vote_spend_trade_goods` | vote.rs | Hacan commander: spend trade goods while voting | Dedicated (VoteGoodsPanel) | Built 2026-10-07 (`40d01d0`) |
+| PDS Alternative | `/pds-alternative` | `place_structure_pds_alternative` | strategy_cards.rs | place a PDS or an alternative | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`b21efdb`) |
+| Reinforce Place | `/reinforce-place` | `place_units_from_reinforcements` | action_cards.rs | place units (kind `place_unit`, system and count) | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`b46ceff`) |
+| Take Revealed | `/take-revealed` | `take_revealed_action_card` | action_cards.rs | take a revealed action card | Shared specialised (card tiles) | Built 2026-10-07 (`c80e99a`) |
+| Coexist | `/coexist` | `coalescence_coexist` | invasion.rs | Titans: fight or coexist | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`2220fbe`) |
+| L1Z1X Copy | `/l1z1x-copy` | `leader_l1z1xagent_copy_planet` | leaders.rs | L1Z1X agent: choose a planet | Shared specialised (planet bar) | Built 2026-10-07 (`31a5bd0`) |
+| Ssruu Round | `/ssruu-round` | `leader_ssruu_round_agent_unit` | engine | Ssruu round agent: choose a unit | Shared specialised (OfferCardPanel) | Built 2026-10-07 (`31a5bd0`) |
 
-`doctor_sucaban_exhaust` became conditional (`doctor_sucaban_borrowed_exhaust` when the source is copied); it is a variant of the existing row. Status: queued 2026-10-07, none built.
+`doctor_sucaban_exhaust` became conditional (`doctor_sucaban_borrowed_exhaust` when the source is copied); it is a variant of the existing row. Status 2026-10-07: all 13 built the same day on branch porkchop-decision-uis-2026-10-07 (commit ids in the Status column); each has a gallery case and a screenshot in web/e2e/screenshots/M-porkchop-decision-uis. Most share the engine-built offer card (details.kind "offer", OfferCardPanel); /vote-tg has its own panel, /take-revealed reuses the card tiles and /l1z1x-copy the planet bar. Deepwrought reduce was also being misrouted to the technology picker (its option kind is research); fixed.
 
 ## Gaps in existing UIs (dedicated or shared, with weaknesses)
 

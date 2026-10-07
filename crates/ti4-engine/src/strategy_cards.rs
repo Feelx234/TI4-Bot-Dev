@@ -504,6 +504,19 @@ fn resolve_research(
             .chain(std::iter::once(ChoiceOption::decline()))
             .collect(),
     )
+    .offered(
+        crate::choice::offer_card(
+            "Research without prerequisites",
+            "faction ability",
+            Some("A faction ability lets you research this technology without its prerequisites"),
+            Some("Choose how, and pay its cost on the next step. Declining researches nothing."),
+        ),
+        vec![crate::choice::offer_fact_technology("Technology", technology.as_str())],
+        &[(
+            "decline",
+            crate::choice::offer_caption("Don't use a waiver", Some("Nothing is researched")),
+        )],
+    )
     .contextualized(DecisionContext::new(
         player.clone(),
         DecisionSource::FactionAbility("research_waiver".to_owned()),
@@ -540,6 +553,19 @@ fn resolve_research(
             })
             .chain(std::iter::once(ChoiceOption::decline()))
             .collect(),
+    )
+    .offered(
+        crate::choice::offer_card(
+            "Pay for the waiver",
+            "faction ability",
+            Some(&waiver.label),
+            Some("Choose what pays for it. Declining researches nothing and pays nothing."),
+        ),
+        vec![crate::choice::offer_fact_technology("Technology", technology.as_str())],
+        &[(
+            "decline",
+            crate::choice::offer_caption("Don't pay", Some("Nothing is researched or paid")),
+        )],
     )
     .contextualized(DecisionContext::new(
         player.clone(),
@@ -748,6 +774,28 @@ fn deepwrought_commander(
                 ChoiceOption::decline(),
             ],
         )
+        .offered(
+            commander_card(content, "deepwroughtcommander"),
+            vec![crate::choice::offer_fact_change(
+                "Research cost (resources)",
+                cost - reduced,
+                cost - reduced - 1,
+                None,
+            )],
+            &[
+                (
+                    "reduce",
+                    crate::choice::offer_caption(
+                        "Reduce the cost by 1",
+                        Some("The commander's holder is paid a commodity or a trade good"),
+                    ),
+                ),
+                (
+                    "decline",
+                    crate::choice::offer_caption("Pay in full", Some("Nobody is paid")),
+                ),
+            ],
+        )
         .contextualized(DecisionContext::new(
             player.clone(),
             DecisionSource::Content("deepwroughtcommander".to_owned()),
@@ -760,21 +808,29 @@ fn deepwrought_commander(
         }
         reduced += 1;
         let convert = if can_gain && can_convert {
-            let payment = Choice::new(
-                holder.clone(),
-                "Deepwrought commander: gain 1 commodity or convert 1 to a trade good",
-                vec![
-                    ChoiceOption::labelled(
-                        "gain".to_owned(),
-                        "economy",
-                        "gain 1 commodity".to_owned(),
-                    ),
-                    ChoiceOption::labelled(
-                        "convert".to_owned(),
-                        "economy",
-                        "convert 1 commodity to a trade good".to_owned(),
-                    ),
-                ],
+            let goods = state.player(&holder).map_or(0, |seat| seat.trade_goods);
+            let payment = commander_payment_offer(
+                Choice::new(
+                    holder.clone(),
+                    "Deepwrought commander: gain 1 commodity or convert 1 to a trade good",
+                    vec![
+                        ChoiceOption::labelled(
+                            "gain".to_owned(),
+                            "economy",
+                            "gain 1 commodity".to_owned(),
+                        ),
+                        ChoiceOption::labelled(
+                            "convert".to_owned(),
+                            "economy",
+                            "convert 1 commodity to a trade good".to_owned(),
+                        ),
+                    ],
+                ),
+                content,
+                "deepwroughtcommander",
+                held,
+                limit,
+                goods,
             )
             .contextualized(DecisionContext::new(
                 holder.clone(),
@@ -1605,6 +1661,23 @@ pub(crate) fn place_structure_step(
             )];
             offered.extend(alternatives);
             let choice = Choice::new(player.clone(), "place a PDS or an alternative", offered)
+                .offered(
+                    crate::choice::offer_card(
+                        "Place a PDS",
+                        "construction",
+                        Some("A faction ability can replace this PDS"),
+                        Some("You may place something else on this planet instead of the PDS."),
+                    ),
+                    vec![crate::choice::offer_fact_planet(
+                        "Planet",
+                        planet.as_str(),
+                        system.as_str(),
+                    )],
+                    &[(
+                        "pds",
+                        crate::choice::offer_caption("Place the PDS", Some("As planned")),
+                    )],
+                )
                 .contextualized(DecisionContext::new(
                     player.clone(),
                     DecisionSource::Content("place_structure".to_owned()),
@@ -1668,6 +1741,63 @@ pub(crate) fn commodity_limit(state: &GameState, content: &ContentStore, player:
         .player(player)
         .and_then(|seat| ti4_content::factions::get(content, seat.faction.as_str()))
         .map_or(0, |faction| faction.commodities())
+}
+
+/// Display only: a commander's printed card (name, ability window and text) as an offer-card
+/// header. See [`Choice::offered`].
+pub(crate) fn commander_card(content: &ContentStore, id: &str) -> serde_json::Value {
+    leader_card(content, id, "commander")
+}
+
+/// Display only: a leader's printed card (name, ability window and text) as an offer-card header.
+pub(crate) fn leader_card(content: &ContentStore, id: &str, tag: &str) -> serde_json::Value {
+    let record = content.get(ContentType::Leaders, id);
+    let field = |key: &str| record.as_ref().and_then(|record| record.text(key));
+    crate::choice::offer_card(
+        field("name").unwrap_or(id),
+        tag,
+        field("abilityWindow"),
+        field("abilityText"),
+    )
+}
+
+/// Display only: "gain 1 commodity or convert 1 to a trade good" as an offer card (the Crimson and
+/// Deepwrought commanders), with the holder's commodities and trade goods before and after.
+pub(crate) fn commander_payment_offer(
+    choice: Choice,
+    content: &ContentStore,
+    commander: &str,
+    held: i32,
+    limit: i32,
+    goods: i32,
+) -> Choice {
+    choice.offered(
+        commander_card(content, commander),
+        vec![
+            crate::choice::offer_fact("Commodities", format!("{held} of {limit}")),
+            crate::choice::offer_fact("Trade goods", goods),
+        ],
+        &[
+            (
+                "gain",
+                crate::choice::offer_caption(
+                    "Gain 1 commodity",
+                    Some(&format!("Commodities {held} → {}", held + 1)),
+                ),
+            ),
+            (
+                "convert",
+                crate::choice::offer_caption(
+                    "Convert 1 commodity to a trade good",
+                    Some(&format!(
+                        "Commodities {held} → {}, trade goods {goods} → {}",
+                        held - 1,
+                        goods + 1
+                    )),
+                ),
+            ),
+        ],
+    )
 }
 
 fn replenish(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
@@ -2440,6 +2570,44 @@ mod tests {
         );
     }
 
+    /// Both research-waiver questions are offer cards that name the technology (display only;
+    /// the option ids stay `waiver|n`, the payment ids and `decline`).
+    #[test]
+    fn research_waiver_questions_name_the_technology() {
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("a");
+        let technology = TechnologyId::new("ws");
+        let mut state = seated_game(&[("a", "yin"), ("b", "sol")], POK);
+        state.player_mut(&player).expect("Yin seat").leaders.insert(
+            ti4_model::id::LeaderId::new("yincommander"),
+            ti4_model::state::LeaderStatus::Unlocked,
+        );
+        state
+            .player_mut(&PlayerId::new("b"))
+            .expect("other seat")
+            .technologies
+            .insert(technology.clone());
+        put(&mut state, &SystemId::new("18"), "infantry", &player, 1);
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new(["waiver|0", "decline"]),
+        ));
+        let mut table = Table::with_default(Box::new(decider));
+        resolve_research(&mut state, content, POK, None, &mut table, &player, &technology)
+            .expect("declining the payment");
+        let asked = seen.borrow();
+        assert_eq!(asked.len(), 2);
+        for (choice, title) in [(&asked[0], "Research without prerequisites"), (&asked[1], "Pay for the waiver")] {
+            assert_eq!(choice.details["kind"], "offer");
+            assert_eq!(choice.details["card"]["title"], title);
+            assert_eq!(choice.details["facts"][0]["technology"], "ws");
+        }
+        assert_eq!(asked[0].options[0].id, "waiver|0");
+        assert_eq!(
+            asked[1].details["card"]["window"],
+            "return 1 infantry to reinforcements to ignore its prerequisites"
+        );
+    }
+
     /// OBS-003e: the production/payment producers this module shares with `OBS-008c` were
     /// already typed; these are the card-specific asks that were not.
     #[test]
@@ -3081,6 +3249,43 @@ mod tests {
         }
     }
 
+    /// The "PDS or an alternative" question is an offer card that names the planet and keeps the
+    /// engine's own label for the alternative (display only; the option ids are unchanged).
+    #[test]
+    fn the_pds_alternative_question_is_an_offer_card() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let (mut state, player) = titans_seat();
+        let first = structure_options(&state, content, sources, &player, true)
+            .into_iter()
+            .next()
+            .expect("a PDS spot")
+            .id;
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new([first.as_str(), "pds"]),
+        ));
+        let mut table = Table::with_default(Box::new(decider));
+        place_structure(&mut state, content, sources, None, &mut table, &player, true).unwrap();
+        let asked = seen.borrow();
+        let offer = asked
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|context| context.subtype == "place_structure_pds_alternative")
+            })
+            .expect("the alternative was offered");
+        assert_eq!(offer.details["kind"], "offer");
+        assert_eq!(offer.details["card"]["title"], "Place a PDS");
+        assert!(offer.details["facts"][0]["planet"].is_string());
+        assert_eq!(offer.details["captions"]["pds"]["label"], "Place the PDS");
+        assert_eq!(
+            offer.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            ["pds", hecatoncheires::ID]
+        );
+    }
+
     #[test]
     fn declining_the_alternative_places_the_pds_and_nothing_else() {
         {
@@ -3232,6 +3437,65 @@ mod tests {
         assert_eq!(
             deepwrought_commander(&mut state, content, POK, None, &mut own, &b, 3).unwrap(),
             0
+        );
+    }
+
+    /// The holder's gain-or-convert question is an offer card with the commander as printed, the
+    /// holder's commodities and trade goods and what each answer does (display only).
+    #[test]
+    fn the_deepwrought_commander_payment_is_an_offer_card() {
+        let content = ContentStore::embedded();
+        let mut state = seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let limit = commodity_limit(&state, content, &b);
+        state.player_mut(&b).unwrap().commodities = 1;
+        state.player_mut(&b).unwrap().trade_goods = 2;
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            content,
+            &b,
+            "deepwroughtcommander"
+        ));
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new(["reduce", "gain"]),
+        ));
+        let mut table = Table::with_default(Box::new(decider));
+        deepwrought_commander(&mut state, content, POK, None, &mut table, &a, 3).unwrap();
+        let asked = seen.borrow();
+        let offer = asked
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|context| context.subtype == "deepwrought_payment")
+            })
+            .expect("the holder was asked");
+        assert_eq!(offer.details["kind"], "offer");
+        assert_eq!(offer.details["card"]["title"], "Aello");
+        assert_eq!(offer.details["facts"][0]["value"], format!("1 of {limit}"));
+        assert_eq!(offer.details["facts"][1]["value"], 2);
+        assert_eq!(
+            offer.details["captions"]["gain"]["hint"],
+            "Commodities 1 → 2"
+        );
+        // The researcher's question is an offer card too: the cost before and after.
+        let reduce = asked
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|context| context.subtype == "deepwrought_reduce_research")
+            })
+            .expect("the researcher was asked");
+        assert_eq!(reduce.details["card"]["title"], "Aello");
+        assert_eq!(reduce.details["facts"][0]["from"], 3);
+        assert_eq!(reduce.details["facts"][0]["to"], 2);
+        assert_eq!(reduce.details["captions"]["decline"]["label"], "Pay in full");
+        assert_eq!(
+            offer.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            ["gain", "convert"]
         );
     }
 

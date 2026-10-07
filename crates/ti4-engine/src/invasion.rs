@@ -1563,6 +1563,31 @@ pub(crate) fn assign_selected_ground_hit_in_timing(
                 ChoiceOption::decline(),
             ],
         )
+        .offered(
+            crate::choice::offer_card(
+                "Sustain damage",
+                "ground hit",
+                Some("An effect has assigned a hit to this ground force"),
+                Some("SUSTAIN DAMAGE cancels the hit and the unit stays, damaged. Without it the unit is destroyed."),
+            ),
+            vec![
+                crate::choice::offer_fact_unit("Unit", unit.type_id.as_str()),
+                crate::choice::offer_fact_planet("Where", planet.as_str(), system.as_str()),
+            ],
+            &[
+                (
+                    "sustain",
+                    crate::choice::offer_caption(
+                        "Sustain damage",
+                        Some("The unit stays on the planet, damaged"),
+                    ),
+                ),
+                (
+                    "decline",
+                    crate::choice::offer_caption("Let it be destroyed", Some("The unit is removed")),
+                ),
+            ],
+        )
         .contextualized(
             DecisionContext::new(
                 unit.owner.clone(),
@@ -1974,6 +1999,23 @@ pub fn ground_force_owners_for_test(
     planet: &PlanetId,
 ) -> std::collections::BTreeSet<PlayerId> {
     ground_force_owners(state, content, sources, system, planet)
+}
+
+/// Display only: a breakthrough as an offer-card header: its name and the first sentence of its
+/// printed text (the ability that is being offered).
+fn breakthrough_card(content: &ContentStore, alias: &str) -> serde_json::Value {
+    let record = content.get(ti4_model::content_types::ContentType::Breakthroughs, alias);
+    let field = |key: &str| record.as_ref().and_then(|record| record.text(key));
+    let first_sentence = field("text").map(|text| match text.find(". ") {
+        Some(end) => &text[..=end],
+        None => text,
+    });
+    crate::choice::offer_card(
+        field("name").unwrap_or(alias),
+        "breakthrough",
+        None,
+        first_sentence,
+    )
 }
 
 /// LRR 49/42: who has ground forces on `planet`.
@@ -2760,6 +2802,32 @@ impl InvasionWindow {
                     "coexist".to_owned(),
                     "coalescence",
                     format!("coexist on {planet}"),
+                ),
+            ],
+        )
+        .offered(
+            breakthrough_card(content, "titansbt"),
+            vec![
+                crate::choice::offer_fact_planet("Planet", planet.as_str(), self.system.as_str()),
+                crate::choice::offer_fact_seat(
+                    "Controlled by",
+                    holder.as_ref().map_or("", PlayerId::as_str),
+                ),
+            ],
+            &[
+                (
+                    "fight",
+                    crate::choice::offer_caption(
+                        "Fight for the planet",
+                        Some("Ground combat decides who controls it"),
+                    ),
+                ),
+                (
+                    "coexist",
+                    crate::choice::offer_caption(
+                        "Coexist",
+                        Some("No combat; the controller keeps the planet"),
+                    ),
                 ),
             ],
         )
@@ -4339,6 +4407,18 @@ pub fn resolve(
 
 #[cfg(test)]
 mod tests {
+    /// The coexist question's card header is the breakthrough's name and its first sentence.
+    #[test]
+    fn a_breakthrough_card_is_its_name_and_first_sentence() {
+        let card = breakthrough_card(ContentStore::embedded(), "titansbt");
+        assert_eq!(card["title"], "Slumberstate Computing");
+        assert_eq!(card["tag"], "breakthrough");
+        assert_eq!(
+            card["text"],
+            "When COALESCENCE results in a ground combat, if you commit no other units, you may choose for your units to coexist instead."
+        );
+    }
+
     fn apply_ground_hit(
         state: &mut GameState,
         content: &ContentStore,
