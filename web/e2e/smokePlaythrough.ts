@@ -844,8 +844,34 @@ export async function randomUiPlaythrough(
   report.finalStatus = (
     await gameSnapshot(request, gameId, players[0].session)
   ).turn_status;
+  if (report.finished) {
+    // The game ended: every seat's tab must say so (the banner is the UI's whole game-over
+    // screen) without a reload. Before the client handled the game_over push every tab stayed on
+    // the last phase banner.
+    const shows = (page: Page, timeout: number) =>
+      expect
+        .poll(
+          async () =>
+            (await page
+              .getByTestId("turn-status-banner")
+              .textContent()
+              .catch(() => "")) ?? "",
+          { timeout },
+        )
+        .toMatch(/Game Over/)
+        .then(() => true)
+        .catch(() => false);
+    for (const [index, page] of pages.entries()) {
+      if (!(await shows(page, 10_000)))
+        await fail(page, `seat ${index + 1} never showed the game-over banner`);
+    }
+  }
   trace("browser-errors.json", browserErrors);
-  report.expectMissing = missingExpected(report.subtypes, options.expect ?? []);
+  report.expectMissing = missingExpected(
+    // "game_over" counts as a decision subtype for expectations, so a run can assert it ended.
+    report.finished ? { ...report.subtypes, game_over: 1 } : report.subtypes,
+    options.expect ?? [],
+  );
   await writeFinal();
   expect(browserErrors, "browser errors during playthrough").toEqual([]);
   if (report.expectMissing.length)

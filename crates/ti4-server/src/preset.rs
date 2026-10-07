@@ -46,12 +46,16 @@ pub const TECHS: &str = "techs";
 /// handed out.
 pub const LEADERS: &str = "leaders";
 
+/// Round five with two seats on 9 victory points, the rest on 8, and no public objectives left to
+/// reveal: scoring one more point or the status phase ends the game (`game_over`).
+pub const ENDGAME: &str = "endgame";
+
 /// Suffix on any preset name that also rotates the factions (see [`rotation`]).
 pub const ROTATE: &str = "+rot";
 
 /// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
-pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS];
+pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS, ENDGAME];
 
 /// Action cards no nightly game ever played, found by diffing 72 final states' discard piles
 /// against the corpus. The first ten are in the standard deck; the rest are Thunder's Edge cards,
@@ -200,6 +204,10 @@ pub fn apply(
             unlock_leaders(content, state, galaxy, players);
             Ok(())
         }
+        ENDGAME => {
+            endgame(state, players, seed);
+            Ok(())
+        }
         CARDS => {
             deal_cards(content, state, players, seed, CARD_POOL, HAND_SIZE);
             Ok(())
@@ -345,6 +353,20 @@ fn grant_techs(content: &ContentStore, state: &mut GameState, players: &[PlayerI
             }
         }
     }
+}
+
+/// Two seeded seats on 9 victory points, the others on 8 (so a tie for the lead is possible),
+/// round 5, and the public objective deck emptied so the next reveal ends the game.
+fn endgame(state: &mut GameState, players: &[PlayerId], seed: u64) {
+    let mut ranking: Vec<usize> = (0..players.len()).collect();
+    ranking.sort_by_key(|i| mix(seed, 800 + *i as u64));
+    for (rank, index) in ranking.into_iter().enumerate() {
+        if let Some(seat) = state.player_mut(&players[index]) {
+            seat.victory_points = if rank < 2 { 9 } else { 8 };
+        }
+    }
+    state.objective_deck.clear();
+    state.round = 5;
 }
 
 /// Every leader of every seat is usable at once: heroes and commanders unlocked, agents readied.
@@ -1207,6 +1229,24 @@ mod tests {
         // The combat fleets were built for the factions that actually sit there.
         let (_, _) = create_game_with_preset(content(), &players(5), 3, None, Some("combat+rot"))
             .unwrap();
+    }
+
+    #[test]
+    fn the_endgame_preset_sets_scores_round_and_an_empty_objective_deck() {
+        for n in 3..=6 {
+            let list = players(n);
+            let (state, _) =
+                create_game_with_preset(content(), &list, 4, None, Some(ENDGAME)).unwrap();
+            assert_eq!(state.round, 5);
+            assert!(state.objective_deck.is_empty());
+            let mut points: Vec<i32> = list
+                .iter()
+                .map(|p| state.player(p).unwrap().victory_points)
+                .collect();
+            points.sort_unstable();
+            assert_eq!(points.iter().filter(|p| **p == 9).count(), 2, "{points:?}");
+            assert!(points.iter().all(|p| *p == 8 || *p == 9));
+        }
     }
 
     #[test]

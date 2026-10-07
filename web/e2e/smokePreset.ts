@@ -1,5 +1,5 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame"] as const;
 
 /** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
 export function presetFromEnv(value: string | undefined): string | undefined {
@@ -49,6 +49,8 @@ export const PRESET_EXPECT: Record<string, string> = {
   // and bombardment_target is coexistence-only.)
   invasion: "commit_ground_forces,fight_ground_combat_round",
   // Every leader usable from the start with rotated factions: agent, hero and commander prompts.
+  // The game ended: `game_over` is a pseudo-subtype the harness adds when it sees that status.
+  endgame: "game_over",
   leaders: "leader_hacanagent_branch|leader_xxchaagent_ready_planet|leader_l1z1xagent_copy_planet|leader_jolnarhero_swap|leader_l1z1xhero_destination|leader_hacanhero_free_production|leader_xxchahero_te_place|legendary_arms_vault|legendary_end_of_turn|legendary_place>=3",
   // The invasion setup with every seat owning the prompt-bearing technologies.
   techs:
