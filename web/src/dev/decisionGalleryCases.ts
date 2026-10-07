@@ -930,6 +930,25 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Exploration card: choose the reward",
+    fallback: "Bare reward labels -> the exploration card as printed above the options",
+    note: "A reward choice of an exploration card (Abandoned Warehouses, Local Fabricators, ...) shows the card's name, type and printed text.",
+    choice: {
+      actor,
+      nonce: "gallery-explore-reward",
+      prompt: "Abandoned Warehouses",
+      context: {
+        subtype: "abandoned_warehouses_choose_reward",
+        source: { Content: "abandoned_warehouses" },
+      },
+      options: [
+        option("gain", "gain 2 commodities", "explore"),
+        option("convert", "convert up to 2 commodities to trade goods", "explore"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Imperial Rider: predict the outcome",
     fallback: "'predict FOR' options -> the rider as printed above and each outcome in words",
     note: "The riders (Imperial, Construction, Diplomacy, ...) ask which outcome of the agenda to predict; the printed card above says what a correct prediction pays and that you cannot vote.",
