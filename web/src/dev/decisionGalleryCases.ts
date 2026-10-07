@@ -486,6 +486,25 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Unexpected Action: recall your token",
+    fallback: "Bare system numbers -> named systems with facts, also clickable on the map",
+    note: "The action card's recall of one of your own tokens uses the same system picker as Diplomacy and Warfare.",
+    choice: {
+      actor,
+      nonce: "gallery-unexpected-recall",
+      prompt: "Unexpected Action: recall your token from where",
+      context: {
+        subtype: "unexpected_pick_recall",
+        source: { Content: "unexpected" },
+      },
+      options: [
+        option("25", "recall your token from 25", "recall"),
+        option("26", "recall your token from 26", "recall"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Warfare: recall a command token",
     fallback: "Bare system numbers -> named systems with facts, also clickable on the map",
     note: "Same system facts for each system holding one of your command tokens.",

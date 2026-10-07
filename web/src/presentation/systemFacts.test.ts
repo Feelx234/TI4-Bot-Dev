@@ -69,6 +69,9 @@ describe("system facts", () => {
     expect(isSystemPickChoice(bogus, board)).toBe(false);
     const other = { ...diplomacy, context: { subtype: "gain_command_token" } };
     expect(isSystemPickChoice(other, board)).toBe(false);
+    // Unexpected Action: recall your own token from one of the systems that hold it.
+    const unexpected = { ...diplomacy, context: { subtype: "unexpected_pick_recall" } };
+    expect(isSystemPickChoice(unexpected, board)).toBe(true);
   });
 
   it("highlights the candidate systems and a map click selects the same option id", () => {
