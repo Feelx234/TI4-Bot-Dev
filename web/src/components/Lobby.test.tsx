@@ -73,8 +73,37 @@ describe("lobby UI", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       player_count: 3,
       nickname: "Host 🪐",
+      strategy_card_set: "te",
     });
     expect(localStorage.getItem("ti4.nickname")).toBe("Host 🪐");
+  });
+
+  it("offers the strategy card sets with Thunder's Edge preselected and sends the choice", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "x" });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateLobby onCreated={vi.fn()} onError={vi.fn()} />);
+    const select = screen.getByLabelText("Strategy cards");
+    expect(select).toHaveValue("te");
+    expect(screen.getByRole("option", { name: "Thunder's Edge (default)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Prophecy of Kings" })).toBeInTheDocument();
+    expect(screen.getByTestId("strategy-card-set-description")).toHaveTextContent(/Thunder's Edge/);
+    fireEvent.change(select, { target: { value: "pok" } });
+    expect(screen.getByTestId("strategy-card-set-description")).toHaveTextContent(/Prophecy of Kings/);
+    fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "Host" } });
+    fireEvent.click(screen.getByTestId("create-game-button"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).strategy_card_set).toBe("pok");
+  });
+
+  it("names the table's strategy card set in the lobby, and nothing for an older server", () => {
+    const { rerender } = render(
+      <LobbyStatus lobby={{ ...lobby, strategy_card_set: "te" }} playerId={null} {...props} />,
+    );
+    expect(screen.getByTestId("lobby-card-set-row")).toHaveTextContent("Strategy cards: Thunder's Edge");
+    rerender(<LobbyStatus lobby={{ ...lobby, strategy_card_set: "pok" }} playerId={null} {...props} />);
+    expect(screen.getByTestId("lobby-card-set-row")).toHaveTextContent("Prophecy of Kings");
+    rerender(<LobbyStatus lobby={lobby} playerId={null} {...props} />);
+    expect(screen.queryByTestId("lobby-card-set-row")).toBeNull();
   });
 
   it("hides the seed input outside dev builds and never sends a seed", async () => {

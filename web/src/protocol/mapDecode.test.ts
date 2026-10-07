@@ -52,4 +52,13 @@ describe("map protocol decoding", () => {
     expect(legacy.map).toBeUndefined();
     expect(legacy.map_revision).toBeUndefined();
   });
+
+  it("reads the strategy card set and ignores one it does not know or none at all", () => {
+    const raw = (set: unknown) =>
+      JSON.parse(JSON.stringify({ ...fixtureLobby(3), strategy_card_set: set }));
+    expect(decodeLobby(raw("te"), "gallery-map").strategy_card_set).toBe("te");
+    expect(decodeLobby(raw("pok"), "gallery-map").strategy_card_set).toBe("pok");
+    expect(decodeLobby(raw("base_game"), "gallery-map").strategy_card_set).toBeUndefined();
+    expect(decodeLobby(raw(undefined), "gallery-map").strategy_card_set).toBeUndefined();
+  });
 });

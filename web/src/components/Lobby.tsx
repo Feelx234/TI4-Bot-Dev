@@ -1,7 +1,20 @@
 import React, { useEffect, useRef, useState } from "react";
-import { CreateGameResponse, LobbyDto, LobbySlot, MapChoice } from "../protocol/types.ts";
+import {
+  CreateGameResponse,
+  LobbyDto,
+  LobbySlot,
+  MapChoice,
+  StrategyCardSetId,
+} from "../protocol/types.ts";
 import { MapPicker } from "./MapPicker.tsx";
 import { mapChangeNotice, mapName } from "../presentation/mapPicker.ts";
+import {
+  DEFAULT_STRATEGY_CARD_SET,
+  STRATEGY_CARD_SETS,
+  isStrategyCardSetId,
+  strategyCardSetLabel,
+  strategyCardSetName,
+} from "../presentation/strategyCardSet.ts";
 import { decodeCreateGameResponse } from "../protocol/decode.ts";
 import { preferredNickname, rememberNickname, validNickname } from "../protocol/nickname.ts";
 import { SeatBadge } from "../presentation/PlayerIdentity.tsx";
@@ -12,6 +25,7 @@ export const CreateLobby: React.FC<{
   onError: (message: string) => void;
 }> = ({ onCreated, onError }) => {
   const [count, setCount] = useState(3);
+  const [cardSet, setCardSet] = useState<StrategyCardSetId>(DEFAULT_STRATEGY_CARD_SET);
   // The seed lets whoever knows it predict dice and deck order, so players never see the field;
   // it exists only in dev builds (the API field itself is unchanged).
   const showSeed = import.meta.env.DEV;
@@ -35,7 +49,12 @@ export const CreateLobby: React.FC<{
       const response = await fetch("/api/games", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ player_count: count, seed: parsedSeed, nickname }),
+        body: JSON.stringify({
+          player_count: count,
+          seed: parsedSeed,
+          nickname,
+          strategy_card_set: cardSet,
+        }),
       });
       if (!response.ok)
         throw new Error(`Create game failed (${response.status}): ${await response.text()}`);
@@ -70,6 +89,27 @@ export const CreateLobby: React.FC<{
               ))}
             </select>
           </label>
+          <label className="field-label">
+            Strategy cards
+            <select
+              className="input"
+              data-testid="strategy-card-set-select"
+              disabled={creating}
+              value={cardSet}
+              onChange={(event) => {
+                if (isStrategyCardSetId(event.target.value)) setCardSet(event.target.value);
+              }}
+            >
+              {STRATEGY_CARD_SETS.map((set) => (
+                <option key={set.id} value={set.id}>
+                  {strategyCardSetLabel(set)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-faint" data-testid="strategy-card-set-description">
+            {STRATEGY_CARD_SETS.find((set) => set.id === cardSet)?.description}
+          </p>
           <label className="field-label">
             Nickname
             <input
@@ -285,6 +325,11 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
               {canEditMap ? "Choose map" : "View map"}
             </button>
           </div>
+        )}
+        {lobby.strategy_card_set !== undefined && (
+          <p className="text-muted" data-testid="lobby-card-set-row">
+            Strategy cards: <strong>{strategyCardSetName(lobby.strategy_card_set)}</strong>
+          </p>
         )}
         {mapNotice && (
           <p role="status" className="text-muted" data-testid="map-change-notice">

@@ -10,6 +10,7 @@ import {
   TriggerKindDto,
   TriggerUnitsDto,
 } from "./types.ts";
+import { isStrategyCardSetId } from "../presentation/strategyCardSet.ts";
 import { validNickname } from "./nickname.ts";
 import { decodeMapChoice } from "./mapDecode.ts";
 
@@ -78,6 +79,9 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
       can_take_over: entry.can_take_over,
     })),
     bot_service_enabled: Boolean(value.bot_service_enabled),
+    ...(isStrategyCardSetId(value.strategy_card_set)
+      ? { strategy_card_set: value.strategy_card_set }
+      : {}),
     ...(value.map === undefined
       ? {}
       : {
