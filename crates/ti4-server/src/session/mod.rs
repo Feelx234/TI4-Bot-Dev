@@ -1,4 +1,5 @@
 pub mod batch;
+pub mod reaction_modes;
 pub mod decider;
 pub mod registry;
 pub mod replay;
@@ -96,7 +97,7 @@ pub struct SessionConfig {
     pub batches: Vec<crate::storage::BatchRecord>,
     /// State at the first unplanned choice, computed by private replay for a committed batch.
     pub replay_boundary_state: Option<GameState>,
-    /// Card names each seat asked never to be offered (see `ti4_engine::reaction_modes`).
+    /// Card names each seat asked never to be offered (see `reaction_modes`).
     pub reaction_modes: BTreeMap<PlayerId, BTreeSet<String>>,
 }
 

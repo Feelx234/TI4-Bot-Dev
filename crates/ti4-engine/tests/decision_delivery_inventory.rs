@@ -774,7 +774,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "combat.rs",
-        function: "choose_casualty",
+        function: "choose_casualty_owing",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1166,7 +1166,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "strategy.rs",
-        function: "secondary_choice",
+        function: "secondary_question",
         count: 3,
         delivery: Delivery::ObservedVia("game.rs::step_secondary"),
     },
@@ -1203,7 +1203,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "strategy_cards.rs",
-        function: "gain_tokens",
+        function: "gain_tokens_offering",
         count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1233,7 +1233,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "strategy_cards.rs",
-        function: "place_structure",
+        function: "place_structure_step",
         count: 2, // the spot, then a PDS or a module alternative (Hecatoncheires)
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1488,7 +1488,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("agenda_effects.rs", "resolve_with", 1),
     ("choice.rs", "ask_seeing", 1),
     ("choice.rs", "drive", 1),
-    ("combat.rs", "choose_casualty", 1),
+    ("combat.rs", "choose_casualty_owing", 1),
     ("combat.rs", "choose_reroll_dice", 1),
     ("combat.rs", "heart_ixth", 1),
     ("combat.rs", "offer_sustain", 1),
