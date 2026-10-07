@@ -61,6 +61,8 @@ struct Shared {
     accepted: usize,
     reordered: Vec<usize>,
     conflict: Option<RawConflict>,
+    /// The engine asked for a decision after the script ran out: a normal end of the replay.
+    exhausted: bool,
     auto: Vec<AutoNote>,
 }
 
@@ -201,6 +203,7 @@ impl Decider for StrictDecider {
         let index = shared.accepted;
         let Some(record) = self.script.get(index) else {
             // The script is exhausted: the engine is simply asking the next live question.
+            shared.exhausted = true;
             return Err(IllegalChoice::DeciderFailed {
                 player: choice.player.clone(),
                 prompt: choice.prompt.clone(),
@@ -333,6 +336,12 @@ fn run(initial: &GameState, galaxy: Option<&Galaxy>, script: &[DecisionRecord]) 
             break;
         }
         if let Some(err) = result.error {
+            let s = shared.lock().expect("splice shared lock");
+            if s.exhausted && s.accepted == script.len() {
+                // The engine moved on to its next question after the last recorded decision.
+                break;
+            }
+            drop(s);
             engine_end = Some((ConflictKind::EngineError, err.to_string()));
             break;
         }
@@ -394,6 +403,17 @@ impl SpliceBaseline {
     #[must_use]
     pub fn replayed(&self) -> usize {
         self.run.accepted
+    }
+
+    /// Why the unedited history stopped replaying under the strict matcher, if it did. When this
+    /// is `Some`, every preview of this game is measured against a history that does not itself
+    /// replay, so the caller should say so rather than present the numbers as meaningful.
+    #[must_use]
+    pub fn replay_conflict(&self) -> Option<SpliceConflict> {
+        self.run
+            .conflict
+            .as_ref()
+            .map(|raw| self.conflict(raw, raw.index))
     }
 
     #[must_use]
