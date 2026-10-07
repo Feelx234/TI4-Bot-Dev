@@ -460,7 +460,7 @@ const GameViewContainer: React.FC<{
         events={events}
         players={snapshot?.view.players}
         viewerSeat={userSeat}
-        pendingChoice={pendingChoice}
+        pendingChoice={realPendingChoice}
         historyGeneration={gameHistory.generation}
         autoResolved={snapshot?.type === "state_update" ? snapshot.auto_resolved : undefined}
         ready={Boolean(snapshot)}

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { HistoryStatus, PendingChoiceDto } from "../protocol/types.ts";
 import { loneAction } from "../presentation/loneChoice.ts";
+import { isDryNonce } from "../presentation/dryChoice.ts";
 import { readAutoSubmitLone } from "./useAutoSubmitSetting.ts";
 
 /** Pause before submitting, so the board paints and a double render or second tab settles. */
@@ -71,7 +72,9 @@ export function useLoneAutoSubmit({
   }, [history]);
 
   const nonce = choice?.nonce ?? null;
-  const lone = viewerSeat && choice?.actor === viewerSeat ? loneAction(choice) : null;
+  // A client-made stand-in (secondary preparation) is never answered here; only the engine's own
+  // decisions are.
+  const lone = viewerSeat && choice?.actor === viewerSeat && !isDryNonce(nonce) ? loneAction(choice) : null;
   const optionId = lone?.optionId ?? null;
   const text = lone?.text ?? null;
 
