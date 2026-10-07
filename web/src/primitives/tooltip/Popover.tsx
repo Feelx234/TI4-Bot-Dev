@@ -1,7 +1,21 @@
-import React, { useState, useRef, useId, useEffect, cloneElement, isValidElement } from "react";
+import React, {
+  useState,
+  useRef,
+  useId,
+  useEffect,
+  useLayoutEffect,
+  cloneElement,
+  isValidElement,
+} from "react";
+import { createPortal } from "react-dom";
 import { overlayStack } from "../core/overlayStack.ts";
 
 export interface PopoverProps {
+  /**
+   * Renders the card in document.body, fixed beside the trigger and kept inside the viewport, so a
+   * scrolling or clipping ancestor (a dialog body) cannot cut it off. Off by default.
+   */
+  portal?: boolean;
   content: React.ReactNode;
   children: React.ReactElement;
   isOpen?: boolean;
@@ -21,6 +35,7 @@ export const Popover: React.FC<PopoverProps> = ({
   className,
   "data-testid": testId,
   ariaLabel,
+  portal = false,
 }) => {
   const [uncontrolledIsOpen, setUncontrolledIsOpen] = useState(false);
   const isOpen = controlledIsOpen ?? uncontrolledIsOpen;
@@ -45,13 +60,51 @@ export const Popover: React.FC<PopoverProps> = ({
     }
   };
 
+  // Portal mode: where the card sits, measured from the trigger once the card has rendered.
+  const [fixedPlace, setFixedPlace] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!portal || !isOpen) {
+      setFixedPlace(null);
+      return;
+    }
+    const place = () => {
+      const trigger = triggerRef.current?.getBoundingClientRect();
+      const card = popoverRef.current?.getBoundingClientRect();
+      if (!trigger || !card) return;
+      const margin = 8;
+      const roomBelow = window.innerHeight - trigger.bottom - margin;
+      const above = roomBelow < card.height && trigger.top - margin > roomBelow;
+      const top = above ? trigger.top - card.height - 6 : trigger.bottom + 6;
+      const left = Math.min(
+        Math.max(margin, trigger.left + trigger.width / 2 - card.width / 2),
+        Math.max(margin, window.innerWidth - card.width - margin),
+      );
+      setFixedPlace({ left, top: Math.max(margin, top) });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [portal, isOpen]);
+
   // Register with overlayStack on open
   useEffect(() => {
     if (!isOpen) return;
+    // A portalled card is outside the container, but a press inside it is not an outside press.
+    const element = portal
+      ? ({
+          contains: (node: Node | null) =>
+            !!node &&
+            (!!containerRef.current?.contains(node) || !!popoverRef.current?.contains(node)),
+        } as unknown as HTMLElement)
+      : containerRef.current;
     const unregister = overlayStack.register({
       id: popoverId,
       modal: false,
-      element: containerRef.current,
+      element,
       closeOnOutsideClick: true,
       onDismiss: () => close(true),
     });
@@ -90,33 +143,48 @@ export const Popover: React.FC<PopoverProps> = ({
     },
   });
 
+  const popoverBox = (
+    <div
+      ref={popoverRef}
+      role="dialog"
+      id={popoverId}
+      aria-label={ariaLabel}
+      data-testid={testId || "accessible-popover"}
+      data-position={position}
+      data-portal={portal ? "true" : undefined}
+      className={`accessible-popover ${className || ""}`}
+      style={
+        portal
+          ? {
+              position: "fixed",
+              left: fixedPlace?.left ?? 0,
+              top: fixedPlace?.top ?? 0,
+              // Hidden for the one frame before it is measured, so it does not flash at the corner.
+              visibility: fixedPlace ? "visible" : "hidden",
+              zIndex: "var(--layer-popover-portal, var(--layer-popover))",
+            }
+          : {
+              position: "absolute",
+              ...(position === "top"
+                ? { bottom: "100%", left: "50%", transform: "translateX(-50%) translateY(-8px)" }
+                : position === "bottom"
+                  ? { top: "100%", left: "50%", transform: "translateX(-50%) translateY(8px)" }
+                  : position === "left"
+                    ? { right: "100%", top: "50%", transform: "translateY(-50%) translateX(-8px)" }
+                    : { left: "100%", top: "50%", transform: "translateY(-50%) translateX(8px)" }),
+              zIndex: "var(--layer-popover)",
+            }
+      }
+    >
+      {content}
+    </div>
+  );
+
   return (
     <div ref={containerRef} style={{ display: "inline-flex", position: "relative" }}>
       {triggerElement}
-      {isOpen && (
-        <div
-          ref={popoverRef}
-          role="dialog"
-          id={popoverId}
-          aria-label={ariaLabel}
-          data-testid={testId || "accessible-popover"}
-          data-position={position}
-          className={`accessible-popover ${className || ""}`}
-          style={{
-            position: "absolute",
-            ...(position === "top"
-              ? { bottom: "100%", left: "50%", transform: "translateX(-50%) translateY(-8px)" }
-              : position === "bottom"
-                ? { top: "100%", left: "50%", transform: "translateX(-50%) translateY(8px)" }
-                : position === "left"
-                  ? { right: "100%", top: "50%", transform: "translateY(-50%) translateX(-8px)" }
-                  : { left: "100%", top: "50%", transform: "translateY(-50%) translateX(8px)" }),
-            zIndex: "var(--layer-popover)",
-          }}
-        >
-          {content}
-        </div>
-      )}
+      {isOpen && !portal && popoverBox}
+      {isOpen && portal && typeof document !== "undefined" && createPortal(popoverBox, document.body)}
     </div>
   );
 };

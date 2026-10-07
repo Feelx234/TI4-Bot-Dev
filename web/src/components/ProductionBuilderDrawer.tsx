@@ -6,6 +6,9 @@ import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import { MechInfoRow, UnitInfoButton } from "./UnitInfo.tsx";
+import { UnitIcon, getUnitBaseType } from "./UnitIcon.tsx";
+import { UnitBuildStats, useBuildUnit } from "./UnitBuildStats.tsx";
 
 export interface ProductionBuilderDrawerProps {
   choice: PendingChoiceDto | null;
@@ -48,6 +51,106 @@ function draftResourceCost(options: ChoiceOptionDto[], draft: Record<string, num
   }
   return Math.max(0, printedTotal - discountOnce);
 }
+
+type OptionGroupKey = "ships" | "ground" | "structures";
+const GROUP_TITLES: Record<OptionGroupKey, string> = {
+  ships: "Ships",
+  ground: "Ground forces",
+  structures: "Structures",
+};
+const GROUP_OF: Record<string, OptionGroupKey> = {
+  infantry: "ground",
+  mech: "ground",
+  pds: "structures",
+  spacedock: "structures",
+};
+
+const unitKeyOf = (option: ChoiceOptionDto): string => String(option.payload?.unit ?? option.id);
+
+/** Build options split into ships, ground forces and structures; each keeps the order the engine offered. */
+function groupOptions(options: ChoiceOptionDto[]) {
+  const groups = new Map<OptionGroupKey, ChoiceOptionDto[]>();
+  for (const option of options) {
+    const key = GROUP_OF[getUnitBaseType(unitKeyOf(option))] ?? "ships";
+    groups.set(key, [...(groups.get(key) ?? []), option]);
+  }
+  return (["ships", "ground", "structures"] as const)
+    .filter((key) => groups.has(key))
+    .map((key) => ({ key, title: GROUP_TITLES[key], options: groups.get(key)! }));
+}
+
+const BuildOptionCard: React.FC<{
+  option: ChoiceOptionDto;
+  seat: string;
+  count: number;
+  blockedReason: string | null;
+  disabledAdd: boolean;
+  disabledRemove: boolean;
+  onAdd: () => void;
+  onRemove: () => void;
+}> = ({ option, seat, count, blockedReason, disabledAdd, disabledRemove, onAdd, onRemove }) => {
+  const label = option.label.replace(/^produce\s+/i, "");
+  const unit = unitKeyOf(option);
+  const built = useBuildUnit(unit, seat);
+  const name = built?.name ?? label;
+  const payload = option.payload ?? {};
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  return (
+    <div
+      className="workflow-card production-drawer__unit"
+      data-testid={`produce-option-${option.id}`}
+      data-blocked={blockedReason ? "true" : undefined}
+    >
+      <div className="production-drawer__unit-head">
+        <span className="production-drawer__unit-name">
+          <UnitIcon type={unit} size={22} className="production-drawer__unit-icon" aria-hidden="true" />
+          {name}
+          <UnitInfoButton unit={unit} seat={seat} name={name} />
+        </span>
+        <div className="workflow-row">
+          <button
+            type="button"
+            className="button button--secondary button--icon"
+            aria-label={`Remove ${label}`}
+            disabled={disabledRemove}
+            onClick={onRemove}
+          >
+            −
+          </button>
+          <span className="workflow-count" data-testid={`produce-count-${option.id}`}>
+            {count}
+          </span>
+          <button
+            type="button"
+            className="button button--secondary button--icon"
+            data-testid={`produce-unit-btn-${option.id}`}
+            aria-label={`Add ${label}`}
+            disabled={disabledAdd}
+            onClick={onAdd}
+          >
+            +
+          </button>
+        </div>
+      </div>
+      <UnitBuildStats
+        unit={unit}
+        seat={seat}
+        name={name}
+        price={{
+          cost: num(payload.cost),
+          printedCost: num(payload.printed_cost),
+          count: num(payload.count),
+          free: payload.free_this_use === true,
+        }}
+      />
+      {blockedReason && (
+        <p className="production-drawer__blocked" data-testid="produce-blocked">
+          {blockedReason}
+        </p>
+      )}
+    </div>
+  );
+};
 
 export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = ({
   choice,
@@ -127,6 +230,9 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   // The server sends it as a display-only choice detail; context.details is the legacy spot.
   const fleetSupply =
     choice?.details?.fleet_supply ?? choice?.context?.details?.fleet_supply ?? null;
+
+  const optionGroups = groupOptions(productionOptions);
+  const multiGroup = optionGroups.length > 1;
 
   if (!isOpen || !choice) return null;
 
@@ -226,67 +332,70 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                       )}
                     </div>
 
-                    {/* Units Grid */}
-                    <div data-testid="production-options-grid" className="production-drawer__grid">
-                      {productionOptions.map((opt) => {
-                        const capacity =
-                          typeof opt.payload?.production_spent === "number"
-                            ? opt.payload.production_spent
-                            : typeof opt.payload?.placed === "number"
-                              ? opt.payload.placed
-                              : typeof opt.payload?.count === "number"
-                                ? opt.payload.count
-                                : 1;
-                        const count = draft[opt.id] ?? 0;
-                        const label = opt.label.replace(/^produce\s+/i, "");
-                        const nextCost = draftResourceCost(productionOptions, {
-                          ...draft,
-                          [opt.id]: count + 1,
-                        });
-                        return (
-                          <div key={opt.id} className="workflow-card production-drawer__unit">
-                            <span>{label}</span>
-                            <div className="workflow-row">
-                              <button
-                                type="button"
-                                className="button button--secondary button--icon"
-                                aria-label={`Remove ${label}`}
-                                disabled={!count || queued || isSubmitting}
-                                onClick={() =>
-                                  setDraft((prev) => ({ ...prev, [opt.id]: count - 1 }))
-                                }
-                              >
-                                −
-                              </button>
-                              <span
-                                className="workflow-count"
-                                data-testid={`produce-count-${opt.id}`}
-                              >
-                                {count}
-                              </span>
-                              <button
-                                type="button"
-                                className="button button--secondary button--icon"
-                                data-testid={`produce-unit-btn-${opt.id}`}
-                                aria-label={`Add ${label}`}
-                                disabled={
-                                  queued ||
-                                  isSubmitting ||
-                                  capacity < 0 ||
-                                  stagedCapacity + capacity > capacityRemaining ||
-                                  resourceLimit === null ||
-                                  nextCost > resourceLimit
-                                }
-                                onClick={() =>
-                                  setDraft((prev) => ({ ...prev, [opt.id]: count + 1 }))
-                                }
-                              >
-                                +
-                              </button>
-                            </div>
+                    <MechInfoRow seat={choice.actor} />
+
+                    {/* Build options, grouped by where the unit fights */}
+                    <div data-testid="production-options-grid" className="production-drawer__groups">
+                      {optionGroups.map((group) => (
+                        <section
+                          key={group.key}
+                          aria-label={multiGroup ? group.title : undefined}
+                          data-testid={`production-group-${group.key}`}
+                        >
+                          {multiGroup && (
+                            <h3 className="production-drawer__group-title">{group.title}</h3>
+                          )}
+                          <div className="production-drawer__group">
+                            {group.options.map((opt) => {
+                              const capacity =
+                                typeof opt.payload?.production_spent === "number"
+                                  ? opt.payload.production_spent
+                                  : typeof opt.payload?.placed === "number"
+                                    ? opt.payload.placed
+                                    : typeof opt.payload?.count === "number"
+                                      ? opt.payload.count
+                                      : 1;
+                              const count = draft[opt.id] ?? 0;
+                              const nextCost = draftResourceCost(productionOptions, {
+                                ...draft,
+                                [opt.id]: count + 1,
+                              });
+                              const capacityBlocked =
+                                capacity < 0 || stagedCapacity + capacity > capacityRemaining;
+                              const resourceBlocked =
+                                resourceLimit !== null && nextCost > resourceLimit;
+                              const blocked = capacityBlocked
+                                ? "No production capacity left"
+                                : resourceBlocked
+                                  ? `Needs ${nextCost - (resourceLimit ?? 0)} more resource${nextCost - (resourceLimit ?? 0) === 1 ? "" : "s"}`
+                                  : null;
+                              return (
+                                <BuildOptionCard
+                                  key={opt.id}
+                                  option={opt}
+                                  seat={choice.actor}
+                                  count={count}
+                                  blockedReason={blocked}
+                                  disabledAdd={
+                                    queued ||
+                                    isSubmitting ||
+                                    capacityBlocked ||
+                                    resourceLimit === null ||
+                                    resourceBlocked
+                                  }
+                                  disabledRemove={!count || queued || isSubmitting}
+                                  onAdd={() =>
+                                    setDraft((prev) => ({ ...prev, [opt.id]: count + 1 }))
+                                  }
+                                  onRemove={() =>
+                                    setDraft((prev) => ({ ...prev, [opt.id]: count - 1 }))
+                                  }
+                                />
+                              );
+                            })}
                           </div>
-                        );
-                      })}
+                        </section>
+                      ))}
                     </div>
 
                     <div className="production-drawer__footer">

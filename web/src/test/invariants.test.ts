@@ -254,6 +254,11 @@ describe("Frontend Invariants & Property-based Checks", () => {
       explorationCards: 80,
       planets: 159,
       attachments: 22,
+      factions: 34,
+      units: 136,
+      leaders: 103,
+      factionAbilities: 73,
+      promissoryNotes: 40,
     });
 
     // Strategy-card names are not lookup aliases: a malformed ID must not select a card.

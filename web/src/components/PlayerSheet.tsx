@@ -9,6 +9,7 @@ import {
   SECRET_OBJECTIVES,
 } from "../protocol/contentCatalog.ts";
 import { CardSubject } from "./CardDetails.tsx";
+import { FactionInfoButton } from "./UnitInfo.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { computePlayerStats } from "../presentation/playerStats.ts";
 import { Tooltip } from "../primitives/index.ts";
@@ -313,7 +314,16 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                   {identity.position && <SeatBadge position={identity.position} />} {identity.label}{" "}
                   {isSelf && identity.label.trim().toLowerCase() !== "you" && "(You)"}
                 </strong>
-                <div style={{ fontSize: 12, color: "#94a3b8" }}>{player.faction}</div>
+                <div
+                  style={{ fontSize: 12, color: "#94a3b8", display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  {player.faction}
+                  <FactionInfoButton
+                    faction={player.faction}
+                    technologies={player.technologies}
+                    leaders={player.leaders}
+                  />
+                </div>
               </div>
               <Tooltip
                 content={<VPBreakdownTooltip breakdown={calculateVPBreakdown(player, board, table)} />}
