@@ -2032,6 +2032,14 @@ select:focus-visible,
 .agenda-dialog__planet[data-staged="true"] {
   background: rgba(168, 85, 247, 0.2);
   border: 2px solid #a855f7;
+  font-weight: 600;
+}
+.agenda-dialog__staged {
+  margin: 0;
+  font-size: 15px;
+}
+.agenda-dialog__staged strong {
+  color: #e9d5ff;
 }
 .agenda-dialog__grid {
   display: grid;
