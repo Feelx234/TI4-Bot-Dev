@@ -8,7 +8,7 @@
   --color-text: #f8fafc;
   --color-text-strong: #e2e8f0;
   --color-text-muted: #94a3b8;
-  --color-text-faint: #64748b;
+  --color-text-faint: #8393aa;
   --color-accent: #38bdf8;
   --color-accent-strong: #0284c7;
   --color-success: #10b981;
@@ -202,7 +202,7 @@ html,
 .event-log__owner,
 .event-log__meta {
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: 12px;
 }
 .event-log__count {
   margin-left: 4px;
@@ -234,12 +234,12 @@ html,
   border-radius: 4px;
   background: #1e293b;
   color: #f8fafc;
-  font-size: 11px;
+  font-size: 12px;
   text-shadow: none;
 }
 .event-log__private {
   color: #f59e0b;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .event-log__entry {
@@ -265,7 +265,7 @@ html,
   padding-bottom: 3px;
   padding-left: 20px;
   background: transparent;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--color-text-muted);
   margin-top: 4px;
@@ -277,7 +277,7 @@ html,
 }
 
 .event-log__action-actor {
-  font-size: 10px;
+  font-size: 12px;
   opacity: 0.7;
 }
 
@@ -289,7 +289,7 @@ html,
   padding-bottom: 3px;
   padding-left: 20px;
   background: transparent;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--color-text-faint);
   font-style: italic;
 }
@@ -315,7 +315,7 @@ html,
 
 .event-log__index {
   color: var(--color-text-faint);
-  font-size: 11px;
+  font-size: 12px;
 }
 .event-log__undo {
   margin-left: auto;
@@ -329,7 +329,7 @@ html,
   cursor: pointer;
   text-align: left;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 12px;
   padding: 4px 8px;
 }
 .event-log__undo:hover,
@@ -424,7 +424,7 @@ html,
 }
 
 .invasion-badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -534,7 +534,7 @@ html,
 }
 
 .invasion-planet-chip__target-tag {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -579,7 +579,7 @@ html,
 }
 
 .invasion-step-card__badge {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -656,7 +656,7 @@ html,
 }
 
 .invasion-planet-card__count {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-muted);
 }
 
@@ -686,7 +686,7 @@ html,
 }
 
 .invasion-unit-chip__damaged {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: #ef4444;
   background: rgba(239, 68, 68, 0.15);
@@ -802,7 +802,7 @@ html,
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1051,7 +1051,7 @@ html,
   display: inline-flex;
   align-items: center;
   align-self: flex-start;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 4px;
@@ -1084,7 +1084,7 @@ html,
 }
 
 .invasion-landing-row__avail {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-muted);
   margin-top: 1px;
 }
@@ -1314,7 +1314,7 @@ html,
 .strategy-draft-card__text strong {
   color: var(--color-accent);
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: 12px;
 }
 .strategy-draft-card__text p {
   margin: 3px 0 10px;
@@ -1505,7 +1505,7 @@ html,
   border-left: 3px solid;
   border-radius: 4px;
   color: #fff;
-  font-size: 11px;
+  font-size: 12px;
 }
 .session-error {
   position: fixed;
@@ -1856,7 +1856,7 @@ select:focus-visible,
 }
 .choice-workflow-eyebrow {
   color: var(--workflow-accent, var(--color-accent));
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -2270,7 +2270,7 @@ select:focus-visible,
 }
 
 .combat-fleet-card__role {
-  font-size: 10px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 2px 6px;
@@ -2296,7 +2296,7 @@ select:focus-visible,
 }
 
 .combat-fleet-card__hits {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 3px;
@@ -2344,7 +2344,7 @@ select:focus-visible,
   border-radius: 4px;
   color: #4ade80;
   background: #163a33;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
   cursor: help;
@@ -2458,7 +2458,7 @@ select:focus-visible,
 }
 
 .combat-unit-row__damaged-badge {
-  font-size: 11px;
+  font-size: 12px;
   color: #f0e442;
   background: rgba(240, 228, 66, 0.12);
   padding: 2px 6px;
@@ -2509,7 +2509,7 @@ select:focus-visible,
 .combat-card-offer__eyebrow {
   display: block;
   color: #e69f00;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.1em;
   margin-bottom: 6px;
@@ -2538,7 +2538,7 @@ select:focus-visible,
 
 .combat-unit-row__action-btn {
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   border-radius: 3px;
   cursor: pointer;
@@ -2558,7 +2558,7 @@ select:focus-visible,
 
 .combat-unit-row__sustain-btn {
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   border-radius: 3px;
   cursor: pointer;
@@ -2593,7 +2593,7 @@ select:focus-visible,
 }
 
 .combat-round-hits__header {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -2631,7 +2631,7 @@ select:focus-visible,
 }
 
 .combat-round-hits__label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-muted);
   text-align: center;
   white-space: nowrap;
@@ -2641,7 +2641,7 @@ select:focus-visible,
 }
 
 .combat-round-hits__divider {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -2674,14 +2674,14 @@ select:focus-visible,
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--color-text-muted);
 }
 
 .combat-odds-card__tag {
-  font-size: 9px;
+  font-size: 12px;
   background: rgba(99, 102, 241, 0.15);
   color: #818cf8;
   padding: 1px 5px;
@@ -2710,7 +2710,7 @@ select:focus-visible,
 }
 
 .combat-odds-col__exp {
-  font-size: 9px;
+  font-size: 12px;
   color: var(--color-text-muted);
 }
 
@@ -2739,7 +2739,7 @@ select:focus-visible,
 }
 
 .combat-odds-card__sub-detail {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--color-text-muted);
   text-align: center;
 }
@@ -2779,7 +2779,7 @@ select:focus-visible,
 }
 
 .combat-hits-callout__label {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -2827,7 +2827,7 @@ select:focus-visible,
 }
 
 .combat-btn-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-text-muted);
 }
 
@@ -2867,7 +2867,7 @@ select:focus-visible,
 }
 
 .combat-arena-dock__badge {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--color-danger);
@@ -2883,7 +2883,7 @@ select:focus-visible,
 }
 
 .combat-arena-dock__alert-pill {
-  font-size: 11px;
+  font-size: 12px;
   background: var(--color-danger);
   color: white;
   padding: 2px 8px;
@@ -3352,7 +3352,7 @@ select:focus-visible,
 }
 .reaction-status-bar__title {
   color: #fef08a;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -3393,13 +3393,20 @@ select:focus-visible,
   font-size: 12px;
 }
 .reaction-status-bar__pin {
+  min-height: 24px;
   display: flex;
   align-items: center;
   gap: 4px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
   user-select: none;
+}
+.reaction-status-bar__pin input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  cursor: pointer;
 }
 .reaction-status-bar__error {
   position: absolute;
@@ -3409,7 +3416,7 @@ select:focus-visible,
   border-radius: 4px;
   background: var(--color-danger);
   color: #fff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -3426,7 +3433,7 @@ select:focus-visible,
 }
 
 .reaction-status-bar__trigger-context-title {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: #0d6efd;
   letter-spacing: 0.5px;
