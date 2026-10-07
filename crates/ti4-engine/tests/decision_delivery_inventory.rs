@@ -576,17 +576,25 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
-        // Doctor Carrina: the holder's exhaust offer, then the infantry placement.
-        module: "strategy_cards.rs",
-        function: "deepwrought_agent_offer",
+        // Doctor Carrina, in the one window every research route opens: the holder's exhaust
+        // offer, then the infantry placement (BF-deepwrought.md).
+        module: "deepwrought_research.rs",
+        function: "open",
         count: 1,
-        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+        delivery: Delivery::ObservedVia("deepwrought_research.rs::put"),
     },
     Producer {
-        module: "strategy_cards.rs",
-        function: "deepwrought_agent_settle",
+        module: "deepwrought_research.rs",
+        function: "settle",
         count: 1,
-        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+        delivery: Delivery::ObservedVia("deepwrought_research.rs::put"),
+    },
+    Producer {
+        // Research Team on defense: the Deepwrought defender chooses to coexist (BF-deepwrought.md).
+        module: "invasion.rs",
+        function: "offer_research_team_defense",
+        count: 1,
+        delivery: Delivery::ObservedHere,
     },
     Producer {
         // Slumberstate Computing: the Titans pick a planet, its controller allows the sleeper.
@@ -1488,6 +1496,8 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("nomad_agents.rs", "ask", 1),
     ("invasion.rs", "coexist_instead", 1),
     ("invasion.rs", "offer_research_team", 1),
+    ("invasion.rs", "offer_research_team_defense", 1),
+    ("deepwrought_research.rs", "put", 1),
     ("deepwrought.rs", "ask", 1),
     ("deepwrought.rs", "ask_about", 1),
     ("titans_leaders.rs", "sleeper_allowance", 1),

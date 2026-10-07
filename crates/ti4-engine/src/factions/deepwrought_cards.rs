@@ -308,45 +308,73 @@ fn visionaria_round(context: &mut TimingContext<'_>, holder: &PlayerId) -> Resul
             continue;
         }
         context.state.promissory_notes.insert(note, holder.clone());
-        let options = researchable_plain(context.state, context.content, context.sources, &other);
-        if options.is_empty() {
-            continue;
-        }
-        let mut offered: Vec<ChoiceOption> = options
-            .iter()
-            .map(|tech| {
-                ChoiceOption::labelled(
-                    tech.to_string(),
-                    crate::strategy_cards::RESEARCH_KIND,
-                    crate::technology::name(context.content, tech),
-                )
-            })
-            .collect();
-        offered.push(ChoiceOption::decline());
-        let chosen = ask(
-            context,
+        // Doctor Carrina's window: the player's research is a research (`deepwrought_research.rs`).
+        let window = super::deepwrought_research::open(
+            &mut super::deepwrought_research::Host::of(context),
             &other,
-            "Visionaria Select: research a non-faction, non-unit upgrade technology".to_owned(),
-            BREAKTHROUGH,
-            "visionaria_research",
-            offered,
-        )?;
-        let Some(tech) = options.into_iter().find(|tech| tech.as_str() == chosen.id) else {
-            continue;
-        };
-        if crate::technology::research(
-            context.state,
-            context.content,
-            context.sources,
+            &|content, tech| {
+                crate::technology::faction_of(content, tech).is_none()
+                    && !crate::technology::is_unit_upgrade(content, tech)
+            },
+        )
+        .map_err(TimingError::IllegalChoice)?;
+        let result = visionaria_research(context, holder, &other);
+        super::deepwrought_research::settle(
+            &mut super::deepwrought_research::Host::of(context),
             &other,
-            &tech,
-        ) && context
-            .state
-            .player(holder)
-            .is_some_and(|seat| !seat.technologies.contains(&tech))
-        {
-            crate::technology::grant(context.state, holder, &tech);
-        }
+            window,
+            result.is_ok(),
+        )
+        .map_err(TimingError::IllegalChoice)?;
+        result?;
+    }
+    Ok(())
+}
+
+/// The research a player may take after paying for Visionaria Select; the holder gains it too.
+fn visionaria_research(
+    context: &mut TimingContext<'_>,
+    holder: &PlayerId,
+    other: &PlayerId,
+) -> Result<(), TimingError> {
+    let options = researchable_plain(context.state, context.content, context.sources, other);
+    if options.is_empty() {
+        return Ok(());
+    }
+    let mut offered: Vec<ChoiceOption> = options
+        .iter()
+        .map(|tech| {
+            ChoiceOption::labelled(
+                tech.to_string(),
+                crate::strategy_cards::RESEARCH_KIND,
+                crate::technology::name(context.content, tech),
+            )
+        })
+        .collect();
+    offered.push(ChoiceOption::decline());
+    let chosen = ask(
+        context,
+        other,
+        "Visionaria Select: research a non-faction, non-unit upgrade technology".to_owned(),
+        BREAKTHROUGH,
+        "visionaria_research",
+        offered,
+    )?;
+    let Some(tech) = options.into_iter().find(|tech| tech.as_str() == chosen.id) else {
+        return Ok(());
+    };
+    if crate::technology::research(
+        context.state,
+        context.content,
+        context.sources,
+        other,
+        &tech,
+    ) && context
+        .state
+        .player(holder)
+        .is_some_and(|seat| !seat.technologies.contains(&tech))
+    {
+        crate::technology::grant(context.state, holder, &tech);
     }
     Ok(())
 }
@@ -477,39 +505,60 @@ fn hero_resolve(
     }
     mark_technology_purged(context.state, tech);
     for seat in purged_owned {
-        let options = researchable_with_met_prerequisites(context, &seat);
-        if options.is_empty() {
-            continue;
-        }
-        let chosen = ask(
-            context,
+        // Doctor Carrina's window: each loser's research is a research (`deepwrought_research.rs`).
+        let window = super::deepwrought_research::open(
+            &mut super::deepwrought_research::Host::of(context),
             &seat,
-            "Ta Zern: research another technology".to_owned(),
-            HERO,
-            "ta_zern_research",
-            options
-                .iter()
-                .map(|alias| {
-                    ChoiceOption::labelled(
-                        alias.to_string(),
-                        crate::strategy_cards::RESEARCH_KIND,
-                        crate::technology::name(context.content, alias),
-                    )
-                })
-                .collect(),
-        )?;
-        if let Some(alias) = options
-            .into_iter()
-            .find(|alias| alias.as_str() == chosen.id)
-        {
-            crate::technology::research(
-                context.state,
-                context.content,
-                context.sources,
-                &seat,
-                &alias,
-            );
-        }
+            &super::deepwrought_research::any,
+        )
+        .map_err(TimingError::IllegalChoice)?;
+        let result = ta_zern_research(context, &seat);
+        super::deepwrought_research::settle(
+            &mut super::deepwrought_research::Host::of(context),
+            &seat,
+            window,
+            result.is_ok(),
+        )
+        .map_err(TimingError::IllegalChoice)?;
+        result?;
+    }
+    Ok(())
+}
+
+/// One loser's "research another technology".
+fn ta_zern_research(context: &mut TimingContext<'_>, seat: &PlayerId) -> Result<(), TimingError> {
+    let options = researchable_with_met_prerequisites(context, seat);
+    if options.is_empty() {
+        return Ok(());
+    }
+    let chosen = ask(
+        context,
+        seat,
+        "Ta Zern: research another technology".to_owned(),
+        HERO,
+        "ta_zern_research",
+        options
+            .iter()
+            .map(|alias| {
+                ChoiceOption::labelled(
+                    alias.to_string(),
+                    crate::strategy_cards::RESEARCH_KIND,
+                    crate::technology::name(context.content, alias),
+                )
+            })
+            .collect(),
+    )?;
+    if let Some(alias) = options
+        .into_iter()
+        .find(|alias| alias.as_str() == chosen.id)
+    {
+        crate::technology::research(
+            context.state,
+            context.content,
+            context.sources,
+            seat,
+            &alias,
+        );
     }
     Ok(())
 }
@@ -760,6 +809,107 @@ mod tests {
         );
     }
 
+    /// Operator ruling 2026-10-07: "if they do" means the researcher actually needed the ignored
+    /// prerequisite. A technology they could take anyway gives the holder no placement.
+    #[test]
+    fn doctor_carrina_places_nothing_when_the_researcher_already_met_the_prerequisite() {
+        let (mut state, system, planet) = carrina_setup();
+        give(&mut state, &b(), &["nm"]); // green: Dacxive Animators' prerequisite is met
+        let (mut table, seen) = steer(&["use", "dxa", "decline"]);
+        crate::strategy_cards::primary(
+            &mut state,
+            content(),
+            ti4_model::content_types::DEFAULT,
+            None,
+            &mut table,
+            &b(),
+            "pok7technology",
+        )
+        .expect("resolves");
+        let prompts = seen.borrow().clone();
+        assert!(
+            prompts
+                .iter()
+                .any(|prompt| prompt.contains("Doctor Carrina: exhaust")),
+            "a waiver would still open other technologies, so she is offered: {prompts:?}"
+        );
+        assert!(owned(&state, &b(), "dxa"));
+        assert!(
+            prompts
+                .iter()
+                .all(|prompt| !prompt.contains("place an infantry")),
+            "no prerequisite was needed, so there is no placement: {prompts:?}"
+        );
+        assert!(!crate::coexistence::is_coexisting(
+            &state,
+            &system,
+            &planet,
+            &a()
+        ));
+        assert!(oceans(&state, &a()).is_empty());
+    }
+
+    #[test]
+    fn doctor_carrina_is_not_offered_when_ignoring_a_prerequisite_opens_nothing() {
+        let (mut state, ..) = carrina_setup();
+        // b owns every generic technology but dxa: every technology they can take is already open.
+        let everything: Vec<TechnologyId> =
+            crate::technology::active_aliases(content(), ti4_model::content_types::DEFAULT)
+                .into_iter()
+                .filter(|tech| crate::technology::faction_of(content(), tech).is_none())
+                .filter(|tech| tech.as_str() != "dxa")
+                .collect();
+        for tech in everything {
+            state.player_mut(&b()).unwrap().technologies.insert(tech);
+        }
+        let (mut table, seen) = steer(&["use", "dxa", "decline"]);
+        crate::strategy_cards::primary(
+            &mut state,
+            content(),
+            ti4_model::content_types::DEFAULT,
+            None,
+            &mut table,
+            &b(),
+            "pok7technology",
+        )
+        .expect("resolves");
+        assert!(
+            seen.borrow()
+                .iter()
+                .all(|prompt| !prompt.contains("Doctor Carrina")),
+            "{:?}",
+            seen.borrow()
+        );
+        assert_eq!(agent_status(&state), Some(LeaderStatus::Readied));
+    }
+
+    /// A research route that is not a strategy card: Visionaria Select's research opens the window
+    /// too (the Deepwrought holder of Carrina is "another player" to the one researching).
+    #[test]
+    fn doctor_carrina_also_reaches_a_research_made_through_visionaria_select() {
+        let mut state = visionaria_setup();
+        let (system, planet) = plain_planet();
+        state.system_mut(&system).set_control(planet.clone(), b());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+        let given = giveable_notes(&state, content(), &b(), &a())[0].clone();
+        let place = format!("{system}|{planet}");
+        assert!(perform(
+            &mut state,
+            &a(),
+            VISIONARIA_ACTION,
+            &["accept", given.as_str(), "use", "dxa", place.as_str()]
+        ));
+        assert!(owned(&state, &b(), "dxa"), "b ignored the prerequisite");
+        assert_eq!(agent_status(&state), Some(LeaderStatus::Exhausted));
+        assert!(crate::coexistence::is_coexisting(
+            &state,
+            &system,
+            &planet,
+            &a()
+        ));
+        assert_eq!(infantry_on(&state, &system, &planet, &a()), 1);
+    }
+
     // -- Share Knowledge ------------------------------------------------------------------------------
 
     fn share_setup() -> (GameState, String) {
@@ -845,7 +995,7 @@ mod tests {
             &mut state,
             &a(),
             VISIONARIA_ACTION,
-            &["accept", given.as_str(), "nm"]
+            &["accept", given.as_str(), "decline", "nm"]
         ));
         assert_eq!(
             state.player(&b()).unwrap().trade_goods,
@@ -894,7 +1044,7 @@ mod tests {
             &mut state,
             &a(),
             VISIONARIA_ACTION,
-            &["accept", given.as_str(), "decline"]
+            &["accept", given.as_str(), "decline", "decline"]
         ));
         assert_eq!(state.player(&b()).unwrap().trade_goods, 0);
         assert!(!owned(&state, &a(), "nm"));
@@ -965,7 +1115,7 @@ mod tests {
                 .iter()
                 .any(|option| option.id == "component|leader|deepwroughthero")
         );
-        assert!(use_hero(&mut state, &["nm", "pa", "pa"]));
+        assert!(use_hero(&mut state, &["nm", "pa", "decline", "pa"]));
         assert!(
             !owned(&state, &a(), "nm") && !owned(&state, &b(), "nm"),
             "purged from both"
@@ -999,7 +1149,7 @@ mod tests {
     fn ta_zern_from_the_deck_only_makes_the_owners_of_it_research() {
         let mut state = hero_setup();
         give(&mut state, &b(), &["dxa"]);
-        assert!(use_hero(&mut state, &["dxa", "nm"]));
+        assert!(use_hero(&mut state, &["dxa", "decline", "nm"]));
         assert!(!owned(&state, &b(), "dxa"));
         assert!(owned(&state, &b(), "nm"), "b researched another");
         assert!(

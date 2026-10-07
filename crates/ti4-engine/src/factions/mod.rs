@@ -54,6 +54,7 @@ pub mod empyrean_units;
 pub mod cabal;
 pub mod deepwrought;
 mod deepwrought_cards;
+pub(crate) mod deepwrought_research;
 pub mod ghost;
 pub mod hooks_cards;
 pub mod hooks_combat;

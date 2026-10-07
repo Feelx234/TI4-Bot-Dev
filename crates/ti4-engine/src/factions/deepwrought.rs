@@ -327,6 +327,29 @@ pub fn research_team_open(
             .is_some_and(|holder| holder != invader)
 }
 
+/// Whether Research Team's choice is open for `defender`, whose units stand on `planet` when
+/// `invader` commits ground forces there (Dane's ruling: it works on defense too): the ability, a
+/// seat other than the invader, units on the planet, and not already coexisting there. The
+/// defender decides, not the invader.
+#[must_use]
+pub fn research_team_defender_open(
+    state: &GameState,
+    content: &ContentStore,
+    defender: &PlayerId,
+    invader: &PlayerId,
+    system: &SystemId,
+    planet: &PlanetId,
+) -> bool {
+    defender != invader
+        && has_research_team(state, content, defender)
+        && !crate::coexistence::is_coexisting(state, system, planet, defender)
+        && state
+            .system_state(system)
+            .on_planet(planet)
+            .iter()
+            .any(|unit| &unit.owner == defender)
+}
+
 // -- technology purges (Ta Zern) ---------------------------------------------------------------------
 
 /// Whether technology `alias` was purged from every deck by Ta Zern.
@@ -1331,6 +1354,175 @@ mod tests {
         assert!(!crate::coexistence::in_coexistence(
             &state, &system, &planet
         ));
+    }
+
+    // -- Research Team on defense (Dane's ruling, operator 2026-10-07) -------------------------------
+
+    /// `a` (Deepwrought) controls the planet with 2 infantry; `b` (Sol) has 2 infantry in space.
+    fn defense_setup() -> (GameState, SystemId, PlanetId) {
+        let mut state = game();
+        let (system, planet) = plain_planet();
+        state.system_mut(&system).set_control(planet.clone(), a());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 2);
+        crate::fixtures::put(&mut state, &system, "infantry", &b(), 2);
+        (state, system, planet)
+    }
+
+    #[test]
+    fn a_defending_deepwrought_may_coexist_instead_of_fighting() {
+        let (mut state, system, planet) = defense_setup();
+        let commit = format!("commit|0|{planet}");
+        let (report, dice, prompts) = invade(
+            &mut state,
+            &b(),
+            &[commit.as_str(), "coexist", "done_committing"],
+            &system,
+        );
+        assert!(
+            prompts
+                .iter()
+                .any(|prompt| prompt.contains("Research Team")),
+            "the defender was asked: {prompts:?}"
+        );
+        assert!(dice.rolled("ground combat").is_empty(), "nobody fought");
+        assert!(
+            prompts
+                .iter()
+                .all(|prompt| !prompt.contains("another ground combat")),
+            "no rule-12 combat is offered either: {prompts:?}"
+        );
+        assert!(crate::coexistence::is_coexisting(
+            &state,
+            &system,
+            &planet,
+            &a()
+        ));
+        assert!(
+            report.captured.is_empty(),
+            "nothing is captured: no combat decided the planet"
+        );
+        assert_eq!(report.coexisted, vec![planet.clone()]);
+        assert_eq!(
+            state.system_state(&system).planet_control.get(&planet),
+            Some(&b()),
+            "a controller who coexists steps aside for the invader (coexistence 3.2)"
+        );
+        assert_eq!(infantry_on(&state, &system, &planet, &a()), 2);
+        assert_eq!(infantry_on(&state, &system, &planet, &b()), 2);
+        assert_eq!(
+            oceans(&state, &a()),
+            vec![PlanetId::new("ocean1")],
+            "Oceanbound answered"
+        );
+    }
+
+    #[test]
+    fn the_defending_deepwrought_decides_and_declining_fights() {
+        let (mut state, system, planet) = defense_setup();
+        let commit = format!("commit|0|{planet}");
+        // The defender is the one asked, not the invader.
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(Steer {
+            prefer: vec![
+                commit.clone(),
+                "fight".to_owned(),
+                "done_committing".to_owned(),
+            ],
+            seen: std::rc::Rc::new(std::cell::RefCell::new(Vec::new())),
+        }));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(7);
+        let _ = crate::invasion::resolve(
+            &mut state,
+            content(),
+            DEFAULT,
+            &mut table,
+            &mut dice,
+            &mut rng,
+            &system,
+            &b(),
+        );
+        let asked: Vec<(PlayerId, String)> = seen
+            .borrow()
+            .iter()
+            .map(|choice| (choice.player.clone(), choice.prompt.clone()))
+            .collect();
+        assert!(
+            asked
+                .iter()
+                .any(|(who, prompt)| who == &a() && prompt.contains("Research Team")),
+            "Deepwrought is asked: {asked:?}"
+        );
+        assert!(
+            asked
+                .iter()
+                .all(|(who, prompt)| who == &a() || !prompt.contains("Research Team")),
+            "the invader is not"
+        );
+        assert!(
+            !dice.rolled("ground combat").is_empty(),
+            "declining means the ground combat is fought"
+        );
+        assert!(!crate::coexistence::is_coexisting(
+            &state,
+            &system,
+            &planet,
+            &a()
+        ));
+        assert!(oceans(&state, &a()).is_empty());
+    }
+
+    #[test]
+    fn a_deepwrought_already_coexisting_is_not_asked_when_attacked_again() {
+        let (mut state, system, planet) = defense_setup();
+        let commit = format!("commit|0|{planet}");
+        invade(
+            &mut state,
+            &b(),
+            &[commit.as_str(), "coexist", "done_committing"],
+            &system,
+        );
+        crate::fixtures::put(&mut state, &system, "infantry", &c(), 2);
+        let (_, _, prompts) = invade(
+            &mut state,
+            &c(),
+            &[commit.as_str(), "coexist", "done_committing"],
+            &system,
+        );
+        assert!(
+            prompts
+                .iter()
+                .all(|prompt| !prompt.contains("Research Team")),
+            "{prompts:?}"
+        );
+    }
+
+    #[test]
+    fn only_a_deepwrought_defender_with_units_on_the_planet_is_offered_research_team_on_defense() {
+        let (state, system, planet) = defense_setup();
+        let content = content();
+        assert!(research_team_defender_open(
+            &state,
+            content,
+            &a(),
+            &b(),
+            &system,
+            &planet
+        ));
+        assert!(
+            !research_team_defender_open(&state, content, &b(), &a(), &system, &planet),
+            "Sol has no Research Team"
+        );
+        assert!(
+            !research_team_defender_open(&state, content, &a(), &a(), &system, &planet),
+            "the invader is not a defender"
+        );
+        let mut empty = state.clone();
+        empty.system_mut(&system).planet_units.remove(&planet);
+        assert!(
+            !research_team_defender_open(&empty, content, &a(), &b(), &system, &planet),
+            "no units there: nothing to coexist"
+        );
     }
 
     // -- Hydrothermal Mining and Radical Advancement ---------------------------------------------

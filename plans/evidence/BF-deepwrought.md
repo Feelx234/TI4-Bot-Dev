@@ -60,3 +60,51 @@ Code: `factions/deepwrought.rs` (ocean model, Research Team, Oceanbound, Hydroth
 * `cargo test -p ti4-policy -p ti4-sim -j1 -- --test-threads=12`: 273 and 51 passed (1 ignored), 0 failed (`out/dw_policy_sim.log`).
 * Ledger: deepwrought 11/11, all others unchanged (`out/dw_ledger2.log`).
 * Soak `deepwrought 0 25 10`: 25 games, 0 failures (`out/dw_soak.log`).
+
+## Operator rulings 2026-10-07 (supersede open questions 1, 2 and 5 above)
+
+### 1. Research Team on defense (Dane's ruling)
+
+`invasion.rs::offer_research_team_defense` runs right after the invader's own Research Team offer, in `finish_committing`. For each committed planet (the invader is not already coexisting there), every seat with Research Team, units on the planet and not already coexisting is asked (`research_team_defend_coexist`, the Deepwrought decides, not the invader). "Coexist" calls `begin_coexisting(defender, taker = invader)`, so Oceanbound triggers and the ordinary coexistence rules apply: a Deepwrought that CONTROLS the planet steps aside and the invader becomes the controller (3.2, planet exhausted); a seat that does not control it just coexists (3.1). The planet goes into `InvasionReport::coexisted`: `advance_fighting` starts no ground combat there and offers no rule-12 follow-up combat; nothing is captured (`report.captured` empty). Decision taken: control follows 3.2 literally for a controlling defender; if the operator wants the defender to keep control, that is a separate ruling (coexistence.rs has no such clause).
+
+Tests (real `invasion::resolve` commit route): `a_defending_deepwrought_may_coexist_instead_of_fighting`, `the_defending_deepwrought_decides_and_declining_fights` (only the Deepwrought is asked; declining fights), `a_deepwrought_already_coexisting_is_not_asked_when_attacked_again`, `only_a_deepwrought_defender_with_units_on_the_planet_is_offered_research_team_on_defense`.
+
+### 2. Doctor Carrina "if they do"
+
+Read as: the researcher actually needed the ignored prerequisite. (The card note "you can ignore a prerequisite even if you can already meet it" is overridden by the ruling.) Implemented in `factions/deepwrought_research.rs`: the agent is offered only when arming the waiver opens a technology (relevant to that route) that was closed; the placement follows only when a technology gained was not takeable without the waiver (`Window::plain`). A research that gains nothing still undoes the use (agent readied); a research that needed no waiver leaves the agent spent with no placement. Tests: `doctor_carrina_places_nothing_when_the_researcher_already_met_the_prerequisite`, `doctor_carrina_is_not_offered_when_ignoring_a_prerequisite_opens_nothing`, plus the unchanged `doctor_carrina_lets_a_researcher_ignore_a_prerequisite_and_places_infantry_into_coexistence`.
+
+### 3. Doctor Carrina on every research
+
+Window text: "When another player researches a technology". A research must reach the one shared pair `deepwrought_research::open` (before the researcher lists technologies, because the waiver widens the list) and `settle`. `technology::complete_research` is table-less and runs after the choice, so it cannot ask; the shared entry is therefore this pair, wrapped around each route's list-choose-research span (replacing `strategy_cards::deepwrought_agent_offer/settle`, removed).
+
+Routes covered (all through `open`/`settle`):
+
+| Route | Site |
+|---|---|
+| Technology strategy card primary (free research) | `strategy_cards::offer_research` |
+| Technology secondary and the primary's paid second research | `strategy_cards::paid_research` (incl. Yin/Cabal waiver resolution inside) |
+| Jol-Nar Specialist Compounds / Technology via breakthrough | `strategy_cards::specialist_compounds` (opened after the colour is fixed) |
+| Action card Focused Research | `action_cards::focused_research_spend` |
+| Action card Reveal Prototype (unit upgrades) | `action_cards::reveal_prototype` |
+| Action card Divert Funding ("then research another technology") | `action_cards::divert_funding` (after the technology is returned) |
+| Sardakk N'orr Supremacy ("research a unit upgrade") | `sardakk::supremacy` (opens before the token-or-research choice) |
+| Deepwrought Visionaria Select (each paying player) | `deepwrought_cards::visionaria_round` |
+| Deepwrought Ta Zern (each loser) | `deepwrought_cards::hero_resolve` |
+
+Not routes / not hooked, with reason: Radical Advancement (replaces an owned technology: a gain, not a research); Nekro Propagation (replaces the research with tokens: nothing researched, settle readies the agent); Share Knowledge, Maw of Worlds, Entropic Scars, Enigmatic Device and exploration cards `ed1`/`ed2` (engine grants a chosen technology ignoring all prerequisites, so no waiver could ever be needed and the agent would never be offered), Book of Latvinia (not implemented as a research; "no prerequisites" so a waiver is moot), Technology Rider (payoff not implemented in the engine), Research Agreement and other pure gains. Ssruu copying of Carrina remains unbuilt (census covers it separately). Yin Impulse Core and other waivers resolve inside the strategy-card routes and are covered there.
+
+Real-route tests: strategy card `doctor_carrina_lets_a_researcher_ignore_..._coexistence` (primary), `doctor_carrina_is_readied_again_when_the_research_gains_nothing` (secondary); action card `action_cards::tests::doctor_carrina_reaches_focused_research`; faction route `doctor_carrina_also_reaches_a_research_made_through_visionaria_select`. Existing Visionaria and Ta Zern scripts gained one `decline` for the new Carrina prompt (the holder is now asked when the waiver opens something for the researcher).
+
+Decision registry: `deepwrought_research.rs::open`/`settle` (Choice, delivered via `deepwrought_research.rs::put`), `invasion.rs::offer_research_team_defense`; the two `strategy_cards.rs::deepwrought_agent_*` rows removed.
+
+### 4. Ocean cards count as influence for voting
+
+`vote.rs::votable_planets` and `VoteWindow::planet_offers` now include the holder's readied ocean cards (`deepwrought::oceans`), so they are offered for influence (and for resources to an Executive Order spender) like any planet and exhaust into `exhausted_planets`. Test: `vote::tests::ocean_cards_count_as_influence_for_voting` (real `VoteWindow`).
+
+### Results (2026-10-07)
+
+* `cargo test -p ti4-engine -j1 -- --test-threads=12`: lib 2625 passed / 1 ignored, then 1, 4, 5 passed, 0 failed (`out/dw_engine_full3.log`).
+* `cargo test -p ti4-policy -p ti4-sim -j1 -- --test-threads=12`: 273 and 51 passed (1 ignored), 0 failed (`out/dw_policy_sim3.log`).
+* Ledger (`print_faction_ledger --ignored`): identical to `out/dw_ledger2.log`, deepwrought 11/11 (`out/dw_ledger3.log`).
+* Soak `deepwrought 0 25 10` (release): 25 games, 0 failures (`out/dw_soak3.log`).
+* Shared files touched additionally: `invasion.rs` (+`InvasionReport::coexisted`), `vote.rs`, `action_cards.rs`, `factions/sardakk.rs`, `factions/mod.rs` (+`deepwrought_research`). `game.rs` untouched. No policy/training/UI/server crates.
