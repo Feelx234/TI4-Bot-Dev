@@ -123,8 +123,9 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
         : "";
 
   // Extract fleet supply if available from context
-  const fleetSupply = choice?.context?.details?.fleet_supply ||
-    choice?.context?.details?.["fleet_supply"] || null;
+  // The server sends it as a display-only choice detail; context.details is the legacy spot.
+  const fleetSupply =
+    choice?.details?.fleet_supply ?? choice?.context?.details?.fleet_supply ?? null;
 
   if (!isOpen || !choice) return null;
 
@@ -172,7 +173,9 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                         <span className="text-muted">Fleet Supply:</span>
                         <span data-testid="fleet-supply-counter" className="text-success">
                           {fleetSupply && typeof fleetSupply === "object" && "used" in fleetSupply && "limit" in fleetSupply
-                            ? `${fleetSupply.used} / ${fleetSupply.limit}`
+                            ? "unlimited" in fleetSupply && fleetSupply.unlimited === true
+                              ? `${fleetSupply.used} / unlimited`
+                              : `${fleetSupply.used} / ${fleetSupply.limit}`
                             : "Data unavailable"}
                         </span>
                       </div>

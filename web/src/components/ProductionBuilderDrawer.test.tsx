@@ -462,6 +462,37 @@ describe("ProductionBuilderDrawer", () => {
     expect(fleetSupplyCounter).toHaveTextContent("2 / 5");
   });
 
+  it.each([
+    [{ used: 3, limit: 4 }, "3 / 4"],
+    [{ used: 6, limit: 10000, unlimited: true }, "6 / unlimited"],
+  ])("reads fleet supply %j from the server's choice details", (fleetSupply, expected) => {
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "fleet-supply-details",
+      prompt: "produce a unit",
+      context: { subtype: "produce_unit", outstanding: [{ amount: 5, paid: 2 }] },
+      details: { fleet_supply: fleetSupply },
+      options: [
+        {
+          id: "build|fighter|1",
+          kind: "produce",
+          label: "Fighter",
+          payload: { unit: "fighter", production_spent: 1, cost: 1, available_resources: 8 },
+        },
+      ],
+    };
+    render(
+      <ProductionBuilderDrawer
+        isOpen={true}
+        choice={choice}
+        viewerSeat="seat_1"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("fleet-supply-counter")).toHaveTextContent(expected);
+  });
+
   it("displays 'Data unavailable' for fleet supply when not in context", () => {
     const onSubmit = vi.fn();
     const onClose = vi.fn();
