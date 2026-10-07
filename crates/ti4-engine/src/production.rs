@@ -2730,13 +2730,31 @@ impl Window for ProductionWindow {
                     "decline",
                     "produce nothing further",
                 ));
+                // Display only (`Choice::details`): ships charged against the fleet pool in this
+                // system and the pool's limit (LRR 37), so a client can show the room left.
+                let standing = crate::fleet::standing(
+                    state,
+                    content,
+                    sources,
+                    &self.player,
+                    &self.system,
+                    None,
+                );
+                let mut fleet_supply = serde_json::json!({
+                    "used": standing.fleet_charged,
+                    "limit": standing.fleet_limit,
+                });
+                if crate::fleet::is_unlimited(state, &self.player) {
+                    fleet_supply["unlimited"] = serde_json::Value::Bool(true);
+                }
                 Some(
                     Choice::new(
                         self.player.clone(),
                         format!("produce in {} ({} left)", self.system, self.remaining),
                         options,
                     )
-                    .contextualized(self.context(state)),
+                    .contextualized(self.context(state))
+                    .detailed("fleet_supply", fleet_supply),
                 )
             }
             Stage::Paying {
@@ -5141,6 +5159,33 @@ mod tests {
             let fighter = *types.get("fighter").unwrap();
             assert!(window.spots(&state, content, POK, fighter).is_empty());
         });
+    }
+
+    #[test]
+    fn the_produce_choice_reports_fleet_supply_used_and_limit() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = seated();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        put(&mut state, &system, "cruiser", &player(), 2);
+        // Fighters ride the capacity of ships, not the pool, so they must not be charged.
+        put(&mut state, &system, "fighter", &player(), 2);
+        let window = ProductionWindow::new(&state, content, POK, &player(), &system);
+        let choice = window
+            .pending_choice(&state, content, POK)
+            .expect("production choice");
+        let standing = crate::fleet::standing(&state, content, POK, &player(), &system, None);
+        let supply = choice.details.get("fleet_supply").expect("fleet_supply detail");
+        assert_eq!(supply["used"].as_i64(), Some(standing.fleet_charged));
+        assert_eq!(supply["limit"].as_i64(), Some(standing.fleet_limit));
+        assert_eq!(supply["used"].as_i64(), Some(2), "two cruisers, no fighters");
+        assert_eq!(
+            supply["limit"].as_i64(),
+            Some(i64::from(crate::fleet::limit(&state, content, &player())))
+        );
+        assert!(supply.get("unlimited").is_none());
     }
 
     #[test]

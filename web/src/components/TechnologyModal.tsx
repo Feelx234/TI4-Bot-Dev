@@ -80,7 +80,8 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       const found = playerList.find((p) => p.id === choice.actor);
       if (found) return found;
     }
-    return playerList[0] ?? null;
+    // No seat and no acting player (e.g. a spectator): do not guess a faction.
+    return null;
   }, [playerList, viewerSeat, choice?.actor]);
 
   const activeResearchMode =
