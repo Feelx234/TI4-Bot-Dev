@@ -8,6 +8,7 @@ import { playerWithHand, opponent } from "../_shared/players";
 for (const [name, title] of [
   ["2-crimson-pay", "Crimson commander: gain or convert"],
   ["3-deepwrought-pay", "Deepwrought commander: gain or convert"],
+  ["4-deepwrought-reduce", "Deepwrought commander: reduce research"],
 ] as const) {
   test(`porkchop decisions: ${name}`, async ({ page }, testInfo) => {
     await openMockedGame(page, {

@@ -42,6 +42,7 @@ export function offerCases(): GalleryCase[] {
         },
       },
     },
+    reduceCase(),
     paymentCase({
       nonce: "gallery-crimson-pay",
       title: "Crimson commander: gain or convert",
@@ -70,6 +71,34 @@ export function offerCases(): GalleryCase[] {
     }),
   ];
 }
+
+const reduceCase = (): GalleryCase => ({
+  workflow: "generic_selection",
+  title: "Deepwrought commander: reduce research",
+  fallback: "'reduce by 1' / decline -> the commander as printed, the cost before and after, and who is paid",
+  note: "While researching with a resource payment, another seat holding the Deepwrought commander offers 1 off; if taken, its holder is paid.",
+  choice: {
+    actor,
+    nonce: "gallery-deepwrought-reduce",
+    prompt: "Deepwrought commander: reduce this research by 1 (pays other_seat)",
+    context: { subtype: "deepwrought_reduce_research", source: { Content: "deepwroughtcommander" } },
+    options: [option("reduce", "reduce by 1", "research"), decline()],
+    details: {
+      kind: "offer",
+      card: {
+        title: "Aello",
+        tag: "commander",
+        window: "When another player spends resources to research a technology",
+        text: "That player may reduce the cost by 1; if they do, gain 1 commodity or convert 1 of your commodities to a trade good.",
+      },
+      facts: [{ label: "Research cost (resources)", from: 4, to: 3 }],
+      captions: {
+        reduce: { label: "Reduce the cost by 1", hint: "The commander's holder is paid a commodity or a trade good" },
+        decline: { label: "Pay in full", hint: "Nobody is paid" },
+      },
+    },
+  },
+});
 
 /** The commanders that pay "gain 1 commodity or convert 1 to a trade good" (Crimson, Deepwrought). */
 function paymentCase(spec: {

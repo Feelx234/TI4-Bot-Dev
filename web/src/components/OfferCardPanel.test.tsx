@@ -47,6 +47,12 @@ describe("offer card", () => {
     expect(onSubmit).toHaveBeenCalledWith("gain");
   });
 
+  it("shows a number that changes as before → after", () => {
+    const view = describeOfferCard(galleryChoice("Deepwrought commander: reduce research"))!;
+    expect(view.facts[0].change).toEqual({ from: 4, to: 3, of: null });
+    expect(view.answers.map((a) => a.label)).toEqual(["Reduce the cost by 1", "Pay in full"]);
+  });
+
   it("shows the card inside the pending choice and answers with the chosen option", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<PendingChoiceModal choice={galleryChoice("Ground hit: sustain damage")} onSubmit={onSubmit} />);

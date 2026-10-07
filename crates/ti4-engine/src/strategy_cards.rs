@@ -748,6 +748,28 @@ fn deepwrought_commander(
                 ChoiceOption::decline(),
             ],
         )
+        .offered(
+            commander_card(content, "deepwroughtcommander"),
+            vec![crate::choice::offer_fact_change(
+                "Research cost (resources)",
+                cost - reduced,
+                cost - reduced - 1,
+                None,
+            )],
+            &[
+                (
+                    "reduce",
+                    crate::choice::offer_caption(
+                        "Reduce the cost by 1",
+                        Some("The commander's holder is paid a commodity or a trade good"),
+                    ),
+                ),
+                (
+                    "decline",
+                    crate::choice::offer_caption("Pay in full", Some("Nobody is paid")),
+                ),
+            ],
+        )
         .contextualized(DecisionContext::new(
             player.clone(),
             DecisionSource::Content("deepwroughtcommander".to_owned()),
@@ -3337,6 +3359,20 @@ mod tests {
             offer.details["captions"]["gain"]["hint"],
             "Commodities 1 → 2"
         );
+        // The researcher's question is an offer card too: the cost before and after.
+        let reduce = asked
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|context| context.subtype == "deepwrought_reduce_research")
+            })
+            .expect("the researcher was asked");
+        assert_eq!(reduce.details["card"]["title"], "Aello");
+        assert_eq!(reduce.details["facts"][0]["from"], 3);
+        assert_eq!(reduce.details["facts"][0]["to"], 2);
+        assert_eq!(reduce.details["captions"]["decline"]["label"], "Pay in full");
         assert_eq!(
             offer.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
             ["gain", "convert"]

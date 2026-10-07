@@ -343,6 +343,20 @@ describe("choiceModel", () => {
       expect(model?.workflow).toBe("technology_research");
       expect(model?.isOptional).toBe(true);
     });
+
+    it("keeps an engine-built offer card out of the technology workflow", () => {
+      const offer: PendingChoiceDto = {
+        ...baseChoice,
+        prompt: "Deepwrought commander: reduce this research by 1",
+        context: { subtype: "deepwrought_reduce_research" },
+        options: [
+          { id: "reduce", label: "reduce by 1", kind: "research" },
+          { id: "decline", label: "Decline", kind: "decline" },
+        ],
+        details: { kind: "offer", card: { title: "Aello" } },
+      };
+      expect(deriveChoiceRendererModel(offer, "seat_1")?.workflow).toBe("generic_selection");
+    });
   });
 
   describe("typed payload accessors", () => {
