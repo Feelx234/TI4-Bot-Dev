@@ -9,6 +9,7 @@ import { SystemInspector } from "./SystemInspector.tsx";
 import { Tooltip } from "../primitives/index.ts";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { seatStyle } from "../presentation/playerDisplay.ts";
+import { boardStageStyle } from "./board/boardLayout.ts";
 import { MapOverlayMode } from "../presentation/mapOverlays.ts";
 import { MapOverlayToolbar } from "./MapOverlayToolbar.tsx";
 import { BoardTile } from "./board/BoardTile.tsx";
@@ -161,12 +162,16 @@ export const Board: React.FC<BoardProps> = ({
         overflow: "hidden",
         background: "#090d16",
         userSelect: "none",
+        display: "flex",
+        flexDirection: "column",
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
+      {/* The toolbar and seat legend take their own row, so the map is fitted below them. */}
+      <div className="board-chrome" data-testid="board-chrome">
       {/* Pan / Zoom Control Overlay & Map Overlay Selector */}
       <div
         className="board-controls"
@@ -229,11 +234,13 @@ export const Board: React.FC<BoardProps> = ({
           </span>
         ))}
       </div>
+      </div>
 
       <p id={helpId} className="visually-hidden">
         Drag the map to pan it. Use the zoom buttons to zoom in and out, and the reset button to
         return to the full view.
       </p>
+      <div className="board-stage" data-testid="board-stage" style={boardStageStyle(pendingChoice != null)}>
       <svg
         role="group"
         aria-label="Galaxy map"
@@ -319,6 +326,7 @@ export const Board: React.FC<BoardProps> = ({
           <MovementVectorsOverlay vectors={presentation.targets.movementVectors} />
         </g>
       </svg>
+      </div>
 
       {/* Selected System Inspector */}
       {presentation.selectedSystem && (
