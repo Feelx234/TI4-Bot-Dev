@@ -27,7 +27,7 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_content::units::catalogue;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId};
+use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId};
 use ti4_model::state::{GameState, LeaderStatus, TokenPool};
 
 use super::hooks_combat::CombatHooks;
@@ -456,10 +456,7 @@ fn explored(
     player: &PlayerId,
     planet: &PlanetId,
 ) {
-    if state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("pfa")))
-    {
+    if crate::technology::has_technology_text(state, player, "pfa") {
         state.exhausted_planets.remove(planet);
     }
 }
@@ -471,10 +468,7 @@ fn supercharge_key(player: &PlayerId) -> String {
 }
 
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let id = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&id) && !seat.exhausted_technologies.contains(&id)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 fn space_combat_round_started(
@@ -539,9 +533,7 @@ fn offer_supercharge(
     state
         .faction_marks
         .insert(supercharge_key(player), format!("{context}:{seq}"));
-    if let Some(seat) = state.player_mut(player) {
-        seat.exhausted_technologies.insert(TechnologyId::new("sc"));
-    }
+    crate::technology::exhaust_technology_text(state, player, "sc");
 }
 
 fn unit_roll_modifier(
@@ -1469,6 +1461,7 @@ mod tests {
     use crate::choice::Window;
     use std::collections::BTreeMap;
     use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::TechnologyId;
 
     fn a() -> PlayerId {
         PlayerId::new("a")

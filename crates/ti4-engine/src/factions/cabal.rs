@@ -1408,10 +1408,7 @@ const VORTEX_ACTION: &str = "faction|cabal|vortex";
 
 /// True when the seat holds the card and has not exhausted it.
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let id = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&id) && !seat.exhausted_technologies.contains(&id)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 fn decision(state: &GameState, player: &PlayerId, card: &str, subtype: &str) -> DecisionContext {

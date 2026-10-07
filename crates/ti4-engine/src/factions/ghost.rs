@@ -11,7 +11,7 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_model::content_types::{DEFAULT, SourceSet};
-use ti4_model::id::{LeaderId, PlayerId, SystemId, TechnologyId};
+use ti4_model::id::{LeaderId, PlayerId, SystemId};
 use ti4_model::state::{GameState, LeaderStatus, Phase};
 
 use super::hooks_combat::{CombatHooks, CombatMoment, HitSite, ProducedHits};
@@ -69,17 +69,13 @@ fn is_ghost(state: &GameState, player: &PlayerId) -> bool {
         .is_some_and(|seat| seat.faction.as_str() == "ghost")
 }
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+    crate::technology::has_technology_text(state, player, alias)
 }
 
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let id = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&id) && !seat.exhausted_technologies.contains(&id)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
@@ -471,9 +467,7 @@ fn perform_component(
     {
         return false;
     }
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.exhausted_technologies.insert(TechnologyId::new("wg"));
-    }
+    crate::technology::exhaust_technology_text(context.state, player, "wg");
     true
 }
 
@@ -1085,6 +1079,7 @@ mod tests {
     use crate::movement::PlayerAdjacency;
     use crate::production::{ProductionWindow, capacity};
     use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::TechnologyId;
     use ti4_model::id::{BreakthroughId, PlanetId};
 
     fn a() -> PlayerId {

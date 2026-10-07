@@ -326,8 +326,10 @@ impl VoteWindow {
         // order — the rotation below only re-seats players who still vote.
         // Elder Qanoj: game effects cannot prevent Xxcha voting, so neither a rider's cost nor a
         // Political Secret bars them.
+        // Galactic Threat (Nekro): "You cannot vote on agendas."
         order.retain(|player| {
-            !state.agenda_predictions.contains_key(player)
+            (!state.agenda_predictions.contains_key(player)
+                && !crate::factions::nekro::is_nekro(state, player))
                 || crate::leaders::elder_qanoj(state, player)
         });
         let votes_last = |player: &PlayerId| {

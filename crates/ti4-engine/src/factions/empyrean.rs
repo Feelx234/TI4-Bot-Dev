@@ -119,10 +119,9 @@ fn is_empyrean(state: &GameState, player: &PlayerId) -> bool {
         .is_some_and(|seat| seat.faction.as_str() == FACTION)
 }
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.iter().any(|t| t.as_str() == alias))
+    crate::technology::has_technology_text(state, player, alias)
 }
 
 fn has_breakthrough(state: &GameState, player: &PlayerId) -> bool {
@@ -296,8 +295,7 @@ fn stream_ready(
         return false;
     };
     let player = PlayerId::new(player);
-    is_empyrean(context.state, owner)
-        && has_technology(context.state, owner, "as")
+    has_technology(context.state, owner, "as")
         && (&player == owner
             || crate::transactions::are_neighbours(context.state, galaxy, owner, &player))
         && has_ship_outside(
@@ -375,8 +373,7 @@ fn watch_ready(context: &TimingContext<'_>, event: &crate::event::Event, owner: 
     };
     let player = PlayerId::new(player);
     let here = context.state.system_state(&SystemId::new(system));
-    is_empyrean(context.state, owner)
-        && has_technology(context.state, owner, "vw")
+    has_technology(context.state, owner, "vw")
         && &player != owner
         && event.integer("ships_moved").unwrap_or(0) > 0
         && (here.units.iter().any(|unit| &unit.owner == owner)

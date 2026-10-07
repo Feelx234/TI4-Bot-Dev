@@ -240,7 +240,17 @@ pub fn ground_combat_value(
             context: "ground",
         },
     );
-    Some(printed - faction - module)
+    // Nekro Mordred: +2 to its rolls against an opponent with an "X" or "Y" assimilator token.
+    let nekro_mech = crate::factions::nekro_units::mech_roll_bonus(
+        state,
+        content,
+        sources,
+        player,
+        unit_type,
+        Some(system),
+        Some(planet),
+    );
+    Some(printed - faction - module - nekro_mech)
 }
 
 pub(crate) fn is_ground_force_here(
@@ -4047,10 +4057,7 @@ fn space_cannon_defense(
     }
     // L4 Disruptors (Letnev): "During an invasion, units cannot use SPACE CANNON against your
     // units." Space cannon defense is the only cannon fire an invasion has.
-    if state.player(invader).is_some_and(|seat| {
-        seat.technologies
-            .contains(&ti4_model::id::TechnologyId::new("l4"))
-    }) {
+    if crate::technology::has_technology_text(state, invader, "l4") {
         return;
     }
     let types = catalogue(content, sources);
@@ -6101,6 +6108,49 @@ mod tests {
                 .len(),
             2,
             "no cannon fired at the Letnev forces"
+        );
+        assert!(dice.rolled("space cannon defense").is_empty());
+    }
+
+    #[test]
+    fn an_assimilated_l4_disruptors_silence_space_cannon_defense_for_the_nekro() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = arena_off_mecatol();
+        on_planet(&mut state, &system, &planet, "pds", &holder(), 1);
+        on_planet(&mut state, &system, &planet, "infantry", &invader(), 2);
+        state.player_mut(&invader()).unwrap().faction = ti4_model::id::FactionId::new("nekro");
+        state
+            .player_mut(&holder())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("l4"));
+        let nekro = state.player_mut(&invader()).unwrap();
+        nekro
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("vax"));
+        nekro.assimilated_technologies.insert(
+            "vax".to_owned(),
+            ti4_model::id::TechnologyId::new("l4"),
+        );
+        let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
+        let mut dice = Dice::from_faces([10u32]);
+        let mut rng = GameRng::new(7);
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        space_cannon_defense(&mut state, &mut ctx, &system, &planet, &invader());
+        assert_eq!(
+            state
+                .system_state(&system)
+                .on_planet_of(&planet, &invader())
+                .len(),
+            2,
+            "the assimilated text silences the cannon"
         );
         assert!(dice.rolled("space cannon defense").is_empty());
     }

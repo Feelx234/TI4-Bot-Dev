@@ -43,7 +43,7 @@ use std::sync::Arc;
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::{POK, SourceSet};
-use ti4_model::id::{ActionCardId, LeaderId, PlayerId, SystemId, TechnologyId};
+use ti4_model::id::{ActionCardId, LeaderId, PlayerId, SystemId};
 use ti4_model::state::{GameState, Phase};
 
 use super::hooks_cards::{self, CardHooks, RevealKind, RevealScope};
@@ -119,10 +119,7 @@ fn hand_size(state: &GameState, player: &PlayerId) -> usize {
 }
 
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let tech = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&tech) && !seat.exhausted_technologies.contains(&tech)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 fn decision(state: &GameState, player: &PlayerId, source: &str, subtype: &str) -> DecisionContext {
@@ -319,10 +316,7 @@ fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bool {
         return false;
     }
     state.active.as_ref().is_some_and(|active| {
-        active != player
-            && state
-                .player(active)
-                .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("tp")))
+        active != player && crate::technology::has_technology_text(state, active, "tp")
     })
 }
 
@@ -440,9 +434,7 @@ fn mageon_implants(context: &mut TimingContext<'_>, player: &PlayerId, target: &
     if !mageon_targets(context.state, player).contains(target) {
         return false;
     }
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.exhausted_technologies.insert(TechnologyId::new("mi"));
-    }
+    crate::technology::exhaust_technology_text(context.state, player, "mi");
     // A decider answering outside the options leaves the card exhausted, as the look happened.
     let _ = crate::action_cards::look_at_hand_and_take(context, player, target, "mi", false);
     true
@@ -1035,6 +1027,7 @@ fn kyver_decisions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_model::id::TechnologyId;
     use ti4_model::state::LeaderStatus;
 
     fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {

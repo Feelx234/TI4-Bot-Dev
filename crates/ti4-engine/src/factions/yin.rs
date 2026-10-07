@@ -67,11 +67,9 @@ fn is_yin(state: &GameState, player: &PlayerId) -> bool {
         .is_some_and(|seat| seat.faction.as_str() == "yin")
 }
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn owns_technology(state: &GameState, player: &PlayerId, technology: &str) -> bool {
-    state.player(player).is_some_and(|seat| {
-        seat.technologies
-            .contains(&ti4_model::id::TechnologyId::new(technology))
-    })
+    crate::technology::has_technology_text(state, player, technology)
 }
 
 /// The key recording that `player` has used one of their faction abilities (Brother Omar's

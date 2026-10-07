@@ -335,12 +335,11 @@ pub fn component_actions(
     }
     // Production Biomes (Hacan technology): exhaust, and a strategy token, for 4 trade goods to
     // the owner and 2 to another player. Needs somebody else to give the 2 to.
-    let biomes = ti4_model::id::TechnologyId::new("pm");
-    if state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&biomes)
-            && !seat.exhausted_technologies.contains(&biomes)
-            && seat.tokens(ti4_model::state::TokenPool::Strategic) > 0
-    }) && state.players.iter().any(|seat| &seat.id != player)
+    if crate::technology::technology_text_ready(state, player, "pm")
+        && state
+            .player(player)
+            .is_some_and(|seat| seat.tokens(ti4_model::state::TokenPool::Strategic) > 0)
+        && state.players.iter().any(|seat| &seat.id != player)
     {
         options.push(crate::choice::ChoiceOption::labelled(
             "faction|production_biomes",
@@ -405,9 +404,8 @@ fn production_biomes(context: &mut crate::timing::TimingContext<'_>, player: &Pl
         .state
         .gain_token(player, ti4_model::state::TokenPool::Strategic, -1);
     crate::supply::note_strategy_token_spent(context.state, player, "production_biomes");
+    crate::technology::exhaust_technology_text(context.state, player, "pm");
     if let Some(seat) = context.state.player_mut(player) {
-        seat.exhausted_technologies
-            .insert(ti4_model::id::TechnologyId::new("pm"));
         seat.trade_goods += 4;
     }
     if let Some(seat) = context.state.player_mut(&chosen) {
@@ -1971,8 +1969,15 @@ mod tests {
     #[test]
     fn the_gap_is_reported_rather_than_implied() {
         let missing = unimplemented(ContentStore::embedded(), POK);
-        assert!(!missing.is_empty(), "most abilities are still unanswered");
-        for ability in registered() {
+        // Every printed ability is answered, blocked with a reason, or reported; none is implied.
+        // (The list may be empty once every faction is claimed.)
+        let known = registered();
+        let blocked = blocked();
+        for id in catalogue(ContentStore::embedded(), POK) {
+            let answered = known.contains(&id.as_str()) || blocked.contains_key(id.as_str());
+            assert_eq!(missing.contains(&id), !answered, "{id}");
+        }
+        for ability in known {
             assert!(!missing.contains(&ability.to_owned()));
         }
     }

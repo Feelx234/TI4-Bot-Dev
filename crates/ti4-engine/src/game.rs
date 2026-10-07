@@ -2422,6 +2422,11 @@ impl<'a> Game<'a> {
             seen.push((bt_key, breakthrough));
             seen.push((relic_key, relics.join(",")));
         }
+        // Propagation (Nekro): each research replaced by 3 command tokens since the last step is
+        // announced so the owner can place them (`factions::nekro`). Each emission settles one.
+        for player in crate::factions::nekro::pending_propagation(&self.state) {
+            gained.push(("PROPAGATION_RESEARCH", "pending", player, "1".to_owned()));
+        }
         for (event, key, player, id) in gained {
             let mut payload = BTreeMap::new();
             payload.insert(

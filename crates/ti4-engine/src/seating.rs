@@ -369,6 +369,12 @@ pub fn deploy(
     seat.home_system = Some(system_id);
     seat.home_planets = home_planets.iter().map(|p| PlanetId::new(*p)).collect();
     seat.technologies.extend(starting_tech);
+    // Nekro Virus: it cannot research, so the two Valefar Assimilator cards come with the faction
+    // (coordinator ruling; plans/evidence/BF-nekro.md).
+    if alias.as_str() == crate::factions::nekro::FACTION {
+        seat.technologies.insert(TechnologyId::new("vax"));
+        seat.technologies.insert(TechnologyId::new("vay"));
+    }
     // Commodities are deliberately not set. LRR 21: the faction record's `commodities` is
     // the *capacity* a player refreshes to, not an opening balance, and a player starts
     // with none. The oracle sets trade_goods to 0 here for the same reason.
@@ -753,6 +759,17 @@ mod tests {
         let player = state.player(&PlayerId::new("a")).unwrap();
         assert!(!player.technologies.is_empty());
         assert!(player.technologies.contains(&TechnologyId::new("amd")));
+    }
+
+    #[test]
+    fn the_nekro_begins_with_both_valefar_assimilators() {
+        let state = seated(&[("a", "nekro"), ("b", "sol")]);
+        let nekro = state.player(&PlayerId::new("a")).unwrap();
+        assert!(nekro.technologies.contains(&TechnologyId::new("vax")));
+        assert!(nekro.technologies.contains(&TechnologyId::new("vay")));
+        assert!(nekro.technologies.contains(&TechnologyId::new("dxa")));
+        let other = state.player(&PlayerId::new("b")).unwrap();
+        assert!(!other.technologies.contains(&TechnologyId::new("vax")));
     }
 
     #[test]

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlayerId, SystemId, TechnologyId};
+use ti4_model::id::{LeaderId, PlayerId, SystemId};
 use ti4_model::state::{GameState, LeaderStatus};
 
 use super::hooks_combat::{CombatHooks, CombatMoment, HitSite, ProducedHits};
@@ -80,10 +80,9 @@ fn is_mentak(state: &GameState, player: &PlayerId) -> bool {
         .is_some_and(|seat| seat.faction.as_str() == "mentak")
 }
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn owns_technology(state: &GameState, player: &PlayerId, technology: &str) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(technology)))
+    crate::technology::has_technology_text(state, player, technology)
 }
 
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
@@ -1257,6 +1256,7 @@ mod tests {
     use crate::choice::{Scripted, Table};
     use crate::fixtures::{armed_resolver, put, put_on_planet, seated_game, with_context};
     use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::TechnologyId;
 
     fn a() -> PlayerId {
         PlayerId::new("a")

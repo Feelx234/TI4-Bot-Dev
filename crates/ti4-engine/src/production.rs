@@ -1914,6 +1914,9 @@ pub struct ProductionWindow {
     /// Highest printed cost of one unit this use may produce (Muaat Umbat: "4 or less"). `None`
     /// is no cap. Applied in [`Self::build_options`].
     max_unit_cost: Option<i64>,
+    /// The only unit type this use may produce (Nekro `nekroc4y`: "a ship of the same type").
+    /// `None` is any. Applied in [`Self::build_options`].
+    only_unit: Option<String>,
     /// Whether the current placement batch has opened its pre-placement ground-force window.
     placement_timing_done: bool,
 }
@@ -2007,6 +2010,7 @@ impl ProductionWindow {
             ability,
             fixed_limit,
             max_unit_cost: None,
+            only_unit: None,
             placement_timing_done: false,
         }
     }
@@ -2016,6 +2020,13 @@ impl ProductionWindow {
     #[must_use]
     pub fn with_max_unit_cost(mut self, max: Option<i64>) -> Self {
         self.max_unit_cost = max;
+        self
+    }
+
+    /// Only this unit type may be offered (Nekro `nekroc4y`). Builder for [`Self::for_ability`].
+    #[must_use]
+    pub fn with_only_unit(mut self, unit: Option<String>) -> Self {
+        self.only_unit = unit;
         self
     }
 
@@ -2400,6 +2411,9 @@ impl ProductionWindow {
             let Some(kind) = types.get(id.as_str()) else {
                 continue;
             };
+            if self.only_unit.as_ref().is_some_and(|only| only != &id) {
+                continue;
+            }
             if self
                 .max_unit_cost
                 .is_some_and(|max| kind.cost() > f64::from(i32::try_from(max).unwrap_or(i32::MAX)))
@@ -3239,6 +3253,48 @@ pub fn produce_by_ability_capped(
     }
     if agent_window {
         crate::factions::keleres::close_agent_window(state, player);
+    }
+    end_value_swap(state);
+    Ok(window.into_report())
+}
+
+/// Whether [`produce_unit_by_ability`] would offer `unit` in `system` now: it is buildable, the
+/// player can pay for it and a spot takes it. The same filter the window applies, asked up front so
+/// a card is only offered when its production can happen.
+#[must_use]
+pub fn can_produce_unit_by_ability(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &str,
+) -> bool {
+    let window = ProductionWindow::for_ability(state, content, sources, player, system, Some(1))
+        .with_only_unit(Some(unit.to_owned()));
+    window.pending_choice(state, content, sources).is_some()
+}
+
+/// Produce 1 unit of exactly one type outside a tactical action, by an ability (Nekro
+/// `nekroc4y`): [`produce_by_ability`] with a limit of 1 and every other unit type withheld.
+///
+/// # Errors
+/// [`IllegalChoice`] when a decider answers with something not offered.
+pub fn produce_unit_by_ability(
+    state: &mut GameState,
+    ctx: &mut Resolving<'_>,
+    galaxy: Option<&Galaxy>,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &str,
+) -> Result<ProductionReport, IllegalChoice> {
+    let (content, sources) = (ctx.content, ctx.sources);
+    let mut window = ProductionWindow::for_ability(state, content, sources, player, system, Some(1))
+        .with_only_unit(Some(unit.to_owned()));
+    while let Some(choice) = window.pending_choice(state, content, sources) {
+        ctx.table
+            .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
+            .and_then(|answer| window.resolve(state, ctx, answer))?;
     }
     end_value_swap(state);
     Ok(window.into_report())

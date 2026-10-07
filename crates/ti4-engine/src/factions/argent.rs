@@ -131,11 +131,9 @@ fn votes_first(state: &GameState, player: &PlayerId) -> bool {
 
 // -- the flagship, the mech and Aerie Hololattice --------------------------------------------
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn owns_technology(state: &GameState, player: &PlayerId, technology: &str) -> bool {
-    state.player(player).is_some_and(|seat| {
-        seat.technologies
-            .contains(&ti4_model::id::TechnologyId::new(technology))
-    })
+    crate::technology::has_technology_text(state, player, technology)
 }
 
 /// Quetzecoatl: "Other players cannot use SPACE CANNON against your ships in this system."

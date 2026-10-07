@@ -383,25 +383,21 @@ fn edict(owner_name: &str, seat: &PlayerId, event_type: &'static str) -> Ability
 /// technology, has not exhausted it, and is not the voter.
 #[must_use]
 pub(crate) fn recombination_holder(state: &GameState, voter: &PlayerId) -> Option<PlayerId> {
-    let tech = TechnologyId::new(RECOMBINATION);
+    // The Mahact's own card, or the Nekro's Valefar Assimilator carrying its text (only a Mahact
+    // can own the card, so the faction test is the ownership test).
     state
         .players
         .iter()
         .find(|seat| {
-            seat.faction.as_str() == FACTION
-                && seat.id != *voter
-                && seat.technologies.contains(&tech)
-                && !seat.exhausted_technologies.contains(&tech)
+            seat.id != *voter
+                && crate::technology::technology_text_ready(state, &seat.id, RECOMBINATION)
         })
         .map(|seat| seat.id.clone())
 }
 
-/// Exhaust the holder's Genetic Recombination.
+/// Exhaust the holder's Genetic Recombination (or the Valefar Assimilator carrying its text).
 pub(crate) fn exhaust_recombination(state: &mut GameState, holder: &PlayerId) {
-    if let Some(seat) = state.player_mut(holder) {
-        seat.exhausted_technologies
-            .insert(TechnologyId::new(RECOMBINATION));
-    }
+    crate::technology::exhaust_technology_text(state, holder, RECOMBINATION);
 }
 
 /// Whether `voter` has a token in their fleet pool to remove.

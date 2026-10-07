@@ -38,7 +38,7 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_content::units::{UnitType, catalogue};
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
+use ti4_model::id::{LeaderId, PlanetId, PlayerId, SystemId, UnitTypeId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
@@ -103,10 +103,9 @@ pub const MODULE: FactionModule = FactionModule {
 
 // -- small readers -------------------------------------------------------------------------------
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+    crate::technology::has_technology_text(state, player, alias)
 }
 
 fn decision(state: &GameState, player: &PlayerId, card: &str, subtype: &str) -> DecisionContext {
@@ -1523,6 +1522,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
     use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::TechnologyId;
     use ti4_model::state::LeaderStatus;
 
     use crate::choice::{Decider, IllegalChoice, Scripted, Table};

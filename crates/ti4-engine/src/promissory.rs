@@ -157,7 +157,12 @@ pub fn take(state: &mut GameState, content: &ContentStore, holder: &PlayerId, no
     state
         .promissory_notes
         .insert(note.to_owned(), holder.clone());
-    if is_play_area(content, note) && !is_action_placed(alias_of(note)) {
+    // Antivirus is a play-area note, but its text places it ("At the start of a combat: Place this
+    // card faceup"): it waits in hand until the holder does (`factions::nekro`).
+    if is_play_area(content, note)
+        && !is_action_placed(alias_of(note))
+        && alias_of(note) != "antivirus"
+    {
         state.promissory_faceup.insert(note.to_owned());
     }
 }
@@ -444,7 +449,9 @@ pub fn spend_support_on_activation(
     }
     // Blood Pact and Dark Pact: "If you activate a system that contains 1 or more of the Empyrean
     // player's units, return this card to the Empyrean player."
-    for alias in [BLOOD_PACT, DARK_PACT] {
+    // Antivirus: "If you activate a system that contains 1 or more of the Nekro player's units,
+    // return this card to the Nekro player."
+    for alias in [BLOOD_PACT, DARK_PACT, "antivirus"] {
         for note in faceup_returned_by_activation(state, activator, system, alias) {
             give_back(state, &note);
         }

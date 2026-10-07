@@ -297,6 +297,18 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        module: "nekro.rs",
+        function: "take_from",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "nekro_units.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "naaz.rs",
         function: "ask_checked",
         count: 1,
@@ -1386,6 +1398,10 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("argent.rs", "ask_option_for", 1),
     ("sardakk.rs", "skip_to_commit", 1),
     ("muaat.rs", "ask", 1),
+    ("nekro.rs", "take_from", 1),
+    ("nekro_units.rs", "ask", 1),
+    // Null Reference (Nekro): the ability production window's unit-type and placement questions.
+    ("production.rs", "produce_unit_by_ability", 1),
     ("naaz.rs", "ask", 1),
     ("naaz.rs", "ask_checked", 1),
     ("naaz.rs", "borrowed_agent", 1),

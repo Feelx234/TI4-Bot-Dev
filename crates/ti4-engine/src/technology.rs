@@ -284,10 +284,7 @@ pub fn start_turn(
         }
     }
 
-    if state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("cm")))
-    {
+    if has_technology_text(state, player, "cm") {
         let systems: Vec<SystemId> = state
             .board
             .keys()
@@ -1076,6 +1073,62 @@ pub fn researchable(
     open
 }
 
+/// Whether `player` has the printed text of technology `alias` to use: they own it, or they are
+/// the Nekro Virus and a Valefar Assimilator token (X or Y) sits on it while another player still
+/// owns it, so that card "gains that technology's text".
+///
+/// This is the gate for what a **faction technology's effect** does. It is *not* ownership: an
+/// assimilated technology never enters `Player::technologies`, so it counts for no prerequisite,
+/// objective, unit upgrade or "technologies you own" total. Generic technologies and prerequisites
+/// keep reading the owned set.
+#[must_use]
+pub fn has_technology_text(state: &GameState, player: &PlayerId, alias: &str) -> bool {
+    state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+        || crate::factions::nekro::assimilated_card(state, player, alias).is_some()
+}
+
+/// [`has_technology_text`] for a card that exhausts: the owner's copy is ready while unexhausted;
+/// an assimilated text is ready while the Valefar Assimilator carrying it is (its exhaustion is
+/// the Valefar card's, not the owner's).
+#[must_use]
+pub fn technology_text_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
+    let id = TechnologyId::new(alias);
+    let Some(seat) = state.player(player) else {
+        return false;
+    };
+    if seat.technologies.contains(&id) {
+        return !seat.exhausted_technologies.contains(&id);
+    }
+    crate::factions::nekro::assimilated_card(state, player, alias).is_some_and(|card| {
+        !seat
+            .exhausted_technologies
+            .contains(&TechnologyId::new(card))
+    })
+}
+
+/// Exhaust the card that carries technology `alias`'s text for `player`: the technology itself, or
+/// the Valefar Assimilator carrying it. `false`, changing nothing, when the player has neither.
+pub fn exhaust_technology_text(state: &mut GameState, player: &PlayerId, alias: &str) -> bool {
+    let id = TechnologyId::new(alias);
+    let carrier = if state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(&id))
+    {
+        id
+    } else if let Some(card) = crate::factions::nekro::assimilated_card(state, player, alias) {
+        TechnologyId::new(card)
+    } else {
+        return false;
+    };
+    let Some(seat) = state.player_mut(player) else {
+        return false;
+    };
+    seat.exhausted_technologies.insert(carrier);
+    true
+}
+
 /// Gain a technology outright (90.5), without checking prerequisites.
 ///
 /// Separate from [`research`] because gaining is not researching: several effects grant a
@@ -1296,6 +1349,13 @@ fn complete_research(
     player: &PlayerId,
     alias: &TechnologyId,
 ) {
+    // Propagation (Nekro): "When you would research a technology: Gain 3 command tokens instead."
+    // Every research route ends here, so none can forget it. The technology is not gained and
+    // nothing that fires on research fires; the game opens the token window at its next step.
+    if crate::factions::nekro::propagation_replaces_research(state, player) {
+        crate::factions::nekro::note_propagation(state, player);
+        return;
+    }
     grant(state, player, alias);
     // 90.8: the upgrade covers the unit on the faction sheet, so units already on the board
     // become the new version too -- not only the ones built after this.

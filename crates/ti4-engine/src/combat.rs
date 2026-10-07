@@ -114,18 +114,103 @@ pub fn ships_of(
         })
         .cloned()
         .collect();
-    if planetary_maximum_participates(state, content, sources, player, system) {
-        ships.extend(
-            state
-                .system_state(system)
-                .planet_units
-                .values()
-                .flatten()
-                .filter(|unit| &unit.owner == player && unit.type_id.as_str() == "naaz_voltron")
-                .cloned(),
+    ships.extend(
+        planet_combatants(state, content, sources, player, system)
+            .into_iter()
+            .map(|(_, _, unit)| unit),
+    );
+    ships
+}
+
+/// Units standing on a planet that fight this system's space combat as ships, in planet order and
+/// then list order, each with its planet and its index in that planet's unit list.
+///
+/// Two kinds: a Naaz Eidolon Maximum (see [`planetary_maximum_participates`]) and the ground
+/// forces a Nekro Alastor chose "to participate in that combat as if they were ships"
+/// (`factions::nekro_units::alastor_participants`).
+pub(crate) fn planet_combatants(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<(ti4_model::id::PlanetId, usize, Unit)> {
+    let maximum = planetary_maximum_participates(state, content, sources, player, system);
+    let chosen = crate::factions::nekro_units::alastor_participants(state, player, system);
+    let mut found = Vec::new();
+    for (planet, units) in &state.system_state(system).planet_units {
+        for (index, unit) in units.iter().enumerate() {
+            if &unit.owner != player {
+                continue;
+            }
+            let voltron = maximum && unit.type_id.as_str() == "naaz_voltron";
+            if voltron || chosen.contains(&(planet.clone(), index)) {
+                found.push((planet.clone(), index, unit.clone()));
+            }
+        }
+    }
+    found
+}
+
+/// Whether a planet-standing combatant can use SUSTAIN DAMAGE against a space-combat hit: a ship
+/// by the ship rule, a ground force chosen by the Alastor by its own printed ability.
+fn planet_unit_sustains(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    player: &PlayerId,
+    unit: &Unit,
+    in_combat: bool,
+) -> bool {
+    let types = catalogue(content, sources);
+    let Some(kind) = types.get(unit.type_id.as_str()) else {
+        return false;
+    };
+    if kind.is_ship() {
+        return sustains_in_space(
+            state, content, sources, system, player, unit, kind, in_combat,
         );
     }
-    ships
+    &unit.owner == player
+        && !unit.sustained_damage
+        && kind.sustain_damage()
+        && !crate::laws::sustain_suppressed(state, kind.base_type())
+        && crate::factions::hooks_combat::may_sustain(
+            state,
+            content,
+            sources,
+            &crate::factions::CombatUnit {
+                player,
+                system: Some(system),
+                planet: None,
+                unit_type: unit.type_id.as_str(),
+                context: "space",
+            },
+        )
+}
+
+/// The label of a planet-standing sustain option: the Maximum keeps its name, anything else is
+/// named by its unit type.
+fn planet_sustain_label(
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &str,
+    unit: &Unit,
+) -> String {
+    let place = ti4_content::galaxy::planet(content, planet, sources)
+        .and_then(|record| record.name())
+        .unwrap_or(planet);
+    if unit.type_id.as_str() == "naaz_voltron" {
+        let form = if unit.galvanized {
+            "galvanized"
+        } else {
+            "plain"
+        };
+        format!("sustain damage on Maximum on {place} ({form})")
+    } else {
+        format!("sustain damage on {} on {place}", unit.type_id)
+    }
 }
 
 /// The corpus clarification for Eidolon Maximum permits a planet-standing unit to join
@@ -150,12 +235,38 @@ pub(crate) fn planetary_maximum_participates(
 /// area; Eidolon Maximum is the sole current exception and remains on its planet while joining
 /// the battle.
 pub(crate) fn remove_combat_ship(state: &mut GameState, system: &SystemId, unit: &Unit) {
-    if unit.type_id.as_str() == "naaz_voltron" {
-        for units in state.system_mut(system).planet_units.values_mut() {
-            if let Some(index) = units.iter().position(|found| found == unit) {
-                units.remove(index);
-                return;
+    let voltron = unit.type_id.as_str() == "naaz_voltron";
+    // An Alastor participant is a ground force standing on its planet: it leaves from there, and
+    // the choice that made it a participant shrinks by one.
+    let alastor = !voltron
+        && crate::factions::nekro_units::alastor_covers(
+            state,
+            system,
+            &unit.owner,
+            unit.type_id.as_str(),
+        );
+    if voltron || alastor {
+        let removed_from =
+            state
+                .system_mut(system)
+                .planet_units
+                .iter_mut()
+                .find_map(|(planet, units)| {
+                    let index = units.iter().position(|found| found == unit)?;
+                    units.remove(index);
+                    Some(planet.clone())
+                });
+        if let Some(planet) = removed_from {
+            if alastor {
+                crate::factions::nekro_units::alastor_decrement(
+                    state,
+                    system,
+                    &unit.owner,
+                    &planet,
+                    unit.type_id.as_str(),
+                );
             }
+            return;
         }
     }
     state.system_mut(system).remove(std::slice::from_ref(unit));
@@ -259,6 +370,17 @@ fn effective_from(
         unit.type_id.as_str(),
     );
 
+    // Nekro Mordred: +2 to its rolls against an opponent with an "X" or "Y" assimilator token.
+    let nekro_mech = crate::factions::nekro_units::mech_roll_bonus(
+        state,
+        content,
+        sources,
+        player,
+        unit.type_id.as_str(),
+        state.active_system.as_ref(),
+        None,
+    );
+
     Some(
         threshold
             - i64::from(morale_is_current)
@@ -266,7 +388,8 @@ fn effective_from(
             - fighter_bonus
             - i64::from(nebula_defender)
             - module
-            - mahact_flagship,
+            - mahact_flagship
+            - nekro_mech,
     )
 }
 
@@ -2103,9 +2226,7 @@ fn pay_sustain_commander(state: &mut GameState, content: &ContentStore, player: 
 
 /// Barony of Letnev, Non-Euclidean Shielding: each use of SUSTAIN DAMAGE cancels two hits.
 pub(crate) fn non_euclidean_shielding(state: &GameState, player: &PlayerId) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.iter().any(|held| held.as_str() == "nes"))
+    crate::technology::has_technology_text(state, player, "nes")
 }
 
 /// Whether this unit may use SUSTAIN DAMAGE against a hit in space.
@@ -2244,50 +2365,43 @@ fn offer_sustain(
             .collect();
         // A Maximum on a planet is a combat ship only while a normal ship shares the space area;
         // mirror `ships_of` here so it can actually cancel a hit it was allowed to join.
-        if planetary_maximum_participates(state, content, sources, player, system) {
-            for (planet, units) in &state.system_state(system).planet_units {
-                let mut distinct_fresh = Vec::new();
-                for (index, unit) in units.iter().enumerate() {
-                    if unit.owner == *player
-                        && unit.type_id.as_str() == "naaz_voltron"
-                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                            sustains_in_space(
-                                state,
-                                content,
-                                sources,
-                                system,
-                                player,
-                                unit,
-                                kind,
-                                during_space_combat,
-                            )
-                        })
-                        && assignable_to_hit(
-                            state,
-                            content,
-                            sources,
-                            player,
-                            system,
-                            unit,
-                            Some(planet),
-                            origin,
-                        )
-                    {
-                        if distinct_fresh.contains(unit) {
-                            continue;
-                        }
-                        let location = if crate::supply::staging_enabled(state)
-                            && !distinct_fresh.is_empty()
-                        {
-                            format!("planet:{planet}:variant:{index}")
-                        } else {
-                            format!("planet:{planet}")
-                        };
-                        distinct_fresh.push(unit.clone());
-                        available.push((location, unit.clone()));
-                    }
-                }
+        // A ground force an Alastor brought into the battle is mirrored the same way.
+        let mut distinct_fresh: std::collections::BTreeMap<ti4_model::id::PlanetId, Vec<Unit>> =
+            std::collections::BTreeMap::new();
+        for (planet, index, unit) in planet_combatants(state, content, sources, player, system) {
+            if !planet_unit_sustains(
+                state,
+                content,
+                sources,
+                system,
+                player,
+                &unit,
+                during_space_combat,
+            ) || !assignable_to_hit(
+                state,
+                content,
+                sources,
+                player,
+                system,
+                &unit,
+                Some(&planet),
+                origin,
+            ) {
+                continue;
             }
+            let seen_here = distinct_fresh.entry(planet.clone()).or_default();
+            if seen_here.contains(&unit) {
+                continue;
+            }
+            let location = if unit.type_id.as_str() != "naaz_voltron"
+                || (crate::supply::staging_enabled(state) && !seen_here.is_empty())
+            {
+                format!("planet:{planet}:variant:{index}")
+            } else {
+                format!("planet:{planet}")
+            };
+            seen_here.push(unit.clone());
+            available.push((location, unit));
         }
         if available.is_empty() {
             return Ok(hits);
@@ -2313,19 +2427,7 @@ fn offer_sustain(
             let label = if crate::supply::staging_enabled(state) {
                 planetary_sustain_location(location).map_or_else(
                     || format!("sustain damage on {}", unit.type_id),
-                    |(planet, _)| {
-                        let form = if unit.galvanized {
-                            "galvanized"
-                        } else {
-                            "plain"
-                        };
-                        format!(
-                            "sustain damage on Maximum on {} ({form})",
-                            ti4_content::galaxy::planet(content, planet, sources)
-                                .and_then(|record| record.name())
-                                .unwrap_or(planet)
-                        )
-                    },
+                    |(planet, _)| planet_sustain_label(content, sources, planet, unit),
                 )
             } else {
                 format!("sustain damage on {}", unit.type_id)
@@ -2386,21 +2488,27 @@ fn offer_sustain(
         let Some(location) = answer.id.strip_prefix("sustain|") else {
             return Ok(hits);
         };
+        let planet_side: std::collections::BTreeSet<(ti4_model::id::PlanetId, usize)> =
+            planet_combatants(state, content, sources, player, system)
+                .into_iter()
+                .map(|(planet, index, _)| (planet, index))
+                .collect();
         let sustained = if let Some(index) = location
             .strip_prefix("space:")
             .and_then(|rest| rest.parse::<usize>().ok())
         {
             state.system_mut(system).units.get_mut(index)
         } else if let Some((planet, variant_index)) = planetary_sustain_location(location) {
+            let planet_id = ti4_model::id::PlanetId::new(planet);
             state
                 .system_mut(system)
                 .planet_units
-                .get_mut(&ti4_model::id::PlanetId::new(planet))
+                .get_mut(&planet_id)
                 .and_then(|units| {
                     if let Some(index) = variant_index {
                         units.get_mut(index).filter(|unit| {
                             unit.owner == *player
-                                && unit.type_id.as_str() == "naaz_voltron"
+                                && planet_side.contains(&(planet_id.clone(), index))
                                 && !unit.sustained_damage
                         })
                     } else {
@@ -3370,6 +3478,9 @@ pub fn retreat_to(
     destination: &SystemId,
 ) -> usize {
     let types = catalogue(content, sources);
+    // Ground forces an Alastor brought into the battle stay on their planets and leave it with the
+    // fleet: they are no longer in this combat.
+    crate::factions::nekro_units::alastor_clear(state, system, Some(player));
     let mut own: Vec<Unit> = state
         .system_state(system)
         .units_of(player)
@@ -3821,40 +3932,27 @@ impl CombatWindow {
             })
             .map(|(index, unit)| (index.to_string(), unit.clone()))
             .collect();
-        if planetary_maximum_participates(state, content, sources, player, &self.system) {
-            for (planet, units) in &state.system_state(&self.system).planet_units {
-                let mut distinct_fresh = Vec::new();
-                for (index, unit) in units.iter().enumerate() {
-                    if unit.owner == *player
-                        && unit.type_id.as_str() == "naaz_voltron"
-                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                            sustains_in_space(
-                                state,
-                                content,
-                                sources,
-                                &self.system,
-                                player,
-                                unit,
-                                kind,
-                                true,
-                            )
-                        })
-                    {
-                        if distinct_fresh.contains(unit) {
-                            continue;
-                        }
-                        let location = if crate::supply::staging_enabled(state)
-                            && !distinct_fresh.is_empty()
-                        {
-                            format!("planet:{planet}:variant:{index}")
-                        } else {
-                            format!("planet:{planet}")
-                        };
-                        distinct_fresh.push(unit.clone());
-                        found.push((location, unit.clone()));
-                    }
-                }
+        let mut distinct_fresh: std::collections::BTreeMap<ti4_model::id::PlanetId, Vec<Unit>> =
+            std::collections::BTreeMap::new();
+        for (planet, index, unit) in
+            planet_combatants(state, content, sources, player, &self.system)
+        {
+            if !planet_unit_sustains(state, content, sources, &self.system, player, &unit, true) {
+                continue;
             }
+            let seen_here = distinct_fresh.entry(planet.clone()).or_default();
+            if seen_here.contains(&unit) {
+                continue;
+            }
+            let location = if unit.type_id.as_str() != "naaz_voltron"
+                || (crate::supply::staging_enabled(state) && !seen_here.is_empty())
+            {
+                format!("planet:{planet}:variant:{index}")
+            } else {
+                format!("planet:{planet}")
+            };
+            seen_here.push(unit.clone());
+            found.push((location, unit));
         }
         found
     }
@@ -4209,6 +4307,7 @@ impl CombatWindow {
         // the losses above, which count ships, so a flipped mech is not reported destroyed.
         crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
         let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
+        crate::factions::nekro_units::alastor_clear(state, &self.system, None);
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
         let _ = crate::production::destroy_blockaded_mobile_docks(
@@ -5036,19 +5135,7 @@ impl Window for CombatWindow {
                     let label = if crate::supply::staging_enabled(state) {
                         planetary_sustain_location(&index).map_or_else(
                             || format!("sustain damage on {}", unit.type_id),
-                            |(planet, _)| {
-                                let form = if unit.galvanized {
-                                    "galvanized"
-                                } else {
-                                    "plain"
-                                };
-                                format!(
-                                    "sustain damage on Maximum on {} ({form})",
-                                    ti4_content::galaxy::planet(content, planet, sources)
-                                        .and_then(|record| record.name())
-                                        .unwrap_or(planet)
-                                )
-                            },
+                            |(planet, _)| planet_sustain_label(content, sources, planet, &unit),
                         )
                     } else {
                         format!("sustain damage on {}", unit.type_id)
@@ -5207,20 +5294,26 @@ impl Window for CombatWindow {
                 if option.is_decline() {
                     self.stage = Stage::Assigning { queue, round };
                 } else if let Some(location) = option.id.strip_prefix("sustain|") {
+                    let planet_side: std::collections::BTreeSet<(ti4_model::id::PlanetId, usize)> =
+                        planet_combatants(state, content, sources, &front_player, &self.system)
+                            .into_iter()
+                            .map(|(planet, index, _)| (planet, index))
+                            .collect();
                     let sustained = if let Ok(index) = location.parse::<usize>() {
                         state.system_mut(&self.system).units.get_mut(index)
                     } else if let Some((planet, variant_index)) =
                         planetary_sustain_location(location)
                     {
+                        let planet_id = ti4_model::id::PlanetId::new(planet);
                         state
                             .system_mut(&self.system)
                             .planet_units
-                            .get_mut(&ti4_model::id::PlanetId::new(planet))
+                            .get_mut(&planet_id)
                             .and_then(|units| {
                                 if let Some(index) = variant_index {
                                     units.get_mut(index).filter(|unit| {
                                         unit.owner == front_player
-                                            && unit.type_id.as_str() == "naaz_voltron"
+                                            && planet_side.contains(&(planet_id.clone(), index))
                                             && !unit.sustained_damage
                                     })
                                 } else {

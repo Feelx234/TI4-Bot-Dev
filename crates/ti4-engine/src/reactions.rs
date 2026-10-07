@@ -1033,12 +1033,10 @@ fn l1z1x_agent(owner_name: &str, player: &PlayerId) -> Ability {
 
 /// Whether `player` can use Instinct Training now: holds it ready, with a strategy token.
 fn instinct_training_ready(state: &GameState, player: &PlayerId) -> bool {
-    let card = ti4_model::id::TechnologyId::new("it");
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&card)
-            && !seat.exhausted_technologies.contains(&card)
-            && seat.strategic_tokens > 0
-    })
+    crate::technology::technology_text_ready(state, player, "it")
+        && state
+            .player(player)
+            .is_some_and(|seat| seat.strategic_tokens > 0)
 }
 
 /// Instinct Training (Xxcha): "You may exhaust this card and spend 1 token from your strategy pool
@@ -1081,9 +1079,8 @@ fn instinct_training(owner_name: &str, player: &PlayerId) -> Ability {
             }
             if let Some(seat) = context.state.player_mut(&owner) {
                 seat.strategic_tokens -= 1;
-                seat.exhausted_technologies
-                    .insert(ti4_model::id::TechnologyId::new("it"));
             }
+            crate::technology::exhaust_technology_text(context.state, &owner, "it");
             crate::supply::note_strategy_token_spent(context.state, &owner, "instinct_training");
             event.cancel();
             Ok(())

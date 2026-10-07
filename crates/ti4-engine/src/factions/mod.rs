@@ -65,6 +65,8 @@ pub mod mentak;
 pub mod muaat;
 pub mod naalu;
 pub mod naaz;
+pub mod nekro;
+pub mod nekro_units;
 pub mod nomad;
 pub mod nomad_agents;
 pub mod saar;
@@ -76,7 +78,7 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 20] = [
+pub const MODULES: [&FactionModule; 21] = [
     &arborec::MODULE,
     &argent::MODULE,
     &cabal::MODULE,
@@ -90,6 +92,7 @@ pub const MODULES: [&FactionModule; 20] = [
     &muaat::MODULE,
     &naalu::MODULE,
     &naaz::MODULE,
+    &nekro::MODULE,
     &nomad::MODULE,
     &saar::MODULE,
     &sardakk::MODULE,

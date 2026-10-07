@@ -203,10 +203,9 @@ fn is_keleres(state: &GameState, player: &PlayerId) -> bool {
         .is_some_and(|seat| is_keleres_faction(seat.faction.as_str()))
 }
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+    crate::technology::has_technology_text(state, player, alias)
 }
 
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
@@ -219,9 +218,10 @@ fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<L
 /// breakthrough (the two carry the same text).
 #[must_use]
 pub fn has_iihq(state: &GameState, player: &PlayerId) -> bool {
-    is_keleres(state, player)
-        && (has_technology(state, player, IIHQ)
-            || crate::breakthroughs::holds(state, player, BREAKTHROUGH))
+    // The technology may be a Nekro's Valefar Assimilator carrying its text; the breakthrough is
+    // the Keleres's own.
+    has_technology(state, player, IIHQ)
+        || (is_keleres(state, player) && crate::breakthroughs::holds(state, player, BREAKTHROUGH))
 }
 
 // -- I.I.H.Q. Modernization: neighbours ----------------------------------------------------------
@@ -465,9 +465,7 @@ fn laws_order(owner_name: &str, seat: &PlayerId) -> Ability {
 /// action.
 #[must_use]
 pub(crate) fn asn_ready(state: &GameState, player: &PlayerId) -> bool {
-    is_keleres(state, player)
-        && has_technology(state, player, ASN)
-        && !state.faction_marks.contains_key(&asn_key(player))
+    has_technology(state, player, ASN) && !state.faction_marks.contains_key(&asn_key(player))
 }
 
 /// Record the use, until the action ends.
