@@ -1782,30 +1782,14 @@ fn sustains_in_space(state: &GameState, player: &PlayerId, unit: &Unit, kind: &U
             || (crate::relics::grants_sustain(state, player) && !kind.is_fighter()))
 }
 
-fn offer_sustain(
-    state: &mut GameState,
-    content: &ContentStore,
-    sources: SourceSet,
-    galaxy: Option<&ti4_content::galaxy::Galaxy>,
-    ctx: &mut Resolving<'_>,
-    player: &PlayerId,
-    system: &SystemId,
-    producer: &PlayerId,
-    hits: usize,
-) -> Result<usize, CombatError> {
-    offer_sustain_bound(
-        state, content, sources, galaxy, ctx, player, system, producer, hits, false,
-    )
-}
-
-/// [`offer_sustain`], with "take the hit" marked `non_fighters_first` when the hits it would
-/// lose a ship to are bound to non-fighter ships (Graviton Laser System). Display only: a client
-/// planning the loss ahead must not pick a fighter the next question will not offer.
+/// `non_fighters_first` marks "take the hit" when the loss is bound to non-fighter ships
+/// (Graviton Laser System). Display only: a client planning the loss ahead must not pick a
+/// fighter the next question will not offer.
 #[allow(
     clippy::too_many_arguments,
-    reason = "offer_sustain's inputs plus the one binding"
+    reason = "the combat position, the decider and the one binding"
 )]
-fn offer_sustain_bound(
+fn offer_sustain(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2026,7 +2010,7 @@ pub fn absorb_hits_seeing_with(
     // round-scoped pool they grant into is spent here, the way the combat window's queue
     // spends it, so a cancelled cannon or barrage hit is one nobody has to absorb.
     let hits = hits.saturating_sub(spend_cancellations(state, player, hits));
-    let mut remaining = offer_sustain_bound(
+    let mut remaining = offer_sustain(
         state,
         content,
         sources,
@@ -3717,18 +3701,25 @@ impl Window for CombatWindow {
                         )])),
                     );
                 }
-                options.push(
-                    ChoiceOption::labelled(
-                        crate::choice::DECLINE_ID,
-                        crate::choice::DECLINE_KIND,
-                        "take the hit",
-                    )
-                    .previewed(Preview::certain(vec![Delta::new(
-                        Quantity::ShipsInSystem,
-                        own_ships,
-                        own_ships - 1,
-                    )])),
-                );
+                let mut take = ChoiceOption::labelled(
+                    crate::choice::DECLINE_ID,
+                    crate::choice::DECLINE_KIND,
+                    "take the hit",
+                )
+                .previewed(Preview::certain(vec![Delta::new(
+                    Quantity::ShipsInSystem,
+                    own_ships,
+                    own_ships - 1,
+                )]));
+                // Display only, as in `offer_sustain`: the loss this hit forces is a
+                // non-fighter while one is left.
+                if front.non_fighters_only
+                    && !non_fighter_ships(state, content, sources, &front.player, &self.system)
+                        .is_empty()
+                {
+                    take = take.with("non_fighters_first", true);
+                }
+                options.push(take);
                 Some(
                     Choice::new(
                         front.player.clone(),
@@ -4505,6 +4496,43 @@ mod tests {
         );
     }
 
+    /// Forced hits (L1Z1X dreadnoughts) go to non-fighter ships; the window's sustain question
+    /// says so on "take the hit", as the cannon path does, so a client never plans a fighter
+    /// loss the next question will not offer.
+    #[test]
+    fn a_windowed_forced_hit_marks_its_sustain_question_bound_to_non_fighters() {
+        for forced in [true, false] {
+            let (mut state, system) = arena();
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 1);
+            let mut window = CombatWindow::new(&state, ContentStore::embedded(), POK, &system);
+            window.stage = Stage::Sustaining {
+                queue: vec![Pending {
+                    player: defender(),
+                    hits: 1,
+                    producer: attacker(),
+                    non_fighters_only: forced,
+                }],
+                round: 1,
+            };
+            let sustaining = window
+                .pending_choice(&state, ContentStore::embedded(), POK)
+                .expect("a hit is queued");
+            let take = sustaining
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .expect("taking the hit is offered");
+            assert_eq!(
+                take.payload
+                    .get("non_fighters_first")
+                    .and_then(serde_json::Value::as_bool),
+                forced.then_some(true),
+                "forced = {forced}"
+            );
+        }
+    }
+
     /// Hits outside a combat window (space cannon, barrage) are absorbed one ask at a time. Each
     /// ask must say how many hits are still owed, or a client cannot stage them together and
     /// has to guess the amount.
@@ -4605,6 +4633,7 @@ mod tests {
             &system,
             &attacker(),
             2,
+            false,
         )
         .expect("the offer resolves");
         assert_eq!(
@@ -4628,6 +4657,7 @@ mod tests {
             &system,
             &attacker(),
             2,
+            false,
         )
         .expect("the offer resolves");
         assert_eq!(left, 0, "with it, the same one ship cancels both");
@@ -6306,6 +6336,7 @@ mod tests {
             &system,
             &attacker(),
             1,
+            false,
         )
         .unwrap();
         let sustain_asked = sustain_seen.borrow();
@@ -6616,6 +6647,7 @@ mod tests {
             &system,
             &attacker(),
             1,
+            false,
         )
         .unwrap();
         let asked = seen.borrow();
