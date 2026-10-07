@@ -701,8 +701,13 @@ export async function randomUiPlaythrough(
         }
         const candidates = await collectCandidates(page);
         if (!candidates.length) {
-          // The UI can take a moment to mount the workflow for a fresh offer.
-          if (++emptyPolls > 30) {
+          // The UI can take a moment to mount the workflow for a fresh offer. Late in a game the
+          // UI may also be finishing its own multi-step plan (a production builder submits one
+          // decision per unit and each commit replays the whole game on a debug build, seconds
+          // apiece), so the offer shows no control until the plan has landed (run 1c, decision
+          // #1153: 3 s was not enough). The wait is long; the version check below still ends it
+          // as soon as the server moves on.
+          if (++emptyPolls > 250) {
             await fail(
               page,
               `no actionable control for ${subtype} (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
