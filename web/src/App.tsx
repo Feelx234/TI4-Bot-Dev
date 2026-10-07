@@ -28,6 +28,9 @@ import {
   paymentPlanetKey,
 } from "./presentation/paymentDraft.ts";
 import { UndoConfirmDialog } from "./components/UndoConfirmDialog.tsx";
+import { useSecondaryPrepare } from "./hooks/useSecondaryPrepare.ts";
+import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
+import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
 import { PaymentDraftProvider, usePaymentDraftState } from "./presentation/PaymentDraftContext.tsx";
 import {
@@ -252,7 +255,7 @@ const GameViewContainer: React.FC<{
     status,
     gameVersion,
     snapshot,
-    pendingChoice,
+    pendingChoice: realPendingChoice,
     turnStatus,
     lastError,
     events,
@@ -327,6 +330,25 @@ const GameViewContainer: React.FC<{
       setCardSubject(null);
     },
   });
+  // Strategy-card secondary preparation: while another seat resolves a card the viewer may prepare
+  // an answer with the usual UI. `pendingChoice` is then a client-made stand-in for the question
+  // (answered into the local plan, never submitted), or nothing while an auto-played answer is
+  // being sent. The engine's own decision is `realPendingChoice`.
+  const prep = useSecondaryPrepare({
+    gameId,
+    viewerSeat: userSeat,
+    players: snapshot?.view.players ?? [],
+    events,
+    board: snapshot?.view.board,
+    phase: snapshot?.view.phase,
+    activePlayer: snapshot?.view.active_player ?? null,
+    history: gameHistory,
+    realChoice: realPendingChoice,
+    busy: historyBusy,
+    submitChoice,
+    submitBatch,
+  });
+  const pendingChoice = prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
   const tokenDraft = useCommandTokenDraft(pendingChoice);
   const [selectedOptionId, setSelectedOptionId] = useState<string>();
@@ -340,19 +362,25 @@ const GameViewContainer: React.FC<{
   const previousPendingChoiceRef = useRef<string | null>(null);
   useEffect(() => {
     const isPendingChoiceForViewer =
-      pendingChoice && userSeat && pendingChoice.actor === userSeat;
+      realPendingChoice && userSeat && realPendingChoice.actor === userSeat;
 
-    if (isPendingChoiceForViewer && previousPendingChoiceRef.current !== pendingChoice.nonce) {
+    if (isPendingChoiceForViewer && previousPendingChoiceRef.current !== realPendingChoice.nonce) {
       playTurnNotification();
     }
 
-    previousPendingChoiceRef.current = pendingChoice?.nonce ?? null;
-  }, [pendingChoice?.nonce, userSeat, pendingChoice?.actor, playTurnNotification]);
+    previousPendingChoiceRef.current = realPendingChoice?.nonce ?? null;
+  }, [realPendingChoice?.nonce, userSeat, realPendingChoice?.actor, playTurnNotification]);
 
   useEffect(() => {
     setSelectedOptionId(undefined);
     setSelectedPlanetId(null);
   }, [pendingChoice?.nonce]);
+  // The usual UI shows the prepared answer already selected (the confirm stays the player's).
+  const prefillId = prep.resolution.kind === "option" ? prep.resolution.optionId : null;
+  const prefillNonce = prep.realChoice?.nonce;
+  useEffect(() => {
+    if (prefillId && prefillNonce && !prep.holding) setSelectedOptionId(prefillId);
+  }, [prefillId, prefillNonce, pendingChoice?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const cardIsVisible =
     cardSubject &&
     snapshot &&
@@ -402,6 +430,13 @@ const GameViewContainer: React.FC<{
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
     <SeatInfoProvider players={snapshot?.view.players} viewerSeat={userSeat}>
     <DecisionTableProvider table={snapshot?.view ?? null}>
+    <PreparedHintProvider
+      value={
+        prep.resolution.kind === "option" && !prep.preparing && prep.realChoice
+          ? { optionId: prep.resolution.optionId, text: prep.resolution.text }
+          : null
+      }
+    >
       {/* The provider wraps the rest unindented to keep this diff small. */}
       <PaymentDraftProvider value={paymentDraft}>
       <CommandTokenDraftProvider value={tokenDraft}>
@@ -572,11 +607,22 @@ const GameViewContainer: React.FC<{
         revealedObjectives={snapshot?.view.table.revealed_objectives}
         scoredObjectives={snapshot?.view.table.scored_objectives}
         objectiveProgress={snapshot?.view.table.objective_progress}
-        onSubmitChoice={submitChoice}
+        onSubmitChoice={prep.preparing ? prep.prepareSubmit : submitChoice}
+        prepOverlay={
+          <SecondaryPrepHost
+            prep={prep}
+            busy={historyBusy}
+            onConfirm={async (resolution) => {
+              if (resolution.kind === "option") await submitChoice(resolution.optionId);
+              else if (resolution.kind === "tokens")
+                await submitBatch({ kind: "tokens", steps: resolution.steps });
+            }}
+          />
+        }
         reactionModes={snapshot?.reaction_modes}
         onSetReactionMode={userSeat ? setReactionMode : undefined}
         onSubmitMovementBatch={submitMovementBatch}
-        onSubmitBasketBatch={submitBatch}
+        onSubmitBasketBatch={prep.preparing ? prep.prepareBatch : submitBatch}
         batchResume={batchResume}
         onResumeBatch={resumeBatch}
         onDismissBatchResume={dismissBatchResume}
@@ -612,6 +658,7 @@ const GameViewContainer: React.FC<{
       />
       </CommandTokenDraftProvider>
       </PaymentDraftProvider>
+    </PreparedHintProvider>
     </DecisionTableProvider>
     </SeatInfoProvider>
     </PlayerIdentityProvider>

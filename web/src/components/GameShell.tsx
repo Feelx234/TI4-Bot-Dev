@@ -113,6 +113,9 @@ export interface GameShellProps {
   onQueueProduction?: (units: string[]) => void;
   /** The phase and whose turn it is, for the read-only action bar when it is not your turn. */
   turn?: TurnInfo;
+  /** The game, for keeping a prepared strategy-card secondary apart per game (device storage). */
+  /** Secondary preparation chrome (chip, banner, prepared-answer bar, toasts), rendered over the board. */
+  prepOverlay?: React.ReactNode;
 }
 
 export interface TurnRedoShellProps {
@@ -933,6 +936,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   scoredObjectives,
   objectiveProgress,
   turn,
+  prepOverlay,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<"events" | "players" | null>(
     null,
@@ -1243,6 +1247,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             }}
           />
         </PipelineRunnerContext.Provider>
+        {prepOverlay}
       </div>
     </div>
   );
