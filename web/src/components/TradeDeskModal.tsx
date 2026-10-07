@@ -95,7 +95,31 @@ const TradeOfferDetails: React.FC<{
                 type="offer"
               />
             )}
-            {offer.details.giveCommodities && !offer.details.receiveTradeGoods && !offer.details.receiveCommodities && (
+            {offer.details.givenActionCard && (
+              <TradeItemDisplay
+                label={`Action Card: ${offer.details.givenActionCard}`}
+                type="offer"
+              />
+            )}
+            {offer.details.givenNote && (
+              <TradeItemDisplay
+                label={`Promissory Note: ${offer.details.givenNote}`}
+                type="offer"
+              />
+            )}
+            {offer.details.receivedNote && offer.details.giveTradeGoods && (
+              <TradeItemDisplay
+                label={`Pay ${offer.details.giveTradeGoods} trade goods`}
+                type="offer"
+              />
+            )}
+            {offer.details.receivedNote && offer.details.giveCommodities && (
+              <TradeItemDisplay
+                label={`Pay ${offer.details.giveCommodities} commodities`}
+                type="offer"
+              />
+            )}
+            {!offer.details.receivedNote && offer.details.giveCommodities && !offer.details.receiveTradeGoods && !offer.details.receiveCommodities && (
               <TradeItemDisplay
                 label={`Gift ${offer.details.giveCommodities} commodities`}
                 type="offer"
@@ -107,7 +131,7 @@ const TradeOfferDetails: React.FC<{
                 type="offer"
               />
             )}
-            {offer.details.giveTradeGoods && !offer.details.receiveCommodities && !offer.details.receiveTradeGoods && (
+            {!offer.details.receivedNote && offer.details.giveTradeGoods && !offer.details.receiveCommodities && !offer.details.receiveTradeGoods && (
               <TradeItemDisplay
                 label={`Gift ${offer.details.giveTradeGoods} trade goods`}
                 type="offer"
@@ -141,6 +165,12 @@ const TradeOfferDetails: React.FC<{
             {offer.details.promissoryNote && (
               <TradeItemDisplay
                 label={`Promissory Note: ${offer.details.promissoryNote} for ${offer.details.price} TG`}
+                type="receive"
+              />
+            )}
+            {offer.details.receivedNote && (
+              <TradeItemDisplay
+                label={`Promissory Note: ${offer.details.receivedNote}`}
                 type="receive"
               />
             )}
