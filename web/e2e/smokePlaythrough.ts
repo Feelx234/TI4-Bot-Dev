@@ -584,14 +584,17 @@ export async function randomUiPlaythrough(
       )
         break;
       if (status.kind !== "waiting_for_decision") {
-        // Nothing to click; the server should move on by itself.
+        // Nothing to click; the server should move on by itself. A batch commit replays the whole
+        // game into a replacement session before it is published; until then readers see the
+        // stopped session, which has no pending decision and an unchanged version. On a debug
+        // build late in a game that takes longer than 10 s (run 4, round 6, 916 decisions).
         const moved = await expect
           .poll(
             async () =>
               (await gameSnapshot(request, gameId, players[0].session))
                 .game_version,
             {
-              timeout: 10_000,
+              timeout: 45_000,
             },
           )
           .toBeGreaterThan(state.game_version)
