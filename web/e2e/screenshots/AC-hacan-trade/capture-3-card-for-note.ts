@@ -11,8 +11,9 @@ test("hacan trade: action card for a note", async ({ page }, testInfo) => {
     choice: tradeChoice(),
   });
   await page.getByTestId("trade-desk-modal").waitFor();
+  await page.getByTestId("quick-deals").locator("summary").click();
   await page.getByTestId("trade-tab-promissory").click();
   await page.getByTestId("trade-opt-cnrally>cf:hacan").click();
-  await page.getByTestId("selected-trade-summary").waitFor();
+  await page.getByTestId("stage-status-valid").waitFor();
   await shot(page, testInfo, "3-card-for-note", { of: page.getByTestId("trade-desk-modal"), pad: 8 });
 });

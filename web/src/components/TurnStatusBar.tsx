@@ -73,6 +73,8 @@ export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
+        flexWrap: "wrap",
+        rowGap: 6,
         padding: "10px 20px",
         background: "#0f172a",
         borderBottom: "1px solid #1e293b",

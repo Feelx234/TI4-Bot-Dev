@@ -91,6 +91,22 @@ html,
   border-bottom: 1px solid #1e293b;
 }
 
+/* Phones: the status column and the Technologies / Objectives buttons do not fit side by side (the
+   turn banner wrapped into five lines and pushed the map into the prompt), so the buttons take their
+   own row under the status. */
+@media screen and (max-width: 600px) {
+  .game-header {
+    flex-wrap: wrap;
+  }
+  .game-header > :first-child {
+    flex: 1 1 100%;
+  }
+  .game-header__actions {
+    flex: 1 1 100%;
+    padding: 6px 12px;
+  }
+}
+
 .game-header__exit {
   border-bottom: 1px solid var(--color-border);
   border-radius: 0;
@@ -3254,6 +3270,15 @@ select:focus-visible,
 .system-activation-bar__error {
   font-size: 13px;
   color: #f87171;
+}
+/* The chips carry resource / influence icons, which made them wide enough to wrap into a second row
+   inside the half-width shrink-to-fit pill. Let the pill grow to its content (up to 720px) so the
+   usual handful of planets stays on one row and the reserved inset still covers the pill. */
+@media (min-width: 721px) {
+  .choice-banner.planet-selection-bar {
+    width: max-content;
+    max-width: min(720px, calc(100vw - 48px));
+  }
 }
 .planet-selection-bar__chips {
   display: flex;
