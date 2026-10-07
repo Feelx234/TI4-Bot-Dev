@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GameLogEntry } from "../protocol/client.ts";
 import { EventLog, buildEventTree } from "./EventLog.tsx";
 import { PlayerIdentityProvider } from "../presentation/PlayerIdentity.tsx";
@@ -266,5 +266,147 @@ describe("copy replay", () => {
     fireEvent.click(screen.getByTestId("copy-replay-btn"));
     expect(await screen.findByText("Could not load the replay: not your game")).toBeVisible();
     expect(screen.getByTestId("copy-replay-status")).toHaveAttribute("data-state", "error");
+  });
+});
+
+describe("event log scroll following (mocked layout)", () => {
+  // jsdom has no layout: every entry is 26px, the box is 320px, and scrollTop is a plain field.
+  const ROW = 26;
+  const BOX = 320;
+  const proto = HTMLElement.prototype;
+  const originals = {
+    scrollHeight: Object.getOwnPropertyDescriptor(proto, "scrollHeight"),
+    clientHeight: Object.getOwnPropertyDescriptor(proto, "clientHeight"),
+    scrollTop: Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop"),
+  };
+  const tops = new WeakMap<Element, number>();
+  beforeEach(() => {
+    Object.defineProperty(proto, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.matches(".event-log__list")
+          ? this.querySelectorAll('[data-testid="event-log-entry"]').length * ROW + 80
+          : 0;
+      },
+    });
+    Object.defineProperty(proto, "clientHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.matches(".event-log__list") ? BOX : 0;
+      },
+    });
+    Object.defineProperty(Element.prototype, "scrollTop", {
+      configurable: true,
+      get(this: Element) {
+        return tops.get(this) ?? 0;
+      },
+      set(this: Element, value: number) {
+        tops.set(this, value);
+      },
+    });
+  });
+  afterEach(() => {
+    for (const [key, target] of [
+      ["scrollHeight", proto],
+      ["clientHeight", proto],
+      ["scrollTop", Element.prototype],
+    ] as const) {
+      const original = originals[key];
+      if (original) Object.defineProperty(target, key, original);
+      else delete (target as unknown as Record<string, unknown>)[key];
+    }
+  });
+
+  const init = {
+    ...decision(0),
+    id: "start",
+    event: { kind: "game_initialized" as const, round: 1, phase: "action", speaker: "p1" },
+  };
+  const many = (n: number) => [init, ...Array.from({ length: n }, (_, i) => decision(i + 1))];
+  const path = { round: 1, phase: "action" };
+  const list = () => screen.getByTestId("event-log-list");
+  const gap = () => list().scrollHeight - list().clientHeight - list().scrollTop;
+  const scrollTo = (top: number) => {
+    list().scrollTop = top;
+    fireEvent.scroll(list());
+  };
+
+  it("opens at the newest entry and follows new events and bursts while pinned", () => {
+    const { rerender } = render(wrap(many(40), { currentPath: path }));
+    expect(gap()).toBe(0);
+    rerender(wrap(many(41), { currentPath: path }));
+    expect(gap()).toBe(0);
+    rerender(wrap(many(49), { currentPath: path }));
+    expect(gap()).toBe(0);
+  });
+
+  it("does not move a reader who scrolled up, and offers a jump to the latest", () => {
+    const { rerender } = render(wrap(many(40), { currentPath: path }));
+    scrollTo(120);
+    rerender(wrap(many(43), { currentPath: path }));
+    expect(list().scrollTop).toBe(120);
+    expect(screen.getByTestId("event-log-jump")).toHaveTextContent("3 new events");
+    fireEvent.click(screen.getByTestId("event-log-jump"));
+    expect(gap()).toBe(0);
+    expect(screen.queryByTestId("event-log-jump")).toBeNull();
+  });
+
+  it("follows into a newly opened round when pinned", () => {
+    const first = many(40);
+    const { rerender } = render(wrap(first, { currentPath: path }));
+    const next = [
+      ...first,
+      {
+        ...decision(41),
+        id: "round2",
+        round: undefined,
+        phase: undefined,
+        event: { kind: "phase_transition" as const, round: 2, phase: "strategy" },
+      },
+      { ...decision(42), round: 2, phase: "strategy" },
+    ];
+    rerender(wrap(next, { currentPath: { round: 2, phase: "strategy" } }));
+    expect(screen.getByText("Choice 42")).toBeInTheDocument();
+    expect(gap()).toBe(0);
+  });
+
+  it("keeps manual expansion across a reconnect (same history key) but drops it for a new one", () => {
+    const events = [
+      { ...decision(0), id: "start", event: { kind: "game_initialized" as const, round: 1, phase: "action", speaker: "p1" } },
+      { ...decision(1), round: 1 },
+      {
+        ...decision(2),
+        id: "round2",
+        round: undefined,
+        phase: undefined,
+        event: { kind: "phase_transition" as const, round: 2, phase: "action" },
+      },
+      { ...decision(3), round: 2 },
+    ];
+    const props = { currentPath: { round: 2, phase: "action" } };
+    const { rerender } = render(wrap(events, { ...props, historyKey: 7 }));
+    fireEvent.click(screen.getByRole("button", { name: /Round 1/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Action phase/ })[0]);
+    expect(screen.getByText("Choice 1")).toBeInTheDocument();
+    rerender(wrap([...events], { ...props, historyKey: 7 }));
+    expect(screen.getByText("Choice 1")).toBeInTheDocument();
+    rerender(wrap([...events], { ...props, historyKey: 8 }));
+    expect(screen.queryByText("Choice 1")).toBeNull();
+  });
+
+  it("restores the position after the list was hidden and shown again", () => {
+    const { rerender } = render(wrap(many(40), { currentPath: path }));
+    scrollTo(150);
+    rerender(wrap(many(40), { currentPath: path, isOpen: false }));
+    rerender(wrap(many(42), { currentPath: path, isOpen: false }));
+    rerender(wrap(many(42), { currentPath: path }));
+    expect(list().scrollTop).toBe(150);
+  });
+
+  it("reopens at the bottom when the reader was pinned", () => {
+    const { rerender } = render(wrap(many(40), { currentPath: path }));
+    rerender(wrap(many(40), { currentPath: path, isOpen: false }));
+    rerender(wrap(many(44), { currentPath: path }));
+    expect(gap()).toBe(0);
   });
 });

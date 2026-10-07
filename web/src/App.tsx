@@ -9,6 +9,7 @@ import { PlayerSheet } from "./components/PlayerSheet.tsx";
 import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
 import { GameShell } from "./components/GameShell.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
+import { logHistoryKey as logHistoryKeyFor } from "./components/eventLogScroll.ts";
 import { PlayerIdentityProvider } from "./presentation/PlayerIdentity.tsx";
 import { DecisionTableProvider } from "./components/PoliticsDecisionParts.tsx";
 import { participantText } from "./presentation/participantText.ts";
@@ -259,13 +260,18 @@ const GameViewContainer: React.FC<{
     dismissBatchResume,
   } = useGameSession({ gameId, viewer });
   const { playTurnNotification } = useTurnSound();
+  // The event log drops the reader's manual expansion only for a new history generation (undo,
+  // redo, restore). A reconnect re-sends the same generation with a fresh events array and keeps
+  // the reader's place; servers without a generation fall back to the array identity.
   const logHistoryKey = useRef<unknown>(null);
+  const logEventsIdentity = useRef<unknown>(null);
   if (
     snapshot?.type === "initial_snapshot" &&
     snapshot.events &&
-    logHistoryKey.current !== snapshot.events
+    logEventsIdentity.current !== snapshot.events
   )
-    logHistoryKey.current = snapshot.events;
+    logEventsIdentity.current = snapshot.events;
+  logHistoryKey.current = logHistoryKeyFor(gameHistory?.generation, logEventsIdentity.current);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const onChangeHistory = (action: import("./protocol/client.ts").HistoryChange, steps = 1) => {
