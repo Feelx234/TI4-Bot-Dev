@@ -89,3 +89,11 @@ The faction promissory note alias is `sever` (`promissory_notes.json`, faction `
 ## Review
 
 Implemented by one Sonnet implementer. Tier C material (timing windows, legality of movement and destruction, production gating): the independent frontier review is still owed; nothing here claims it. Review attention points: the `Game::step` reconcile call and the `holds` clause in `game.rs`; `MovementRules`'s wormhole copy; the `announce_landing` extraction in `invasion.rs`.
+
+## Operator rulings 2026-10-07 (recorded by coordinator)
+
+1. Breach tokens: 7, each with an active and an inactive side (`BREACH_SUPPLY` = 7).
+2. At most one breach per system (as implemented).
+3. Quietus does not suppress DEPLOY or printed text abilities (as implemented).
+4. Revenant places its mech from reinforcements, once per activation (as implemented).
+5. Ahk Ravin is exhausted even when the chosen player declines the swap (as implemented).

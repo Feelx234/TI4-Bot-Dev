@@ -83,8 +83,9 @@ pub const BREAKTHROUGH: &str = "crimsonbt";
 
 /// How many breach tokens exist. The corpus prints no number; the card note ("If you run out of
 /// breaches in your reinforcements, you can pull inactive breaches from the board") says the
-/// supply is finite, and six is this engine's reading (open question in the evidence).
-pub const BREACH_SUPPLY: usize = 6;
+/// supply is finite. Operator ruling 2026-10-07: there are seven, each with an active and an
+/// inactive side.
+pub const BREACH_SUPPLY: usize = 7;
 
 /// The only wormhole kind Sundered lets its owner use.
 const EPSILON: &str = "EPSILON";
