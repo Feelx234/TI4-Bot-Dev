@@ -16,6 +16,7 @@ import {
   decodeServerMessage,
   isStaleServerMessage,
 } from "./decode.ts";
+import { decodeSplicePreview, type SpliceEdit, type SplicePreview } from "./splice.ts";
 
 export type ConnectionStatus =
   "connecting" | "connected" | "disconnected" | "error";
@@ -608,6 +609,26 @@ export class GameSessionClient {
       text: JSON.stringify(replay, null, 2),
       filename: `ti4-replay-${this.options.gameId}.json`,
     };
+  }
+
+  /**
+   * Host only, read-only: how would the game fare if one past decision were removed or changed
+   * and the rest replayed from the same seed? Changes nothing on the server.
+   */
+  async previewSplice(edit: SpliceEdit): Promise<SplicePreview> {
+    if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
+      throw new Error("A player session is required");
+    const url = this.snapshotUrl().replace(/\/snapshot$/, "/history/splice-preview");
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { ...this.snapshotHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ edit }),
+    });
+    if (!response.ok) {
+      const reason = (await response.text().catch(() => "")).trim();
+      throw new Error(reason || `The server refused the splice preview (${response.status})`);
+    }
+    return decodeSplicePreview(await response.json());
   }
 
   /** The host changes the authoritative Rust timeline; all clients reconnect to it. */
