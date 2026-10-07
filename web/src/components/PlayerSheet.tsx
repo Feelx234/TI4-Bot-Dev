@@ -333,7 +333,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
               fontWeight: "500",
             }}
           >
-            {autoSubmit ? "⚡ Auto: lone moves" : "⚡ Auto off"}
+            {autoSubmit ? "⚡ Auto" : "⚡ Auto off"}
           </button>
         )}
         </div>
