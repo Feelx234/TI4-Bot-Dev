@@ -14,7 +14,7 @@ use ti4_content::units;
 use ti4_engine::seating::{self, MECATOL};
 use ti4_engine::{fleet, invasion, production};
 use ti4_model::content_types::{ContentType, POK};
-use ti4_model::id::{ActionCardId, FactionId, PlayerId, SystemId, UnitTypeId};
+use ti4_model::id::{ActionCardId, FactionId, PlayerId, RelicId, SystemId, UnitTypeId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
@@ -28,9 +28,12 @@ pub const CARDS: &str = "cards";
 /// The agenda phase from round one, with a hand-ordered deck and agenda-window action cards.
 pub const AGENDA: &str = "agenda";
 
+/// Every seat holds relics, one of them with a cultural fragment set for crossing.
+pub const RELICS: &str = "relics";
+
 /// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
-pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA];
+pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS];
 
 /// Action cards no nightly game ever played, found by diffing 72 final states' discard piles
 /// against the corpus. The first ten are in the standard deck; the rest are Thunder's Edge cards,
@@ -64,6 +67,19 @@ const AGENDA_CARD_POOL: &[&str] = &[
 
 /// Trade goods each seat gets, enough to matter for votes and riders without a purchase spree.
 const AGENDA_TRADE_GOODS: i32 = 3;
+
+/// Relics, dealt round-robin in this order so the interesting ones always land: a standard game
+/// reaches relics only through exploration and fragments, so almost none was ever held. Thunder's
+/// Edge's Heart of Ixth is included for its die-adjust window; the rest are the standard deck's.
+/// Relics the corpus lacks are skipped.
+const RELIC_POOL: &[&str] = &[
+    "neuraloop", "stellarconverter", "dominusorb", "emphidia", "titanprototype", "heartofixth",
+    "thalnos", "codex", "bookoflatvinia", "prophetstears", "mawofworlds", "enigmaticdevice",
+    "dynamiscore", "emelpar", "nanoforge", "circletofthevoid",
+];
+
+/// Relics per seat at most.
+const RELICS_PER_SEAT: usize = 3;
 
 /// Cards per seat: well under the hand limit of 7, so nothing is discarded at the status phase.
 const HAND_SIZE: usize = 5;
@@ -127,6 +143,10 @@ pub fn apply(
             agenda(content, state, players, seed);
             Ok(())
         }
+        RELICS => {
+            deal_relics(content, state, players, seed);
+            Ok(())
+        }
         other => Err(format!("unknown start_preset {other:?}")),
     }
 }
@@ -157,6 +177,28 @@ fn agenda(content: &ContentStore, state: &mut GameState, players: &[PlayerId], s
         if let Some(seat) = state.player_mut(player) {
             seat.trade_goods += AGENDA_TRADE_GOODS;
         }
+    }
+}
+
+/// Hands the relics of [`RELIC_POOL`] out round-robin from a seeded first seat and takes them out
+/// of the relic deck. The seat after the first also gets three cultural fragments (crossing).
+fn deal_relics(content: &ContentStore, state: &mut GameState, players: &[PlayerId], seed: u64) {
+    let count = players.len();
+    let first = (mix(seed, 500) % count as u64) as usize;
+    let pool: Vec<&str> = RELIC_POOL
+        .iter()
+        .copied()
+        .filter(|id| content.get(ContentType::Relics, id).is_some())
+        .take(count * RELICS_PER_SEAT)
+        .collect();
+    for (index, id) in pool.iter().enumerate() {
+        state.relic_deck.retain(|relic| relic.as_str() != *id);
+        if let Some(seat) = state.player_mut(&players[(first + index) % count]) {
+            seat.relics.push(RelicId::new(*id));
+        }
+    }
+    if let Some(seat) = state.player_mut(&players[(first + 1) % count]) {
+        seat.relic_fragments.insert("CULTURAL".to_owned(), 3);
     }
 }
 
@@ -739,6 +781,46 @@ mod tests {
         }
         for id in AGENDA_CARD_POOL {
             assert!(content().get(ContentType::ActionCards, id).is_some(), "{id}");
+        }
+    }
+
+    #[test]
+    fn the_relics_preset_deals_distinct_relics_with_neuraloop_and_something_to_purge() {
+        for n in 3..=6 {
+            for seed in 0..4 {
+                let list = players(n);
+                let (state, _) =
+                    create_game_with_preset(content(), &list, seed, None, Some(RELICS)).unwrap();
+                let held: Vec<&RelicId> = list
+                    .iter()
+                    .flat_map(|p| state.player(p).unwrap().relics.iter())
+                    .collect();
+                let unique: BTreeSet<_> = held.iter().collect();
+                assert_eq!(unique.len(), held.len(), "{n}p seed {seed}: a relic dealt twice");
+                assert!(held.iter().all(|r| !state.relic_deck.contains(r)));
+                let owner = list
+                    .iter()
+                    .find(|p| {
+                        state
+                            .player(p)
+                            .unwrap()
+                            .relics
+                            .iter()
+                            .any(|r| r.as_str() == "neuraloop")
+                    })
+                    .expect("neuraloop is dealt");
+                assert!(state.player(owner).unwrap().relics.len() >= 2, "{n}p: nothing to purge");
+                assert!(list.iter().any(
+                    |p| state.player(p).unwrap().relic_fragments.get("CULTURAL") == Some(&3)
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn every_relic_pool_entry_exists() {
+        for id in RELIC_POOL {
+            assert!(content().get(ContentType::Relics, id).is_some(), "{id}");
         }
     }
 

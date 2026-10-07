@@ -1,5 +1,5 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards", "agenda"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics"] as const;
 
 /** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
 export function presetFromEnv(value: string | undefined): string | undefined {
@@ -39,6 +39,9 @@ export const PRESET_EXPECT: Record<string, string> = {
   // The agenda phase ran and somebody voted; a window or pick of the dealt agenda cards fired.
   agenda:
     "cast_vote,play_reaction_after_AGENDA_REVEALED|predict_agenda_outcome|bribery_pick_count|assassin_pick_player>=2",
+  // Relic prompts: purge to move, explore with the Crown, Neuraloop, JR-XS455-O, Heart of Ixth.
+  relics:
+    "crown_of_emphidia_choose_planet|dominus_orb_purge_to_move|neuraloop_choose_relic_to_purge|titan_prototype_choose_builder|stellar_converter_choose_target|heart_ixth_die_adjust>=3",
 };
 
 export function parseExpect(value: string | undefined, preset?: string): Expectation[] {
