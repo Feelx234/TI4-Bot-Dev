@@ -21,7 +21,9 @@ export async function gameSnapshot(
       timeout: timeoutMs,
     });
   const response = await get().catch(() => get());
-  expect(response.ok(), `snapshot for game ${gameId}: ${response.status()}`).toBe(true);
+  // The body says why (e.g. "Game session failed closed: ..."), which the status alone does not.
+  const reason = response.ok() ? "" : ` ${(await response.text().catch(() => "")).slice(0, 400)}`;
+  expect(response.ok(), `snapshot for game ${gameId}: ${response.status()}${reason}`).toBe(true);
   return response.json();
 }
 
