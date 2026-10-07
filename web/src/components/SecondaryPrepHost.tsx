@@ -50,7 +50,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
   if (!showChip && !showBanner && !showBar && !pending && !played) return null;
 
   return (
-    <div className="secondary-prep" data-testid="secondary-prep">
+    <div className={`secondary-prep${showBanner ? " secondary-prep--preparing" : ""}`} data-testid="secondary-prep">
       {showChip && action && (
         <button type="button" className="secondary-prep__chip" data-testid="secondary-prep-chip" onClick={prep.open}>
           {plan ? "Prepared" : "Prepare your secondary"}
@@ -76,40 +76,39 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
                 </span>
               </span>
             </div>
-            {plan && (
-              <span className="secondary-prep__badge" data-testid="secondary-prepared-badge">
-                Prepared
-              </span>
-            )}
+            <div className="secondary-prep__row">
+              {plan && (
+                <span className="secondary-prep__badge" data-testid="secondary-prepared-badge">
+                  Prepared
+                </span>
+              )}
+              <button type="button" className="button button--primary button--sm" data-testid="prep-save" onClick={prep.close}>
+                Save plan
+              </button>
+              <button
+                type="button"
+                className="button button--secondary button--sm"
+                data-testid="prep-clear"
+                disabled={!plan}
+                onClick={() => {
+                  prep.clear();
+                  prep.close();
+                }}
+              >
+                Clear plan
+              </button>
+            </div>
           </div>
           <p className="secondary-prep__note" data-testid="prepare-plan-summary">
-            {plan ? `Your plan: ${describePlan(plan)}.` : "Answer the question below as you would for real."}
+            {plan ? `Your plan: ${describePlan(plan)}. ` : "Answer the question below as you would for real. "}
+            <span data-testid="prep-private-note">Private to this device; you can still change your mind when the real question comes.</span>
           </p>
           {prep.dry?.approximate && (
-            <p className="secondary-prep__warning" data-testid="prepare-approximate" role="note">
-              Approximate until the real question opens. {prep.dry.approximate}
-            </p>
+            <details className="secondary-prep__warning" data-testid="prepare-approximate" role="note">
+              <summary>Approximate until the real question opens</summary>
+              {prep.dry.approximate}
+            </details>
           )}
-          <p className="secondary-prep__note" data-testid="prep-private-note">
-            Private, kept only on this device. You can change your mind when the real question comes.
-          </p>
-          <div className="secondary-prep__row">
-            <button type="button" className="button button--primary button--sm" data-testid="prep-save" onClick={prep.close}>
-              Save plan
-            </button>
-            <button
-              type="button"
-              className="button button--secondary button--sm"
-              data-testid="prep-clear"
-              disabled={!plan}
-              onClick={() => {
-                prep.clear();
-                prep.close();
-              }}
-            >
-              Clear plan
-            </button>
-          </div>
         </section>
       )}
       {pending && (

@@ -22,6 +22,11 @@
     transform: none;
     top: 52px;
   }
+  /* The decision sits at the top on a phone: the preparing banner docks at the bottom instead. */
+  .secondary-prep--preparing {
+    top: auto;
+    bottom: 72px;
+  }
 }
 
 .secondary-prep__banner {
@@ -163,4 +168,9 @@
 .secondary-prep-mode button[aria-pressed="true"] {
   background: rgba(148, 163, 184, 0.22);
   color: #e2e8f0;
+}
+
+.secondary-prep__warning summary {
+  cursor: pointer;
+  font-weight: 600;
 }

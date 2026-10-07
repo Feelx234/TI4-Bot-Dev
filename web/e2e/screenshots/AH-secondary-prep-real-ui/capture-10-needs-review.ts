@@ -1,13 +1,13 @@
 import { test } from "@playwright/test";
 import { shot } from "../_shared/shot";
-import { openWaiting, push } from "./prep";
+import { openWaiting, push, save } from "./prep";
 
-// The prepared answer no longer validates when the window opens: no yes is offered any more.
+// The prepared answer no longer validates (no "yes" is offered): nothing is prefilled, the bar says why.
 test("secondary prep: needs review", async ({ page }, testInfo) => {
   const game = await openWaiting(page, { name: "Technology", card: "pok7technology" });
   await page.getByTestId("secondary-prep-chip").click();
-  await page.getByTestId("prep-follow").click();
-  await page.getByTestId("prep-tech-amd").click();
+  await page.getByTestId("secondary-yes-btn").click();
+  await save(page);
   push(game, {
     version: 42,
     history: { cursor: 41, redo_count: 0, generation: 0 },
@@ -19,5 +19,5 @@ test("secondary prep: needs review", async ({ page }, testInfo) => {
     },
   });
   await page.getByTestId("secondary-needs-review").waitFor();
-  await shot(page, testInfo, "5-needs-review");
+  await shot(page, testInfo, "10-needs-review");
 });

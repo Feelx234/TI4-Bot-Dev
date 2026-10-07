@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
-import type { GameEvent, PlayerView } from "../../../src/protocol/types";
+import type { BoardView, GameEvent, PlayerView } from "../../../src/protocol/types";
+import { galleryBoard } from "../../../src/dev/galleryBoard";
 import { openMockedGame, type MockedGame } from "../_shared/mockGame";
 import { playerWithHand, opponent, actor } from "../_shared/players";
 
@@ -12,7 +13,18 @@ export interface PrepScene {
   card: string;
   /** Viewer's players, with the primary holding the card (and a second one, so the log names it). */
   viewer?: Partial<PlayerView>;
+  /** Board; the gallery board by default (the viewer controls Jord, Exhausted World, Wellon, Tarmann). */
+  board?: BoardView;
 }
+
+/** The gallery board with some of the viewer's planets exhausted, so Diplomacy has something to ready. */
+export const boardWithExhausted = (...planets: string[]): BoardView => {
+  const board: BoardView = JSON.parse(JSON.stringify(galleryBoard));
+  for (const system of Object.values(board.systems))
+    for (const planet of Object.values(system.planets))
+      if (planets.includes(planet.planet_id)) planet.exhausted = true;
+  return board;
+};
 
 /** Public log: the primary's strategic action selection, as the server publishes it. */
 export const playedEvent = (name: string): GameEvent =>
@@ -35,7 +47,7 @@ export const playedEvent = (name: string): GameEvent =>
 
 /**
  * A mocked game where the primary seat is resolving a strategy card and the viewer waits. History
- * starts at a known cursor so a later `arrive` is real forward progress.
+ * starts at a known cursor so a later `push` is real forward progress.
  */
 export async function openWaiting(page: Page, scene: PrepScene): Promise<MockedGame> {
   const game = await openMockedGame(page, {
@@ -43,6 +55,7 @@ export async function openWaiting(page: Page, scene: PrepScene): Promise<MockedG
       playerWithHand({ strategy_cards: ["pok8imperial"], strategic_tokens: 2, ...scene.viewer }),
       { ...opponent, strategy_cards: [scene.card, scene.card === "pok1leadership" ? "pok5trade" : "pok1leadership"] },
     ],
+    board: scene.board,
     events: [playedEvent(scene.name)],
     view: { active_player: PRIMARY },
     turnStatus: { kind: "waiting_for_decision", seat: PRIMARY, phase: "action", round: 2, stage: "Waiting for player" },
@@ -51,6 +64,11 @@ export async function openWaiting(page: Page, scene: PrepScene): Promise<MockedG
   push(game, { history: { cursor: 40, redo_count: 0, generation: 0 }, version: 41 });
   await page.waitForTimeout(150);
   return game;
+}
+
+/** Leaves preparation mode as a player would: save the plan. */
+export async function save(page: Page) {
+  await page.getByTestId("prep-save").click();
 }
 
 type PendingOptions = { id: string; kind?: string; label: string }[];
