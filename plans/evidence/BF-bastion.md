@@ -60,3 +60,22 @@ Code: `factions/bastion.rs` (Galvanize core, Liberate, Phoenix Standard, Raise t
 * `cargo test -p ti4-policy -p ti4-sim -j1`: 273 and 51 passed (1 ignored), 0 failed.
 * Ledger: all factions full; bastion 14/14.
 * Soak `bastion 0 25 10`: 25 games, 0 failures.
+
+## Operator rulings 2026-10-07
+
+1. **Retreated units did participate.** `combat::retreat_to` now calls `bastion::note_retreat` (only when a Last Bastion seat exists): mark `bastion:retreated:<system>:<owner>` = `<destination>|<type>:<damaged>,...` for the retreating **ships** (fighters are ships; carried ground forces did not take part in a space combat and are not recorded). `combat` clears it with `bastion::clear_retreated` right after `SPACE_COMBAT_ENDED`. `bastion::participants` adds the matching ungalvanized ships standing in the destination (Located there) for Phoenix Standard and Raise the Standard. Open question 2 above is resolved. Other "participated" consumers: Devour, Reveal Prototype, Ipswitch and Brother Milor read participation at combat start or are ground-only, so they already count retreaters; Nekro Alastor ground forces still leave the combat on retreat (unchanged). No other card uses the end-of-combat definition.
+   Tests: `the_last_bastion_can_galvanize_a_ship_that_retreated_from_the_combat` and `a_raise_the_standard_holder_that_retreated_galvanizes_a_retreated_ship_and_returns_it` (real `CombatWindow` route, retreat announced), `a_retreated_ship_is_a_candidate_located_in_its_destination` (ships and carried fighter yes, infantry no, cleared), `a_game_without_a_last_bastion_keeps_no_retreat_note`.
+2. **Thunder's Edge technologies are researchable.** `technology::active_aliases(content, sources)`: deck `techs_pok_c4` plus every `thunders_edge`-source technology record when `sources` has Thunder's Edge. Content check: the 13 TE records are all faction techs (no generic card or replaced printing; Keleres `executiveorder` was already in the deck), `decks.json` has no TE deck beyond `techs_basete` (base only). Callers: `researchable` (has sources), Nekro `assimilation_options`/`can_take_from` (sources now threaded from `context.sources`), `nekro_units::gainable_technologies` (sources from Flayesh), Sardakk test. A PoK-only set is unchanged (test). Tests: `thunders_edge_faction_techs_are_active_only_when_the_expansion_is_in_play`, `a_thunders_edge_faction_can_research_its_own_faction_tech_and_no_one_else_can`, `a_nekro_is_offered_a_thunders_edge_faction_tech_through_the_singularity` (offer x|b|proxima, real SHIP_DESTROYED route, text gained not owned). Open question 6 above is resolved. Soak: TE factions now research their own faction techs in FULL-source games, so soak trajectories for TE seats shift.
+
+### Results (rulings)
+
+* `cargo test -p ti4-engine -j1 -- --test-threads=12`: lib 2578 passed / 1 ignored, then 1, 4, 5 passed, 0 failed.
+* `cargo test -p ti4-policy -p ti4-sim -j1`: 273 and 51 passed (1 ignored), 0 failed.
+* Ledger print: bastion 14/14, nekro 12/12.
+* Soaks `bastion 0 25 10` and `nekro 0 25 10`: 25 games each, 0 failures. Logs `out/te_tech_*.log`.
+
+## Operator rulings 2026-10-07 (recorded by coordinator)
+
+* Proxima "identical roll": a fresh roll of BOMBARDMENT 8 (x3) against the holder's own ground forces (as implemented).
+* `orlandohero` (F.S.S. Orlando): variant piece, disregarded; not a ledger asset.
+* Retreated units participated; Thunder's Edge technologies join the active deck (implemented above).

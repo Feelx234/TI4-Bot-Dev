@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ti4_content::ContentStore;
-use ti4_model::content_types::{ContentType, SourceSet};
+use ti4_model::content_types::{ContentType, Source, SourceSet};
 use ti4_model::id::{PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
 use ti4_model::state::GameState;
 
@@ -31,9 +31,11 @@ pub fn plasma_scoring(state: &GameState, player: &PlayerId) -> bool {
 /// The raw corpus deliberately contains original and replacement printings together.  The oracle
 /// uses `techs_pok_c4` to select the active printing; treating every corpus record as researchable
 /// offers obsolete Magen and X-89 variants as separate technologies.
+///
+/// `sources` adds the Thunder's Edge technologies (all faction cards) when that expansion is in play.
 #[must_use]
-pub fn active_aliases(content: &ContentStore) -> BTreeSet<TechnologyId> {
-    content
+pub fn active_aliases(content: &ContentStore, sources: SourceSet) -> BTreeSet<TechnologyId> {
+    let mut active: BTreeSet<TechnologyId> = content
         .get(ContentType::Decks, "techs_pok_c4")
         .map(|deck| {
             deck.strings("cardIDs")
@@ -41,7 +43,20 @@ pub fn active_aliases(content: &ContentStore) -> BTreeSet<TechnologyId> {
                 .map(TechnologyId::new)
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Thunder's Edge adds only faction technologies (no generic card, no replaced printing), and
+    // the PoK + Codex deck predates it. When the game uses the expansion its technologies are active.
+    if sources.contains(Source::ThundersEdge) {
+        active.extend(
+            content
+                .records(ContentType::Technologies)
+                .iter()
+                .filter(|record| record.source() == Some(Source::ThundersEdge))
+                .filter_map(|record| record.text("alias"))
+                .map(TechnologyId::new),
+        );
+    }
+    active
 }
 
 /// Printed technology name used by learned choice labels.
@@ -1060,7 +1075,7 @@ pub fn researchable(
     sources: SourceSet,
     player: &PlayerId,
 ) -> Vec<TechnologyId> {
-    let active = active_aliases(content);
+    let active = active_aliases(content, sources);
     let mut open: Vec<TechnologyId> = content
         .records(ContentType::Technologies)
         .iter()
@@ -1520,6 +1535,16 @@ mod tests {
         for alias in aliases {
             state
                 .player_mut(&player())
+                .unwrap()
+                .technologies
+                .insert(TechnologyId::new(*alias));
+        }
+    }
+
+    fn give_to(state: &mut GameState, who: &PlayerId, aliases: &[&str]) {
+        for alias in aliases {
+            state
+                .player_mut(who)
                 .unwrap()
                 .technologies
                 .insert(TechnologyId::new(*alias));
@@ -2074,7 +2099,7 @@ mod tests {
     #[test]
     fn researchable_uses_the_authoritative_current_printings() {
         let content = ContentStore::embedded();
-        let active = active_aliases(content);
+        let active = active_aliases(content, POK);
         assert!(active.contains(&TechnologyId::new("md")));
         assert!(!active.contains(&TechnologyId::new("md_base")));
         assert!(!active.contains(&TechnologyId::new("md_c1")));
@@ -2083,6 +2108,36 @@ mod tests {
         assert!(!offered.is_empty());
         assert!(!offered.contains(&TechnologyId::new("md_base")));
         assert!(!offered.contains(&TechnologyId::new("md_c1")));
+    }
+
+    #[test]
+    fn thunders_edge_faction_techs_are_active_only_when_the_expansion_is_in_play() {
+        let content = ContentStore::embedded();
+        let pok = active_aliases(content, POK);
+        let full = active_aliases(content, ti4_model::content_types::DEFAULT);
+        for alias in ["proxima", "helios2", "hydrothermal", "nanomachines", "linkship2"] {
+            assert!(!pok.contains(&TechnologyId::new(alias)), "{alias} under PoK");
+            assert!(full.contains(&TechnologyId::new(alias)), "{alias} under TE");
+        }
+        // The PoK-only set is exactly the deck, and TE only adds to it.
+        assert!(pok.is_subset(&full));
+        assert!(pok.contains(&TechnologyId::new("md")) && !full.contains(&TechnologyId::new("md_base")));
+        assert!(pok.len() < full.len());
+    }
+
+    #[test]
+    fn a_thunders_edge_faction_can_research_its_own_faction_tech_and_no_one_else_can() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("bastion");
+        give(&mut state, &["md"]);
+        let proxima = TechnologyId::new("proxima");
+        let full = ti4_model::content_types::DEFAULT;
+        assert!(researchable(&state, content, full, &player()).contains(&proxima));
+        assert!(!researchable(&state, content, POK, &player()).contains(&proxima));
+        let other = PlayerId::new("b");
+        give_to(&mut state, &other, &["md"]);
+        assert!(!researchable(&state, content, full, &other).contains(&proxima));
     }
 
     #[test]

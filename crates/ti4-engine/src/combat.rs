@@ -3562,6 +3562,16 @@ pub fn retreat_to(
             );
         }
     }
+    let ships_leaving: Vec<Unit> = leaving
+        .iter()
+        .filter(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(UnitType::is_ship)
+        })
+        .cloned()
+        .collect();
+    crate::factions::bastion::note_retreat(state, system, destination, player, &ships_leaving);
     state.move_units(system, destination, &leaving);
     // A dual-form unit is a ship only in the active system during its battle (Z-Grav Eidolon):
     // one that retreats takes its ground form again where it lands.
@@ -4337,6 +4347,7 @@ impl CombatWindow {
         crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
         let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
         crate::factions::nekro_units::alastor_clear(state, &self.system, None);
+        crate::factions::bastion::clear_retreated(state, &self.system);
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
         let _ = crate::production::destroy_blockaded_mobile_docks(

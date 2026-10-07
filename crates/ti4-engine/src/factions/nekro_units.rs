@@ -706,13 +706,14 @@ fn devourable_planets(
 fn gainable_technologies(
     state: &GameState,
     content: &ContentStore,
+    sources: SourceSet,
     player: &PlayerId,
     colours: &BTreeSet<&'static str>,
 ) -> Vec<TechnologyId> {
     let Some(seat) = state.player(player) else {
         return Vec::new();
     };
-    crate::technology::active_aliases(content)
+    crate::technology::active_aliases(content, sources)
         .into_iter()
         .filter(|alias| !seat.technologies.contains(alias))
         .filter(|alias| !crate::technology::is_unit_upgrade(content, alias))
@@ -767,7 +768,7 @@ fn flayesh(context: &mut TimingContext<'_>, player: &PlayerId) -> Result<bool, I
         }
     };
     let colours = specialty_colours(context.state, content, sources, &planet);
-    let candidates = gainable_technologies(context.state, content, player, &colours);
+    let candidates = gainable_technologies(context.state, content, sources, player, &colours);
     let technology = match candidates.as_slice() {
         [] => None,
         [only] => Some(only.clone()),

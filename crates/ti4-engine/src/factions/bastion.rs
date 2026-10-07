@@ -318,9 +318,11 @@ pub(crate) fn galvanize_chosen(
 
 // -- the ships and ground forces that were in a combat --------------------------------------------
 
-/// `player`'s units that took part in the combat `event` reports and still stand where it was
-/// fought: their ships in the space area for a space combat, their ground forces on the planet for
-/// a ground combat. Units that retreated are gone from the system and are not candidates.
+/// `player`'s units that took part in the combat `event` reports: their ships in the space area for
+/// a space combat, their ground forces on the planet for a ground combat. Ships that retreated from
+/// the space combat took part in it (operator ruling 2026-10-07) and stand in their retreat
+/// destination; ground forces they carried did not take part in a space combat and are not
+/// candidates. Fighters are ships, so a carried fighter is.
 fn participants(
     state: &GameState,
     content: &ContentStore,
@@ -355,6 +357,26 @@ fn participants(
                     spot: None,
                     unit: unit.clone(),
                 });
+            }
+            // Ships that retreated from this combat took part in it: they stand in their retreat
+            // destination (see [`note_retreat`]).
+            if let Some((destination, kept)) = retreated_from(state, &system, player)
+                && let Some(arrived) = state.board.get(&destination)
+            {
+                for unit in arrived.units.iter().filter(|unit| {
+                    &unit.owner == player
+                        && !unit.galvanized
+                        && kept.contains(&(unit.type_id.to_string(), unit.sustained_damage))
+                        && types
+                            .get(unit.type_id.as_str())
+                            .is_some_and(|kind| kind.is_ship())
+                }) {
+                    found.insert(Located {
+                        system: destination.clone(),
+                        spot: None,
+                        unit: unit.clone(),
+                    });
+                }
             }
         }
         "GROUND_COMBAT_ENDED" => {
@@ -741,6 +763,68 @@ pub(crate) fn take_ship_lost(
         state.faction_marks.insert(key, (count - 1).to_string());
     }
     true
+}
+
+// -- ships that retreated from a combat -----------------------------------------------------------
+
+fn retreat_key(system: &SystemId, owner: &PlayerId) -> String {
+    format!("bastion:retreated:{system}:{owner}")
+}
+
+/// Record that `owner`'s `ships` retreated from the space combat in `system` to `destination`, so
+/// Phoenix Standard and Raise the Standard can still count them as having participated. Written
+/// only in a game with a Last Bastion seat, and cleared by [`clear_retreated`] when that combat
+/// ends. Called by `combat::retreat_to`.
+pub(crate) fn note_retreat(
+    state: &mut GameState,
+    system: &SystemId,
+    destination: &SystemId,
+    owner: &PlayerId,
+    ships: &[Unit],
+) {
+    if ships.is_empty() || crate::promissory::seat_of(state, FACTION).is_none() {
+        return;
+    }
+    let mut kept: Vec<String> = ships
+        .iter()
+        .map(|unit| format!("{}:{}", unit.type_id, u8::from(unit.sustained_damage)))
+        .collect();
+    kept.sort();
+    kept.dedup();
+    state.faction_marks.insert(
+        retreat_key(system, owner),
+        format!("{destination}|{}", kept.join(",")),
+    );
+}
+
+/// Forget the retreats from the combat in `system`. Called by `combat` after `SPACE_COMBAT_ENDED`.
+pub(crate) fn clear_retreated(state: &mut GameState, system: &SystemId) {
+    if state.faction_marks.is_empty() {
+        return;
+    }
+    let prefix = format!("bastion:retreated:{system}:");
+    state
+        .faction_marks
+        .retain(|key, _| !key.starts_with(&prefix));
+}
+
+/// Where `owner`'s ships went when they retreated from `system`, and which (type, damaged) values
+/// they were.
+fn retreated_from(
+    state: &GameState,
+    system: &SystemId,
+    owner: &PlayerId,
+) -> Option<(SystemId, std::collections::BTreeSet<(String, bool)>)> {
+    let mark = state.faction_marks.get(&retreat_key(system, owner))?;
+    let (destination, kept) = mark.split_once('|')?;
+    let kept = kept
+        .split(',')
+        .filter_map(|entry| {
+            let (kind, damaged) = entry.rsplit_once(':')?;
+            Some((kind.to_owned(), damaged == "1"))
+        })
+        .collect();
+    Some((SystemId::new(destination), kept))
 }
 
 /// Shared fixtures for this faction's tests (`bastion.rs`, `bastion_units.rs`).
@@ -1342,7 +1426,214 @@ mod tests {
         assert_eq!(galvanized_on_board(&state), TOKEN_SUPPLY);
     }
 
+    // -- ships that retreated took part ------------------------------------------------------------
+
+    /// A decider for a real combat: `retreater` announces a retreat, everyone else stays; any
+    /// other question takes the first of `wants` offered, else declines, else the first option.
+    struct Route {
+        retreater: PlayerId,
+        wants: Vec<String>,
+    }
+
+    impl crate::choice::Decider for Route {
+        fn choose(
+            &mut self,
+            choice: &crate::choice::Choice,
+        ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            let pick = |id: &str| choice.option(id).cloned();
+            let found = if choice.option("stay").is_some() {
+                pick(if choice.player == self.retreater {
+                    "retreat"
+                } else {
+                    "stay"
+                })
+            } else {
+                self.wants.iter().find_map(|want| pick(want))
+            };
+            Ok(found.unwrap_or_else(|| {
+                choice
+                    .options
+                    .iter()
+                    .find(|option| option.is_decline())
+                    .unwrap_or(&choice.options[0])
+                    .clone()
+            }))
+        }
+    }
+
+    /// Fight a real space combat in a hub's centre, `a` and `b` one dreadnought each, with `setup`
+    /// free to add more. `retreater` has a fighter in the first outer system to go to. Returns the
+    /// end state and the centre and destination systems, for the first seed in which the combat
+    /// ended by that player's retreat.
+    fn retreat_route(
+        retreater: &str,
+        wants: &[String],
+        setup: impl Fn(&mut GameState, &SystemId),
+    ) -> (GameState, SystemId, SystemId) {
+        use crate::choice::{Resolving, TimingHandle, Window};
+        for seed in 0..80_u64 {
+            let hub = crate::fixtures::plain_hub();
+            let (system, outer) = (
+                SystemId::new(&hub.centre),
+                SystemId::new(&hub.outer[0]),
+            );
+            let mut state = game();
+            for id in std::iter::once(&hub.centre).chain(hub.outer.iter().take(1)) {
+                state.board.entry(SystemId::new(id)).or_default();
+            }
+            crate::fixtures::put(&mut state, &system, "dreadnought", &a(), 1);
+            crate::fixtures::put(&mut state, &system, "dreadnought", &b(), 1);
+            crate::fixtures::put(&mut state, &outer, "fighter", &PlayerId::new(retreater), 1);
+            setup(&mut state, &system);
+            let mut resolver = crate::fixtures::armed_resolver(&state);
+            let mut sequence = crate::event::EventSequence::new();
+            let mut table = crate::choice::Table::with_default(Box::new(Route {
+                retreater: PlayerId::new(retreater),
+                wants: wants.to_vec(),
+            }));
+            let mut dice = crate::dice::Dice::new();
+            let mut rng = crate::rng::GameRng::new(seed);
+            let mut window = crate::combat::CombatWindow::new(&state, content(), DEFAULT, &system)
+                .with_galaxy(hub.galaxy);
+            let mut ctx = Resolving {
+                content: content(),
+                sources: DEFAULT,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: Some(TimingHandle {
+                    resolver: &mut resolver,
+                    sequence: &mut sequence,
+                    galaxy: None,
+                }),
+            };
+            window.settle_open(&mut state, &mut ctx).expect("opens");
+            while window.outcome().is_none() {
+                window.drive(&mut state, &mut ctx).expect("drives");
+                if window.outcome().is_some() {
+                    break;
+                }
+                let _ = window.take_scoring_occurrence();
+                window.settle_open(&mut state, &mut ctx).expect("settles");
+            }
+            let left = state
+                .system_state(&system)
+                .units
+                .iter()
+                .all(|unit| unit.owner.as_str() != retreater);
+            let arrived = state
+                .system_state(&outer)
+                .units
+                .iter()
+                .any(|unit| unit.owner.as_str() == retreater && unit.type_id.as_str() == "dreadnought");
+            if left && arrived {
+                return (state, system, outer);
+            }
+        }
+        panic!("some seed lets the retreater live to retreat");
+    }
+
+    #[test]
+    fn the_last_bastion_can_galvanize_a_ship_that_retreated_from_the_combat() {
+        let phoenix = PHOENIX_SPACE.to_owned();
+        let (state, system, outer) = retreat_route("a", &[phoenix, "decline".into()], |_, _| {});
+        // Phoenix Standard was offered at the end of the combat and a retreated ship was chosen
+        // (a dreadnought or the fighter, whichever sorts first among the retreated ships).
+        let retreated = state
+            .system_state(&outer)
+            .units
+            .iter()
+            .filter(|unit| unit.owner == a() && unit.galvanized)
+            .count();
+        assert_eq!(retreated, 1, "Phoenix Standard galvanized one retreated ship");
+        assert_eq!(galvanized_on_board(&state), 1);
+        assert!(
+            state.faction_marks.keys().all(|key| !key.starts_with("bastion:retreated:")),
+            "the retreat note goes with the combat: {:?} (system {system})",
+            state.faction_marks
+        );
+    }
+
+    #[test]
+    fn a_retreated_ship_is_a_candidate_located_in_its_destination() {
+        let (system, _) = arena();
+        let destination = SystemId::new("1");
+        let mut state = game();
+        state.board.entry(destination.clone()).or_default();
+        crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+        crate::fixtures::put(&mut state, &system, "carrier", &a(), 1);
+        crate::fixtures::put(&mut state, &system, "infantry", &a(), 2);
+        crate::fixtures::put(&mut state, &system, "fighter", &a(), 1);
+        let ships: Vec<Unit> = state
+            .system_state(&system)
+            .units
+            .iter()
+            .filter(|unit| unit.type_id.as_str() != "infantry")
+            .cloned()
+            .collect();
+        note_retreat(&mut state, &system, &destination, &a(), &ships);
+        crate::combat::retreat_to(&mut state, content(), DEFAULT, &a(), &system, &destination);
+        let event = Event::new(1, "SPACE_COMBAT_ENDED", {
+            space_ended(&system, "a", "b")
+                .into_iter()
+                .map(|(key, value)| (key.to_owned(), value))
+                .collect()
+        });
+        let candidates = participants(&state, content(), DEFAULT, &event, &a());
+        assert!(!candidates.is_empty());
+        for found in &candidates {
+            assert_eq!(found.system, destination, "located where it retreated to");
+            assert!(found.spot.is_none());
+            assert_ne!(found.unit.type_id.as_str(), "infantry", "no ground force");
+        }
+        let kinds: std::collections::BTreeSet<&str> = candidates
+            .iter()
+            .map(|found| found.unit.type_id.as_str())
+            .collect();
+        assert_eq!(
+            kinds,
+            ["carrier", "cruiser", "fighter"].into_iter().collect(),
+            "ships and the fighters they carried"
+        );
+        clear_retreated(&mut state, &system);
+        assert!(participants(&state, content(), DEFAULT, &event, &a()).is_empty());
+    }
+
+    #[test]
+    fn a_game_without_a_last_bastion_keeps_no_retreat_note() {
+        let (system, _) = arena();
+        let destination = SystemId::new("1");
+        let mut state =
+            crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        state.board.entry(destination.clone()).or_default();
+        crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+        crate::combat::retreat_to(&mut state, content(), DEFAULT, &a(), &system, &destination);
+        assert!(
+            state
+                .faction_marks
+                .keys()
+                .all(|key| !key.starts_with("bastion:"))
+        );
+    }
+
     // -- Raise the Standard ----------------------------------------------------------------------
+
+    #[test]
+    fn a_raise_the_standard_holder_that_retreated_galvanizes_a_retreated_ship_and_returns_it() {
+        let note = crate::promissory::note_id(RAISE_THE_STANDARD, FACTION);
+        let (state, _, outer) = retreat_route("b", &["decline".to_owned()], |state, _| {
+            crate::promissory::take(state, content(), &b(), &note);
+        });
+        assert_eq!(state.promissory_notes[&note], a(), "returned home");
+        let galvanized = state
+            .system_state(&outer)
+            .units
+            .iter()
+            .filter(|unit| unit.owner == b() && unit.galvanized)
+            .count();
+        assert_eq!(galvanized, 1, "one retreated ship, in the destination");
+        assert_eq!(galvanized_on_board(&state), 1);
+    }
 
     #[test]
     fn raise_the_standard_galvanizes_for_the_holder_and_returns_home() {
