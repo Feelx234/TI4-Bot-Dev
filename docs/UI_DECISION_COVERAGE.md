@@ -245,6 +245,28 @@ Columns: handle, slug (use as `/slug`), subtype, who answers, what is asked, UI 
 | Legendary Arms | `/legendary-arms` | `legendary_arms_vault / legendary_place / maxis / salvage / aurex / exterrix / acropolis / galactic_council` | owner | legendary effects | Shared specialised | PlanetSelectionBar for planet-payload ones; others list | 70 (11) | Mixed; per-subtype not verified. |
 | Dynamic Pick | `/dynamic-pick` | `(card)_pick_(player\|planet\|system\|...) fallback` | card player | fallback naming for any card with a single pick | Generic fallback | generic or shared depending on payload | 0 (never seen) | action_cards.rs:4321. |
 
+## Added by the Porkchop911 merge (2026-10-07)
+
+Found by comparing every `DecisionContext::new` subtype before (`2b49782`) and after the merge (`bfb88b5`): 13 new subtypes, none known to the web client and none seen in a nightly run (the traces predate the merge). All fall back to the generic list unless noted; routing was read from the engine option shapes, not run in a browser. Counts above (144 handles) do not include them: with these the total is 157 handles and 61 generic fallback rows.
+
+| Handle | Slug | Subtype | Engine file | Asks | Expected UI today | Priority |
+|---|---|---|---|---|---|---:|
+| Ground Sustain | `/ground-sustain` | `ground_effect_sustain` | invasion.rs | use SUSTAIN DAMAGE in ground combat (option kind `ground_effect_sustain`) | Generic list; the ground combat overlay does not know it | 1 |
+| Crimson Pay | `/crimson-pay` | `crimson_payment` | strategy_cards.rs | Crimson commander: gain or convert (kind `economy`) | Generic list | 2 |
+| Deepwrought Pay | `/deepwrought-pay` | `deepwrought_payment` | strategy_cards.rs | Deepwrought commander: gain or convert | Generic list | 2 |
+| Deepwrought Reduce | `/deepwrought-reduce` | `deepwrought_reduce_research` | strategy_cards.rs | reduce a research cost by 1 | Generic yes/no | 3 |
+| Research Waiver | `/research-waiver` | `research_waiver` | technology.rs | research waiver offer | Generic list | 3 |
+| Waiver Pay | `/waiver-pay` | `research_waiver_payment` | strategy_cards.rs | payment for a waived research | Generic list | 3 |
+| Vote TG | `/vote-tg` | `vote_spend_trade_goods` | vote.rs | Hacan commander: spend trade goods while voting | Generic list | 4 |
+| PDS Alternative | `/pds-alternative` | `place_structure_pds_alternative` | strategy_cards.rs | place a PDS or an alternative | Planet picker without the structure info panel (only `place_structure` shows it); unverified | 5 |
+| Reinforce Place | `/reinforce-place` | `place_units_from_reinforcements` | action_cards.rs | place units (kind `place_unit`, system and count) | Generic list | 6 |
+| Take Revealed | `/take-revealed` | `take_revealed_action_card` | action_cards.rs | take a revealed action card | Generic list | 7 |
+| Coexist | `/coexist` | `coalescence_coexist` | invasion.rs | Titans: fight or coexist | Generic list | 8 |
+| L1Z1X Copy | `/l1z1x-copy` | `leader_l1z1xagent_copy_planet` | leaders.rs | L1Z1X agent: choose a planet | Probably the shared planet picker; unverified | 9 |
+| Ssruu Round | `/ssruu-round` | `leader_ssruu_round_agent_unit` | engine | Ssruu round agent: choose a unit | Generic list | 9 |
+
+`doctor_sucaban_exhaust` became conditional (`doctor_sucaban_borrowed_exhaust` when the source is copied); it is a variant of the existing row. Status: queued 2026-10-07, none built.
+
 ## Gaps in existing UIs (dedicated or shared, with weaknesses)
 
 Handles refer to the table. Sources: `docs/DECISION_UI_REVIEW.md`, `TODO.md`, `web/TODOS.md`, code reading.
