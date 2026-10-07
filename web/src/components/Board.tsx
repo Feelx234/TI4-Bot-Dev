@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from "react";
+import React, { useMemo, useState, useRef, useId } from "react";
 import { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.ts";
 import {
   buildBoardPresentationModel,
@@ -82,6 +82,7 @@ export const Board: React.FC<BoardProps> = ({
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const startPanRef = useRef({ x: 0, y: 0 });
+  const helpId = useId();
 
   // Pure presentation derivation
   const presentation = buildBoardPresentationModel(
@@ -218,7 +219,14 @@ export const Board: React.FC<BoardProps> = ({
         ))}
       </div>
 
+      <p id={helpId} className="visually-hidden">
+        Drag the map to pan it. Use the zoom buttons to zoom in and out, and the reset button to
+        return to the full view.
+      </p>
       <svg
+        role="group"
+        aria-label="Galaxy map"
+        aria-describedby={helpId}
         viewBox={presentation.viewBox}
         onClick={(e) => {
           if (e.target === e.currentTarget) setSelectedSystemId(null);
