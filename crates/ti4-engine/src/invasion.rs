@@ -509,6 +509,8 @@ fn roll_bombard_plan(
             }
             // Plasma Scoring: one bombarding unit rolls a die more, once for the whole bombardment.
             let count = count + usize::from(std::mem::take(&mut plasma));
+            // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
+            let count = count + crate::factions::bastion::extra_die(&unit);
             // Bunker: "during this invasion, apply -4 to the result of each BOMBARDMENT roll
             // against planets you control." The window that hosts these rolls is opened after
             // the driver's invasion events, so the marker is in place by the time the rolls
@@ -675,7 +677,18 @@ fn apply_bombard_plan(
             state.exhaust_planet(entry.planet.clone());
         }
         let mut taken = 0;
-        for produced in &entry.groups {
+        // Proxima Targeting VI: 1 hit cancelled per galvanized unit present on the planet.
+        let mut groups = entry.groups.clone();
+        if let [victim] = entry.victims.iter().collect::<Vec<_>>()[..] {
+            crate::factions::bastion_units::cancel_in_groups(
+                state,
+                victim,
+                system,
+                &entry.planet,
+                &mut groups,
+            );
+        }
+        for produced in &groups {
             let target = if entry.victims.len() == 1 {
                 entry.victims.iter().next().expect("a single owner").clone()
             } else {
@@ -1155,6 +1168,8 @@ fn roll_ground(
             },
             kind.combat_dice(),
         );
+        // A galvanized unit rolls 1 additional die for its combat rolls (Last Bastion).
+        slot.0 += i64::try_from(crate::factions::bastion::extra_die(&unit)).unwrap_or(0);
         slot.0 += crate::factions::borrowed_round_agents::extra_die_for(
             state,
             content,
@@ -1431,6 +1446,11 @@ fn ground_hit_outcome_logged(
         payload.insert("unit".to_owned(), unit.type_id.to_string().into());
         if let Some(damaged) = damaged {
             payload.insert("damaged".to_owned(), damaged.into());
+            // The token goes back to the supply with a destroyed unit; the event keeps the fact
+            // (Last Bastion). Present only when true.
+            if unit.galvanized {
+                payload.insert("galvanized".to_owned(), true.into());
+            }
         }
         payload.insert("cause".to_owned(), cause.into());
         (name, payload)
@@ -1632,6 +1652,9 @@ pub(crate) fn assign_selected_ground_hit_in_timing(
             .remove_from_planet(planet, std::slice::from_ref(unit));
         crate::faction_techs::note_destroyed(ctx.state, unit);
         payload.insert("damaged".to_owned(), unit.sustained_damage.into());
+        if unit.galvanized {
+            payload.insert("galvanized".to_owned(), true.into());
+        }
         "GROUND_FORCE_DESTROYED"
     };
     let event = ctx.event_sequence.next(kind, payload)?;
@@ -1864,6 +1887,9 @@ pub fn ground_combat(
         } else {
             0
         };
+        let harrow = crate::factions::bastion_units::cancel_bombardment_hits(
+            state, &defender, system, planet, harrow,
+        );
         if harrow > 0 {
             absorb_ground_with_origin(
                 state, content, sources, table, &defender, system, planet, harrow, true,
@@ -2292,6 +2318,15 @@ impl InvasionWindow {
             );
             if victims.len() == 1 {
                 let target = victims.iter().next().expect("a single owner");
+                // Proxima Targeting VI: 1 hit cancelled per galvanized unit present on the planet.
+                let mut groups = groups;
+                crate::factions::bastion_units::cancel_in_groups(
+                    state,
+                    target,
+                    &self.system,
+                    &planet,
+                    &mut groups,
+                );
                 let mut taken = 0;
                 for produced in &groups {
                     let produced = ground_hits_window(
@@ -2812,6 +2847,28 @@ impl InvasionWindow {
                 &planet,
             );
         }
+        // Proxima Targeting VI: "At the start of a round of ground combat, you may resolve
+        // BOMBARDMENT 8 (x3) ...". Emitted only while a side holds the technology, so every other
+        // game's event stream is unchanged.
+        if crate::factions::bastion_units::watches_ground_round(
+            state,
+            &[&self.invader, &defender],
+        ) {
+            let payload = std::collections::BTreeMap::from([
+                ("system".to_owned(), self.system.to_string().into()),
+                ("planet".to_owned(), planet.to_string().into()),
+                ("attacker".to_owned(), self.invader.to_string().into()),
+                ("defender".to_owned(), defender.to_string().into()),
+            ]);
+            if let Err(error) = ctx.emit(
+                state,
+                crate::factions::bastion_units::ROUND_BEGAN,
+                payload,
+            ) {
+                self.strict_timing_error = Some(error);
+                return;
+            }
+        }
         // Letnev's Dunlain Reaper: "DEPLOY: At the start of a round of ground combat, you may spend
         // 2 resources to replace 1 of your infantry in that combat with 1 mech from your
         // reinforcements." Before the dice, so the mech fights the round it arrives for.
@@ -2972,6 +3029,14 @@ impl InvasionWindow {
                 ctx.rng,
                 &self.invader,
                 &self.system,
+            );
+            // Harrow is a bombardment: Proxima Targeting VI cancels hits against its holder.
+            let harrow = crate::factions::bastion_units::cancel_bombardment_hits(
+                state,
+                &defender,
+                &self.system,
+                &planet,
+                harrow,
             );
             let harrow = ground_hits_window(
                 state,
@@ -4106,6 +4171,8 @@ fn space_cannon_defense(
             continue;
         }
         let count = count + crate::combat::take_plasma(&mut plasma, &unit.owner, value);
+        // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
+        let count = count + crate::factions::bastion::extra_die(&unit);
         let roll = ctx.dice.roll_by(
             ctx.rng,
             count,

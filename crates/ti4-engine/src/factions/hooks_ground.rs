@@ -349,8 +349,11 @@ pub(crate) fn stage_ground_force_destroyed(
     stage(
         state,
         format!(
-            "destroyed|{system}|{planet}|{}|{}|{}|{cause}",
-            unit.owner, unit.type_id, unit.sustained_damage
+            "destroyed|{system}|{planet}|{}|{}|{}|{cause}{}",
+            unit.owner,
+            unit.type_id,
+            unit.sustained_damage,
+            if unit.galvanized { "|g" } else { "" }
         ),
     );
 }
@@ -401,7 +404,13 @@ pub fn announce_staged_events(state: &mut GameState, ctx: &mut crate::choice::Re
             let Some(row) = state.faction_marks.remove(&key) else {
                 continue;
             };
-            let parts: Vec<&str> = row.split('|').collect();
+            let mut parts: Vec<&str> = row.split('|').collect();
+            // A trailing `g` marks a galvanized unit (Last Bastion): the token went back to the
+            // supply with the unit, so the row is the only record of it.
+            let galvanized = parts.last() == Some(&"g");
+            if galvanized {
+                parts.pop();
+            }
             let mut payload = std::collections::BTreeMap::new();
             let name = match parts[..] {
                 ["destroyed", system, planet, player, unit, damaged, cause] => {
@@ -411,6 +420,9 @@ pub fn announce_staged_events(state: &mut GameState, ctx: &mut crate::choice::Re
                     payload.insert("unit".to_owned(), unit.into());
                     payload.insert("damaged".to_owned(), (damaged == "true").into());
                     payload.insert("cause".to_owned(), cause.into());
+                    if galvanized {
+                        payload.insert("galvanized".to_owned(), true.into());
+                    }
                     "GROUND_FORCE_DESTROYED"
                 }
                 ["control", system, planet, player, previous] => {
@@ -463,7 +475,13 @@ pub fn try_announce_staged_events(
             let Some(row) = state.faction_marks.remove(&key) else {
                 continue;
             };
-            let parts: Vec<&str> = row.split('|').collect();
+            let mut parts: Vec<&str> = row.split('|').collect();
+            // A trailing `g` marks a galvanized unit (Last Bastion): the token went back to the
+            // supply with the unit, so the row is the only record of it.
+            let galvanized = parts.last() == Some(&"g");
+            if galvanized {
+                parts.pop();
+            }
             let mut payload = std::collections::BTreeMap::new();
             let name = match parts[..] {
                 ["destroyed", system, planet, player, unit, damaged, cause] => {
@@ -473,6 +491,9 @@ pub fn try_announce_staged_events(
                     payload.insert("unit".to_owned(), unit.into());
                     payload.insert("damaged".to_owned(), (damaged == "true").into());
                     payload.insert("cause".to_owned(), cause.into());
+                    if galvanized {
+                        payload.insert("galvanized".to_owned(), true.into());
+                    }
                     "GROUND_FORCE_DESTROYED"
                 }
                 ["control", system, planet, player, previous] => {

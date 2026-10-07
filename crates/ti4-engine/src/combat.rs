@@ -235,6 +235,7 @@ pub(crate) fn planetary_maximum_participates(
 /// area; Eidolon Maximum is the sole current exception and remains on its planet while joining
 /// the battle.
 pub(crate) fn remove_combat_ship(state: &mut GameState, system: &SystemId, unit: &Unit) {
+    crate::factions::bastion::note_ship_lost(state, system, unit);
     let voltron = unit.type_id.as_str() == "naaz_voltron";
     // An Alastor participant is a ground force standing on its planet: it leaves from there, and
     // the choice that made it a participant shrinks by one.
@@ -1197,6 +1198,8 @@ fn fleet_groups(
             dice += 1;
             extra_die_added = true;
         }
+        // A galvanized unit rolls 1 additional die for its combat rolls (Last Bastion).
+        dice += i64::try_from(crate::factions::bastion::extra_die(&unit)).unwrap_or(0);
         dice += crate::factions::borrowed_round_agents::extra_die_for(
             state,
             content,
@@ -1534,6 +1537,8 @@ pub fn roll_barrage_side(
         if count == 0 {
             continue;
         }
+        // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
+        let count = count + crate::factions::bastion::extra_die(&unit);
         // Fighter Prototype names "each of your fighters' combat rolls": the barrage is a
         // fighters' combat roll, so it gets the same +2 per copy as the fleet rolls do.
         let value = if kind.is_fighter() {
@@ -2047,6 +2052,8 @@ pub fn space_cannon_offense(
             continue;
         }
         let count = count + take_plasma(&mut plasma, &unit.owner, value);
+        // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
+        let count = count + crate::factions::bastion::extra_die(&unit);
         let roll = dice.roll_by(
             rng,
             count,
@@ -2857,7 +2864,7 @@ pub fn destroyed_during_combat(event: &crate::event::Event) -> bool {
 /// Shared by the combat window's own emissions and by the card-play path that drains
 /// [`GameState::pending_destructions`], so the two cannot drift apart on a key a listener reads.
 pub(crate) fn ship_destroyed_payload(
-    state: &GameState,
+    state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
     system: &SystemId,
@@ -2868,6 +2875,11 @@ pub(crate) fn ship_destroyed_payload(
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     let remaining = ships_of(state, content, sources, owner, system).len();
     let mut payload = std::collections::BTreeMap::new();
+    // The galvanize token went back to the supply with the ship; the event is the only record that
+    // it was galvanized (Last Bastion). Present only when true, so other games' events are unchanged.
+    if crate::factions::bastion::take_ship_lost(state, system, owner, unit) {
+        payload.insert("galvanized".to_owned(), true.into());
+    }
     payload.insert("system".to_owned(), system.to_string().into());
     payload.insert("player".to_owned(), owner.to_string().into());
     payload.insert("unit".to_owned(), unit.to_string().into());
@@ -3541,6 +3553,13 @@ pub fn retreat_to(
     for unit in &planetary {
         if leaving.contains(unit) {
             remove_combat_ship(state, system, unit);
+            // Leaving is not destroying: forget the galvanized-loss note the removal made.
+            let _ = crate::factions::bastion::take_ship_lost(
+                state,
+                system,
+                &unit.owner,
+                &unit.type_id,
+            );
         }
     }
     state.move_units(system, destination, &leaving);

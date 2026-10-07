@@ -699,7 +699,7 @@ pub fn announce(
         context.state.last_ship_destroyed =
             Some((system.clone(), owner.clone(), unit_type.clone()));
         let payload = crate::combat::ship_destroyed_payload(
-            context.state,
+            &mut *context.state,
             context.content,
             context.sources,
             &system,

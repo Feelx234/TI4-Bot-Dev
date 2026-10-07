@@ -44,6 +44,8 @@ pub struct CombatUnit<'a> {
 
 pub mod arborec;
 pub mod argent;
+pub mod bastion;
+pub mod bastion_units;
 mod borrowed_commanders;
 pub(crate) mod borrowed_commanders_b;
 pub mod borrowed_round_agents;
@@ -78,9 +80,10 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 21] = [
+pub const MODULES: [&FactionModule; 22] = [
     &arborec::MODULE,
     &argent::MODULE,
+    &bastion::MODULE,
     &cabal::MODULE,
     &empyrean::MODULE,
     &ghost::MODULE,

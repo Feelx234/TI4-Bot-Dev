@@ -194,6 +194,11 @@ pub fn planet_value_now(
     planet_value(content, sources, planet, kind)
         + crate::laws::planet_value_bonus(state, planet, kind)
         + attachment_bonus(state, content, planet, kind)
+        + match kind {
+            // The Last Bastion's Helios dock raises the resource value of its own planet.
+            Spend::Resources => crate::factions::bastion_units::resource_bonus(state, planet),
+            Spend::Influence => 0,
+        }
 }
 
 /// The faction mark holding the [`GameState::production_seq`] a value swap was declared in.
@@ -2104,6 +2109,19 @@ impl ProductionWindow {
                     format!("{system}{REMOTE_SEPARATOR}{at}")
                 }),
             );
+            if kind.is_ship() {
+                // The Last Bastion's Icon: "place those ships in a system that contains 1 of your
+                // command tokens, ...". Shapes the ship spots over the whole use.
+                crate::factions::bastion::adjust_ship_spots(
+                    state,
+                    content,
+                    sources,
+                    &self.player,
+                    &self.system,
+                    &self.report.produced,
+                    &mut spots,
+                );
+            }
         }
         spots
     }
@@ -2660,6 +2678,18 @@ impl ProductionWindow {
             self.report
                 .produced
                 .push((UnitTypeId::new(id), where_to.to_owned()));
+        }
+        // The Last Bastion's Icon is exhausted by placing the ships in one of its systems.
+        if made > 0 && target != self.system {
+            crate::factions::bastion::ship_placed(
+                state,
+                content,
+                sources,
+                &self.player,
+                &self.system,
+                &target,
+                &UnitTypeId::new(id),
+            );
         }
         // Bellum Gloriosum: a capacity ship opens an allowance that fighters and ground forces
         // spend instead of the production limit. Opened after the ship is placed and spent by

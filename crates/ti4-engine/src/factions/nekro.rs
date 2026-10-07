@@ -48,6 +48,7 @@ pub const TEXT_NOT_LENDABLE: &[&str] = &["executiveorder"];
 pub const LENDABLE_FLAGSHIPS: &[&str] = &[
     "arborec_flagship",
     "argent_flagship",
+    "bastion_flagship",
     "cabal_flagship",
     "empyrean_flagship",
     "ghost_flagship",
@@ -346,6 +347,10 @@ fn assimilation_options(
         return Vec::new();
     }
     let active = crate::technology::active_aliases(content);
+    // Last Bastion's Nip and Tuck: "The Nekro Virus cannot place assimilator tokens on your
+    // components." Gaining a technology outright is not placing a token, so `gain` stays.
+    let tokens_forbidden =
+        crate::promissory::has_commander_ability(state, source, "bastioncommander");
     let targeted = |tech: &TechnologyId| {
         TOKENS
             .iter()
@@ -368,6 +373,7 @@ fn assimilation_options(
         // A unit upgrade's text is the stat block of a unit the Valefar card is not, so a token
         // on one would lend nothing: it is not offered (evidence: rules question 2).
         if faction.is_some()
+            && !tokens_forbidden
             && !crate::technology::is_unit_upgrade(content, tech)
             && !targeted(tech)
             && !TEXT_NOT_LENDABLE.contains(&tech.as_str())
@@ -385,6 +391,7 @@ fn assimilation_options(
     }
     let placed = z_assimilated_factions(state, nekro);
     if crate::breakthroughs::holds(state, nekro, Z_BREAKTHROUGH)
+        && !tokens_forbidden
         && placed.len() < Z_TOKEN_COUNT
         && !placed
             .iter()
@@ -1279,6 +1286,47 @@ mod tests {
             .technologies
             .remove(&TechnologyId::new("nes"));
         assert!(!crate::combat::non_euclidean_shielding(&state, &a()));
+    }
+
+    #[test]
+    fn nip_and_tuck_bars_every_assimilator_token_on_its_owners_components() {
+        let content = ti4_content::ContentStore::embedded();
+        let mut state =
+            crate::fixtures::seated_game(&[("a", FACTION), ("b", "bastion")], DEFAULT);
+        with_z_breakthrough(&mut state);
+        give(&mut state, &a(), "vax");
+        give(&mut state, &a(), "vay");
+        give(&mut state, &b(), "mi");
+        give(&mut state, &b(), "proxima");
+        give(&mut state, &b(), "aida");
+        state.player_mut(&a()).unwrap().technologies.remove(&TechnologyId::new("aida"));
+        let ids = |state: &GameState| -> Vec<String> {
+            assimilation_options(state, content, &a(), &b())
+                .into_iter()
+                .map(|option| option.id)
+                .collect()
+        };
+        let open = ids(&state);
+        for wanted in ["gain|b|aida", "x|b|mi", "y|b|mi", "z|b|bastion"] {
+            assert!(open.contains(&wanted.to_owned()), "{wanted} in {open:?}");
+        }
+        // Nip and Tuck, unlocked: gaining a technology stays, every token option goes.
+        state
+            .player_mut(&b())
+            .unwrap()
+            .leaders
+            .insert(
+                ti4_model::id::LeaderId::new("bastioncommander"),
+                ti4_model::state::LeaderStatus::Unlocked,
+            );
+        let shut = ids(&state);
+        assert!(shut.contains(&"gain|b|aida".to_owned()), "{shut:?}");
+        assert!(
+            !shut
+                .iter()
+                .any(|id| id.starts_with("x|") || id.starts_with("y|") || id.starts_with("z|")),
+            "{shut:?}"
+        );
     }
 
     #[test]

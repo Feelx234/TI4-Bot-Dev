@@ -475,6 +475,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Last Bastion: which unit to galvanize (BF-bastion.md); every ask goes through this one.
+        module: "bastion.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Mahact: Edict opponent, Scepter system (BF-mahact.md).
         module: "mahact.rs",
         function: "ask_among",
@@ -1438,6 +1445,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("empyrean.rs", "tether_place", 1),
     ("empyrean.rs", "voidwatch", 1),
     ("mahact.rs", "ask_among", 1),
+    ("bastion.rs", "ask", 1),
     ("mahact_units.rs", "legionnaire", 1),
     ("mahact_units.rs", "legionnaire_returns", 1),
     ("mahact_units.rs", "offer_starlancer", 1),
