@@ -35,10 +35,9 @@ use super::hooks_economy::EconomyHooks;
 use super::hooks_movement::{MoveSite, MovementHooks};
 use super::hooks_strategy::StrategyHooks;
 use super::{FactionModule, Hooks};
-use crate::choice::{Choice, ChoiceOption, Resolving, TimingHandle, Window};
+use crate::choice::{Choice, ChoiceOption};
 use crate::decision_context::{DecisionContext, DecisionSource};
-use crate::production::ProductionWindow;
-use crate::timing::{Ability, Relation, Resolver, TimingContext, TimingError};
+use crate::timing::{Ability, Relation, TimingContext, TimingError};
 
 /// The faction alias; also the faction name in promissory note ids (`ragh:saar`).
 const FACTION: &str = "saar";
@@ -467,7 +466,6 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
         scavenge(owner_name, seat),
         scavenger_zeta(owner_name, seat),
         ragh_call(owner_name, seat),
-        chaos_mapping_production(owner_name, seat),
         agent(owner_name, seat),
         deorbit_resolve(owner_name, seat),
         deorbit_ready(owner_name, seat),
@@ -861,138 +859,6 @@ fn chaos_mapping_blocks_activation(
                 .get(unit.type_id.as_str())
                 .is_some_and(UnitType::is_ship)
     })
-}
-
-// -- Chaos Mapping: start-of-turn production -----------------------------------------------------
-
-/// Systems where `player` could produce at least 1 unit by ability now.
-fn production_systems(
-    state: &GameState,
-    content: &ContentStore,
-    sources: SourceSet,
-    player: &PlayerId,
-) -> Vec<SystemId> {
-    state
-        .board
-        .keys()
-        .filter(|system| {
-            !crate::production::producers(state, content, sources, player, system).is_empty()
-                && ProductionWindow::for_ability(state, content, sources, player, system, Some(1))
-                    .pending_choice(state, content, sources)
-                    .is_some()
-        })
-        .cloned()
-        .collect()
-}
-
-fn chaos_ready(
-    state: &GameState,
-    content: &ContentStore,
-    sources: SourceSet,
-    owner: &PlayerId,
-) -> bool {
-    has_technology(state, owner, "cm")
-        && state.phase == ti4_model::state::Phase::Action
-        && !production_systems(state, content, sources, owner).is_empty()
-}
-
-/// "At the start of your turn during the action phase, you may produce 1 unit in a system that
-/// contains at least 1 of your units that has PRODUCTION."
-fn chaos_mapping_production(owner_name: &str, seat: &PlayerId) -> Ability {
-    let owner = seat.clone();
-    let condition_owner = seat.clone();
-    Ability::stateful(
-        format!("technology:{owner_name}:cm:TURN_BEGAN:after"),
-        seat.clone(),
-        "TURN_BEGAN",
-        Relation::After,
-        Arc::new(move |event, resolver, context| {
-            if event.text("player") != Some(owner.as_str())
-                || !chaos_ready(context.state, context.content, context.sources, &owner)
-            {
-                return Ok(());
-            }
-            let systems =
-                production_systems(context.state, context.content, context.sources, &owner);
-            let system = if let [only] = systems.as_slice() {
-                only.clone()
-            } else {
-                let options = systems
-                    .iter()
-                    .map(|s| ChoiceOption::labelled(s.to_string(), "system", format!("system {s}")))
-                    .collect();
-                let answer = ask(
-                    context,
-                    &owner,
-                    "Chaos Mapping: produce 1 unit in which system".to_owned(),
-                    "cm",
-                    "chaos_system",
-                    options,
-                    true,
-                )
-                .map_err(illegal)?;
-                if answer.is_decline() {
-                    return Ok(());
-                }
-                let Some(picked) = systems.iter().find(|s| s.as_str() == answer.id) else {
-                    return Ok(());
-                };
-                picked.clone()
-            };
-            // Production can ask several payment/placement questions. A failed later choice
-            // must not leave this faction effect partially paid or placed.
-            let before = context.state.clone();
-            if let Err(error) = produce(context, resolver, &owner, &system) {
-                *context.state = before;
-                return Err(error);
-            }
-            Ok(())
-        }),
-    )
-    .with_optional(true)
-    .with_stateful_condition(Arc::new(move |event, _, context| {
-        event.text("player") == Some(condition_owner.as_str())
-            && chaos_ready(
-                context.state,
-                context.content,
-                context.sources,
-                &condition_owner,
-            )
-    }))
-}
-
-fn produce(
-    context: &mut TimingContext<'_>,
-    resolver: &mut Resolver,
-    player: &PlayerId,
-    system: &SystemId,
-) -> Result<(), TimingError> {
-    let TimingContext {
-        state,
-        content,
-        sources,
-        table,
-        dice,
-        rng,
-        event_sequence,
-        galaxy,
-    } = context;
-    let galaxy = *galaxy;
-    let mut ctx = Resolving {
-        content,
-        sources: *sources,
-        dice,
-        rng,
-        table,
-        timing: Some(TimingHandle {
-            resolver,
-            sequence: event_sequence,
-            galaxy,
-        }),
-    };
-    crate::production::produce_by_ability(state, &mut ctx, galaxy, player, system, Some(1))
-        .map_err(TimingError::IllegalChoice)?;
-    Ok(())
 }
 
 // -- Captain Mendosa -----------------------------------------------------------------------------
@@ -1756,61 +1622,6 @@ mod tests {
     }
 
     #[test]
-    fn chaos_mapping_production_needs_the_technology_the_action_phase_and_a_producer() {
-        let content = ContentStore::embedded();
-        let mut state = game();
-        state.phase = ti4_model::state::Phase::Action;
-        assert!(!has_technology(&state, &a(), "cm") || chaos_ready(&state, content, DEFAULT, &a()));
-        state
-            .player_mut(&a())
-            .unwrap()
-            .technologies
-            .retain(|t| t.as_str() != "cm");
-        assert!(
-            !chaos_ready(&state, content, DEFAULT, &a()),
-            "no technology"
-        );
-        state
-            .player_mut(&a())
-            .unwrap()
-            .technologies
-            .insert(ti4_model::id::TechnologyId::new("cm"));
-        assert!(
-            !production_systems(&state, content, DEFAULT, &a()).is_empty(),
-            "the home dock can produce"
-        );
-        assert!(chaos_ready(&state, content, DEFAULT, &a()));
-        assert!(!chaos_ready(&state, content, DEFAULT, &b()), "b has no cm");
-        state.phase = ti4_model::state::Phase::Status;
-        assert!(
-            !chaos_ready(&state, content, DEFAULT, &a()),
-            "not the action phase"
-        );
-        // Declined through the window: nothing is produced.
-        state.phase = ti4_model::state::Phase::Action;
-        let before = state.board.clone();
-        emit(
-            &mut state,
-            &mut scripted(&["decline"]),
-            "TURN_BEGAN",
-            &[("player", "a")],
-        );
-        assert_eq!(state.board, before);
-    }
-
-    fn asteroid_field() -> SystemId {
-        let content = ContentStore::embedded();
-        (1..=100)
-            .map(|n| n.to_string())
-            .find(|id| {
-                ti4_content::galaxy::system(content, id, DEFAULT)
-                    .is_some_and(|tile| tile.is_asteroid_field())
-            })
-            .map(SystemId::new)
-            .expect("an asteroid field tile")
-    }
-
-    #[test]
     fn deorbit_barrage_pays_rolls_resolves_hits_and_readies_in_status() {
         let content = ContentStore::embedded();
         let field = asteroid_field();
@@ -1933,7 +1744,7 @@ mod tests {
             dice: &mut dice,
             rng: &mut rng,
             table: &mut table,
-            timing: Some(TimingHandle {
+            timing: Some(crate::choice::TimingHandle {
                 resolver: &mut resolver,
                 sequence: &mut sequence,
                 galaxy: Some(&hub.galaxy),
@@ -2035,7 +1846,7 @@ mod tests {
             dice: &mut dice,
             rng: &mut rng,
             table: &mut table,
-            timing: Some(TimingHandle {
+            timing: Some(crate::choice::TimingHandle {
                 resolver: &mut resolver,
                 sequence: &mut sequence,
                 galaxy: Some(&hub.galaxy),
@@ -2149,6 +1960,18 @@ mod tests {
             state, before,
             "payment validation precedes spending and exhaustion"
         );
+    }
+
+    fn asteroid_field() -> SystemId {
+        let content = ContentStore::embedded();
+        (1..=100)
+            .map(|n| n.to_string())
+            .find(|id| {
+                ti4_content::galaxy::system(content, id, DEFAULT)
+                    .is_some_and(|tile| tile.is_asteroid_field())
+            })
+            .map(SystemId::new)
+            .expect("an asteroid field tile")
     }
 
     #[test]

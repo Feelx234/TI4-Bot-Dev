@@ -6922,6 +6922,47 @@ mod tests {
         (state, galaxy, ids)
     }
 
+    /// Run 04-0023 (2026-10-07): a seat holding Chaos Mapping was offered its start-of-turn
+    /// production twice every turn, once from the technology's start window and again from a
+    /// `TURN_BEGAN` reaction, and produced two units.
+    #[test]
+    fn chaos_mapping_is_offered_once_at_the_start_of_a_turn() {
+        let (mut state, galaxy, _) = tactical_fixture();
+        let a = PlayerId::new("a");
+        state
+            .player_mut(&a)
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("cm"));
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), a.clone());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &a, 1);
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new(
+            ["decline", "decline", "decline"].map(str::to_owned),
+        )));
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(capturing)),
+        )
+        .with_galaxy(galaxy);
+        for _ in 0..10 {
+            if game.step().error.is_some() || game.prepared_turn_seq.is_some() {
+                break;
+            }
+        }
+        let chaos: Vec<String> = seen
+            .borrow()
+            .iter()
+            .filter(|choice| {
+                choice.prompt.contains("Chaos Mapping")
+                    || choice.options.iter().any(|o| o.id.contains(":cm:"))
+            })
+            .map(|choice| choice.prompt.clone())
+            .collect();
+        assert_eq!(chaos.len(), 1, "one Chaos Mapping offer per turn: {chaos:?}");
+    }
+
     /// OP-08 with Fleet Logistics: after the first action the seat may take a second one or end
     /// the turn; after the second, with nothing else open, the turn passes on its own.
     #[test]
