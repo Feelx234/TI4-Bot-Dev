@@ -930,6 +930,26 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Legendary planet abilities",
+    fallback: "Raw ability labels -> the planet that carries each ability and its printed text",
+    note: "The end-of-turn (and when-you-pass) legendary menu shows each ready ability with its planet, stats and card text; Decline ends the window.",
+    choice: {
+      actor,
+      nonce: "gallery-legendary-menu",
+      prompt: "use a legendary planet ability",
+      context: {
+        subtype: "legendary_end_of_turn",
+        source: { Content: "legendary" },
+      },
+      options: [
+        option("primor", "The Atrament", "legendary"),
+        option("mirage", "Mirage Flight Academy", "legendary"),
+        option("decline", "decline", "decline"),
+      ],
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Spy: rob which player",
     fallback: "Plain list of seats -> the printed card, and each player's VP, trade goods, commodities and what the card takes",
     note: "Player picks (Spy, Insubordination, Signal Jamming, Diplomatic Pressure, ...) show the card's printed text above and each candidate's standing under their name.",

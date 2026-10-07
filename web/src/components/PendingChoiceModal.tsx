@@ -23,6 +23,7 @@ import { UnitAbilityOptionNote } from "./UnitAbilityParts.tsx";
 import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts";
 import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
+import { LegendaryContextPanel, LegendaryOptionNote } from "./LegendaryParts.tsx";
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -362,6 +363,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           )}
           {!secondary && !tokens && <RemoveUnitPanel choice={choice} board={boardView} />}
           {!secondary && !tokens && !replenish && <PoliticsContextPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <LegendaryContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && (
           <form
             onSubmit={handleSubmit}
@@ -461,6 +463,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         <UnitAbilityOptionNote choice={choice} option={opt} board={boardView} />
                         <RemoveUnitOptionNote choice={choice} option={opt} board={boardView} />
                         <PoliticsOptionNote choice={choice} option={opt} />
+                        <LegendaryOptionNote choice={choice} option={opt} board={boardView} />
                         <SystemPickOptionFacts choice={choice} optionId={opt.id} board={boardView} />
                         {opt.description && (
                           <div

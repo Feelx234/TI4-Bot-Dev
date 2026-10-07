@@ -181,6 +181,8 @@ async function generate() {
         resources: planet.resources ?? 0,
         influence: planet.influence ?? 0,
         techSpecialties: Array.isArray(planet.techSpecialties) ? planet.techSpecialties : [],
+        legendaryAbilityName: optionalString(planet, "legendaryAbilityName") || undefined,
+        legendaryAbilityText: optionalString(planet, "legendaryAbilityText") || undefined,
       },
       "planets",
     );

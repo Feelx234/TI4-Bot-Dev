@@ -5,7 +5,8 @@
   "shots": [
     { "file": "out/1-unexpected-recall.png", "heading": "Unexpected Action: recall your token", "caption": "Each system holding one of your command tokens is shown with its planets, ships and tokens instead of a bare system number, and can be picked on the map." },
     { "file": "out/2-predictive-restack.png", "heading": "Predictive Intelligence: restack tokens", "caption": "The end-of-turn redistribution as pools to arrange, with tokens moved out and in marked. Confirm says how many moves it will send (here 2); the engine takes them one per question, then the plan finishes with 'done'. 647 of these questions were answered as plain lists in the nightly runs." },
-    { "file": "out/3-player-picks.png", "heading": "Player picks (Spy, Insubordination, Signal Jamming, ...)", "caption": "The card's printed text sits above the options, and each candidate shows their faction, VP, trade goods and commodities; Spy adds how many action cards they hold and Insubordination how many tactic tokens. The same layout serves every card that asks for a player (about 74 questions in the nightly runs)." }
+    { "file": "out/3-player-picks.png", "heading": "Player picks (Spy, Insubordination, Signal Jamming, ...)", "caption": "The card's printed text sits above the options, and each candidate shows their faction, VP, trade goods and commodities; Spy adds how many action cards they hold and Insubordination how many tactic tokens. The same layout serves every card that asks for a player (about 74 questions in the nightly runs)." },
+    { "file": "out/4-legendary-menu.png", "heading": "Legendary planet abilities", "caption": "The end-of-turn (or when-you-pass) menu names the window and shows each ready ability with its planet, resources and influence, and the printed text of the ability card instead of a bare label. Decline ends the window (86 questions in the nightly runs)." }
   ],
   "notes": []
 }

@@ -4,7 +4,7 @@ export const CONTENT_PRESENTATION_PROVENANCE = {
   generatorVersion: 1,
   corpusSchemaVersion: "1.1.0",
   corpusUpstreamCommit: "8e90459d789fb767b9d5aff3a55bd7dd0b3e781b",
-  presentationSha256: "6cfb7ae3d8d32e3705d48d28cbd704beeddcc3d60e002841f2338483168ab274",
+  presentationSha256: "b4ac3a4df9ed1dfa8d30b3d30caea3c46a6524918b145eb2a89a5a9328065abb",
   recordCounts: {
     strategyCards: 12,
     secretObjectives: 40,
@@ -3625,6 +3625,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 2,
       influence: 0,
       techSpecialties: [],
+      legendaryAbilityName: "The Nucleus",
+      legendaryAbilityText:
+        "ACTION: Exhaust this card to use the Embers of Muaat's **STAR FORGE** faction ability without spending a command token.",
     },
     bakal: {
       id: "bakal",
@@ -3723,6 +3726,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 2,
       influence: 3,
       techSpecialties: [],
+      legendaryAbilityName: "Custodian's Favour",
+      legendaryAbilityText:
+        "While you control Mecatol Rex, it gains SPACE CANNON 5 and PRODUCTION 3.\nGain 2 command tokens when another player scores a victory point with the second clause of the 'Imperial' strategy card.",
     },
     dalbootha: {
       id: "dalbootha",
@@ -3765,6 +3771,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 0,
       influence: 2,
       techSpecialties: [],
+      legendaryAbilityName: "The Acropolis",
+      legendaryAbilityText:
+        "You may exhaust this card at the end of your turn to ready another component that isn't a strategy card.",
     },
     everra: {
       id: "everra",
@@ -3779,6 +3788,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 1,
       influence: 3,
       techSpecialties: ["BIOTIC"],
+      legendaryAbilityName: "Maxis Central Control",
+      legendaryAbilityText:
+        "You may exhaust this card when you pass to gain control of a non-home, non-legendary planet that contains no units and has no attachments.",
     },
     fria: {
       id: "fria",
@@ -3793,6 +3805,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 2,
       influence: 1,
       techSpecialties: [],
+      legendaryAbilityName: "Dok 'N Pic's Salvage Yard",
+      legendaryAbilityText:
+        "You may exhaust this card when you pass to place 1 action card from the discard pile faceup on this card; you can purge cards on this card to play them as if they were in your hand.",
     },
     gral: {
       id: "gral",
@@ -3821,6 +3836,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 3,
       influence: 0,
       techSpecialties: [],
+      legendaryAbilityName: "Imperial Arms Vault",
+      legendaryAbilityText:
+        "You may exhaust this card at the end of your turn to place 1 mech from your reinforcements on any planet you control or draw 1 action card",
     },
     horizon: {
       id: "horizon",
@@ -3842,6 +3860,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 1,
       influence: 2,
       techSpecialties: [],
+      legendaryAbilityName: "Illusion Flight Academy",
+      legendaryAbilityText:
+        "You may exhaust this card at the end of your turn to place up to 2 fighters from your reinforcements in any system that contains 1 or more of your ships",
     },
     industrex: {
       id: "industrex",
@@ -3849,6 +3870,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 2,
       influence: 0,
       techSpecialties: ["WARFARE"],
+      legendaryAbilityName: "Aurex Mechanica",
+      legendaryAbilityText:
+        "You may exhaust this card when you pass to place 1 ship that matches a unit upgrade technology you own from your reinforcements into a system that contains your ships.",
     },
     ixth: {
       id: "ixth",
@@ -3961,6 +3985,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 0,
       influence: 3,
       techSpecialties: [],
+      legendaryAbilityName: "Exterrix Headquarters",
+      legendaryAbilityText:
+        "You may exhaust this card at the end of your turn to gain 2 trade goods or convert all of your commodities to trade goods.",
     },
     lodor: {
       id: "lodor",
@@ -4003,6 +4030,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 0,
       influence: 3,
       techSpecialties: [],
+      legendaryAbilityName: "Exterrix Headquarters",
+      legendaryAbilityText:
+        "You may exhaust this card at the end of your turn to gain 2 trade goods or convert all of your commodities to trade goods.",
     },
     meer: {
       id: "meer",
@@ -4038,6 +4068,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 1,
       influence: 2,
       techSpecialties: [],
+      legendaryAbilityName: "Mirage Flight Academy",
+      legendaryAbilityText:
+        "You may exhaust this card at the end of your turn to place up to 2 fighters from your reinforcements in any system that contains 1 or more of your ships",
     },
     mollprimus: {
       id: "mollprimus",
@@ -4073,6 +4106,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 1,
       influence: 6,
       techSpecialties: [],
+      legendaryAbilityName: "The Galactic Council",
+      legendaryAbilityText:
+        "You may exhaust this card at the end of your turn and discard 1 secret objective to draw 1 secret objective.",
     },
     muaat: {
       id: "muaat",
@@ -4171,6 +4207,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 0,
       influence: 0,
       techSpecialties: [],
+      legendaryAbilityName: '4X41D "Hyperion" V1',
+      legendaryAbilityText:
+        "You may exhaust this card when you pass to draw 1 action card and gain 1 command token.",
     },
     ordinianc4: {
       id: "ordinianc4",
@@ -4178,6 +4217,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 0,
       influence: 0,
       techSpecialties: [],
+      legendaryAbilityName: "Barren Husk",
+      legendaryAbilityText:
+        "You may exhaust this card when you pass to draw 1 action card and gain 1 command token",
     },
     perimeter: {
       id: "perimeter",
@@ -4192,6 +4234,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 1,
       influence: 2,
       techSpecialties: [],
+      legendaryAbilityName: "Phantasm Flight Academy",
+      legendaryAbilityText:
+        "You may exhaust this card at the end of your turn to place up to 2 fighters from your reinforcements in any system that contains 1 or more of your ships",
     },
     phlegethon: {
       id: "phlegethon",
@@ -4206,6 +4251,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 2,
       influence: 1,
       techSpecialties: [],
+      legendaryAbilityName: "The Atrament",
+      legendaryAbilityText:
+        "You may exhaust this card at the end of your turn to place up to 2 infantry from your reinforcements on any planet you control",
     },
     quann: {
       id: "quann",
@@ -4346,6 +4394,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 4,
       influence: 0,
       techSpecialties: [],
+      legendaryAbilityName: "A Song Like Marrow",
+      legendaryAbilityText:
+        "When you gain this card, gain 1 victory point. When you lose this card, lose 1 victory point.",
     },
     tallin: {
       id: "tallin",
@@ -4381,6 +4432,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 1,
       influence: 1,
       techSpecialties: ["PROPULSION"],
+      legendaryAbilityName: "Ionian Fuel Refinery",
+      legendaryAbilityText:
+        "You may exhaust this card after you activate a system to apply +1 to the move value of 1 of your ships during this tactical action.",
     },
     tequran: {
       id: "tequran",
@@ -4416,6 +4470,9 @@ export const GENERATED_CONTENT_CATALOG = {
       resources: 5,
       influence: 1,
       techSpecialties: [],
+      legendaryAbilityName: "Jupiter Brain",
+      legendaryAbilityText:
+        "Gain your breakthrough when you gain this card if you do not already have it. You may exhaust this card at the end of your turn to perform another action.",
     },
     tiamat: {
       id: "tiamat",
