@@ -1,0 +1,46 @@
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
+import { describeOfferCard } from "../presentation/offerCard.ts";
+import { offerCases } from "../dev/offerGalleryCases.ts";
+import type { PendingChoiceDto } from "../protocol/types.ts";
+
+const galleryChoice = (title: string): PendingChoiceDto =>
+  offerCases().find((c) => c.title === title)!.choice;
+
+describe("offer card", () => {
+  it("reads the card, the facts and a caption per answer, decline last", () => {
+    const view = describeOfferCard(galleryChoice("Ground hit: sustain damage"))!;
+    expect(view).toMatchObject({ title: "Sustain damage", tag: "ground hit" });
+    expect(view.facts.map((f) => f.label)).toEqual(["Unit", "Where"]);
+    expect(view.facts[0].unit).toBe("mech");
+    expect(view.facts[1].text).toBe("Jord (system 14)");
+    expect(view.answers.map((a) => a.option.id)).toEqual(["sustain", "decline"]);
+    expect(view.answers[0]).toMatchObject({ label: "Sustain damage", isDecline: false });
+    expect(view.answers[1]).toMatchObject({ label: "Let it be destroyed", isDecline: true });
+  });
+
+  it("is not an offer without the details or the card title", () => {
+    const choice = galleryChoice("Ground hit: sustain damage");
+    expect(describeOfferCard({ ...choice, details: undefined })).toBeNull();
+    expect(describeOfferCard({ ...choice, details: { kind: "offer" } })).toBeNull();
+  });
+
+  it("falls back to the option's own label without a caption", () => {
+    const choice = galleryChoice("Ground hit: sustain damage");
+    const view = describeOfferCard({
+      ...choice,
+      details: { kind: "offer", card: { title: "T" }, facts: [], captions: {} },
+    })!;
+    expect(view.answers[0].label).toBe("use SUSTAIN DAMAGE");
+  });
+
+  it("shows the card inside the pending choice and answers with the chosen option", () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<PendingChoiceModal choice={galleryChoice("Ground hit: sustain damage")} onSubmit={onSubmit} />);
+    expect(screen.getByTestId("offer-card-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("offer-card-facts")).toHaveTextContent("Jord (system 14)");
+    fireEvent.click(screen.getByTestId("offer-card-answer-sustain"));
+    expect(onSubmit).toHaveBeenCalledWith("sustain");
+  });
+});

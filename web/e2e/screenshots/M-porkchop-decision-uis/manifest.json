@@ -1,0 +1,9 @@
+{
+  "title": "Porkchop merge decisions",
+  "description": "Dedicated layouts for the decisions added by the Porkchop911 merge, which had no UI. Synthetic gallery fixtures, not captured engine states.",
+  "tag": "web/e2e/screenshots/M-porkchop-decision-uis",
+  "shots": [
+    { "file": "out/1-ground-sustain.png", "heading": "Ground hit: sustain damage", "caption": "An effect (Deorbit Barrage and similar) assigned a hit to a named ground force. The card shows the unit with its icon, and the planet with its system, and each answer says what it does: Sustain damage keeps the unit, damaged; Let it be destroyed removes it. Before, this was a bare 'use SUSTAIN DAMAGE' / decline list." }
+  ],
+  "notes": []
+}

@@ -1563,6 +1563,31 @@ pub(crate) fn assign_selected_ground_hit_in_timing(
                 ChoiceOption::decline(),
             ],
         )
+        .offered(
+            crate::choice::offer_card(
+                "Sustain damage",
+                "ground hit",
+                Some("An effect has assigned a hit to this ground force"),
+                Some("SUSTAIN DAMAGE cancels the hit and the unit stays, damaged. Without it the unit is destroyed."),
+            ),
+            vec![
+                crate::choice::offer_fact_unit("Unit", unit.type_id.as_str()),
+                crate::choice::offer_fact_planet("Where", planet.as_str(), system.as_str()),
+            ],
+            &[
+                (
+                    "sustain",
+                    crate::choice::offer_caption(
+                        "Sustain damage",
+                        Some("The unit stays on the planet, damaged"),
+                    ),
+                ),
+                (
+                    "decline",
+                    crate::choice::offer_caption("Let it be destroyed", Some("The unit is removed")),
+                ),
+            ],
+        )
         .contextualized(
             DecisionContext::new(
                 unit.owner.clone(),
