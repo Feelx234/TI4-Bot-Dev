@@ -1,11 +1,12 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders"] as const;
 
 /** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
 export function presetFromEnv(value: string | undefined): string | undefined {
   const name = value?.trim();
   if (!name) return undefined;
-  if (!(KNOWN_PRESETS as readonly string[]).includes(name)) {
+  // "<preset>+rot" also rotates the factions (Jol-Nar and L1Z1X at small tables); "leaders" always does.
+  if (!(KNOWN_PRESETS as readonly string[]).includes(name.replace(/\+rot$/, ""))) {
     throw new Error(`unknown TI4_SMOKE_PRESET "${name}" (known: ${KNOWN_PRESETS.join(", ")})`);
   }
   return name;
@@ -47,6 +48,8 @@ export const PRESET_EXPECT: Record<string, string> = {
   // (assign_ground_casualty is never asked: the server's timing path assigns ground hits itself,
   // and bombardment_target is coexistence-only.)
   invasion: "commit_ground_forces,fight_ground_combat_round",
+  // Every leader usable from the start with rotated factions: agent, hero and commander prompts.
+  leaders: "leader_hacanagent_branch|leader_xxchaagent_ready_planet|leader_l1z1xagent_copy_planet|leader_jolnarhero_swap|leader_l1z1xhero_destination|leader_hacanhero_free_production|leader_xxchahero_te_place|legendary_arms_vault|legendary_end_of_turn|legendary_place>=3",
   // The invasion setup with every seat owning the prompt-bearing technologies.
   techs:
     "quantum_datahub_swap|spatial_conduit_link|nullification_field_end_turn|chaos_mapping_choose_system|bio_stims_ready|psychoarchaeology_exhaust_specialty|transit_diodes_redeploy|supercharge|scanlink_explore>=5",
@@ -58,7 +61,7 @@ export function parseExpect(value: string | undefined, preset?: string): Expecta
   return text
     .split(",")
     .flatMap((item) =>
-      item.trim() === "preset" ? (PRESET_EXPECT[preset ?? ""] ?? "").split(",") : [item],
+      item.trim() === "preset" ? (PRESET_EXPECT[(preset ?? "").replace(/\+rot$/, "")] ?? "").split(",") : [item],
     )
     .map((item) => item.trim())
     .filter(Boolean)

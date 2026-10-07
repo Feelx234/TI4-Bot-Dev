@@ -12,12 +12,12 @@ use ti4_content::factions;
 use ti4_content::galaxy::{self, Galaxy};
 use ti4_content::units;
 use ti4_engine::seating::{self, MECATOL};
-use ti4_engine::{fleet, invasion, production};
+use ti4_engine::{fleet, invasion, leaders, production};
 use ti4_model::content_types::{ContentType, POK};
 use ti4_model::id::{
     ActionCardId, FactionId, PlanetId, PlayerId, RelicId, SystemId, TechnologyId, UnitTypeId,
 };
-use ti4_model::state::GameState;
+use ti4_model::state::{GameState, LeaderStatus};
 use ti4_model::units::Unit;
 
 /// Fleets beside opponents' home systems, one raider already in Mecatol Rex and the others beside
@@ -41,9 +41,17 @@ pub const INVASION: &str = "invasion";
 /// The invasion setup, with every seat owning the technologies that open their own prompts.
 pub const TECHS: &str = "techs";
 
+/// Every seat holds all its leaders (heroes and commanders unlocked, agents readied), the factions
+/// are rotated so Jol-Nar and L1Z1X sit at small tables, and legendary planets on the map are
+/// handed out.
+pub const LEADERS: &str = "leaders";
+
+/// Suffix on any preset name that also rotates the factions (see [`rotation`]).
+pub const ROTATE: &str = "+rot";
+
 /// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
-pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS];
+pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS];
 
 /// Action cards no nightly game ever played, found by diffing 72 final states' discard piles
 /// against the corpus. The first ten are in the standard deck; the rest are Thunder's Edge cards,
@@ -152,7 +160,26 @@ const POOL: &[(&str, usize)] = &[
 
 #[must_use]
 pub fn is_known(name: &str) -> bool {
-    KNOWN.contains(&name)
+    KNOWN.contains(&base(name))
+}
+
+/// The preset without its `+rot` suffix.
+fn base(name: &str) -> &str {
+    name.strip_suffix(ROTATE).unwrap_or(name)
+}
+
+/// How far the factions are rotated along `IN_SCOPE_FACTIONS` for this preset and seed: 0 unless
+/// the preset is `leaders` or has the `+rot` suffix, else 2 to 5, which always seats Jol-Nar or
+/// L1Z1X even at three seats (the fixed order reaches them only at five). Seeded, so the same
+/// request builds the same table. The game creator and the preset both ask here, so the home
+/// systems the preset looks up are those of the factions actually seated.
+#[must_use]
+pub fn rotation(name: &str, seed: u64) -> usize {
+    if name == LEADERS || name.ends_with(ROTATE) {
+        2 + (mix(seed, 900) % 4) as usize
+    } else {
+        0
+    }
 }
 
 /// Applies the named preset to a freshly seated game.
@@ -167,8 +194,12 @@ pub fn apply(
     seed: u64,
     preset: &str,
 ) -> Result<(), String> {
-    match preset {
+    match base(preset) {
         COMBAT => combat(content, state, galaxy, players, seed),
+        LEADERS => {
+            unlock_leaders(content, state, galaxy, players);
+            Ok(())
+        }
         CARDS => {
             deal_cards(content, state, players, seed, CARD_POOL, HAND_SIZE);
             Ok(())
@@ -189,6 +220,18 @@ pub fn apply(
         }
         other => Err(format!("unknown start_preset {other:?}")),
     }
+}
+
+/// The factions actually seated, read from the state (whatever rotation created the game).
+fn seated(state: &GameState, players: &[PlayerId]) -> BTreeMap<PlayerId, FactionId> {
+    players
+        .iter()
+        .filter_map(|player| {
+            state
+                .player(player)
+                .map(|seat| (player.clone(), seat.faction.clone()))
+        })
+        .collect()
 }
 
 /// splitmix64 over `seed` and a salt: a stable choice that depends on nothing but its inputs.
@@ -228,7 +271,7 @@ fn invasion_preset(
     players: &[PlayerId],
     seed: u64,
 ) -> Result<(), String> {
-    let assignments = seating::seat_in_scope(players);
+    let assignments = seated(state, players);
     let homes: Vec<SystemId> = players
         .iter()
         .map(|player| {
@@ -304,6 +347,53 @@ fn grant_techs(content: &ContentStore, state: &mut GameState, players: &[PlayerI
     }
 }
 
+/// Every leader of every seat is usable at once: heroes and commanders unlocked, agents readied.
+/// Legendary planets on the map that nobody controls go to the seats in turn, so their abilities
+/// have an owner.
+fn unlock_leaders(
+    content: &ContentStore,
+    state: &mut GameState,
+    galaxy: &Galaxy,
+    players: &[PlayerId],
+) {
+    for player in players {
+        let Some(seat) = state.player_mut(player) else {
+            continue;
+        };
+        let leaders: Vec<_> = seat.leaders.keys().cloned().collect();
+        for leader in leaders {
+            let status = if leaders::kind_of(content, &leader).as_deref() == Some(leaders::AGENT) {
+                LeaderStatus::Readied
+            } else {
+                LeaderStatus::Unlocked
+            };
+            seat.leaders.insert(leader, status);
+        }
+    }
+    let on_map: BTreeSet<&str> = galaxy.system_ids().into_iter().collect();
+    let mut legendary: Vec<(SystemId, PlanetId)> = galaxy::all_planets(content, POK)
+        .values()
+        .filter(|planet| planet.is_legendary())
+        .filter_map(|planet| {
+            let system = planet.system_id()?;
+            on_map
+                .contains(system)
+                .then(|| (SystemId::new(system), PlanetId::new(planet.id())))
+        })
+        .collect();
+    legendary.sort();
+    for (index, (system, planet)) in legendary.into_iter().enumerate() {
+        let taken = state
+            .board
+            .get(&system)
+            .is_some_and(|board| board.planet_control.contains_key(&planet));
+        if !taken {
+            let owner = players[index % players.len()].clone();
+            state.system_mut(&system).set_control(planet, owner);
+        }
+    }
+}
+
 /// Hands the relics of [`RELIC_POOL`] out round-robin from a seeded first seat and takes them out
 /// of the relic deck. The seat after the first also gets three cultural fragments (crossing).
 fn deal_relics(content: &ContentStore, state: &mut GameState, players: &[PlayerId], seed: u64) {
@@ -360,7 +450,7 @@ fn combat(
     players: &[PlayerId],
     seed: u64,
 ) -> Result<(), String> {
-    let assignments = seating::seat_in_scope(players);
+    let assignments = seated(state, players);
     let homes: Vec<SystemId> = players
         .iter()
         .map(|player| {
@@ -636,6 +726,7 @@ fn top_up_influence(content: &ContentStore, state: &mut GameState, player: &Play
 mod tests {
     use super::*;
     use crate::map::{create_game_with_preset, create_game_with_template};
+    use ti4_model::state::LeaderStatus;
 
     fn players(n: usize) -> Vec<PlayerId> {
         (1..=n).map(|i| PlayerId::new(format!("p{i}"))).collect()
@@ -1060,6 +1151,62 @@ mod tests {
             serde_json::to_string(&invasion.board).unwrap(),
             "the board is the invasion preset's"
         );
+    }
+
+    #[test]
+    fn the_leaders_preset_rotates_the_factions_and_unlocks_every_leader() {
+        for n in 3..=6 {
+            for seed in 0..8 {
+                let list = players(n);
+                let (state, _) =
+                    create_game_with_preset(content(), &list, seed, None, Some(LEADERS))
+                        .unwrap_or_else(|e| panic!("{n}p seed {seed}: {e}"));
+                let rotated = rotation(LEADERS, seed);
+                assert!((2..=5).contains(&rotated));
+                let factions: Vec<&str> = list
+                    .iter()
+                    .map(|p| state.player(p).unwrap().faction.as_str())
+                    .collect();
+                if n <= 4 {
+                    assert!(
+                        factions.contains(&"jolnar") || factions.contains(&"l1z1x"),
+                        "{n}p seed {seed}: {factions:?}"
+                    );
+                }
+                let distinct: BTreeSet<_> = factions.iter().collect();
+                assert_eq!(distinct.len(), n.min(6), "{factions:?}");
+                for player in &list {
+                    let seat = state.player(player).unwrap();
+                    assert!(!seat.leaders.is_empty());
+                    for (leader, status) in &seat.leaders {
+                        let kind = leaders::kind_of(content(), leader);
+                        let expected = if kind.as_deref() == Some(leaders::AGENT) {
+                            LeaderStatus::Readied
+                        } else {
+                            LeaderStatus::Unlocked
+                        };
+                        assert_eq!(*status, expected, "{n}p seed {seed}: {leader}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rotation_is_zero_without_the_leaders_preset_or_suffix_and_the_suffix_is_known() {
+        assert_eq!(rotation(COMBAT, 5), 0);
+        assert_eq!(rotation(INVASION, 5), 0);
+        assert!(rotation("invasion+rot", 5) >= 2);
+        assert!(is_known("invasion+rot") && is_known(LEADERS) && !is_known("nope+rot"));
+        let list = players(4);
+        let (plain, _) = create_game_with_template(content(), &list, 9, None).unwrap();
+        let (rotated, _) =
+            create_game_with_preset(content(), &list, 9, None, Some("combat+rot")).unwrap();
+        let faction = |s: &GameState, i: usize| s.player(&list[i]).unwrap().faction.clone();
+        assert_ne!(faction(&plain, 0), faction(&rotated, 0));
+        // The combat fleets were built for the factions that actually sit there.
+        let (_, _) = create_game_with_preset(content(), &players(5), 3, None, Some("combat+rot"))
+            .unwrap();
     }
 
     #[test]

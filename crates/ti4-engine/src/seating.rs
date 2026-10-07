@@ -135,13 +135,24 @@ pub const IN_SCOPE_FACTIONS: [&str; 6] = ["sol", "hacan", "letnev", "xxcha", "jo
 /// factions this engine implements rather than falling off the end into unported ones.
 #[must_use]
 pub fn seat_in_scope(players: &[PlayerId]) -> BTreeMap<PlayerId, FactionId> {
+    seat_in_scope_rotated(players, 0)
+}
+
+/// [`seat_in_scope`] starting `rotation` places further along [`IN_SCOPE_FACTIONS`], so a three or
+/// four player table can sit Jol-Nar or L1Z1X, which the fixed order only reaches at five seats.
+/// A rotation of 0 is exactly [`seat_in_scope`]; smoke presets use the others.
+#[must_use]
+pub fn seat_in_scope_rotated(
+    players: &[PlayerId],
+    rotation: usize,
+) -> BTreeMap<PlayerId, FactionId> {
     players
         .iter()
         .enumerate()
         .map(|(index, player)| {
             (
                 player.clone(),
-                FactionId::new(IN_SCOPE_FACTIONS[index % IN_SCOPE_FACTIONS.len()]),
+                FactionId::new(IN_SCOPE_FACTIONS[(index + rotation) % IN_SCOPE_FACTIONS.len()]),
             )
         })
         .collect()
