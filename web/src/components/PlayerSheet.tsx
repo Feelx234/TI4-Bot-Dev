@@ -15,6 +15,7 @@ import { computePlayerStats } from "../presentation/playerStats.ts";
 import { Tooltip } from "../primitives/index.ts";
 import { useTurnSound } from "../hooks/useTurnSound.ts";
 import { useToastMute } from "../hooks/useToastMute.ts";
+import { useTurnRecapSetting } from "../hooks/useTurnRecapSetting.ts";
 
 
 export interface VPBreakdown {
@@ -175,6 +176,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   const { isMuted, toggleMute } = useTurnSound();
   const [isMutedState, setIsMutedState] = useState(isMuted);
   const { muted: toastsMuted, toggleMute: toggleToastMute } = useToastMute();
+  const { enabled: recapOn, toggle: toggleRecap } = useTurnRecapSetting();
 
   // Sort players: current player first, then by turn order
   const sortedPlayers = React.useMemo(() => {
@@ -284,6 +286,29 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
           }}
         >
           {toastsMuted ? "🔕 Toasts off" : "🔔 Toasts"}
+        </button>
+        <button
+          type="button"
+          data-testid="turn-recap-btn"
+          aria-pressed={recapOn}
+          title={
+            recapOn
+              ? "Stop the recap after other players' turns"
+              : "Show a short recap after each other player's turn"
+          }
+          onClick={toggleRecap}
+          style={{
+            background: recapOn ? "rgba(34, 197, 94, 0.14)" : "transparent",
+            border: `1px solid ${recapOn ? "#22c55e" : "#94a3b8"}`,
+            color: recapOn ? "#22c55e" : "#94a3b8",
+            borderRadius: 4,
+            padding: "4px 8px",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: "500",
+          }}
+        >
+          {recapOn ? "📝 Recap on" : "📝 Recap"}
         </button>
         </div>
       </div>
