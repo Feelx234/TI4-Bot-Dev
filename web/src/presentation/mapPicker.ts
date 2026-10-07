@@ -97,12 +97,14 @@ export function mapCards(
   return cards;
 }
 
-/** One line under the preview: `6pStandard by Someone · 37 systems · no hyperlanes`. */
+/** One line under the preview: `6 players · Standard by Someone · 37 systems · no hyperlanes`. */
 export function mapSummaryLine(map: MapChoiceDto): string {
-  const name = map.kind === "random" ? "Random map" : (map.alias ?? "Map");
+  const count = map.kind === "random" ? null : /^(\d+)p/.exec(map.alias ?? "")?.[1];
+  const players = count ? `${count} players · ` : "";
+  const name = map.kind === "random" ? "Random map" : map.alias ? templateTitle(map.alias) : "Map";
   const by = map.author ? ` by ${map.author}` : "";
   const systems = map.systems > 0 ? ` · ${map.systems} systems` : "";
-  return `${name}${by}${systems} · ${map.hyperlanes ? "with hyperlanes" : "no hyperlanes"}`;
+  return `${players}${name}${by}${systems} · ${map.hyperlanes ? "with hyperlanes" : "no hyperlanes"}`;
 }
 
 /** The short name for the lobby row. */

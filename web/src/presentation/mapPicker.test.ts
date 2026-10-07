@@ -51,7 +51,7 @@ describe("map picker model", () => {
       ...fixtureMapChoice("6pStandard"),
       author: "Someone",
     });
-    expect(line).toBe("6pStandard by Someone · 37 systems · no hyperlanes");
+    expect(line).toBe("6 players · Standard by Someone · 37 systems · no hyperlanes");
     expect(mapSummaryLine(fixtureMapChoice(null))).toBe("Random map · 36 systems · no hyperlanes");
     expect(`${line}${mapName(fixtureMapChoice(null))}`.toLowerCase()).not.toContain("seed");
     expect(choiceOf(fixtureMapChoice("6pStandard"))).toEqual({
