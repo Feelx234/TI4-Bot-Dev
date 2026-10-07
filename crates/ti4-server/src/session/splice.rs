@@ -44,15 +44,15 @@ struct AutoNote {
 
 /// A mismatch found at an index of the script, before it is mapped to an original cursor.
 #[derive(Debug, Clone)]
-struct RawConflict {
-    index: usize,
-    kind: ConflictKind,
-    found_seat: Option<String>,
-    found_prompt: Option<String>,
-    found_offered: Option<Vec<String>>,
-    added: Vec<String>,
-    removed: Vec<String>,
-    detail: String,
+pub(crate) struct RawConflict {
+    pub(crate) index: usize,
+    pub(crate) kind: ConflictKind,
+    pub(crate) found_seat: Option<String>,
+    pub(crate) found_prompt: Option<String>,
+    pub(crate) found_offered: Option<Vec<String>>,
+    pub(crate) added: Vec<String>,
+    pub(crate) removed: Vec<String>,
+    pub(crate) detail: String,
 }
 
 #[derive(Default)]
@@ -66,7 +66,7 @@ struct Shared {
     auto: Vec<AutoNote>,
 }
 
-struct StrictDecider {
+pub(crate) struct StrictDecider {
     script: Vec<DecisionRecord>,
     shared: Arc<Mutex<Shared>>,
 }
@@ -82,7 +82,7 @@ impl StrictDecider {
         clippy::too_many_lines,
         reason = "the matcher keeps its ordered checks visible in one place, like the replayer's"
     )]
-    fn check(
+    pub(crate) fn check(
         record: &DecisionRecord,
         choice: &Choice,
         index: usize,
@@ -234,10 +234,9 @@ impl Decider for StrictDecider {
     }
 }
 
-/// Counters read from public engine surfaces after each decision.
-fn counters(game: &Game) -> RngCounters {
+/// Remaining cards per deck (objectives, relics, agendas, action cards, secrets, exploration).
+pub(crate) fn deck_lengths(s: &GameState) -> BTreeMap<String, i64> {
     let mut decks = BTreeMap::new();
-    let s = &game.state;
     let len = |n: usize| i64::try_from(n).unwrap_or(i64::MAX);
     decks.insert("objective".to_owned(), len(s.objective_deck.len()));
     decks.insert("relic".to_owned(), len(s.relic_deck.len()));
@@ -247,6 +246,13 @@ fn counters(game: &Game) -> RngCounters {
     for (kind, deck) in &s.exploration_decks {
         decks.insert(format!("exploration:{kind}"), len(deck.len()));
     }
+    decks
+}
+
+/// Counters read from public engine surfaces after each decision.
+fn counters(game: &Game) -> RngCounters {
+    let decks = deck_lengths(&game.state);
+    let len = |n: usize| i64::try_from(n).unwrap_or(i64::MAX);
     let history = game.dice().history();
     let faces: usize = history
         .iter()

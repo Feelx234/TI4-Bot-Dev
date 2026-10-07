@@ -725,6 +725,82 @@ pub async fn splice_preview(
     Ok(Json(preview))
 }
 
+fn history_status_code(error: &HistoryError) -> StatusCode {
+    match error {
+        HistoryError::NotFound => StatusCode::NOT_FOUND,
+        HistoryError::Forbidden(_) => StatusCode::FORBIDDEN,
+        HistoryError::InvalidTarget(_) => StatusCode::BAD_REQUEST,
+        HistoryError::Conflict(_) => StatusCode::CONFLICT,
+        HistoryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+/// Where a turn redo stands (`null` status when none is in flight). Any authenticated player.
+///
+/// `GET /api/games/{game_id}/turn-redo`.
+pub async fn turn_redo_status(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+) -> Result<Json<crate::protocol::turn_redo::TurnRedoStatusResponse>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?.to_owned();
+    let status = tokio::task::spawn_blocking(move || registry.turn_redo_status(&game_id, &token))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Turn redo worker failed: {error}"),
+            )
+        })?
+        .map_err(|error| (history_status_code(&error), error.message()))?;
+    Ok(Json(crate::protocol::turn_redo::TurnRedoStatusResponse {
+        status,
+    }))
+}
+
+/// Turn redo: request (rewind my last turn), auto-play the round after the new turn, restore the
+/// original timeline, or keep the new one.
+///
+/// `POST /api/games/{game_id}/turn-redo` with `{expected_version, action: ...}`. Every action but
+/// `keep` answers with the replacement snapshot like the history endpoint, so clients resync;
+/// `keep` answers `{"kept": true}`.
+pub async fn turn_redo(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<crate::protocol::turn_redo::TurnRedoRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use crate::protocol::turn_redo::TurnRedoCommand;
+    let token = require_player_session(&headers)?.to_owned();
+    let version = payload.expected_version;
+    let outcome = tokio::task::spawn_blocking(move || match payload.command {
+        TurnRedoCommand::Request { seat, turns } => registry
+            .turn_redo_request(&game_id, &token, version, seat.as_deref(), turns)
+            .map(Some),
+        TurnRedoCommand::Autoplay => registry
+            .turn_redo_autoplay(&game_id, &token, version)
+            .map(Some),
+        TurnRedoCommand::Restore => registry
+            .turn_redo_restore(&game_id, &token, version)
+            .map(Some),
+        TurnRedoCommand::Keep => registry.turn_redo_keep(&game_id, &token).map(|()| None),
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Turn redo worker failed: {error}"),
+        )
+    })?
+    .map_err(|error| (history_status_code(&error), error.message()))?;
+    let body = match outcome {
+        Some(snapshot) => serde_json::to_value(ServerMessage::InitialSnapshot(snapshot))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+        None => serde_json::json!({ "kept": true }),
+    };
+    Ok(Json(body))
+}
+
 #[cfg(test)]
 mod template_request_tests {
     use super::*;

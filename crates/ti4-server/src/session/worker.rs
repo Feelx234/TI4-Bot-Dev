@@ -97,6 +97,8 @@ pub struct SessionShared {
     pub replay_complete: bool,
     pub history_generation: u64,
     pub batches: Vec<crate::storage::BatchRecord>,
+    /// Forced random positions of a timeline made by a turn redo, by decision index.
+    pub rng_marks: crate::session::RngMarks,
     /// Decisions auto-resolved since the last state update, with the seat they belong to.
     /// Transient by design: not persisted, so a restart's replay never re-announces them.
     pub pending_auto_resolved: Vec<(PlayerId, crate::protocol::server::AutoResolvedNote)>,
@@ -230,6 +232,7 @@ impl SessionShared {
                         generation: self.history_generation,
                         revision: self.game_version.saturating_add(1),
                         batches: self.batches.clone(),
+                        rng_marks: self.rng_marks.clone(),
                     },
                 )
                 .map_err(|error| format!("failed to persist history: {error}"))?;
@@ -272,6 +275,7 @@ impl SessionShared {
             replay_complete: false,
             history_generation: 0,
             batches: Vec::new(),
+            rng_marks: crate::session::RngMarks::new(),
             pending_auto_resolved: Vec::new(),
             reaction_modes: BTreeMap::new(),
         }
@@ -600,6 +604,9 @@ struct ReplayingDecider {
     inner: Box<dyn Decider>,
     shared: Arc<Mutex<SessionShared>>,
     has_boundary_state: bool,
+    /// Forced random positions for the replayed decisions (a timeline made by a turn redo).
+    force: Option<crate::session::RngForce>,
+    total: usize,
 }
 
 /// Capture the actual offer for decisions made by either a human or a bot. Replay
@@ -652,10 +659,16 @@ fn selected_for(
 
 impl ReplayingDecider {
     fn try_replay(&self, choice: &Choice) -> Option<Result<ChoiceOption, IllegalChoice>> {
-        let next_prior = {
+        let (next_prior, index) = {
             let mut lock = self.prior_queue.lock().expect("prior queue lock");
-            lock.pop_front()
+            let index = self.total.saturating_sub(lock.len());
+            (lock.pop_front(), index)
         };
+        if next_prior.is_some()
+            && let Some(force) = &self.force
+        {
+            force.before_answer(index);
+        }
 
         next_prior.map(|record| {
             if let Some(opt) = choice.options.iter().find(|o| o.id == record.chosen) {
@@ -746,6 +759,8 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     initial_shared.event_counter = config.event_counter;
     initial_shared.history_generation = config.history_generation;
     initial_shared.batches.clone_from(&config.batches);
+    initial_shared.rng_marks.clone_from(&config.rng_marks);
+    let rng_force = crate::session::RngForce::new(&config.rng_marks);
     for seat in config.seats.keys() {
         let never = config.reaction_modes.get(seat).cloned().unwrap_or_default();
         initial_shared
@@ -843,6 +858,8 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         inner,
                         shared: worker_shared.clone(),
                         has_boundary_state: boundary_state.is_some(),
+                        force: rng_force.clone(),
+                        total: prior_count,
                     }),
                 );
             } else {
@@ -974,6 +991,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 lock.redo_decisions.clear();
                 lock.redo_events.clear();
                 lock.batches.retain(|batch| batch.end_cursor <= start);
+                lock.rng_marks.retain(|index, _| *index < start);
             }
             if let Err(error) = lock.persist_history() {
                 lock.error = Some(error);
@@ -988,6 +1006,9 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         let mut game = Game::with_table(config.state, ContentStore::embedded(), table);
         if let Some(galaxy) = config.galaxy {
             game = game.with_galaxy(galaxy);
+        }
+        if let Some(force) = &rng_force {
+            force.attach(&mut game);
         }
 
         if prior_count == 0 && config.prior_events.is_empty() {
@@ -1224,6 +1245,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         lock.redo_decisions.clear();
                         lock.redo_events.clear();
                         lock.batches.retain(|b| b.end_cursor <= fork_cursor);
+                        lock.rng_marks.retain(|index, _| *index < fork_cursor);
                     }
                 }
                 if !lock.history_active

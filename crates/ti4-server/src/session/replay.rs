@@ -36,10 +36,12 @@ struct ReplayDecider {
     script: VecDeque<String>,
     #[allow(dead_code)]
     step_index: usize,
+    force: Option<crate::session::RngForce>,
 }
 
 impl Decider for ReplayDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        let index = self.step_index;
         self.step_index += 1;
 
         let Some(wanted) = self.script.pop_front() else {
@@ -50,6 +52,9 @@ impl Decider for ReplayDecider {
             });
         };
 
+        if let Some(force) = &self.force {
+            force.before_answer(index);
+        }
         let offered: Vec<String> = choice.options.iter().map(|o| o.id.clone()).collect();
         if let Some(opt) = choice.options.iter().find(|o| o.id == wanted) {
             Ok(opt.clone())
@@ -76,21 +81,46 @@ pub fn replay_session(
     galaxy: Option<&Galaxy>,
     records: &[DecisionRecord],
 ) -> Result<ReplayReport, ReplayError> {
+    replay_session_forced(
+        initial_state,
+        galaxy,
+        records,
+        &crate::session::RngMarks::new(),
+    )
+}
+
+/// [`replay_session`] on a timeline made by a turn redo: the stream positions in `marks` are
+/// restored when the decision they are keyed by is answered.
+///
+/// # Errors
+///
+/// Returns [`ReplayError`] if the engine fails or decisions diverge.
+pub fn replay_session_forced(
+    initial_state: &GameState,
+    galaxy: Option<&Galaxy>,
+    records: &[DecisionRecord],
+    marks: &crate::session::RngMarks,
+) -> Result<ReplayReport, ReplayError> {
     let original_hashes: Vec<CanonicalHash> = records
         .iter()
         .map(|r| decision_hash(CanonicalHashVersion::V1, r))
         .collect();
 
     let choices: VecDeque<String> = records.iter().map(|r| r.chosen.clone()).collect();
+    let force = crate::session::RngForce::new(marks);
     let decider = Box::new(ReplayDecider {
         script: choices,
         step_index: 0,
+        force: force.clone(),
     });
     let table = Table::with_default(decider);
 
     let mut game = Game::with_table(initial_state.clone(), ContentStore::embedded(), table);
     if let Some(g) = galaxy {
         game = game.with_galaxy(g.clone());
+    }
+    if let Some(force) = &force {
+        force.attach(&mut game);
     }
 
     // Step until all recorded decisions are replayed
