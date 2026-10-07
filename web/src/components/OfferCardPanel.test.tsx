@@ -35,6 +35,18 @@ describe("offer card", () => {
     expect(view.answers[0].label).toBe("use SUSTAIN DAMAGE");
   });
 
+  it("shows a commander payment with the amounts and what each answer does", () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PendingChoiceModal choice={galleryChoice("Crimson commander: gain or convert")} onSubmit={onSubmit} />,
+    );
+    expect(screen.getByTestId("offer-card-panel")).toHaveTextContent("Ahk Siever");
+    expect(screen.getByTestId("offer-card-facts")).toHaveTextContent("Commodities1 of 3");
+    expect(screen.getByTestId("offer-card-answer-convert")).toHaveTextContent("trade goods 4 → 5");
+    fireEvent.click(screen.getByTestId("offer-card-answer-gain"));
+    expect(onSubmit).toHaveBeenCalledWith("gain");
+  });
+
   it("shows the card inside the pending choice and answers with the chosen option", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<PendingChoiceModal choice={galleryChoice("Ground hit: sustain damage")} onSubmit={onSubmit} />);

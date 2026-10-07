@@ -760,21 +760,29 @@ fn deepwrought_commander(
         }
         reduced += 1;
         let convert = if can_gain && can_convert {
-            let payment = Choice::new(
-                holder.clone(),
-                "Deepwrought commander: gain 1 commodity or convert 1 to a trade good",
-                vec![
-                    ChoiceOption::labelled(
-                        "gain".to_owned(),
-                        "economy",
-                        "gain 1 commodity".to_owned(),
-                    ),
-                    ChoiceOption::labelled(
-                        "convert".to_owned(),
-                        "economy",
-                        "convert 1 commodity to a trade good".to_owned(),
-                    ),
-                ],
+            let goods = state.player(&holder).map_or(0, |seat| seat.trade_goods);
+            let payment = commander_payment_offer(
+                Choice::new(
+                    holder.clone(),
+                    "Deepwrought commander: gain 1 commodity or convert 1 to a trade good",
+                    vec![
+                        ChoiceOption::labelled(
+                            "gain".to_owned(),
+                            "economy",
+                            "gain 1 commodity".to_owned(),
+                        ),
+                        ChoiceOption::labelled(
+                            "convert".to_owned(),
+                            "economy",
+                            "convert 1 commodity to a trade good".to_owned(),
+                        ),
+                    ],
+                ),
+                content,
+                "deepwroughtcommander",
+                held,
+                limit,
+                goods,
             )
             .contextualized(DecisionContext::new(
                 holder.clone(),
@@ -1668,6 +1676,58 @@ pub(crate) fn commodity_limit(state: &GameState, content: &ContentStore, player:
         .player(player)
         .and_then(|seat| ti4_content::factions::get(content, seat.faction.as_str()))
         .map_or(0, |faction| faction.commodities())
+}
+
+/// Display only: a commander's printed card (name, ability window and text) as an offer-card
+/// header. See [`Choice::offered`].
+pub(crate) fn commander_card(content: &ContentStore, id: &str) -> serde_json::Value {
+    let record = content.get(ContentType::Leaders, id);
+    let field = |key: &str| record.as_ref().and_then(|record| record.text(key));
+    crate::choice::offer_card(
+        field("name").unwrap_or(id),
+        "commander",
+        field("abilityWindow"),
+        field("abilityText"),
+    )
+}
+
+/// Display only: "gain 1 commodity or convert 1 to a trade good" as an offer card (the Crimson and
+/// Deepwrought commanders), with the holder's commodities and trade goods before and after.
+pub(crate) fn commander_payment_offer(
+    choice: Choice,
+    content: &ContentStore,
+    commander: &str,
+    held: i32,
+    limit: i32,
+    goods: i32,
+) -> Choice {
+    choice.offered(
+        commander_card(content, commander),
+        vec![
+            crate::choice::offer_fact("Commodities", format!("{held} of {limit}")),
+            crate::choice::offer_fact("Trade goods", goods),
+        ],
+        &[
+            (
+                "gain",
+                crate::choice::offer_caption(
+                    "Gain 1 commodity",
+                    Some(&format!("Commodities {held} → {}", held + 1)),
+                ),
+            ),
+            (
+                "convert",
+                crate::choice::offer_caption(
+                    "Convert 1 commodity to a trade good",
+                    Some(&format!(
+                        "Commodities {held} → {}, trade goods {goods} → {}",
+                        held - 1,
+                        goods + 1
+                    )),
+                ),
+            ),
+        ],
+    )
 }
 
 fn replenish(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
@@ -3235,6 +3295,51 @@ mod tests {
         assert_eq!(
             deepwrought_commander(&mut state, content, POK, None, &mut own, &b, 3).unwrap(),
             0
+        );
+    }
+
+    /// The holder's gain-or-convert question is an offer card with the commander as printed, the
+    /// holder's commodities and trade goods and what each answer does (display only).
+    #[test]
+    fn the_deepwrought_commander_payment_is_an_offer_card() {
+        let content = ContentStore::embedded();
+        let mut state = seated_game(&[("a", "sol"), ("b", "hacan")], POK);
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let limit = commodity_limit(&state, content, &b);
+        state.player_mut(&b).unwrap().commodities = 1;
+        state.player_mut(&b).unwrap().trade_goods = 2;
+        assert!(crate::promissory::grant_commander_ability(
+            &mut state,
+            content,
+            &b,
+            "deepwroughtcommander"
+        ));
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new(["reduce", "gain"]),
+        ));
+        let mut table = Table::with_default(Box::new(decider));
+        deepwrought_commander(&mut state, content, POK, None, &mut table, &a, 3).unwrap();
+        let asked = seen.borrow();
+        let offer = asked
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|context| context.subtype == "deepwrought_payment")
+            })
+            .expect("the holder was asked");
+        assert_eq!(offer.details["kind"], "offer");
+        assert_eq!(offer.details["card"]["title"], "Aello");
+        assert_eq!(offer.details["facts"][0]["value"], format!("1 of {limit}"));
+        assert_eq!(offer.details["facts"][1]["value"], 2);
+        assert_eq!(
+            offer.details["captions"]["gain"]["hint"],
+            "Commodities 1 → 2"
+        );
+        assert_eq!(
+            offer.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            ["gain", "convert"]
         );
     }
 

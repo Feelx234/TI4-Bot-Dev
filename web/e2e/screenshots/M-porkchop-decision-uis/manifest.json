@@ -4,6 +4,9 @@
   "tag": "web/e2e/screenshots/M-porkchop-decision-uis",
   "shots": [
     { "file": "out/1-ground-sustain.png", "heading": "Ground hit: sustain damage", "caption": "An effect (Deorbit Barrage and similar) assigned a hit to a named ground force. The card shows the unit with its icon, and the planet with its system, and each answer says what it does: Sustain damage keeps the unit, damaged; Let it be destroyed removes it. Before, this was a bare 'use SUSTAIN DAMAGE' / decline list." }
+,
+    { "file": "out/2-crimson-pay.png", "heading": "Crimson commander: gain or convert", "caption": "After a combat the commander pays its holder. The card prints the commander (Ahk Siever) with its ability, shows the commodities and trade goods held, and each answer says what it does (commodities 1 → 2, or commodities 1 → 0 and trade goods 4 → 5). Before, two plain labels." },
+    { "file": "out/3-deepwrought-pay.png", "heading": "Deepwrought commander: gain or convert", "caption": "The same layout for Aello, paid to the holder when another seat takes 1 off its research cost." }
   ],
   "notes": []
 }
