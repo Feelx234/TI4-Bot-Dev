@@ -16,6 +16,8 @@ import {
 } from "../presentation/hitAssignment.ts";
 import type { BasketPlan } from "../protocol/client.ts";
 import { HitAssignmentPanel } from "./HitAssignmentPanel.tsx";
+import { GroundCombatResultSummary } from "./GroundCombatResultSummary.tsx";
+import { summarizeGroundCombat } from "../presentation/groundCombatSummary.ts";
 import { InvasionLandingTray, type Landing } from "./InvasionLandingTray.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
@@ -239,6 +241,7 @@ export const InvasionOverlay: React.FC<{
   const system = board.systems[invasion.system_id];
   const step = invasion.last_step;
   const invaderDisplay = display(invasion.invader);
+  const groundSummary = summarizeGroundCombat(step, invasion.invader);
 
   const describe = (units: PlacedUnitView[]) =>
     units
@@ -358,6 +361,8 @@ export const InvasionOverlay: React.FC<{
           </span>
         </div>
       )}
+
+      {groundSummary && <GroundCombatResultSummary summary={groundSummary} />}
 
       {step && (
         <section
