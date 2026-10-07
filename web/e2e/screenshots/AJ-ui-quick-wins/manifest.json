@@ -1,7 +1,7 @@
 {
   "title": "UI quick wins",
   "description": "Ten small UI fixes from the 2026-10-07 review: header buttons no longer clipped, human stage label in the turn banner, no 'You (You)', a single 'Combat complete', a readable map summary, clearer agenda ballot, a styled undo dialog, a 12 px type floor, and an accessible galaxy map.",
-  "tag": "web/e2e/screenshots/O-ui-quick-wins",
+  "tag": "web/e2e/screenshots/AJ-ui-quick-wins",
   "shots": [
     {
       "file": "out/1-header-1440.png",
