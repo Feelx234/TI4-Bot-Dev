@@ -3449,6 +3449,34 @@ fn exploration_probe(context: &mut crate::timing::TimingContext<'_>, player: &Pl
     );
 }
 
+/// Display only: what each unit option of Refit Troops or Scuttle stands for, keyed by option id
+/// (`system|index` or `system|planet|index`): where it is, its type, whether it is damaged and its
+/// printed cost, so a client can name the unit and say what the card does to it.
+fn unit_pick_details(
+    found: &[(String, String, ti4_model::units::Unit)],
+    cost_of: &dyn Fn(&str) -> f64,
+) -> serde_json::Value {
+    serde_json::Value::Object(
+        found
+            .iter()
+            .map(|(id, _, unit)| {
+                let parts: Vec<&str> = id.split('|').collect();
+                let planet = (parts.len() == 3).then(|| parts[1]);
+                (
+                    id.clone(),
+                    serde_json::json!({
+                        "system": parts.first(),
+                        "planet": planet,
+                        "unit": unit.type_id.as_str(),
+                        "damaged": unit.sustained_damage,
+                        "cost": cost_of(unit.type_id.as_str()),
+                    }),
+                )
+            })
+            .collect(),
+    )
+}
+
 /// Refit Troops: "Choose 1 or 2 of your infantry on the game board. Replace each of those
 /// infantry with mechs."
 ///
@@ -3502,12 +3530,14 @@ fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
             .iter()
             .map(|(id, label, _)| (id.clone(), label.clone()))
             .collect::<Vec<_>>();
-        let Some(first) = pick(
+        let units = unit_pick_details(&found, &|id| types.get(id).map_or(0.0, |kind| kind.cost()));
+        let Some(first) = pick_detailed(
             context,
             player,
             "Refit Troops: which infantry to replace",
             "infantry",
             &options,
+            &[("units", units.clone())],
         ) else {
             return;
         };
@@ -3525,12 +3555,13 @@ fn refit_troops(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
                 "stop after one".to_owned(),
             )))
             .collect();
-        let Some(second) = pick(
+        let Some(second) = pick_detailed(
             context,
             player,
             "Refit Troops: another infantry or stop",
             "infantry",
             &rest,
+            &[("units", units)],
         ) else {
             return;
         };
@@ -3631,12 +3662,14 @@ fn scuttle(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
             .iter()
             .map(|(id, label, _)| (id.clone(), label.clone()))
             .collect::<Vec<_>>();
-        let Some(first) = pick(
+        let units = unit_pick_details(&found, &|id| types.get(id).map_or(0.0, |kind| kind.cost()));
+        let Some(first) = pick_detailed(
             context,
             player,
             "Scuttle: which ship to scuttle",
             "ship",
             &options,
+            &[("units", units.clone())],
         ) else {
             return;
         };
@@ -3654,12 +3687,13 @@ fn scuttle(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
                 "stop after one".to_owned(),
             )))
             .collect();
-        let Some(second) = pick(
+        let Some(second) = pick_detailed(
             context,
             player,
             "Scuttle: another ship or stop",
             "ship",
             &rest,
+            &[("units", units)],
         ) else {
             return;
         };
@@ -9447,6 +9481,31 @@ mod tests {
             "one mech replaces the chosen infantry"
         );
         assert_eq!(infantry_left, 1, "the other infantry is untouched");
+    }
+
+    /// Each ship option names its system, type, damage and printed cost (display only), so a
+    /// client can say what scuttling it pays out.
+    #[test]
+    fn scuttle_questions_describe_each_ship() {
+        let player = PlayerId::new("a");
+        let (system, _) = crate::fixtures::a_placed_planet();
+        let mut state = crate::fixtures::game(&["a"]);
+        let board = state.system_mut(&system);
+        for kind in ["destroyer", "cruiser"] {
+            board.units.push(ti4_model::units::Unit::new(
+                ti4_model::id::UnitTypeId::new(kind),
+                player.clone(),
+            ));
+        }
+
+        let seen = resolve_card_capturing(&mut state, "scuttle", &player, &[]);
+
+        let first = seen.borrow()[0].clone();
+        let id = format!("{system}|1");
+        assert_eq!(first.details["units"][&id]["unit"], "cruiser");
+        assert_eq!(first.details["units"][&id]["system"], system.as_str());
+        assert_eq!(first.details["units"][&id]["damaged"], false);
+        assert_eq!(first.details["units"][&id]["cost"], 2.0);
     }
 
     #[test]

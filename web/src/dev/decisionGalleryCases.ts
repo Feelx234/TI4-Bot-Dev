@@ -930,6 +930,33 @@ export const fallbackCases: GalleryCase[] = [
   },
   {
     workflow: "generic_selection",
+    title: "Scuttle: which ship to scuttle",
+    fallback: "Raw ship ids -> named ships with their system and the trade goods each pays out",
+    note: "Scuttle (and Refit Troops, for infantry) names each unit, says where it is and what the card does to it; the printed card is above the options.",
+    choice: {
+      actor,
+      nonce: "gallery-scuttle-pick",
+      prompt: "Scuttle: which ship to scuttle",
+      context: {
+        subtype: "scuttle_pick_ship",
+        source: { ActionCard: "scuttle" },
+      },
+      options: [
+        option("26|0", "dreadnought2 in 26", "ship"),
+        option("25|1", "cruiser in 25", "ship"),
+        option("25|2", "carrier in 25", "ship"),
+      ],
+      details: {
+        units: {
+          "26|0": { system: "26", planet: null, unit: "dreadnought2", damaged: true, cost: 4 },
+          "25|1": { system: "25", planet: null, unit: "cruiser", damaged: false, cost: 2 },
+          "25|2": { system: "25", planet: null, unit: "carrier", damaged: false, cost: 3 },
+        },
+      },
+    },
+  },
+  {
+    workflow: "generic_selection",
     title: "Munitions Reserves: reroll misses",
     fallback: "Yes/no with the cost in the label -> the printed ability, the price against the trade goods held, and Skip",
     note: "Letnev's Munitions Reserves is offered at the start of every space combat round, before any dice are rolled, and costs 2 trade goods each time.",
