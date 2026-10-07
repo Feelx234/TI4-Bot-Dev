@@ -207,6 +207,16 @@ pub struct MovementHooks {
     /// Empyrean Void Tether: "other players do not treat those systems as adjacent to each other
     /// unless you allow it."
     pub blocked_borders: Option<fn(&GameState, &PlayerId) -> Vec<(String, String)>>,
+    /// Whether this ship type (one of the mover's) may move **through** systems that contain the
+    /// mover's own units even when other players' ships are there (58.4b lifted for those systems
+    /// only), and applies +1 to its move value for each such system its route moves through.
+    /// Any module's `true` allows. Called once per ship type the mover owns on the board when
+    /// `MovementRules` is built.
+    ///
+    /// Deepwrought flagship D.W.S. Luminous: "This ship can move through systems that contain your
+    /// units, even if other players' units are present; if it would, apply +1 to its move value
+    /// for each of those systems."
+    pub own_unit_passage: Option<fn(&GameState, &ContentStore, SourceSet, &PassSite<'_>) -> bool>,
 }
 
 impl MovementHooks {
@@ -229,6 +239,7 @@ impl MovementHooks {
         ignores_nebulae: None,
         passable_owners: None,
         blocked_borders: None,
+        own_unit_passage: None,
     };
 }
 
@@ -480,6 +491,19 @@ fn may_move_through_ships_by(
 ) -> bool {
     tables
         .filter_map(|table| table.may_move_through_ships)
+        .any(|hook| hook(state, content, sources, site))
+}
+
+/// Whether any module lets this ship type move through systems that hold its owner's own units
+/// (and earns a step for each).
+pub(crate) fn own_unit_passage(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    site: &PassSite<'_>,
+) -> bool {
+    tables()
+        .filter_map(|table| table.own_unit_passage)
         .any(|hook| hook(state, content, sources, site))
 }
 

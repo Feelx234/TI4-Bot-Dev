@@ -973,6 +973,10 @@ pub fn can_research(
     if seat.technologies.contains(alias) {
         return false;
     }
+    // Ta Zern purged this card from every deck.
+    if crate::factions::deepwrought::technology_purged(state, alias) {
+        return false;
+    }
     // Some cards say so of themselves.
     if record.text("text").is_some_and(|printed| {
         printed
@@ -1026,7 +1030,7 @@ fn inheritance_systems_ready(
 pub const INHERITANCE_SYSTEMS_COST: i64 = 2;
 
 /// Whether this player meets `alias`'s prerequisites, with every standing waiver counted.
-fn prerequisites_met(
+pub(crate) fn prerequisites_met(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

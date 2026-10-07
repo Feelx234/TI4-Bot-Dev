@@ -480,7 +480,33 @@ fn research_option(
     option
 }
 
+/// The Technology primary's research, inside Doctor Carrina's window (every research route opens
+/// it: see `factions/deepwrought_research.rs`).
 fn offer_research(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<Option<TechnologyId>, IllegalChoice> {
+    use crate::factions::deepwrought_research as carrina;
+    let window = carrina::open(
+        &mut carrina::Host::new(&mut *state, content, sources, galaxy, &mut *table),
+        player,
+        &carrina::any,
+    )?;
+    let result = offer_research_inner(state, content, sources, galaxy, table, player);
+    carrina::settle(
+        &mut carrina::Host::new(&mut *state, content, sources, galaxy, &mut *table),
+        player,
+        window,
+        result.is_ok(),
+    )?;
+    result
+}
+
+fn offer_research_inner(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -717,11 +743,28 @@ fn specialist_compounds(
 
     // "must research a technology of that color" -- so the second offer carries no decline. The
     // planet is exhausted first: the price is paid whichever technology is chosen.
+    state.exhaust_planet(planet.clone());
+    // Doctor Carrina: this is a research too. Her window opens once the colour is fixed, because
+    // the waiver widens the technologies of that colour the player can take.
+    let wanted = *colour;
+    let window = crate::factions::deepwrought_research::open(
+        &mut crate::factions::deepwrought_research::Host::new(
+            &mut *state,
+            content,
+            sources,
+            galaxy,
+            &mut *table,
+        ),
+        player,
+        &move |content, id| {
+            crate::technology::colour_type(content, id).is_some_and(|had| had == wanted)
+        },
+    )?;
+    let open = crate::technology::researchable(state, content, sources, player);
     let of_colour: Vec<TechnologyId> = open
         .into_iter()
-        .filter(|id| crate::technology::colour_type(content, id).is_some_and(|had| had == *colour))
+        .filter(|id| crate::technology::colour_type(content, id).is_some_and(|had| had == wanted))
         .collect();
-    state.exhaust_planet(planet.clone());
     let choice = Choice::new(
         player.clone(),
         format!("research which {} technology", colour.to_lowercase()),
@@ -743,14 +786,29 @@ fn specialist_compounds(
         state.phase,
         state.round,
     ));
-    let answer = ask(state, content, sources, galaxy, table, &choice)?;
-    crate::technology::research(
-        state,
-        content,
-        sources,
+    let answer = ask(state, content, sources, galaxy, table, &choice);
+    if let Ok(answer) = &answer {
+        crate::technology::research(
+            state,
+            content,
+            sources,
+            player,
+            &TechnologyId::new(answer.id.clone()),
+        );
+    }
+    crate::factions::deepwrought_research::settle(
+        &mut crate::factions::deepwrought_research::Host::new(
+            &mut *state,
+            content,
+            sources,
+            galaxy,
+            &mut *table,
+        ),
         player,
-        &TechnologyId::new(answer.id),
-    );
+        window,
+        answer.is_ok(),
+    )?;
+    answer?;
     Ok(true)
 }
 
@@ -1230,6 +1288,7 @@ fn paid_research(
     adjustment.cost -= reduced;
     let cost = adjustment.cost;
     let mut agent_window = false;
+    let mut carrina_window = crate::factions::deepwrought_research::Window::default();
     let outcome = (|| -> Result<bool, IllegalChoice> {
         // Xander Alexin Victori III (Keleres): this research is one payment window; the agent is
         // offered before the affordability gate, which is what its commodities can open.
@@ -1254,6 +1313,18 @@ fn paid_research(
         if !crate::payment::affordable(state, content, sources, player, cost, Spend::Resources) {
             return Ok(false);
         }
+        // Doctor Carrina is asked as the research begins, once it can be paid for.
+        carrina_window = crate::factions::deepwrought_research::open(
+            &mut crate::factions::deepwrought_research::Host::new(
+                &mut *state,
+                content,
+                sources,
+                galaxy,
+                &mut *table,
+            ),
+            player,
+            &crate::factions::deepwrought_research::any,
+        )?;
         // Choose before paying. A declined optional prerequisite waiver returns here, restoring
         // the resource plan too, so the player may choose another legal technology or decline.
         loop {
@@ -1320,6 +1391,20 @@ fn paid_research(
     if agent_window {
         crate::factions::keleres::close_agent_window(state, player);
     }
+    // Doctor Carrina: close the waiver, and settle the holder's placement for a research that landed.
+    let settled = crate::factions::deepwrought_research::settle(
+        &mut crate::factions::deepwrought_research::Host::new(
+            &mut *state,
+            content,
+            sources,
+            galaxy,
+            &mut *table,
+        ),
+        player,
+        carrina_window,
+        outcome.is_ok(),
+    );
+    let outcome = outcome.and_then(|researched| settled.map(|()| researched));
     match outcome {
         Ok(true) => {
             if let Some(source) = adjustment.borrowed_source {

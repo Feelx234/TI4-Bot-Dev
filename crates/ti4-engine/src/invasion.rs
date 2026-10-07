@@ -40,6 +40,9 @@ pub struct InvasionReport {
     pub bombardment_kills: usize,
     /// Whether this invasion lifted the custodians token from Mecatol Rex (27.3).
     pub custodians_removed: bool,
+    /// Planets where a defending Deepwrought chose to coexist (Research Team, on defense): no
+    /// ground combat starts there and the invader is offered none.
+    pub coexisted: Vec<PlanetId>,
 }
 
 /// 27.2: six influence, paid before ground forces are committed.
@@ -1966,6 +1969,10 @@ pub fn establish_control(
         if !holds {
             continue; // 49.5d
         }
+        // A coexisting invader holds no control of the planet (coexistence 2, 3.1).
+        if crate::coexistence::is_coexisting(state, system, planet, invader) {
+            continue;
+        }
         let previous = state
             .system_state(system)
             .planet_control
@@ -2776,6 +2783,8 @@ impl InvasionWindow {
         ctx: &mut Resolving<'_>,
     ) -> Result<(), IllegalChoice> {
         let planets = self.report.committed.clone();
+        // Research Team: "When ground forces are committed", before anything else follows.
+        self.offer_research_team(state, ctx, &planets)?;
         // "After you commit ground forces": the step is over, before space cannon defense.
         let mut payload = std::collections::BTreeMap::new();
         payload.insert("system".to_owned(), self.system.to_string().into());
@@ -2798,6 +2807,158 @@ impl InvasionWindow {
             self.stage = Stage::Done;
         } else {
             self.advance_fighting(state, ctx, &planets, 0);
+        }
+        Ok(())
+    }
+
+    /// The Deepwrought's Research Team: "When ground forces are committed: if your units on that
+    /// planet are not already coexisting, you may choose for your units to coexist." Asked for each
+    /// committed planet another player controls where a rival ground force stands (without one
+    /// there is nothing to coexist with: the units simply take the planet). A coexisting invader
+    /// starts no combat there (`advance_fighting`) and takes no control (`establish_control`).
+    /// An answer the decider could not give is an error, never a silent fight.
+    fn offer_research_team(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planets: &[PlanetId],
+    ) -> Result<(), IllegalChoice> {
+        for planet in planets {
+            if !crate::factions::deepwrought::research_team_open(
+                state,
+                ctx.content,
+                &self.invader,
+                &self.system,
+                planet,
+            ) || !ground_force_owners(state, ctx.content, ctx.sources, &self.system, planet)
+                .iter()
+                .any(|owner| *owner != self.invader)
+            {
+                continue;
+            }
+            let choice = crate::choice::Choice::new(
+                self.invader.clone(),
+                format!("Research Team: coexist on {planet} instead of fighting"),
+                vec![
+                    crate::choice::ChoiceOption::labelled(
+                        "fight".to_owned(),
+                        "research_team",
+                        format!("fight for {planet}"),
+                    ),
+                    crate::choice::ChoiceOption::labelled(
+                        "coexist".to_owned(),
+                        "research_team",
+                        format!("coexist on {planet}"),
+                    ),
+                ],
+            )
+            .contextualized(
+                DecisionContext::new(
+                    self.invader.clone(),
+                    DecisionSource::FactionAbility("researchteam".to_owned()),
+                    "research_team_coexist",
+                    state.phase,
+                    state.round,
+                )
+                .about(DecisionTarget::Planet {
+                    system: self.system.clone(),
+                    planet: planet.clone(),
+                }),
+            );
+            let answer = ctx.ask_seeing(state, &choice)?;
+            if answer.id == "coexist" {
+                // `begin` fails before it touches anything (a missing taker, which cannot happen
+                // here: another player holds the planet), so a failure leaves the units to fight.
+                let _ = crate::factions::deepwrought::begin_coexisting(
+                    state,
+                    &self.invader,
+                    &self.system,
+                    planet,
+                    None,
+                );
+            }
+        }
+        self.offer_research_team_defense(state, ctx, planets)
+    }
+
+    /// Research Team on defense (Dane's ruling): when another player commits ground forces to a
+    /// planet where a Deepwrought's units stand and those units are not already coexisting, the
+    /// Deepwrought player (not the invader) may choose for them to coexist. The units coexist under
+    /// the ordinary rules (`begin_coexisting`: a controller steps aside and the invader gains the
+    /// planet, 3.2; a seat that does not control it just coexists, 3.1), so no ground combat starts
+    /// there (`advance_fighting`) and nothing is captured. Oceanbound triggers as usual.
+    fn offer_research_team_defense(
+        &mut self,
+        state: &mut GameState,
+        ctx: &mut Resolving<'_>,
+        planets: &[PlanetId],
+    ) -> Result<(), IllegalChoice> {
+        for planet in planets {
+            if crate::coexistence::is_coexisting(state, &self.system, planet, &self.invader) {
+                continue; // the invader already avoids the fight
+            }
+            let defenders: Vec<PlayerId> = state
+                .seating_order
+                .iter()
+                .filter(|seat| {
+                    crate::factions::deepwrought::research_team_defender_open(
+                        state,
+                        ctx.content,
+                        seat,
+                        &self.invader,
+                        &self.system,
+                        planet,
+                    )
+                })
+                .cloned()
+                .collect();
+            for defender in defenders {
+                let choice = crate::choice::Choice::new(
+                    defender.clone(),
+                    format!(
+                        "Research Team: coexist on {planet} with {}'s ground forces instead of fighting",
+                        self.invader
+                    ),
+                    vec![
+                        crate::choice::ChoiceOption::labelled(
+                            "fight".to_owned(),
+                            "research_team",
+                            format!("fight for {planet}"),
+                        ),
+                        crate::choice::ChoiceOption::labelled(
+                            "coexist".to_owned(),
+                            "research_team",
+                            format!("coexist on {planet}"),
+                        ),
+                    ],
+                )
+                .contextualized(
+                    DecisionContext::new(
+                        defender.clone(),
+                        DecisionSource::FactionAbility("researchteam".to_owned()),
+                        "research_team_defend_coexist",
+                        state.phase,
+                        state.round,
+                    )
+                    .about(DecisionTarget::Planet {
+                        system: self.system.clone(),
+                        planet: planet.clone(),
+                    }),
+                );
+                let answer = ctx.ask_seeing(state, &choice)?;
+                if answer.id == "coexist"
+                    && crate::factions::deepwrought::begin_coexisting(
+                        state,
+                        &defender,
+                        &self.system,
+                        planet,
+                        Some(&self.invader),
+                    )
+                    .is_ok()
+                {
+                    self.report.coexisted.push(planet.clone());
+                }
+            }
         }
         Ok(())
     }
@@ -3468,6 +3629,18 @@ impl InvasionWindow {
             // control changes hands instead of in a combat that never should have happened.
             let owners = ground_force_owners(state, ctx.content, ctx.sources, &self.system, planet);
             if !owners.contains(&self.invader) {
+                index += 1;
+                continue;
+            }
+            // Coexisting units start no combat: the invader chose to coexist here (Research Team),
+            // and units added to a coexisting planet coexist at once (coexistence 5).
+            if crate::coexistence::is_coexisting(state, &self.system, planet, &self.invader) {
+                index += 1;
+                continue;
+            }
+            // A defending Deepwrought chose to coexist (Research Team on defense): no combat here,
+            // and no rule-12 offer to start one either -- the choice was made to avoid the fight.
+            if self.report.coexisted.contains(planet) {
                 index += 1;
                 continue;
             }

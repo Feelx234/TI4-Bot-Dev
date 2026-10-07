@@ -177,9 +177,12 @@ const CONVOYS: &str = "convoys";
 const BLOOD_PACT: &str = "blood_pact";
 const DARK_PACT: &str = "dark_pact";
 
+/// The Deepwrought's Share Knowledge ("ACTION: Place this card faceup in your play area and gain ...").
+const SHARE_KNOWLEDGE: &str = "shareknowledge";
+
 /// Whether a note's own text places it faceup with an ACTION rather than on receipt.
 fn is_action_placed(alias: &str) -> bool {
-    matches!(alias, CONVOYS | BLOOD_PACT | DARK_PACT)
+    matches!(alias, CONVOYS | BLOOD_PACT | DARK_PACT | SHARE_KNOWLEDGE)
 }
 
 /// The notes `player` holds in hand (not yet faceup) whose ACTION places them in their play area

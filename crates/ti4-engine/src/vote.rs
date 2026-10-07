@@ -176,6 +176,8 @@ pub fn votable_planets(
         .controlled_planets(player)
         .into_iter()
         .map(|(_, planet)| planet.clone())
+        // The Deepwrought's ocean cards count as influence for voting, like any spendable planet.
+        .chain(crate::factions::deepwrought::oceans(state, player))
         .filter(|planet| !state.exhausted_planets.contains(planet))
         .filter(|planet| influence_of(state, content, sources, planet) > 0)
         .collect()
@@ -420,7 +422,13 @@ impl VoteWindow {
         let qanoj = i64::from(crate::leaders::elder_qanoj(state, player));
         let spends = self.spender.as_ref() == Some(player);
         let mut offers = Vec::new();
-        for (_, planet) in state.controlled_planets(player) {
+        let oceans = crate::factions::deepwrought::oceans(state, player);
+        let cards = state
+            .controlled_planets(player)
+            .into_iter()
+            .map(|(_, planet)| planet)
+            .chain(oceans.iter());
+        for planet in cards {
             if state.exhausted_planets.contains(planet) {
                 continue;
             }
@@ -1773,6 +1781,50 @@ mod tests {
         assert!(
             votable_planets(&state, ContentStore::embedded(), POK, &players[0]).is_empty(),
             "an exhausted planet cannot vote again"
+        );
+    }
+
+    /// Operator ruling 2026-10-07: the Deepwrought's ocean cards count as influence for voting, like
+    /// any other spendable planet, through the real vote window.
+    #[test]
+    fn ocean_cards_count_as_influence_for_voting() {
+        use crate::factions::deepwrought::testkit as dw;
+        let sources = ti4_model::content_types::DEFAULT;
+        let content = ContentStore::embedded();
+        let mut state = dw::game();
+        let (system, planet) = dw::plain_planet();
+        dw::coexisting_on(&mut state, &system, &planet); // Oceanbound: gains ocean1
+        let ocean = PlanetId::new("ocean1");
+        assert!(votable_planets(&state, content, sources, &dw::a()).contains(&ocean));
+        assert!(
+            !votable_planets(&state, content, sources, &dw::b()).contains(&ocean),
+            "only the holder's own card"
+        );
+
+        let mut window = VoteWindow::new(&state, "x", for_against());
+        window.order = vec![dw::a()];
+        window.open(&state, content, sources);
+        let first = window
+            .pending_choice(&state, content, sources)
+            .expect("a votes");
+        let outcome = first.option(FOR).expect("FOR is offered").clone();
+        window
+            .resolve(&mut state, content, sources, outcome)
+            .expect("a votes for");
+        let offered = window
+            .pending_choice(&state, content, sources)
+            .expect("an exhaust choice");
+        let option = offered
+            .option("ocean1")
+            .expect("the ocean card can be exhausted for its influence")
+            .clone();
+        window
+            .resolve(&mut state, content, sources, option)
+            .expect("the ocean is exhausted");
+        assert!(state.exhausted_planets.contains(&ocean), "it was exhausted");
+        assert!(
+            !votable_planets(&state, content, sources, &dw::a()).contains(&ocean),
+            "an exhausted ocean cannot vote again"
         );
     }
 

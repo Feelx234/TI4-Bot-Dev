@@ -1127,6 +1127,14 @@ fn supremacy(owner_name: &str, seat: &PlayerId, event_type: &'static str) -> Abi
             {
                 return Ok(());
             }
+            // Doctor Carrina's window: the research is a research (`deepwrought_research.rs`). It
+            // opens before the choice because the waiver widens the unit upgrades on offer.
+            let window = super::deepwrought_research::open(
+                &mut super::deepwrought_research::Host::of(context),
+                &owner,
+                &super::deepwrought_research::unit_upgrades,
+            )
+            .map_err(TimingError::IllegalChoice)?;
             let options = supremacy_options(context, &owner);
             let choice = Choice::new(
                 owner.clone(),
@@ -1157,7 +1165,13 @@ fn supremacy(owner_name: &str, seat: &PlayerId, event_type: &'static str) -> Abi
                     &TechnologyId::new(alias),
                 );
             }
-            Ok(())
+            super::deepwrought_research::settle(
+                &mut super::deepwrought_research::Host::of(context),
+                &owner,
+                window,
+                true,
+            )
+            .map_err(TimingError::IllegalChoice)
         }),
     )
     .with_optional(true)

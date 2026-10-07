@@ -293,6 +293,10 @@ pub fn spendable_planets(state: &GameState, player: &PlayerId) -> Vec<PlanetId> 
         .into_iter()
         .map(|(_, planet)| planet.clone())
         .filter(|planet| !state.exhausted_planets.contains(planet))
+        // The Deepwrought's ocean cards are planet cards off the map (1 resource, 1 influence).
+        .chain(crate::factions::deepwrought::spendable_oceans(
+            state, player,
+        ))
         .collect()
 }
 
