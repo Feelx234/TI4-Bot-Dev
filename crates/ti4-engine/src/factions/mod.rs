@@ -52,6 +52,8 @@ pub mod borrowed_round_agents;
 pub mod empyrean;
 pub mod empyrean_units;
 pub mod cabal;
+pub mod deepwrought;
+mod deepwrought_cards;
 pub mod ghost;
 pub mod hooks_cards;
 pub mod hooks_combat;
@@ -80,11 +82,12 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 22] = [
+pub const MODULES: [&FactionModule; 23] = [
     &arborec::MODULE,
     &argent::MODULE,
     &bastion::MODULE,
     &cabal::MODULE,
+    &deepwrought::MODULE,
     &empyrean::MODULE,
     &ghost::MODULE,
     &keleres::MODULE_M,

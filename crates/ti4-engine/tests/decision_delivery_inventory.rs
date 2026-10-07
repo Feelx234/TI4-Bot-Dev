@@ -556,6 +556,39 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Deepwrought Research Team: fight or coexist for each committed planet (BF-deepwrought.md).
+        module: "invasion.rs",
+        function: "offer_research_team",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Deepwrought: every question asked inside a timing window or component action (BF-deepwrought.md).
+        module: "deepwrought.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "deepwrought.rs",
+        function: "ask_about",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Doctor Carrina: the holder's exhaust offer, then the infantry placement.
+        module: "strategy_cards.rs",
+        function: "deepwrought_agent_offer",
+        count: 1,
+        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+    },
+    Producer {
+        module: "strategy_cards.rs",
+        function: "deepwrought_agent_settle",
+        count: 1,
+        delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
+    },
+    Producer {
         // Slumberstate Computing: the Titans pick a planet, its controller allows the sleeper.
         module: "titans_leaders.rs",
         function: "sleeper_allowance",
@@ -1221,7 +1254,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "strategy_cards.rs",
-        function: "offer_research",
+        function: "offer_research_inner",
         count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1454,6 +1487,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("nomad.rs", "temporal_command_suite", 1),
     ("nomad_agents.rs", "ask", 1),
     ("invasion.rs", "coexist_instead", 1),
+    ("invasion.rs", "offer_research_team", 1),
+    ("deepwrought.rs", "ask", 1),
+    ("deepwrought.rs", "ask_about", 1),
     ("titans_leaders.rs", "sleeper_allowance", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),

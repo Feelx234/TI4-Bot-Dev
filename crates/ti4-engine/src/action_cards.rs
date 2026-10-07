@@ -1515,12 +1515,15 @@ fn crashlanding(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
         .entry(planet_id.clone())
         .or_default()
         .push(Unit::new(landed.type_id, player.clone()));
-    if others_there {
-        board
+    let began = others_there
+        && board
             .coexisting
             .entry(planet_id)
             .or_default()
             .insert(player.clone());
+    // Oceanbound: "When your units begin coexisting on a planet".
+    if began {
+        crate::factions::deepwrought::note_coexistence_began(context.state, player);
     }
 }
 

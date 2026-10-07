@@ -396,7 +396,191 @@ fn research_option(
     option
 }
 
+/// The technologies a player owns, to tell afterwards what a research gained.
+fn owned_technologies(
+    state: &GameState,
+    player: &PlayerId,
+) -> std::collections::BTreeSet<TechnologyId> {
+    state
+        .player(player)
+        .map(|seat| seat.technologies.clone())
+        .unwrap_or_default()
+}
+
+/// Doctor Carrina (Deepwrought agent): "When another player researches a technology: You may exhaust
+/// this card to allow that player to ignore 1 prerequisite; if they do, you may place 1 infantry
+/// from your reinforcements into coexistence on a non-home planet they control."
+///
+/// This is the first half, asked of the holder once, as a research begins and before the researcher
+/// lists what they can take (the waiver widens that list). Offered only when it matters: the waiver
+/// opens a technology that was closed, or the holder has somewhere to place the infantry. Returns
+/// whether the waiver is armed; the caller must close the window with
+/// [`deepwrought_agent_settle`].
+fn deepwrought_agent_offer(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<bool, IllegalChoice> {
+    for holder in crate::factions::deepwrought::agent_holders(state, player) {
+        let plain = crate::technology::researchable(state, content, sources, player).len();
+        crate::factions::deepwrought::arm_waiver(state, player, &holder);
+        let waived = crate::technology::researchable(state, content, sources, player).len();
+        crate::factions::deepwrought::disarm_waiver(state, player);
+        let targets = crate::factions::deepwrought::infantry_targets(
+            state, content, sources, &holder, player,
+        );
+        if waived == 0 || (waived <= plain && targets.is_empty()) {
+            continue; // the agent would be spent for nothing
+        }
+        let choice = Choice::new(
+            holder.clone(),
+            format!("Doctor Carrina: exhaust to let {player} ignore 1 prerequisite"),
+            vec![
+                ChoiceOption::labelled("use".to_owned(), "leader", "exhaust the agent".to_owned()),
+                ChoiceOption::decline(),
+            ],
+        )
+        .contextualized(DecisionContext::new(
+            holder.clone(),
+            DecisionSource::Content(crate::factions::deepwrought::AGENT.to_owned()),
+            "deepwrought_agent_exhaust",
+            state.phase,
+            state.round,
+        ));
+        if ask(state, content, sources, galaxy, table, &choice)?.is_decline()
+            || !crate::leaders::exhaust(
+                state,
+                &holder,
+                &ti4_model::id::LeaderId::new(crate::factions::deepwrought::AGENT),
+            )
+        {
+            continue;
+        }
+        // Exhausted for another seat's research: a promise to use this agent for them is kept here.
+        crate::diplomacy::evaluate_event(
+            state,
+            &crate::diplomacy::DiplomacyEventContext::LeaderUsedFor {
+                user: holder.clone(),
+                leader: crate::factions::deepwrought::AGENT.to_owned(),
+                beneficiary: player.clone(),
+            },
+        )
+        .expect("validated diplomacy promises settle deterministically");
+        crate::factions::deepwrought::arm_waiver(state, player, &holder);
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+/// The research is over. Closes Doctor Carrina's waiver and settles its second half: the holder may
+/// place an infantry into coexistence on a non-home planet the researcher controls, when the
+/// researcher took the waiver (a technology with a prerequisite to ignore was gained). When no
+/// technology was gained the use is undone and the agent readied: nothing was researched.
+fn deepwrought_agent_settle(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    armed: bool,
+    before: &std::collections::BTreeSet<TechnologyId>,
+    finished_cleanly: bool,
+) -> Result<(), IllegalChoice> {
+    if !armed {
+        return Ok(());
+    }
+    let Some(holder) = crate::factions::deepwrought::disarm_waiver(state, player) else {
+        return Ok(());
+    };
+    let gained: Vec<TechnologyId> = owned_technologies(state, player)
+        .difference(before)
+        .cloned()
+        .collect();
+    if gained.is_empty() {
+        crate::leaders::ready(
+            state,
+            &holder,
+            &ti4_model::id::LeaderId::new(crate::factions::deepwrought::AGENT),
+        );
+        return Ok(());
+    }
+    if !finished_cleanly
+        || !gained
+            .iter()
+            .any(|tech| crate::factions::deepwrought::prerequisite_count(content, tech) > 0)
+    {
+        return Ok(()); // nothing was ignored
+    }
+    let targets =
+        crate::factions::deepwrought::infantry_targets(state, content, sources, &holder, player);
+    if targets.is_empty() {
+        return Ok(());
+    }
+    let mut options: Vec<ChoiceOption> = targets
+        .iter()
+        .map(|(system, planet)| {
+            ChoiceOption::labelled(
+                format!("{system}|{planet}"),
+                "planet",
+                format!("place an infantry on {planet} in {system}"),
+            )
+        })
+        .collect();
+    options.push(ChoiceOption::decline());
+    let choice = Choice::new(
+        holder.clone(),
+        format!("Doctor Carrina: place an infantry into coexistence on a planet {player} controls"),
+        options,
+    )
+    .contextualized(DecisionContext::new(
+        holder.clone(),
+        DecisionSource::Content(crate::factions::deepwrought::AGENT.to_owned()),
+        "deepwrought_agent_place",
+        state.phase,
+        state.round,
+    ));
+    let answer = ask(state, content, sources, galaxy, table, &choice)?;
+    if let Some((system, planet)) = targets
+        .into_iter()
+        .find(|(system, planet)| answer.id == format!("{system}|{planet}"))
+    {
+        crate::factions::deepwrought::place_into_coexistence(
+            state, content, sources, &holder, &system, &planet,
+        );
+    }
+    Ok(())
+}
+
 fn offer_research(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<Option<TechnologyId>, IllegalChoice> {
+    let armed = deepwrought_agent_offer(state, content, sources, galaxy, table, player)?;
+    let before = owned_technologies(state, player);
+    let result = offer_research_inner(state, content, sources, galaxy, table, player);
+    deepwrought_agent_settle(
+        state,
+        content,
+        sources,
+        galaxy,
+        table,
+        player,
+        armed,
+        &before,
+        result.is_ok(),
+    )?;
+    result
+}
+
+fn offer_research_inner(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1089,6 +1273,8 @@ fn paid_research(
     adjustment.cost -= reduced;
     let cost = adjustment.cost;
     let mut agent_window = false;
+    let mut carrina_armed = false;
+    let techs_before = owned_technologies(state, player);
     let outcome = (|| -> Result<bool, IllegalChoice> {
         // Xander Alexin Victori III (Keleres): this research is one payment window; the agent is
         // offered before the affordability gate, which is what its commodities can open.
@@ -1113,6 +1299,8 @@ fn paid_research(
         if !crate::payment::affordable(state, content, sources, player, cost, Spend::Resources) {
             return Ok(false);
         }
+        // Doctor Carrina is asked as the research begins, once it can be paid for.
+        carrina_armed = deepwrought_agent_offer(state, content, sources, galaxy, table, player)?;
         // Choose before paying. A declined optional prerequisite waiver returns here, restoring
         // the resource plan too, so the player may choose another legal technology or decline.
         loop {
@@ -1179,6 +1367,19 @@ fn paid_research(
     if agent_window {
         crate::factions::keleres::close_agent_window(state, player);
     }
+    // Doctor Carrina: close the waiver, and settle the holder's placement for a research that landed.
+    let settled = deepwrought_agent_settle(
+        state,
+        content,
+        sources,
+        galaxy,
+        table,
+        player,
+        carrina_armed,
+        &techs_before,
+        outcome.is_ok(),
+    );
+    let outcome = outcome.and_then(|researched| settled.map(|()| researched));
     match outcome {
         Ok(true) => {
             if let Some(source) = adjustment.borrowed_source {
