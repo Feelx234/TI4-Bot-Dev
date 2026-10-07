@@ -201,7 +201,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                     <div className="workflow-card production-drawer__meter">
                       <div className="workflow-card--row">
                         <span className="text-muted">
-                          <ValueUnit kind="resources" size="bar" /> available
+                          <ValueUnit kind="resources" size="bar" /> budget
                         </span>
                         <span data-testid="production-resources-counter" className="text-success">
                           {resourceLimit === null

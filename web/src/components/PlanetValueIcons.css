@@ -1,15 +1,9 @@
-/* Resource / influence icons (PlanetValueIcons.tsx). Colour tokens: dark default, light override. */
+/* Resource / influence icons (PlanetValueIcons.tsx). Colour tokens: the app UI is dark, so the dark
+   values apply by default; a light theme sets [data-theme="light"] on the root. */
 :root {
   --value-resource: #fbbf24;
   --value-influence: #38bdf8;
   --value-spent: #94a3b8;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --value-resource: #b45309;
-    --value-influence: #0369a1;
-    --value-spent: #64748b;
-  }
 }
 :root[data-theme="light"] {
   --value-resource: #b45309;
@@ -25,6 +19,17 @@
   font-variant-numeric: tabular-nums;
 }
 /* Never smaller than 12px, grows with the surrounding text. */
+.planet-value__icon--resources {
+  color: var(--value-resource);
+}
+.planet-value__icon--influence {
+  color: var(--value-influence);
+}
+/* On a selected (filled) button the icon follows the button text so it never vanishes into the fill. */
+[aria-pressed="true"] .planet-value__icon,
+.button--primary .planet-value__icon {
+  color: currentColor;
+}
 .planet-value__icon {
   flex: none;
   width: max(12px, 1.05em);

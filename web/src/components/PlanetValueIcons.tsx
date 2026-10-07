@@ -6,8 +6,8 @@ import "./PlanetValueIcons.css";
  * shown. Visible text is the icon plus the number; screen readers and tooltips get the full word
  * ("3 resources", "1 influence", "2 of 5 resources").
  *
- * Colours come from the `--value-resource` / `--value-influence` tokens in index.css (dark by
- * default, light under `prefers-color-scheme: light` and `[data-theme="light"]`).
+ * Colours come from the `--value-resource` / `--value-influence` tokens in PlanetValueIcons.css (dark by
+ * default, light under `[data-theme="light"]`; the app has no light theme yet).
  */
 export type PlanetValueKind = "resources" | "influence";
 export type PlanetValueSize = "inline" | "bar" | "tooltip";
@@ -21,9 +21,10 @@ const KIND_PATH: Record<PlanetValueKind, string> = {
   resources: RESOURCE_PATH,
   influence: INFLUENCE_PATH,
 };
-const KIND_COLOR: Record<PlanetValueKind, string> = {
-  resources: "var(--value-resource, #fbbf24)",
-  influence: "var(--value-influence, #38bdf8)",
+/** Each path is cropped to its own square so both icons fill the same visual box. */
+const KIND_VIEWBOX: Record<PlanetValueKind, string> = {
+  resources: "1 0.5 14 15",
+  influence: "1.5 3.5 13 13",
 };
 
 /** "Resources" / "Influence" (a payment currency), "R" / "I" or the kind itself, normalised. */
@@ -45,12 +46,12 @@ interface IconProps {
 
 const Icon: React.FC<IconProps & { kind: PlanetValueKind }> = ({ kind, style, className }) => (
   <svg
-    viewBox="0 0 16 16"
+    viewBox={KIND_VIEWBOX[kind]}
     fill="currentColor"
     aria-hidden="true"
     focusable="false"
-    className={`planet-value__icon ${className ?? ""}`.trim()}
-    style={{ color: KIND_COLOR[kind], ...style }}
+    className={`planet-value__icon planet-value__icon--${kind} ${className ?? ""}`.trim()}
+    style={style}
   >
     <path d={KIND_PATH[kind]} />
   </svg>
@@ -202,7 +203,7 @@ export const PlanetValueGlyph: React.FC<{
   fill?: string;
   title?: string;
 }> = ({ kind, x, y, size = 12, fill, title }) => (
-  <svg x={x} y={y} width={size} height={size} viewBox="0 0 16 16" aria-hidden={title ? undefined : true}>
+  <svg x={x} y={y} width={size} height={size} viewBox={KIND_VIEWBOX[kind]} aria-hidden={title ? undefined : true}>
     {title && <title>{title}</title>}
     <path d={KIND_PATH[kind]} fill={fill ?? (kind === "influence" ? "#38bdf8" : "#fbbf24")} />
   </svg>
