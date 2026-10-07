@@ -36,6 +36,7 @@ import {
   requiresCapacity,
   spaceCargo,
   spaceHitUnits,
+  sustainDestroyableFromOptions,
   sustainTypesFromOptions,
 } from "../presentation/hitAssignment.ts";
 import type { BasketPlan } from "../protocol/client.ts";
@@ -278,7 +279,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       : new Set<string>(),
     destroyable: isCasualtyStage
       ? destroyableFromOptions(choice?.options ?? [])
-      : null,
+      : isSustainStage
+        ? sustainDestroyableFromOptions(choice?.options ?? [], hitUnits)
+        : null,
     onlyFighters:
       phase === "barrage" && onlyFighterOptions(choice?.options ?? []),
   };

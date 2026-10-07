@@ -2166,6 +2166,13 @@ fn assignable_to_hit(
 /// Offer every available SUSTAIN DAMAGE until the hits run out or the player takes them.
 ///
 /// Only units that could actually be assigned a hit of `origin` are offered.
+/// `non_fighters_first` marks "take the hit" when the loss is bound to non-fighter ships
+/// (Graviton Laser System). Display only: a client planning the loss ahead must not pick a
+/// fighter the next question will not offer.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the combat position, the decider and the one binding"
+)]
 fn offer_sustain(
     state: &mut GameState,
     content: &ContentStore,
@@ -2178,6 +2185,7 @@ fn offer_sustain(
     mut hits: usize,
     origin: HitOrigin,
     during_space_combat: bool,
+    non_fighters_first: bool,
 ) -> Result<usize, CombatError> {
     let types = catalogue(content, sources);
     while hits > 0 {
@@ -2296,18 +2304,22 @@ fn offer_sustain(
                 )])),
             );
         }
-        options.push(
-            ChoiceOption::labelled(
-                crate::choice::DECLINE_ID,
-                crate::choice::DECLINE_KIND,
-                "take the hit",
-            )
-            .previewed(Preview::certain(vec![Delta::new(
-                Quantity::ShipsInSystem,
-                own_ships,
-                own_ships - 1,
-            )])),
-        );
+        let mut take = ChoiceOption::labelled(
+            crate::choice::DECLINE_ID,
+            crate::choice::DECLINE_KIND,
+            "take the hit",
+        )
+        .previewed(Preview::certain(vec![Delta::new(
+            Quantity::ShipsInSystem,
+            own_ships,
+            own_ships - 1,
+        )]));
+        if non_fighters_first
+            && !non_fighter_ships(state, content, sources, player, system).is_empty()
+        {
+            take = take.with("non_fighters_first", true);
+        }
+        options.push(take);
 
         let choice = Choice::new(player.clone(), format!("cancel a hit at {system}"), options)
             .contextualized(
@@ -2569,6 +2581,7 @@ fn absorb_hits_seeing_with_context(
         hits,
         origin,
         during_space_combat,
+        non_fighters_first,
     )?;
 
     while remaining > 0 {
@@ -5141,18 +5154,25 @@ impl Window for CombatWindow {
                         )])),
                     );
                 }
-                options.push(
-                    ChoiceOption::labelled(
-                        crate::choice::DECLINE_ID,
-                        crate::choice::DECLINE_KIND,
-                        "take the hit",
-                    )
-                    .previewed(Preview::certain(vec![Delta::new(
-                        Quantity::ShipsInSystem,
-                        own_ships,
-                        own_ships - 1,
-                    )])),
-                );
+                let mut take = ChoiceOption::labelled(
+                    crate::choice::DECLINE_ID,
+                    crate::choice::DECLINE_KIND,
+                    "take the hit",
+                )
+                .previewed(Preview::certain(vec![Delta::new(
+                    Quantity::ShipsInSystem,
+                    own_ships,
+                    own_ships - 1,
+                )]));
+                // Display only, as in `offer_sustain`: the loss this hit forces is a
+                // non-fighter while one is left.
+                if front.non_fighters_only
+                    && !non_fighter_ships(state, content, sources, &front.player, &self.system)
+                        .is_empty()
+                {
+                    take = take.with("non_fighters_first", true);
+                }
+                options.push(take);
                 Some(
                     Choice::new(
                         front.player.clone(),
@@ -5946,6 +5966,44 @@ mod tests {
         );
     }
 
+    /// Forced hits (L1Z1X dreadnoughts) go to non-fighter ships; the window's sustain question
+    /// says so on "take the hit", as the cannon path does, so a client never plans a fighter
+    /// loss the next question will not offer.
+    #[test]
+    fn a_windowed_forced_hit_marks_its_sustain_question_bound_to_non_fighters() {
+        for forced in [true, false] {
+            let (mut state, system) = arena();
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 1);
+            let mut window = CombatWindow::new(&state, ContentStore::embedded(), POK, &system);
+            window.stage = Stage::Sustaining {
+                queue: vec![Pending {
+                    player: defender(),
+                    hits: 1,
+                    producer: attacker(),
+                    non_fighters_only: forced,
+                    producer_assigns: false,
+                }],
+                round: 1,
+            };
+            let sustaining = window
+                .pending_choice(&state, ContentStore::embedded(), POK)
+                .expect("a hit is queued");
+            let take = sustaining
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .expect("taking the hit is offered");
+            assert_eq!(
+                take.payload
+                    .get("non_fighters_first")
+                    .and_then(serde_json::Value::as_bool),
+                forced.then_some(true),
+                "forced = {forced}"
+            );
+        }
+    }
+
     /// Hits outside a combat window (space cannon, barrage) are absorbed one ask at a time. Each
     /// ask must say how many hits are still owed, or a client cannot stage them together and
     /// has to guess the amount.
@@ -6048,6 +6106,7 @@ mod tests {
             2,
             HitOrigin::CombatRoll,
             false,
+            false,
         )
         .expect("the offer resolves");
         assert_eq!(
@@ -6072,6 +6131,7 @@ mod tests {
             &attacker(),
             2,
             HitOrigin::CombatRoll,
+            false,
             false,
         )
         .expect("the offer resolves");
@@ -6832,6 +6892,59 @@ mod tests {
             ships_of(&state, content, POK, &defender(), &system).len(),
             2
         );
+    }
+
+    #[test]
+    fn graviton_bound_sustain_question_says_the_hit_goes_to_a_non_fighter() {
+        // Nightly runs 07-2221 and 37-0225: the sustain question did not say the hits were
+        // bound, so the client planned "take the hit, lose a fighter" and the follow-up
+        // casualty question (non-fighters only) rejected it.
+        for bound in [true, false] {
+            let (mut state, system) = arena();
+            put(&mut state, &system, "dreadnought", &defender(), 1);
+            put(&mut state, &system, "destroyer", &defender(), 1);
+            put(&mut state, &system, "fighter", &defender(), 1);
+            let content = ContentStore::embedded();
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(1);
+            let (decider, seen) = crate::choice::Capturing::new(Box::new(FirstOption));
+            let mut table = Table::with_default(Box::new(decider));
+            let mut ctx = Resolving {
+                content,
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            absorb_hits_seeing_with(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut ctx,
+                &defender(),
+                &system,
+                &attacker(),
+                1,
+                bound,
+                HitOrigin::CombatRoll,
+            )
+            .unwrap();
+            let asked = seen.borrow();
+            let take = asked[0]
+                .options
+                .iter()
+                .find(|option| option.is_decline())
+                .expect("the sustain question offers taking the hit");
+            assert_eq!(
+                take.payload
+                    .get("non_fighters_first")
+                    .and_then(serde_json::Value::as_bool),
+                bound.then_some(true),
+                "bound = {bound}"
+            );
+        }
     }
 
     #[test]
@@ -7872,6 +7985,7 @@ mod tests {
             1,
             HitOrigin::CombatRoll,
             false,
+            false,
         )
         .unwrap();
         let sustain_asked = sustain_seen.borrow();
@@ -8184,6 +8298,7 @@ mod tests {
             &attacker(),
             1,
             HitOrigin::CombatRoll,
+            false,
             false,
         )
         .unwrap();
@@ -9270,7 +9385,7 @@ mod space_routes_tests {
         let mut ctx = Resolving { content, sources: POK, dice: &mut dice, rng: &mut rng,
             table: &mut table, timing: None };
         assert_eq!(offer_sustain(&mut state, content, POK, None, &mut ctx, &b(), &system,
-            &a(), 1, HitOrigin::CombatRoll, true).unwrap(), 0);
+            &a(), 1, HitOrigin::CombatRoll, true, false).unwrap(), 0);
         let mark: serde_json::Value = serde_json::from_str(&state.faction_marks["combat:sustain_target"]).unwrap();
         let stored: Unit = serde_json::from_value(mark["unit"].clone()).unwrap();
         assert_eq!(stored, fresh.sustained());
@@ -9295,7 +9410,7 @@ mod space_routes_tests {
         let mut ctx = Resolving { content, sources: ti4_model::content_types::DEFAULT, dice: &mut dice, rng: &mut rng,
             table: &mut table, timing: None };
         assert_eq!(offer_sustain(&mut state, content, ti4_model::content_types::DEFAULT, None, &mut ctx, &b(), &system,
-            &a(), 1, HitOrigin::CombatRoll, true).unwrap(), 0);
+            &a(), 1, HitOrigin::CombatRoll, true, false).unwrap(), 0);
         let mark: serde_json::Value = serde_json::from_str(&state.faction_marks["combat:sustain_target"]).unwrap();
         let stored: Unit = serde_json::from_value(mark["unit"].clone()).unwrap();
         assert_eq!(stored, fresh.sustained());
@@ -9346,6 +9461,7 @@ mod space_routes_tests {
                 1,
                 HitOrigin::CombatRoll,
                 true,
+                false,
             )
             .unwrap(),
             0
