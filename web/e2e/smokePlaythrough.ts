@@ -469,7 +469,7 @@ export async function randomUiPlaythrough(
       const url = msg.location().url ?? "";
       // The optional battle advisor (/battle, /ground_odds) is not started for e2e runs.
       if (url.includes("favicon") || url.includes("/battle") || url.includes("/ground_odds")) return;
-      browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}`);
+      browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}${url ? ` (${url})` : ""}`);
     });
     // The console only reports a status code; keep the server's reason for failed API calls.
     page.on("response", async (response) => {
@@ -493,7 +493,16 @@ export async function randomUiPlaythrough(
       log(`  ${line}`);
     });
     await openPlayerGame(page, gameId, player.session);
-    await expect(page.getByTestId("turn-status-bar")).toBeVisible();
+    try {
+      await expect(page.getByTestId("turn-status-bar")).toBeVisible();
+    } catch (err) {
+      // Say what the tab showed instead (an error page, a crashed app) rather than only "not found".
+      const text = await page.locator("body").innerText().catch(() => "");
+      await page.screenshot({ path: `test-results/smoke-open-failure-${gameId}-seat${index + 1}.png` }).catch(() => {});
+      throw new Error(
+        `seat ${index + 1} never showed the status bar (game ${gameId}). Page text: ${text.slice(0, 600)}\nBrowser errors so far: ${browserErrors.join(" | ").slice(0, 800)}\n${err instanceof Error ? err.message.split("\n")[0] : err}`,
+      );
+    }
     pages.push(page);
   }
 
