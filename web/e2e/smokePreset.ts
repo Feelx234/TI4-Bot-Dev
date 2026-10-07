@@ -1,5 +1,5 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs"] as const;
 
 /** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
 export function presetFromEnv(value: string | undefined): string | undefined {
@@ -47,6 +47,9 @@ export const PRESET_EXPECT: Record<string, string> = {
   // (assign_ground_casualty is never asked: the server's timing path assigns ground hits itself,
   // and bombardment_target is coexistence-only.)
   invasion: "commit_ground_forces,fight_ground_combat_round",
+  // The invasion setup with every seat owning the prompt-bearing technologies.
+  techs:
+    "quantum_datahub_swap|spatial_conduit_link|nullification_field_end_turn|chaos_mapping_choose_system|bio_stims_ready|psychoarchaeology_exhaust_specialty|transit_diodes_redeploy|supercharge|scanlink_explore>=5",
 };
 
 export function parseExpect(value: string | undefined, preset?: string): Expectation[] {

@@ -15,7 +15,7 @@ use ti4_engine::seating::{self, MECATOL};
 use ti4_engine::{fleet, invasion, production};
 use ti4_model::content_types::{ContentType, POK};
 use ti4_model::id::{
-    ActionCardId, FactionId, PlanetId, PlayerId, RelicId, SystemId, UnitTypeId,
+    ActionCardId, FactionId, PlanetId, PlayerId, RelicId, SystemId, TechnologyId, UnitTypeId,
 };
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
@@ -38,9 +38,12 @@ pub const RELICS: &str = "relics";
 /// bombardment and ground combat with casualties are the first thing a tactical action reaches.
 pub const INVASION: &str = "invasion";
 
+/// The invasion setup, with every seat owning the technologies that open their own prompts.
+pub const TECHS: &str = "techs";
+
 /// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
-pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS, INVASION];
+pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS];
 
 /// Action cards no nightly game ever played, found by diffing 72 final states' discard piles
 /// against the corpus. The first ten are in the standard deck; the rest are Thunder's Edge cards,
@@ -87,6 +90,16 @@ const RELIC_POOL: &[&str] = &[
 
 /// Relics per seat at most.
 const RELICS_PER_SEAT: usize = 3;
+
+/// Technologies owned from the start in the `techs` preset: the ones with their own prompts or
+/// exhaust windows (Quantum Datahub Node, Spatial Conduit Cylinders, Nullification Field, Chaos
+/// Mapping, Bio-Stims, Transit Diodes, AI Development Algorithm, Psychoarchaeology, Sling Relay,
+/// Magen Defense Grid, Scanlink Drone Network, Supercharge, Vortex), plus the production and
+/// bombardment ones that change what an invasion costs and does. Prerequisites are not checked.
+const TECH_POOL: &[&str] = &[
+    "qdn", "scc", "nf", "cm", "bs", "td", "aida", "pa", "sr", "md", "sdn", "sc", "vtx", "st",
+    "mc", "l4", "x89c4",
+];
 
 /// Cards per seat: well under the hand limit of 7, so nothing is discarded at the status phase.
 const HAND_SIZE: usize = 5;
@@ -169,6 +182,11 @@ pub fn apply(
             Ok(())
         }
         INVASION => invasion_preset(content, state, galaxy, players, seed),
+        TECHS => {
+            invasion_preset(content, state, galaxy, players, seed)?;
+            grant_techs(content, state, players);
+            Ok(())
+        }
         other => Err(format!("unknown start_preset {other:?}")),
     }
 }
@@ -271,6 +289,19 @@ fn invasion_preset(
         place(content, state, player, colony, &fleet)?;
     }
     Ok(())
+}
+
+/// Every seat owns every technology of [`TECH_POOL`] the corpus has.
+fn grant_techs(content: &ContentStore, state: &mut GameState, players: &[PlayerId]) {
+    for player in players {
+        if let Some(seat) = state.player_mut(player) {
+            for id in TECH_POOL {
+                if content.get(ContentType::Technologies, id).is_some() {
+                    seat.technologies.insert(TechnologyId::new(*id));
+                }
+            }
+        }
+    }
 }
 
 /// Hands the relics of [`RELIC_POOL`] out round-robin from a seeded first seat and takes them out
@@ -1007,6 +1038,34 @@ mod tests {
                     assert_eq!(infantry, 4);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn the_techs_preset_is_the_invasion_setup_plus_every_pool_technology() {
+        let list = players(4);
+        let (plain, _) = create_game_with_template(content(), &list, 2, None).unwrap();
+        let (invasion, _) =
+            create_game_with_preset(content(), &list, 2, None, Some(INVASION)).unwrap();
+        let (techs, _) = create_game_with_preset(content(), &list, 2, None, Some(TECHS)).unwrap();
+        for player in &list {
+            let owned = &techs.player(player).unwrap().technologies;
+            for id in TECH_POOL {
+                assert!(owned.contains(&TechnologyId::new(*id)), "{player} lacks {id}");
+            }
+            assert!(owned.len() > plain.player(player).unwrap().technologies.len());
+        }
+        assert_eq!(
+            serde_json::to_string(&techs.board).unwrap(),
+            serde_json::to_string(&invasion.board).unwrap(),
+            "the board is the invasion preset's"
+        );
+    }
+
+    #[test]
+    fn every_tech_pool_entry_exists() {
+        for id in TECH_POOL {
+            assert!(content().get(ContentType::Technologies, id).is_some(), "{id}");
         }
     }
 
