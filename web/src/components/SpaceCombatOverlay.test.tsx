@@ -671,6 +671,9 @@ describe("SpaceCombatOverlay", () => {
         onMinimize={onMinimize}
       />,
     );
+    // "Combat complete" is stated once (the phase line), not in the title or a footer as well.
+    expect(screen.getAllByText(/Combat complete/)).toHaveLength(1);
+    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent(/^Space Combat · System 18$/);
     const close = screen.getByRole("button", { name: "Close combat" });
     expect(close).toHaveTextContent("×");
     fireEvent.click(close);

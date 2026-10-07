@@ -990,7 +990,11 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
             Space Combat — System {combatSystemId}
           </Dialog.Title>
           <DecisionHeader
-            title={`Space Combat · System ${combatSystemId} · Round ${board?.combat?.round ?? 1} · ${phase === "pre_roll" ? "Before rolls" : phase === "barrage" ? "Anti-fighter barrage" : phase === "resolving_hits" ? "Resolve hits" : phase === "retreating" ? "Retreat / next round" : "Combat complete"}`}
+            title={
+              phase === "complete"
+                ? `Space Combat · System ${combatSystemId}`
+                : `Space Combat · System ${combatSystemId} · Round ${board?.combat?.round ?? 1} · ${phase === "pre_roll" ? "Before rolls" : phase === "barrage" ? "Anti-fighter barrage" : phase === "resolving_hits" ? "Resolve hits" : "Retreat / next round"}`
+            }
             onMinimize={() =>
               phase === "complete"
                 ? onClose()
@@ -1775,18 +1779,14 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                 return summary ? <CombatResultSummary summary={summary} /> : null;
               })()}
 
-              <div
-                className="combat-spectator-waiting"
-                data-testid={
-                  phase === "complete"
-                    ? "combat-complete-notice"
-                    : "spectator-combat-notice"
-                }
-              >
-                {phase === "complete"
-                  ? "Combat complete"
-                  : `Observing space combat in System ${combatSystemId}...`}
-              </div>
+              {phase !== "complete" && (
+                <div
+                  className="combat-spectator-waiting"
+                  data-testid="spectator-combat-notice"
+                >
+                  {`Observing space combat in System ${combatSystemId}...`}
+                </div>
+              )}
             </>
           )}
         </div>
