@@ -24,12 +24,20 @@ You may make **minor repairs**; otherwise you observe. Rules:
   narrowest `cargo check` / `cargo test -p <crate> <filter>` / `npx vitest run <file>`, then
   commit (`git add <files>` + `git commit`, message naming the run and the symptom). A repair that
   breaks the build is dropped automatically before the next run. Never push or switch branches.
-- Early fix round: Opus fix round 1 normally starts at 23:59. Request it earlier with
-  `{{TOOLS}}/request_fix.sh <reason>` only when you see a defect that will make several following
-  runs fail or stall the same way (the game cannot start, every run dies in round 1, a crash or
-  panic on a common path, a harness defect hiding everything else). At most once per night, and
-  give a precise reason: symptom, decision/round, evidence path. Rare or cosmetic problems wait
-  for 23:59; just report them. The script refuses when a request or the round already exists.
+- Ask for a fix immediately. Opus fix round 1 normally starts at 23:59, but do not wait for it and
+  do not wait for a problem to repeat: as soon as you have seen a real error, call
+  `{{TOOLS}}/request_fix.sh <reason>` (a crash or panic, a stuck or stalled game, a rejected-submit
+  loop, a JavaScript or console error, a server rejection of a control the UI offered, a broken
+  layout, a UI element that does not work or shows wrong numbers). Do it right after you have
+  confirmed it in the evidence (step 3), before you write your entry. The reason must be precise
+  enough to reproduce: run name, seeds and the repro command, the steps or decision (#, round,
+  subtype), the exact error text, and the screenshot or log path. Rare and cosmetic problems may be
+  requested too; the fixer sorts them. The first request of a night starts round 1 early; once round
+  1 has started, the next request starts a second early round (round 2) as soon as round 1 has
+  finished. A further request is not recorded and the script says so: that problem belongs in your report
+  entry, as does every problem you did request (the entry is the record). Never retry in a loop.
+- A minor repair you made does not replace the report: still list the bug under Potential bugs and
+  the commit under Repairs, so the fixers and the morning summary see it.
 - At most 3 repairs and about 25 extra tool calls per run.
 
 Most runs (about 70%) start from a prepared state (`preset` in meta.json, `TI4_SMOKE_PRESET=<name>`
@@ -48,6 +56,42 @@ technologies, leaders or a pre-lifted custodians token are by design:
 - `leaders`: every leader usable at once and unclaimed legendary planets handed out.
 - `endgame` (not in the default mix): the game ends within a round or two.
 Such prompts and fights in those runs are *expected*, not suspicious.
+
+About a quarter of the runs play the Prophecy of Kings strategy cards (`card_set` in meta.json, `TI4_SMOKE_CARD_SET=pok`
+in the repro); the default is the Thunder's Edge set, whose Warfare offers an extra redistribute
+decision after the free tactical action (`warfare_redistribute_tokens`, `warfare_recall_token`).
+Both are by design.
+
+New UI elements to watch for. A crash is not the only bug: judge what you can see, and report UI
+problems even when the game ran clean (layout glitches, overlaps, clipped or overflowing text, wrong
+numbers, confusing wording, a button that does nothing, a control that stays enabled or disabled
+wrongly). The harness saves screenshots in `{{RUN_DIR}}/trace/shots/` (the first decision of
+rounds 1 to 3, and the first time each of the following was on screen); open the ones that exist with
+Read (they are images) and look at them, plus `trace/failure.txt` and the failure screenshot
+(`/root/TI4-Bot-Dev/web/test-results/smoke-failure-*.png`) after a failure. What is new and worth a look:
+- Trade: a two-column staging desk (You give / You receive, steppers and item toggles); Propose is
+  enabled only when the staged combination is a listed deal, otherwise "Nearest available deals"
+  appear and a collapsed "Quick deals" list is the fallback; the answer screen shows the offer with
+  Accept / Refuse / Counter-offer (one counter only). The harness uses suggestions, Propose,
+  Offer Nothing and the answers.
+- Secondary preparation: the "Prepare your secondary" chip, the Review/Auto mode toggle, the
+  "Preparing - nothing is sent or spent" banner (prepare mode shows the real components against a
+  stand-in question). The harness never opens it and keeps the default Review mode; if a shot or the
+  log shows prepare mode on during a run, or the chip/banner overlapping the real question, report it.
+- Lone auto-submit and corner toasts (off in the harness unless TI4_SMOKE_AUTO_LONE=1), the recap
+  toast (default off), the auto-resolved toasts: wording, placement, covering controls.
+- Turn redo in the event log ("Redo my turn", "restore original timeline") and the styled undo
+  confirm dialog (no browser confirm). The harness does not use them yet.
+- Unit and faction info cards (info buttons in the production builder, the player sheet "Faction"
+  button): popover position, clipped text, wrong stats.
+- Production builder: unit cards with inline stats, grouped Ships / Ground / Structures, sticky
+  Confirm builds; check counts, costs, resource counters and that nothing hides behind the sticky bar.
+- Leadership purchase: "Pay on the map" with the payment bar (Paid x / y, Confirm tokens and
+  purchase), and the older token panel.
+- Board layout: board chrome row, board stage bottom padding, larger seat badges, prompt pill
+  position, map tiles clickable under the prompt bars.
+- Event log: follow / "Jump to latest" behaviour; bought-objective labels in the objectives modal;
+  the ground combat summary card after an invasion; the game-over banner on every seat.
 
 Run directory: {{RUN_DIR}}
 Tools directory: {{TOOLS}}
@@ -90,6 +134,15 @@ decisions seen. Short bullets.
 ### Repairs
 Commits made on `{{FIX_BRANCH}}` (hash, what it fixes, how you verified it), or "none". A bug you
 understood but judged too big goes under Potential bugs instead.
+
+### UI observations
+What you saw in the screenshots of the new UI elements (layout glitches, clipped or overlapping
+text, wrong numbers, confusing wording), with the screenshot file name; or "none seen" / "no
+screenshots". Say which new elements were never on screen in this run.
+
+### Fix requests
+The `request_fix.sh` calls you made (reason, and its answer: recorded for round 1, recorded for
+round 2, or refused), or "none".
 
 ### Proctor notes
 Anything you noticed while watching (slow phases, long stalls, repeated rejections).

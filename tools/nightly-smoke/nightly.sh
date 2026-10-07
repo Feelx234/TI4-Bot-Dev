@@ -283,14 +283,17 @@ cmd_fix() {
   fi
 
   log "fixer round $round: working in $wt on $fixer_branch ($FIXER_MODEL, budget ${max}s)"
-  # Round 1 started early because a proctor asked (request_fix.sh): say so in the prompt and report.
-  local request="" req_reason req_run
-  if [ "$round" = 1 ] && [ -s "$NIGHT_DIR/fix-requested" ]; then
-    req_reason=$(sed -n '/^reason: /,$p' "$NIGHT_DIR/fix-requested" | sed '1s/^reason: //')
-    req_run=$(sed -n 's/^run: //p' "$NIGHT_DIR/fix-requested" | head -1)
-    request="A proctor (run ${req_run:-unknown}) asked for this round early because: $req_reason"
-    note_report "## Fixer round 1 started early on a proctor's request (run ${req_run:-unknown}): $req_reason"
-    log "fixer round 1: started early on request: $req_reason"
+  # A round started because a proctor asked (request_fix.sh): say so in the prompt and report.
+  # Round 1 reads fix-requested; round 2 reads fix-requested-2 (a request made once round 1 had
+  # started), also when it only starts after the sweep.
+  local request="" req_reason req_run req_file="$NIGHT_DIR/fix-requested" early=" early"
+  [ "$round" -ge 2 ] && { req_file="$NIGHT_DIR/fix-requested-2"; early=""; }
+  if [ -s "$req_file" ]; then
+    req_reason=$(sed -n '/^reason: /,$p' "$req_file" | sed '1s/^reason: //')
+    req_run=$(sed -n 's/^run: //p' "$req_file" | head -1)
+    request="A proctor (run ${req_run:-unknown}) asked for this round${early} because: $req_reason"
+    note_report "## Fixer round $round started${early} on a proctor's request (run ${req_run:-unknown}): $req_reason"
+    log "fixer round $round: started${early} on request: $req_reason"
   fi
   local prompt
   prompt=$(render "$NIGHTLY_DIR/prompts/fixer.md" "ROUND=$round" "REPORT=$NIGHT_DIR/report.md" \
@@ -420,6 +423,16 @@ decide_night() { # decide_night <night> <current: 1|0>; prints "<action> <night>
     && fixer_retry_wait_over 1 \
     && [ ! -f "$NIGHT_DIR/sweep.done" ] && [ "$(report_entries)" -ge 1 ]; then
     echo "fix $NIGHT 1"
+    return 0
+  fi
+
+  # A second early request (made once round 1 had started): round 2 starts as soon as round 1 has
+  # finished, while the sweep keeps running. Its branch is merged between games like round 1's.
+  if [ "$current" = 1 ] && fixer_enabled 2 && [ ! -f "$NIGHT_DIR/.fixer-2-started" ] \
+    && [ -s "$NIGHT_DIR/fix-requested-2" ] && { ! fixer_enabled 1 || [ -f "$NIGHT_DIR/.fixer-1.done" ]; } \
+    && [ "$now" -lt "$END_EPOCH" ] && fixer_retry_wait_over 2 \
+    && [ ! -f "$NIGHT_DIR/sweep.done" ] && [ "$(report_entries)" -ge 1 ]; then
+    echo "fix $NIGHT 2"
     return 0
   fi
 

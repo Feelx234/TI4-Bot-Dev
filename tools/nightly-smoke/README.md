@@ -26,15 +26,28 @@ so they can run after the next window has started. `tick` therefore also looks a
 night, and the next sweep waits while the previous night's round 2 or summary is running or due
 (at most `NIGHTLY_START_DEFER_SECONDS`, default 2 hours, past 20:30). Both use the same checkout.
 
-**Early fix round.** Round 1 is scheduled for 23:59, but a proctor may request it earlier:
-`request_fix.sh <reason...>` writes `nightly-reports/<night>/fix-requested` (time, run name,
-reason). `tick` then treats round 1 as due (it still needs one report entry, round 1 enabled and
-not yet started, the sweep running and now before END). Only the first request of a night counts;
-the script refuses when fixers are disabled or round 1 already started. The reason goes into the
-fixer prompt (`{{REQUEST}}` in `prompts/fixer.md`, empty for a scheduled round) and a line in
-`report.md` notes the early start. The proctor prompt tells proctors to ask only for a defect that
-will make several following runs fail the same way, at most once per night; the script is on their
-allowed-tools list.
+**Early fix rounds.** Proctors are told to ask for changes immediately when they see a real error
+(crash, stuck game, rejected-submit loop, console error, broken layout, a UI element that does not
+work), with a precise reproducible reason: `request_fix.sh <reason...>`. They do not wait for the
+error to repeat. The first request of a night writes `nightly-reports/<night>/fix-requested` (time,
+run name, reason); `tick` then treats round 1 as due (it still needs one report entry, round 1
+enabled and not yet started, the sweep running and now before END). Once round 1 has started, the
+next request writes `fix-requested-2` instead (also when round 1 is disabled but round 2 is on):
+round 2 then starts early, as soon as round 1 has finished (`.fixer-1.done`), while the sweep keeps
+running; its branch is merged between games like round 1's. Requests beyond that (a second
+`fix-requested-2`, or round 2 already started, or no round enabled) are not recorded and the script
+tells the proctor to put the problem in the report entry. The reason goes into the fixer prompt
+(`{{REQUEST}}` in `prompts/fixer.md`, empty for a plain scheduled round) and a line in `report.md`
+notes the request. The script is on the proctors' allowed-tools list. Proctors keep their
+minor-repair rights; a proctor who repairs something still reports it. The prompt also has a
+"new UI elements to watch for" section: the harness saves screenshots to `trace/shots/` (first
+decision of rounds 1 to 3, first sight of the trade desk, production builder, payment bar, token
+panel, secondary-prep chrome, combat summaries, toasts, objectives and ballot modals), and the entry
+has `UI observations` and `Fix requests` sections.
+
+**Strategy card set.** `run_game.sh` plays the Thunder's Edge cards (server default `te`) in 75% of
+the runs and Prophecy of Kings (`pok`) in the rest (`NIGHTLY_POK_PROBABILITY`). `meta.json` has
+`card_set`; the repro carries `TI4_SMOKE_CARD_SET=pok` only when it is not the default.
 
 ## How a night runs
 
@@ -71,7 +84,7 @@ Worktrees under `nightly-reports/<night>/fixer-*` can be removed with `git workt
     nightly.sh loop [night]         the sweep
     nightly.sh fix <round> [night]  an Opus fix round
     nightly.sh summary [night]      the morning summary
-    request_fix.sh <reason...>      (proctors) ask for fix round 1 before 23:59
+    request_fix.sh <reason...>      (proctors) ask for a fix round now (round 1, then round 2)
 
 ## Settings (environment variables, defaults in `config.sh`)
 
@@ -89,6 +102,7 @@ Worktrees under `nightly-reports/<night>/fixer-*` can be removed with `git workt
 | `NIGHTLY_PROCTOR_MODEL`, `NIGHTLY_SUMMARY_MODEL` | Sonnet 5.5, Opus 5.5 | |
 | `NIGHTLY_PRESET_PROBABILITY` | `70` | percent of runs that start from a prepared state |
 | `NIGHTLY_PRESET` | `combat combat cards agenda relics invasion techs leaders` | one preset name or a list to pick from per run (see `crates/ti4-server/src/preset.rs`; `endgame` is left out of the mix) |
+| `NIGHTLY_POK_PROBABILITY` | `25` | percent of runs that play the PoK strategy cards instead of the TE default |
 | `NIGHTLY_PRESET_ROTATE_PERCENT` | `20` | percent of preset runs that also rotate the factions (`<preset>+rot`: Jol-Nar and L1Z1X at small tables) |
 | `NIGHTLY_NOW`, `NIGHTLY_NOW_FILE` | unset | fake clock for tests |
 
@@ -101,9 +115,9 @@ are the main cost of this schedule.
 
 Runs in a temp directory with stub `claude` binaries and a fake clock: window maths on both sides
 of midnight and both daylight-saving changes, the not-before guard, what `tick` starts at each time
-(round 1 once at 23:59 or on an early request, request refused after round 1 started or when disabled, the reason reaching the fixer prompt and the report, round 2 only after `sweep.done`, the summary only after round 2, the
+(round 1 once at 23:59 or on an early request, a request after round 1 started kept for an early round 2, requests refused after round 2 started or when no round is enabled, the reason reaching the fixer prompt and the report, round 2 only after `sweep.done`, the summary only after round 2, the
 previous-night gap), a dry run of a whole night including the between-games merge, a merge that
 breaks the build, and a merge conflict. It never starts a real proctor, game or build and never
-touches the live checkout. `test_preset_pick.sh` tests the preset choice.
+touches the live checkout. `test_preset_pick.sh` tests the preset and card set choice.
 `coverage.py <reports-dir>...` lists the decision subtypes no run ever offered (and those offered in
 fewer than two runs) by diffing the engine's literal subtypes against the runs' `report.json`; `test_coverage.sh` tests it.
