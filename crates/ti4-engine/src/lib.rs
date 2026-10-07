@@ -88,6 +88,8 @@ pub mod transactions;
 pub mod transit;
 pub mod vote;
 #[cfg(test)]
+mod objectives_monument_tests;
+#[cfg(test)]
 mod wiring;
 
 pub use agenda::{
