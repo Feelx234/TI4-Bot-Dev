@@ -61,8 +61,12 @@ fn basis(
     if shared.stopped
         || shared.finished
         || shared.error.is_some()
-        || shared.history_active
-        || !shared.replay_complete
+        // (`history_active` is not asked: a session made by a batch commit or a history change
+        // carries it for its whole life, so it says nothing about being live.)
+        // A session started mid-step (a batch commit replaces it) replays the earlier decisions
+        // inside its first step, so `replay_complete` only becomes true at the next loop top. A
+        // live decision pending for a seat proves the replay has caught up.
+        || (!shared.replay_complete && shared.pending_decision.is_none())
     {
         return refuse(PreviewRefusal::Busy, "the game is not live right now");
     }
@@ -170,5 +174,56 @@ pub fn answer(
         as_of_decisions,
         card: request.card.clone(),
         outcome,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::worker::{PendingDecision, PendingSubmissionState};
+    use ti4_engine::choice::Choice;
+
+    fn shared() -> SessionShared {
+        let ids = [PlayerId::new("a"), PlayerId::new("b")];
+        let state = ti4_engine::setup::start_game(
+            ContentStore::embedded(),
+            &ids,
+            ti4_model::content_types::POK,
+            None,
+        )
+        .expect("game");
+        SessionShared::new("g".to_owned(), state)
+    }
+
+    fn refusal(shared: &SessionShared) -> Option<PreviewRefusal> {
+        basis(
+            shared,
+            &PlayerId::new("b"),
+            &StrategyCardId::new("pok7technology"),
+            &PlayerId::new("a"),
+        )
+        .err()
+        .map(|(reason, _)| reason)
+    }
+
+    #[test]
+    fn a_session_still_replaying_is_busy_until_a_live_decision_is_pending() {
+        let mut shared = shared();
+        shared.replay_complete = false;
+        assert_eq!(refusal(&shared), Some(PreviewRefusal::Busy));
+        // A session started mid-step by a batch commit only sets replay_complete at its next
+        // loop top; a live decision pending for a seat shows the replay has caught up.
+        shared.pending_decision = Some(PendingDecision {
+            seat: PlayerId::new("a"),
+            nonce: "n".to_owned(),
+            game_version: 1,
+            choice: Choice::new(PlayerId::new("a"), "x", vec![]),
+            submission_state: PendingSubmissionState::AwaitingSubmission,
+            submitted_option_id: None,
+            reply_tx: None,
+        });
+        assert_eq!(refusal(&shared), Some(PreviewRefusal::NoStrategicAction));
+        shared.stopped = true;
+        assert_eq!(refusal(&shared), Some(PreviewRefusal::Busy));
     }
 }

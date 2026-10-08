@@ -230,7 +230,22 @@ export class SecondaryPrepExercise {
         await sleep(150);
         cands = await this.d.collect(page);
       }
-      if (!cands.length) break;
+      if (!cands.length) {
+        // The banner is still open but nothing in it can be clicked: say what the tab shows.
+        if (await this.visible(page, "prepare-banner")) {
+          const shown = await page
+            .evaluate(() => {
+              const ids = [...document.querySelectorAll("[data-testid]")]
+                .map((el) => el.getAttribute("data-testid") ?? "")
+                .filter((id) => /drawer|dialog|modal|panel|bar|tray/.test(id))
+                .slice(0, 12);
+              return `${window.innerWidth}x${window.innerHeight} containers=[${ids.join(",")}]`;
+            })
+            .catch(() => "n/a");
+          this.find(p, `prepare mode is open but offers nothing to click after ${clicked.join(", ") || "no clicks"} (${shown}; ${await this.evidence(page)})`, "prepare mode is open but");
+        }
+        break;
+      }
       const yes = cands.find((c) => /secondary-yes-btn/.test(c.desc));
       const skip = cands.find((c) => /secondary-skip-btn/.test(c.desc));
       const chosen = yes && skip ? (this.d.rng() < 0.75 ? yes : skip) : this.d.pickOne(cands, i);

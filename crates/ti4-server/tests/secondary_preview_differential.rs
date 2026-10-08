@@ -190,6 +190,19 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
                         })
                     });
                 if let Some(card) = card {
+                    if std::env::var("TI4_PREVIEW_DEBUG").is_ok() {
+                        for seat in start.seating_order.iter().filter(|seat| **seat != primary) {
+                            let yes = preview(start, &card, &primary, seat, &["yes".to_owned()]);
+                            let kind = match &yes {
+                                SecondaryPreview::Question { choice, .. } => format!(
+                                    "question {:?}",
+                                    choice.context.as_ref().map(|c| c.subtype.clone())
+                                ),
+                                other => format!("{other:?}").chars().take(90).collect(),
+                            };
+                            println!("DEBUG {card} {seat}: yes -> {kind}");
+                        }
+                    }
                     let said = start
                         .seating_order
                         .iter()
