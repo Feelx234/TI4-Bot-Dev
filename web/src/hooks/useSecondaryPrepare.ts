@@ -9,6 +9,7 @@ import type {
 } from "../protocol/types.ts";
 import type { BasketPlan, SecondaryPreviewReply } from "../protocol/client.ts";
 import { TOKEN_POOLS, type TokenStep } from "../presentation/commandTokens.ts";
+import type { CommandTokenDraftApi } from "../presentation/CommandTokenDraftContext.tsx";
 import {
   detectStrategicAction,
   prepareEligibility,
@@ -19,6 +20,8 @@ import {
   type SecondaryPlan,
   type StructureUnit,
   type StepResolution,
+  type TokenPrefill,
+  leadershipTokens,
 } from "../presentation/secondaryPlan.ts";
 import {
   buildDryChoice,
@@ -28,7 +31,13 @@ import {
 } from "../presentation/dryChoice.ts";
 import { paymentPlanetKey } from "../presentation/paymentDraft.ts";
 import { optionUnit } from "../presentation/productionDraft.ts";
-import { toExactResult, type ExactResult } from "../presentation/secondaryPreview.ts";
+import {
+  checkLeadershipReply,
+  leadershipScript,
+  toExactResult,
+  type ExactResult,
+  type LeadershipCheck,
+} from "../presentation/secondaryPreview.ts";
 import { usePreparedPlan } from "./useSecondaryPlan.ts";
 import { useSecondaryAutoPlay } from "./useSecondaryAutoPlay.ts";
 
@@ -156,6 +165,8 @@ export function useSecondaryPrepare({
   const [follow, setFollow] = useState("yes");
   /** The option id of the first planned build, which scripts the payment preview. */
   const [firstBuild, setFirstBuild] = useState<string | null>(null);
+  /** Leadership: what the engine said about the last purchase saved or refused (this device, this action). */
+  const [leadershipCheck, setLeadershipCheck] = useState<LeadershipCheck | null>(null);
   const preparing = step !== null && canPrepare;
   // The mode ends by itself when its action ends, or the viewer's real question arrives.
   useEffect(() => {
@@ -284,6 +295,7 @@ export function useSecondaryPrepare({
     setFirstPlanet(null);
     setFirstBuild(null);
     setFollow("yes");
+    setLeadershipCheck(null);
     setStep("secondary");
   }, []);
   /** Leaves preparation mode; the plan stays saved. */
@@ -376,8 +388,29 @@ export function useSecondaryPrepare({
           if (pool) pools[pool] += 1;
         }
         const total = pools.tactic + pools.fleet + pools.strategic;
-        if (total === 0) set({ card: action.card, follow: false });
-        else set({ card: action.card, follow: true, leadership: { pools } });
+        if (total === 0) {
+          set({ card: action.card, follow: false });
+          setLeadershipCheck(null);
+          close();
+          return;
+        }
+        // The payment chosen on the map, kept by meaning (planets by purchase-planet id).
+        const payment = {
+          planets: batch.steps.flatMap((entry) => (entry.kind === "exhaust" ? [entry.planet] : [])),
+          tradeGoods: batch.steps.filter((entry) => entry.kind === "trade_good").length,
+        };
+        // The engine checks the whole purchase (every payment, pool and "again?") against its own flow.
+        let check: LeadershipCheck = { kind: "unchecked", why: "the game could not be asked" };
+        if (canAsk()) {
+          check = checkLeadershipReply(await fetchExact(leadershipScript(follow, batch.steps), true));
+        }
+        if (check.kind === "rejected") {
+          // Nothing is saved; the panel stays open on the same staging to be changed.
+          setLeadershipCheck(check);
+          throw new Error(`The game would not accept this purchase as of now: ${check.reason}.`);
+        }
+        setLeadershipCheck(check);
+        set({ card: action.card, follow: true, leadership: { pools, payment } });
         close();
         return;
       }
@@ -417,7 +450,7 @@ export function useSecondaryPrepare({
         close();
       }
     },
-    [action, step, base, dry, set, close, fetchExact, answersFor],
+    [action, step, base, dry, set, close, fetchExact, answersFor, canAsk, follow],
   );
 
   // ---- when the real question opens ------------------------------------------------------------
@@ -449,6 +482,26 @@ export function useSecondaryPrepare({
         : { kind: "none" as const },
     [plan, applicable, realChoice, viewerSeat, done],
   );
+
+  /**
+   * What the token panel is opened with: the saved purchase while preparing, and at arrival the
+   * prepared purchase (or, when its payment no longer fits, the Auto-pay replacement to confirm).
+   */
+  const tokenPrefill: TokenPrefill | null = useMemo(() => {
+    if (preparing) {
+      const saved = plan?.leadership;
+      if (!saved || !plan.follow) return null;
+      const bought = leadershipTokens(saved.pools);
+      const payment = saved.payment;
+      return {
+        bought,
+        pools: saved.pools,
+        override: payment ? { planetIds: payment.planets, tradeGoods: payment.tradeGoods } : null,
+      };
+    }
+    if (resolution.kind === "tokens" || resolution.kind === "review") return resolution.prefill ?? null;
+    return null;
+  }, [preparing, plan, resolution]);
 
   const markSent = useCallback(
     (part: string, on: boolean) =>
@@ -523,6 +576,8 @@ export function useSecondaryPrepare({
     close,
     dry,
     exactInfo,
+    leadershipCheck,
+    tokenPrefill,
     shownChoice,
     prepareSubmit,
     prepareBatch,
@@ -538,3 +593,30 @@ export function useSecondaryPrepare({
 }
 
 export type SecondaryPrepare = ReturnType<typeof useSecondaryPrepare>;
+
+/**
+ * Leadership: opens the usual token panel with the prepared purchase already staged (tokens, their
+ * pools and the payment on the map). Once per question, so the player's own changes stay.
+ */
+export function useTokenPrefill(
+  prep: Pick<SecondaryPrepare, "tokenPrefill" | "holding">,
+  nonce: string | null | undefined,
+  tokenDraft: Pick<CommandTokenDraftApi, "update">,
+): void {
+  const prefilledFor = useRef<string | null>(null);
+  const { tokenPrefill, holding } = prep;
+  const key = nonce ?? null;
+  const { update } = tokenDraft;
+  useEffect(() => {
+    if (prefilledFor.current !== key) prefilledFor.current = null;
+    if (!tokenPrefill || !key || holding) return;
+    if (prefilledFor.current === key) return;
+    prefilledFor.current = key;
+    update((draft) => ({
+      ...draft,
+      staging: { ...tokenPrefill.pools },
+      bought: tokenPrefill.bought,
+      override: tokenPrefill.override,
+    }));
+  }, [tokenPrefill, key, holding, update]);
+}

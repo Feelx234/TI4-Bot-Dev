@@ -638,7 +638,14 @@ export type SecondaryPreviewBody =
       skipped?: { subtype: string; prompt: string }[];
     }
   | { status: "would_not_be_asked"; blocker: SecondaryBlocker }
-  | { status: "complete"; skipped?: { subtype: string; prompt: string }[] }
+  | {
+      status: "complete";
+      skipped?: { subtype: string; prompt: string }[];
+      /** Scripted answers after the first that the engine never asked for. */
+      unused_answers?: number;
+    }
+  /** A scripted answer is not offered by the question the engine asks at that point. */
+  | { status: "rejected"; at: number; answer: string; choice: EngineChoice }
   | { status: "unavailable"; detail: string };
 
 /**

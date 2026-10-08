@@ -28,7 +28,7 @@ import {
   paymentPlanetKey,
 } from "./presentation/paymentDraft.ts";
 import { UndoConfirmDialog } from "./components/UndoConfirmDialog.tsx";
-import { useSecondaryPrepare } from "./hooks/useSecondaryPrepare.ts";
+import { useSecondaryPrepare, useTokenPrefill } from "./hooks/useSecondaryPrepare.ts";
 import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
 import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
 import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
@@ -413,6 +413,9 @@ const GameViewContainer: React.FC<{
   useEffect(() => {
     if (prefillId && prefillNonce && !prep.holding) setSelectedOptionId(prefillId);
   }, [prefillId, prefillNonce, pendingChoice?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Leadership: the usual token panel opens with the prepared purchase already staged (tokens, their
+  // pools and the payment on the map). Once per question, so the player's own changes stay.
+  useTokenPrefill(prep, pendingChoice?.nonce, tokenDraft);
   const cardIsVisible =
     cardSubject &&
     snapshot &&

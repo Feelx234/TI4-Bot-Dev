@@ -184,6 +184,63 @@ describe("resolveStep: Leadership purchase plan", () => {
     expect(resolveStep(plan, leadership(1, []), "b").kind).toBe("review");
   });
 
+  const prepared = (payment: { planets: string[]; tradeGoods: number }, pool = "tactic"): SecondaryPlan => ({
+    card: "pok1leadership",
+    follow: true,
+    leadership: {
+      pools: { tactic: pool === "tactic" ? 1 : 0, fleet: pool === "fleet" ? 1 : 0, strategic: 0 },
+      payment,
+    },
+  });
+
+  it("sends the payment chosen while preparing, not Auto-pay's, and opens the panel with it", () => {
+    // Auto-pay would exhaust jord (2) and lodor (1); the prepared payment is lodor and two trade goods.
+    const choice = leadership(1);
+    (choice.details!.purchase as { trade_goods: number }).trade_goods = 3;
+    const result = resolveStep(prepared({ planets: ["lodor"], tradeGoods: 2 }), choice, "b");
+    expect(result.kind).toBe("tokens");
+    if (result.kind !== "tokens") return;
+    expect(result.steps.filter((s) => s.kind === "exhaust")).toEqual([{ kind: "exhaust", planet: "lodor" }]);
+    expect(result.steps.filter((s) => s.kind === "trade_good")).toHaveLength(2);
+    expect(result.text).toContain("paying");
+    expect(result.prefill).toEqual({
+      bought: 1,
+      pools: { tactic: 1, fleet: 0, strategic: 0 },
+      override: { planetIds: ["lodor"], tradeGoods: 2 },
+    });
+  });
+
+  it("needs review, with the reason and Auto-pay's replacement, when a prepared planet can no longer pay", () => {
+    // jord was exhausted meanwhile: the real purchase no longer lists it.
+    const result = resolveStep(prepared({ planets: ["jord"], tradeGoods: 1 }), leadership(1, [{ id: "lodor", worth: 2 }, { id: "tarra", worth: 1 }]), "b");
+    expect(result.kind).toBe("review");
+    if (result.kind !== "review") return;
+    expect(result.reason).toMatch(/can no longer pay/);
+    expect(result.reason).toMatch(/Auto-pay would use/);
+    expect(result.prefill).toMatchObject({ bought: 1, override: null });
+  });
+
+  it("needs review when the trade goods are gone or the prepared payment no longer covers the bill", () => {
+    const goods = resolveStep(prepared({ planets: ["jord"], tradeGoods: 2 }), leadership(1), "b");
+    expect(goods).toMatchObject({ kind: "review" });
+    expect((goods as { reason: string }).reason).toMatch(/trade good/);
+    const short = resolveStep(prepared({ planets: ["lodor"], tradeGoods: 0 }), leadership(1), "b");
+    expect(short).toMatchObject({ kind: "review" });
+    expect((short as { reason: string }).reason).toMatch(/no longer works/);
+  });
+
+  it("keeps the payment through the device store and in the plan's description", () => {
+    const plan = prepared({ planets: ["jord", "lodor"], tradeGoods: 0 }, "fleet");
+    const stored = parseStoredPlan(serializeStoredPlan({ v: 1, actionKey: "k", generation: 1, plan }));
+    expect(stored?.plan.leadership?.payment).toEqual({ planets: ["jord", "lodor"], tradeGoods: 0 });
+    expect(describePlan(plan)).toMatch(/paying/);
+    // An older plan without a payment still parses (Auto-pay then plans it at arrival).
+    const old = parseStoredPlan(
+      JSON.stringify({ v: 1, actionKey: "k", generation: 1, plan: { card: "pok1leadership", follow: true, leadership: { pools: { tactic: 1, fleet: 0, strategic: 0 } } } }),
+    );
+    expect(old?.plan.leadership?.payment).toBeUndefined();
+  });
+
   it("skipping Leadership answers no", () => {
     expect(resolveStep({ card: "pok1leadership", follow: false }, leadership(1), "b")).toMatchObject({
       optionId: "no",

@@ -259,7 +259,8 @@ describe("preparation mode renders the REAL components and sends nothing", () =>
     expect(plan()).toEqual({
       card: "pok1leadership",
       follow: true,
-      leadership: { pools: { tactic: 0, fleet: 1, strategic: 0 } },
+      // The payment on the map (here Auto-pay's) is part of the plan now.
+      leadership: { pools: { tactic: 0, fleet: 1, strategic: 0 }, payment: { planets: ["jord"], tradeGoods: 1 } },
     });
     expect(submit).not.toHaveBeenCalled();
     expect(batch).not.toHaveBeenCalled();

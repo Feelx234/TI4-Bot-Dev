@@ -7,6 +7,7 @@ import type {
 import type { SecondaryPreviewReply } from "../protocol/client.ts";
 import { decodeDecisionTrigger } from "../protocol/decode.ts";
 import { planetName } from "./secondaryPlan.ts";
+import type { TokenStep } from "./commandTokens.ts";
 
 /**
  * The engine's exact answer to "what would my secondary ask if its window opened now", reduced to
@@ -19,8 +20,10 @@ export type ExactResult =
   | { kind: "question"; choice: EngineChoice; payment?: PreviewPayment; skipped: string[] }
   /** The window would not open for this seat right now. */
   | { kind: "not_asked"; blocker: SecondaryBlocker }
-  /** The answers given end the secondary: nothing further is asked. */
-  | { kind: "complete" }
+  /** The answers given end the secondary: nothing further is asked (`unused`: answers it never asked for). */
+  | { kind: "complete"; unused: number }
+  /** A scripted answer is not offered by the question the engine asks at that point. */
+  | { kind: "rejected"; at: number; answer: string; choice: EngineChoice }
   /** No exact answer (old server, refusal, timeout, unexpected question): use the estimate. */
   | { kind: "none"; why: string };
 
@@ -38,7 +41,9 @@ export function toExactResult(reply: SecondaryPreviewReply): ExactResult {
     case "would_not_be_asked":
       return { kind: "not_asked", blocker: body.blocker };
     case "complete":
-      return { kind: "complete" };
+      return { kind: "complete", unused: body.unused_answers ?? 0 };
+    case "rejected":
+      return { kind: "rejected", at: body.at, answer: body.answer, choice: body.choice };
     case "unavailable":
       return { kind: "none", why: body.detail };
   }
@@ -84,4 +89,61 @@ export function describePayment(payment: PreviewPayment): string {
       : []),
   ];
   return parts.join(", ");
+}
+
+/**
+ * The answers that script the engine's preview of a whole Leadership purchase: the window's own
+ * answer, then per token its payments (one planet or trade good each) and its pool, with the
+ * "again?" question answered yes between tokens. The closing "no" is not scripted: the preview
+ * stops at that question.
+ */
+export function leadershipScript(follow: string, steps: readonly TokenStep[]): string[] {
+  const answers = [follow];
+  let first = true;
+  for (const step of steps) {
+    if (step.kind === "purchase") {
+      // The first "yes" is the window's own answer.
+      if (step.buy && !first) answers.push("yes");
+      if (step.buy) first = false;
+    } else if (step.kind === "exhaust") answers.push(`exhaust|${step.planet}`);
+    else if (step.kind === "trade_good") answers.push("trade_good");
+    else answers.push(step.pool);
+  }
+  return answers;
+}
+
+/** What the engine says about a scripted Leadership purchase: fine, not fine (with why), or unchecked. */
+export type LeadershipCheck =
+  | { kind: "accepted" }
+  | { kind: "rejected"; reason: string }
+  | { kind: "unchecked"; why: string };
+
+export function checkLeadershipReply(result: ExactResult): LeadershipCheck {
+  switch (result.kind) {
+    case "question":
+      return { kind: "accepted" };
+    case "complete":
+      return result.unused === 0
+        ? { kind: "accepted" }
+        : {
+            kind: "rejected",
+            reason:
+              "the game would stop asking before the end of this purchase: you cannot afford that many tokens now",
+          };
+    case "rejected": {
+      if (result.choice.context?.subtype === "pay_influence") {
+        const what = result.answer.startsWith("exhaust|")
+          ? `${planetName(result.answer.slice("exhaust|".length))} cannot be exhausted at this point of the payment`
+          : result.answer === "trade_good"
+            ? "a trade good cannot be spent at this point of the payment"
+            : "that payment is not offered";
+        return { kind: "rejected", reason: `the game does not offer it: ${what}` };
+      }
+      return { kind: "rejected", reason: `the game does not offer "${result.answer}" there` };
+    }
+    case "not_asked":
+      return { kind: "unchecked", why: "the game would not ask you this secondary as of now" };
+    case "none":
+      return { kind: "unchecked", why: result.why };
+  }
 }
