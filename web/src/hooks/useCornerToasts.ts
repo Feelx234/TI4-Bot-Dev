@@ -27,7 +27,7 @@ export interface CornerToastsInput {
   /** The history generation of the session; a new one replaces the timeline (undo/redo, rewind). */
   historyGeneration?: number;
   /** Decisions this client answered for the viewer (lone strategic action / activation). */
-  localNotes?: readonly { id: string; text: string }[];
+  localNotes?: readonly { id: string; text: string; prompt?: string }[];
   /** False until the first snapshot arrived: what is already in the log is history, not news. */
   ready: boolean;
 }
@@ -167,7 +167,7 @@ export function useCornerToasts({
     for (const note of localNotes) {
       if (shownNotes.current.has(note.id)) continue;
       shownNotes.current.add(note.id);
-      showToast("action phase", note.text);
+      showToast(note.prompt ?? "action phase", note.text);
     }
   }, [localNotes, showToast]);
 

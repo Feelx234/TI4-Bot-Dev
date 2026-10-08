@@ -11,6 +11,7 @@ import { UnitIcon, getUnitBaseType } from "./UnitIcon.tsx";
 import { UnitBuildStats, useBuildUnit } from "./UnitBuildStats.tsx";
 import { draftResourceCost, optionCapacity, planBuilds } from "../presentation/productionDraft.ts";
 import { usePreparedHint } from "../presentation/PreparedHint.tsx";
+import { useSinglePaymentSetting } from "../hooks/useSinglePaymentSetting.ts";
 import { isDryNonce } from "../presentation/dryChoice.ts";
 
 export interface ProductionBuilderDrawerProps {
@@ -139,6 +140,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   onSubmitBatch,
 }) => {
   const display = usePlayerIdentity();
+  const { enabled: singlePayment, setEnabled: setSinglePayment } = useSinglePaymentSetting();
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
@@ -374,10 +376,22 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
 
                     <div className="production-drawer__footer">
                       {stagedBatches > 1 && !preparing && (
-                        <p className="text-muted">
-                          Staged builds submit one decision at a time. The queue pauses for payment
-                          or placement and stops if a later offer changes.
+                        <p className="text-muted" data-testid="production-queue-note">
+                          {singlePayment
+                            ? `You pay once for all ${stagedBatches} builds (${stagedCost} resources); the later payments follow your choice. Placement is still asked per unit, and anything unexpected stops the queue.`
+                            : "Staged builds submit one decision at a time. The queue pauses for payment or placement and stops if a later offer changes."}
                         </p>
+                      )}
+                      {!preparing && (
+                        <label className="production-drawer__setting" data-testid="ask-each-payment-setting">
+                          <input
+                            type="checkbox"
+                            data-testid="ask-each-payment-toggle"
+                            checked={!singlePayment}
+                            onChange={(event) => setSinglePayment(!event.target.checked)}
+                          />{" "}
+                          Ask for each payment
+                        </label>
                       )}
                       <button
                         type="button"

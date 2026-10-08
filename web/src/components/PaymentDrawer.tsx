@@ -3,6 +3,7 @@ import { PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
 import { WorkflowShell } from "./WorkflowShell.tsx";
+import { useProductionPaymentPanel } from "../presentation/ProductionPaymentContext.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { PlanetValue, ValueUnit, valueKind } from "./PlanetValueIcons.tsx";
@@ -67,10 +68,14 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
     lastError: pipelineError,
   } = usePipelineRunner(choice, onSubmit);
 
-  const offer = useMemo(
+  const baseOffer = useMemo(
     () => (choice ? derivePaymentOffer(choice, model) : null),
     [choice, model],
   );
+  const baseTradeGoods = player?.trade_goods ?? (baseOffer?.hasTradeGoodOption ? 1 : 0);
+  // Staged builds are paid for once: the first question's panel is the whole production's bill.
+  const production = useProductionPaymentPanel(choice, baseOffer, baseTradeGoods, draft, setDraft);
+  const offer = baseOffer ? production.offer : null;
   const constraints = model?.outstanding?.[0] ?? choice?.context?.outstanding?.[0];
   const totalAmount = offer?.totalAmount ?? 0;
   const alreadyPaid = offer?.alreadyPaid ?? 0;
@@ -124,18 +129,25 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   ) => {
     if (!isSettled || isPipelineRunning || isDirectSubmitting || batchRunning || !choice) return;
 
+    // The one payment for a whole production: this question takes its part, the rest is kept.
+    const part = production.split(draft);
+    if (!part) {
+      setBatchError("The staged payment does not fit this question. Reset and stage again.");
+      return;
+    }
+
     // Build execution list
     const intents: SemanticIntent[] = [];
 
     // 1. Planets to exhaust
-    for (const planetId of selectedPlanetIds) {
+    for (const planetId of part.planetIds) {
       intents.push({
         predicate: (opt) => opt.id === planetId,
       });
     }
 
     // 2. Trade goods to spend
-    for (let i = 0; i < tradeGoodsToSpend; i++) {
+    for (let i = 0; i < part.tradeGoods; i++) {
       intents.push({
         predicate: (opt) => opt.id === "trade_good",
       });
@@ -147,9 +159,10 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
       try {
         await onSubmitBatch({
           kind: "payment",
-          steps: buildPaymentSteps(choice, offer!, draft),
+          steps: buildPaymentSteps(choice, baseOffer!, part),
         });
       } catch (error) {
+        if (production.panel) production.revert();
         setBatchError(error instanceof Error ? error.message : String(error));
       } finally {
         setBatchRunning(false);
@@ -181,10 +194,15 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
           choice={choice}
           title={
             <>
-              Pay <PlanetValue kind={kind} value={owed} size="bar" state="ready" />
+              {production.panel ? `Pay for ${production.panel.builds} units: total ` : "Pay "}
+              <PlanetValue kind={kind} value={owed} size="bar" state="ready" />
             </>
           }
-          instruction={choice.prompt}
+          instruction={
+            production.panel
+              ? `You pay once: the engine asks for ${production.panel.builds} builds one after another and the later payments follow this choice.`
+              : choice.prompt
+          }
           progress={
             constraints?.amount === undefined
               ? undefined
@@ -360,10 +378,16 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                   </div>
                 )}
 
-                {selectedPlanetIds.length + tradeGoodsToSpend > 1 && (
+                {!production.panel && selectedPlanetIds.length + tradeGoodsToSpend > 1 && (
                   <p className="text-muted">
                     Pay submits one decision at a time. Later spends are unverified until the next
                     authoritative offer; the sequence stops if it changes or is rejected.
+                  </p>
+                )}
+
+                {production.note && (
+                  <p role="status" data-testid="production-pay-note" className="payment-drawer__problem text-warning">
+                    {production.note}
                   </p>
                 )}
 
@@ -411,6 +435,21 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                       }}
                     >
                       Reset selection
+                    </button>
+                  )}
+                  {production.panel && (
+                    <button
+                      type="button"
+                      data-testid="ask-each-payment-btn"
+                      className="button button--secondary"
+                      disabled={isPipelineRunning || isDirectSubmitting}
+                      title="Pay this build only; the next builds ask again"
+                      onClick={() => {
+                        production.askEach();
+                        reset();
+                      }}
+                    >
+                      Ask for each build
                     </button>
                   )}
                   {declineOption && (
