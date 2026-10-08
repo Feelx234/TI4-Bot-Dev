@@ -186,6 +186,10 @@ pub struct MovementRules<'a> {
     /// Borders this mover does not treat as adjacent, normalised `(low, high)`
     /// (`MovementHooks::blocked_borders`; Void Tether).
     blocked_edges: BTreeSet<(String, String)>,
+    /// Firmament agent Myru Vos: ships that are not transporting units may also move through other
+    /// players' ships (`MovementHooks::unladen_pass`). Used by [`Self::path_from_ship`] only when no
+    /// route exists without it, so a ship that can sail clear keeps its freedom to carry cargo.
+    unladen_pass: bool,
 }
 
 impl<'a> MovementRules<'a> {
@@ -240,6 +244,7 @@ impl<'a> MovementRules<'a> {
             token_free_types: BTreeSet::new(),
             nebulae_ignored: false,
             blocked_edges: BTreeSet::new(),
+            unladen_pass: false,
         };
         if let Some(state) = state {
             rules.apply_faction_modules(state, content, sources);
@@ -292,6 +297,19 @@ impl<'a> MovementRules<'a> {
                 self.galaxy = Cow::Owned(owned);
             }
         }
+        // Wormholes a move may not use: a severed system's (Sever) and, for a restricted mover, every
+        // kind it may not use (Sundered). On a copy of the map, so adjacency queries outside movement
+        // still see them.
+        if hooks::any(|table| {
+            table.severed_systems.is_some() || table.usable_wormhole_kinds.is_some()
+        }) {
+            let limits = hooks::wormhole_limits(state, self.board.mover.as_ref());
+            if !limits.is_empty() {
+                let mut owned = (*self.galaxy).clone();
+                limits.apply(&mut owned);
+                self.galaxy = Cow::Owned(owned);
+            }
+        }
         let Some(mover) = self.board.mover.clone() else {
             return;
         };
@@ -315,6 +333,9 @@ impl<'a> MovementRules<'a> {
         }
         if hooks::any(|table| table.blocked_borders.is_some()) {
             self.blocked_edges = hooks::blocked_borders(state, &mover);
+        }
+        if hooks::any(|table| table.unladen_pass.is_some()) {
+            self.unladen_pass = hooks::unladen_pass(state, &mover);
         }
         if hooks::any(|table| table.passable_owners.is_some()) {
             // Aetherpassage: a system whose only foreign ships belong to players who allow the
@@ -481,6 +502,18 @@ impl<'a> MovementRules<'a> {
         origin: Option<&str>,
         ship_type: Option<&str>,
     ) -> bool {
+        self.passes(system_id, origin, ship_type, false)
+    }
+
+    /// [`Self::can_pass_through_ship`], optionally lifting 58.4b altogether (`past_ships`): the
+    /// second search of an unladen ship under Myru Vos. Every other bar still applies.
+    fn passes(
+        &self,
+        system_id: &str,
+        origin: Option<&str>,
+        ship_type: Option<&str>,
+        past_ships: bool,
+    ) -> bool {
         if !self.enterable(system_id, true) {
             return false;
         }
@@ -490,7 +523,7 @@ impl<'a> MovementRules<'a> {
         if self.barred_transit.contains(system_id) {
             return false;
         }
-        if self.ignore_enemy_ships {
+        if self.ignore_enemy_ships || past_ships {
             return true;
         }
         if ship_type.is_some_and(|kind| self.passing_ship_types.contains(kind)) {
@@ -554,6 +587,22 @@ impl<'a> MovementRules<'a> {
         origin: &str,
         move_value: i32,
         ship_type: Option<&str>,
+    ) -> Option<Vec<String>> {
+        // Myru Vos: an unladen ship may also go through other players' ships, but only when no
+        // route avoids them, so a ship that can sail clear is never denied its cargo for it.
+        self.search_path(origin, move_value, ship_type, false).or_else(|| {
+            self.unladen_pass
+                .then(|| self.search_path(origin, move_value, ship_type, true))
+                .flatten()
+        })
+    }
+
+    fn search_path(
+        &self,
+        origin: &str,
+        move_value: i32,
+        ship_type: Option<&str>,
+        past_ships: bool,
     ) -> Option<Vec<String>> {
         if !self.may_depart_ship(origin, ship_type) {
             return None;
@@ -662,7 +711,7 @@ impl<'a> MovementRules<'a> {
                 if ends_here {
                     return Some(arrived); // 58.4a — movement ends here
                 }
-                if !self.can_pass_through_ship(&neighbour, Some(origin), ship_type) {
+                if !self.passes(&neighbour, Some(origin), ship_type, past_ships) {
                     continue;
                 }
                 queue.push_back((neighbour, entered + 1, allowance, arrived, bonus_used));

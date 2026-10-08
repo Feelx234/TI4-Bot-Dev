@@ -17,10 +17,12 @@ use ti4_engine::setup::start_game_seeded;
 use ti4_model::content_types::DEFAULT;
 use ti4_model::id::{FactionId, PlayerId};
 
-const FACTIONS: [&str; 23] = [
-    "arborec", "argent", "bastion", "cabal", "deepwrought", "empyrean", "ghost", "keleresa", "keleresm", "keleresx", "mahact",
-    "mentak", "muaat", "naalu", "naaz", "nekro", "nomad", "saar", "sardakk", "titans", "winnu", "yin",
-    "yssaril",
+// The Obsidian cannot be chosen during setup (Nocturne); it is seated directly here only as a
+// robustness soak of its windows. In a real game a seat becomes it through the Firmament's flip.
+const FACTIONS: [&str; 27] = [
+    "arborec", "argent", "bastion", "cabal", "crimson", "deepwrought", "empyrean", "firmament", "ghost", "keleresa", "keleresm", "keleresx", "mahact",
+    "mentak", "muaat", "naalu", "naaz", "nekro", "nomad", "obsidian", "saar", "sardakk", "titans", "winnu", "yin",
+    "yssaril", "ralnel",
 ];
 const SEATS: [&str; 6] = ["a", "b", "c", "d", "e", "f"];
 const MAX_ROUNDS: u32 = 50;

@@ -816,7 +816,8 @@ fn announce_discard(
     player: &PlayerId,
     alias: &ActionCardId,
 ) -> Result<(), TimingError> {
-    context.state.discarded_action_cards.push(alias.clone());
+    // Data Skimmer: another player's discard is placed on the breakthrough, not the pile.
+    crate::action_cards::discarded(context.state, player, alias, true);
     context.state.last_action_discarded = Some((player.clone(), alias.clone()));
     let mut payload = BTreeMap::new();
     payload.insert("player".to_owned(), player.to_string().into());

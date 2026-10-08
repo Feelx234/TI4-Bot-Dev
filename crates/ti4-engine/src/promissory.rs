@@ -180,9 +180,16 @@ const DARK_PACT: &str = "dark_pact";
 /// The Deepwrought's Share Knowledge ("ACTION: Place this card faceup in your play area and gain ...").
 const SHARE_KNOWLEDGE: &str = "shareknowledge";
 
+/// The Crimson Rebellion's Sever ("ACTION: place this card face up in your play area, and place the
+/// sever token in a system that contains your units ...").
+const SEVER: &str = "sever";
+
 /// Whether a note's own text places it faceup with an ACTION rather than on receipt.
 fn is_action_placed(alias: &str) -> bool {
-    matches!(alias, CONVOYS | BLOOD_PACT | DARK_PACT | SHARE_KNOWLEDGE)
+    matches!(
+        alias,
+        CONVOYS | BLOOD_PACT | DARK_PACT | SHARE_KNOWLEDGE | SEVER
+    )
 }
 
 /// The notes `player` holds in hand (not yet faceup) whose ACTION places them in their play area

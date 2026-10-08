@@ -576,6 +576,27 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Crimson Rebellion: every question asked inside a timing window or component action
+        // (BF-crimson.md). Ahk Ravin's transport questions are the shared cargo hold's own.
+        module: "crimson.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "crimson.rs",
+        function: "ask_about",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Ral Nel: every question asked inside a timing window or component action (BF-ralnel.md).
+        module: "ralnel.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Doctor Carrina, in the one window every research route opens: the holder's exhaust
         // offer, then the infantry placement (BF-deepwrought.md).
         module: "deepwrought_research.rs",
@@ -943,6 +964,30 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The Fracture, rule 11: a game effect (Firmament Planesplitter) puts it into play and the
+        // player who caused it chooses one ingress system per technology colour (BF-firmament.md).
+        module: "fracture.rs",
+        function: "enter_play_by_effect",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // The Firmament: every question asked inside a timing window, component action or leader
+        // action (BF-firmament.md).
+        module: "firmament.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // The Obsidian: every question asked inside a timing window, including the opponent's
+        // choice for Vos Hollow (BF-obsidian.md).
+        module: "obsidian.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // The seat's action-phase turn: strategic, tactical, component, pass, contacts.
         module: "game.rs",
         function: "turn_options",
@@ -1096,9 +1141,10 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The scoring choice, and Plots Within Plots' second step: the plot card to place.
         module: "objectives.rs",
         function: "pending_choice",
-        count: 1,
+        count: 2,
         delivery: Delivery::ObservedVia("game.rs::step_scoring"),
     },
     Producer {
@@ -1500,6 +1546,13 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("deepwrought_research.rs", "put", 1),
     ("deepwrought.rs", "ask", 1),
     ("deepwrought.rs", "ask_about", 1),
+    ("crimson.rs", "ask", 1),
+    ("crimson.rs", "ask_about", 1),
+    ("crimson_cards.rs", "fill_hold", 1),
+    // Ral Nel's timing windows and component actions (BF-ralnel): every question is put through
+    // `ralnel::ask`; Survival Instinct's transport is the shared cargo hold (`passengers`).
+    ("ralnel.rs", "ask", 1),
+    ("ralnel.rs", "passengers", 1),
     ("titans_leaders.rs", "sleeper_allowance", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),
@@ -1586,6 +1639,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("relics.rs", "titan_prototype", 1),
     ("entropic_scars.rs", "resolve_status_start", 1),
     ("fracture.rs", "after_breakthrough_gained", 1),
+    ("fracture.rs", "enter_play_by_effect", 1),
+    ("firmament.rs", "ask", 1),
+    ("obsidian.rs", "ask", 1),
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard", 1),

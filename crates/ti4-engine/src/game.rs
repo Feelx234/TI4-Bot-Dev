@@ -585,6 +585,20 @@ impl AftermathWindow {
                             &self.system,
                         )
                         .is_empty();
+                    // The Crimson Revenant's DEPLOY: "you may commit 1 mech, even if you have no
+                    // units in the system", so the step opens for it when no ship holds the space.
+                    let nobody_there =
+                        crate::combat::combatants(state, ctx.content, ctx.sources, &self.system)
+                            .is_empty();
+                    let holds = holds
+                        || (nobody_there
+                            && crate::factions::crimson::can_deploy(
+                                state,
+                                ctx.content,
+                                ctx.sources,
+                                &self.player,
+                                &self.system,
+                            ));
                     if let Some(outcome) = window.outcome()
                         && !self.feats_noted
                     {
@@ -1253,6 +1267,10 @@ impl<'a> Game<'a> {
         // cards." The technology and the breakthrough reach a seat from many places, none of which
         // announces it, so the planet card is reconciled here, as station control is.
         crate::factions::keleres::reconcile(&mut self.state);
+        // Sundered: "Other players' units that move or are placed into your home system are
+        // destroyed." Units reach a system by too many routes to hook each, so it is reconciled here
+        // as station control is (and again when a movement step finishes, before anything fires).
+        crate::factions::crimson::enforce_sundered(&mut self.state, self.content, self.sources);
         if let Some(galaxy) = self.galaxy.as_mut() {
             crate::laws::apply_to_galaxy(&self.state, galaxy);
             // Tiles a faction effect changed (Nova Seed), replayed onto the owned map. A recorded
@@ -2221,7 +2239,7 @@ impl<'a> Game<'a> {
         // The punishment discards every action card left in the hand, and every discarded
         // component action is a moment another player's Reverse Engineer may take.
         for card in discarded {
-            self.state.discarded_action_cards.push(card.clone());
+            crate::action_cards::discarded(&mut self.state, player, &card, true);
             self.sync_timing_context();
             let mut payload = BTreeMap::new();
             payload.insert(
@@ -3968,7 +3986,8 @@ impl<'a> Game<'a> {
                 )
                 .iter()
                 .any(|(_, agent)| agent.as_str() == "sardakkagent")
-        });
+        }) || crate::factions::obsidian::listens_for_tactical_end(&self.state)
+            || crate::factions::ralnel::listens_for_tactical_end(&self.state, self.content, self.sources);
         if tro_window
             && let (Some(player), Some(system)) =
                 (self.state.active.clone(), self.state.active_system.clone())

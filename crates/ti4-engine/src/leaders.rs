@@ -1451,9 +1451,13 @@ fn dispatch_leader(
                             .map(|faction| faction.commodities())
                     })
                     .unwrap_or(0);
+                let mut gained = 0;
                 if let Some(seat) = context.state.player_mut(player) {
-                    seat.commodities = (seat.commodities + 2).min(limit);
+                    let after = (seat.commodities + 2).min(limit);
+                    gained = (after - seat.commodities).max(0);
+                    seat.commodities = after;
                 }
+                crate::supply::note_commodities_gained(context.state, player, gained);
             } else {
                 // "Replenish" fills the other player's commodities up to their own limit.
                 match others.into_iter().find(|id| id.as_str() == answer.id) {
@@ -1466,9 +1470,12 @@ fn dispatch_leader(
                                     .map(|faction| faction.commodities())
                             })
                             .unwrap_or(0);
+                        let mut gained = 0;
                         if let Some(seat) = context.state.player_mut(&target) {
+                            gained = (limit - seat.commodities).max(0);
                             seat.commodities = limit;
                         }
+                        crate::supply::note_commodities_gained(context.state, &target, gained);
                         // Trade Agreement: "When the <color> player replenishes commodities".
                         crate::promissory::trade_agreement_on_replenish(context.state, &target);
                         // A structured promise to use this agent for that seat is kept here.

@@ -1408,7 +1408,11 @@ pub fn producers(
     let mut found: Vec<(Unit, Option<PlanetId>)> = board
         .units_of(player)
         .into_iter()
-        .filter(|unit| produces(unit))
+        // Miniaturization: a Ral Nel structure in the space area cannot use PRODUCTION.
+        .filter(|unit| {
+            produces(unit)
+                && !crate::factions::ralnel::silenced_in_space(state, content, sources, unit)
+        })
         .map(|unit| (unit.clone(), None))
         .collect();
     for (planet, units) in &board.planet_units {
@@ -1713,6 +1717,11 @@ pub fn placements(
     system: &SystemId,
     kind: &UnitType<'_>,
 ) -> Vec<String> {
+    // Quietus: PRODUCTION is a unit ability, and a unit in an active breach beside another player's
+    // Quietus has lost every unit ability, so its space dock produces nothing.
+    if crate::factions::crimson::abilities_lost(state, player, system) {
+        return Vec::new();
+    }
     if kind.is_ship() {
         // 68.10: "A player cannot produce ships in a system that contains other players' ships."
         // 68.10a keeps ground forces available, which is why this sits on the ship branch rather
@@ -2148,6 +2157,8 @@ impl ProductionWindow {
                     &self.report.produced,
                     &mut spots,
                 );
+                // The Crimson hero: "You may place any of those ships onto this card."
+                crate::factions::crimson_cards::offer_card_spot(state, &self.player, &mut spots);
             }
         }
         spots
@@ -2695,6 +2706,14 @@ impl ProductionWindow {
         let (target, spot) = placement_target(&self.system, where_to);
         for _ in 0..made {
             let unit = Unit::new(UnitTypeId::new(id), self.player.clone());
+            // The Crimson hero card is not a place on the board.
+            if target.as_str() == crate::factions::crimson_cards::CARD_SYSTEM {
+                crate::factions::crimson_cards::put_on_card(state, &self.player, id);
+                self.report
+                    .produced
+                    .push((UnitTypeId::new(id), where_to.to_owned()));
+                continue;
+            }
             if spot == SPACE {
                 state.system_mut(&target).units.push(unit);
             } else {

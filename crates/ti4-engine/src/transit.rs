@@ -105,10 +105,14 @@ fn loadable_by(
         return Vec::new();
     }
 
+    // Miniaturization: a Ral Nel structure in the space area is cargo for any ship.
     let mut found: Vec<Cargo> = system
         .units_of(player)
         .into_iter()
-        .filter(|unit| consumes(unit))
+        .filter(|unit| {
+            consumes(unit)
+                || crate::factions::ralnel::transportable_structure(state, content, sources, unit)
+        })
         .map(|unit| Cargo {
             unit: unit.clone(),
             source: CargoSource::Space,
@@ -242,7 +246,23 @@ impl CargoWindow {
                 ignore_tokens,
             ));
         }
+        // Myru Vos: a ship moving through other players' ships on that agent's say-so carries
+        // nothing ("if they are not transporting units").
+        if crate::factions::firmament::unladen_route_forbids_cargo(
+            state, content, sources, player, ship, path,
+        ) {
+            candidates.clear();
+        }
         let types = catalogue(content, sources);
+        // A ship with no capacity (a destroyer) carries nothing that needs a slot, but its hold
+        // stays open to cargo that never uses one (Ral Nel Miniaturization: structures).
+        if capacity <= 0 {
+            candidates.retain(|cargo| {
+                !types
+                    .get(cargo.unit.type_id.as_str())
+                    .is_some_and(UnitType::consumes_capacity)
+            });
+        }
         let ground = candidates
             .iter()
             .map(|cargo| {
@@ -275,6 +295,7 @@ impl CargoWindow {
         } else {
             Vec::new()
         };
+        let no_free_riders = !free_cargo.iter().any(|free| *free);
         Self {
             player: player.clone(),
             candidates,
@@ -285,7 +306,7 @@ impl CargoWindow {
             loaded: Vec::new(),
             free_cargo,
             capacity,
-            closed: capacity <= 0,
+            closed: capacity <= 0 && no_free_riders,
             phase: state.phase,
             round: state.round,
         }

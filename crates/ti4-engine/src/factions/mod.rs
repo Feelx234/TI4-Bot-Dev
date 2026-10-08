@@ -52,9 +52,14 @@ pub mod borrowed_round_agents;
 pub mod empyrean;
 pub mod empyrean_units;
 pub mod cabal;
+pub mod crimson;
+pub(crate) mod crimson_cards;
 pub mod deepwrought;
 mod deepwrought_cards;
 pub(crate) mod deepwrought_research;
+pub mod firmament;
+mod firmament_flip;
+pub mod firmament_plots;
 pub mod ghost;
 pub mod hooks_cards;
 pub mod hooks_combat;
@@ -74,6 +79,9 @@ pub mod nekro;
 pub mod nekro_units;
 pub mod nomad;
 pub mod nomad_agents;
+pub mod obsidian;
+pub mod ralnel;
+pub(crate) mod ralnel_cards;
 pub mod saar;
 pub mod sardakk;
 pub mod titans;
@@ -83,13 +91,15 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 23] = [
+pub const MODULES: [&FactionModule; 27] = [
     &arborec::MODULE,
     &argent::MODULE,
     &bastion::MODULE,
     &cabal::MODULE,
+    &crimson::MODULE,
     &deepwrought::MODULE,
     &empyrean::MODULE,
+    &firmament::MODULE,
     &ghost::MODULE,
     &keleres::MODULE_M,
     &keleres::MODULE_X,
@@ -101,6 +111,8 @@ pub const MODULES: [&FactionModule; 23] = [
     &naaz::MODULE,
     &nekro::MODULE,
     &nomad::MODULE,
+    &obsidian::MODULE,
+    &ralnel::MODULE,
     &saar::MODULE,
     &sardakk::MODULE,
     &titans::MODULE,

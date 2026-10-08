@@ -384,6 +384,15 @@ fn effective_from(
         None,
     );
 
+    // Assail (Obsidian plot): +1 to each of the owner's combat rolls against a puppeted player.
+    let assail = crate::factions::firmament_plots::assail_space(
+        state,
+        content,
+        sources,
+        player,
+        state.active_system.as_ref(),
+    );
+
     Some(
         threshold
             - i64::from(morale_is_current)
@@ -392,7 +401,8 @@ fn effective_from(
             - i64::from(nebula_defender)
             - module
             - mahact_flagship
-            - nekro_mech,
+            - nekro_mech
+            - assail,
     )
 }
 
@@ -1522,10 +1532,16 @@ pub fn roll_barrage_side(
         crate::factions::hooks_combat::borrowed_stats(state, content, sources, player, system)
             .and_then(|borrowed| borrowed.barrage.map(|barrage| (borrowed.unit, barrage)));
     let mut borrower_used = false;
+    // Quietus: units in an active breach beside another player's Quietus have lost every unit
+    // ability, ANTI-FIGHTER BARRAGE among them.
+    let abilities_lost = crate::factions::crimson::abilities_lost(state, player, system);
     for unit in ships_of(state, content, sources, player, system) {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
         };
+        if abilities_lost {
+            continue;
+        }
         let lent = borrower
             .as_ref()
             .filter(|(ship, _)| !borrower_used && *ship == unit)
@@ -1548,6 +1564,16 @@ pub fn roll_barrage_side(
         } else {
             value
         };
+        // Assail: +1 to the owner's unit ability rolls against a puppeted player.
+        let value = (value
+            - crate::factions::firmament_plots::assail_space(
+                state,
+                content,
+                sources,
+                player,
+                Some(system),
+            ))
+        .max(1);
         let roll = dice.roll_by(
             rng,
             count,
@@ -1890,6 +1916,7 @@ fn reaching_guns_by(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     system: &SystemId,
     fires: impl Fn(&PlayerId) -> bool,
+    silenced_in_space: impl Fn(&Unit) -> bool,
 ) -> Vec<Unit> {
     let Some(galaxy) = galaxy else {
         return Vec::new();
@@ -1897,14 +1924,18 @@ fn reaching_guns_by(
     let mut found = Vec::new();
     for neighbour in galaxy.adjacent(system.as_str()) {
         let board = state.system_state(&SystemId::new(neighbour));
+        // Miniaturization: a Ral Nel structure in the space area has no unit abilities.
         let standing = board
             .planet_units
             .values()
             .flat_map(|units| units.iter())
-            .chain(board.units.iter());
+            .chain(board.units.iter().filter(|unit| !silenced_in_space(unit)));
+        let here = SystemId::new(neighbour);
         found.extend(
             standing
                 .filter(|unit| fires(&unit.owner))
+                // Quietus: a gun in an active breach beside another player's Quietus has lost it.
+                .filter(|unit| !crate::factions::crimson::abilities_lost(state, &unit.owner, &here))
                 .filter(|unit| {
                     types
                         .get(unit.type_id.as_str())
@@ -1954,9 +1985,13 @@ pub fn space_cannon_offense(
     // against the active player's ships. Every other player's gun fires at the active player, so
     // the card silences all of them; the active player's own guns are untouched. The marker is
     // activation-scoped, like the card's "this tactical action" wording.
+    // Myru Vos (Firmament agent) silences SPACE CANNON against the ships that moved the same way.
     let solar_flare = state
         .player(active)
-        .is_some_and(|seat| seat.solar_flare.contains(&state.activation_seq));
+        .is_some_and(|seat| seat.solar_flare.contains(&state.activation_seq))
+        || crate::factions::firmament::space_cannon_silenced(
+            state, content, sources, active, system,
+        );
     let types = catalogue(content, sources);
     let board = state.system_state(system);
     // The active player's guns fire too (as ti4calc has it; user ruling 2026-09-17), at the ships
@@ -1982,10 +2017,18 @@ pub fn space_cannon_offense(
         }
     };
 
+    // Quietus: a unit in an active breach beside another player's Quietus has lost SPACE CANNON.
+    let may_fire_here = |owner: &PlayerId| {
+        may_fire(owner) && !crate::factions::crimson::abilities_lost(state, owner, system)
+    };
+    // Miniaturization: a Ral Nel structure in the space area cannot use its own SPACE CANNON.
     let mut guns: Vec<Unit> = board
         .units
         .iter()
-        .filter(|unit| may_fire(&unit.owner))
+        .filter(|unit| {
+            may_fire_here(&unit.owner)
+                && !crate::factions::ralnel::silenced_in_space(state, content, sources, unit)
+        })
         .cloned()
         .collect();
     for planet in board.planet_units.keys() {
@@ -1993,7 +2036,7 @@ pub fn space_cannon_offense(
             board
                 .on_planet(planet)
                 .iter()
-                .filter(|unit| may_fire(&unit.owner))
+                .filter(|unit| may_fire_here(&unit.owner))
                 .cloned(),
         );
     }
@@ -2002,7 +2045,22 @@ pub fn space_cannon_offense(
     // ships that are in adjacent systems." Two cards, one clause, and neither reached the active
     // system before: `space_cannon_offense` read only the system being activated, so an upgraded
     // PDS next door -- a technology every faction can research -- never fired at all.
-    guns.extend(reaching_guns_by(state, &types, galaxy, system, &may_fire));
+    guns.extend(reaching_guns_by(
+        state,
+        &types,
+        galaxy,
+        system,
+        &may_fire,
+        |unit| crate::factions::ralnel::silenced_in_space(state, content, sources, unit),
+    ));
+    // Linkship I / II: the SPACE CANNON of a Ral Nel structure in the space area, borrowed.
+    guns.extend(crate::factions::ralnel::linkship_guns(
+        state,
+        content,
+        sources,
+        system,
+        &may_fire_here,
+    ));
     // SPACE CANNON an attachment gives its planet "as if it were a unit" (Titans' Geoform).
     // Disable and Plasma Scoring do not apply to these dice: the attachment is not a PDS unit.
     let attachment_guns: Vec<(PlayerId, ti4_model::id::PlanetId, u32, usize)> = board
@@ -2056,6 +2114,16 @@ pub fn space_cannon_offense(
         let count = count + take_plasma(&mut plasma, &unit.owner, value);
         // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
         let count = count + crate::factions::bastion::extra_die(&unit);
+        // Assail: +1 to the gunner's unit ability rolls against a puppeted player (the active
+        // player's guns fire at the opponent, every other gun at the active player).
+        let target = if unit.owner == *active {
+            opponent.clone()
+        } else {
+            Some(active.clone())
+        };
+        let value = (value
+            - crate::factions::firmament_plots::assail_against(state, &unit.owner, target.iter()))
+        .max(1);
         let roll = dice.roll_by(
             rng,
             count,
@@ -3439,6 +3507,8 @@ pub fn eligible_retreats(
     system: &SystemId,
 ) -> Vec<SystemId> {
     let types = catalogue(content, sources);
+    // A retreat is a move: Sundered and the sever token close the wormholes it may not use.
+    let galaxy = crate::factions::hooks_movement::galaxy_for_mover(state, player, galaxy);
     galaxy
         .adjacent(system.as_str())
         .into_iter()
@@ -4155,6 +4225,14 @@ impl CombatWindow {
             if let Some(index) = now.iter().position(|held| *held == kind) {
                 now.remove(index);
             }
+        }
+        // Last Dispatch: "When this unit retreats". Only a flagship that arrived counts.
+        if crate::factions::ralnel::flagship_among(state, player, &now) {
+            let mut payload = std::collections::BTreeMap::new();
+            payload.insert("system".to_owned(), self.system.to_string().into());
+            payload.insert("player".to_owned(), player.to_string().into());
+            payload.insert("destination".to_owned(), destination.to_string().into());
+            let _ = ctx.emit(state, "FLAGSHIP_RETREATED", payload);
         }
         self.fled.push((player.clone(), now));
     }
@@ -6037,9 +6115,14 @@ mod tests {
 
         let types = catalogue(ContentStore::embedded(), POK);
         let guns = |state: &GameState| {
-            reaching_guns_by(state, &types, Some(&hub.galaxy), &active, |owner| {
-                owner != &attacker()
-            })
+            reaching_guns_by(
+                state,
+                &types,
+                Some(&hub.galaxy),
+                &active,
+                |owner| owner != &attacker(),
+                |_| false,
+            )
             .len()
         };
 

@@ -20,6 +20,8 @@
 //! | [`MovementHooks::blocks_passage`] | Argent Aerie Hololattice | `MovementRules::with_laws` (`barred_transit`) |
 //! | [`MovementHooks::unit_adjacent_systems`] | Nomad Memoria I/II ("treat this unit as if it were adjacent to systems that contain 1 or more of your mechs") | `MovementRules::path_from_ship` |
 //! | [`MovementHooks::ignores_command_tokens`] | Nomad hero Ahk-Syl Siven (flagship and its cargo may leave command-token systems) | `MovementRules::path_from_ship`, `transit::CargoWindow::for_ship` |
+//! | [`MovementHooks::usable_wormhole_kinds`] | Crimson Rebellion Sundered ("cannot use wormholes other than epsilon wormholes") | [`wormhole_limits`], `MovementRules::apply_faction_modules`, [`galaxy_for_mover`] (retreats) |
+//! | [`MovementHooks::severed_systems`] | Crimson Rebellion Sever ("wormholes in that system have no effect during movement") | [`wormhole_limits`], [`galaxy_for_mover`] |
 //!
 //! The off-turn movement API (Naalu Foresight) is `transit::relocate_ships`, which emits the new
 //! typed event `SHIPS_RELOCATED`; the wormhole token API is in `tokens.rs`; the map-edit API
@@ -217,6 +219,27 @@ pub struct MovementHooks {
     /// units, even if other players' units are present; if it would, apply +1 to its move value
     /// for each of those systems."
     pub own_unit_passage: Option<fn(&GameState, &ContentStore, SourceSet, &PassSite<'_>) -> bool>,
+    /// The only wormhole kinds `mover` may use during movement (`Some`), or no restriction (`None`).
+    /// Applied by `MovementRules` (a tactical move, a relocation) and by retreats, not by
+    /// [`crate::movement::PlayerAdjacency`]: a restricted mover is still a neighbour through a
+    /// wormhole and still fires SPACE CANNON across it. When several modules restrict, the kinds
+    /// every one allows remain.
+    ///
+    /// Crimson Rebellion Sundered: "You cannot use wormholes other than epsilon wormholes."
+    pub usable_wormhole_kinds: Option<fn(&GameState, &PlayerId) -> Option<Vec<String>>>,
+    /// Systems whose wormholes have no effect during anyone's movement. Union over modules.
+    ///
+    /// Crimson Rebellion Sever: "wormholes in that system have no effect during movement."
+    pub severed_systems: Option<fn(&GameState) -> Vec<String>>,
+    /// Whether `mover`'s ships that are not transporting units may also move through systems that
+    /// contain other players' ships (58.4b lifted, but only when no route avoids them: the search
+    /// tries the ordinary rules first). Any module's `true` allows. Read when the rules for a real
+    /// move are built; `transit::CargoWindow::for_ship` then loads nothing onto a ship whose route
+    /// goes through such a system (`firmament::unladen_route_forbids_cargo`).
+    ///
+    /// Firmament agent Myru Vos: "If they are not transporting units, they can also move through
+    /// other players' ships."
+    pub unladen_pass: Option<fn(&GameState, &PlayerId) -> bool>,
 }
 
 impl MovementHooks {
@@ -240,6 +263,9 @@ impl MovementHooks {
         passable_owners: None,
         blocked_borders: None,
         own_unit_passage: None,
+        usable_wormhole_kinds: None,
+        severed_systems: None,
+        unladen_pass: None,
     };
 }
 
@@ -346,6 +372,13 @@ pub(crate) fn passable_owners(state: &GameState, mover: &PlayerId) -> BTreeSet<P
         .collect()
 }
 
+/// Whether any module lets `mover`'s unladen ships move through other players' ships.
+pub(crate) fn unladen_pass(state: &GameState, mover: &PlayerId) -> bool {
+    tables()
+        .filter_map(|table| table.unladen_pass)
+        .any(|hook| hook(state, mover))
+}
+
 /// Borders `viewer` does not treat as adjacent, normalised `(low, high)`.
 pub(crate) fn blocked_borders(state: &GameState, viewer: &PlayerId) -> BTreeSet<(String, String)> {
     tables()
@@ -424,6 +457,74 @@ pub fn apply_extra_wormholes(state: &GameState, galaxy: &mut Galaxy) -> bool {
         }
     }
     changed
+}
+
+/// What a move by one mover may not use of the map's wormholes.
+#[derive(Debug, Default)]
+pub(crate) struct WormholeLimits {
+    severed: BTreeSet<String>,
+    allowed_kinds: Option<BTreeSet<String>>,
+}
+
+impl WormholeLimits {
+    /// Whether there is nothing to apply (the usual case: no copy of the map is needed).
+    pub(crate) fn is_empty(&self) -> bool {
+        self.severed.is_empty() && self.allowed_kinds.is_none()
+    }
+
+    /// Apply the limits to `galaxy`, a copy made for one movement query.
+    pub(crate) fn apply(&self, galaxy: &mut Galaxy) {
+        for system in &self.severed {
+            galaxy.suppress_wormholes_at(system);
+        }
+        if let Some(allowed) = &self.allowed_kinds {
+            let keep: Vec<&str> = allowed.iter().map(String::as_str).collect();
+            galaxy.retain_wormhole_kinds(&keep);
+        }
+    }
+}
+
+/// The wormhole limits on a move by `mover`: no severed system's wormholes, and only the wormhole
+/// kinds the mover's modules allow. `mover` is `None` for a query with no mover, which keeps only
+/// the severed systems.
+pub(crate) fn wormhole_limits(state: &GameState, mover: Option<&PlayerId>) -> WormholeLimits {
+    let severed: BTreeSet<String> = tables()
+        .filter_map(|table| table.severed_systems)
+        .flat_map(|hook| hook(state))
+        .collect();
+    let mut allowed: Option<BTreeSet<String>> = None;
+    if let Some(mover) = mover {
+        for kinds in tables()
+            .filter_map(|table| table.usable_wormhole_kinds)
+            .filter_map(|hook| hook(state, mover))
+        {
+            let kinds: BTreeSet<String> = kinds.into_iter().collect();
+            allowed = Some(match allowed {
+                Some(so_far) => so_far.intersection(&kinds).cloned().collect(),
+                None => kinds,
+            });
+        }
+    }
+    WormholeLimits {
+        severed,
+        allowed_kinds: allowed,
+    }
+}
+
+/// `galaxy` as a move by `mover` sees it: borrowed when nothing limits its wormholes (the usual
+/// case), a limited copy otherwise. For moves that do not go through `MovementRules` (a retreat).
+pub(crate) fn galaxy_for_mover<'g>(
+    state: &GameState,
+    mover: &PlayerId,
+    galaxy: &'g Galaxy,
+) -> std::borrow::Cow<'g, Galaxy> {
+    let limits = wormhole_limits(state, Some(mover));
+    if limits.is_empty() {
+        return std::borrow::Cow::Borrowed(galaxy);
+    }
+    let mut owned = galaxy.clone();
+    limits.apply(&mut owned);
+    std::borrow::Cow::Owned(owned)
 }
 
 /// Pairs adjacent for `player` only, summed over modules, normalised `(low, high)`, sorted.
