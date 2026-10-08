@@ -5,6 +5,8 @@ import {
 } from "../presentation/boardPresentation.ts";
 import { DetailPanel } from "./DetailPanel.tsx";
 import { PlanetValuePair } from "./PlanetValueIcons.tsx";
+import { PlanetStructures } from "./PlanetStructures.tsx";
+import { splitStructures } from "../presentation/planetStructures.ts";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import {
   UnitIcon,
@@ -197,6 +199,8 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
                     Attachments: {p.attachments.join(", ")}
                   </div>
                 )}
+
+                <PlanetStructures planetId={p.id} units={system.planetUnits[p.id] ?? []} />
               </div>
             ))}
           </div>
@@ -214,7 +218,10 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
             textTransform: "uppercase",
           }}
         >
-          Units ({system.spaceUnits.length + Object.values(system.planetUnits).flat().length})
+          Units (
+          {system.spaceUnits.length +
+            Object.values(system.planetUnits).flatMap((l) => splitStructures(l).others).length}
+          )
         </h4>
 
         {/* Space Units */}
@@ -303,7 +310,9 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
         </div>
 
         {/* Ground Units */}
-        {Object.entries(system.planetUnits).map(([pId, pUnits]) => {
+        {Object.entries(system.planetUnits).map(([pId, allUnits]) => {
+          // PDS and space docks are shown inside the planet card above.
+          const pUnits = splitStructures(allUnits).others;
           const planet = system.planets.find((p) => p.id === pId);
           const planetLabel = planet?.label || pId;
           const playerGroups = groupUnitsByPlayer(pUnits);
