@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Drawer } from "../primitives/index.ts";
 
 /** Shared, persistent inspection surface for map and card details. */
@@ -16,6 +16,10 @@ export const DetailPanel: React.FC<{
   closeTestId = "close-detail-button",
 }) => {
   const closeRef = useRef<HTMLButtonElement>(null);
+  // Phone only (the fold control and styles exist in the compact layout): the panel covers most of the
+  // map, so it folds to a slim bar with the title that keeps the map tappable. Stays folded while the
+  // title changes (tapping another system), and is gone with the panel.
+  const [folded, setFolded] = useState(false);
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
@@ -30,10 +34,20 @@ export const DetailPanel: React.FC<{
       modal={false}
       ariaLabel={`${title} details`}
       data-testid={testId}
-      className="detail-panel panel"
+      className={`detail-panel panel${folded ? " detail-panel--folded" : ""}`}
     >
       <div className="detail-panel__header">
         <h2>{title}</h2>
+        <button
+          type="button"
+          className="button button--secondary button--icon detail-panel__fold"
+          data-testid={`${testId}-fold`}
+          aria-expanded={!folded}
+          aria-label={folded ? `Show ${title} details` : `Fold ${title} details`}
+          onClick={() => setFolded((value) => !value)}
+        >
+          {folded ? "▴" : "▾"}
+        </button>
         <button
           ref={closeRef}
           type="button"

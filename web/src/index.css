@@ -4540,3 +4540,98 @@ select:focus-visible,
   letter-spacing: 0.02em;
   vertical-align: middle;
 }
+
+/* The detail / system inspector panel folds to a slim bar on a phone, so the map stays tappable. The fold
+   control exists only there. The bar sits bottom left, next to the Players / Events buttons. */
+.detail-panel__fold {
+  display: none;
+}
+.detail-panel__header h2 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+@media (max-width: 720px), (max-height: 500px) {
+  .detail-panel__fold {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+  }
+  /* The minimize / close controls of the overlays: 32 px squares are hard to hit with a thumb. */
+  .detail-panel__header .button--icon,
+  .decision-frame__header .button--icon,
+  .invasion-overlay__close-btn,
+  .choice-workflow-close {
+    width: 44px;
+    height: 44px;
+  }
+  .detail-panel.detail-panel--folded {
+    top: auto !important;
+    right: auto !important;
+    bottom: 12px !important;
+    left: 12px !important;
+    width: min(194px, calc(100vw - 24px)) !important;
+    min-height: 0 !important;
+    padding: 4px 8px !important;
+    overflow: hidden !important;
+  }
+  .detail-panel--folded .detail-panel__body {
+    display: none;
+  }
+  .detail-panel--folded .detail-panel__header {
+    align-items: center;
+    gap: 4px;
+  }
+  .detail-panel--folded .detail-panel__header h2 {
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* Collapsed decision / combat pills on a phone. The desktop pill is centred at the bottom; on a phone it
+   stretched from the middle to the right edge (the choice-banner insets), truncated its label and lay
+   over the Players / Events buttons. It now spans the width above those buttons, and above a docked
+   "Preparing" banner (--prep-dock is that banner's height from the bottom edge, set by the banner). */
+@media (max-width: 720px) {
+  .choice-minimized-pill,
+  .combat-arena-dock {
+    right: 12px;
+    bottom: max(60px, calc(var(--prep-dock, 0px) + 8px));
+    left: 12px;
+    width: auto;
+    transform: none;
+    border-radius: var(--radius-md);
+    justify-content: space-between;
+  }
+  .choice-minimized-pill__prompt,
+  .combat-arena-dock__info {
+    min-width: 0;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+  }
+  .choice-minimized-pill .button,
+  .combat-arena-dock .button {
+    flex: 0 0 auto;
+    min-height: 44px;
+  }
+}
+/* A landscape phone has no Players / Events buttons and the "Preparing" banner docks bottom right, so
+   the pill moves to the bottom left. */
+@media (max-height: 500px) and (min-width: 721px) {
+  .choice-minimized-pill,
+  .combat-arena-dock {
+    right: auto;
+    bottom: 8px;
+    left: 12px;
+    max-width: min(420px, calc(55vw - 24px));
+    transform: none;
+  }
+  .choice-minimized-pill .button,
+  .combat-arena-dock .button {
+    min-height: 44px;
+  }
+}

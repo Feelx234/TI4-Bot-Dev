@@ -224,6 +224,32 @@
   z-index: calc(var(--layer-dialog, 50) + 1);
 }
 
+/* The fold control only exists on a phone. Folded, the banner keeps its title and the Save / Clear row
+   (44 px high) and drops the explanations, so a minimized stand-in question leaves the map visible. */
+.secondary-prep__fold {
+  display: none;
+}
+@media (max-width: 720px), (max-height: 500px) {
+  .secondary-prep__fold {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+  .secondary-prep--preparing .secondary-prep__head .button {
+    min-height: 44px;
+  }
+  .secondary-prep__banner[data-folded="true"] > :not(.secondary-prep__head) {
+    display: none;
+  }
+  .secondary-prep__banner[data-folded="true"] .secondary-prep__eyebrow,
+  .secondary-prep__banner[data-folded="true"] .secondary-prep__title .secondary-prep__note {
+    display: none;
+  }
+}
+
 /* While the preparing banner is open the dialog of the stand-in question starts below it: the banner
    floats over the board column and used to cover the top of full-screen dialogs (the production
    builder's meters, the technology modal's skip toggles). --prep-banner-bottom is measured from the

@@ -32,6 +32,9 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Phone only (the styles ignore it elsewhere): the banner folds to its title and Save plan row, so
+  // it stops covering the map while the stand-in question is minimized. Reset whenever it closes.
+  const [folded, setFolded] = useState(false);
   const nonce = mine && realChoice ? realChoice.nonce : null;
 
   const confirm = async () => {
@@ -61,16 +64,20 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
   const showBanner = prep.preparing && action !== null;
   // The dialog of the stand-in question starts below the banner (see SecondaryPrep.css).
   useLayoutEffect(() => {
-    if (!showBanner) return;
+    if (!showBanner) {
+      setFolded(false);
+      return;
+    }
     const root = document.documentElement;
     const measure = () => {
       const banner = document.querySelector<HTMLElement>('[data-testid="prepare-banner"]');
       const docked = banner?.closest(".secondary-prep") as HTMLElement | null;
-      const bottom =
-        banner && docked && getComputedStyle(docked).position !== "fixed"
-          ? Math.ceil(banner.getBoundingClientRect().bottom) + 8
-          : 0;
+      const fixed = !!docked && getComputedStyle(docked).position === "fixed";
+      const bottom = banner && docked && !fixed ? Math.ceil(banner.getBoundingClientRect().bottom) + 8 : 0;
       root.style.setProperty("--prep-banner-bottom", `${bottom}px`);
+      // A docked banner: how far its top is from the bottom edge, so the minimized-decision pill sits above it.
+      const dock = banner && fixed ? Math.ceil(window.innerHeight - banner.getBoundingClientRect().top) : 0;
+      root.style.setProperty("--prep-dock", `${dock}px`);
     };
     measure();
     const banner = document.querySelector('[data-testid="prepare-banner"]');
@@ -81,6 +88,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
       observer?.disconnect();
       window.removeEventListener("resize", measure);
       root.style.removeProperty("--prep-banner-bottom");
+      root.style.removeProperty("--prep-dock");
     };
   }, [showBanner]);
   if (!showChip && !showBanner && !showBar && !pending && !played) return null;
@@ -124,7 +132,12 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
     <div className={`secondary-prep${showBanner ? " secondary-prep--preparing" : ""}`} data-testid="secondary-prep">
       {floatsChips && chipRow}
       {showBanner && action && (
-        <section className="secondary-prep__banner" data-testid="prepare-banner" aria-label="Preparing your secondary">
+        <section
+          className="secondary-prep__banner"
+          data-testid="prepare-banner"
+          data-folded={folded ? "true" : "false"}
+          aria-label="Preparing your secondary"
+        >
           <div className="secondary-prep__head">
             <div>
               <span className="secondary-prep__eyebrow">Preparing &mdash; nothing is sent or spent</span>
@@ -155,6 +168,16 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
                 }}
               >
                 Clear plan
+              </button>
+              <button
+                type="button"
+                className="button button--secondary button--icon secondary-prep__fold"
+                data-testid="prep-fold"
+                aria-expanded={!folded}
+                aria-label={folded ? "Show details" : "Hide details"}
+                onClick={() => setFolded((value) => !value)}
+              >
+                {folded ? "+" : "−"}
               </button>
             </div>
           </div>
