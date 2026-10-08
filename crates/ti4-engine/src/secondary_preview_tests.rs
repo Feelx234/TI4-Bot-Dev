@@ -190,6 +190,52 @@ fn construction_and_warfare_follow_ups_are_the_real_questions() {
 }
 
 #[test]
+fn warfare_previews_the_question_after_a_scripted_build_too() {
+    let (mut state, card) = dealt("Warfare");
+    // Plenty to spend, so a build is offered and a payment can be chosen between planets.
+    state.player_mut(&pid("b")).unwrap().trade_goods = 0;
+    let first = real_follow_up(&state, &card).expect("the build list");
+    let build = first
+        .options
+        .iter()
+        .find(|option| !option.is_decline() && option.id.starts_with("build|"))
+        .expect("a unit can be built")
+        .id
+        .clone();
+    // The real flow after that build: the same window and `follow`, a script for the build, and a
+    // recorder for the question that comes next.
+    let content = ContentStore::embedded();
+    let mut copy = state.clone();
+    let mut window =
+        crate::strategy::begin_strategic_action(&mut copy, content, &pid("a"), strategic()).unwrap();
+    let yes = window
+        .next_choice(&mut copy, content, POK)
+        .unwrap()
+        .options
+        .iter()
+        .find(|o| o.id == "yes")
+        .cloned()
+        .unwrap();
+    window.take_choice(&mut copy, content, POK, yes).unwrap();
+    let (decider, seen) = Capturing::new(Box::new(crate::choice::Scripted::new(vec![build.clone()])));
+    let mut table = Table::with_default(Box::new(decider));
+    let _ = crate::strategy_cards::follow(&mut copy, content, POK, None, &mut table, &pid("b"), card.as_str());
+    let next = seen.borrow().get(1).cloned().expect("the engine asks something after the build");
+    let SecondaryPreview::Question { choice, step, .. } = preview(&state, &card, &["yes", &build])
+    else {
+        panic!("expected the question after the build");
+    };
+    assert_eq!(step, 2);
+    assert_eq!(choice, next);
+    assert!(
+        ["pay_resources", "place_unit", "produce_unit"]
+            .contains(&choice.context.as_ref().unwrap().subtype.as_str()),
+        "{:?}",
+        choice.context
+    );
+}
+
+#[test]
 fn politics_imperial_and_trade_are_never_run() {
     // Politics and Imperial draw cards; the preview must not touch the decks. Nothing follows
     // the window question for any of the three.

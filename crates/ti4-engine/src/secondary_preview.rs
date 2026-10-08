@@ -99,7 +99,9 @@ pub fn follow_up_subtypes(card_name: &str) -> &'static [&'static str] {
         "Technology" => &["research_technology"],
         "Diplomacy" => &["ready_planet"],
         "Construction" => &["place_structure"],
-        "Warfare" => &["produce_unit"],
+        // Production: the build list, then (after a scripted build) the payment or placement
+        // question the engine asks next, if it asks one at all.
+        "Warfare" => &["produce_unit", "pay_resources", "place_unit"],
         // Leadership: payment is planned when the real question opens. Trade, Politics and
         // Imperial resolve without a question (or draw cards, which a preview must not run).
         _ => &[],

@@ -43,6 +43,10 @@ struct Tally {
     stale_exact: usize,
     stale_follow_ups: usize,
     stale_follow_up_exact: usize,
+    /// Warfare: the question the engine asks right after the first build (payment, placement or
+    /// the next build list), previewed with the recorded build as the scripted answer.
+    post_build: usize,
+    post_build_exact: usize,
     /// Seats the action-start preview said would / would not be asked, against what happened.
     asked_predicted_asked: usize,
     asked_predicted_not: usize,
@@ -61,6 +65,8 @@ impl Tally {
         self.stale_exact += other.stale_exact;
         self.stale_follow_ups += other.stale_follow_ups;
         self.stale_follow_up_exact += other.stale_follow_up_exact;
+        self.post_build += other.post_build;
+        self.post_build_exact += other.post_build_exact;
         self.asked_predicted_asked += other.asked_predicted_asked;
         self.asked_predicted_not += other.asked_predicted_not;
         self.not_asked_predicted_not += other.not_asked_predicted_not;
@@ -241,7 +247,8 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
             .collect();
         let mut faction_diverged = false;
         let mut chosen = records[1..].iter().filter(|r| r.player == follower);
-        for real in asked {
+        let mut asked = asked.into_iter();
+        while let Some(real) = asked.next() {
             let subtype = real.context.as_ref().map_or("", |c| c.subtype.as_str()).to_owned();
             let recorded = chosen.next().map(|r| r.chosen.clone());
             if !own.contains(&subtype.as_str()) {
@@ -276,6 +283,26 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
             // Only Diplomacy's second planet is a follow-up a client can script from the first
             // answer; production's later questions (after payment and placement) are asked by the
             // real window when it opens, and a Technology/Construction card asks nothing more.
+            if card_name(&card) == "Warfare"
+                && let Some(build) = recorded.as_deref().filter(|id| id.starts_with("build|"))
+                && let Some(next) = asked.next()
+            {
+                tally.post_build += 1;
+                let mut scripted = answers.clone();
+                scripted.push(build.to_owned());
+                if matches!(
+                    preview(&before, &card, &primary, &follower, &scripted),
+                    SecondaryPreview::Question { choice, .. } if choice == next
+                ) {
+                    tally.post_build_exact += 1;
+                } else {
+                    println!(
+                        "{}: the question after the build differs ({:?})",
+                        source.name,
+                        next.context.as_ref().map(|c| c.subtype.clone())
+                    );
+                }
+            }
             if !card_name(&card).eq("Diplomacy") {
                 break;
             }
@@ -292,7 +319,8 @@ fn report(title: &str, per_card: &BTreeMap<String, Tally>) -> String {
     for (card, tally) in per_card {
         all.add(tally);
         out.push_str(&format!(
-            "{card:<13} windows {:>3} exact {:>3} | follow-ups {:>3} exact {:>3} faction-diverged {:>2} | action-start: windows {:>3} same {:>3}, follow-ups {:>3} same {:>3} | seats asked&predicted {:>3} asked&not-predicted {:>3} not-asked&predicted-not {:>3} not-asked&predicted-asked {:>3}\n",
+            "{card:<13} post-build {:>3} exact {:>3} | windows {:>3} exact {:>3} | follow-ups {:>3} exact {:>3} faction-diverged {:>2} | action-start: windows {:>3} same {:>3}, follow-ups {:>3} same {:>3} | seats asked&predicted {:>3} asked&not-predicted {:>3} not-asked&predicted-not {:>3} not-asked&predicted-asked {:>3}\n",
+            tally.post_build, tally.post_build_exact,
             tally.windows, tally.window_exact, tally.follow_ups, tally.follow_up_exact,
             tally.follow_up_faction_diverged, tally.stale_windows, tally.stale_exact,
             tally.stale_follow_ups, tally.stale_follow_up_exact, tally.asked_predicted_asked,
@@ -328,6 +356,10 @@ fn check(title: &str, sources: &[Source]) -> BTreeMap<String, Tally> {
             tally.follow_ups,
             tally.follow_up_exact + tally.follow_up_faction_diverged,
             "{card}: every follow-up is exact or explained by a faction prompt"
+        );
+        assert!(
+            tally.post_build <= tally.post_build_exact + tally.follow_up_faction_diverged,
+            "{card}: the question after a build is exact unless a faction prompt intervened"
         );
     }
     per_card
