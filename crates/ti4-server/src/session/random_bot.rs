@@ -15,7 +15,7 @@
 //! process or after a restart. A bot only ever *produces* new decisions; a replay or recovery
 //! feeds the recorded answers through the replaying layer above this decider and never reaches it.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -33,9 +33,24 @@ pub const DEFAULT_RANDOM_BOT_DELAY_MS: u64 = 600;
 /// Hard cap so a typo cannot park a game for minutes per decision.
 const MAX_DELAY_MS: u64 = 30_000;
 
-/// The configured think delay: `TI4_RANDOM_BOT_DELAY_MS`, or 600 ms. `0` disables it.
+/// Process-wide override of the think delay (tests and soaks); `u64::MAX` means none.
+static DELAY_OVERRIDE: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// Override the think delay for every session started afterwards in this process, ahead of the
+/// environment variable. For tests and soaks that recover games from disk and so cannot pass a
+/// per-session value.
+pub fn set_random_bot_delay_override(delay_ms: Option<u64>) {
+    DELAY_OVERRIDE.store(delay_ms.unwrap_or(u64::MAX), Ordering::SeqCst);
+}
+
+/// The configured think delay: the process override, else `TI4_RANDOM_BOT_DELAY_MS`, else
+/// 600 ms. `0` disables it.
 #[must_use]
 pub fn random_bot_delay_ms() -> u64 {
+    let forced = DELAY_OVERRIDE.load(Ordering::SeqCst);
+    if forced != u64::MAX {
+        return forced.min(MAX_DELAY_MS);
+    }
     std::env::var(RANDOM_BOT_DELAY_ENV)
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())

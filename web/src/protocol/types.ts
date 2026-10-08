@@ -19,6 +19,8 @@ export interface LobbySlot {
   ready: boolean;
   connected: boolean;
   can_take_over: boolean;
+  /** `"random"` for an in-process random bot; absent for a person (and for an MLP bot). */
+  bot?: string;
 }
 
 export interface LobbyDto {
@@ -28,6 +30,11 @@ export interface LobbyDto {
   host_player_id: string;
   slots: LobbySlot[];
   bot_service_enabled?: boolean;
+  /**
+   * Bot kinds the host can add: `random` (in-process, no password) and `mlp` (needs the bot
+   * password). Absent from servers that predate random bots, which offer neither random bot.
+   */
+  bot_kinds?: string[];
   /** What the table plays on; absent from servers that predate the map choice. Never a seed. */
   map?: MapChoiceDto;
   /** Changes whenever the previewed board changes (new choice, re-roll, new seat order). */

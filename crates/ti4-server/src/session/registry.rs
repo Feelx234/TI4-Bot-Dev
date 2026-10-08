@@ -1553,6 +1553,27 @@ impl GameRegistry {
                 cursor
             }
         };
+        // A rewind that would hand the first removed decision to a random bot is walked back to
+        // the nearest decision of a person: the bot is deterministic, so it would give the very
+        // same answer at once, making the undo a no-op and the redo stack disappear.
+        let target = if target < current.len() {
+            let seats = session.lobby_details().1;
+            let is_bot = |index: usize| {
+                matches!(
+                    seats.get(&current[index].player),
+                    Some(SeatController::BotRandom)
+                )
+            };
+            if is_bot(target) {
+                (0..=target).rev().find(|&index| !is_bot(index)).ok_or_else(|| {
+                    HistoryError::InvalidTarget("there is nothing to undo".to_owned())
+                })?
+            } else {
+                target
+            }
+        } else {
+            target
+        };
         if target > total {
             return Err(HistoryError::InvalidTarget(format!(
                 "decision {target} is beyond the recorded history of {total} decisions"
@@ -2880,11 +2901,7 @@ impl GameRegistry {
             return Err(LobbyError::InvalidNickname);
         }
         let mut updated = lobby.clone();
-        let mut next_number = 1 + updated
-            .players
-            .values()
-            .filter(|member| member.bot.is_some())
-            .count();
+        let mut next_number = 1;
         for &slot in open.iter().take(wanted) {
             let player = generate_player_id(&updated.players);
             let session = loop {
@@ -3047,7 +3064,9 @@ impl GameRegistry {
                 .seats
                 .iter()
                 .find_map(|(seat, lobby_seat)| {
-                    (lobby_seat.seat_token.as_deref() == Some(token)).then(|| seat.clone())
+                    (lobby_seat.controller != SeatController::BotRandom
+                && lobby_seat.seat_token.as_deref() == Some(token))
+            .then(|| seat.clone())
                 })
                 .ok_or(LobbyError::InvalidCapability)?,
             None => {
@@ -3625,7 +3644,9 @@ fn authenticated_seat(lobby: &LobbyState, token: &str) -> Result<PlayerId, Lobby
         .seats
         .iter()
         .find_map(|(seat, lobby_seat)| {
-            (lobby_seat.seat_token.as_deref() == Some(token)).then(|| seat.clone())
+            (lobby_seat.controller != SeatController::BotRandom
+                && lobby_seat.seat_token.as_deref() == Some(token))
+            .then(|| seat.clone())
         })
         .ok_or(LobbyError::InvalidCapability)
 }

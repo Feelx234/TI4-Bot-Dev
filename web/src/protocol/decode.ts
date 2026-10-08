@@ -77,8 +77,12 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
       ready: entry.ready,
       connected: entry.connected,
       can_take_over: entry.can_take_over,
+      ...(typeof entry.bot === "string" && entry.occupant !== null ? { bot: entry.bot } : {}),
     })),
     bot_service_enabled: Boolean(value.bot_service_enabled),
+    bot_kinds: Array.isArray(value.bot_kinds)
+      ? value.bot_kinds.filter((kind: unknown): kind is string => typeof kind === "string")
+      : [],
     ...(isStrategyCardSetId(value.strategy_card_set)
       ? { strategy_card_set: value.strategy_card_set }
       : {}),

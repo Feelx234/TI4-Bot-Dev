@@ -162,6 +162,8 @@ interface LobbyStatusProps {
   onWatch: () => void;
   onAddBot?: (password: string, nickname?: string) => Promise<boolean | void>;
   onRemoveBot?: (playerId: string) => Promise<boolean | void>;
+  /** Host only: seat in-process random bots (one, or every open seat with `fill`). */
+  onAddRandomBots?: (options: { fill?: boolean; count?: number }) => Promise<boolean | void>;
   /** Host only: save a map choice (resolves once the lobby has been updated). */
   onChooseMap?: (choice: MapChoice, startPreset?: string) => Promise<boolean | void>;
   watching?: boolean;
@@ -201,6 +203,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   onWatch,
   onAddBot,
   onRemoveBot,
+  onAddRandomBots,
   onChooseMap,
   watching,
   pendingAction,
@@ -237,6 +240,13 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
     if (!isHost) setMapNotice((old) => mapChangeNotice(previousMap.current, now) ?? old);
     previousMap.current = now;
   }, [lobby.map_revision, lobby.map, isHost]);
+  // An older server lists no bot kinds: it has no random bots, so offer none.
+  const canAddRandomBots =
+    isHost &&
+    lobby.phase === "lobby" &&
+    !!onAddRandomBots &&
+    !!lobby.bot_kinds?.includes("random") &&
+    lobby.slots.some((slot) => !slot.occupant);
   const canStart =
     lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant && slot.ready);
   const handleAddBot = async (event: React.FormEvent) => {
@@ -353,6 +363,32 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
             onClose={closePicker}
           />
         )}
+        {canAddRandomBots && (
+          <div className="lobby-bot-actions" data-testid="random-bot-actions">
+            <button
+              type="button"
+              className="button button--outline"
+              data-testid="add-random-bot-button"
+              disabled={!!pendingAction}
+              onClick={() => void onAddRandomBots?.({ count: 1 })}
+            >
+              {pendingAction === "add_random_bots" ? "Adding…" : "Add random bot"}
+            </button>
+            <button
+              type="button"
+              className="button button--outline"
+              data-testid="fill-random-bots-button"
+              disabled={!!pendingAction}
+              onClick={() => void onAddRandomBots?.({ fill: true })}
+            >
+              Fill empty seats with random bots
+            </button>
+            <p className="text-faint lobby-bot-actions__hint">
+              Random bots play legal moves at random. They need no password and cannot be taken
+              over.
+            </p>
+          </div>
+        )}
         <div className="lobby-list">
           {lobby.slots.map((slot, index) => (
             <div
@@ -364,6 +400,11 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                 <SeatBadge position={slot.position} /> Position {slot.position}:{" "}
                 {slot.occupant ? playerLabel(slot) : "Open"}
                 {slot.occupant === lobby.host_player_id ? " (Host)" : ""}
+                {slot.bot === "random" && (
+                  <span className="lobby-bot-badge" data-testid={`bot-badge-${slot.position}`}>
+                    Random bot
+                  </span>
+                )}
               </strong>
               <span className="lobby-list__status">
                 {slot.occupant ? (
@@ -373,11 +414,15 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                     >
                       {slot.ready ? "✔ Ready" : "○ Not ready"}
                     </span>
-                    <span
-                      className={`lobby-presence ${slot.connected ? "lobby-presence--connected" : "lobby-presence--disconnected"}`}
-                    >
-                      {slot.connected ? "● Connected" : "◇ Disconnected"}
-                    </span>
+                    {slot.bot ? (
+                      <span className="lobby-presence lobby-presence--connected">● Plays itself</span>
+                    ) : (
+                      <span
+                        className={`lobby-presence ${slot.connected ? "lobby-presence--connected" : "lobby-presence--disconnected"}`}
+                      >
+                        {slot.connected ? "● Connected" : "◇ Disconnected"}
+                      </span>
+                    )}
                   </>
                 ) : isHost && lobby.phase === "lobby" && lobby.bot_service_enabled ? (
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -408,8 +453,16 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                       type="button"
                       className="button button--outline button--icon remove-bot-button"
                       data-testid={`remove-bot-button-${slot.position}`}
-                      aria-label={`Remove player at position ${slot.position}`}
-                      title={`Remove player at position ${slot.position}`}
+                      aria-label={
+                        slot.bot
+                          ? `Remove bot at position ${slot.position}`
+                          : `Remove player at position ${slot.position}`
+                      }
+                      title={
+                        slot.bot
+                          ? `Remove bot at position ${slot.position}`
+                          : `Remove player at position ${slot.position}`
+                      }
                       disabled={!!pendingAction}
                       onClick={() => void onRemoveBot(slot.occupant!)}
                     >

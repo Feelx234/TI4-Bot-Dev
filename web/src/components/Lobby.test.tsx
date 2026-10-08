@@ -324,4 +324,76 @@ describe("lobby UI", () => {
     fireEvent.click(removeBtn);
     expect(onRemoveBot).toHaveBeenCalledWith("player_b");
   });
+  describe("random bots", () => {
+    const withBots: LobbyDto = { ...lobby, bot_kinds: ["random"] };
+
+    it("gives the host add and fill buttons that call the handler, and nobody else", () => {
+      const onAddRandomBots = vi.fn().mockResolvedValue(true);
+      const { rerender } = render(
+        <LobbyStatus lobby={withBots} playerId={null} onAddRandomBots={onAddRandomBots} {...props} />,
+      );
+      expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
+      rerender(
+        <LobbyStatus lobby={withBots} playerId="player_b" onAddRandomBots={onAddRandomBots} {...props} />,
+      );
+      expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
+      rerender(
+        <LobbyStatus lobby={withBots} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />,
+      );
+      fireEvent.click(screen.getByTestId("add-random-bot-button"));
+      expect(onAddRandomBots).toHaveBeenLastCalledWith({ count: 1 });
+      fireEvent.click(screen.getByTestId("fill-random-bots-button"));
+      expect(onAddRandomBots).toHaveBeenLastCalledWith({ fill: true });
+      // No password prompt: random bots need none.
+      expect(screen.queryByTestId("add-bot-modal")).not.toBeInTheDocument();
+    });
+
+    it("offers nothing on a server that lists no random bots, or when no seat is open, or after start", () => {
+      const onAddRandomBots = vi.fn();
+      const { rerender } = render(
+        <LobbyStatus lobby={lobby} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />,
+      );
+      expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
+      const full: LobbyDto = {
+        ...withBots,
+        slots: withBots.slots.map((slot, i) =>
+          slot.occupant ? slot : { ...slot, occupant: `player_${i}`, nickname: "X", ready: true },
+        ),
+      };
+      rerender(
+        <LobbyStatus lobby={full} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />,
+      );
+      expect(screen.queryByTestId("fill-random-bots-button")).not.toBeInTheDocument();
+      rerender(
+        <LobbyStatus
+          lobby={{ ...withBots, phase: "running" }}
+          playerId="player_a"
+          onAddRandomBots={onAddRandomBots}
+          {...props}
+        />,
+      );
+      expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
+    });
+
+    it("labels a bot seat, says it plays itself, and lets the host remove it", () => {
+      const onRemoveBot = vi.fn().mockResolvedValue(true);
+      const botLobby: LobbyDto = {
+        ...withBots,
+        slots: withBots.slots.map((slot) =>
+          slot.position === 2
+            ? { ...slot, nickname: "Random bot 1", ready: true, connected: true, can_take_over: false, bot: "random" }
+            : slot,
+        ),
+      };
+      render(
+        <LobbyStatus lobby={botLobby} playerId="player_a" onRemoveBot={onRemoveBot} {...props} />,
+      );
+      expect(screen.getByTestId("bot-badge-2")).toHaveTextContent("Random bot");
+      expect(screen.queryByTestId("bot-badge-1")).not.toBeInTheDocument();
+      expect(screen.getByText("● Plays itself")).toBeInTheDocument();
+      const remove = screen.getByRole("button", { name: "Remove bot at position 2" });
+      fireEvent.click(remove);
+      expect(onRemoveBot).toHaveBeenCalledWith("player_b");
+    });
+  });
 });

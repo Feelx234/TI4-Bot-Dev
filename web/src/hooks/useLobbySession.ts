@@ -19,6 +19,8 @@ export interface LobbySessionState {
   leave: () => Promise<boolean>;
   addBot: (password: string, nickname?: string, temperature?: number) => Promise<boolean>;
   removeBot: (playerId: string) => Promise<boolean>;
+  /** Host only, before Start: seat random bots (no password). `fill` takes every open seat. */
+  addRandomBots: (options?: { fill?: boolean; count?: number; nickname?: string }) => Promise<boolean>;
 }
 
 export function useLobbySession(gameId: string, playerSession?: string): LobbySessionState {
@@ -204,6 +206,37 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     [base, gameId, headers, playerSession, run],
   );
 
+  const addRandomBots = useCallback(
+    async (options: { fill?: boolean; count?: number; nickname?: string } = {}): Promise<boolean> => {
+      if (!playerSession) return false;
+      return run(
+        "add_random_bots",
+        async () => {
+          const response = await fetch(`${base}/bots`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...headers },
+            body: JSON.stringify({
+              kind: "random",
+              ...(options.fill ? { fill: true } : {}),
+              ...(options.count !== undefined && !options.fill ? { count: options.count } : {}),
+              ...(options.nickname ? { nickname: options.nickname } : {}),
+            }),
+          });
+          if (!response.ok) {
+            const msg = await response.text();
+            throw new Error(`Add random bot failed (${response.status}): ${msg}`);
+          }
+          const updated = decodeLobby(await response.json(), gameId);
+          setLobby(updated);
+          setError(null);
+          return true;
+        },
+        false,
+      );
+    },
+    [base, gameId, headers, playerSession, run],
+  );
+
   const removeBot = useCallback(
     async (targetPlayerId: string): Promise<boolean> => {
       if (!playerSession) return false;
@@ -246,5 +279,6 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     leave,
     addBot,
     removeBot,
+    addRandomBots,
   };
 }

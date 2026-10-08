@@ -180,6 +180,7 @@ const GameRoute: React.FC<{
     leave,
     addBot,
     removeBot,
+    addRandomBots,
   } = useLobbySession(gameId, token);
   const [watching, setWatching] = useState(false);
   const invalidate = useCallback(() => onCredentialInvalid(), [onCredentialInvalid]);
@@ -240,6 +241,7 @@ const GameRoute: React.FC<{
           onWatch={() => setWatching(true)}
           onAddBot={(password, name) => addBot(password, name)}
           onRemoveBot={(targetId) => removeBot(targetId)}
+          onAddRandomBots={(options) => addRandomBots(options)}
         />
       )}
     </>

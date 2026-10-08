@@ -4244,3 +4244,29 @@ select:focus-visible,
     flex-basis: 100%;
   }
 }
+
+.lobby-bot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.lobby-bot-actions .button {
+  flex: 1 1 200px;
+  min-height: 44px;
+}
+.lobby-bot-actions__hint {
+  flex: 1 1 100%;
+  margin: 0;
+}
+.lobby-bot-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
