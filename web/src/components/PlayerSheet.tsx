@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { BoardView, PlayerView, ReactionModes, ReactionModeSetting, TableView } from "../protocol/types.ts";
+import { BluffSelector, useBluffControls } from "./BluffSelector.tsx";
 import {
   getStrategyCardMeta,
   getSecretObjectiveMeta,
@@ -175,6 +176,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   onSetReactionMode,
 }) => {
   const display = usePlayerIdentity();
+  const bluff = useBluffControls();
   const { isMuted, toggleMute } = useTurnSound();
   const [isMutedState, setIsMutedState] = useState(isMuted);
   const { muted: toastsMuted, toggleMute: toggleToastMute } = useToastMute();
@@ -671,6 +673,14 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                 <div style={{ fontSize: 12, fontWeight: "bold", color: "#38bdf8" }}>
                   Private Hand
                 </div>
+
+                {bluff && (
+                  <BluffSelector
+                    controls={bluff}
+                    cardsCount={player.action_cards_count}
+                    neverMode={Object.values(reactionModes ?? {}).some((mode) => mode === "never")}
+                  />
+                )}
 
                 {/* Held Action Cards */}
                 {player.held_action_cards && player.held_action_cards.length > 0 ? (

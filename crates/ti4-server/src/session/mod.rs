@@ -1,4 +1,5 @@
 pub mod batch;
+pub mod bluff;
 pub mod decider;
 pub mod registry;
 pub mod replay;
@@ -536,6 +537,32 @@ impl GameSession {
             .lock()
             .expect("shared lock")
             .set_reaction_mode(seat, card, mode)
+    }
+
+    /// Declare which reaction windows this seat bluffs about (ephemeral; see `session::bluff`).
+    ///
+    /// # Errors
+    /// A client-facing message when the declaration is refused.
+    pub fn set_reaction_intent(&self, seat: &PlayerId, triggers: &[String]) -> Result<(), String> {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .set_reaction_intent(seat, triggers)
+    }
+
+    /// Let the seat end its running bluff hold early; the seat's current bluff state is
+    /// returned so a refused request can still re-sync the client.
+    pub fn pass_reaction_hold(&self, seat: &PlayerId) {
+        self.shared.lock().expect("shared lock").pass_reaction_hold(seat);
+    }
+
+    /// The seat's own bluff state, as the protocol sends it to that seat only.
+    #[must_use]
+    pub fn reaction_intent_state(
+        &self,
+        seat: &PlayerId,
+    ) -> crate::protocol::server::ReactionIntentStateMsg {
+        self.shared.lock().expect("shared lock").reaction_intent_state(seat)
     }
 
     pub fn game_version(&self) -> u64 {

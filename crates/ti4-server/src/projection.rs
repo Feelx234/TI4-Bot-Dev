@@ -577,6 +577,20 @@ pub fn project_game_view(state: &GameState, viewer: &ViewerRole) -> GameView {
     project_game_view_with_map(state, viewer, &[])
 }
 
+/// The status everybody else sees while `seat` is being waited for.
+///
+/// One function for the real question and for a bluff hold, so the two can never differ.
+#[must_use]
+pub fn waiting_for_player_status(state: &GameState, seat: &PlayerId) -> PublicTurnStatus {
+    PublicTurnStatus::WaitingForDecision {
+        seat: seat.clone(),
+        phase: state.phase,
+        round: state.round,
+        // The existence of a choice is public; its context can reveal a private reaction.
+        stage: "Waiting for player".to_owned(),
+    }
+}
+
 /// Projects public turn status without disclosing another player's private reactions or legal choices.
 #[must_use]
 pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -> PublicTurnStatus {
@@ -586,13 +600,7 @@ pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -
     }
 
     if let Some(choice) = pending_choice {
-        return PublicTurnStatus::WaitingForDecision {
-            seat: choice.player.clone(),
-            phase: state.phase,
-            round: state.round,
-            // The existence of a choice is public; its context can reveal a private reaction.
-            stage: "Waiting for player".to_owned(),
-        };
+        return waiting_for_player_status(state, &choice.player);
     }
 
     if let Some(active) = &state.active {

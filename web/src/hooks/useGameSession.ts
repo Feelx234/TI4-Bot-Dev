@@ -29,6 +29,12 @@ export interface UseGameSessionReturn {
   history: import("../protocol/types.ts").HistoryStatus;
   batchResume?: import("../protocol/client.ts").BatchResume | null;
   submitChoice: (optionId: string) => Promise<void>;
+  /** This seat's bluff settings as the server holds them (null until it has answered). */
+  reactionIntent: import("../protocol/types.ts").ReactionIntentStateMsg | null;
+  /** Declare the reaction windows this seat bluffs about (whole set; empty clears). */
+  setReactionIntent: (triggers: string[]) => void;
+  /** End the running bluff hold early. */
+  passReactionHold: () => void;
   /** Never (or again) offer one action card, by printed name, to this seat. */
   setReactionMode: (card: string, mode: import("../protocol/types.ts").ReactionModeSetting) => void;
   changeHistory: (action: import("../protocol/client.ts").HistoryChange) => Promise<void>;
@@ -72,6 +78,9 @@ export function useGameSession({
   return {
     ...state,
     submitChoice,
+    reactionIntent: state.reactionIntent ?? null,
+    setReactionIntent: (triggers) => client.setReactionIntent(triggers),
+    passReactionHold: () => client.passReactionHold(),
     setReactionMode: (card, mode) => client.setReactionMode(card, mode),
     changeHistory,
     fetchReplay: () => client.fetchReplay(),

@@ -301,6 +301,17 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
     case "pong":
       if (!isNonNegativeInteger(value.sequence)) fail("invalid pong");
       return value as unknown as ServerMessage;
+    case "reaction_intent_state":
+      if (
+        !Array.isArray(value.triggers) ||
+        !value.triggers.every((id) => typeof id === "string") ||
+        typeof value.eligible !== "boolean" ||
+        typeof value.budget_used_up !== "boolean" ||
+        typeof value.holding !== "boolean" ||
+        (value.locked_until_round !== undefined && !isNonNegativeInteger(value.locked_until_round))
+      )
+        fail("invalid reaction intent state");
+      return value as unknown as ServerMessage;
     default:
       return fail("unknown message type");
   }

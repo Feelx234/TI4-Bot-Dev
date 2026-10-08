@@ -9,7 +9,9 @@ import {
   ViewerRole,
   HistoryStatus,
   ReactionModeSetting,
+  ReactionIntentStateMsg,
 } from "./types.ts";
+import { readDeclaredTriggers, writeDeclaredTriggers } from "./bluffTriggers.ts";
 import {
   decodeDecisionTrigger,
   decodeInitialSnapshot,
@@ -143,6 +145,8 @@ export interface GameSessionState {
   pendingChoice: PendingChoiceDto | null;
   turnStatus: PublicTurnStatus | null;
   lastError: string | null;
+  /** This seat's own bluff settings, once the server has sent them (never for spectators). */
+  reactionIntent?: ReactionIntentStateMsg | null;
   events: GameLogEntry[];
   history: HistoryStatus;
   /** A plan the server paused at a reaction window; see {@link BatchResume}. */
@@ -302,6 +306,8 @@ export function reduceServerMessage(
       };
     case "pong":
       return state;
+    case "reaction_intent_state":
+      return { ...state, reactionIntent: message };
   }
 }
 
@@ -452,6 +458,51 @@ export class GameSessionClient {
     };
     try {
       this.socket.send(JSON.stringify(message));
+    } catch (error) {
+      this.setState({ ...this.state, lastError: `Could not send the setting: ${String(error)}` });
+    }
+  }
+
+  /**
+   * Declares which kinds of reaction window this seat bluffs about (the whole set; empty clears).
+   * Kept in this browser per game and seat and sent again on every connect; the server forgets it
+   * on restart. The server's answer is the seat's next `reaction_intent_state`.
+   */
+  setReactionIntent(triggers: string[]): void {
+    const viewer = this.options.viewer;
+    if (viewer.role !== "player") return;
+    writeDeclaredTriggers(this.options.gameId, viewer.seat, triggers);
+    this.sendIntent(triggers);
+  }
+
+  /** Ends the bluff hold early. Silent when nothing is held. */
+  passReactionHold(): void {
+    if (this.options.viewer.role !== "player") return;
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    try {
+      this.socket.send(
+        JSON.stringify({
+          type: "pass_reaction_hold",
+          protocol_version: PROTOCOL_VERSION,
+          game_id: this.options.gameId,
+        } satisfies ClientMessage),
+      );
+    } catch {
+      // The hold ends by itself within seconds.
+    }
+  }
+
+  private sendIntent(triggers: string[]): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    try {
+      this.socket.send(
+        JSON.stringify({
+          type: "set_reaction_intent",
+          protocol_version: PROTOCOL_VERSION,
+          game_id: this.options.gameId,
+          triggers,
+        } satisfies ClientMessage),
+      );
     } catch (error) {
       this.setState({ ...this.state, lastError: `Could not send the setting: ${String(error)}` });
     }
@@ -847,6 +898,7 @@ export class GameSessionClient {
           status: "disconnected",
           pendingChoice: null,
           snapshot: null,
+          reactionIntent: null,
         });
         this.retry = setTimeout(
           () => {
@@ -872,12 +924,23 @@ export class GameSessionClient {
 
   private ingestWebSocket(value: unknown): void {
     try {
-      this.apply(
-        decodeServerMessage(
-          typeof value === "string" ? JSON.parse(value) : value,
-          this.options.gameId,
-        ),
+      const message = decodeServerMessage(
+        typeof value === "string" ? JSON.parse(value) : value,
+        this.options.gameId,
       );
+      this.apply(message);
+      if (message.type === "reaction_intent_state") {
+        // The server's answer is the truth (it may have refused, or forgotten in a restart).
+        const viewer = this.options.viewer;
+        if (viewer.role === "player")
+          writeDeclaredTriggers(this.options.gameId, viewer.seat, message.triggers);
+      }
+      if (message.type === "initial_snapshot" && this.options.viewer.role === "player") {
+        // Tell the server again what this browser declared; only when something is declared, so
+        // a server that predates the feature never sees the message.
+        const declared = readDeclaredTriggers(this.options.gameId, this.options.viewer.seat);
+        if (declared.length > 0) this.sendIntent(declared);
+      }
     } catch (error) {
       if (!this.stopped) {
         const message = `Invalid server message: ${String(error)}`;

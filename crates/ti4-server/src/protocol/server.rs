@@ -1503,6 +1503,29 @@ pub struct PendingChoiceMsg {
     pub galaxy_layout: GalaxyLayout,
 }
 
+/// A seat's own bluff settings (private to that seat; carries no game version on purpose, so a
+/// stale-version filter never drops it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReactionIntentStateMsg {
+    pub protocol_version: u16,
+    pub game_id: String,
+    /// Declared trigger ids.
+    pub triggers: Vec<String>,
+    pub max_triggers: usize,
+    /// Whether this seat may bluff right now (cards in hand, no Never setting).
+    pub eligible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ineligible_reason: Option<String>,
+    /// The declaration cannot change before this round starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked_until_round: Option<u32>,
+    /// A stall budget (per round, per game or table-wide) is used up: no more holds.
+    pub budget_used_up: bool,
+    /// A hold for this seat is running now: show the Pass control.
+    pub holding: bool,
+}
+
 /// Public turn status update.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1575,6 +1598,8 @@ pub enum ServerMessage {
     GameOver(GameOverMsg),
     Pong(PongMsg),
     Event(GameEventMsg),
+    /// The seat's own bluff settings. Sent only to the declaring seat, never broadcast.
+    ReactionIntentState(ReactionIntentStateMsg),
 }
 
 impl ServerMessage {
@@ -1592,6 +1617,7 @@ impl ServerMessage {
             Self::GameOver(m) => m.protocol_version,
             Self::Pong(m) => m.protocol_version,
             Self::Event(m) => m.protocol_version,
+            Self::ReactionIntentState(m) => m.protocol_version,
         }
     }
 
@@ -1607,6 +1633,7 @@ impl ServerMessage {
             Self::ActionRejected(m) => Some(&m.game_id),
             Self::GameOver(m) => Some(&m.game_id),
             Self::Event(m) => Some(&m.game_id),
+            Self::ReactionIntentState(m) => Some(&m.game_id),
             Self::Error(_) | Self::Pong(_) => None,
         }
     }
@@ -1623,7 +1650,7 @@ impl ServerMessage {
             Self::ActionRejected(m) => Some(m.game_version),
             Self::GameOver(m) => Some(m.game_version),
             Self::Event(m) => m.entry.version,
-            Self::Error(_) | Self::Pong(_) => None,
+            Self::Error(_) | Self::Pong(_) | Self::ReactionIntentState(_) => None,
         }
     }
 }

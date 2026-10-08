@@ -105,6 +105,8 @@ pub struct SessionShared {
     /// Card names each seat asked never to be offered. The sets are shared with the seats'
     /// deciders, which read them as each question is asked.
     pub reaction_modes: BTreeMap<PlayerId, ti4_engine::reaction_modes::NeverSet>,
+    /// Declared bluff triggers, cooldown and stall budgets. Ephemeral: never persisted.
+    pub bluff: crate::session::bluff::BluffBook,
 }
 
 impl SessionShared {
@@ -278,6 +280,7 @@ impl SessionShared {
             rng_marks: crate::session::RngMarks::new(),
             pending_auto_resolved: Vec::new(),
             reaction_modes: BTreeMap::new(),
+            bluff: crate::session::bluff::BluffBook::default(),
         }
     }
 

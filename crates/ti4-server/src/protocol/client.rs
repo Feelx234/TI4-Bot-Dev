@@ -9,6 +9,10 @@ pub const MAX_PLAYER_SESSION_BYTES: usize = 128;
 pub const MAX_NONCE_BYTES: usize = 128;
 pub const MAX_OPTION_ID_BYTES: usize = 1024;
 pub const MAX_CARD_NAME_BYTES: usize = 128;
+/// Most trigger ids one `SetReactionIntent` may carry (the server then allows fewer, see
+/// `session::bluff::MAX_DECLARED_TRIGGERS`) and the longest id.
+pub const MAX_INTENT_TRIGGERS: usize = 16;
+pub const MAX_TRIGGER_ID_BYTES: usize = 32;
 
 /// Messages submitted from a client to the authoritative server.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +43,23 @@ pub enum ClientMessage {
         game_id: String,
         card: String,
         mode: ReactionMode,
+    },
+    /// Declare which kinds of reaction window this connection's seat wants to bluff about.
+    ///
+    /// The whole declaration replaces the previous one; re-sending the current one is a no-op.
+    /// Ephemeral and private to the seat: the server never persists or logs it, and other
+    /// viewers never see it. Older servers answer an unknown message type with a malformed
+    /// message error (the protocol version is not bumped, as for `SetReactionMode`), so clients
+    /// send it only when the player has something declared.
+    SetReactionIntent {
+        protocol_version: u16,
+        game_id: String,
+        triggers: Vec<String>,
+    },
+    /// End the seat's running bluff hold early.
+    PassReactionHold {
+        protocol_version: u16,
+        game_id: String,
     },
     /// Keep-alive ping message.
     Ping {
@@ -89,6 +110,24 @@ impl std::fmt::Debug for ClientMessage {
                 .field("card", card)
                 .field("mode", mode)
                 .finish(),
+            Self::SetReactionIntent {
+                protocol_version,
+                game_id,
+                triggers,
+            } => f
+                .debug_struct("SetReactionIntent")
+                .field("protocol_version", protocol_version)
+                .field("game_id", game_id)
+                .field("triggers", &format_args!("[{} declared]", triggers.len()))
+                .finish(),
+            Self::PassReactionHold {
+                protocol_version,
+                game_id,
+            } => f
+                .debug_struct("PassReactionHold")
+                .field("protocol_version", protocol_version)
+                .field("game_id", game_id)
+                .finish(),
             Self::Ping {
                 protocol_version,
                 sequence,
@@ -113,6 +152,12 @@ impl ClientMessage {
                 protocol_version, ..
             }
             | Self::SetReactionMode {
+                protocol_version, ..
+            }
+            | Self::SetReactionIntent {
+                protocol_version, ..
+            }
+            | Self::PassReactionHold {
                 protocol_version, ..
             }
             | Self::Ping {
@@ -148,6 +193,20 @@ impl ClientMessage {
                 bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
                 bounded(card, MAX_CARD_NAME_BYTES, "card")?;
             }
+            Self::SetReactionIntent {
+                game_id, triggers, ..
+            } => {
+                bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
+                if triggers.len() > MAX_INTENT_TRIGGERS {
+                    return Err("triggers");
+                }
+                for trigger in triggers {
+                    bounded(trigger, MAX_TRIGGER_ID_BYTES, "triggers")?;
+                }
+            }
+            Self::PassReactionHold { game_id, .. } => {
+                bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
+            }
             Self::Ping { .. } => {}
         }
         Ok(())
@@ -177,6 +236,62 @@ mod tests {
         };
 
         assert_eq!(message.validate_bounds(), Err("nonce"));
+    }
+
+    #[test]
+    fn reaction_intent_messages_round_trip_and_are_bounded() {
+        let text = r#"{"type":"set_reaction_intent","protocol_version":3,"game_id":"g","triggers":["agenda","movement"]}"#;
+        let message: ClientMessage = serde_json::from_str(text).expect("decodes");
+        assert_eq!(
+            message,
+            ClientMessage::SetReactionIntent {
+                protocol_version: 3,
+                game_id: "g".to_owned(),
+                triggers: vec!["agenda".to_owned(), "movement".to_owned()],
+            }
+        );
+        assert_eq!(serde_json::to_string(&message).expect("encodes"), text);
+        assert_eq!(message.validate_bounds(), Ok(()));
+        // The seat is the connection's, never named by the message.
+        assert!(serde_json::from_str::<ClientMessage>(
+            r#"{"type":"set_reaction_intent","protocol_version":3,"game_id":"g","triggers":[],"seat":"p2"}"#
+        ).is_err());
+        let too_many = ClientMessage::SetReactionIntent {
+            protocol_version: 3,
+            game_id: "g".to_owned(),
+            triggers: vec!["agenda".to_owned(); MAX_INTENT_TRIGGERS + 1],
+        };
+        assert_eq!(too_many.validate_bounds(), Err("triggers"));
+        let long = ClientMessage::SetReactionIntent {
+            protocol_version: 3,
+            game_id: "g".to_owned(),
+            triggers: vec!["x".repeat(MAX_TRIGGER_ID_BYTES + 1)],
+        };
+        assert_eq!(long.validate_bounds(), Err("triggers"));
+        let empty_id = ClientMessage::SetReactionIntent {
+            protocol_version: 3,
+            game_id: "g".to_owned(),
+            triggers: vec![String::new()],
+        };
+        assert_eq!(empty_id.validate_bounds(), Err("triggers"));
+        // Clearing is a valid, empty declaration.
+        let clear = ClientMessage::SetReactionIntent {
+            protocol_version: 3,
+            game_id: "g".to_owned(),
+            triggers: vec![],
+        };
+        assert_eq!(clear.validate_bounds(), Ok(()));
+        let pass = r#"{"type":"pass_reaction_hold","protocol_version":3,"game_id":"g"}"#;
+        let message: ClientMessage = serde_json::from_str(pass).expect("decodes");
+        assert_eq!(serde_json::to_string(&message).expect("encodes"), pass);
+        assert_eq!(message.validate_bounds(), Ok(()));
+        // The declaration never shows up in debug output either.
+        let shown = format!("{:?}", ClientMessage::SetReactionIntent {
+            protocol_version: 3,
+            game_id: "g".to_owned(),
+            triggers: vec!["agenda".to_owned()],
+        });
+        assert!(!shown.contains("agenda"));
     }
 
     #[test]
